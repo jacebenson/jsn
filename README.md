@@ -209,86 +209,17 @@ Credentials are stored securely using your system keyring (macOS Keychain, Windo
 └── config.json               #   Project-specific settings
 ```
 
-## Command Reference
+## Discover Commands
 
-> **Note:** Arguments in `[brackets]` are optional. When omitted, an interactive picker will help you select from available options.
+Use `--help` to explore all commands and flags:
 
-### Configuration & Auth
-```
-jsn setup                                    # Interactive first-time setup
-jsn config add <name> --url <url> --username <user>
-jsn config switch <name>
-jsn config list
-jsn config get                               # Show current configuration
-jsn auth login                               # Authenticate with credentials
-jsn auth logout                              # Remove stored credentials
-jsn auth status                              # Check authentication status
+```bash
+jsn --help                    # List all top-level commands
+jsn tables --help             # Show tables subcommands
+jsn records list --help       # Show records list flags
 ```
 
-### Tables (Table metadata & schema)
-```
-jsn tables list [--scope <scope>]
-jsn tables show [<name>]                     # Picker if name omitted
-jsn tables schema [<name>]                   # Shows inheritance (extends FROM and TO)
-jsn tables columns [<name>]                  # Picker if name omitted
-jsn tables choices <name>                    # List all choice values for a table
-```
-
-### Records (CRUD operations)
-```
-jsn records list [<table>] [--query <encoded-query>] [--fields <fields>] [--limit <n>]
-jsn records show [<table>] <sys_id>          # Show record details
-jsn records query <table> <encoded-query>    # Quick query shorthand
-jsn records create [<table>] --field <name=value> [--field <name=value>...]
-jsn records create [<table>] --json '<json>'
-jsn records update [<table>] <sys_id> --field <name=value> [--field <name=value>...]
-jsn records update [<table>] <sys_id> --json '<json>'
-jsn records delete [<table>] <sys_id> [--force]
-```
-
-### Choices (sys_choice values)
-```
-jsn choices list <table> <column>              # List choice values ordered by sequence
-jsn choices create <table> <column> --value <val> --label <label> [--sequence <n>] [--dependent <val>]
-jsn choices update <sys_id> [--label <new>] [--sequence <n>] [--inactive|--active]
-jsn choices delete <sys_id> [--force]
-jsn choices reorder <table> <column> --mode <hundreds|alpha>
-```
-
-### Flows (Process automation)
-```
-jsn flows list [--active]
-jsn flows show [<name>]                      # Picker if name omitted
-```
-
-### Rules (Business rules)
-```
-jsn rules list --table <table>
-jsn rules show [<id>]                        # Picker if id omitted
-jsn rules script <id>                        # Show business rule script
-```
-
-### Jobs (Scheduled/script jobs)
-```
-jsn jobs list [--type scheduled|script]
-jsn jobs show [<id>]                         # Picker if id omitted
-```
-
-### Script Includes
-```
-jsn script-includes list [--scope <scope>]
-jsn script-includes show [<name>]            # Picker if name omitted
-jsn script-includes code <name>              # Show script include code
-```
-
-### Update Sets
-```
-jsn updateset list [--scope <scope>] [--state <state>]
-jsn updateset show [<name>]                  # Picker if name omitted
-jsn updateset use [<name>]                   # Set current update set
-jsn updateset create <name> [--scope <scope>] [--description <desc>]
-jsn updateset parent [<child> <parent>]      # Set parent update set
-```
+Or use `jsn` with no arguments for an interactive command picker.
 
 ## Global Flags
 
