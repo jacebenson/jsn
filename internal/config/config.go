@@ -181,3 +181,4 @@ func CacheDir() string {
 
 	return filepath.Join(home, ".cache", appName)
 }
+// Test comment

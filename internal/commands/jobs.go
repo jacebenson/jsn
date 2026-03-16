@@ -30,7 +30,7 @@ type jobsListFlags struct {
 func NewJobsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "jobs",
-		Short: "Manage scheduled jobs",
+		Short: "Manage scheduled jobs/scripts",
 		Long:  "List and inspect ServiceNow scheduled jobs (sys_trigger, sysauto_script).",
 	}
 
