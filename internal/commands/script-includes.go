@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/config"
 	"github.com/jacebenson/jsn/internal/output"

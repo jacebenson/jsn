@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
