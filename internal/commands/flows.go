@@ -250,7 +250,7 @@ func printStyledFlowsList(cmd *cobra.Command, flows []sdk.Flow, instanceURL stri
 
 // printMarkdownFlowsList outputs markdown flows list.
 func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
-	fmt.Fprintln(cmd.OutOrStdout(), "**Flows**\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "**Flows**")
 	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Status | Scope |")
 	fmt.Fprintln(cmd.OutOrStdout(), "|------|--------|-------|")
 

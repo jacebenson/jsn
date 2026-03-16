@@ -261,7 +261,7 @@ func printStyledRulesList(cmd *cobra.Command, rules []sdk.BusinessRule, instance
 
 // printMarkdownRulesList outputs markdown rules list.
 func printMarkdownRulesList(cmd *cobra.Command, rules []sdk.BusinessRule) error {
-	fmt.Fprintln(cmd.OutOrStdout(), "**Business Rules**\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "**Business Rules**")
 	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Table | When | Order |")
 	fmt.Fprintln(cmd.OutOrStdout(), "|------|-------|------|-------|")
 

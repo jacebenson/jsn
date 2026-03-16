@@ -263,7 +263,7 @@ func printStyledScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclu
 
 // printMarkdownScriptIncludesList outputs markdown script-includes list.
 func printMarkdownScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclude) error {
-	fmt.Fprintln(cmd.OutOrStdout(), "**Script Includes**\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "**Script Includes**")
 	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Status | Scope |")
 	fmt.Fprintln(cmd.OutOrStdout(), "|------|--------|-------|")
 

@@ -268,7 +268,7 @@ func printStyledJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob, instanceUR
 
 // printMarkdownJobsList outputs markdown jobs list.
 func printMarkdownJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob) error {
-	fmt.Fprintln(cmd.OutOrStdout(), "**Scheduled Jobs**\n")
+	fmt.Fprintln(cmd.OutOrStdout(), "**Scheduled Jobs**")
 	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Type | Status | Next Run |")
 	fmt.Fprintln(cmd.OutOrStdout(), "|------|------|--------|----------|")
 
