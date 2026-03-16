@@ -1,17 +1,28 @@
 .PHONY: build test lint clean install hooks
 
+# Version info for builds
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Build flags with version info
+LDFLAGS = -s -w \
+	-X github.com/jacebenson/jsn/internal/version.Version=$(VERSION) \
+	-X github.com/jacebenson/jsn/internal/version.Commit=$(COMMIT) \
+	-X github.com/jacebenson/jsn/internal/version.Date=$(DATE)
+
 # Build the binary
 build:
-	go build -ldflags="-s -w" -o bin/jsn ./cmd/jsn/main.go
+	go build -ldflags="$(LDFLAGS)" -o bin/jsn ./cmd/jsn/main.go
 
 # Build for all platforms
 build-all:
 	mkdir -p bin
-	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/jsn-linux-amd64 ./cmd/jsn/main.go
-	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o bin/jsn-linux-arm64 ./cmd/jsn/main.go
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o bin/jsn-darwin-amd64 ./cmd/jsn/main.go
-	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o bin/jsn-darwin-arm64 ./cmd/jsn/main.go
-	GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o bin/jsn-windows-amd64.exe ./cmd/jsn/main.go
+	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o bin/jsn-linux-amd64 ./cmd/jsn/main.go
+	GOOS=linux GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o bin/jsn-linux-arm64 ./cmd/jsn/main.go
+	GOOS=darwin GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o bin/jsn-darwin-amd64 ./cmd/jsn/main.go
+	GOOS=darwin GOARCH=arm64 go build -ldflags="$(LDFLAGS)" -o bin/jsn-darwin-arm64 ./cmd/jsn/main.go
+	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o bin/jsn-windows-amd64.exe ./cmd/jsn/main.go
 
 # Run tests
 test:
