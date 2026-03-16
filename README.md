@@ -25,6 +25,7 @@ jsn rules list --table incident     # Show business rules
 
 I've been working with ServiceNow for years and trying to use tools that actually, you know, work. The Table API is "fine"—except these APIs were designed for systems integration, not for humans (or agents) trying to understand their instance.
 
+
 If we want real innovation in this space, we have to stop hiding tools behind enterprise licensing agreements and convoluted setup processes. This is my attempt to build the CLI I actually want to use — and that my AI agent can use to help me.
 
 ### The Official Corpse
