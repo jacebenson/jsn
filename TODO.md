@@ -36,6 +36,69 @@ servicenow-cli/
 
 ## Completed ✓
 
+### Testing Coverage (2026-03-16)
+All commands tested and working:
+- ✅ `jsn version` - Shows version info
+- ✅ `jsn commands` - Lists all commands with metadata
+- ✅ `jsn auth status` - Shows authentication status
+- ✅ `jsn config list` - Lists configured profiles
+- ✅ `jsn tables list` - Lists tables from sys_db_object
+- ✅ `jsn tables show incident` - Shows table details
+- ✅ `jsn tables columns incident` - Lists table columns
+- ✅ `jsn acls list --table incident` - Lists ACLs
+- ✅ `jsn acls check --table incident --operation read` - Tests ACL coverage
+- ✅ `jsn acls show <sys_id>` - Shows ACL details
+- ✅ `jsn choices list task state` - Lists choice values
+- ✅ `jsn flows list` - Lists Flow Designer flows
+- ✅ `jsn rules list --table incident` - Lists business rules
+- ✅ `jsn jobs list` - Lists scheduled jobs
+- ✅ `jsn script-includes list` - Lists script includes
+- ✅ `jsn ui-policies list --table incident` - Lists UI policies
+- ✅ `jsn updateset list` - Lists update sets
+- ✅ `jsn client-scripts list --table incident` - Lists client scripts
+- ✅ `jsn records query incident "active=true"` - Queries records
+- ✅ `jsn docs` - Lists documentation topics
+- ✅ `jsn docs operators` - Shows documentation from sn.jace.pro
+- ✅ `jsn docs search <term>` - Searches documentation
+
+### Recent Improvements (2026-03-16)
+
+#### Records Show --fields Flag
+Added `--fields` flag to `jsn records show` command to filter displayed fields:
+- Usage: `jsn records show <table> <sys_id> --fields number,state,short_description`
+- Useful for viewing sc_req_item and other tables with many fields
+- Shows only the fields you care about
+
+#### Records Variables Command
+Added `jsn records variables <ritm_sys_id>` command to display ALL catalog variables:
+- Shows single-row variables (from sc_item_option)
+- Shows multi-row variable sets (from sc_multi_row_question_answer) in table format
+- Groups and displays both types in one view
+
+#### Organized Record Display
+Modified `jsn records show` to group fields into logical categories:
+- Core, People, Request Info, Dates & Times, Status & Approvals, System, Other
+- Uncategorized fields sorted alphabetically
+- Makes it easier to find important fields
+
+#### ACLs Display Value Fix
+Fixed issue where ACL `operation` and `type` fields were empty:
+- Root cause: ServiceNow returns these as objects with `display_value`, not strings
+- Added `getDisplayValue()` helper in SDK to handle both formats
+- Added `sysparm_display_value=true` to ACL queries
+
+#### Documentation
+Created `docs/sc_req_item_variables.md` explaining:
+- Where ServiceNow stores request item variables
+- How to query sc_item_option for variable answers
+- How to find multi-row variable set data tables
+- Common fields and query patterns
+
+**Test File Created:** `internal/commands/commands_test.go`
+- Tests all command constructors
+- Tests subcommand existence
+- Tests known topics list
+
 ### Foundation & Auth
 - [x] Initialize Go module with proper structure
 - [x] Set up cobra root command with PersistentPreRunE
@@ -101,20 +164,41 @@ servicenow-cli/
 - [x] Sort profile listing alphabetically
 - [x] Remove unused code (isFirstRun function)
 
-## In Progress 🚧
+## Completed ✓ (Recently)
 
 ### Flows
-- [ ] `jsn flows list [--active]` - List flows
-- [ ] `jsn flows show [<name>]` - Show flow details (picker if omitted)
+- [x] `jsn flows list [--active]` - List flows
+- [x] `jsn flows show [<name>]` - Show flow details (picker if omitted)
 
 ### Rules  
-- [ ] `jsn rules list --table <table>` - List business rules
-- [ ] `jsn rules show [<sys_id>]` - Show business rule (picker if omitted)
-- [ ] `jsn rules script <sys_id>` - Output just the script
+- [x] `jsn rules list --table <table>` - List business rules
+- [x] `jsn rules show [<sys_id>]` - Show business rule (picker if omitted)
+- [x] `jsn rules script <sys_id>` - Output just the script
 
 ### Jobs
-- [ ] `jsn jobs list [--type scheduled|script]` - List scheduled/script jobs
-- [ ] `jsn jobs show [<sys_id>]` - Show job details (picker if omitted)
+- [x] `jsn jobs list [--type scheduled|script]` - List scheduled/script jobs
+- [x] `jsn jobs show [<sys_id>]` - Show job details (picker if omitted)
+
+### UI Policies
+- [x] `jsn ui-policies list --table <table>` - List UI policies for a table
+- [x] `jsn ui-policies show <sys_id>` - Show UI policy conditions and scripts
+- [x] `jsn ui-policies script <sys_id>` - Output just the scripts
+
+### ACLs
+- [x] `jsn acls list --table <table>` - List ACLs for a table
+- [x] `jsn acls show <sys_id>` - Show ACL details with roles
+- [x] `jsn acls script <sys_id>` - Output just the script
+
+### Client Scripts
+- [x] `jsn client-scripts list --table <table>` - List client scripts
+- [x] `jsn client-scripts show <sys_id>` - Show client script details
+- [x] `jsn client-scripts script <sys_id>` - Output just the script
+
+### Docs
+- [x] `jsn docs list` - List available documentation topics
+- [x] `jsn docs <topic>` - Show documentation for topic (e.g., `jsn docs gliderecord`)
+- [x] `jsn docs search <term>` - Search across all documentation
+- [x] `jsn docs update` - Force refresh local cache
 
 ## Phase 4: Advanced Features
 
@@ -276,3 +360,262 @@ return output.ErrAPI(statusCode, err.Error())
 - sys_script_include - Script includes
 - sys_scope - Scopes
 - sys_update_set - Update sets
+
+---
+
+## New Command Recommendations (2026-03-16)
+
+Based on sn.jace.pro docs analysis and real developer workflows.
+
+### 🎯 High-Impact Commands (Priority: High)
+
+#### UI Policies & Client Scripts
+- [x] `jsn ui-policies list --table <table>` - List UI policies for a table
+- [x] `jsn ui-policies show <sys_id>` - Show conditions and scripts
+- [x] `jsn ui-policies script <sys_id>` - Output just the script
+- [x] `jsn client-scripts list --table <table>` - List client scripts
+- [x] `jsn client-scripts show <sys_id>` - Show script details
+- [x] `jsn client-scripts script <sys_id>` - Output just the script
+
+**Tables**: `sys_ui_policy`, `sys_ui_policy_action`, `sys_script_client`
+
+#### ACL Exploration
+- [x] `jsn acls list --table <table>` - List ACLs for a table
+- [x] `jsn acls check --table <table> --operation <read|write|create|delete>` - Test ACL coverage
+- [x] `jsn acls show <sys_id>` - Show ACL script and conditions
+- [x] `jsn acls script <sys_id>` - Output just the script
+
+**Tables**: `sys_security_acl`, `sys_security_acl_role`
+
+#### Documentation Integration
+- [x] `jsn docs <topic>` - Show docs from sn.jace.pro (cached or linked)
+  - Topics: `gliderecord`, `operators`, `table-api`, `glidequery`, etc.
+- [x] `jsn docs list` - List available documentation topics
+- [x] `jsn docs search <term>` - Search documentation
+- [x] `jsn docs update` - Force refresh local cache
+
+### 🔍 Debugging & Investigation Commands (Priority: Medium)
+
+#### Enhanced Job Commands
+- [ ] `jsn jobs executions <sys_id> [--limit 10]` - Show last N executions
+- [ ] `jsn jobs logs <sys_id>` - Get recent job logs
+- [ ] `jsn jobs run <sys_id>` - Execute scheduled job now (via API)
+
+**Tables**: `sysauto_script`, `sys_trigger`, `sys_scheduled_job`
+
+#### System Logs
+- [ ] `jsn logs --table <table> --sys_id <id>` - Get related logs for a record
+- [ ] `jsn logs --source <source> --minutes <n>` - Recent logs by source
+- [ ] `jsn logs --script <script_name>` - Script-specific errors
+- [ ] `jsn instance info` - Show instance version, plugins, patch level
+
+**Tables**: `syslog`, `syslog_transaction`, `sys_plugins`
+
+#### Flow Designer Debugging
+- [ ] `jsn flows executions <flow_name> [--limit 10]` - Show recent flow executions
+- [ ] `jsn flows debug <flow_name>` - Show flow with all actions and subflows
+- [ ] `jsn flows variables <flow_name>` - Show flow inputs/outputs/schema
+- [ ] `jsn flows activate <flow_name>` - Activate flow
+- [ ] `jsn flows deactivate <flow_name>` - Deactivate flow
+
+**Tables**: `sys_hub_flow`, `sys_hub_flow_instance`, `sys_hub_action_instance`
+
+### 📦 Migration & Comparison Commands (Priority: High)
+
+#### Cross-Instance Comparison
+- [ ] `jsn compare tables --source <profile> --target <profile>` - Compare table schemas
+- [ ] `jsn compare script-includes --source <profile> --target <profile>` - Compare scripts
+- [ ] `jsn compare choices --table <table> --field <field> --source <profile> --target <profile>`
+- [ ] `jsn compare flows --source <profile> --target <profile>`
+
+#### Export/Import Utilities
+- [ ] `jsn export script-includes --scope <scope> [--format json|xml]` - Export scripts
+- [ ] `jsn export tables --app <app_name>` - Export table definitions
+- [ ] `jsn export update-set <name> --format xml` - Export update set as XML
+- [ ] `jsn import --file <path> --preview` - Preview import changes
+
+### 🏗️ Development Aid Commands (Priority: Medium)
+
+#### Code Generation
+- [ ] `jsn generate gliderecord --table <table>` - Generate GlideRecord template
+- [ ] `jsn generate script-include --name <name> [--scope <scope>]` - Generate Script Include template
+- [ ] `jsn generate rest --name <name>` - Generate Scripted REST API template
+- [ ] `jsn generate test --table <table> --count <n>` - Generate test data
+- [ ] `jsn generate acl --table <table> --operation <op>` - Generate ACL template
+
+#### Table Relationships & Data Model
+- [ ] `jsn tables relationships <table>` - Show reference fields TO this table
+- [ ] `jsn tables dependencies <table>` - Show what tables reference this one
+- [ ] `jsn tables diagram <table> [--format mermaid|dot]` - Generate relationship diagram
+
+**Tables**: `sys_dictionary` (where internal_type = 'reference')
+
+#### Form & List Layouts
+- [ ] `jsn forms list --table <table>` - List form sections and fields
+- [ ] `jsn forms show <table> [--view <view_name>]` - Show form layout
+- [ ] `jsn lists list --table <table>` - List list layouts
+- [ ] `jsn lists show <table> [--view <view_name>]` - Show list columns
+
+**Tables**: `sys_ui_section`, `sys_ui_element`, `sys_ui_list_element`
+
+### 🎨 Service Portal Commands (Priority: Medium)
+
+#### Service Portal Management
+- [ ] `jsn portals list` - List Service Portals
+- [ ] `jsn portals show [<portal_id>]` - Show portal config and pages
+- [ ] `jsn portals clone <source_id> <new_id>` - Clone a portal
+
+#### Widget Commands
+- [ ] `jsn widgets list [--portal <id>]` - List widgets (SP or global)
+- [ ] `jsn widgets show [<widget_id>]` - Show widget details
+- [ ] `jsn widgets code <widget_id>` - Output widget HTML/CSS/Client/Server scripts
+- [ ] `jsn widgets create <name>` - Create new widget template
+- [ ] `jsn widgets test <widget_id>` - Show test data options
+
+#### Portal Themes
+- [ ] `jsn themes list [--portal <id>]` - List themes
+- [ ] `jsn themes show <theme_id>` - Show theme CSS and variables
+
+**Tables**: `sp_portal`, `sp_widget`, `sp_instance`, `sp_theme`, `sp_css`
+
+### 🖥️ UI Builder / Next Experience Commands (Priority: Medium)
+
+- [ ] `jsn ui-builder pages list [--workspace <name>]` - List UI Builder pages
+- [ ] `jsn ui-builder pages show <page_id>` - Show page components and layout
+- [ ] `jsn ui-builder components list [--custom-only]` - List custom components
+- [ ] `jsn ui-builder variables list --page <id>` - List client state parameters
+- [ ] `jsn ui-builder events list --page <id>` - List page events
+
+**Tables**: `sys_ux_page`, `sys_ux_macroponent`, `sys_ux_client_script`
+
+### 💡 Smart Utilities (Priority: Medium)
+
+#### Query Builder
+- [ ] `jsn query encode --table <table> --field "priority=1" --field "stateIN1,2"` - Build encoded query
+- [ ] `jsn query decode "priority=1^stateIN1,2"` - Decode query to human-readable
+- [ ] `jsn query validate --table <table> "<encoded_query>"` - Validate query syntax
+
+#### Record Navigation
+- [ ] `jsn open incident <number>` - Open record in browser
+- [ ] `jsn open table <table> --record <sys_id>` - Open any record
+- [ ] `jsn open list <table> --query "<encoded_query>"` - Open filtered list
+- [ ] `jsn open form <table> --designer` - Open in Form Designer
+
+#### Batch Operations
+- [ ] `jsn batch query <table> --query "<encoded>" --action export --format csv`
+- [ ] `jsn batch update <table> --query "<encoded>" --set "field=value" [--dry-run]`
+- [ ] `jsn batch delete <table> --query "<encoded>" [--dry-run]`
+- [ ] `jsn batch count <table> --query "<encoded>"` - Quick count
+
+**API**: Table API with batching, potentially Attachment API for exports
+
+### 📊 Analytics & Reporting Commands (Priority: Low)
+
+- [ ] `jsn stats tables --top 20` - Top 20 tables by row count
+- [ ] `jsn stats scripts --by-author` - Script includes by author
+- [ ] `jsn stats flows --by-status` - Flows by active/inactive status
+- [ ] `jsn stats jobs --runtime` - Scheduled job average runtimes
+- [ ] `jsn stats instance --size` - Instance storage usage
+
+**Tables**: `sys_db_stats`, `sys_table_size`, custom aggregation queries
+
+---
+
+### Top 5 Priority Commands
+
+Based on **Getting Real** philosophy (solve 80% of pain with 20% effort):
+
+1. ✅ **`jsn ui-policies list --table <table>`** - Daily debugging need
+2. ✅ **`jsn acls list --table <table>`** - Security debugging is constant
+3. ✅ **`jsn client-scripts list --table <table>`** - Client-side debugging
+4. ✅ **`jsn docs <topic>`** - Surface sn.jace.pro content in CLI
+5. **`jsn query encode/decode`** - Your docs have great operator reference, make it executable
+
+---
+
+## Additional System Tables Reference
+
+### UI & Forms
+- `sys_ui_policy` - UI Policies
+- `sys_ui_policy_action` - UI Policy actions
+- `sys_script_client` - Client Scripts
+- `sys_ui_section` - Form sections
+- `sys_ui_element` - Form elements
+- `sys_ui_list_element` - List column elements
+
+### Security
+- `sys_security_acl` - ACL definitions
+- `sys_security_acl_role` - ACL role assignments
+- `sys_user_role` - Roles
+
+### Service Portal
+- `sp_portal` - Portals
+- `sp_widget` - Widgets
+- `sp_instance` - Widget instances
+- `sp_theme` - Themes
+- `sp_css` - CSS includes
+
+### Automation
+- `sysauto_script` - Scheduled Scripts
+- `sys_trigger` - Scheduled Job triggers
+- `sys_hub_flow` - Flow Designer flows
+- `sys_hub_action_instance` - Flow actions
+
+### Logs & Debugging
+- `syslog` - System logs
+- `syslog_transaction` - Transaction logs
+- `sys_plugins` - Installed plugins
+
+---
+
+## Documentation Integration (sn.jace.pro)
+
+### Overview
+Integrate with sn.jace.pro documentation site to provide CLI access to ServiceNow API docs.
+
+### Data Source
+- **Primary**: `https://sn.jace.pro/core/assets/js/search_index.json` (330KB)
+  - Contains all pages with titles, descriptions, and content
+  - Updated automatically when site rebuilds
+- **Individual docs**: `https://sn.jace.pro/docs/{topic}.md`
+  - Raw markdown with frontmatter
+  - AI-optimized format
+
+### Commands
+- [ ] `jsn docs list` - List available documentation topics
+- [ ] `jsn docs <topic>` - Show documentation for topic (e.g., `jsn docs gliderecord`)
+- [ ] `jsn docs search <term>` - Search across all documentation
+- [ ] `jsn docs update` - Force refresh local cache
+
+### Implementation Plan
+1. **Fetcher** (`internal/docs/fetcher.go`)
+   - Fetch search_index.json from sn.jace.pro
+   - Cache locally with 24hr TTL
+   - Offline fallback support
+   
+2. **Parser** (`internal/docs/parser.go`)
+   - Parse markdown frontmatter
+   - Extract methods from tables
+   - Parse code examples
+   
+3. **Display** (`internal/commands/docs.go`)
+   - Styled terminal output (lipgloss)
+   - Method tables with categories
+   - Copy-to-clipboard for examples
+   - --json and --md output modes
+
+### Topics to Include
+- API Reference: gliderecord, glidequery, glideaggregate, gliderecordsecure
+- Operators: operators (query operators reference)
+- Client-side: glideform, glideuser, glideajax
+- Server-side: glidesystem, glideelement, glidedatetime
+- REST: restmessagev2, restapirequest, restapiresponse
+
+### Caching Strategy
+- Cache dir: `~/.config/servicenow/docs/`
+- search_index.json: 24hr TTL
+- Individual .md files: 24hr TTL
+- Offline mode: Use stale cache with warning
+
+### Priority
+Medium - Enhances developer experience without blocking core functionality

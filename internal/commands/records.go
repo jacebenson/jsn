@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -41,6 +42,7 @@ func NewRecordsCmd() *cobra.Command {
 		newRecordsUpdateCmd(),
 		newRecordsDeleteCmd(),
 		newRecordsQueryCmd(),
+		newRecordsVariablesCmd(),
 	)
 
 	return cmd
@@ -365,8 +367,15 @@ func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[st
 }
 
 // newRecordsShowCmd creates the records show command.
+// recordsShowFlags holds the flags for the records show command.
+type recordsShowFlags struct {
+	fields string
+}
+
 func newRecordsShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var flags recordsShowFlags
+
+	cmd := &cobra.Command{
 		Use:   "show [<table>] <sys_id>",
 		Short: "Show record details",
 		Long: `Display detailed information about a specific record.
@@ -375,6 +384,7 @@ If no table is provided, an interactive picker will help you select one.
 
 Examples:
   jsn records show incident <sys_id>
+  jsn records show incident <sys_id> --fields number,state,short_description
   jsn records show <sys_id>  # Interactive table selection`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -385,13 +395,17 @@ Examples:
 			} else {
 				sysID = args[0]
 			}
-			return runRecordsShow(cmd, table, sysID)
+			return runRecordsShow(cmd, table, sysID, flags)
 		},
 	}
+
+	cmd.Flags().StringVarP(&flags.fields, "fields", "f", "", "Comma-separated list of fields to display (e.g., 'number,state,short_description')")
+
+	return cmd
 }
 
 // runRecordsShow executes the records show command.
-func runRecordsShow(cmd *cobra.Command, table, sysID string) error {
+func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFlags) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -431,12 +445,38 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string) error {
 		return fmt.Errorf("failed to get record: %w", err)
 	}
 
+	// Filter fields if specified
+	if flags.fields != "" {
+		fieldList := strings.Split(flags.fields, ",")
+		filteredRecord := make(map[string]interface{})
+		// Always include sys_id
+		if v, ok := record["sys_id"]; ok {
+			filteredRecord["sys_id"] = v
+		}
+		for _, field := range fieldList {
+			field = strings.TrimSpace(field)
+			if v, ok := record[field]; ok {
+				filteredRecord[field] = v
+			}
+		}
+		record = filteredRecord
+	}
+
 	// Determine output format
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledRecord(cmd, table, record, instanceURL)
+		err := printStyledRecord(cmd, table, record, instanceURL)
+		if err != nil {
+			return err
+		}
+		// If this is a request item, show variables
+		if table == "sc_req_item" {
+			_ = printSingleRowVariables(cmd, sdkClient, sysID)
+			_ = printMRVS(cmd, sdkClient, sysID, instanceURL)
+		}
+		return nil
 	}
 
 	if format == output.FormatMarkdown {
@@ -471,6 +511,7 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string) error {
 // printStyledRecord outputs styled record details.
 func printStyledRecord(cmd *cobra.Command, table string, record map[string]interface{}, instanceURL string) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	valueStyle := lipgloss.NewStyle()
 
@@ -485,13 +526,84 @@ func printStyledRecord(cmd *cobra.Command, table string, record map[string]inter
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(title))
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Fields
-	for key, value := range record {
-		valStr := formatValue(value)
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
-			labelStyle.Render(key+":"),
-			valueStyle.Render(valStr),
-		)
+	// Define field categories and their order
+	fieldCategories := map[string][]string{
+		"Core": {
+			"number", "sys_id", "sys_class_name", "state", "stage", "active",
+			"short_description", "description", "priority", "urgency", "impact",
+		},
+		"People": {
+			"opened_by", "requested_for", "assigned_to", "assignment_group",
+			"closed_by", "resolved_by", "caller_id", "u_requester",
+		},
+		"Request Info": {
+			"cat_item", "sc_catalog", "request", "order_guide", "quantity",
+			"price", "recurring_price", "recurring_frequency", "backordered",
+			"billable", "configuration_item", "cmdb_ci", "business_service",
+		},
+		"Dates & Times": {
+			"opened_at", "sys_created_on", "sys_updated_on", "closed_at",
+			"resolved_at", "work_start", "work_end", "due_date", "expected_start",
+			"estimated_delivery", "sla_due", "activity_due", "approval_set",
+		},
+		"Status & Approvals": {
+			"approval", "approval_history", "approval_set", "upon_approval",
+			"upon_reject", "escalation", "made_sla",
+		},
+		"System": {
+			"sys_domain", "sys_domain_path", "sys_created_by", "sys_updated_by",
+			"sys_mod_count", "sys_tags",
+		},
+	}
+
+	// Track which fields have been printed
+	printed := make(map[string]bool)
+
+	// Print fields by category
+	for category, fields := range fieldCategories {
+		categoryPrinted := false
+		for _, field := range fields {
+			if value, exists := record[field]; exists && !printed[field] {
+				if !categoryPrinted {
+					fmt.Fprintln(cmd.OutOrStdout())
+					fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ "+category+" ─"))
+					categoryPrinted = true
+				}
+				valStr := formatValue(value)
+				fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+					labelStyle.Render(field+":"),
+					valueStyle.Render(valStr),
+				)
+				printed[field] = true
+			}
+		}
+	}
+
+	// Print remaining uncategorized fields (sorted alphabetically)
+	var remaining []string
+	for key := range record {
+		if !printed[key] {
+			remaining = append(remaining, key)
+		}
+	}
+	if len(remaining) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Other ─"))
+		// Sort alphabetically
+		for i := 0; i < len(remaining)-1; i++ {
+			for j := i + 1; j < len(remaining); j++ {
+				if remaining[i] > remaining[j] {
+					remaining[i], remaining[j] = remaining[j], remaining[i]
+				}
+			}
+		}
+		for _, key := range remaining {
+			valStr := formatValue(record[key])
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+				labelStyle.Render(key+":"),
+				valueStyle.Render(valStr),
+			)
+		}
 	}
 
 	// Link
@@ -1036,4 +1148,383 @@ func stringsTitle(s string) string {
 	}
 	// Simple title case - capitalize first letter
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// printMRVS displays multi-row variable set answers for a request item
+func printMRVS(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string, instanceURL string) error {
+	// Query MRVS data
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_query", fmt.Sprintf("parent_id=%s", ritmSysID))
+	query.Set("sysparm_fields", "row_index,item_option_new,value")
+	query.Set("sysparm_display_value", "true")
+
+	resp, err := sdkClient.Get(cmd.Context(), "sc_multi_row_question_answer", query)
+	if err != nil {
+		return err // Silently fail - MRVS is optional
+	}
+
+	if len(resp.Result) == 0 {
+		return nil // No MRVS data
+	}
+
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
+	// Group by row_index
+	rows := make(map[string]map[string]string)
+	var rowOrder []string
+	var allColumns []string
+	columnSet := make(map[string]bool)
+
+	for _, record := range resp.Result {
+		rowID := getStringField(record, "row_index")
+		if rowID == "" {
+			continue
+		}
+
+		// Track row order
+		if _, exists := rows[rowID]; !exists {
+			rowOrder = append(rowOrder, rowID)
+			rows[rowID] = make(map[string]string)
+		}
+
+		// Get column name (handle display_value objects)
+		colName := ""
+		if v, ok := record["item_option_new"]; ok && v != nil {
+			switch val := v.(type) {
+			case string:
+				colName = val
+			case map[string]interface{}:
+				if dv, ok := val["display_value"].(string); ok {
+					colName = dv
+				}
+			}
+		}
+
+		value := getStringField(record, "value")
+
+		if colName != "" {
+			rows[rowID][colName] = value
+			if !columnSet[colName] {
+				columnSet[colName] = true
+				allColumns = append(allColumns, colName)
+			}
+		}
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Multi-Row Variable Set Answers"))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Calculate column widths
+	colWidths := make(map[string]int)
+	for _, col := range allColumns {
+		colWidths[col] = len(col)
+	}
+	for _, row := range rows {
+		for col, val := range row {
+			if len(val) > colWidths[col] {
+				colWidths[col] = len(val)
+			}
+		}
+	}
+	// Ensure minimum width and maximum width
+	for col := range colWidths {
+		if colWidths[col] < 12 {
+			colWidths[col] = 12
+		}
+		if colWidths[col] > 40 {
+			colWidths[col] = 40
+		}
+	}
+
+	// Print header
+	fmt.Print("│ Row │")
+	for _, col := range allColumns {
+		fmt.Printf(" %-*s │", colWidths[col], col)
+	}
+	fmt.Println()
+
+	// Print separator
+	fmt.Print("│-----│")
+	for _, col := range allColumns {
+		fmt.Printf(" %s │", strings.Repeat("-", colWidths[col]))
+	}
+	fmt.Println()
+
+	// Print rows
+	for i, rowID := range rowOrder {
+		row := rows[rowID]
+		fmt.Printf("│ %3d │", i+1)
+		for _, col := range allColumns {
+			val := row[col]
+			if len(val) > colWidths[col] {
+				val = val[:colWidths[col]-3] + "..."
+			}
+			fmt.Printf(" %-*s │", colWidths[col], val)
+		}
+		fmt.Println()
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", mutedStyle.Render(fmt.Sprintf("%d rows", len(rows))))
+
+	return nil
+}
+
+// printSingleRowVariables displays single-row catalog variables for a request item
+func printSingleRowVariables(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string) error {
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_query", fmt.Sprintf("request_item=%s", ritmSysID))
+	query.Set("sysparm_fields", "item_option_new,value")
+	query.Set("sysparm_display_value", "true")
+
+	resp, err := sdkClient.Get(cmd.Context(), "sc_item_option", query)
+	if err != nil {
+		return err
+	}
+
+	if len(resp.Result) == 0 {
+		return nil
+	}
+
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	valueStyle := lipgloss.NewStyle()
+
+	// Filter to only show variables with values
+	var variables []struct {
+		question string
+		value    string
+	}
+
+	for _, record := range resp.Result {
+		question := ""
+		if v, ok := record["item_option_new"]; ok && v != nil {
+			switch val := v.(type) {
+			case string:
+				question = val
+			case map[string]interface{}:
+				if dv, ok := val["display_value"].(string); ok {
+					question = dv
+				}
+			}
+		}
+
+		value := getStringField(record, "value")
+
+		if question != "" && value != "" {
+			variables = append(variables, struct {
+				question string
+				value    string
+			}{question, value})
+		}
+	}
+
+	if len(variables) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Catalog Variables ─"))
+	for _, v := range variables {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+			labelStyle.Render(v.question+":"),
+			valueStyle.Render(v.value),
+		)
+	}
+
+	return nil
+}
+
+// newRecordsVariablesCmd creates the records variables command.
+func newRecordsVariablesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "variables <ritm_sys_id>",
+		Short: "Show all variables (single-row and MRVS) for a request item",
+		Long: `Display all catalog variables for a request item including:
+- Single-row variables (from sc_item_option)
+- Multi-row variable sets (from sc_multi_row_question_answer)
+
+Examples:
+  jsn records variables 18c086abc32f36103c71770d0501312e`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRecordsVariables(cmd, args[0])
+		},
+	}
+}
+
+// runRecordsVariables executes the records variables command.
+func runRecordsVariables(cmd *cobra.Command, ritmSysID string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	valueStyle := lipgloss.NewStyle()
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Request Item Variables"))
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "RITM: %s\n\n", ritmSysID)
+
+	// 1. Query single-row variables (sc_item_option)
+	query1 := url.Values{}
+	query1.Set("sysparm_limit", "100")
+	query1.Set("sysparm_query", fmt.Sprintf("request_item=%s", ritmSysID))
+	query1.Set("sysparm_fields", "item_option_new,value")
+	query1.Set("sysparm_display_value", "true")
+
+	resp1, err := sdkClient.Get(cmd.Context(), "sc_item_option", query1)
+	if err == nil && len(resp1.Result) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Single-Row Variables ─"))
+		for _, record := range resp1.Result {
+			question := ""
+			if v, ok := record["item_option_new"]; ok && v != nil {
+				switch val := v.(type) {
+				case string:
+					question = val
+				case map[string]interface{}:
+					if dv, ok := val["display_value"].(string); ok {
+						question = dv
+					}
+				}
+			}
+			value := getStringField(record, "value")
+			if question != "" && value != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+					labelStyle.Render(question+":"),
+					valueStyle.Render(value),
+				)
+			}
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	// 2. Query MRVS data (sc_multi_row_question_answer)
+	query2 := url.Values{}
+	query2.Set("sysparm_limit", "100")
+	query2.Set("sysparm_query", fmt.Sprintf("parent_id=%s", ritmSysID))
+	query2.Set("sysparm_fields", "row_index,item_option_new,value")
+	query2.Set("sysparm_display_value", "true")
+
+	resp2, err := sdkClient.Get(cmd.Context(), "sc_multi_row_question_answer", query2)
+	if err == nil && len(resp2.Result) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Multi-Row Variable Sets ─"))
+
+		// Group by row_index
+		rows := make(map[string]map[string]string)
+		var rowOrder []string
+		columnSet := make(map[string]bool)
+		var allColumns []string
+
+		for _, record := range resp2.Result {
+			rowID := getStringField(record, "row_index")
+			if rowID == "" {
+				continue
+			}
+
+			if _, exists := rows[rowID]; !exists {
+				rowOrder = append(rowOrder, rowID)
+				rows[rowID] = make(map[string]string)
+			}
+
+			colName := ""
+			if v, ok := record["item_option_new"]; ok && v != nil {
+				switch val := v.(type) {
+				case string:
+					colName = val
+				case map[string]interface{}:
+					if dv, ok := val["display_value"].(string); ok {
+						colName = dv
+					}
+				}
+			}
+
+			value := getStringField(record, "value")
+
+			if colName != "" {
+				rows[rowID][colName] = value
+				if !columnSet[colName] {
+					columnSet[colName] = true
+					allColumns = append(allColumns, colName)
+				}
+			}
+		}
+
+		// Display as table
+		if len(rows) > 0 {
+			// Calculate column widths
+			colWidths := make(map[string]int)
+			for _, col := range allColumns {
+				colWidths[col] = len(col)
+			}
+			for _, row := range rows {
+				for col, val := range row {
+					if len(val) > colWidths[col] {
+						colWidths[col] = len(val)
+					}
+				}
+			}
+			for col := range colWidths {
+				if colWidths[col] < 12 {
+					colWidths[col] = 12
+				}
+				if colWidths[col] > 40 {
+					colWidths[col] = 40
+				}
+			}
+
+			// Print header
+			fmt.Print("│ Row │")
+			for _, col := range allColumns {
+				fmt.Printf(" %-*s │", colWidths[col], col)
+			}
+			fmt.Println()
+
+			// Print separator
+			fmt.Print("│-----│")
+			for _, col := range allColumns {
+				fmt.Printf(" %s │", strings.Repeat("-", colWidths[col]))
+			}
+			fmt.Println()
+
+			// Print rows
+			for i, rowID := range rowOrder {
+				row := rows[rowID]
+				fmt.Printf("│ %3d │", i+1)
+				for _, col := range allColumns {
+					val := row[col]
+					if len(val) > colWidths[col] {
+						val = val[:colWidths[col]-3] + "..."
+					}
+					fmt.Printf(" %-*s │", colWidths[col], val)
+				}
+				fmt.Println()
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+	}
+
+	if len(resp1.Result) == 0 && len(resp2.Result) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No variables found for this request item.")
+	}
+
+	return nil
 }
