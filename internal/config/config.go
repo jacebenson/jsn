@@ -67,7 +67,7 @@ func Load(cfgFile, profileName string) (*Config, error) {
 	globalPath := GlobalConfigPath()
 	if _, err := os.Stat(globalPath); err == nil {
 		if err := loadFromFile(cfg, globalPath); err != nil {
-			return nil, fmt.Errorf("loading global config: %w", err)
+			return nil, fmt.Errorf("failed to load global config: %w", err)
 		}
 	}
 
@@ -181,4 +181,5 @@ func CacheDir() string {
 
 	return filepath.Join(home, ".cache", appName)
 }
+
 // Test comment
