@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install
+.PHONY: build test lint clean install hooks
 
 # Build the binary
 build:
@@ -39,3 +39,10 @@ run:
 
 # Check everything before commit
 check: fmt lint test
+
+# Install git hooks
+hooks:
+	@echo "Installing pre-commit hook..."
+	@cp scripts/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "✓ Pre-commit hook installed. Run 'make hooks' again to update."

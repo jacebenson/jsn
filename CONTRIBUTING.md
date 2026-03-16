@@ -9,17 +9,42 @@ Thank you for considering a contribution! This guide will get you up and running
 git clone https://github.com/jacebenson/jsn
 cd jsn
 
-# 2. Build the binary
+# 2. Install the pre-commit hook (recommended!)
+make hooks
+
+# 3. Build the binary
 make build
 
-# 3. Run tests
+# 4. Run tests
 make test
 
-# 4. Set up for development
+# 5. Set up for development
 ./bin/jsn setup
 ```
 
 That's it! You're ready to contribute.
+
+### Pre-Commit Hooks
+
+This repo includes a pre-commit hook that runs tests, linting, and formatting before allowing commits. This helps catch issues before pushing to CI.
+
+**Install the hook:**
+```bash
+make hooks          # Install pre-commit hook
+```
+
+**What the hook checks:**
+- `go fmt` - Code formatting
+- `go vet` - Static analysis
+- `go test` - Unit tests
+- `golangci-lint` - Full linting (if installed)
+
+**Bypass the hook** (in emergencies):
+```bash
+git commit --no-verify -m "your message"
+```
+
+**Note:** Bypassing is discouraged. The hook exists to save you time by catching issues before CI does.
 
 ---
 
@@ -115,6 +140,7 @@ jsn/
 
 Before submitting a PR, please:
 
+- [ ] **Pre-commit hook installed:** `make hooks` (runs checks automatically)
 - [ ] **Build passes:** `make build`
 - [ ] **Tests pass:** `make test`
 - [ ] **Code is formatted:** `make fmt` (or `go fmt ./...`)
