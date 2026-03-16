@@ -1,86 +1,170 @@
-# Contributing to ServiceNow CLI (JSN)
+# Contributing to JSN
 
-## Development Setup
+Thank you for considering a contribution! This guide will get you up and running in minutes.
 
-```bash
-git clone https://github.com/ai-in-box/servicenow-cli
-cd servicenow-cli
-go build -o bin/jsn ./cmd/jsn    # Build the binary
-```
-
-## Requirements
-
-- Go 1.23+
-- A ServiceNow instance with a valid `g_ck` token
-
-## Getting Started (Local Development)
-
-### 1. Build the Binary
+## Quick Start (5 minutes)
 
 ```bash
-go build -o bin/jsn ./cmd/jsn
-```
+# 1. Clone and enter the repo
+git clone https://github.com/jacebenson/jsn
+cd jsn
 
-### 2. Run Interactive Setup (Recommended)
+# 2. Build the binary
+make build
 
-The easiest way to configure the CLI is using the interactive setup wizard:
+# 3. Run tests
+make test
 
-```bash
+# 4. Set up for development
 ./bin/jsn setup
 ```
 
-This will guide you through:
-- Entering your ServiceNow instance URL
-- Creating a named profile (e.g., `dev`, `prod`)
-- Authenticating with your g_ck token
+That's it! You're ready to contribute.
 
-### 3. Manual Configuration (Alternative)
+---
 
-If you prefer manual setup:
+## Development Requirements
 
-```bash
-# Add a profile
-./bin/jsn config add dev --url https://yourinstance.service-now.com --username admin
+- **Go 1.21+**
+- **Make** (for convenience commands)
+- A ServiceNow instance for testing (optional but recommended)
 
-# Switch to your dev profile
-./bin/jsn config switch dev
+## Common Development Tasks
 
-# Authenticate (you'll need a g_ck token)
-./bin/jsn auth login
-```
-
-### 4. Get a g_ck Token
-
-To authenticate, you need a `g_ck` (glide cookie) token from your ServiceNow instance:
-
-1. Log into your ServiceNow instance in a browser
-2. Open the browser's Developer Tools (F12)
-3. Go to Application/Storage → Cookies → your instance
-4. Find the cookie named `g_ck` and copy its value
-5. Use it with: `./bin/jsn auth login --token <g_ck_value>`
-
-Or let the CLI prompt you:
-```bash
-./bin/jsn auth login
-# Enter your g_ck token when prompted
-```
-
-### 5. Test Your Setup
+### Build
 
 ```bash
-# List tables
-./bin/jsn tables list
-
-# Get a specific record
-./bin/jsn tables get incident <sys_id>
-
-# Check auth status
-./bin/jsn auth status
+make build          # Build for current platform
+make build-all      # Build for all platforms (Linux, macOS, Windows)
+make run            # Run without building (go run)
 ```
 
-## Environment Variables
+### Test
 
-You can also bypass stored credentials using environment variables:
+```bash
+make test           # Run all tests
+make lint           # Run linter (requires golangci-lint)
+make check          # Run fmt + lint + test (do this before PR!)
+```
+
+### Local Installation
+
+```bash
+make install        # Install to $GOPATH/bin or ~/go/bin
+```
+
+### Clean
+
+```bash
+make clean          # Remove bin/ and dist/
+```
+
+---
+
+## Testing Your Changes
+
+### With a Real ServiceNow Instance
+
+1. **Set up authentication:**
+   ```bash
+   ./bin/jsn setup
+   ```
+
+2. **Test basic commands:**
+   ```bash
+   ./bin/jsn auth status
+   ./bin/jsn tables list
+   ./bin/jsn records list incident --limit 5
+   ```
+
+### Without a ServiceNow Instance
+
+You can still run tests and verify builds:
+
+```bash
+make test
+make build-all
+```
+
+---
+
+## Project Structure
+
+```
+jsn/
+├── cmd/jsn/              # Main entrypoint
+├── internal/
+│   ├── appctx/           # Application context
+│   ├── auth/             # Authentication (keyring + file fallback)
+│   ├── cli/              # CLI root command setup
+│   ├── commands/         # All CLI commands (auth, config, tables, etc.)
+│   ├── config/           # Configuration management
+│   ├── output/           # Output formatting (JSON, Markdown, styled)
+│   ├── sdk/              # ServiceNow API client
+│   └── tui/              # Terminal UI components
+├── scripts/
+│   └── install.sh        # Installation script
+├── .github/workflows/    # CI/CD
+├── Makefile              # Build automation
+└── go.mod                # Go module definition
+```
+
+---
+
+## Pull Request Checklist
+
+Before submitting a PR, please:
+
+- [ ] **Build passes:** `make build`
+- [ ] **Tests pass:** `make test`
+- [ ] **Code is formatted:** `make fmt` (or `go fmt ./...`)
+- [ ] **Linter passes:** `make lint` (or `golangci-lint run`)
+- [ ] **All checks pass:** `make check` (runs all of the above)
+
+### PR Guidelines
+
+1. **One logical change per PR** - Don't mix unrelated changes
+2. **Update documentation** - If you add/change commands, update README.md
+3. **Add tests** - If adding new functionality, include tests
+4. **Test against a real instance** - If possible, verify with actual ServiceNow
+5. **Clear commit messages** - Explain what and why, not just how
+
+### Commit Message Format
+
+```
+type: Brief description (50 chars or less)
+
+Optional longer explanation. Wrap at 72 chars.
+
+- Bullet points are okay
+- Use imperative mood ("Add feature" not "Added feature")
+```
+
+Types:
+- `feat:` New feature
+- `fix:` Bug fix
+- `docs:` Documentation changes
+- `refactor:` Code refactoring
+- `test:` Test changes
+- `chore:` Build/tooling changes
+
+---
+
+## Code Style
+
+We follow standard Go conventions:
+
+- Run `go fmt ./...` (enforced by CI)
+- Run `go vet ./...` (enforced by CI)
+- Keep functions focused and small
+- Add comments for exported functions
+- Handle errors explicitly (don't ignore them)
+
+---
+
+## Configuration for Development
+
+During development, you can use environment variables instead of stored credentials:
 
 ```bash
 export SERVICENOW_TOKEN="your_g_ck_token_here"
@@ -88,65 +172,16 @@ export SERVICENOW_URL="https://yourinstance.service-now.com"
 ./bin/jsn tables list
 ```
 
-## Testing
+This is useful for testing without modifying your stored config.
 
-### Run Unit Tests
-
-```bash
-go test ./...
-```
-
-### Run with Verbose Output
-
-```bash
-./bin/jsn tables list --verbose
-```
-
-## Project Structure
-
-```
-servicenow-cli/
-├── cmd/jsn/           # Main entrypoint
-├── bin/               # Compiled binaries
-├── internal/
-│   ├── appctx/        # Application context
-│   ├── auth/          # Authentication (keyring + file fallback)
-│   ├── cli/           # CLI root and setup
-│   ├── commands/      # CLI command implementations
-│   ├── config/        # Configuration management
-│   ├── output/        # Output formatting
-│   └── sdk/           # ServiceNow SDK
-```
-
-## Key Files
-
-- `internal/config/config.go` - Config file paths (XDG compliant)
-- `internal/auth/auth.go` - Authentication with keyring fallback
-- `internal/commands/*.go` - Individual command implementations
-
-## Configuration & Auth Storage
-
-Following the [basecamp-cli](https://github.com/basecamp/basecamp-cli) pattern:
-
-- **Config:** `~/.config/servicenow/config.json`
-- **Credentials fallback:** `~/.config/servicenow/credentials.json` (keyring preferred)
-- **Cache:** `~/.cache/servicenow/`
-
-Use `SERVICENOW_NO_KEYRING=1` to force file-based credential storage.
-
-## Code Style
-
-- Follow standard Go conventions
-- Run `go fmt ./...` before committing
-- Keep commands focused and simple
-
-## Pull Request Process
-
-1. Build and test locally: `go build -o bin/jsn ./cmd/jsn && ./bin/jsn auth status`
-2. Ensure your changes work with a real ServiceNow instance
-3. Keep commits focused on one logical change
-4. Update documentation if adding commands or changing behavior
+---
 
 ## Questions?
 
-Open an issue for questions about contributing.
+- **Bug reports:** [Open an issue](https://github.com/jacebenson/jsn/issues)
+- **Feature requests:** [Open an issue](https://github.com/jacebenson/jsn/issues)
+- **General questions:** [Discussions](https://github.com/jacebenson/jsn/discussions)
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.
