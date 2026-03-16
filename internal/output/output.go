@@ -203,9 +203,13 @@ func (w *Writer) writeMarkdown(resp *Response) error {
 	// Handle data as table or list
 	switch data := resp.Data.(type) {
 	case []map[string]any:
-		w.writeMarkdownTable(data)
+		if err := w.writeMarkdownTable(data); err != nil {
+			return err
+		}
 	case []any:
-		w.writeMarkdownList(data)
+		if err := w.writeMarkdownList(data); err != nil {
+			return err
+		}
 	default:
 		fmt.Fprintf(w.opts.Writer, "%v\n", data)
 	}
@@ -311,7 +315,9 @@ func (w *Writer) writeStyled(resp *Response) error {
 	// Handle data
 	switch data := resp.Data.(type) {
 	case []map[string]any:
-		w.writeStyledTable(data)
+		if err := w.writeStyledTable(data); err != nil {
+			return err
+		}
 	case []any:
 		for _, item := range data {
 			fmt.Fprintf(w.opts.Writer, "%v\n", item)

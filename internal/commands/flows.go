@@ -18,7 +18,6 @@ import (
 type flowsListFlags struct {
 	limit       int
 	active      bool
-	search      string
 	query       string
 	order       string
 	desc        bool

@@ -126,7 +126,9 @@ To get a g_ck token:
 				if profile.Username == "" {
 					profile.Username = username
 				}
-				cfg.Save()
+				if err := cfg.Save(); err != nil {
+					return output.ErrAPI(500, fmt.Sprintf("failed to save config: %v", err))
+				}
 
 				fmt.Printf("\nSuccessfully authenticated with %s (Basic Auth)\n", instanceURL)
 			} else {
@@ -151,7 +153,9 @@ To get a g_ck token:
 
 				// Update profile with auth method
 				profile.AuthMethod = "gck"
-				cfg.Save()
+				if err := cfg.Save(); err != nil {
+					return output.ErrAPI(500, fmt.Sprintf("failed to save config: %v", err))
+				}
 
 				fmt.Printf("\nSuccessfully authenticated with %s (g_ck token)\n", instanceURL)
 			}

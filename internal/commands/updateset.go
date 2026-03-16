@@ -591,7 +591,9 @@ func runUpdateSetCreate(cmd *cobra.Command, name string, flags updateSetCreateFl
 
 	// Set as current if requested
 	if flags.setCurrent {
-		sdkClient.SetCurrentUpdateSet(cmd.Context(), currentUser.SysID, updateSet.SysID)
+		if err := sdkClient.SetCurrentUpdateSet(cmd.Context(), currentUser.SysID, updateSet.SysID); err != nil {
+			return fmt.Errorf("failed to set current update set: %w", err)
+		}
 	}
 
 	// Build output same as "show" command
@@ -1011,7 +1013,7 @@ func printMarkdownUpdateSetDetails(cmd *cobra.Command, updateSet *sdk.UpdateSet,
 
 	// Children section
 	if len(children) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), fmt.Sprintf("#### Children (%d)", len(children)))
+		fmt.Fprintf(cmd.OutOrStdout(), "#### Children (%d)\n", len(children))
 		fmt.Fprintln(cmd.OutOrStdout())
 		for _, child := range children {
 			if instanceURL != "" {

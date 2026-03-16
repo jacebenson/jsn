@@ -866,7 +866,7 @@ func runRecordsDelete(cmd *cobra.Command, table, sysID string, force bool) error
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Delete record %s from %s? [y/N]: ", number, table)
 		var response string
-		fmt.Scanln(&response)
+		_, _ = fmt.Scanln(&response) // Ignore error - user can just press enter
 		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
 			return fmt.Errorf("deletion cancelled")
 		}

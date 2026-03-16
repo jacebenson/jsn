@@ -284,8 +284,12 @@ Examples:
 	cmd.Flags().IntVar(&flags.sequence, "sequence", 0, "Sequence number (optional, interactive if not provided)")
 	cmd.Flags().StringVar(&flags.dependent, "dependent", "", "Dependent value for cascading choices")
 
-	cmd.MarkFlagRequired("value")
-	cmd.MarkFlagRequired("label")
+	if err := cmd.MarkFlagRequired("value"); err != nil {
+		panic(err)
+	}
+	if err := cmd.MarkFlagRequired("label"); err != nil {
+		panic(err)
+	}
 
 	return cmd
 }
@@ -528,7 +532,7 @@ func runChoicesDelete(cmd *cobra.Command, sysID string, force bool) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Delete choice '%s' (%s) from %s.%s? [y/N]: ",
 			choice.Label, choice.Value, choice.Table, choice.Element)
 		var response string
-		fmt.Scanln(&response)
+		_, _ = fmt.Scanln(&response) // Ignore error - user can just press enter
 		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
 			return fmt.Errorf("deletion cancelled")
 		}
@@ -564,7 +568,7 @@ func newChoicesReorderCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&mode, "mode", "hundreds", "Reorder mode: hundreds or alpha")
-	cmd.RegisterFlagCompletionFunc("mode", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("mode", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"hundreds", "alpha"}, cobra.ShellCompDirectiveDefault
 	})
 

@@ -43,9 +43,6 @@ func isEncodedQuery(query string) bool {
 	return false
 }
 
-// commonDisplayColumns is the fallback chain for display columns
-var commonDisplayColumns = []string{"name", "short_description", "title", "u_name", "u_title"}
-
 // getDisplayColumnForTable returns the appropriate display column for a table.
 // It checks common patterns and returns the first matching column.
 // For metadata tables (sys_*), typically returns "name".
@@ -95,23 +92,4 @@ func buildFilterLink(instanceURL, table, query string) string {
 	// Standard encoded query with operators
 	encodedQuery := url.QueryEscape(query)
 	return fmt.Sprintf("%s/%s_list.do?sysparm_query=%s", instanceURL, table, encodedQuery)
-}
-
-// buildSysparmQuery builds a ServiceNow sysparm_query string from parts.
-// Each part is joined with ^ (AND operator).
-// Simple query terms are automatically wrapped with wrapSimpleQuery.
-func buildSysparmQuery(parts ...string) string {
-	var wrappedParts []string
-	for _, part := range parts {
-		if part != "" {
-			wrappedParts = append(wrappedParts, wrapSimpleQuery(part))
-		}
-	}
-	return strings.Join(wrappedParts, "^")
-}
-
-// hasFilter returns true if the query contains ServiceNow operators
-// and can be used to build a filter link.
-func hasFilter(query string) bool {
-	return isEncodedQuery(query)
 }

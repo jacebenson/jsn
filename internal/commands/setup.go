@@ -147,21 +147,17 @@ func setupProfileName(cfg *config.Config) (string, error) {
 		defaultName = cfg.DefaultProfile
 	}
 
-	var profileName string
+	fmt.Printf("Profile name [%s]: ", defaultName)
+
 	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Printf("Profile name [%s]: ", defaultName)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
 
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		if input == "" {
-			profileName = defaultName
-		} else {
-			profileName = input
-		}
-
-		break
+	var profileName string
+	if input == "" {
+		profileName = defaultName
+	} else {
+		profileName = input
 	}
 
 	fmt.Printf("  ✓ Profile: %s\n", profileName)

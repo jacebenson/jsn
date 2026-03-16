@@ -79,7 +79,7 @@ func (s *Store) Save(origin string, creds *Credentials) error {
 func (s *Store) Delete(origin string) error {
 	// Check if keyring is disabled
 	if os.Getenv("SERVICENOW_NO_KEYRING") == "" {
-		keyring.Delete(s.inner.serviceName, origin)
+		_ = keyring.Delete(s.inner.serviceName, origin) // Ignore error - may not exist
 	}
 	return s.deleteFromFile(origin)
 }
@@ -114,7 +114,7 @@ func (s *Store) saveToFile(origin string, creds *Credentials) error {
 	var existing map[string]Credentials
 	data, err := os.ReadFile(path)
 	if err == nil {
-		json.Unmarshal(data, &existing)
+		_ = json.Unmarshal(data, &existing) // Ignore error - will start fresh if invalid
 	}
 	if existing == nil {
 		existing = make(map[string]Credentials)
