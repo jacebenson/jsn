@@ -1548,6 +1548,192 @@ func jobFromRecord(record map[string]interface{}, table string) ScheduledJob {
 	}
 }
 
+// JobExecution represents a scheduled job execution log entry (syslog_transaction).
+type JobExecution struct {
+	SysID    string `json:"sys_id"`
+	JobID    string `json:"source"`
+	JobName  string `json:"url"`
+	Started  string `json:"sys_created_on"`
+	Duration string `json:"response_time"`
+	Status   string `json:"http_status"`
+	Message  string `json:"message"`
+	Server   string `json:"server"`
+}
+
+// ListJobExecutionsOptions holds options for listing job executions.
+type ListJobExecutionsOptions struct {
+	JobID     string // Filter by specific job sys_id (not directly available in syslog_transaction)
+	Limit     int
+	Offset    int
+	OrderBy   string
+	OrderDesc bool
+}
+
+// ListJobExecutions retrieves job execution logs from syslog_transaction.
+// Scheduled job executions are logged with type='Scheduler' and the job name in the URL field.
+func (c *Client) ListJobExecutions(ctx context.Context, opts *ListJobExecutionsOptions) ([]JobExecution, error) {
+	if opts == nil {
+		opts = &ListJobExecutionsOptions{}
+	}
+
+	query := url.Values{}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	query.Set("sysparm_limit", fmt.Sprintf("%d", limit))
+
+	if opts.Offset > 0 {
+		query.Set("sysparm_offset", fmt.Sprintf("%d", opts.Offset))
+	}
+
+	query.Set("sysparm_fields", "sys_id,source,url,response_time,http_status,message,server,sys_created_on")
+
+	orderBy := opts.OrderBy
+	if orderBy == "" {
+		orderBy = "sys_created_on"
+	}
+
+	var sysparmQuery string
+	if opts.OrderDesc {
+		sysparmQuery = "ORDERBYDESC" + orderBy
+	} else {
+		sysparmQuery = "ORDERBY" + orderBy
+	}
+
+	// Filter for scheduler type entries
+	sysparmQuery = sysparmQuery + "^type=Scheduler"
+
+	query.Set("sysparm_query", sysparmQuery)
+
+	resp, err := c.Get(ctx, "syslog_transaction", query)
+	if err != nil {
+		return nil, err
+	}
+
+	executions := make([]JobExecution, len(resp.Result))
+	for i, record := range resp.Result {
+		executions[i] = jobExecutionFromRecord(record)
+	}
+
+	return executions, nil
+}
+
+// jobExecutionFromRecord converts a record map to a JobExecution struct.
+func jobExecutionFromRecord(record map[string]interface{}) JobExecution {
+	return JobExecution{
+		SysID:    getString(record, "sys_id"),
+		JobID:    getString(record, "source"),
+		JobName:  getString(record, "url"),
+		Started:  getString(record, "sys_created_on"),
+		Duration: getString(record, "response_time"),
+		Status:   getString(record, "http_status"),
+		Message:  getString(record, "message"),
+		Server:   getString(record, "server"),
+	}
+}
+
+// ExecuteJob triggers immediate execution of a scheduled job.
+// For sys_trigger jobs, it uses the executeNow API.
+// For sysauto_script jobs, it inserts a sys_trigger record.
+func (c *Client) ExecuteJob(ctx context.Context, sysID, table string) error {
+	if table == "" {
+		table = "sys_trigger"
+	}
+
+	if table == "sysauto_script" {
+		// For scheduled scripts, we need to create a trigger record
+		// Get the scheduled script first
+		job, err := c.GetJob(ctx, sysID, table)
+		if err != nil {
+			return fmt.Errorf("failed to get scheduled script: %w", err)
+		}
+
+		// Create a trigger record to execute now
+		triggerData := map[string]interface{}{
+			"name":         job.Name,
+			"script":       job.Script,
+			"trigger_type": 0,                     // Run once
+			"next_action":  "2024-01-01 00:00:00", // Will run immediately
+		}
+
+		endpoint := fmt.Sprintf("%s/api/now/table/sys_trigger", c.baseURL)
+		body, err := json.Marshal(triggerData)
+		if err != nil {
+			return fmt.Errorf("marshaling trigger data: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(string(body)))
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+
+		username, password := c.getAuth()
+		req.SetBasicAuth(username, password)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("executing request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		return nil
+	}
+
+	// For sys_trigger jobs, try to execute via the executeNow API
+	// This uses the GlideSysTrigger API to execute immediately
+	endpoint := fmt.Sprintf("%s/api/now/table/sys_trigger/%s", c.baseURL, sysID)
+
+	// First, get the job to verify it exists
+	_, err := c.GetJob(ctx, sysID, table)
+	if err != nil {
+		return fmt.Errorf("failed to get job: %w", err)
+	}
+
+	// Update the job to trigger immediate execution by setting next_action to now
+	updateData := map[string]interface{}{
+		"next_action": time.Now().UTC().Format("2006-01-02 15:04:05"),
+	}
+
+	body, err := json.Marshal(updateData)
+	if err != nil {
+		return fmt.Errorf("marshaling update data: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	username, password := c.getAuth()
+	req.SetBasicAuth(username, password)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 // ScriptInclude represents a ServiceNow script include (sys_script_include record).
 type ScriptInclude struct {
 	SysID       string `json:"sys_id"`
@@ -2133,4 +2319,369 @@ func clientScriptFromRecord(record map[string]interface{}) ClientScript {
 		UpdatedOn:   getString(record, "sys_updated_on"),
 		UpdatedBy:   getString(record, "sys_updated_by"),
 	}
+}
+
+// LogEntry represents a system log entry (syslog record).
+type LogEntry struct {
+	SysID     string `json:"sys_id"`
+	Level     string `json:"level"`
+	Message   string `json:"message"`
+	Source    string `json:"source"`
+	CreatedOn string `json:"sys_created_on"`
+	CreatedBy string `json:"sys_created_by"`
+}
+
+// ListLogsOptions holds options for listing system logs.
+type ListLogsOptions struct {
+	Limit     int
+	Offset    int
+	Query     string
+	OrderBy   string
+	OrderDesc bool
+}
+
+// ListLogs retrieves system logs from syslog.
+func (c *Client) ListLogs(ctx context.Context, opts *ListLogsOptions) ([]LogEntry, error) {
+	if opts == nil {
+		opts = &ListLogsOptions{}
+	}
+
+	query := url.Values{}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	query.Set("sysparm_limit", fmt.Sprintf("%d", limit))
+
+	if opts.Offset > 0 {
+		query.Set("sysparm_offset", fmt.Sprintf("%d", opts.Offset))
+	}
+
+	query.Set("sysparm_fields", "sys_id,level,message,source,sys_created_on,sys_created_by")
+
+	orderBy := opts.OrderBy
+	if orderBy == "" {
+		orderBy = "sys_created_on"
+	}
+
+	var sysparmQuery string
+	if opts.OrderDesc {
+		sysparmQuery = "ORDERBYDESC" + orderBy
+	} else {
+		sysparmQuery = "ORDERBY" + orderBy
+	}
+
+	if opts.Query != "" {
+		sysparmQuery = sysparmQuery + "^" + opts.Query
+	}
+
+	query.Set("sysparm_query", sysparmQuery)
+
+	resp, err := c.Get(ctx, "syslog", query)
+	if err != nil {
+		return nil, err
+	}
+
+	logs := make([]LogEntry, len(resp.Result))
+	for i, record := range resp.Result {
+		logs[i] = logEntryFromRecord(record)
+	}
+
+	return logs, nil
+}
+
+// logEntryFromRecord converts a record map to a LogEntry struct.
+func logEntryFromRecord(record map[string]interface{}) LogEntry {
+	return LogEntry{
+		SysID:     getString(record, "sys_id"),
+		Level:     getString(record, "level"),
+		Message:   getString(record, "message"),
+		Source:    getString(record, "source"),
+		CreatedOn: getString(record, "sys_created_on"),
+		CreatedBy: getString(record, "sys_created_by"),
+	}
+}
+
+// InstanceInfo holds ServiceNow instance information.
+type InstanceInfo struct {
+	Version         string            `json:"version"`
+	Build           string            `json:"build"`
+	BuildDate       string            `json:"build_date"`
+	Patch           string            `json:"patch"`
+	InstanceName    string            `json:"instance_name"`
+	TimeZone        string            `json:"time_zone"`
+	UserName        string            `json:"user_name"`
+	UserSysID       string            `json:"user_sys_id"`
+	GlideProperties map[string]string `json:"glide_properties"`
+}
+
+// GetInstanceInfo retrieves ServiceNow instance information.
+func (c *Client) GetInstanceInfo(ctx context.Context) (*InstanceInfo, error) {
+	// Get the user session info to extract instance details
+	query := url.Values{}
+	query.Set("sysparm_limit", "1")
+	query.Set("sysparm_fields", "sys_id,user_name,first_name,last_name")
+
+	resp, err := c.Get(ctx, "sys_user", query)
+	if err != nil {
+		return nil, err
+	}
+
+	info := &InstanceInfo{
+		Version:         "Unknown",
+		Build:           "Unknown",
+		InstanceName:    "Unknown",
+		TimeZone:        "Unknown",
+		UserName:        "Unknown",
+		UserSysID:       "",
+		GlideProperties: make(map[string]string),
+	}
+
+	// Try to get user info from the first record
+	if len(resp.Result) > 0 {
+		info.UserSysID = getString(resp.Result[0], "sys_id")
+		info.UserName = getString(resp.Result[0], "user_name")
+	}
+
+	// Try to get instance info from stats.do or a known property
+	// For now, we'll use a simpler approach - query the system properties
+	propQuery := url.Values{}
+	propQuery.Set("sysparm_limit", "10")
+	propQuery.Set("sysparm_fields", "name,value")
+	propQuery.Set("sysparm_query", "nameINinstance_name,mid.version,glide.build.tag")
+
+	propResp, err := c.Get(ctx, "sys_properties", propQuery)
+	if err == nil {
+		for _, record := range propResp.Result {
+			name := getString(record, "name")
+			value := getString(record, "value")
+			switch name {
+			case "instance_name":
+				info.InstanceName = value
+			case "mid.version":
+				info.Version = value
+			case "glide.build.tag":
+				info.Build = value
+			}
+			info.GlideProperties[name] = value
+		}
+	}
+
+	return info, nil
+}
+
+// FlowExecution represents a flow execution record from sys_hub_trigger_instance_v2.
+type FlowExecution struct {
+	SysID        string `json:"sys_id"`
+	FlowID       string `json:"flow_id"`
+	FlowName     string `json:"flow_name"`
+	Status       string `json:"status"`
+	Started      string `json:"started"`
+	Ended        string `json:"ended"`
+	Duration     string `json:"duration"`
+	SysUpdatedOn string `json:"sys_updated_on"`
+}
+
+// ListFlowExecutionsOptions holds options for listing flow executions.
+type ListFlowExecutionsOptions struct {
+	FlowID    string
+	Limit     int
+	Offset    int
+	OrderBy   string
+	OrderDesc bool
+}
+
+// ListFlowExecutions retrieves flow execution history from sys_hub_trigger_instance_v2.
+func (c *Client) ListFlowExecutions(ctx context.Context, opts *ListFlowExecutionsOptions) ([]FlowExecution, error) {
+	if opts == nil {
+		opts = &ListFlowExecutionsOptions{}
+	}
+
+	query := url.Values{}
+
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	query.Set("sysparm_limit", fmt.Sprintf("%d", limit))
+
+	if opts.Offset > 0 {
+		query.Set("sysparm_offset", fmt.Sprintf("%d", opts.Offset))
+	}
+
+	query.Set("sysparm_fields", "sys_id,flow,flow.name,status,started,ended,duration,sys_updated_on")
+
+	orderBy := opts.OrderBy
+	if orderBy == "" {
+		orderBy = "sys_updated_on"
+	}
+
+	var sysparmQuery string
+	if opts.OrderDesc {
+		sysparmQuery = "ORDERBYDESC" + orderBy
+	} else {
+		sysparmQuery = "ORDERBY" + orderBy
+	}
+
+	if opts.FlowID != "" {
+		sysparmQuery = sysparmQuery + "^flow=" + opts.FlowID
+	}
+
+	query.Set("sysparm_query", sysparmQuery)
+
+	resp, err := c.Get(ctx, "sys_hub_trigger_instance_v2", query)
+	if err != nil {
+		return nil, err
+	}
+
+	executions := make([]FlowExecution, len(resp.Result))
+	for i, record := range resp.Result {
+		executions[i] = flowExecutionFromRecord(record)
+	}
+
+	return executions, nil
+}
+
+// flowExecutionFromRecord converts a record map to a FlowExecution struct.
+func flowExecutionFromRecord(record map[string]interface{}) FlowExecution {
+	// Handle flow.name which might be a display value object
+	flowName := ""
+	if flow, ok := record["flow"].(map[string]interface{}); ok {
+		flowName = getString(flow, "display_value")
+		if flowName == "" {
+			flowName = getString(flow, "value")
+		}
+	}
+
+	return FlowExecution{
+		SysID:        getString(record, "sys_id"),
+		FlowID:       getString(record, "flow"),
+		FlowName:     flowName,
+		Status:       getString(record, "status"),
+		Started:      getString(record, "started"),
+		Ended:        getString(record, "ended"),
+		Duration:     getString(record, "duration"),
+		SysUpdatedOn: getString(record, "sys_updated_on"),
+	}
+}
+
+// FlowAction represents a flow action instance.
+type FlowAction struct {
+	SysID  string `json:"sys_id"`
+	Name   string `json:"name"`
+	Action string `json:"action"`
+	Order  int    `json:"order"`
+	Active bool   `json:"active"`
+	FlowID string `json:"flow_id"`
+}
+
+// GetFlowActions retrieves actions for a flow from sys_hub_action_instance.
+func (c *Client) GetFlowActions(ctx context.Context, flowID string) ([]FlowAction, error) {
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_fields", "sys_id,name,action_type,order,active,flow")
+	query.Set("sysparm_query", fmt.Sprintf("flow=%s^ORDERBYorder", flowID))
+
+	resp, err := c.Get(ctx, "sys_hub_action_instance", query)
+	if err != nil {
+		return nil, err
+	}
+
+	actions := make([]FlowAction, len(resp.Result))
+	for i, record := range resp.Result {
+		actions[i] = flowActionFromRecord(record)
+	}
+
+	return actions, nil
+}
+
+// flowActionFromRecord converts a record map to a FlowAction struct.
+func flowActionFromRecord(record map[string]interface{}) FlowAction {
+	return FlowAction{
+		SysID:  getString(record, "sys_id"),
+		Name:   getString(record, "name"),
+		Action: getString(record, "action_type"),
+		Order:  getInt(record, "order"),
+		Active: getBool(record, "active"),
+		FlowID: getString(record, "flow"),
+	}
+}
+
+// FlowVariable represents a flow variable definition.
+type FlowVariable struct {
+	SysID string `json:"sys_id"`
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// GetFlowVariables retrieves variables for a flow.
+func (c *Client) GetFlowVariables(ctx context.Context, flowID string) ([]FlowVariable, error) {
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_fields", "sys_id,name,variable_type,label,default_value")
+	query.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+
+	resp, err := c.Get(ctx, "sys_hub_flow_variable", query)
+	if err != nil {
+		return nil, err
+	}
+
+	variables := make([]FlowVariable, len(resp.Result))
+	for i, record := range resp.Result {
+		variables[i] = flowVariableFromRecord(record)
+	}
+
+	return variables, nil
+}
+
+// flowVariableFromRecord converts a record map to a FlowVariable struct.
+func flowVariableFromRecord(record map[string]interface{}) FlowVariable {
+	return FlowVariable{
+		SysID: getString(record, "sys_id"),
+		Name:  getString(record, "name"),
+		Type:  getString(record, "variable_type"),
+		Label: getString(record, "label"),
+		Value: getString(record, "default_value"),
+	}
+}
+
+// UpdateFlowStatus activates or deactivates a flow.
+func (c *Client) UpdateFlowStatus(ctx context.Context, flowID string, active bool) error {
+	endpoint := fmt.Sprintf("%s/api/now/table/sys_hub_flow/%s", c.baseURL, flowID)
+
+	updateData := map[string]interface{}{
+		"active": active,
+	}
+
+	body, err := json.Marshal(updateData)
+	if err != nil {
+		return fmt.Errorf("marshaling update data: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	username, password := c.getAuth()
+	req.SetBasicAuth(username, password)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }

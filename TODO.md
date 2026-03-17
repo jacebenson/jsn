@@ -397,56 +397,57 @@ Based on sn.jace.pro docs analysis and real developer workflows.
 ### 🔍 Debugging & Investigation Commands (Priority: Medium)
 
 #### Enhanced Job Commands
-- [ ] `jsn jobs executions <sys_id> [--limit 10]` - Show last N executions
-- [ ] `jsn jobs logs <sys_id>` - Get recent job logs
-- [ ] `jsn jobs run <sys_id>` - Execute scheduled job now (via API)
+- [x] `jsn jobs executions <sys_id> [--limit 10]` - Show last N executions
+- [x] `jsn jobs logs <sys_id>` - Get recent job logs (alias for executions)
+- [x] `jsn jobs run <sys_id>` - Execute scheduled job now (via API)
+- [x] `jsn jobs script <sys_id>` - Output just the script
 
-**Tables**: `sysauto_script`, `sys_trigger`, `sys_scheduled_job`
+**Tables**: `sysauto_script`, `sys_trigger`, `syslog_transaction`
 
 #### System Logs
-- [ ] `jsn logs --table <table> --sys_id <id>` - Get related logs for a record
-- [ ] `jsn logs --source <source> --minutes <n>` - Recent logs by source
-- [ ] `jsn logs --script <script_name>` - Script-specific errors
-- [ ] `jsn instance info` - Show instance version, plugins, patch level
+- [x] `jsn logs --table <table> --sys_id <id>` - Get related logs for a record
+- [x] `jsn logs --source <source> --minutes <n>` - Recent logs by source
+- [x] `jsn logs --script <script_name>` - Script-specific errors
+- [x] `jsn instance info` - Show instance version, plugins, patch level
 
-**Tables**: `syslog`, `syslog_transaction`, `sys_plugins`
+**Tables**: `syslog`, `syslog_transaction`, `sys_properties`
 
 #### Flow Designer Debugging
-- [ ] `jsn flows executions <flow_name> [--limit 10]` - Show recent flow executions
-- [ ] `jsn flows debug <flow_name>` - Show flow with all actions and subflows
-- [ ] `jsn flows variables <flow_name>` - Show flow inputs/outputs/schema
-- [ ] `jsn flows activate <flow_name>` - Activate flow
-- [ ] `jsn flows deactivate <flow_name>` - Deactivate flow
+- [x] `jsn flows executions <flow_name> [--limit 10]` - Show recent flow executions
+- [x] `jsn flows debug <flow_name>` - Show flow with all actions and subflows
+- [x] `jsn flows variables <flow_name>` - Show flow inputs/outputs/schema
+- [x] `jsn flows activate <flow_name>` - Activate flow
+- [x] `jsn flows deactivate <flow_name>` - Deactivate flow
 
 **Tables**: `sys_hub_flow`, `sys_hub_flow_instance`, `sys_hub_action_instance`
 
 ### 📦 Migration & Comparison Commands (Priority: High)
 
 #### Cross-Instance Comparison
-- [ ] `jsn compare tables --source <profile> --target <profile>` - Compare table schemas
-- [ ] `jsn compare script-includes --source <profile> --target <profile>` - Compare scripts
-- [ ] `jsn compare choices --table <table> --field <field> --source <profile> --target <profile>`
-- [ ] `jsn compare flows --source <profile> --target <profile>`
+- [x] `jsn compare tables --source <profile> --target <profile>` - Compare table schemas
+- [x] `jsn compare script-includes --source <profile> --target <profile>` - Compare scripts
+- [x] `jsn compare choices --table <table> --field <field> --source <profile> --target <profile>`
+- [x] `jsn compare flows --source <profile> --target <profile>`
 
 #### Export/Import Utilities
-- [ ] `jsn export script-includes --scope <scope> [--format json|xml]` - Export scripts
-- [ ] `jsn export tables --app <app_name>` - Export table definitions
-- [ ] `jsn export update-set <name> --format xml` - Export update set as XML
-- [ ] `jsn import --file <path> --preview` - Preview import changes
+- [x] `jsn export script-includes --scope <scope> [--format json|xml]` - Export scripts
+- [x] `jsn export tables --app <app_name>` - Export table definitions
+- [x] `jsn export update-set <name> --format xml` - Export update set as XML
+- [x] `jsn import --file <path> --preview` - Preview import changes
 
 ### 🏗️ Development Aid Commands (Priority: Medium)
 
 #### Code Generation
-- [ ] `jsn generate gliderecord --table <table>` - Generate GlideRecord template
-- [ ] `jsn generate script-include --name <name> [--scope <scope>]` - Generate Script Include template
-- [ ] `jsn generate rest --name <name>` - Generate Scripted REST API template
-- [ ] `jsn generate test --table <table> --count <n>` - Generate test data
-- [ ] `jsn generate acl --table <table> --operation <op>` - Generate ACL template
+- [x] `jsn generate gliderecord --table <table>` - Generate GlideRecord template
+- [x] `jsn generate script-include --name <name> [--scope <scope>]` - Generate Script Include template
+- [x] `jsn generate rest --name <name>` - Generate Scripted REST API template
+- [x] `jsn generate test --table <table> --count <n>` - Generate test data
+- [x] `jsn generate acl --table <table> --operation <op>` - Generate ACL template
 
 #### Table Relationships & Data Model
-- [ ] `jsn tables relationships <table>` - Show reference fields TO this table
-- [ ] `jsn tables dependencies <table>` - Show what tables reference this one
-- [ ] `jsn tables diagram <table> [--format mermaid|dot]` - Generate relationship diagram
+- [x] `jsn tables relationships <table>` - Show reference fields TO this table
+- [x] `jsn tables dependencies <table>` - Show what tables reference this one
+- [x] `jsn tables diagram <table> [--format mermaid|dot]` - Generate relationship diagram
 
 **Tables**: `sys_dictionary` (where internal_type = 'reference')
 

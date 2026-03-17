@@ -55,6 +55,12 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(commands.NewACLsCmd())
 	root.AddCommand(commands.NewClientScriptsCmd())
 	root.AddCommand(commands.NewDocsCmd())
+	root.AddCommand(commands.NewLogsCmd())
+	root.AddCommand(commands.NewInstanceCmd())
+	root.AddCommand(commands.NewCompareCmd())
+	root.AddCommand(commands.NewExportCmd())
+	root.AddCommand(commands.NewImportCmd())
+	root.AddCommand(commands.NewGenerateCmd())
 	root.AddCommand(commands.NewCommandsCmd())
 	root.AddCommand(commands.NewVersionCmd())
 

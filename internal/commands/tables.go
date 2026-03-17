@@ -48,6 +48,9 @@ func NewTablesCmd() *cobra.Command {
 		newTablesShowCmd(),
 		newTablesSchemaCmd(),
 		newTablesColumnsCmd(),
+		newTablesRelationshipsCmd(),
+		newTablesDependenciesCmd(),
+		newTablesDiagramCmd(),
 	)
 
 	return cmd
@@ -1261,5 +1264,414 @@ func printMarkdownColumns(cmd *cobra.Command, table *sdk.Table, columns []sdk.Ta
 	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn tables list` — List all tables\n")
 
 	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// newTablesRelationshipsCmd creates the tables relationships command.
+func newTablesRelationshipsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "relationships [<name>]",
+		Short: "Show reference fields TO this table",
+		Long: `Show tables that have reference fields pointing TO this table.
+
+If no table name is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn tables relationships incident
+  jsn tables relationships  # Interactive picker`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return runTablesRelationships(cmd, name)
+		},
+	}
+}
+
+// runTablesRelationships executes the tables relationships command.
+func runTablesRelationships(cmd *cobra.Command, name string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive table selection if no name provided
+	if name == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Table name is required in non-interactive mode")
+		}
+
+		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table to view relationships:")
+		if err != nil {
+			return err
+		}
+		name = selectedTable
+	}
+
+	// Get the table
+	table, err := sdkClient.GetTable(cmd.Context(), name)
+	if err != nil {
+		return fmt.Errorf("failed to get table: %w", err)
+	}
+
+	// Find reference fields pointing to this table
+	columns, err := sdkClient.GetTableColumns(cmd.Context(), table.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	var referenceFields []map[string]string
+	for _, col := range columns {
+		if col.Reference == table.Name {
+			referenceFields = append(referenceFields, map[string]string{
+				"column": col.Name,
+				"label":  col.Label,
+				"table":  table.Name,
+			})
+		}
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledRelationships(cmd, table.Name, referenceFields)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownRelationships(cmd, table.Name, referenceFields)
+	}
+
+	return outputWriter.OK(referenceFields,
+		output.WithSummary(fmt.Sprintf("%d reference fields in %s", len(referenceFields), table.Name)),
+	)
+}
+
+// printStyledRelationships outputs styled relationships.
+func printStyledRelationships(cmd *cobra.Command, tableName string, fields []map[string]string) error {
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Reference Fields in %s", tableName)))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	if len(fields) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No reference fields found."))
+		fmt.Fprintln(cmd.OutOrStdout())
+		return nil
+	}
+
+	for _, f := range fields {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n",
+			f["column"],
+			mutedStyle.Render(f["label"]),
+		)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// printMarkdownRelationships outputs markdown relationships.
+func printMarkdownRelationships(cmd *cobra.Command, tableName string, fields []map[string]string) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "**Reference Fields in %s**\n\n", tableName)
+
+	if len(fields) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No reference fields found.")
+		return nil
+	}
+
+	for _, f := range fields {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s (%s)\n", f["column"], f["label"])
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// newTablesDependenciesCmd creates the tables dependencies command.
+func newTablesDependenciesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "dependencies [<name>]",
+		Short: "Show what tables this table references",
+		Long: `Show tables that this table has reference fields pointing TO.
+
+If no table name is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn tables dependencies incident
+  jsn tables dependencies  # Interactive picker`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return runTablesDependencies(cmd, name)
+		},
+	}
+}
+
+// runTablesDependencies executes the tables dependencies command.
+func runTablesDependencies(cmd *cobra.Command, name string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive table selection if no name provided
+	if name == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Table name is required in non-interactive mode")
+		}
+
+		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table to view dependencies:")
+		if err != nil {
+			return err
+		}
+		name = selectedTable
+	}
+
+	// Get the table
+	table, err := sdkClient.GetTable(cmd.Context(), name)
+	if err != nil {
+		return fmt.Errorf("failed to get table: %w", err)
+	}
+
+	// Find reference fields in this table
+	columns, err := sdkClient.GetTableColumns(cmd.Context(), table.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	var references []map[string]string
+	seen := make(map[string]bool)
+	for _, col := range columns {
+		if col.Reference != "" && !seen[col.Reference] {
+			seen[col.Reference] = true
+			references = append(references, map[string]string{
+				"column":    col.Name,
+				"label":     col.Label,
+				"reference": col.Reference,
+			})
+		}
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledDependencies(cmd, table.Name, references)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownDependencies(cmd, table.Name, references)
+	}
+
+	return outputWriter.OK(references,
+		output.WithSummary(fmt.Sprintf("%d table references from %s", len(references), table.Name)),
+	)
+}
+
+// printStyledDependencies outputs styled dependencies.
+func printStyledDependencies(cmd *cobra.Command, tableName string, refs []map[string]string) error {
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Table References from %s", tableName)))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	if len(refs) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No table references found."))
+		fmt.Fprintln(cmd.OutOrStdout())
+		return nil
+	}
+
+	for _, r := range refs {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s → %s (%s)\n",
+			r["column"],
+			r["reference"],
+			mutedStyle.Render(r["label"]),
+		)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// printMarkdownDependencies outputs markdown dependencies.
+func printMarkdownDependencies(cmd *cobra.Command, tableName string, refs []map[string]string) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "**Table References from %s**\n\n", tableName)
+
+	if len(refs) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No table references found.")
+		return nil
+	}
+
+	for _, r := range refs {
+		fmt.Fprintf(cmd.OutOrStdout(), "- %s → %s (%s)\n", r["column"], r["reference"], r["label"])
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// newTablesDiagramCmd creates the tables diagram command.
+func newTablesDiagramCmd() *cobra.Command {
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "diagram [<name>]",
+		Short: "Generate relationship diagram",
+		Long: `Generate a relationship diagram for a table in Mermaid or DOT format.
+
+If no table name is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn tables diagram incident --format mermaid
+  jsn tables diagram task --format dot`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return runTablesDiagram(cmd, name, format)
+		},
+	}
+
+	cmd.Flags().StringVarP(&format, "format", "f", "mermaid", "Diagram format (mermaid, dot)")
+
+	return cmd
+}
+
+// runTablesDiagram executes the tables diagram command.
+func runTablesDiagram(cmd *cobra.Command, name, format string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive table selection if no name provided
+	if name == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Table name is required in non-interactive mode")
+		}
+
+		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table for diagram:")
+		if err != nil {
+			return err
+		}
+		name = selectedTable
+	}
+
+	// Get the table
+	table, err := sdkClient.GetTable(cmd.Context(), name)
+	if err != nil {
+		return fmt.Errorf("failed to get table: %w", err)
+	}
+
+	// Get reference fields
+	columns, err := sdkClient.GetTableColumns(cmd.Context(), table.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	// Generate diagram
+	switch format {
+	case "dot":
+		return printDOTDiagram(cmd, table, columns)
+	default:
+		return printMermaidDiagram(cmd, table, columns)
+	}
+}
+
+// printMermaidDiagram outputs a Mermaid diagram.
+func printMermaidDiagram(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableColumn) error {
+	fmt.Fprintln(cmd.OutOrStdout(), "```mermaid")
+	fmt.Fprintln(cmd.OutOrStdout(), "erDiagram")
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Print the main table
+	fmt.Fprintf(cmd.OutOrStdout(), "    %s {\n", table.Name)
+	for _, col := range columns {
+		if col.Reference == "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "        %s %s\n", col.Type, col.Name)
+		}
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "    }")
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Print related tables and relationships
+	seen := make(map[string]bool)
+	for _, col := range columns {
+		if col.Reference != "" && !seen[col.Reference] {
+			seen[col.Reference] = true
+			fmt.Fprintf(cmd.OutOrStdout(), "    %s ||--o{ %s : \"%s\"\n",
+				table.Name, col.Reference, col.Name)
+		}
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "```")
+	return nil
+}
+
+// printDOTDiagram outputs a DOT (Graphviz) diagram.
+func printDOTDiagram(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableColumn) error {
+	fmt.Fprintln(cmd.OutOrStdout(), "digraph G {")
+	fmt.Fprintln(cmd.OutOrStdout(), "    rankdir=LR;")
+	fmt.Fprintln(cmd.OutOrStdout(), "    node [shape=box];")
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Print nodes
+	seen := make(map[string]bool)
+	fmt.Fprintf(cmd.OutOrStdout(), "    \"%s\" [label=\"%s\"];\n", table.Name, table.Label)
+	for _, col := range columns {
+		if col.Reference != "" && !seen[col.Reference] {
+			seen[col.Reference] = true
+			fmt.Fprintf(cmd.OutOrStdout(), "    \"%s\";\n", col.Reference)
+		}
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Print edges
+	for _, col := range columns {
+		if col.Reference != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "    \"%s\" -> \"%s\" [label=\"%s\"];\n",
+				table.Name, col.Reference, col.Name)
+		}
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "}")
 	return nil
 }

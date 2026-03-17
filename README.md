@@ -1,3 +1,7 @@
+THIS IS Rough.  
+
+only tested on arch linux but would love others input.
+
 # JSN - ServiceNow CLI
 
 **Agent-first, agent-native** 

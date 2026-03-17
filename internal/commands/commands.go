@@ -31,11 +31,14 @@ func CommandCategories() []CommandCategory {
 		{
 			Name: "Explore",
 			Commands: []CommandInfo{
-				{Name: "tables", Category: "explore", Description: "List and inspect tables", Actions: []string{"list", "show", "schema", "columns"}},
+				{Name: "tables", Category: "explore", Description: "List and inspect tables", Actions: []string{"list", "show", "schema", "columns", "relationships", "dependencies", "diagram"}},
 				{Name: "rules", Category: "explore", Description: "List and view business rules", Actions: []string{"list", "show", "script"}},
-				{Name: "flows", Category: "explore", Description: "List and view flows", Actions: []string{"list", "show"}},
-				{Name: "jobs", Category: "explore", Description: "List scheduled jobs", Actions: []string{"list", "show"}},
+				{Name: "flows", Category: "explore", Description: "List and view flows", Actions: []string{"list", "show", "executions", "debug", "variables", "activate", "deactivate"}},
+				{Name: "jobs", Category: "explore", Description: "List scheduled jobs", Actions: []string{"list", "show", "executions", "logs", "run", "script"}},
 				{Name: "script-includes", Category: "explore", Description: "List and view script includes", Actions: []string{"list", "show", "code"}},
+				{Name: "ui-policies", Category: "explore", Description: "List UI policies", Actions: []string{"list", "show", "script"}},
+				{Name: "client-scripts", Category: "explore", Description: "List client scripts", Actions: []string{"list", "show", "script"}},
+				{Name: "acls", Category: "explore", Description: "List ACLs", Actions: []string{"list", "show", "script", "check"}},
 			},
 		},
 		{
@@ -49,6 +52,18 @@ func CommandCategories() []CommandCategory {
 			Name: "Development",
 			Commands: []CommandInfo{
 				{Name: "updateset", Category: "dev", Description: "Manage update sets", Actions: []string{"list", "show", "use", "create", "parent"}},
+				{Name: "generate", Category: "dev", Description: "Generate code templates", Actions: []string{"gliderecord", "script-include", "rest", "test", "acl"}},
+				{Name: "compare", Category: "dev", Description: "Compare across instances", Actions: []string{"tables", "script-includes", "choices", "flows"}},
+				{Name: "export", Category: "dev", Description: "Export resources", Actions: []string{"script-includes", "tables", "update-set"}},
+				{Name: "import", Category: "dev", Description: "Import resources"},
+			},
+		},
+		{
+			Name: "Debugging",
+			Commands: []CommandInfo{
+				{Name: "logs", Category: "debug", Description: "Query system logs"},
+				{Name: "instance", Category: "debug", Description: "Instance information", Actions: []string{"info"}},
+				{Name: "docs", Category: "debug", Description: "Documentation", Actions: []string{"list", "search", "update"}},
 			},
 		},
 		{
@@ -82,16 +97,45 @@ func NewCommandsCmd() *cobra.Command {
 			categories := CommandCategories()
 
 			outputWriter := app.Output.(*output.Writer)
+			format := outputWriter.GetFormat()
+			isTTY := output.IsTTY(cmd.OutOrStdout())
 
-			// For styled terminal output, render grouped columns directly
-			if outputWriter.GetFormat() == output.FormatStyled {
+			// Determine effective format
+			effectiveFormat := format
+			if format == output.FormatAuto {
+				if isTTY {
+					effectiveFormat = output.FormatStyled
+				} else {
+					effectiveFormat = output.FormatJSON
+				}
+			}
+
+			// For styled terminal output, render grouped columns
+			if effectiveFormat == output.FormatStyled {
 				renderCommandsStyled(cmd.OutOrStdout(), categories)
 				return nil
 			}
 
-			return outputWriter.OK(categories,
-				output.WithSummary("All available jsn commands"),
-			)
+			// For JSON output, provide clean structure
+			if effectiveFormat == output.FormatJSON {
+				return outputWriter.OK(categories,
+					output.WithSummary("All available jsn commands"),
+				)
+			}
+
+			// For markdown, render simple list
+			if effectiveFormat == output.FormatMarkdown {
+				renderCommandsMarkdown(cmd.OutOrStdout(), categories)
+				return nil
+			}
+
+			// Quiet format - just command names
+			for _, cat := range categories {
+				for _, c := range cat.Commands {
+					fmt.Fprintln(cmd.OutOrStdout(), c.Name)
+				}
+			}
+			return nil
 		},
 	}
 }
@@ -131,5 +175,23 @@ func renderCommandsStyled(w io.Writer, categories []CommandCategory) {
 			}
 			fmt.Fprintln(w, line)
 		}
+	}
+}
+
+// renderCommandsMarkdown writes a markdown formatted command listing.
+func renderCommandsMarkdown(w io.Writer, categories []CommandCategory) {
+	fmt.Fprintln(w, "# Available Commands")
+	fmt.Fprintln(w)
+
+	for _, cat := range categories {
+		fmt.Fprintf(w, "## %s\n\n", cat.Name)
+		for _, cmd := range cat.Commands {
+			fmt.Fprintf(w, "- **%s** - %s", cmd.Name, cmd.Description)
+			if len(cmd.Actions) > 0 {
+				fmt.Fprintf(w, " (%s)", strings.Join(cmd.Actions, ", "))
+			}
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w)
 	}
 }

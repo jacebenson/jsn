@@ -37,6 +37,10 @@ func NewJobsCmd() *cobra.Command {
 	cmd.AddCommand(
 		newJobsListCmd(),
 		newJobsShowCmd(),
+		newJobsExecutionsCmd(),
+		newJobsLogsCmd(),
+		newJobsRunCmd(),
+		newJobsScriptCmd(),
 	)
 
 	return cmd
@@ -518,6 +522,441 @@ func printMarkdownJob(cmd *cobra.Command, job *sdk.ScheduledJob, instanceURL str
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// newJobsExecutionsCmd creates the jobs executions command.
+func newJobsExecutionsCmd() *cobra.Command {
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "executions [<sys_id>]",
+		Short: "Show job execution history",
+		Long: `Display execution history for a scheduled job.
+
+If no sys_id is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn jobs executions 0123456789abcdef0123456789abcdef
+  jsn jobs executions --limit 50
+  jsn jobs executions  # Interactive picker`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var sysID string
+			if len(args) > 0 {
+				sysID = args[0]
+			}
+			return runJobsExecutions(cmd, sysID, limit)
+		},
+	}
+
+	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "Maximum number of executions to show")
+
+	return cmd
+}
+
+// runJobsExecutions executes the jobs executions command.
+func runJobsExecutions(cmd *cobra.Command, sysID string, limit int) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	cfg := appCtx.Config.(*config.Config)
+	profile := cfg.GetActiveProfile()
+	instanceURL := ""
+	if profile != nil {
+		instanceURL = profile.InstanceURL
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive job selection if no sys_id provided
+	if sysID == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Job sys_id is required in non-interactive mode")
+		}
+
+		selectedJob, err := pickJob(cmd.Context(), sdkClient, "Select a job to view executions:", "sys_trigger")
+		if err != nil {
+			return err
+		}
+		sysID = selectedJob
+	}
+
+	opts := &sdk.ListJobExecutionsOptions{
+		JobID:     sysID,
+		Limit:     limit,
+		OrderBy:   "sys_created_on",
+		OrderDesc: true,
+	}
+
+	executions, err := sdkClient.ListJobExecutions(cmd.Context(), opts)
+	if err != nil {
+		return fmt.Errorf("failed to list job executions: %w", err)
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledJobExecutions(cmd, executions, sysID, instanceURL)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownJobExecutions(cmd, executions, sysID)
+	}
+
+	// Build data for JSON
+	var data []map[string]any
+	for _, exec := range executions {
+		data = append(data, map[string]any{
+			"sys_id":   exec.SysID,
+			"job_id":   exec.JobID,
+			"job_name": exec.JobName,
+			"started":  exec.Started,
+			"duration": exec.Duration,
+			"status":   exec.Status,
+			"message":  exec.Message,
+			"server":   exec.Server,
+		})
+	}
+
+	return outputWriter.OK(data,
+		output.WithSummary(fmt.Sprintf("%d executions for job %s", len(executions), sysID)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn jobs list",
+				Description: "List all jobs",
+			},
+		),
+	)
+}
+
+// printStyledJobExecutions outputs styled job executions list.
+func printStyledJobExecutions(cmd *cobra.Command, executions []sdk.JobExecution, jobID string, instanceURL string) error {
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00aa00"))
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#aa0000"))
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Job Executions (%s)", jobID)))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	if len(executions) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No executions found for this job."))
+		fmt.Fprintln(cmd.OutOrStdout())
+		return nil
+	}
+
+	// Column headers
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-20s %-12s %-10s %s\n",
+		headerStyle.Render("Job Name"),
+		headerStyle.Render("Started"),
+		headerStyle.Render("Duration"),
+		headerStyle.Render("Status"),
+		headerStyle.Render("Message"),
+	)
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Executions
+	for _, exec := range executions {
+		statusStyle := mutedStyle
+		if exec.Status == "success" {
+			statusStyle = successStyle
+		} else if exec.Status == "error" || exec.Status == "failed" {
+			statusStyle = errorStyle
+		}
+
+		jobName := exec.JobName
+		if jobName == "" {
+			jobName = "-"
+		}
+		if len(jobName) > 38 {
+			jobName = jobName[:35] + "..."
+		}
+
+		started := exec.Started
+		if len(started) > 18 {
+			started = started[:16]
+		}
+
+		duration := exec.Duration
+		if duration == "" {
+			duration = "-"
+		}
+
+		message := exec.Message
+		if message == "" {
+			message = "-"
+		}
+		if len(message) > 30 {
+			message = message[:27] + "..."
+		}
+
+		// Make job name clickable if we have instance URL
+		if instanceURL != "" && exec.SysID != "" {
+			link := fmt.Sprintf("%s/syslog_transaction.do?sys_id=%s", instanceURL, exec.SysID)
+			jobNameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, jobName)
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-20s %-12s %-10s %s\n",
+				jobNameWithLink,
+				mutedStyle.Render(started),
+				mutedStyle.Render(duration),
+				statusStyle.Render(exec.Status),
+				mutedStyle.Render(message),
+			)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-20s %-12s %-10s %s\n",
+				jobName,
+				mutedStyle.Render(started),
+				mutedStyle.Render(duration),
+				statusStyle.Render(exec.Status),
+				mutedStyle.Render(message),
+			)
+		}
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), "─────")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+		"jsn jobs show "+jobID,
+		mutedStyle.Render("Show job details"),
+	)
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+		"jsn jobs run "+jobID,
+		mutedStyle.Render("Execute job now"),
+	)
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// printMarkdownJobExecutions outputs markdown job executions list.
+func printMarkdownJobExecutions(cmd *cobra.Command, executions []sdk.JobExecution, jobID string) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "**Job Executions (%s)**\n\n", jobID)
+
+	if len(executions) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No executions found for this job.")
+		return nil
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), "| Started | Duration | Status | Server | Message |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|---------|----------|--------|--------|---------|")
+
+	for _, exec := range executions {
+		started := exec.Started
+		duration := exec.Duration
+		if duration == "" {
+			duration = "-"
+		}
+		server := exec.Server
+		if server == "" {
+			server = "-"
+		}
+		message := exec.Message
+		if message == "" {
+			message = "-"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %s |\n",
+			started, duration, exec.Status, server, message)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// newJobsLogsCmd creates the jobs logs command (alias for executions).
+func newJobsLogsCmd() *cobra.Command {
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "logs [<sys_id>]",
+		Short: "Show job execution logs (alias for executions)",
+		Long: `Display execution logs for a scheduled job. Alias for 'executions' command.
+
+If no sys_id is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn jobs logs 0123456789abcdef0123456789abcdef
+  jsn jobs logs --limit 50
+  jsn jobs logs  # Interactive picker`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var sysID string
+			if len(args) > 0 {
+				sysID = args[0]
+			}
+			return runJobsExecutions(cmd, sysID, limit)
+		},
+	}
+
+	cmd.Flags().IntVarP(&limit, "limit", "n", 20, "Maximum number of log entries to show")
+
+	return cmd
+}
+
+// newJobsRunCmd creates the jobs run command.
+func newJobsRunCmd() *cobra.Command {
+	var jobType string
+
+	cmd := &cobra.Command{
+		Use:   "run [<sys_id>]",
+		Short: "Execute a scheduled job immediately",
+		Long: `Trigger immediate execution of a scheduled job.
+
+If no sys_id is provided, an interactive picker will help you select one.
+Use --type to specify if looking for a scheduled script (sysauto_script).
+
+Examples:
+  jsn jobs run 0123456789abcdef0123456789abcdef
+  jsn jobs run --type script 0123456789abcdef0123456789abcdef
+  jsn jobs run  # Interactive picker`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var sysID string
+			if len(args) > 0 {
+				sysID = args[0]
+			}
+			return runJobsRun(cmd, sysID, jobType)
+		},
+	}
+
+	cmd.Flags().StringVarP(&jobType, "type", "t", "", "Job type: scheduled or script (required if sys_id not from sys_trigger)")
+
+	return cmd
+}
+
+// runJobsRun executes the jobs run command.
+func runJobsRun(cmd *cobra.Command, sysID, jobType string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Determine table
+	table := "sys_trigger"
+	if jobType == "script" {
+		table = "sysauto_script"
+	}
+
+	// Interactive job selection if no sys_id provided
+	if sysID == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Job sys_id is required in non-interactive mode")
+		}
+
+		selectedJob, err := pickJob(cmd.Context(), sdkClient, "Select a job to run:", table)
+		if err != nil {
+			return err
+		}
+		sysID = selectedJob
+	}
+
+	// Get job info for the success message
+	job, err := sdkClient.GetJob(cmd.Context(), sysID, table)
+	if err != nil {
+		return fmt.Errorf("failed to get job: %w", err)
+	}
+
+	// Execute the job
+	if err := sdkClient.ExecuteJob(cmd.Context(), sysID, table); err != nil {
+		return fmt.Errorf("failed to execute job: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id":   sysID,
+		"name":     job.Name,
+		"job_type": job.JobType,
+		"status":   "triggered",
+	},
+		output.WithSummary(fmt.Sprintf("Job '%s' execution triggered", job.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "executions",
+				Cmd:         fmt.Sprintf("jsn jobs executions %s", sysID),
+				Description: "View execution history",
+			},
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn jobs show %s", sysID),
+				Description: "Show job details",
+			},
+		),
+	)
+}
+
+// newJobsScriptCmd creates the jobs script command.
+func newJobsScriptCmd() *cobra.Command {
+	var jobType string
+
+	cmd := &cobra.Command{
+		Use:   "script <sys_id>",
+		Short: "Output just the script",
+		Long: `Output only the script content of a scheduled job.
+
+Use --type to specify if looking for a scheduled script (sysauto_script).
+
+Examples:
+  jsn jobs script 0123456789abcdef0123456789abcdef
+  jsn jobs script --type script 0123456789abcdef0123456789abcdef
+  jsn jobs script 0123456789abcdef0123456789abcdef > script.js`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runJobsScript(cmd, args[0], jobType)
+		},
+	}
+
+	cmd.Flags().StringVarP(&jobType, "type", "t", "", "Job type: scheduled or script (required if sys_id not from sys_trigger)")
+
+	return cmd
+}
+
+// runJobsScript executes the jobs script command.
+func runJobsScript(cmd *cobra.Command, sysID, jobType string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Determine table
+	table := "sys_trigger"
+	if jobType == "script" {
+		table = "sysauto_script"
+	}
+
+	// Get the job
+	job, err := sdkClient.GetJob(cmd.Context(), sysID, table)
+	if err != nil {
+		return fmt.Errorf("failed to get job: %w", err)
+	}
+
+	// Just output the script
+	fmt.Fprintln(cmd.OutOrStdout(), job.Script)
 	return nil
 }
 
