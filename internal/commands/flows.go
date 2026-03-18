@@ -1026,14 +1026,35 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 
 	if len(inspection.TimerTriggers) > 0 {
 		for _, trigger := range inspection.TimerTriggers {
-			timerType := getString(trigger, "timer_type")
-			time := getString(trigger, "time")
-
-			if timerType == "" {
-				timerType = "Timer"
+			// Handle timer_type which may be a choice field
+			timerType := ""
+			if tt, ok := trigger["timer_type"]; ok {
+				switch v := tt.(type) {
+				case string:
+					timerType = v
+				case map[string]interface{}:
+					timerType = getString(v, "display_value")
+					if timerType == "" {
+						timerType = getString(v, "value")
+					}
+				}
+			}
+			// Map common timer type values to display names
+			timerTypeDisplay := map[string]string{
+				"11": "Daily",
+				"10": "Hourly",
+				"12": "Weekly",
+				"13": "Monthly",
+				"0":  "Once",
+				"1":  "Periodically",
+			}[timerType]
+			if timerTypeDisplay == "" {
+				timerTypeDisplay = timerType
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerType))
+			time := getString(trigger, "time")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
 			if time != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(time))
 			}
@@ -1102,15 +1123,23 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 
 		// V2 Actions
 		for _, action := range inspection.ActionInstancesV2 {
-			actionType := ""
+			// Extract action type display name from reference field
+			actionType := "Unknown Action"
 			if at, ok := action["action_type"].(map[string]interface{}); ok {
-				actionType = getString(at, "display_value")
-			}
-			if actionType == "" {
-				actionType = getString(action, "action_type")
-			}
-			if actionType == "" {
-				actionType = "Unknown Action"
+				// Try to get display_value from the reference
+				if dv, ok := at["display_value"].(string); ok && dv != "" {
+					actionType = dv
+				} else if link, ok := at["link"].(string); ok && link != "" {
+					// Extract action name from link URL (e.g., .../sys_hub_action_type_base/5bc1bcc6...)
+					parts := strings.Split(link, "/")
+					if len(parts) > 0 {
+						lastPart := parts[len(parts)-1]
+						// Try to get the action type name from a known mapping or use shortened sys_id
+						if len(lastPart) > 8 {
+							actionType = "Action (" + lastPart[:8] + "...)"
+						}
+					}
+				}
 			}
 
 			values := getString(action, "values")
