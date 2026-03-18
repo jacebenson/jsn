@@ -885,6 +885,30 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 	versionQuery.Set("sysparm_limit", "1")
 	if resp, err := c.Get(ctx, "sys_hub_flow_version", versionQuery); err == nil && len(resp.Result) > 0 {
 		inspection.Version = resp.Result[0]
+
+		// Parse payload to extract trigger configuration (time, etc.)
+		if payload, ok := resp.Result[0]["payload"].(string); ok && payload != "" {
+			var payloadData map[string]interface{}
+			if err := json.Unmarshal([]byte(payload), &payloadData); err == nil {
+				// Extract trigger time from triggerInstances
+				if triggerInstances, ok := payloadData["triggerInstances"].([]interface{}); ok && len(triggerInstances) > 0 {
+					if firstTrigger, ok := triggerInstances[0].(map[string]interface{}); ok {
+						if inputs, ok := firstTrigger["inputs"].([]interface{}); ok {
+							for _, input := range inputs {
+								if inputMap, ok := input.(map[string]interface{}); ok {
+									if name, ok := inputMap["name"].(string); ok && name == "time" {
+										if value, ok := inputMap["value"].(string); ok && value != "" {
+											// Store trigger time in version record for display
+											resp.Result[0]["trigger_time"] = value
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Get flow components

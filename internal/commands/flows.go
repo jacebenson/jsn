@@ -1067,9 +1067,26 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 		time := getString(activeTrigger, "time")
 		runStart := getString(activeTrigger, "run_start")
 
+		// Get trigger time from version record payload if available
+		triggerTime := ""
+		if len(inspection.Version) > 0 {
+			if tt, ok := inspection.Version["trigger_time"].(string); ok && tt != "" {
+				// Extract just the time part (HH:MM:SS) from the datetime
+				parts := strings.Split(tt, " ")
+				if len(parts) == 2 {
+					triggerTime = parts[1]
+				} else {
+					triggerTime = tt
+				}
+			}
+		}
+		if triggerTime == "" && time != "" && time != "1970-01-01 00:00:00" {
+			triggerTime = time
+		}
+
 		fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
-		if time != "" && time != "1970-01-01 00:00:00" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(time))
+		if triggerTime != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(triggerTime))
 		}
 		if runStart != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "  Run Start: %s\n", mutedStyle.Render(runStart))
