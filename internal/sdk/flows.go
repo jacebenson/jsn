@@ -234,24 +234,37 @@ type FlowAction struct {
 	FlowID string `json:"flow_id"`
 }
 
-// GetFlowActions retrieves actions for a flow from sys_hub_action_instance.
+// GetFlowActions retrieves actions for a flow from sys_hub_action_instance and sys_hub_action_instance_v2.
 func (c *Client) GetFlowActions(ctx context.Context, flowID string) ([]FlowAction, error) {
+	var allActions []FlowAction
+
+	// Check V1 action instances
 	query := url.Values{}
 	query.Set("sysparm_limit", "100")
 	query.Set("sysparm_fields", "sys_id,name,action_type,order,active,flow")
 	query.Set("sysparm_query", fmt.Sprintf("flow=%s^ORDERBYorder", flowID))
 
 	resp, err := c.Get(ctx, "sys_hub_action_instance", query)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		for _, record := range resp.Result {
+			allActions = append(allActions, flowActionFromRecord(record))
+		}
 	}
 
-	actions := make([]FlowAction, len(resp.Result))
-	for i, record := range resp.Result {
-		actions[i] = flowActionFromRecord(record)
+	// Check V2 action instances
+	queryV2 := url.Values{}
+	queryV2.Set("sysparm_limit", "100")
+	queryV2.Set("sysparm_fields", "sys_id,action_type,order,flow,values")
+	queryV2.Set("sysparm_query", fmt.Sprintf("flow=%s^ORDERBYorder", flowID))
+
+	respV2, err := c.Get(ctx, "sys_hub_action_instance_v2", queryV2)
+	if err == nil {
+		for _, record := range respV2.Result {
+			allActions = append(allActions, flowActionFromRecordV2(record))
+		}
 	}
 
-	return actions, nil
+	return allActions, nil
 }
 
 // flowActionFromRecord converts a record map to a FlowAction struct.
@@ -287,6 +300,29 @@ func flowActionFromRecord(record map[string]interface{}) FlowAction {
 		Action: actionType,
 		Order:  getInt(record, "order"),
 		Active: getBool(record, "active"),
+		FlowID: getString(record, "flow"),
+	}
+}
+
+// flowActionFromRecordV2 converts a V2 action record map to a FlowAction struct.
+func flowActionFromRecordV2(record map[string]interface{}) FlowAction {
+	// Handle action_type which may be a reference field
+	actionType := getDisplayValue(record, "action_type")
+	if actionType == "" {
+		if at, ok := record["action_type"].(map[string]interface{}); ok {
+			actionType = getString(at, "value")
+		}
+		if actionType == "" {
+			actionType = getString(record, "action_type")
+		}
+	}
+
+	return FlowAction{
+		SysID:  getString(record, "sys_id"),
+		Name:   "", // V2 doesn't have a name field directly
+		Action: actionType,
+		Order:  getInt(record, "order"),
+		Active: true, // V2 actions are active by default
 		FlowID: getString(record, "flow"),
 	}
 }
