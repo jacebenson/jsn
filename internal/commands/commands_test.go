@@ -190,7 +190,7 @@ func TestInstanceCommand(t *testing.T) {
 func TestFlowsSubcommands(t *testing.T) {
 	cmd := NewFlowsCmd()
 
-	subcommands := []string{"list", "show", "executions", "debug", "variables", "activate", "deactivate"}
+	subcommands := []string{"list", "show", "executions", "execute"}
 	for _, name := range subcommands {
 		t.Run(name, func(t *testing.T) {
 			sub := findSubcommand(cmd, name)
