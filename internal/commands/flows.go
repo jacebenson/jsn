@@ -44,6 +44,7 @@ func NewFlowsCmd() *cobra.Command {
 		newFlowsCreateCmd(),
 		newFlowsDeleteCmd(),
 		newFlowsUpdateCmd(),
+		newFlowsActionsCmd(),
 	)
 
 	return cmd
@@ -1537,5 +1538,174 @@ func runFlowsUpdate(cmd *cobra.Command, identifier string, flags flowsUpdateFlag
 				Description: "Show flow details",
 			},
 		),
+	)
+}
+
+// newFlowsActionsCmd creates the flows actions command group.
+func newFlowsActionsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "actions",
+		Short: "Manage flow actions",
+		Long:  "Add, list, and manage actions in Flow Designer flows.",
+	}
+
+	cmd.AddCommand(
+		newFlowsActionsAddCmd(),
+		newFlowsActionsListCmd(),
+	)
+
+	return cmd
+}
+
+// flowsActionsAddFlags holds the flags for the flows actions add command.
+type flowsActionsAddFlags struct {
+	actionType string
+	name       string
+	order      int
+	inputs     map[string]string
+}
+
+// newFlowsActionsAddCmd creates the flows actions add command.
+func newFlowsActionsAddCmd() *cobra.Command {
+	var flags flowsActionsAddFlags
+
+	cmd := &cobra.Command{
+		Use:   "add <flow_name_or_id>",
+		Short: "Add an action to a flow",
+		Long: `Add an action to a Flow Designer flow.
+
+Examples:
+  jsn flows actions add "My Flow" --type "core.log" --name "Log Message" --order 100
+  jsn flows actions add "My Flow" --type "core.createRecord" --name "Create Incident" --order 200 --input table=incident --input short_description="Test"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runFlowsActionsAdd(cmd, args[0], flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.actionType, "type", "", "Action type (required) - e.g., core.log, core.createRecord")
+	cmd.Flags().StringVar(&flags.name, "name", "", "Action name (required)")
+	cmd.Flags().IntVar(&flags.order, "order", 100, "Action order/priority")
+	cmd.Flags().StringToStringVar(&flags.inputs, "input", nil, "Action inputs (key=value pairs)")
+
+	_ = cmd.MarkFlagRequired("type")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// runFlowsActionsAdd executes the flows actions add command.
+func runFlowsActionsAdd(cmd *cobra.Command, flowIdentifier string, flags flowsActionsAddFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Get the flow to resolve name to sys_id
+	flow, err := sdkClient.GetFlow(cmd.Context(), flowIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	// Convert inputs map to interface map
+	inputs := make(map[string]interface{})
+	for k, v := range flags.inputs {
+		inputs[k] = v
+	}
+
+	input := sdk.CreateFlowActionInput{
+		Name:       flags.name,
+		ActionType: flags.actionType,
+		Order:      flags.order,
+		Inputs:     inputs,
+	}
+
+	action, err := sdkClient.CreateFlowAction(cmd.Context(), flow.SysID, input)
+	if err != nil {
+		return fmt.Errorf("failed to add action: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id":      action.SysID,
+		"name":        action.Name,
+		"action_type": action.Action,
+		"order":       action.Order,
+		"flow_id":     flow.SysID,
+	},
+		output.WithSummary(fmt.Sprintf("Added action '%s' to flow '%s'", action.Name, flow.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "debug",
+				Cmd:         fmt.Sprintf("jsn flows debug %s", flow.SysID),
+				Description: "Show flow with actions",
+			},
+		),
+	)
+}
+
+// newFlowsActionsListCmd creates the flows actions list command.
+func newFlowsActionsListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list <flow_name_or_id>",
+		Short: "List actions in a flow",
+		Long: `List all actions in a Flow Designer flow.
+
+Examples:
+  jsn flows actions list "My Flow"
+  jsn flows actions list 1234567890abcdef1234567890abcdef`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runFlowsActionsList(cmd, args[0])
+		},
+	}
+}
+
+// runFlowsActionsList executes the flows actions list command.
+func runFlowsActionsList(cmd *cobra.Command, flowIdentifier string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Get the flow
+	flow, err := sdkClient.GetFlow(cmd.Context(), flowIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	// Get actions
+	actions, err := sdkClient.GetFlowActions(cmd.Context(), flow.SysID)
+	if err != nil {
+		return fmt.Errorf("failed to get flow actions: %w", err)
+	}
+
+	// Build data for output
+	var data []map[string]any
+	for _, action := range actions {
+		data = append(data, map[string]any{
+			"sys_id":      action.SysID,
+			"name":        action.Name,
+			"action_type": action.Action,
+			"order":       action.Order,
+			"active":      action.Active,
+		})
+	}
+
+	return outputWriter.OK(data,
+		output.WithSummary(fmt.Sprintf("%d actions in flow '%s'", len(actions), flow.Name)),
 	)
 }
