@@ -1,9 +1,13 @@
 package commands
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -1025,39 +1029,55 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 	fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
 
 	if len(inspection.TimerTriggers) > 0 {
+		// Show only the first active timer trigger (flows typically have one main trigger)
+		activeTrigger := inspection.TimerTriggers[0]
 		for _, trigger := range inspection.TimerTriggers {
-			// Handle timer_type which may be a choice field
-			timerType := ""
-			if tt, ok := trigger["timer_type"]; ok {
-				switch v := tt.(type) {
-				case string:
-					timerType = v
-				case map[string]interface{}:
-					timerType = getString(v, "display_value")
-					if timerType == "" {
-						timerType = getString(v, "value")
-					}
+			if getString(trigger, "active") == "true" {
+				activeTrigger = trigger
+				break
+			}
+		}
+
+		// Handle timer_type which may be a choice field
+		timerType := ""
+		if tt, ok := activeTrigger["timer_type"]; ok {
+			switch v := tt.(type) {
+			case string:
+				timerType = v
+			case map[string]interface{}:
+				timerType = getString(v, "display_value")
+				if timerType == "" {
+					timerType = getString(v, "value")
 				}
 			}
-			// Map common timer type values to display names
-			timerTypeDisplay := map[string]string{
-				"11": "Daily",
-				"10": "Hourly",
-				"12": "Weekly",
-				"13": "Monthly",
-				"0":  "Once",
-				"1":  "Periodically",
-			}[timerType]
-			if timerTypeDisplay == "" {
-				timerTypeDisplay = timerType
-			}
+		}
+		// Map common timer type values to display names
+		timerTypeDisplay := map[string]string{
+			"11": "Daily",
+			"10": "Hourly",
+			"12": "Weekly",
+			"13": "Monthly",
+			"0":  "Once",
+			"1":  "Periodically",
+		}[timerType]
+		if timerTypeDisplay == "" {
+			timerTypeDisplay = timerType
+		}
 
-			time := getString(trigger, "time")
+		time := getString(activeTrigger, "time")
+		runStart := getString(activeTrigger, "run_start")
 
-			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
-			if time != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(time))
-			}
+		fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
+		if time != "" && time != "1970-01-01 00:00:00" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(time))
+		}
+		if runStart != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  Run Start: %s\n", mutedStyle.Render(runStart))
+		}
+
+		// If there are multiple triggers, note it
+		if len(inspection.TimerTriggers) > 1 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", mutedStyle.Render(fmt.Sprintf("(+%d additional timer triggers)", len(inspection.TimerTriggers)-1)))
 		}
 	} else if len(inspection.TriggerInstances) > 0 {
 		for _, trigger := range inspection.TriggerInstances {
@@ -1144,14 +1164,27 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 
 			values := getString(action, "values")
 
-			fmt.Fprintf(cmd.OutOrStdout(), "\n  %d. %s %s\n", actionNum, valueStyle.Render(actionType), mutedStyle.Render("(V2)"))
+			// Decode gzipped values to get action configuration
+			decodedValues := decodeGzippedValues(values)
 
-			// Parse values JSON if present
-			if values != "" {
-				var inputs map[string]interface{}
-				if err := json.Unmarshal([]byte(values), &inputs); err == nil {
-					for key, val := range inputs {
-						fmt.Fprintf(cmd.OutOrStdout(), "     %s: %v\n", mutedStyle.Render(key), val)
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  %d. %s\n", actionNum, valueStyle.Render(actionType))
+
+			// Show decoded values if present
+			if decodedValues != nil {
+				// Show message if present
+				if message, ok := decodedValues["message"].(string); ok && message != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Message"), valueStyle.Render(message))
+				}
+				// Show level if present
+				if level, ok := decodedValues["level"].(string); ok && level != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Level"), valueStyle.Render(level))
+				}
+				// Show other configuration values
+				for key, val := range decodedValues {
+					if key != "message" && key != "level" {
+						if strVal, ok := val.(string); ok && strVal != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render(key), valueStyle.Render(strVal))
+						}
 					}
 				}
 			}
@@ -1264,6 +1297,40 @@ func getString(m map[string]interface{}, key string) string {
 		}
 	}
 	return ""
+}
+
+// decodeGzippedValues decodes base64-encoded gzipped JSON data.
+func decodeGzippedValues(data string) map[string]interface{} {
+	if data == "" {
+		return nil
+	}
+
+	// Decode base64
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil
+	}
+
+	// Decompress gzip
+	reader, err := gzip.NewReader(bytes.NewReader(decoded))
+	if err != nil {
+		return nil
+	}
+	defer reader.Close()
+
+	// Read decompressed data
+	decompressed, err := io.ReadAll(reader)
+	if err != nil {
+		return nil
+	}
+
+	// Parse JSON
+	var result map[string]interface{}
+	if err := json.Unmarshal(decompressed, &result); err != nil {
+		return nil
+	}
+
+	return result
 }
 
 // newFlowsVariablesCmd creates the flows variables command.
