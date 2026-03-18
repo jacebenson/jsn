@@ -2685,3 +2685,162 @@ func (c *Client) UpdateFlowStatus(ctx context.Context, flowID string, active boo
 
 	return nil
 }
+
+// CreateFlowInput holds parameters for creating a new flow.
+type CreateFlowInput struct {
+	Name        string
+	Description string
+	Scope       string // Scope name or sys_id
+	Active      bool
+	RunAs       string // "system", "user", or sys_id of a user
+}
+
+// CreateFlow creates a new flow with basic configuration.
+func (c *Client) CreateFlow(ctx context.Context, input CreateFlowInput) (*Flow, error) {
+	data := map[string]interface{}{
+		"name":        input.Name,
+		"description": input.Description,
+		"active":      input.Active,
+	}
+
+	// Handle scope - resolve scope name to sys_id if needed
+	if input.Scope != "" {
+		if len(input.Scope) == 32 {
+			// Looks like a sys_id
+			data["sys_scope"] = input.Scope
+		} else {
+			// Try to resolve scope name to sys_id
+			app, err := c.GetApplication(ctx, input.Scope)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve scope '%s': %w", input.Scope, err)
+			}
+			data["sys_scope"] = app.SysID
+		}
+	}
+
+	// Handle run_as
+	if input.RunAs != "" {
+		data["run_as"] = input.RunAs
+	}
+
+	resp, err := c.Post(ctx, "sys_hub_flow", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create flow: %w", err)
+	}
+
+	if resp.Result == nil {
+		return nil, fmt.Errorf("no response from create flow")
+	}
+
+	flow := flowFromRecord(resp.Result)
+	return &flow, nil
+}
+
+// DeleteFlow deletes a flow by sys_id or name.
+// If cascade is true, it will also delete related records (actions, variables, etc.)
+func (c *Client) DeleteFlow(ctx context.Context, identifier string, cascade bool) error {
+	// First, get the flow to resolve name to sys_id
+	flow, err := c.GetFlow(ctx, identifier)
+	if err != nil {
+		return err
+	}
+
+	// If cascade, delete related records first
+	if cascade {
+		// Delete action instances
+		if err := c.deleteFlowActions(ctx, flow.SysID); err != nil {
+			return fmt.Errorf("failed to delete flow actions: %w", err)
+		}
+
+		// Delete variables
+		if err := c.deleteFlowVariables(ctx, flow.SysID); err != nil {
+			return fmt.Errorf("failed to delete flow variables: %w", err)
+		}
+	}
+
+	// Delete the flow itself
+	return c.Delete(ctx, "sys_hub_flow", flow.SysID)
+}
+
+// deleteFlowActions deletes all action instances for a flow.
+func (c *Client) deleteFlowActions(ctx context.Context, flowID string) error {
+	query := url.Values{}
+	query.Set("sysparm_fields", "sys_id")
+	query.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+
+	resp, err := c.Get(ctx, "sys_hub_action_instance", query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range resp.Result {
+		sysID := getString(record, "sys_id")
+		if sysID != "" {
+			if err := c.Delete(ctx, "sys_hub_action_instance", sysID); err != nil {
+				// Log but continue - some actions might already be deleted
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
+// deleteFlowVariables deletes all variables for a flow.
+func (c *Client) deleteFlowVariables(ctx context.Context, flowID string) error {
+	query := url.Values{}
+	query.Set("sysparm_fields", "sys_id")
+	query.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+
+	resp, err := c.Get(ctx, "sys_hub_flow_variable", query)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range resp.Result {
+		sysID := getString(record, "sys_id")
+		if sysID != "" {
+			if err := c.Delete(ctx, "sys_hub_flow_variable", sysID); err != nil {
+				// Log but continue
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
+// UpdateFlow updates flow properties (name, description, run_as, etc.).
+func (c *Client) UpdateFlow(ctx context.Context, identifier string, updates map[string]interface{}) (*Flow, error) {
+	// First, get the flow to resolve name to sys_id
+	flow, err := c.GetFlow(ctx, identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle scope resolution if scope is being updated
+	if scope, ok := updates["scope"]; ok {
+		scopeStr := fmt.Sprintf("%v", scope)
+		if scopeStr != "" && len(scopeStr) != 32 {
+			// Try to resolve scope name to sys_id
+			app, err := c.GetApplication(ctx, scopeStr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve scope '%s': %w", scopeStr, err)
+			}
+			updates["sys_scope"] = app.SysID
+			delete(updates, "scope")
+		}
+	}
+
+	resp, err := c.Patch(ctx, "sys_hub_flow", flow.SysID, updates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update flow: %w", err)
+	}
+
+	if resp.Result == nil {
+		return nil, fmt.Errorf("no response from update flow")
+	}
+
+	updatedFlow := flowFromRecord(resp.Result)
+	return &updatedFlow, nil
+}

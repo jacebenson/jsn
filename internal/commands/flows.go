@@ -41,6 +41,9 @@ func NewFlowsCmd() *cobra.Command {
 		newFlowsVariablesCmd(),
 		newFlowsActivateCmd(),
 		newFlowsDeactivateCmd(),
+		newFlowsCreateCmd(),
+		newFlowsDeleteCmd(),
+		newFlowsUpdateCmd(),
 	)
 
 	return cmd
@@ -1231,6 +1234,306 @@ func runFlowsActivate(cmd *cobra.Command, name string, activate bool) error {
 			output.Breadcrumb{
 				Action:      "show",
 				Cmd:         fmt.Sprintf("jsn flows show %s", name),
+				Description: "Show flow details",
+			},
+		),
+	)
+}
+
+// flowsCreateFlags holds the flags for the flows create command.
+type flowsCreateFlags struct {
+	name        string
+	description string
+	scope       string
+	active      bool
+	runAs       string
+}
+
+// newFlowsCreateCmd creates the flows create command.
+func newFlowsCreateCmd() *cobra.Command {
+	var flags flowsCreateFlags
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new flow",
+		Long: `Create a new Flow Designer flow.
+
+Examples:
+  jsn flows create --name "My Flow" --description "Test flow" --scope "x_myapp"
+  jsn flows create --name "Simple Flow" --active`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runFlowsCreate(cmd, flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.name, "name", "", "Flow name (required)")
+	cmd.Flags().StringVar(&flags.description, "description", "", "Flow description")
+	cmd.Flags().StringVar(&flags.scope, "scope", "", "Application scope (name or sys_id)")
+	cmd.Flags().BoolVar(&flags.active, "active", false, "Create as active")
+	cmd.Flags().StringVar(&flags.runAs, "run-as", "", "Run as: system, user, or sys_id")
+
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// runFlowsCreate executes the flows create command.
+func runFlowsCreate(cmd *cobra.Command, flags flowsCreateFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	input := sdk.CreateFlowInput{
+		Name:        flags.name,
+		Description: flags.description,
+		Scope:       flags.scope,
+		Active:      flags.active,
+		RunAs:       flags.runAs,
+	}
+
+	flow, err := sdkClient.CreateFlow(cmd.Context(), input)
+	if err != nil {
+		return fmt.Errorf("failed to create flow: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id": flow.SysID,
+		"name":   flow.Name,
+		"active": flow.Active,
+	},
+		output.WithSummary(fmt.Sprintf("Created flow '%s'", flow.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn flows show %s", flow.SysID),
+				Description: "Show flow details",
+			},
+			output.Breadcrumb{
+				Action:      "activate",
+				Cmd:         fmt.Sprintf("jsn flows activate %s", flow.SysID),
+				Description: "Activate the flow",
+			},
+		),
+	)
+}
+
+// flowsDeleteFlags holds the flags for the flows delete command.
+type flowsDeleteFlags struct {
+	cascade bool
+}
+
+// newFlowsDeleteCmd creates the flows delete command.
+func newFlowsDeleteCmd() *cobra.Command {
+	var flags flowsDeleteFlags
+
+	cmd := &cobra.Command{
+		Use:   "delete [<flow_name_or_id>]",
+		Short: "Delete a flow",
+		Long: `Delete a Flow Designer flow.
+
+If no flow name or sys_id is provided, an interactive picker will help you select one.
+Use --cascade to also delete related records (actions, variables).
+
+Examples:
+  jsn flows delete "My Flow"
+  jsn flows delete 1234567890abcdef1234567890abcdef
+  jsn flows delete "My Flow" --cascade`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var identifier string
+			if len(args) > 0 {
+				identifier = args[0]
+			}
+			return runFlowsDelete(cmd, identifier, flags)
+		},
+	}
+
+	cmd.Flags().BoolVar(&flags.cascade, "cascade", false, "Also delete related records (actions, variables)")
+
+	return cmd
+}
+
+// runFlowsDelete executes the flows delete command.
+func runFlowsDelete(cmd *cobra.Command, identifier string, flags flowsDeleteFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive flow selection if no identifier provided
+	if identifier == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Flow name or sys_id is required in non-interactive mode")
+		}
+
+		selectedFlow, err := pickFlow(cmd.Context(), sdkClient, "Select a flow to delete:")
+		if err != nil {
+			return err
+		}
+		identifier = selectedFlow
+	}
+
+	// Get the flow first to show what we're deleting
+	flow, err := sdkClient.GetFlow(cmd.Context(), identifier)
+	if err != nil {
+		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	// Delete the flow
+	if err := sdkClient.DeleteFlow(cmd.Context(), flow.SysID, flags.cascade); err != nil {
+		return fmt.Errorf("failed to delete flow: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id":  flow.SysID,
+		"name":    flow.Name,
+		"cascade": flags.cascade,
+	},
+		output.WithSummary(fmt.Sprintf("Deleted flow '%s'", flow.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn flows list",
+				Description: "List remaining flows",
+			},
+		),
+	)
+}
+
+// flowsUpdateFlags holds the flags for the flows update command.
+type flowsUpdateFlags struct {
+	name        string
+	description string
+	scope       string
+	active      bool
+	inactive    bool
+	runAs       string
+}
+
+// newFlowsUpdateCmd creates the flows update command.
+func newFlowsUpdateCmd() *cobra.Command {
+	var flags flowsUpdateFlags
+
+	cmd := &cobra.Command{
+		Use:   "update [<flow_name_or_id>]",
+		Short: "Update a flow",
+		Long: `Update a Flow Designer flow's properties.
+
+If no flow name or sys_id is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn flows update "My Flow" --name "New Name"
+  jsn flows update "My Flow" --description "Updated description"
+  jsn flows update "My Flow" --active
+  jsn flows update "My Flow" --run-as system`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var identifier string
+			if len(args) > 0 {
+				identifier = args[0]
+			}
+			return runFlowsUpdate(cmd, identifier, flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.name, "name", "", "New flow name")
+	cmd.Flags().StringVar(&flags.description, "description", "", "New description")
+	cmd.Flags().StringVar(&flags.scope, "scope", "", "New scope (name or sys_id)")
+	cmd.Flags().BoolVar(&flags.active, "active", false, "Activate the flow")
+	cmd.Flags().BoolVar(&flags.inactive, "inactive", false, "Deactivate the flow")
+	cmd.Flags().StringVar(&flags.runAs, "run-as", "", "Run as: system, user, or sys_id")
+
+	cmd.MarkFlagsMutuallyExclusive("active", "inactive")
+
+	return cmd
+}
+
+// runFlowsUpdate executes the flows update command.
+func runFlowsUpdate(cmd *cobra.Command, identifier string, flags flowsUpdateFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive flow selection if no identifier provided
+	if identifier == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Flow name or sys_id is required in non-interactive mode")
+		}
+
+		selectedFlow, err := pickFlow(cmd.Context(), sdkClient, "Select a flow to update:")
+		if err != nil {
+			return err
+		}
+		identifier = selectedFlow
+	}
+
+	// Build updates map
+	updates := make(map[string]interface{})
+
+	if flags.name != "" {
+		updates["name"] = flags.name
+	}
+	if flags.description != "" {
+		updates["description"] = flags.description
+	}
+	if flags.scope != "" {
+		updates["scope"] = flags.scope
+	}
+	if flags.active {
+		updates["active"] = true
+	}
+	if flags.inactive {
+		updates["active"] = false
+	}
+	if flags.runAs != "" {
+		updates["run_as"] = flags.runAs
+	}
+
+	if len(updates) == 0 {
+		return output.ErrUsage("no updates specified")
+	}
+
+	// Update the flow
+	flow, err := sdkClient.UpdateFlow(cmd.Context(), identifier, updates)
+	if err != nil {
+		return fmt.Errorf("failed to update flow: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id": flow.SysID,
+		"name":   flow.Name,
+		"active": flow.Active,
+	},
+		output.WithSummary(fmt.Sprintf("Updated flow '%s'", flow.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn flows show %s", flow.SysID),
 				Description: "Show flow details",
 			},
 		),
