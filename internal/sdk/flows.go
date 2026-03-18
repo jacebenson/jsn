@@ -941,6 +941,33 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 	actionV2Query.Set("sysparm_fields", "sys_id,action_type,order,values,display_text")
 	if resp, err := c.Get(ctx, "sys_hub_action_instance_v2", actionV2Query); err == nil {
 		inspection.ActionInstancesV2 = resp.Result
+
+		// Look up action type names for V2 actions
+		actionTypeCache := make(map[string]string)
+		for _, action := range inspection.ActionInstancesV2 {
+			if at, ok := action["action_type"].(map[string]interface{}); ok {
+				actionID := getString(at, "value")
+				if actionID != "" {
+					// Check cache first
+					if name, found := actionTypeCache[actionID]; found {
+						at["display_value"] = name
+					} else {
+						// Fetch action type name
+						typeQuery := url.Values{}
+						typeQuery.Set("sysparm_query", fmt.Sprintf("sys_id=%s", actionID))
+						typeQuery.Set("sysparm_fields", "sys_id,name")
+						typeQuery.Set("sysparm_limit", "1")
+						if typeResp, err := c.Get(ctx, "sys_hub_action_type_base", typeQuery); err == nil && len(typeResp.Result) > 0 {
+							name := getString(typeResp.Result[0], "name")
+							if name != "" {
+								at["display_value"] = name
+								actionTypeCache[actionID] = name
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Get step instances (limit to 50, filter to only include ones with matching flow)
