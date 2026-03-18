@@ -61,6 +61,11 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(commands.NewExportCmd())
 	root.AddCommand(commands.NewImportCmd())
 	root.AddCommand(commands.NewGenerateCmd())
+	root.AddCommand(commands.NewPortalsCmd())
+	root.AddCommand(commands.NewWidgetsCmd())
+	root.AddCommand(commands.NewPagesCmd())
+	root.AddCommand(commands.NewFormsCmd())
+	root.AddCommand(commands.NewUIScriptsCmd())
 	root.AddCommand(commands.NewCommandsCmd())
 	root.AddCommand(commands.NewVersionCmd())
 

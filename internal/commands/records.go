@@ -42,6 +42,7 @@ func NewRecordsCmd() *cobra.Command {
 		newRecordsUpdateCmd(),
 		newRecordsDeleteCmd(),
 		newRecordsQueryCmd(),
+		newRecordsCountCmd(),
 		newRecordsVariablesCmd(),
 	)
 
@@ -1027,6 +1028,170 @@ Examples:
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all records (no limit)")
 
 	return cmd
+}
+
+// newRecordsCountCmd creates the records count command.
+func newRecordsCountCmd() *cobra.Command {
+	var query string
+
+	cmd := &cobra.Command{
+		Use:   "count [<table>]",
+		Short: "Count records in a table",
+		Long: `Count the number of records in a ServiceNow table.
+
+Interactive Mode:
+  When running in a terminal without a table argument, automatically uses an interactive
+  picker to select a table.
+
+Examples:
+  jsn records count incident
+  jsn records count incident --query "active=true"
+  jsn records count --query "priority=1" incident`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var table string
+			if len(args) > 0 {
+				table = args[0]
+			}
+			return runRecordsCount(cmd, table, query)
+		},
+	}
+
+	cmd.Flags().StringVar(&query, "query", "", "ServiceNow encoded query filter")
+
+	return cmd
+}
+
+// runRecordsCount executes the records count command.
+func runRecordsCount(cmd *cobra.Command, table, query string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive table selection if no table provided
+	if table == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Table name is required in non-interactive mode")
+		}
+
+		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table to count records from:")
+		if err != nil {
+			return err
+		}
+		table = selectedTable
+	}
+
+	// Count the records
+	opts := &sdk.CountRecordsOptions{
+		Query: query,
+	}
+
+	count, err := sdkClient.CountRecords(cmd.Context(), table, opts)
+	if err != nil {
+		return fmt.Errorf("failed to count records: %w", err)
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledCount(cmd, table, count, query)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownCount(cmd, table, count, query)
+	}
+
+	// Build breadcrumbs
+	breadcrumbs := []output.Breadcrumb{
+		{
+			Action:      "list",
+			Cmd:         fmt.Sprintf("jsn records list %s", table),
+			Description: "List records",
+		},
+		{
+			Action:      "query",
+			Cmd:         fmt.Sprintf("jsn records query %s \"%s\"", table, query),
+			Description: "Query with filter",
+		},
+	}
+
+	return outputWriter.OK(map[string]interface{}{
+		"table": table,
+		"count": count,
+		"query": query,
+	},
+		output.WithSummary(fmt.Sprintf("%d records in %s", count, table)),
+		output.WithBreadcrumbs(breadcrumbs...),
+	)
+}
+
+// printStyledCount outputs styled count result.
+func printStyledCount(cmd *cobra.Command, table string, count int, query string) error {
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	labelStyle := mutedStyle
+
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Title
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Record Count: %s", table)))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Count display
+	fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n",
+		labelStyle.Render("Count:"),
+		headerStyle.Render(fmt.Sprintf("%d", count)),
+	)
+
+	// Show query if provided
+	if query != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n",
+			labelStyle.Render("Query:"),
+			query,
+		)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Hints
+	fmt.Fprintln(cmd.OutOrStdout(), "─────")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+		fmt.Sprintf("jsn records list %s", table),
+		labelStyle.Render("List all records"),
+	)
+	if query != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+			fmt.Sprintf("jsn records query %s \"%s\"", table, query),
+			labelStyle.Render("Query with filter"),
+		)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// printMarkdownCount outputs markdown count result.
+func printMarkdownCount(cmd *cobra.Command, table string, count int, query string) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "**Record Count: %s**\n\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- **Count:** %d\n", count)
+	if query != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "- **Query:** `%s`\n", query)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
 }
 
 // Helper functions

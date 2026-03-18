@@ -205,8 +205,25 @@ func tableFromRecord(record map[string]interface{}) Table {
 }
 
 // getString safely extracts a string value from a map.
+// Handles both direct string values and display_value objects from sysparm_display_value=all
 func getString(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok && v != nil {
+		// Check if it's a display_value object (from sysparm_display_value=all)
+		if obj, ok := v.(map[string]interface{}); ok {
+			if displayVal, ok := obj["display_value"]; ok && displayVal != nil {
+				if s, ok := displayVal.(string); ok {
+					return s
+				}
+			}
+			// Fallback to value field
+			if val, ok := obj["value"]; ok && val != nil {
+				if s, ok := val.(string); ok {
+					return s
+				}
+			}
+			return ""
+		}
+		// Direct string value
 		if s, ok := v.(string); ok {
 			return s
 		}
@@ -229,6 +246,37 @@ func getBool(m map[string]interface{}, key string) bool {
 
 func getInt(m map[string]interface{}, key string) int {
 	if v, ok := m[key]; ok && v != nil {
+		// Check if it's a display_value object (from sysparm_display_value=all)
+		if obj, ok := v.(map[string]interface{}); ok {
+			// Try display_value first, then value
+			if displayVal, ok := obj["display_value"]; ok && displayVal != nil {
+				switch dv := displayVal.(type) {
+				case int:
+					return dv
+				case float64:
+					return int(dv)
+				case string:
+					if i, err := strconv.Atoi(dv); err == nil {
+						return i
+					}
+				}
+			}
+			// Fallback to value field
+			if val, ok := obj["value"]; ok && val != nil {
+				switch fv := val.(type) {
+				case int:
+					return fv
+				case float64:
+					return int(fv)
+				case string:
+					if i, err := strconv.Atoi(fv); err == nil {
+						return i
+					}
+				}
+			}
+			return 0
+		}
+		// Direct value
 		switch val := v.(type) {
 		case int:
 			return val
@@ -1115,6 +1163,78 @@ func (c *Client) UpdateRecord(ctx context.Context, table, sysID string, data map
 // DeleteRecord deletes a record by sys_id.
 func (c *Client) DeleteRecord(ctx context.Context, table, sysID string) error {
 	return c.Delete(ctx, table, sysID)
+}
+
+// CountRecordsOptions holds options for counting records.
+type CountRecordsOptions struct {
+	Query string
+}
+
+// AggregateResponse represents the response from the stats API.
+type AggregateResponse struct {
+	Result struct {
+		Stats map[string]string `json:"stats"`
+	} `json:"result"`
+}
+
+// CountRecords returns the count of records in a table matching the query.
+// Uses the Aggregate API (/api/now/stats) for efficient counting.
+func (c *Client) CountRecords(ctx context.Context, table string, opts *CountRecordsOptions) (int, error) {
+	if opts == nil {
+		opts = &CountRecordsOptions{}
+	}
+
+	query := url.Values{}
+	query.Set("sysparm_count", "true")
+
+	if opts.Query != "" {
+		query.Set("sysparm_query", opts.Query)
+	}
+
+	endpoint := fmt.Sprintf("%s/api/now/stats/%s?%s", c.baseURL, table, query.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return 0, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	username, password := c.getAuth()
+	req.SetBasicAuth(username, password)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result AggregateResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("parsing response: %w", err)
+	}
+
+	// Extract count from stats
+	countStr, ok := result.Result.Stats["count"]
+	if !ok {
+		return 0, fmt.Errorf("count not found in response")
+	}
+
+	count := 0
+	if _, err := fmt.Sscanf(countStr, "%d", &count); err != nil {
+		return 0, fmt.Errorf("parsing count: %w", err)
+	}
+
+	return count, nil
 }
 
 // GetRecordNumber retrieves a record by its number field (e.g., INC0010001).

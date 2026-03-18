@@ -39,6 +39,11 @@ func CommandCategories() []CommandCategory {
 				{Name: "ui-policies", Category: "explore", Description: "List UI policies", Actions: []string{"list", "show", "script"}},
 				{Name: "client-scripts", Category: "explore", Description: "List client scripts", Actions: []string{"list", "show", "script"}},
 				{Name: "acls", Category: "explore", Description: "List ACLs", Actions: []string{"list", "show", "script", "check"}},
+				{Name: "sp", Category: "explore", Description: "List and view Service Portals", Actions: []string{"list", "show"}},
+				{Name: "sp-widget", Category: "explore", Description: "List and view Service Portal widgets", Actions: []string{"list", "show"}},
+				{Name: "sp-page", Category: "explore", Description: "List and view Service Portal pages", Actions: []string{"list", "show"}},
+				{Name: "forms", Category: "explore", Description: "List and view UI form layouts", Actions: []string{"list", "show"}},
+				{Name: "ui-scripts", Category: "explore", Description: "List and view UI scripts", Actions: []string{"list", "show"}},
 			},
 		},
 		{
