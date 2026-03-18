@@ -480,21 +480,39 @@ func (c *Client) DeleteFlow(ctx context.Context, identifier string, cascade bool
 
 // deleteFlowActions deletes all action instances for a flow.
 func (c *Client) deleteFlowActions(ctx context.Context, flowID string) error {
+	// Delete V1 action instances
 	query := url.Values{}
 	query.Set("sysparm_fields", "sys_id")
 	query.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
 
 	resp, err := c.Get(ctx, "sys_hub_action_instance", query)
-	if err != nil {
-		return err
+	if err == nil {
+		for _, record := range resp.Result {
+			sysID := getString(record, "sys_id")
+			if sysID != "" {
+				_ = c.Delete(ctx, "sys_hub_action_instance", sysID)
+			}
+		}
 	}
 
-	for _, record := range resp.Result {
-		sysID := getString(record, "sys_id")
-		if sysID != "" {
-			if err := c.Delete(ctx, "sys_hub_action_instance", sysID); err != nil {
-				// Log but continue - some actions might already be deleted
-				continue
+	// Delete V2 action instances
+	respV2, err := c.Get(ctx, "sys_hub_action_instance_v2", query)
+	if err == nil {
+		for _, record := range respV2.Result {
+			sysID := getString(record, "sys_id")
+			if sysID != "" {
+				_ = c.Delete(ctx, "sys_hub_action_instance_v2", sysID)
+			}
+		}
+	}
+
+	// Delete flow components (triggers and actions)
+	respComp, err := c.Get(ctx, "sys_hub_flow_component", query)
+	if err == nil {
+		for _, record := range respComp.Result {
+			sysID := getString(record, "sys_id")
+			if sysID != "" {
+				_ = c.Delete(ctx, "sys_hub_flow_component", sysID)
 			}
 		}
 	}
