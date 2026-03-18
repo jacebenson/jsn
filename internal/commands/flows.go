@@ -1067,8 +1067,9 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 		time := getString(activeTrigger, "time")
 		runStart := getString(activeTrigger, "run_start")
 
-		// Get trigger time from version record payload if available
+		// Get trigger time and name from version record payload if available
 		triggerTime := ""
+		triggerName := ""
 		if len(inspection.Version) > 0 {
 			if tt, ok := inspection.Version["trigger_time"].(string); ok && tt != "" {
 				// Extract just the time part (HH:MM:SS) from the datetime
@@ -1079,17 +1080,26 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 					triggerTime = tt
 				}
 			}
+			if tn, ok := inspection.Version["trigger_name"].(string); ok && tn != "" {
+				triggerName = tn
+			}
 		}
 		if triggerTime == "" && time != "" && time != "1970-01-01 00:00:00" {
 			triggerTime = time
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
+		// Show trigger name if available, otherwise show type
+		if triggerName != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", valueStyle.Render(triggerName))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Schedule"), valueStyle.Render(timerTypeDisplay))
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
+		}
 		if triggerTime != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(triggerTime))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Time"), mutedStyle.Render(triggerTime))
 		}
 		if runStart != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  Run Start: %s\n", mutedStyle.Render(runStart))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Run Start"), mutedStyle.Render(runStart))
 		}
 
 		// If there are multiple triggers, note it
@@ -1126,12 +1136,19 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 		// V1 Actions
 		for _, action := range inspection.ActionInstances {
 			actionType := ""
+			// Try to get display name from action_type reference
 			if at, ok := action["action_type"].(map[string]interface{}); ok {
 				actionType = getString(at, "display_value")
 			}
+			// Fallback to name field on the action itself
+			if actionType == "" {
+				actionType = getString(action, "name")
+			}
+			// Fallback to raw action_type value
 			if actionType == "" {
 				actionType = getString(action, "action_type")
 			}
+			// Last resort
 			if actionType == "" {
 				actionType = "Unknown Action"
 			}

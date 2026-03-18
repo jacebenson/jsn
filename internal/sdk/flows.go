@@ -886,13 +886,18 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 	if resp, err := c.Get(ctx, "sys_hub_flow_version", versionQuery); err == nil && len(resp.Result) > 0 {
 		inspection.Version = resp.Result[0]
 
-		// Parse payload to extract trigger configuration (time, etc.)
+		// Parse payload to extract trigger configuration (time, name, etc.)
 		if payload, ok := resp.Result[0]["payload"].(string); ok && payload != "" {
 			var payloadData map[string]interface{}
 			if err := json.Unmarshal([]byte(payload), &payloadData); err == nil {
-				// Extract trigger time from triggerInstances
+				// Extract trigger info from triggerInstances
 				if triggerInstances, ok := payloadData["triggerInstances"].([]interface{}); ok && len(triggerInstances) > 0 {
 					if firstTrigger, ok := triggerInstances[0].(map[string]interface{}); ok {
+						// Extract trigger name
+						if triggerName, ok := firstTrigger["name"].(string); ok && triggerName != "" {
+							resp.Result[0]["trigger_name"] = triggerName
+						}
+						// Extract trigger time from inputs
 						if inputs, ok := firstTrigger["inputs"].([]interface{}); ok {
 							for _, input := range inputs {
 								if inputMap, ok := input.(map[string]interface{}); ok {
@@ -954,9 +959,36 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 	// Get action instances (V1)
 	actionQuery := url.Values{}
 	actionQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	actionQuery.Set("sysparm_fields", "sys_id,action_type,order,active,comment,action_inputs,display_text")
+	actionQuery.Set("sysparm_fields", "sys_id,action_type,order,active,comment,action_inputs,display_text,name")
 	if resp, err := c.Get(ctx, "sys_hub_action_instance", actionQuery); err == nil {
 		inspection.ActionInstances = resp.Result
+
+		// Look up action type names for V1 actions
+		actionTypeCache := make(map[string]string)
+		for _, action := range inspection.ActionInstances {
+			if at, ok := action["action_type"].(map[string]interface{}); ok {
+				actionID := getString(at, "value")
+				if actionID != "" {
+					// Check cache first
+					if name, found := actionTypeCache[actionID]; found {
+						at["display_value"] = name
+					} else {
+						// Fetch action type name
+						typeQuery := url.Values{}
+						typeQuery.Set("sysparm_query", fmt.Sprintf("sys_id=%s", actionID))
+						typeQuery.Set("sysparm_fields", "sys_id,name")
+						typeQuery.Set("sysparm_limit", "1")
+						if typeResp, err := c.Get(ctx, "sys_hub_action_type_base", typeQuery); err == nil && len(typeResp.Result) > 0 {
+							name := getString(typeResp.Result[0], "name")
+							if name != "" {
+								at["display_value"] = name
+								actionTypeCache[actionID] = name
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Get action instances (V2)
