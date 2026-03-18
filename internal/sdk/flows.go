@@ -427,6 +427,7 @@ type FlowInspection struct {
 	RecordTriggers     []map[string]interface{}
 	ActionInstances    []map[string]interface{}
 	ActionInstancesV2  []map[string]interface{}
+	FlowLogicInstances []map[string]interface{}
 	StepInstances      []map[string]interface{}
 	FlowInputs         []map[string]interface{}
 	FlowDataVars       []map[string]interface{}
@@ -474,6 +475,25 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 									}
 								}
 							}
+						}
+					}
+				}
+				// Extract flow logic instances (If/Then/Else conditions)
+				if flowLogic, ok := payloadData["flowLogicInstances"].([]interface{}); ok {
+					inspection.FlowLogicInstances = make([]map[string]interface{}, 0, len(flowLogic))
+					for _, logic := range flowLogic {
+						if logicMap, ok := logic.(map[string]interface{}); ok {
+							inspection.FlowLogicInstances = append(inspection.FlowLogicInstances, logicMap)
+						}
+					}
+				}
+				// Extract action instances from payload (they have parent references to logic)
+				if actionInstances, ok := payloadData["actionInstances"].([]interface{}); ok {
+					for _, action := range actionInstances {
+						if actionMap, ok := action.(map[string]interface{}); ok {
+							// Store action instances from payload for full structure
+							// These have parent references showing the flow structure
+							inspection.ActionInstances = append(inspection.ActionInstances, actionMap)
 						}
 					}
 				}

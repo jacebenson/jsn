@@ -1,13 +1,9 @@
 package commands
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -1119,105 +1115,59 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 	}
 
 	// ACTIONS SECTION
-	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
-	if totalActions > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), actionStyle.Render("⚡ ACTIONS"))
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
+	// Build flow structure from version payload if available
+	if len(inspection.Version) > 0 {
+		if payload, ok := inspection.Version["payload"].(string); ok && payload != "" {
+			var payloadData map[string]interface{}
+			if err := json.Unmarshal([]byte(payload), &payloadData); err == nil {
+				// Show flow structure with logic and actions
+				fmt.Fprintln(cmd.OutOrStdout())
+				fmt.Fprintln(cmd.OutOrStdout(), actionStyle.Render("⚡ FLOW STRUCTURE"))
+				fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
 
-		actionNum := 1
-
-		// V1 Actions
-		for _, action := range inspection.ActionInstances {
-			actionType := ""
-			// Try to get display name from action_type reference
-			if at, ok := action["action_type"].(map[string]interface{}); ok {
-				actionType = getString(at, "display_value")
-			}
-			// Fallback to name field on the action itself
-			if actionType == "" {
-				actionType = getString(action, "name")
-			}
-			// Fallback to raw action_type value
-			if actionType == "" {
-				actionType = getString(action, "action_type")
-			}
-			// Last resort
-			if actionType == "" {
-				actionType = "Unknown Action"
-			}
-
-			comment := getString(action, "comment")
-			actionInputs := getString(action, "action_inputs")
-
-			fmt.Fprintf(cmd.OutOrStdout(), "\n  %d. %s\n", actionNum, valueStyle.Render(actionType))
-
-			if comment != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Annotation"), valueStyle.Render(comment))
-			}
-
-			// Parse action_inputs JSON if present
-			if actionInputs != "" {
-				var inputs map[string]interface{}
-				if err := json.Unmarshal([]byte(actionInputs), &inputs); err == nil {
-					for key, val := range inputs {
-						fmt.Fprintf(cmd.OutOrStdout(), "     %s: %v\n", mutedStyle.Render(key), val)
-					}
-				}
-			}
-
-			actionNum++
-		}
-
-		// V2 Actions
-		for _, action := range inspection.ActionInstancesV2 {
-			// Extract action type display name from reference field
-			actionType := "Unknown Action"
-			if at, ok := action["action_type"].(map[string]interface{}); ok {
-				// Try to get display_value from the reference
-				if dv, ok := at["display_value"].(string); ok && dv != "" {
-					actionType = dv
-				} else if link, ok := at["link"].(string); ok && link != "" {
-					// Extract action name from link URL (e.g., .../sys_hub_action_type_base/5bc1bcc6...)
-					parts := strings.Split(link, "/")
-					if len(parts) > 0 {
-						lastPart := parts[len(parts)-1]
-						// Try to get the action type name from a known mapping or use shortened sys_id
-						if len(lastPart) > 8 {
-							actionType = "Action (" + lastPart[:8] + "...)"
+				// Build maps for quick lookup
+				logicMap := make(map[string]map[string]interface{})
+				if flowLogic, ok := payloadData["flowLogicInstances"].([]interface{}); ok {
+					for _, logic := range flowLogic {
+						if logicMapItem, ok := logic.(map[string]interface{}); ok {
+							if logicID, ok := logicMapItem["id"].(string); ok {
+								logicMap[logicID] = logicMapItem
+							}
 						}
 					}
 				}
-			}
 
-			values := getString(action, "values")
-
-			// Decode gzipped values to get action configuration
-			decodedValues := decodeGzippedValues(values)
-
-			fmt.Fprintf(cmd.OutOrStdout(), "\n  %d. %s\n", actionNum, valueStyle.Render(actionType))
-
-			// Show decoded values if present
-			if decodedValues != nil {
-				// Show message if present (log_message)
-				if message, ok := decodedValues["log_message"].(string); ok && message != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Message"), valueStyle.Render(message))
-				}
-				// Show level if present (log_level)
-				if level, ok := decodedValues["log_level"].(string); ok && level != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Level"), valueStyle.Render(level))
-				}
-				// Show other configuration values
-				for key, val := range decodedValues {
-					if key != "log_message" && key != "log_level" {
-						if strVal, ok := val.(string); ok && strVal != "" {
-							fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render(key), valueStyle.Render(strVal))
+				actionMap := make(map[string]map[string]interface{})
+				if actionInstances, ok := payloadData["actionInstances"].([]interface{}); ok {
+					for _, action := range actionInstances {
+						if actionMapItem, ok := action.(map[string]interface{}); ok {
+							if actionID, ok := actionMapItem["id"].(string); ok {
+								actionMap[actionID] = actionMapItem
+							}
 						}
 					}
 				}
-			}
 
-			actionNum++
+				// Print flow structure
+				stepNum := 1
+				printedActions := make(map[string]bool)
+
+				// First, print actions with no parent (top level)
+				for _, action := range actionMap {
+					if parent, ok := action["parent"].(string); !ok || parent == "" {
+						printFlowStep(cmd, stepNum, action, logicMap, actionMap, printedActions, 0, valueStyle, mutedStyle)
+						stepNum++
+					}
+				}
+
+				// Print any remaining actions
+				for actionID, action := range actionMap {
+					if !printedActions[actionID] {
+						printFlowStep(cmd, stepNum, action, logicMap, actionMap, printedActions, 0, valueStyle, mutedStyle)
+						stepNum++
+					}
+				}
+			}
 		}
 	}
 
@@ -1242,6 +1192,64 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
+}
+
+// printFlowStep prints a flow step with proper indentation and handles nested logic
+func printFlowStep(cmd *cobra.Command, stepNum int, action map[string]interface{}, logicMap map[string]map[string]interface{}, actionMap map[string]map[string]interface{}, printedActions map[string]bool, indent int, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+	actionID := getString(action, "id")
+	if printedActions[actionID] {
+		return
+	}
+	printedActions[actionID] = true
+
+	// Get action name
+	actionName := getString(action, "actionName")
+	if actionName == "" {
+		actionName = getString(action, "actionInternalName")
+	}
+	if actionName == "" {
+		actionName = getString(action, "name")
+	}
+	if actionName == "" {
+		actionName = "Unknown Action"
+	}
+
+	// Get annotation/comment
+	comment := getString(action, "comment")
+	if comment == "" {
+		comment = getString(action, "displayText")
+	}
+
+	// Build indentation string
+	indentStr := strings.Repeat("  ", indent)
+
+	// Print the action
+	if stepNum > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "\n%s%d. %s\n", indentStr, stepNum, valueStyle.Render(actionName))
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "\n%s• %s\n", indentStr, valueStyle.Render(actionName))
+	}
+
+	if comment != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s   %s: %s\n", indentStr, mutedStyle.Render("Annotation"), valueStyle.Render(comment))
+	}
+
+	// Check if this action has children (actions that reference this as parent)
+	childNum := 1
+	for _, childAction := range actionMap {
+		if parent, ok := childAction["parent"].(string); ok && parent == actionID {
+			printFlowStep(cmd, childNum, childAction, logicMap, actionMap, printedActions, indent+1, valueStyle, mutedStyle)
+			childNum++
+		}
+	}
+
+	// Check for associated logic (If/Then/Else)
+	// Logic instances may reference this action or be referenced by it
+	for _, logic := range logicMap {
+		_ = logic
+		// TODO: Parse logic conditions and show If/Then/Else structure
+		// This requires understanding the logic instance structure
+	}
 }
 
 // printMarkdownFlowInspection outputs comprehensive markdown flow inspection.
@@ -1325,59 +1333,6 @@ func getString(m map[string]interface{}, key string) string {
 		}
 	}
 	return ""
-}
-
-// decodeGzippedValues decodes base64-encoded gzipped JSON data.
-// Returns a map of parameter names to their values.
-func decodeGzippedValues(data string) map[string]interface{} {
-	if data == "" {
-		return nil
-	}
-
-	// Decode base64
-	decoded, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return nil
-	}
-
-	// Decompress gzip
-	reader, err := gzip.NewReader(bytes.NewReader(decoded))
-	if err != nil {
-		return nil
-	}
-	defer reader.Close()
-
-	// Read decompressed data
-	decompressed, err := io.ReadAll(reader)
-	if err != nil {
-		return nil
-	}
-
-	// Try to parse as array first (V2 action format)
-	var arrayResult []map[string]interface{}
-	if err := json.Unmarshal(decompressed, &arrayResult); err == nil {
-		// Convert array to map using "name" field as key
-		result := make(map[string]interface{})
-		for _, item := range arrayResult {
-			if name, ok := item["name"].(string); ok && name != "" {
-				// Use displayValue if available, otherwise value
-				if displayValue, ok := item["displayValue"].(string); ok && displayValue != "" {
-					result[name] = displayValue
-				} else if value, ok := item["value"].(string); ok {
-					result[name] = value
-				}
-			}
-		}
-		return result
-	}
-
-	// Try to parse as map (fallback)
-	var mapResult map[string]interface{}
-	if err := json.Unmarshal(decompressed, &mapResult); err == nil {
-		return mapResult
-	}
-
-	return nil
 }
 
 // newFlowsVariablesCmd creates the flows variables command.
