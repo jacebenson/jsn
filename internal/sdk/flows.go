@@ -943,26 +943,43 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 		inspection.StepInstances = resp.Result
 	}
 
-	// Get flow inputs
+	// Get flow inputs (limit to 20, filter to only include ones with matching flow)
 	inputQuery := url.Values{}
 	inputQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	inputQuery.Set("sysparm_fields", "sys_id,name,type,value")
+	inputQuery.Set("sysparm_fields", "sys_id,name,type,value,flow")
+	inputQuery.Set("sysparm_limit", "20")
 	if resp, err := c.Get(ctx, "sys_hub_flow_input", inputQuery); err == nil {
-		inspection.FlowInputs = resp.Result
+		// Filter to only include records where flow matches
+		for _, record := range resp.Result {
+			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
+				if getString(flowRef, "value") == flowID {
+					inspection.FlowInputs = append(inspection.FlowInputs, record)
+				}
+			}
+		}
 	}
 
-	// Get flow data vars
+	// Get flow data vars (limit to 20, filter to only include ones with matching flow)
 	varQuery := url.Values{}
 	varQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	varQuery.Set("sysparm_fields", "sys_id,name,type,value")
+	varQuery.Set("sysparm_fields", "sys_id,name,type,value,flow")
+	varQuery.Set("sysparm_limit", "20")
 	if resp, err := c.Get(ctx, "sys_flow_data_var", varQuery); err == nil {
-		inspection.FlowDataVars = resp.Result
+		// Filter to only include records where flow matches
+		for _, record := range resp.Result {
+			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
+				if getString(flowRef, "value") == flowID {
+					inspection.FlowDataVars = append(inspection.FlowDataVars, record)
+				}
+			}
+		}
 	}
 
 	// Get trigger definitions
 	triggerDefQuery := url.Values{}
 	triggerDefQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
 	triggerDefQuery.Set("sysparm_fields", "sys_id,name,type,active")
+	triggerDefQuery.Set("sysparm_limit", "10")
 	if resp, err := c.Get(ctx, "sys_hub_trigger_definition", triggerDefQuery); err == nil {
 		inspection.TriggerDefinitions = resp.Result
 	}
