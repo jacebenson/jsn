@@ -46,6 +46,7 @@ func NewFlowsCmd() *cobra.Command {
 		newFlowsUpdateCmd(),
 		newFlowsActionsCmd(),
 		newFlowsTriggersCmd(),
+		newFlowsPublishCmd(),
 	)
 
 	return cmd
@@ -1795,6 +1796,84 @@ func runFlowsTriggersAddTimer(cmd *cobra.Command, flowIdentifier string, flags f
 		"active":   trigger.Active,
 	},
 		output.WithSummary(fmt.Sprintf("Added %s trigger to flow '%s'", trigger.Type, flow.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn flows show %s", flow.SysID),
+				Description: "Show flow details",
+			},
+		),
+	)
+}
+
+// newFlowsPublishCmd creates the flows publish command.
+func newFlowsPublishCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "publish [<flow_name_or_id>]",
+		Short: "Publish a flow (create snapshot)",
+		Long: `Publish a flow by creating a snapshot and making it usable in Flow Designer.
+
+If no flow name or sys_id is provided, an interactive picker will help you select one.
+
+Examples:
+  jsn flows publish "My Flow"
+  jsn flows publish 85841440c37ff6103c71770d050131c5`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var identifier string
+			if len(args) > 0 {
+				identifier = args[0]
+			}
+			return runFlowsPublish(cmd, identifier)
+		},
+	}
+}
+
+// runFlowsPublish executes the flows publish command.
+func runFlowsPublish(cmd *cobra.Command, identifier string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Interactive flow selection if no identifier provided
+	if identifier == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("Flow name or sys_id is required in non-interactive mode")
+		}
+
+		selectedFlow, err := pickFlow(cmd.Context(), sdkClient, "Select a flow to publish:")
+		if err != nil {
+			return err
+		}
+		identifier = selectedFlow
+	}
+
+	// Get the flow
+	flow, err := sdkClient.GetFlow(cmd.Context(), identifier)
+	if err != nil {
+		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	// Publish the flow
+	if err := sdkClient.PublishFlow(cmd.Context(), flow.SysID); err != nil {
+		return fmt.Errorf("failed to publish flow: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id": flow.SysID,
+		"name":   flow.Name,
+		"status": "Published",
+	},
+		output.WithSummary(fmt.Sprintf("Published flow '%s'", flow.Name)),
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",

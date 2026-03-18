@@ -607,3 +607,152 @@ func flowTriggerFromRecord(record map[string]interface{}, triggerType string) Fl
 		Schedule: getString(record, "schedule"),
 	}
 }
+
+// PublishFlow creates a snapshot and publishes the flow to make it usable in Flow Designer.
+func (c *Client) PublishFlow(ctx context.Context, flowID string) error {
+	// First, get the flow to ensure it exists
+	flow, err := c.GetFlow(ctx, flowID)
+	if err != nil {
+		return err
+	}
+
+	// Get existing actions to build the snapshot
+	actions, err := c.GetFlowActions(ctx, flow.SysID)
+	if err != nil {
+		return fmt.Errorf("failed to get flow actions: %w", err)
+	}
+
+	// Get triggers
+	triggers, err := c.getFlowTriggers(ctx, flow.SysID)
+	if err != nil {
+		return fmt.Errorf("failed to get flow triggers: %w", err)
+	}
+
+	// Build a basic flow snapshot
+	snapshot := buildFlowSnapshot(flow, actions, triggers)
+
+	// Create the snapshot record
+	snapshotData := map[string]interface{}{
+		"flow":     flow.SysID,
+		"name":     flow.Name,
+		"snapshot": snapshot,
+	}
+
+	resp, err := c.Post(ctx, "sys_hub_flow_snapshot", snapshotData)
+	if err != nil {
+		return fmt.Errorf("failed to create flow snapshot: %w", err)
+	}
+
+	if resp.Result == nil {
+		return fmt.Errorf("no response from create snapshot")
+	}
+
+	snapshotID := getString(resp.Result, "sys_id")
+
+	// Update the flow to point to the snapshot and mark as published
+	updates := map[string]interface{}{
+		"latest_snapshot": snapshotID,
+		"master_snapshot": snapshotID,
+		"status":          "Published",
+	}
+
+	_, err = c.Patch(ctx, "sys_hub_flow", flow.SysID, updates)
+	if err != nil {
+		return fmt.Errorf("failed to publish flow: %w", err)
+	}
+
+	return nil
+}
+
+// getFlowTriggers retrieves all triggers for a flow.
+func (c *Client) getFlowTriggers(ctx context.Context, flowID string) ([]FlowTrigger, error) {
+	var triggers []FlowTrigger
+
+	// Check for timer triggers
+	query := url.Values{}
+	query.Set("sysparm_fields", "sys_id,flow,active,schedule")
+	query.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+
+	resp, err := c.Get(ctx, "sys_flow_timer_trigger", query)
+	if err == nil {
+		for _, record := range resp.Result {
+			triggers = append(triggers, flowTriggerFromRecord(record, "timer"))
+		}
+	}
+
+	// Check for record triggers
+	resp, err = c.Get(ctx, "sys_flow_record_trigger", query)
+	if err == nil {
+		for _, record := range resp.Result {
+			triggers = append(triggers, flowTriggerFromRecord(record, "record"))
+		}
+	}
+
+	return triggers, nil
+}
+
+// buildFlowSnapshot creates a JSON snapshot of the flow definition.
+func buildFlowSnapshot(flow *Flow, actions []FlowAction, triggers []FlowTrigger) string {
+	type flowNode struct {
+		ID       string                 `json:"id"`
+		Type     string                 `json:"type"`
+		Name     string                 `json:"name"`
+		ActionID string                 `json:"actionId,omitempty"`
+		Config   map[string]interface{} `json:"config,omitempty"`
+	}
+
+	type flowConnection struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+	}
+
+	type flowSnapshot struct {
+		FlowID      string           `json:"flowId"`
+		Name        string           `json:"name"`
+		Version     string           `json:"version"`
+		Nodes       []flowNode       `json:"nodes"`
+		Connections []flowConnection `json:"connections"`
+	}
+
+	snapshot := flowSnapshot{
+		FlowID:  flow.SysID,
+		Name:    flow.Name,
+		Version: "1",
+		Nodes:   []flowNode{},
+	}
+
+	// Add trigger nodes
+	for _, trigger := range triggers {
+		node := flowNode{
+			ID:   trigger.SysID,
+			Type: trigger.Type,
+			Name: trigger.Type,
+		}
+		if trigger.Type == "timer" {
+			node.Config = map[string]interface{}{"schedule": trigger.Schedule}
+		}
+		snapshot.Nodes = append(snapshot.Nodes, node)
+	}
+
+	// Add action nodes
+	for _, action := range actions {
+		node := flowNode{
+			ID:       action.SysID,
+			Type:     "action",
+			Name:     action.Name,
+			ActionID: action.Action,
+		}
+		snapshot.Nodes = append(snapshot.Nodes, node)
+	}
+
+	// Create simple linear connections
+	for i := 0; i < len(snapshot.Nodes)-1; i++ {
+		snapshot.Connections = append(snapshot.Connections, flowConnection{
+			Source: snapshot.Nodes[i].ID,
+			Target: snapshot.Nodes[i+1].ID,
+		})
+	}
+
+	snapshotJSON, _ := json.Marshal(snapshot)
+	return string(snapshotJSON)
+}
