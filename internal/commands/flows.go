@@ -45,6 +45,7 @@ func NewFlowsCmd() *cobra.Command {
 		newFlowsDeleteCmd(),
 		newFlowsUpdateCmd(),
 		newFlowsActionsCmd(),
+		newFlowsTriggersCmd(),
 	)
 
 	return cmd
@@ -1707,5 +1708,99 @@ func runFlowsActionsList(cmd *cobra.Command, flowIdentifier string) error {
 
 	return outputWriter.OK(data,
 		output.WithSummary(fmt.Sprintf("%d actions in flow '%s'", len(actions), flow.Name)),
+	)
+}
+
+// newFlowsTriggersCmd creates the flows triggers command group.
+func newFlowsTriggersCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "triggers",
+		Short: "Manage flow triggers",
+		Long:  "Add and manage triggers for Flow Designer flows.",
+	}
+
+	cmd.AddCommand(
+		newFlowsTriggersAddTimerCmd(),
+	)
+
+	return cmd
+}
+
+// flowsTriggersAddTimerFlags holds the flags for the flows triggers add-timer command.
+type flowsTriggersAddTimerFlags struct {
+	schedule string
+	active   bool
+}
+
+// newFlowsTriggersAddTimerCmd creates the flows triggers add-timer command.
+func newFlowsTriggersAddTimerCmd() *cobra.Command {
+	var flags flowsTriggersAddTimerFlags
+
+	cmd := &cobra.Command{
+		Use:   "add-timer <flow_name_or_id>",
+		Short: "Add a scheduled/timer trigger to a flow",
+		Long: `Add a timer trigger to run a flow on a schedule.
+
+The schedule uses cron format:
+  "0 * * * *"     - Every hour
+  "0 0 * * *"     - Daily at midnight
+  "*/15 * * * *"  - Every 15 minutes
+  "0 9 * * 1"     - Mondays at 9am
+
+Examples:
+  jsn flows triggers add-timer "My Flow" --schedule "0 * * * *"
+  jsn flows triggers add-timer "My Flow" --schedule "0 0 * * *" --active`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runFlowsTriggersAddTimer(cmd, args[0], flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.schedule, "schedule", "0 * * * *", "Cron schedule expression")
+	cmd.Flags().BoolVar(&flags.active, "active", false, "Activate the trigger immediately")
+
+	return cmd
+}
+
+// runFlowsTriggersAddTimer executes the flows triggers add-timer command.
+func runFlowsTriggersAddTimer(cmd *cobra.Command, flowIdentifier string, flags flowsTriggersAddTimerFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Get the flow
+	flow, err := sdkClient.GetFlow(cmd.Context(), flowIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	trigger, err := sdkClient.CreateFlowTimerTrigger(cmd.Context(), flow.SysID, flags.schedule, flags.active)
+	if err != nil {
+		return fmt.Errorf("failed to add timer trigger: %w", err)
+	}
+
+	return outputWriter.OK(map[string]any{
+		"sys_id":   trigger.SysID,
+		"flow_id":  flow.SysID,
+		"type":     trigger.Type,
+		"schedule": trigger.Schedule,
+		"active":   trigger.Active,
+	},
+		output.WithSummary(fmt.Sprintf("Added %s trigger to flow '%s'", trigger.Type, flow.Name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn flows show %s", flow.SysID),
+				Description: "Show flow details",
+			},
+		),
 	)
 }

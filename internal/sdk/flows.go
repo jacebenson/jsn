@@ -541,3 +541,69 @@ func (c *Client) CreateFlowAction(ctx context.Context, flowID string, input Crea
 	action := flowActionFromRecord(resp.Result)
 	return &action, nil
 }
+
+// FlowTrigger represents a flow trigger (record-based or scheduled).
+type FlowTrigger struct {
+	SysID    string `json:"sys_id"`
+	FlowID   string `json:"flow_id"`
+	Type     string `json:"type"` // "record", "timer", "manual"
+	Active   bool   `json:"active"`
+	Table    string `json:"table"`    // For record triggers
+	Schedule string `json:"schedule"` // For timer triggers (e.g., "0 * * * *" for hourly)
+}
+
+// CreateFlowTimerTrigger creates a scheduled/timer trigger for a flow.
+// The schedule uses cron format: "0 * * * *" = every hour, "0 0 * * *" = daily at midnight
+func (c *Client) CreateFlowTimerTrigger(ctx context.Context, flowID string, schedule string, active bool) (*FlowTrigger, error) {
+	data := map[string]interface{}{
+		"flow":     flowID,
+		"schedule": schedule,
+		"active":   active,
+	}
+
+	resp, err := c.Post(ctx, "sys_flow_timer_trigger", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create timer trigger: %w", err)
+	}
+
+	if resp.Result == nil {
+		return nil, fmt.Errorf("no response from create timer trigger")
+	}
+
+	trigger := flowTriggerFromRecord(resp.Result, "timer")
+	return &trigger, nil
+}
+
+// CreateFlowRecordTrigger creates a record-based trigger for a flow.
+func (c *Client) CreateFlowRecordTrigger(ctx context.Context, flowID string, table string, when string, active bool) (*FlowTrigger, error) {
+	data := map[string]interface{}{
+		"flow":   flowID,
+		"table":  table,
+		"when":   when, // "insert", "update", "delete"
+		"active": active,
+	}
+
+	resp, err := c.Post(ctx, "sys_flow_record_trigger", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create record trigger: %w", err)
+	}
+
+	if resp.Result == nil {
+		return nil, fmt.Errorf("no response from create record trigger")
+	}
+
+	trigger := flowTriggerFromRecord(resp.Result, "record")
+	return &trigger, nil
+}
+
+// flowTriggerFromRecord converts a record map to a FlowTrigger struct.
+func flowTriggerFromRecord(record map[string]interface{}, triggerType string) FlowTrigger {
+	return FlowTrigger{
+		SysID:    getString(record, "sys_id"),
+		FlowID:   getString(record, "flow"),
+		Type:     triggerType,
+		Active:   getBool(record, "active"),
+		Table:    getString(record, "table"),
+		Schedule: getString(record, "schedule"),
+	}
+}
