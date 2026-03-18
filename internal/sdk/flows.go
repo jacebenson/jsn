@@ -911,12 +911,20 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 		inspection.TimerTriggers = resp.Result
 	}
 
-	// Get record triggers
+	// Get record triggers (limit to 10, filter to only include ones with matching flow)
 	recordQuery := url.Values{}
 	recordQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	recordQuery.Set("sysparm_fields", "sys_id,active,table,when")
+	recordQuery.Set("sysparm_fields", "sys_id,active,table,when,flow")
+	recordQuery.Set("sysparm_limit", "10")
 	if resp, err := c.Get(ctx, "sys_flow_record_trigger", recordQuery); err == nil {
-		inspection.RecordTriggers = resp.Result
+		// Filter to only include records where flow matches
+		for _, record := range resp.Result {
+			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
+				if getString(flowRef, "value") == flowID {
+					inspection.RecordTriggers = append(inspection.RecordTriggers, record)
+				}
+			}
+		}
 	}
 
 	// Get action instances (V1)
@@ -935,12 +943,20 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 		inspection.ActionInstancesV2 = resp.Result
 	}
 
-	// Get step instances
+	// Get step instances (limit to 50, filter to only include ones with matching flow)
 	stepQuery := url.Values{}
 	stepQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	stepQuery.Set("sysparm_fields", "sys_id,action,step_type,order,label,inputs")
+	stepQuery.Set("sysparm_fields", "sys_id,action,step_type,order,label,inputs,flow")
+	stepQuery.Set("sysparm_limit", "50")
 	if resp, err := c.Get(ctx, "sys_hub_step_instance", stepQuery); err == nil {
-		inspection.StepInstances = resp.Result
+		// Filter to only include records where flow matches
+		for _, record := range resp.Result {
+			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
+				if getString(flowRef, "value") == flowID {
+					inspection.StepInstances = append(inspection.StepInstances, record)
+				}
+			}
+		}
 	}
 
 	// Get flow inputs (limit to 20, filter to only include ones with matching flow)
