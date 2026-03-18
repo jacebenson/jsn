@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -38,10 +40,6 @@ func NewFlowsCmd() *cobra.Command {
 		newFlowsListCmd(),
 		newFlowsShowCmd(),
 		newFlowsExecutionsCmd(),
-		newFlowsDebugCmd(),
-		newFlowsVariablesCmd(),
-		newFlowsActivateCmd(),
-		newFlowsDeactivateCmd(),
 		newFlowsExecuteCmd(),
 	)
 
@@ -141,7 +139,7 @@ func runFlowsList(cmd *cobra.Command, flags flowsListFlags) error {
 			return fmt.Errorf("no flow selected")
 		}
 		// Show the selected flow
-		return runFlowsShow(cmd, selectedFlow)
+		return runFlowsShow(cmd, selectedFlow, false)
 	}
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
@@ -385,28 +383,36 @@ func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
 // newFlowsShowCmd creates the flows show command.
 func newFlowsShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<name>]",
+		Use:   "show [<name>] [variables]",
 		Short: "Show flow details",
 		Long: `Display detailed information about a flow.
 
 If no name is provided, an interactive picker will help you select one.
+Use "variables" as the second argument to show only flow variables.
 
 Examples:
   jsn flows show "Approval Flow"
+  jsn flows show "Approval Flow" variables
   jsn flows show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
+		Args: cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
+			var showVariables bool
+
 			if len(args) > 0 {
 				name = args[0]
 			}
-			return runFlowsShow(cmd, name)
+			if len(args) > 1 && args[1] == "variables" {
+				showVariables = true
+			}
+
+			return runFlowsShow(cmd, name, showVariables)
 		},
 	}
 }
 
 // runFlowsShow executes the flows show command.
-func runFlowsShow(cmd *cobra.Command, name string) error {
+func runFlowsShow(cmd *cobra.Command, name string, showVariables bool) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -417,12 +423,6 @@ func runFlowsShow(cmd *cobra.Command, name string) error {
 	}
 
 	outputWriter := appCtx.Output.(*output.Writer)
-	cfg := appCtx.Config.(*config.Config)
-	profile := cfg.GetActiveProfile()
-	instanceURL := ""
-	if profile != nil {
-		instanceURL = profile.InstanceURL
-	}
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
@@ -440,46 +440,69 @@ func runFlowsShow(cmd *cobra.Command, name string) error {
 		name = selectedFlow
 	}
 
-	// Get the flow
+	// Get the flow first to get the ID
 	flow, err := sdkClient.GetFlow(cmd.Context(), name)
 	if err != nil {
 		return fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	// If showing variables only
+	if showVariables {
+		return showFlowVariables(cmd, flow, sdkClient, outputWriter)
+	}
+
+	// Use InspectFlow to get comprehensive flow details
+	inspection, err := sdkClient.InspectFlow(cmd.Context(), flow.SysID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect flow: %w", err)
 	}
 
 	// Determine output format
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
+	// Get instance URL for links
+	cfg := appCtx.Config.(*config.Config)
+	profile := cfg.GetActiveProfile()
+	instanceURL := ""
+	if profile != nil {
+		instanceURL = profile.InstanceURL
+	}
+
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledFlow(cmd, flow, instanceURL)
+		return printStyledFlowInspection(cmd, inspection, instanceURL)
 	}
 
 	if format == output.FormatMarkdown {
-		return printMarkdownFlow(cmd, flow, instanceURL)
+		return printMarkdownFlowInspection(cmd, inspection)
 	}
 
 	// Build data for JSON
 	data := map[string]any{
-		"sys_id":         flow.SysID,
-		"name":           flow.Name,
-		"active":         flow.Active,
-		"description":    flow.Description,
-		"scope":          flow.Scope,
-		"sys_scope":      flow.SysScope,
-		"version":        flow.Version,
-		"run_as":         flow.RunAs,
-		"run_as_user":    flow.RunAsUser,
-		"sys_created_on": flow.CreatedOn,
-		"sys_updated_on": flow.UpdatedOn,
-		"sys_created_by": flow.CreatedBy,
-		"sys_updated_by": flow.UpdatedBy,
+		"flow": map[string]any{
+			"sys_id":      inspection.Flow.SysID,
+			"name":        inspection.Flow.Name,
+			"active":      inspection.Flow.Active,
+			"description": inspection.Flow.Description,
+			"version":     inspection.Flow.Version,
+		},
+		"components":          inspection.Components,
+		"action_instances":    inspection.ActionInstances,
+		"action_instances_v2": inspection.ActionInstancesV2,
+		"trigger_instances":   inspection.TriggerInstances,
+		"timer_triggers":      inspection.TimerTriggers,
+		"record_triggers":     inspection.RecordTriggers,
+		"flow_inputs":         inspection.FlowInputs,
+		"flow_outputs":        inspection.FlowOutputs,
+		"flow_data_vars":      inspection.FlowDataVars,
+		"version_record":      inspection.Version,
 	}
 	if instanceURL != "" {
-		data["link"] = fmt.Sprintf("%s/sys_hub_flow.do?sys_id=%s", instanceURL, flow.SysID)
+		data["link"] = fmt.Sprintf("%s/sys_hub_flow.do?sys_id=%s", instanceURL, inspection.Flow.SysID)
 	}
 
 	return outputWriter.OK(data,
-		output.WithSummary(fmt.Sprintf("Flow: %s", flow.Name)),
+		output.WithSummary(fmt.Sprintf("Flow: %s", inspection.Flow.Name)),
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
@@ -490,104 +513,124 @@ func runFlowsShow(cmd *cobra.Command, name string) error {
 	)
 }
 
-// printStyledFlow outputs styled flow details.
-func printStyledFlow(cmd *cobra.Command, flow *sdk.Flow, instanceURL string) error {
+// showFlowVariables displays only the flow variables.
+func showFlowVariables(cmd *cobra.Command, flow *sdk.Flow, sdkClient *sdk.Client, outputWriter *output.Writer) error {
+	// Get flow variables
+	variables, err := sdkClient.GetFlowVariables(cmd.Context(), flow.SysID)
+	if err != nil {
+		return fmt.Errorf("failed to get flow variables: %w", err)
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledFlowVariables(cmd, flow, variables)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownFlowVariables(cmd, flow, variables)
+	}
+
+	// Build data for JSON
+	varData := make([]map[string]any, len(variables))
+	for i, v := range variables {
+		varData[i] = map[string]any{
+			"sys_id": v.SysID,
+			"name":   v.Name,
+			"type":   v.Type,
+			"label":  v.Label,
+			"value":  v.Value,
+		}
+	}
+
+	data := map[string]any{
+		"sys_id":    flow.SysID,
+		"name":      flow.Name,
+		"variables": varData,
+	}
+
+	return outputWriter.OK(data,
+		output.WithSummary(fmt.Sprintf("Flow Variables: %s (%d variables)", flow.Name, len(variables))),
+	)
+}
+
+// printStyledFlowVariables outputs styled flow variables.
+func printStyledFlowVariables(cmd *cobra.Command, flow *sdk.Flow, variables []sdk.FlowVariable) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	valueStyle := lipgloss.NewStyle()
 
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(flow.Name))
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow Variables: %s", flow.Name)))
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Basic info
-	status := "Active"
-	if !flow.Active {
-		status = "Inactive"
-	}
-
-	scope := flow.Scope
-	if scope == "" {
-		scope = flow.SysScope
-	}
-	if scope == "" {
-		scope = "global"
-	}
-
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Sys ID:"), valueStyle.Render(flow.SysID))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Status:"), valueStyle.Render(status))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Scope:"), valueStyle.Render(scope))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Version:"), valueStyle.Render(flow.Version))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Run As:"), valueStyle.Render(flow.RunAs))
-	if flow.RunAsUser != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Run As User:"), valueStyle.Render(flow.RunAsUser))
-	}
-
-	if flow.Description != "" {
+	if len(variables) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No variables defined for this flow."))
 		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", mutedStyle.Render("Description:"))
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", valueStyle.Render(flow.Description))
+		return nil
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "\n  %-20s %s\n", mutedStyle.Render("Created:"), valueStyle.Render(fmt.Sprintf("%s by %s", flow.CreatedOn, flow.CreatedBy)))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Updated:"), valueStyle.Render(fmt.Sprintf("%s by %s", flow.UpdatedOn, flow.UpdatedBy)))
+	// Column headers
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-30s %-20s %-30s %s\n",
+		headerStyle.Render("Name"),
+		headerStyle.Render("Type"),
+		headerStyle.Render("Label"),
+		headerStyle.Render("Value"),
+	)
+	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Link
-	if instanceURL != "" {
-		link := fmt.Sprintf("%s/sys_hub_flow.do?sys_id=%s", instanceURL, flow.SysID)
-		fmt.Fprintf(cmd.OutOrStdout(), "\n  %s  \x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\\n",
-			mutedStyle.Render("Link:"),
-			link,
-			link,
+	// Variables
+	for _, v := range variables {
+		name := v.Name
+		if len(name) > 28 {
+			name = name[:25] + "..."
+		}
+
+		label := v.Label
+		if len(label) > 28 {
+			label = label[:25] + "..."
+		}
+
+		value := v.Value
+		if value == "" {
+			value = "-"
+		}
+		if len(value) > 20 {
+			value = value[:17] + "..."
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-30s %-20s %-30s %s\n",
+			valueStyle.Render(name),
+			mutedStyle.Render(v.Type),
+			mutedStyle.Render(label),
+			mutedStyle.Render(value),
 		)
 	}
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), "─────")
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn flows list",
-		mutedStyle.Render("List all flows"),
-	)
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
 }
 
-// printMarkdownFlow outputs markdown flow details.
-func printMarkdownFlow(cmd *cobra.Command, flow *sdk.Flow, instanceURL string) error {
-	status := "Active"
-	if !flow.Active {
-		status = "Inactive"
+// printMarkdownFlowVariables outputs markdown flow variables.
+func printMarkdownFlowVariables(cmd *cobra.Command, flow *sdk.Flow, variables []sdk.FlowVariable) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "**Flow Variables: %s**\n\n", flow.Name)
+
+	if len(variables) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No variables defined for this flow.")
+		return nil
 	}
 
-	scope := flow.Scope
-	if scope == "" {
-		scope = flow.SysScope
-	}
-	if scope == "" {
-		scope = "global"
-	}
+	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Type | Label | Value |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|------|------|-------|-------|")
 
-	fmt.Fprintf(cmd.OutOrStdout(), "**%s**\n\n", flow.Name)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Sys ID:** %s\n", flow.SysID)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Status:** %s\n", status)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Scope:** %s\n", scope)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Version:** %s\n", flow.Version)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Run As:** %s\n", flow.RunAs)
-	if flow.RunAsUser != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "- **Run As User:** %s\n", flow.RunAsUser)
-	}
-	if flow.Description != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "- **Description:** %s\n", flow.Description)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Created:** %s by %s\n", flow.CreatedOn, flow.CreatedBy)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Updated:** %s by %s\n", flow.UpdatedOn, flow.UpdatedBy)
-
-	if instanceURL != "" {
-		link := fmt.Sprintf("%s/sys_hub_flow.do?sys_id=%s", instanceURL, flow.SysID)
-		fmt.Fprintf(cmd.OutOrStdout(), "- **Link:** %s\n", link)
+	for _, v := range variables {
+		value := v.Value
+		if value == "" {
+			value = "-"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n", v.Name, v.Type, v.Label, value)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -891,115 +934,14 @@ func printMarkdownFlowExecutions(cmd *cobra.Command, executions []sdk.FlowExecut
 }
 
 // newFlowsDebugCmd creates the flows debug command.
-func newFlowsDebugCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "debug [<flow_name>]",
-		Short: "Show flow with all actions and subflows",
-		Long: `Display detailed flow information including all actions and subflows.
-
-If no flow name is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn flows debug "My Flow"
-  jsn flows debug  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			if len(args) > 0 {
-				name = args[0]
-			}
-			return runFlowsDebug(cmd, name)
-		},
-	}
-}
-
-// runFlowsDebug executes the flows debug command.
-func runFlowsDebug(cmd *cobra.Command, name string) error {
-	appCtx := appctx.FromContext(cmd.Context())
-	if appCtx == nil {
-		return fmt.Errorf("app not initialized")
-	}
-
-	if appCtx.SDK == nil {
-		return output.ErrAuth("no instance configured. Run: jsn setup")
-	}
-
-	outputWriter := appCtx.Output.(*output.Writer)
-	sdkClient := appCtx.SDK.(*sdk.Client)
-
-	// Interactive flow selection if no name provided
-	if name == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Flow name is required in non-interactive mode")
-		}
-
-		selectedFlow, err := pickFlow(cmd.Context(), sdkClient, "Select a flow to debug:")
-		if err != nil {
-			return err
-		}
-		name = selectedFlow
-	}
-
-	// Get the flow
-	flow, err := sdkClient.GetFlow(cmd.Context(), name)
-	if err != nil {
-		return fmt.Errorf("failed to get flow: %w", err)
-	}
-
-	// Get comprehensive inspection
-	inspection, err := sdkClient.InspectFlow(cmd.Context(), flow.SysID)
-	if err != nil {
-		return fmt.Errorf("failed to inspect flow: %w", err)
-	}
-
-	// Determine output format
-	format := outputWriter.GetFormat()
-	isTerminal := output.IsTTY(cmd.OutOrStdout())
-
-	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledFlowInspection(cmd, inspection)
-	}
-
-	if format == output.FormatMarkdown {
-		return printMarkdownFlowInspection(cmd, inspection)
-	}
-
-	// Build comprehensive data for JSON
-	data := map[string]any{
-		"flow": map[string]any{
-			"sys_id":  inspection.Flow.SysID,
-			"name":    inspection.Flow.Name,
-			"active":  inspection.Flow.Active,
-			"version": inspection.Flow.Version,
-		},
-		"version_record":      inspection.Version,
-		"components":          inspection.Components,
-		"trigger_instances":   inspection.TriggerInstances,
-		"timer_triggers":      inspection.TimerTriggers,
-		"record_triggers":     inspection.RecordTriggers,
-		"action_instances":    inspection.ActionInstances,
-		"action_instances_v2": inspection.ActionInstancesV2,
-		"step_instances":      inspection.StepInstances,
-		"flow_inputs":         inspection.FlowInputs,
-		"flow_data_vars":      inspection.FlowDataVars,
-		"trigger_definitions": inspection.TriggerDefinitions,
-	}
-
-	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
-	return outputWriter.OK(data,
-		output.WithSummary(fmt.Sprintf("Flow Inspection: %s (%d actions, %d components)",
-			inspection.Flow.Name, totalActions, len(inspection.Components))),
-	)
-}
-
 // printStyledFlowInspection outputs comprehensive styled flow inspection.
-func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspection) error {
+func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspection, instanceURL string) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	valueStyle := lipgloss.NewStyle()
 	triggerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00FF00"))
 	actionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFAA00"))
+	linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00AAFF"))
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow: %s", inspection.Flow.Name)))
@@ -1013,10 +955,81 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s | Version: %s\n", valueStyle.Render(status), mutedStyle.Render(inspection.Flow.Version))
 	fmt.Fprintf(cmd.OutOrStdout(), "  Sys ID: %s\n", mutedStyle.Render(inspection.Flow.SysID))
 
-	// TRIGGER SECTION
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), triggerStyle.Render("▶ TRIGGER"))
-	fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
+	// Show link if available
+	if instanceURL != "" {
+		flowURL := fmt.Sprintf("%s/sys_hub_flow.do?sys_id=%s", instanceURL, inspection.Flow.SysID)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Link: %s\n", linkStyle.Render(flowURL))
+	}
+
+	// Show Inputs/Outputs section if the flow has them (for subflows)
+	if len(inspection.FlowInputs) > 0 || len(inspection.FlowOutputs) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), triggerStyle.Render("▶ SUBFLOW"))
+		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
+
+		// Show inputs
+		if len(inspection.FlowInputs) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%d)\n", valueStyle.Render("Inputs"), len(inspection.FlowInputs))
+			for _, input := range inspection.FlowInputs {
+				label := getString(input, "label")
+				name := getString(input, "name")
+				inputType := getString(input, "type")
+				mandatory := getString(input, "mandatory")
+
+				displayName := label
+				if displayName == "" {
+					displayName = name
+				}
+
+				mandatoryStr := ""
+				if mandatory == "true" {
+					mandatoryStr = " (required)"
+				}
+
+				if inputType != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "    • %s: %s%s\n", mutedStyle.Render(displayName), valueStyle.Render(inputType), mutedStyle.Render(mandatoryStr))
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "    • %s%s\n", mutedStyle.Render(displayName), mutedStyle.Render(mandatoryStr))
+				}
+			}
+		}
+
+		// Show outputs
+		if len(inspection.FlowOutputs) > 0 {
+			if len(inspection.FlowInputs) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%d)\n", valueStyle.Render("Outputs"), len(inspection.FlowOutputs))
+			for _, output := range inspection.FlowOutputs {
+				label := getString(output, "label")
+				name := getString(output, "name")
+				outputType := getString(output, "type")
+
+				displayName := label
+				if displayName == "" {
+					displayName = name
+				}
+
+				if outputType != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "    • %s: %s\n", mutedStyle.Render(displayName), valueStyle.Render(outputType))
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "    • %s\n", mutedStyle.Render(displayName))
+				}
+			}
+		}
+
+		// Add spacing before trigger section if there are also triggers
+		if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 || len(inspection.TriggerInstances) > 0 {
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+	}
+
+	// TRIGGER SECTION (for flows with triggers)
+	if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 || len(inspection.TriggerInstances) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), triggerStyle.Render("▶ TRIGGER"))
+		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
+	}
 
 	if len(inspection.TimerTriggers) > 0 {
 		// Show only the first active timer trigger (flows typically have one main trigger)
@@ -1126,46 +1139,90 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 				fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
 
 				// Build maps for quick lookup
+				// IMPORTANT: Use uiUniqueIdentifier as the key, not id (sys_id)
+				// because parent references use uiUniqueIdentifier
 				logicMap := make(map[string]map[string]interface{})
 				if flowLogic, ok := payloadData["flowLogicInstances"].([]interface{}); ok {
 					for _, logic := range flowLogic {
 						if logicMapItem, ok := logic.(map[string]interface{}); ok {
-							if logicID, ok := logicMapItem["id"].(string); ok {
+							// Use uiUniqueIdentifier as the key since parent refs use this
+							if uiID, ok := logicMapItem["uiUniqueIdentifier"].(string); ok && uiID != "" {
+								logicMap[uiID] = logicMapItem
+							} else if logicID, ok := logicMapItem["id"].(string); ok {
+								// Fallback to id if uiUniqueIdentifier not present
 								logicMap[logicID] = logicMapItem
 							}
 						}
 					}
 				}
 
+				// Build action map keyed by uiUniqueIdentifier (since parent refs use this)
 				actionMap := make(map[string]map[string]interface{})
 				if actionInstances, ok := payloadData["actionInstances"].([]interface{}); ok {
 					for _, action := range actionInstances {
 						if actionMapItem, ok := action.(map[string]interface{}); ok {
-							if actionID, ok := actionMapItem["id"].(string); ok {
+							// Use uiUniqueIdentifier as the key since parent refs use this
+							if uiID, ok := actionMapItem["uiUniqueIdentifier"].(string); ok && uiID != "" {
+								actionMap[uiID] = actionMapItem
+							} else if actionID, ok := actionMapItem["id"].(string); ok {
+								// Fallback to id if uiUniqueIdentifier not present
 								actionMap[actionID] = actionMapItem
 							}
 						}
 					}
 				}
 
-				// Print flow structure
-				stepNum := 1
-				printedActions := make(map[string]bool)
+				// Collect and sort all flow steps (actions + logic) by order
+				var steps []flowStep
 
-				// First, print actions with no parent (top level)
+				// Add actions (use uiUniqueIdentifier as id to match parent references)
 				for _, action := range actionMap {
-					if parent, ok := action["parent"].(string); !ok || parent == "" {
-						printFlowStep(cmd, stepNum, action, logicMap, actionMap, printedActions, 0, valueStyle, mutedStyle)
-						stepNum++
+					orderStr := getString(action, "order")
+					order, _ := strconv.Atoi(orderStr)
+					// Use uiUniqueIdentifier as the step id to match parent references
+					stepID := getString(action, "uiUniqueIdentifier")
+					if stepID == "" {
+						stepID = getString(action, "id")
 					}
+					steps = append(steps, flowStep{
+						id:       stepID,
+						stepType: "action",
+						data:     action,
+						order:    order,
+					})
 				}
 
-				// Print any remaining actions
-				for actionID, action := range actionMap {
-					if !printedActions[actionID] {
-						printFlowStep(cmd, stepNum, action, logicMap, actionMap, printedActions, 0, valueStyle, mutedStyle)
-						stepNum++
+				// Add logic instances
+				for _, logic := range logicMap {
+					orderStr := getString(logic, "order")
+					order, _ := strconv.Atoi(orderStr)
+					// Use uiUniqueIdentifier as the step id to match parent references
+					stepID := getString(logic, "uiUniqueIdentifier")
+					if stepID == "" {
+						stepID = getString(logic, "id")
 					}
+					steps = append(steps, flowStep{
+						id:       stepID,
+						stepType: "logic",
+						data:     logic,
+						order:    order,
+					})
+				}
+
+				// Sort all steps by order
+				sort.Slice(steps, func(i, j int) bool {
+					return steps[i].order < steps[j].order
+				})
+
+				// Print all steps in flat sequential order (1, 2, 3, 4...)
+				stepNum := 1
+				for _, step := range steps {
+					if step.stepType == "action" {
+						printFlowStepFlat(cmd, stepNum, step.data, valueStyle, mutedStyle)
+					} else {
+						printLogicStepFlat(cmd, stepNum, step.data, valueStyle, mutedStyle)
+					}
+					stepNum++
 				}
 			}
 		}
@@ -1194,16 +1251,24 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 	return nil
 }
 
-// printFlowStep prints a flow step with proper indentation and handles nested logic
-func printFlowStep(cmd *cobra.Command, stepNum int, action map[string]interface{}, logicMap map[string]map[string]interface{}, actionMap map[string]map[string]interface{}, printedActions map[string]bool, indent int, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
-	actionID := getString(action, "id")
-	if printedActions[actionID] {
-		return
-	}
-	printedActions[actionID] = true
+// flowStep represents either an action or logic step for sorting
+type flowStep struct {
+	id       string
+	stepType string // "action" or "logic"
+	data     map[string]interface{}
+	order    int
+}
 
-	// Get action name
-	actionName := getString(action, "actionName")
+// printFlowStepFlat prints a flow action step with flat sequential numbering
+func printFlowStepFlat(cmd *cobra.Command, stepNum int, action map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+	// Get action name from actionType.fName or fallbacks
+	actionName := ""
+	if actionType, ok := action["actionType"].(map[string]interface{}); ok {
+		actionName = getString(actionType, "fName")
+	}
+	if actionName == "" {
+		actionName = getString(action, "actionName")
+	}
 	if actionName == "" {
 		actionName = getString(action, "actionInternalName")
 	}
@@ -1214,41 +1279,127 @@ func printFlowStep(cmd *cobra.Command, stepNum int, action map[string]interface{
 		actionName = "Unknown Action"
 	}
 
+	// For Update Record actions, get the table name
+	tableName := ""
+	if inputs, ok := action["inputs"].([]interface{}); ok {
+		for _, input := range inputs {
+			if inputMap, ok := input.(map[string]interface{}); ok {
+				if name := getString(inputMap, "name"); name == "table_name" {
+					tableName = getString(inputMap, "displayValue")
+					if tableName == "" {
+						tableName = getString(inputMap, "value")
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Build full action description
+	actionDisplay := actionName
+	if tableName != "" && actionName == "Update Record" {
+		actionDisplay = actionName + " - " + tableName
+	}
+
 	// Get annotation/comment
 	comment := getString(action, "comment")
 	if comment == "" {
 		comment = getString(action, "displayText")
 	}
 
-	// Build indentation string
-	indentStr := strings.Repeat("  ", indent)
-
-	// Print the action
-	if stepNum > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n%s%d. %s\n", indentStr, stepNum, valueStyle.Render(actionName))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n%s• %s\n", indentStr, valueStyle.Render(actionName))
-	}
-
+	// Print the action with flat numbering
 	if comment != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s   %s: %s\n", indentStr, mutedStyle.Render("Annotation"), valueStyle.Render(comment))
+		fmt.Fprintf(cmd.OutOrStdout(), "\n%d. %s (%s)\n", stepNum, valueStyle.Render(actionDisplay), valueStyle.Render(comment))
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "\n%d. %s\n", stepNum, valueStyle.Render(actionDisplay))
+	}
+}
+
+// printLogicStepFlat prints a flow logic step with flat sequential numbering
+func printLogicStepFlat(cmd *cobra.Command, stepNum int, logic map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+	// Get logic type from flowLogicDefinition
+	logicType := "Logic"
+	if flowLogicDef, ok := logic["flowLogicDefinition"].(map[string]interface{}); ok {
+		if name := getString(flowLogicDef, "name"); name != "" {
+			logicType = name
+		}
+	}
+	if logicType == "" {
+		logicType = getString(logic, "name")
+	}
+	if logicType == "" {
+		logicType = "Logic Step"
 	}
 
-	// Check if this action has children (actions that reference this as parent)
-	childNum := 1
-	for _, childAction := range actionMap {
-		if parent, ok := childAction["parent"].(string); ok && parent == actionID {
-			printFlowStep(cmd, childNum, childAction, logicMap, actionMap, printedActions, indent+1, valueStyle, mutedStyle)
-			childNum++
+	// Get annotation/comment
+	comment := getString(logic, "comment")
+
+	// Extract condition for If statements
+	condition := ""
+	conditionLabel := ""
+	if logicType == "If" || logicType == "Else If" {
+		if inputs, ok := logic["inputs"].([]interface{}); ok {
+			for _, input := range inputs {
+				if inputMap, ok := input.(map[string]interface{}); ok {
+					inputName := getString(inputMap, "name")
+					if inputName == "condition" {
+						condition = getString(inputMap, "displayValue")
+						if condition == "" {
+							condition = getString(inputMap, "value")
+						}
+					} else if inputName == "condition_name" {
+						conditionLabel = getString(inputMap, "displayValue")
+						if conditionLabel == "" {
+							conditionLabel = getString(inputMap, "value")
+						}
+					}
+				}
+			}
 		}
 	}
 
-	// Check for associated logic (If/Then/Else)
-	// Logic instances may reference this action or be referenced by it
-	for _, logic := range logicMap {
-		_ = logic
-		// TODO: Parse logic conditions and show If/Then/Else structure
-		// This requires understanding the logic instance structure
+	// Build display text
+	displayText := logicType
+	if conditionLabel != "" {
+		displayText = logicType + " - " + conditionLabel
+	} else if condition != "" && len(condition) < 60 {
+		// Show short conditions inline
+		displayText = logicType + " - " + condition
+	}
+
+	// Print the logic step with flat numbering
+	fmt.Fprintf(cmd.OutOrStdout(), "\n%d. %s\n", stepNum, valueStyle.Render(displayText))
+
+	// Print condition on separate line if it's long
+	if condition != "" && len(condition) >= 60 && conditionLabel == "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "   %s: %s\n", mutedStyle.Render("Condition"), valueStyle.Render(condition))
+	}
+
+	if comment != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "   %s: %s\n", mutedStyle.Render("Annotation"), valueStyle.Render(comment))
+	}
+
+	// For Set Flow Variables, show the variables being set
+	if logicType == "Set Flow Variables" {
+		if flowVars, ok := logic["flowVariables"].([]interface{}); ok && len(flowVars) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "   %s:\n", mutedStyle.Render("Variables Set"))
+			for _, fv := range flowVars {
+				if fvMap, ok := fv.(map[string]interface{}); ok {
+					varName := getString(fvMap, "name")
+					varValue := getString(fvMap, "displayValue")
+					if varValue == "" {
+						varValue = getString(fvMap, "value")
+					}
+					if varName != "" {
+						if varValue != "" {
+							fmt.Fprintf(cmd.OutOrStdout(), "     • %s = %s\n", varName, valueStyle.Render(varValue))
+						} else {
+							fmt.Fprintf(cmd.OutOrStdout(), "     • %s\n", varName)
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -1259,45 +1410,215 @@ func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspect
 	fmt.Fprintf(cmd.OutOrStdout(), "**Active:** %v\n\n", inspection.Flow.Active)
 	fmt.Fprintf(cmd.OutOrStdout(), "**Version:** %s\n\n", inspection.Flow.Version)
 
-	// Components
-	if len(inspection.Components) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "## Flow Components (%d)\n\n", len(inspection.Components))
-		for _, comp := range inspection.Components {
-			sysID := getString(comp, "sys_id")
-			className := getString(comp, "sys_class_name")
-			order := getString(comp, "order")
-
-			fmt.Fprintf(cmd.OutOrStdout(), "- `%s` (%s) - Order: %s\n", sysID, className, order)
-		}
-		fmt.Fprintln(cmd.OutOrStdout())
+	// Combine components and actions into a single sorted list
+	type flowItem struct {
+		order    int
+		itemType string
+		name     string
+		details  string
+		comment  string
 	}
 
-	// Actions
-	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
-	if totalActions > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "## Action Instances (%d)\n\n", totalActions)
+	var items []flowItem
 
-		for _, action := range inspection.ActionInstances {
-			actionType := getString(action, "action_type")
-			order := getString(action, "order")
-			comment := getString(action, "comment")
+	// Build logic name map from payload if available
+	logicNameMap := make(map[string]string)
+	if len(inspection.Version) > 0 {
+		if payload, ok := inspection.Version["payload"].(string); ok && payload != "" {
+			var payloadData map[string]interface{}
+			if err := json.Unmarshal([]byte(payload), &payloadData); err == nil {
+				if flowLogic, ok := payloadData["flowLogicInstances"].([]interface{}); ok {
+					for _, logic := range flowLogic {
+						if logicMap, ok := logic.(map[string]interface{}); ok {
+							// Get the uiUniqueIdentifier as the key
+							uiID := ""
+							if id, ok := logicMap["uiUniqueIdentifier"].(string); ok {
+								uiID = id
+							} else if id, ok := logicMap["id"].(string); ok {
+								uiID = id
+							}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "- [V1] Order %s: %s\n", order, actionType)
-			if comment != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  - Comment: %s\n", comment)
+							// Get the logic type name from flowLogicDefinition
+							logicName := "Logic"
+							if flowLogicDef, ok := logicMap["flowLogicDefinition"].(map[string]interface{}); ok {
+								if name, ok := flowLogicDef["name"].(string); ok && name != "" {
+									logicName = name
+								}
+							}
+							if logicName == "" {
+								if name, ok := logicMap["name"].(string); ok {
+									logicName = name
+								}
+							}
+
+							if uiID != "" {
+								logicNameMap[uiID] = logicName
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Add components (excluding action/subflow instances - those are added separately with more detail)
+	for _, comp := range inspection.Components {
+		className := getString(comp, "sys_class_name")
+		// Skip action instances and subflow instances - we'll add them separately
+		if className == "sys_hub_action_instance" || className == "sys_hub_sub_flow_instance" {
+			continue
+		}
+
+		orderStr := getString(comp, "order")
+		order, _ := strconv.Atoi(orderStr)
+		sysID := getString(comp, "sys_id")
+		uiID := getString(comp, "ui_id")
+
+		// Get the logic name from the payload data if available
+		name := className
+		if uiID != "" {
+			if logicName, found := logicNameMap[uiID]; found {
+				name = logicName
 			}
 		}
 
-		for _, action := range inspection.ActionInstancesV2 {
-			actionType := getString(action, "action_type")
-			order := getString(action, "order")
+		items = append(items, flowItem{
+			order:    order,
+			itemType: className,
+			name:     name,
+			details:  sysID,
+			comment:  "",
+		})
+	}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "- [V2] Order %s: %s\n", order, actionType)
+	// Add V1 action instances
+	for _, action := range inspection.ActionInstances {
+		orderStr := getString(action, "order")
+		order, _ := strconv.Atoi(orderStr)
+		actionType := getString(action, "action_type")
+		comment := getString(action, "comment")
+		sysID := getString(action, "sys_id")
+
+		items = append(items, flowItem{
+			order:    order,
+			itemType: "sys_hub_action_instance",
+			name:     actionType,
+			details:  sysID,
+			comment:  comment,
+		})
+	}
+
+	// Add subflow instances from components
+	for _, comp := range inspection.Components {
+		className := getString(comp, "sys_class_name")
+		if className == "sys_hub_sub_flow_instance" {
+			orderStr := getString(comp, "order")
+			order, _ := strconv.Atoi(orderStr)
+			sysID := getString(comp, "sys_id")
+
+			items = append(items, flowItem{
+				order:    order,
+				itemType: "sys_hub_sub_flow_instance",
+				name:     "Subflow",
+				details:  sysID,
+				comment:  "",
+			})
+		}
+	}
+
+	// Add V2 action instances
+	for _, action := range inspection.ActionInstancesV2 {
+		orderStr := getString(action, "order")
+		order, _ := strconv.Atoi(orderStr)
+		actionType := getString(action, "action_type")
+		sysID := getString(action, "sys_id")
+
+		items = append(items, flowItem{
+			order:    order,
+			itemType: "sys_hub_action_instance_v2",
+			name:     actionType,
+			details:  sysID,
+			comment:  "",
+		})
+	}
+
+	// Sort by order
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].order < items[j].order
+	})
+
+	// Print combined list
+	if len(items) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Flow Steps (%d)\n\n", len(items))
+		for _, item := range items {
+			prefix := ""
+			if item.itemType == "sys_hub_action_instance" {
+				prefix = "[V1] "
+			} else if item.itemType == "sys_hub_action_instance_v2" {
+				prefix = "[V2] "
+			} else if item.itemType == "sys_hub_sub_flow_instance" {
+				prefix = "[Subflow] "
+			}
+
+			if item.comment != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "- Order %d: %s%s (%s)\n", item.order, prefix, item.name, item.comment)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "- Order %d: %s%s\n", item.order, prefix, item.name)
+			}
 		}
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
 
-	// Triggers
+	// Show Inputs/Outputs if the flow has them
+	if len(inspection.FlowInputs) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Inputs (%d)\n\n", len(inspection.FlowInputs))
+		for _, input := range inspection.FlowInputs {
+			label := getString(input, "label")
+			name := getString(input, "name")
+			inputType := getString(input, "type")
+			mandatory := getString(input, "mandatory")
+
+			displayName := label
+			if displayName == "" {
+				displayName = name
+			}
+
+			mandatoryStr := ""
+			if mandatory == "true" {
+				mandatoryStr = " (required)"
+			}
+
+			if inputType != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "- **%s**: %s%s\n", displayName, inputType, mandatoryStr)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "- **%s**%s\n", displayName, mandatoryStr)
+			}
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	if len(inspection.FlowOutputs) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Outputs (%d)\n\n", len(inspection.FlowOutputs))
+		for _, output := range inspection.FlowOutputs {
+			label := getString(output, "label")
+			name := getString(output, "name")
+			outputType := getString(output, "type")
+
+			displayName := label
+			if displayName == "" {
+				displayName = name
+			}
+
+			if outputType != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "- **%s**: %s\n", displayName, outputType)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "- **%s**\n", displayName)
+			}
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	// Show Triggers if the flow has them
 	if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "## Triggers\n\n")
 
@@ -1333,289 +1654,4 @@ func getString(m map[string]interface{}, key string) string {
 		}
 	}
 	return ""
-}
-
-// newFlowsVariablesCmd creates the flows variables command.
-func newFlowsVariablesCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "variables [<flow_name>]",
-		Short: "Show flow inputs/outputs/schema",
-		Long: `Display flow input variables, output variables, and data schema.
-
-If no flow name is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn flows variables "My Flow"
-  jsn flows variables  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			if len(args) > 0 {
-				name = args[0]
-			}
-			return runFlowsVariables(cmd, name)
-		},
-	}
-}
-
-// runFlowsVariables executes the flows variables command.
-func runFlowsVariables(cmd *cobra.Command, name string) error {
-	appCtx := appctx.FromContext(cmd.Context())
-	if appCtx == nil {
-		return fmt.Errorf("app not initialized")
-	}
-
-	if appCtx.SDK == nil {
-		return output.ErrAuth("no instance configured. Run: jsn setup")
-	}
-
-	outputWriter := appCtx.Output.(*output.Writer)
-	sdkClient := appCtx.SDK.(*sdk.Client)
-
-	// Interactive flow selection if no name provided
-	if name == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Flow name is required in non-interactive mode")
-		}
-
-		selectedFlow, err := pickFlow(cmd.Context(), sdkClient, "Select a flow to view variables:")
-		if err != nil {
-			return err
-		}
-		name = selectedFlow
-	}
-
-	// Get the flow
-	flow, err := sdkClient.GetFlow(cmd.Context(), name)
-	if err != nil {
-		return fmt.Errorf("failed to get flow: %w", err)
-	}
-
-	// Get flow variables
-	variables, err := sdkClient.GetFlowVariables(cmd.Context(), flow.SysID)
-	if err != nil {
-		return fmt.Errorf("failed to get flow variables: %w", err)
-	}
-
-	// Determine output format
-	format := outputWriter.GetFormat()
-	isTerminal := output.IsTTY(cmd.OutOrStdout())
-
-	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledFlowVariables(cmd, flow, variables)
-	}
-
-	if format == output.FormatMarkdown {
-		return printMarkdownFlowVariables(cmd, flow, variables)
-	}
-
-	// Build data for JSON
-	varData := make([]map[string]any, len(variables))
-	for i, v := range variables {
-		varData[i] = map[string]any{
-			"sys_id": v.SysID,
-			"name":   v.Name,
-			"type":   v.Type,
-			"label":  v.Label,
-			"value":  v.Value,
-		}
-	}
-
-	data := map[string]any{
-		"sys_id":    flow.SysID,
-		"name":      flow.Name,
-		"variables": varData,
-	}
-
-	return outputWriter.OK(data,
-		output.WithSummary(fmt.Sprintf("Flow Variables: %s (%d variables)", flow.Name, len(variables))),
-	)
-}
-
-// printStyledFlowVariables outputs styled flow variables.
-func printStyledFlowVariables(cmd *cobra.Command, flow *sdk.Flow, variables []sdk.FlowVariable) error {
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
-	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	valueStyle := lipgloss.NewStyle()
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow Variables: %s", flow.Name)))
-	fmt.Fprintln(cmd.OutOrStdout())
-
-	if len(variables) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No variables defined for this flow."))
-		fmt.Fprintln(cmd.OutOrStdout())
-		return nil
-	}
-
-	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-30s %-20s %-30s %s\n",
-		headerStyle.Render("Name"),
-		headerStyle.Render("Type"),
-		headerStyle.Render("Label"),
-		headerStyle.Render("Value"),
-	)
-	fmt.Fprintln(cmd.OutOrStdout())
-
-	// Variables
-	for _, v := range variables {
-		name := v.Name
-		if len(name) > 28 {
-			name = name[:25] + "..."
-		}
-
-		label := v.Label
-		if len(label) > 28 {
-			label = label[:25] + "..."
-		}
-
-		value := v.Value
-		if value == "" {
-			value = "-"
-		}
-		if len(value) > 20 {
-			value = value[:17] + "..."
-		}
-
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-30s %-20s %-30s %s\n",
-			valueStyle.Render(name),
-			mutedStyle.Render(v.Type),
-			mutedStyle.Render(label),
-			mutedStyle.Render(value),
-		)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	return nil
-}
-
-// printMarkdownFlowVariables outputs markdown flow variables.
-func printMarkdownFlowVariables(cmd *cobra.Command, flow *sdk.Flow, variables []sdk.FlowVariable) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "**Flow Variables: %s**\n\n", flow.Name)
-
-	if len(variables) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No variables defined for this flow.")
-		return nil
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Type | Label | Value |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|------|-------|-------|")
-
-	for _, v := range variables {
-		value := v.Value
-		if value == "" {
-			value = "-"
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n", v.Name, v.Type, v.Label, value)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	return nil
-}
-
-// newFlowsActivateCmd creates the flows activate command.
-func newFlowsActivateCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "activate [<flow_name>]",
-		Short: "Activate a flow",
-		Long: `Activate a Flow Designer flow.
-
-If no flow name is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn flows activate "My Flow"
-  jsn flows activate  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			if len(args) > 0 {
-				name = args[0]
-			}
-			return runFlowsActivate(cmd, name, true)
-		},
-	}
-}
-
-// newFlowsDeactivateCmd creates the flows deactivate command.
-func newFlowsDeactivateCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "deactivate [<flow_name>]",
-		Short: "Deactivate a flow",
-		Long: `Deactivate a Flow Designer flow.
-
-If no flow name is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn flows deactivate "My Flow"
-  jsn flows deactivate  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			if len(args) > 0 {
-				name = args[0]
-			}
-			return runFlowsActivate(cmd, name, false)
-		},
-	}
-}
-
-// runFlowsActivate executes the activate/deactivate command.
-func runFlowsActivate(cmd *cobra.Command, name string, activate bool) error {
-	appCtx := appctx.FromContext(cmd.Context())
-	if appCtx == nil {
-		return fmt.Errorf("app not initialized")
-	}
-
-	if appCtx.SDK == nil {
-		return output.ErrAuth("no instance configured. Run: jsn setup")
-	}
-
-	outputWriter := appCtx.Output.(*output.Writer)
-	sdkClient := appCtx.SDK.(*sdk.Client)
-
-	// Interactive flow selection if no name provided
-	if name == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Flow name is required in non-interactive mode")
-		}
-
-		selectedFlow, err := pickFlow(cmd.Context(), sdkClient, fmt.Sprintf("Select a flow to %s:", map[bool]string{true: "activate", false: "deactivate"}[activate]))
-		if err != nil {
-			return err
-		}
-		name = selectedFlow
-	}
-
-	// Get the flow
-	flow, err := sdkClient.GetFlow(cmd.Context(), name)
-	if err != nil {
-		return fmt.Errorf("failed to get flow: %w", err)
-	}
-
-	// Update the flow status
-	if err := sdkClient.UpdateFlowStatus(cmd.Context(), flow.SysID, activate); err != nil {
-		return fmt.Errorf("failed to %s flow: %w", map[bool]string{true: "activate", false: "deactivate"}[activate], err)
-	}
-
-	action := "activated"
-	if !activate {
-		action = "deactivated"
-	}
-
-	return outputWriter.OK(map[string]any{
-		"sys_id": flow.SysID,
-		"name":   flow.Name,
-		"status": map[bool]string{true: "active", false: "inactive"}[activate],
-	},
-		output.WithSummary(fmt.Sprintf("Flow '%s' %s", flow.Name, action)),
-		output.WithBreadcrumbs(
-			output.Breadcrumb{
-				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn flows show %s", name),
-				Description: "Show flow details",
-			},
-		),
-	)
 }

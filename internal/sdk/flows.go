@@ -430,6 +430,7 @@ type FlowInspection struct {
 	FlowLogicInstances []map[string]interface{}
 	StepInstances      []map[string]interface{}
 	FlowInputs         []map[string]interface{}
+	FlowOutputs        []map[string]interface{}
 	FlowDataVars       []map[string]interface{}
 	TriggerDefinitions []map[string]interface{}
 }
@@ -494,6 +495,24 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 							// Store action instances from payload for full structure
 							// These have parent references showing the flow structure
 							inspection.ActionInstances = append(inspection.ActionInstances, actionMap)
+						}
+					}
+				}
+
+				// Extract flow inputs from payload (for subflows)
+				if inputs, ok := payloadData["inputs"].([]interface{}); ok {
+					for _, input := range inputs {
+						if inputMap, ok := input.(map[string]interface{}); ok {
+							inspection.FlowInputs = append(inspection.FlowInputs, inputMap)
+						}
+					}
+				}
+
+				// Extract flow outputs from payload (for subflows)
+				if outputs, ok := payloadData["outputs"].([]interface{}); ok {
+					for _, output := range outputs {
+						if outputMap, ok := output.(map[string]interface{}); ok {
+							inspection.FlowOutputs = append(inspection.FlowOutputs, outputMap)
 						}
 					}
 				}
@@ -630,7 +649,7 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 	// Get flow inputs (limit to 20, filter to only include ones with matching flow)
 	inputQuery := url.Values{}
 	inputQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	inputQuery.Set("sysparm_fields", "sys_id,name,type,value,flow")
+	inputQuery.Set("sysparm_fields", "sys_id,name,label,type,mandatory,flow")
 	inputQuery.Set("sysparm_limit", "20")
 	if resp, err := c.Get(ctx, "sys_hub_flow_input", inputQuery); err == nil {
 		// Filter to only include records where flow matches
@@ -638,6 +657,22 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
 				if getString(flowRef, "value") == flowID {
 					inspection.FlowInputs = append(inspection.FlowInputs, record)
+				}
+			}
+		}
+	}
+
+	// Get flow outputs (for subflows - limit to 20, filter to only include ones with matching flow)
+	outputQuery := url.Values{}
+	outputQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	outputQuery.Set("sysparm_fields", "sys_id,name,label,type,flow")
+	outputQuery.Set("sysparm_limit", "20")
+	if resp, err := c.Get(ctx, "sys_hub_flow_output", outputQuery); err == nil {
+		// Filter to only include records where flow matches
+		for _, record := range resp.Result {
+			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
+				if getString(flowRef, "value") == flowID {
+					inspection.FlowOutputs = append(inspection.FlowOutputs, record)
 				}
 			}
 		}
