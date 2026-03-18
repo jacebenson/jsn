@@ -851,3 +851,121 @@ func (c *Client) ExecuteFlow(ctx context.Context, flowID string, input ExecuteFl
 
 	return &exec, nil
 }
+
+// FlowInspection holds comprehensive data about a flow for debugging.
+type FlowInspection struct {
+	Flow               *Flow
+	Version            map[string]interface{}
+	Components         []map[string]interface{}
+	TriggerInstances   []map[string]interface{}
+	TimerTriggers      []map[string]interface{}
+	RecordTriggers     []map[string]interface{}
+	ActionInstances    []map[string]interface{}
+	ActionInstancesV2  []map[string]interface{}
+	StepInstances      []map[string]interface{}
+	FlowInputs         []map[string]interface{}
+	FlowDataVars       []map[string]interface{}
+	TriggerDefinitions []map[string]interface{}
+}
+
+// InspectFlow retrieves comprehensive information about a flow for debugging.
+func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspection, error) {
+	inspection := &FlowInspection{}
+
+	// Get the flow
+	flow, err := c.GetFlow(ctx, flowID)
+	if err != nil {
+		return nil, err
+	}
+	inspection.Flow = flow
+
+	// Get version record
+	versionQuery := url.Values{}
+	versionQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	versionQuery.Set("sysparm_limit", "1")
+	if resp, err := c.Get(ctx, "sys_hub_flow_version", versionQuery); err == nil && len(resp.Result) > 0 {
+		inspection.Version = resp.Result[0]
+	}
+
+	// Get flow components
+	compQuery := url.Values{}
+	compQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	compQuery.Set("sysparm_fields", "sys_id,sys_class_name,order,display_text,ui_id,parent_ui_id,attributes")
+	if resp, err := c.Get(ctx, "sys_hub_flow_component", compQuery); err == nil {
+		inspection.Components = resp.Result
+	}
+
+	// Get trigger instances
+	triggerQuery := url.Values{}
+	triggerQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	triggerQuery.Set("sysparm_fields", "sys_id,name,trigger_definition,trigger_type,display_text,active")
+	if resp, err := c.Get(ctx, "sys_hub_trigger_instance", triggerQuery); err == nil {
+		inspection.TriggerInstances = resp.Result
+	}
+
+	// Get timer triggers
+	timerQuery := url.Values{}
+	timerQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	timerQuery.Set("sysparm_fields", "sys_id,active,timer_type,time,run_start")
+	if resp, err := c.Get(ctx, "sys_flow_timer_trigger", timerQuery); err == nil {
+		inspection.TimerTriggers = resp.Result
+	}
+
+	// Get record triggers
+	recordQuery := url.Values{}
+	recordQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	recordQuery.Set("sysparm_fields", "sys_id,active,table,when")
+	if resp, err := c.Get(ctx, "sys_flow_record_trigger", recordQuery); err == nil {
+		inspection.RecordTriggers = resp.Result
+	}
+
+	// Get action instances (V1)
+	actionQuery := url.Values{}
+	actionQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	actionQuery.Set("sysparm_fields", "sys_id,action_type,order,active,comment,action_inputs,display_text")
+	if resp, err := c.Get(ctx, "sys_hub_action_instance", actionQuery); err == nil {
+		inspection.ActionInstances = resp.Result
+	}
+
+	// Get action instances (V2)
+	actionV2Query := url.Values{}
+	actionV2Query.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	actionV2Query.Set("sysparm_fields", "sys_id,action_type,order,values,display_text")
+	if resp, err := c.Get(ctx, "sys_hub_action_instance_v2", actionV2Query); err == nil {
+		inspection.ActionInstancesV2 = resp.Result
+	}
+
+	// Get step instances
+	stepQuery := url.Values{}
+	stepQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	stepQuery.Set("sysparm_fields", "sys_id,action,step_type,order,label,inputs")
+	if resp, err := c.Get(ctx, "sys_hub_step_instance", stepQuery); err == nil {
+		inspection.StepInstances = resp.Result
+	}
+
+	// Get flow inputs
+	inputQuery := url.Values{}
+	inputQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	inputQuery.Set("sysparm_fields", "sys_id,name,type,value")
+	if resp, err := c.Get(ctx, "sys_hub_flow_input", inputQuery); err == nil {
+		inspection.FlowInputs = resp.Result
+	}
+
+	// Get flow data vars
+	varQuery := url.Values{}
+	varQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	varQuery.Set("sysparm_fields", "sys_id,name,type,value")
+	if resp, err := c.Get(ctx, "sys_flow_data_var", varQuery); err == nil {
+		inspection.FlowDataVars = resp.Result
+	}
+
+	// Get trigger definitions
+	triggerDefQuery := url.Values{}
+	triggerDefQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
+	triggerDefQuery.Set("sysparm_fields", "sys_id,name,type,active")
+	if resp, err := c.Get(ctx, "sys_hub_trigger_definition", triggerDefQuery); err == nil {
+		inspection.TriggerDefinitions = resp.Result
+	}
+
+	return inspection, nil
+}

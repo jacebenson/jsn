@@ -952,11 +952,10 @@ func runFlowsDebug(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("failed to get flow: %w", err)
 	}
 
-	// Get flow actions
-	actions, err := sdkClient.GetFlowActions(cmd.Context(), flow.SysID)
+	// Get comprehensive inspection
+	inspection, err := sdkClient.InspectFlow(cmd.Context(), flow.SysID)
 	if err != nil {
-		// Don't fail if we can't get actions, just show flow info
-		actions = []sdk.FlowAction{}
+		return fmt.Errorf("failed to inspect flow: %w", err)
 	}
 
 	// Determine output format
@@ -964,74 +963,206 @@ func runFlowsDebug(cmd *cobra.Command, name string) error {
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledFlowDebug(cmd, flow, actions)
+		return printStyledFlowInspection(cmd, inspection)
 	}
 
 	if format == output.FormatMarkdown {
-		return printMarkdownFlowDebug(cmd, flow, actions)
+		return printMarkdownFlowInspection(cmd, inspection)
 	}
 
-	// Build data for JSON
-	actionData := make([]map[string]any, len(actions))
-	for i, a := range actions {
-		actionData[i] = map[string]any{
-			"sys_id": a.SysID,
-			"name":   a.Name,
-			"action": a.Action,
-			"order":  a.Order,
-			"active": a.Active,
-		}
-	}
-
+	// Build comprehensive data for JSON
 	data := map[string]any{
-		"sys_id":  flow.SysID,
-		"name":    flow.Name,
-		"active":  flow.Active,
-		"actions": actionData,
+		"flow": map[string]any{
+			"sys_id":  inspection.Flow.SysID,
+			"name":    inspection.Flow.Name,
+			"active":  inspection.Flow.Active,
+			"version": inspection.Flow.Version,
+		},
+		"version_record":      inspection.Version,
+		"components":          inspection.Components,
+		"trigger_instances":   inspection.TriggerInstances,
+		"timer_triggers":      inspection.TimerTriggers,
+		"record_triggers":     inspection.RecordTriggers,
+		"action_instances":    inspection.ActionInstances,
+		"action_instances_v2": inspection.ActionInstancesV2,
+		"step_instances":      inspection.StepInstances,
+		"flow_inputs":         inspection.FlowInputs,
+		"flow_data_vars":      inspection.FlowDataVars,
+		"trigger_definitions": inspection.TriggerDefinitions,
 	}
 
+	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
 	return outputWriter.OK(data,
-		output.WithSummary(fmt.Sprintf("Flow Debug: %s (%d actions)", flow.Name, len(actions))),
+		output.WithSummary(fmt.Sprintf("Flow Inspection: %s (%d actions, %d components)",
+			inspection.Flow.Name, totalActions, len(inspection.Components))),
 	)
 }
 
-// printStyledFlowDebug outputs styled flow debug info.
-func printStyledFlowDebug(cmd *cobra.Command, flow *sdk.Flow, actions []sdk.FlowAction) error {
+// printStyledFlowInspection outputs comprehensive styled flow inspection.
+func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspection) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	valueStyle := lipgloss.NewStyle()
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00FFFF"))
 
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow Debug: %s", flow.Name)))
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow Inspection: %s", inspection.Flow.Name)))
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Basic info
-	status := "Active"
-	if !flow.Active {
-		status = "Inactive"
+	// Basic flow info
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Sys ID:"), valueStyle.Render(inspection.Flow.SysID))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Name:"), valueStyle.Render(inspection.Flow.Name))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Active:"), valueStyle.Render(fmt.Sprintf("%v", inspection.Flow.Active)))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Version:"), valueStyle.Render(inspection.Flow.Version))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Internal Name:"), valueStyle.Render(inspection.Flow.Name))
+
+	// Version Record
+	if len(inspection.Version) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("Version Record:"))
+		if flow, ok := inspection.Version["flow"].(map[string]interface{}); ok {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Flow Link:"), valueStyle.Render(getString(flow, "value")))
+		}
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Sys ID:"), valueStyle.Render(flow.SysID))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Status:"), valueStyle.Render(status))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Version:"), valueStyle.Render(flow.Version))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Actions:"), valueStyle.Render(fmt.Sprintf("%d", len(actions))))
-
-	// Actions list
-	if len(actions) > 0 {
+	// Components
+	if len(inspection.Components) > 0 {
 		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Actions:"))
-		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Flow Components (%d):", len(inspection.Components))))
+		for _, comp := range inspection.Components {
+			sysID := getString(comp, "sys_id")
+			className := getString(comp, "sys_class_name")
+			order := getString(comp, "order")
+			displayText := getString(comp, "display_text")
+			uiID := getString(comp, "ui_id")
 
-		for _, action := range actions {
-			actionStatus := "Active"
-			if !action.Active {
-				actionStatus = "Inactive"
+			if displayText == "" {
+				displayText = className
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s. %s (%s) - %s\n",
-				mutedStyle.Render(fmt.Sprintf("%d", action.Order)),
-				valueStyle.Render(action.Name),
-				mutedStyle.Render(action.Action),
-				mutedStyle.Render(actionStatus),
+			if displayText == "" {
+				displayText = sysID[:8] + "..."
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s (order: %s, ui: %s)\n",
+				mutedStyle.Render(sysID[:8]),
+				valueStyle.Render(displayText),
+				mutedStyle.Render(order),
+				mutedStyle.Render(uiID[:8]),
+			)
+		}
+	}
+
+	// Trigger Instances
+	if len(inspection.TriggerInstances) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Trigger Instances (%d):", len(inspection.TriggerInstances))))
+		for _, trigger := range inspection.TriggerInstances {
+			name := getString(trigger, "name")
+			triggerType := getString(trigger, "trigger_type")
+			displayText := getString(trigger, "display_text")
+
+			if name == "" {
+				name = triggerType
+			}
+			if displayText == "" {
+				displayText = name
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n",
+				valueStyle.Render(displayText),
+				mutedStyle.Render(triggerType),
+			)
+		}
+	}
+
+	// Timer Triggers
+	if len(inspection.TimerTriggers) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Timer Triggers (%d):", len(inspection.TimerTriggers))))
+		for _, trigger := range inspection.TimerTriggers {
+			timerType := getString(trigger, "timer_type")
+			time := getString(trigger, "time")
+			active := getString(trigger, "active")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (time: %s, active: %s)\n",
+				valueStyle.Render(timerType),
+				mutedStyle.Render(time),
+				mutedStyle.Render(active),
+			)
+		}
+	}
+
+	// Action Instances
+	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
+	if totalActions > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Action Instances (%d):", totalActions)))
+
+		for _, action := range inspection.ActionInstances {
+			actionType := ""
+			if at, ok := action["action_type"].(map[string]interface{}); ok {
+				actionType = getString(at, "display_value")
+			}
+			if actionType == "" {
+				actionType = getString(action, "action_type")
+			}
+			order := getString(action, "order")
+			comment := getString(action, "comment")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  [V1] Order %s: %s\n",
+				mutedStyle.Render(order),
+				valueStyle.Render(actionType),
+			)
+			if comment != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "       %s\n", mutedStyle.Render(comment))
+			}
+		}
+
+		for _, action := range inspection.ActionInstancesV2 {
+			actionType := ""
+			if at, ok := action["action_type"].(map[string]interface{}); ok {
+				actionType = getString(at, "display_value")
+			}
+			if actionType == "" {
+				actionType = getString(action, "action_type")
+			}
+			order := getString(action, "order")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  [V2] Order %s: %s\n",
+				mutedStyle.Render(order),
+				valueStyle.Render(actionType),
+			)
+		}
+	}
+
+	// Step Instances
+	if len(inspection.StepInstances) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Step Instances (%d):", len(inspection.StepInstances))))
+		for _, step := range inspection.StepInstances {
+			label := getString(step, "label")
+			order := getString(step, "order")
+
+			if label != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  Order %s: %s\n",
+					mutedStyle.Render(order),
+					valueStyle.Render(label),
+				)
+			}
+		}
+	}
+
+	// Trigger Definitions
+	if len(inspection.TriggerDefinitions) > 0 {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Trigger Definitions (%d):", len(inspection.TriggerDefinitions))))
+		for _, def := range inspection.TriggerDefinitions {
+			name := getString(def, "name")
+			defType := getString(def, "type")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n",
+				valueStyle.Render(name),
+				mutedStyle.Render(defType),
 			)
 		}
 	}
@@ -1040,26 +1171,87 @@ func printStyledFlowDebug(cmd *cobra.Command, flow *sdk.Flow, actions []sdk.Flow
 	return nil
 }
 
-// printMarkdownFlowDebug outputs markdown flow debug info.
-func printMarkdownFlowDebug(cmd *cobra.Command, flow *sdk.Flow, actions []sdk.FlowAction) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "**Flow Debug: %s**\n\n", flow.Name)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Sys ID:** %s\n", flow.SysID)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Status:** %s\n", map[bool]string{true: "Active", false: "Inactive"}[flow.Active])
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Version:** %s\n", flow.Version)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Actions:** %d\n", len(actions))
+// printMarkdownFlowInspection outputs comprehensive markdown flow inspection.
+func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspection) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "# Flow Inspection: %s\n\n", inspection.Flow.Name)
+	fmt.Fprintf(cmd.OutOrStdout(), "**Sys ID:** %s\n\n", inspection.Flow.SysID)
+	fmt.Fprintf(cmd.OutOrStdout(), "**Active:** %v\n\n", inspection.Flow.Active)
+	fmt.Fprintf(cmd.OutOrStdout(), "**Version:** %s\n\n", inspection.Flow.Version)
 
-	if len(actions) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), "**Actions:**")
-		for _, action := range actions {
-			fmt.Fprintf(cmd.OutOrStdout(), "- %d. %s (%s) - %s\n",
-				action.Order, action.Name, action.Action,
-				map[bool]string{true: "Active", false: "Inactive"}[action.Active])
+	// Components
+	if len(inspection.Components) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Flow Components (%d)\n\n", len(inspection.Components))
+		for _, comp := range inspection.Components {
+			sysID := getString(comp, "sys_id")
+			className := getString(comp, "sys_class_name")
+			order := getString(comp, "order")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "- `%s` (%s) - Order: %s\n", sysID, className, order)
 		}
+		fmt.Fprintln(cmd.OutOrStdout())
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout())
+	// Actions
+	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
+	if totalActions > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Action Instances (%d)\n\n", totalActions)
+
+		for _, action := range inspection.ActionInstances {
+			actionType := getString(action, "action_type")
+			order := getString(action, "order")
+			comment := getString(action, "comment")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "- [V1] Order %s: %s\n", order, actionType)
+			if comment != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  - Comment: %s\n", comment)
+			}
+		}
+
+		for _, action := range inspection.ActionInstancesV2 {
+			actionType := getString(action, "action_type")
+			order := getString(action, "order")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "- [V2] Order %s: %s\n", order, actionType)
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	// Triggers
+	if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Triggers\n\n")
+
+		for _, trigger := range inspection.TimerTriggers {
+			timerType := getString(trigger, "timer_type")
+			fmt.Fprintf(cmd.OutOrStdout(), "- Timer: %s\n", timerType)
+		}
+
+		for _, trigger := range inspection.RecordTriggers {
+			table := getString(trigger, "table")
+			when := getString(trigger, "when")
+			fmt.Fprintf(cmd.OutOrStdout(), "- Record: %s on %s\n", when, table)
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+
 	return nil
+}
+
+// getString safely extracts a string value from a map.
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case string:
+			return val
+		case map[string]interface{}:
+			if dv, ok := val["display_value"].(string); ok {
+				return dv
+			}
+			if v, ok := val["value"].(string); ok {
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 // newFlowsVariablesCmd creates the flows variables command.
