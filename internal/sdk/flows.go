@@ -756,3 +756,44 @@ func buildFlowSnapshot(flow *Flow, actions []FlowAction, triggers []FlowTrigger)
 	snapshotJSON, _ := json.Marshal(snapshot)
 	return string(snapshotJSON)
 }
+
+// ExecuteFlowInput holds parameters for executing a flow.
+type ExecuteFlowInput struct {
+	Inputs map[string]interface{} // Flow input variables
+}
+
+// ExecuteFlow manually executes/triggers a flow.
+// This creates a flow execution record and starts the flow.
+func (c *Client) ExecuteFlow(ctx context.Context, flowID string, input ExecuteFlowInput) (*FlowExecution, error) {
+	// Create a trigger instance to execute the flow
+	data := map[string]interface{}{
+		"flow":   flowID,
+		"status": "waiting",
+	}
+
+	// Add any input variables if provided
+	if len(input.Inputs) > 0 {
+		inputJSON, _ := json.Marshal(input.Inputs)
+		data["inputs"] = string(inputJSON)
+	}
+
+	resp, err := c.Post(ctx, "sys_hub_trigger_instance", data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute flow: %w", err)
+	}
+
+	if resp.Result == nil {
+		return nil, fmt.Errorf("no response from execute flow")
+	}
+
+	// Get the execution details
+	exec := FlowExecution{
+		SysID:        getString(resp.Result, "sys_id"),
+		FlowID:       flowID,
+		Status:       getString(resp.Result, "status"),
+		Started:      getString(resp.Result, "sys_created_on"),
+		SysUpdatedOn: getString(resp.Result, "sys_updated_on"),
+	}
+
+	return &exec, nil
+}
