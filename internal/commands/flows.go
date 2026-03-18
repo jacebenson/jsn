@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -1003,101 +1004,68 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	valueStyle := lipgloss.NewStyle()
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00FFFF"))
+	triggerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00FF00"))
+	actionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFAA00"))
 
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow Inspection: %s", inspection.Flow.Name)))
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Flow: %s", inspection.Flow.Name)))
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Basic flow info
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Sys ID:"), valueStyle.Render(inspection.Flow.SysID))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Name:"), valueStyle.Render(inspection.Flow.Name))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Active:"), valueStyle.Render(fmt.Sprintf("%v", inspection.Flow.Active)))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Version:"), valueStyle.Render(inspection.Flow.Version))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Internal Name:"), valueStyle.Render(inspection.Flow.Name))
-
-	// Version Record
-	if len(inspection.Version) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("Version Record:"))
-		if flow, ok := inspection.Version["flow"].(map[string]interface{}); ok {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %s\n", mutedStyle.Render("Flow Link:"), valueStyle.Render(getString(flow, "value")))
-		}
+	status := "Inactive"
+	if inspection.Flow.Active {
+		status = "Active"
 	}
+	fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s | Version: %s\n", valueStyle.Render(status), mutedStyle.Render(inspection.Flow.Version))
+	fmt.Fprintf(cmd.OutOrStdout(), "  Sys ID: %s\n", mutedStyle.Render(inspection.Flow.SysID))
 
-	// Components
-	if len(inspection.Components) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Flow Components (%d):", len(inspection.Components))))
-		for _, comp := range inspection.Components {
-			sysID := getString(comp, "sys_id")
-			className := getString(comp, "sys_class_name")
-			order := getString(comp, "order")
-			displayText := getString(comp, "display_text")
-			uiID := getString(comp, "ui_id")
+	// TRIGGER SECTION
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), triggerStyle.Render("▶ TRIGGER"))
+	fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
 
-			if displayText == "" {
-				displayText = className
-			}
-			if displayText == "" {
-				displayText = sysID[:8] + "..."
+	if len(inspection.TimerTriggers) > 0 {
+		for _, trigger := range inspection.TimerTriggers {
+			timerType := getString(trigger, "timer_type")
+			time := getString(trigger, "time")
+
+			if timerType == "" {
+				timerType = "Timer"
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s (order: %s, ui: %s)\n",
-				mutedStyle.Render(sysID[:8]),
-				valueStyle.Render(displayText),
-				mutedStyle.Render(order),
-				mutedStyle.Render(uiID[:8]),
-			)
+			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerType))
+			if time != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  Time: %s\n", mutedStyle.Render(time))
+			}
 		}
-	}
-
-	// Trigger Instances
-	if len(inspection.TriggerInstances) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Trigger Instances (%d):", len(inspection.TriggerInstances))))
+	} else if len(inspection.TriggerInstances) > 0 {
 		for _, trigger := range inspection.TriggerInstances {
-			name := getString(trigger, "name")
 			triggerType := getString(trigger, "trigger_type")
-			displayText := getString(trigger, "display_text")
+			name := getString(trigger, "name")
 
 			if name == "" {
 				name = triggerType
 			}
-			if displayText == "" {
-				displayText = name
+
+			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(name))
+			if triggerType != "" && triggerType != name {
+				fmt.Fprintf(cmd.OutOrStdout(), "  (%s)\n", mutedStyle.Render(triggerType))
 			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n",
-				valueStyle.Render(displayText),
-				mutedStyle.Render(triggerType),
-			)
 		}
+	} else {
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No trigger configured"))
 	}
 
-	// Timer Triggers
-	if len(inspection.TimerTriggers) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Timer Triggers (%d):", len(inspection.TimerTriggers))))
-		for _, trigger := range inspection.TimerTriggers {
-			timerType := getString(trigger, "timer_type")
-			time := getString(trigger, "time")
-			active := getString(trigger, "active")
-
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s (time: %s, active: %s)\n",
-				valueStyle.Render(timerType),
-				mutedStyle.Render(time),
-				mutedStyle.Render(active),
-			)
-		}
-	}
-
-	// Action Instances
+	// ACTIONS SECTION
 	totalActions := len(inspection.ActionInstances) + len(inspection.ActionInstancesV2)
 	if totalActions > 0 {
 		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Action Instances (%d):", totalActions)))
+		fmt.Fprintln(cmd.OutOrStdout(), actionStyle.Render("⚡ ACTIONS"))
+		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
 
+		actionNum := 1
+
+		// V1 Actions
 		for _, action := range inspection.ActionInstances {
 			actionType := ""
 			if at, ok := action["action_type"].(map[string]interface{}); ok {
@@ -1106,18 +1074,33 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 			if actionType == "" {
 				actionType = getString(action, "action_type")
 			}
-			order := getString(action, "order")
-			comment := getString(action, "comment")
-
-			fmt.Fprintf(cmd.OutOrStdout(), "  [V1] Order %s: %s\n",
-				mutedStyle.Render(order),
-				valueStyle.Render(actionType),
-			)
-			if comment != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "       %s\n", mutedStyle.Render(comment))
+			if actionType == "" {
+				actionType = "Unknown Action"
 			}
+
+			comment := getString(action, "comment")
+			actionInputs := getString(action, "action_inputs")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  %d. %s\n", actionNum, valueStyle.Render(actionType))
+
+			if comment != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Annotation"), valueStyle.Render(comment))
+			}
+
+			// Parse action_inputs JSON if present
+			if actionInputs != "" {
+				var inputs map[string]interface{}
+				if err := json.Unmarshal([]byte(actionInputs), &inputs); err == nil {
+					for key, val := range inputs {
+						fmt.Fprintf(cmd.OutOrStdout(), "     %s: %v\n", mutedStyle.Render(key), val)
+					}
+				}
+			}
+
+			actionNum++
 		}
 
+		// V2 Actions
 		for _, action := range inspection.ActionInstancesV2 {
 			actionType := ""
 			if at, ok := action["action_type"].(map[string]interface{}); ok {
@@ -1126,44 +1109,44 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 			if actionType == "" {
 				actionType = getString(action, "action_type")
 			}
-			order := getString(action, "order")
+			if actionType == "" {
+				actionType = "Unknown Action"
+			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "  [V2] Order %s: %s\n",
-				mutedStyle.Render(order),
-				valueStyle.Render(actionType),
-			)
+			values := getString(action, "values")
+
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  %d. %s %s\n", actionNum, valueStyle.Render(actionType), mutedStyle.Render("(V2)"))
+
+			// Parse values JSON if present
+			if values != "" {
+				var inputs map[string]interface{}
+				if err := json.Unmarshal([]byte(values), &inputs); err == nil {
+					for key, val := range inputs {
+						fmt.Fprintf(cmd.OutOrStdout(), "     %s: %v\n", mutedStyle.Render(key), val)
+					}
+				}
+			}
+
+			actionNum++
 		}
 	}
 
-	// Step Instances
-	if len(inspection.StepInstances) > 0 {
+	// Show step instances if they have labels (these are the actual configured steps)
+	labeledSteps := 0
+	for _, step := range inspection.StepInstances {
+		if getString(step, "label") != "" {
+			labeledSteps++
+		}
+	}
+
+	if labeledSteps > 0 {
 		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Step Instances (%d):", len(inspection.StepInstances))))
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("Steps:"))
 		for _, step := range inspection.StepInstances {
 			label := getString(step, "label")
-			order := getString(step, "order")
-
 			if label != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  Order %s: %s\n",
-					mutedStyle.Render(order),
-					valueStyle.Render(label),
-				)
+				fmt.Fprintf(cmd.OutOrStdout(), "  • %s\n", valueStyle.Render(label))
 			}
-		}
-	}
-
-	// Trigger Definitions
-	if len(inspection.TriggerDefinitions) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("Trigger Definitions (%d):", len(inspection.TriggerDefinitions))))
-		for _, def := range inspection.TriggerDefinitions {
-			name := getString(def, "name")
-			defType := getString(def, "type")
-
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n",
-				valueStyle.Render(name),
-				mutedStyle.Render(defType),
-			)
 		}
 	}
 
