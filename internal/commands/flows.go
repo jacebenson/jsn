@@ -1188,17 +1188,17 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 
 			// Show decoded values if present
 			if decodedValues != nil {
-				// Show message if present
-				if message, ok := decodedValues["message"].(string); ok && message != "" {
+				// Show message if present (log_message)
+				if message, ok := decodedValues["log_message"].(string); ok && message != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Message"), valueStyle.Render(message))
 				}
-				// Show level if present
-				if level, ok := decodedValues["level"].(string); ok && level != "" {
+				// Show level if present (log_level)
+				if level, ok := decodedValues["log_level"].(string); ok && level != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render("Level"), valueStyle.Render(level))
 				}
 				// Show other configuration values
 				for key, val := range decodedValues {
-					if key != "message" && key != "level" {
+					if key != "log_message" && key != "log_level" {
 						if strVal, ok := val.(string); ok && strVal != "" {
 							fmt.Fprintf(cmd.OutOrStdout(), "     %s: %s\n", mutedStyle.Render(key), valueStyle.Render(strVal))
 						}
@@ -1317,6 +1317,7 @@ func getString(m map[string]interface{}, key string) string {
 }
 
 // decodeGzippedValues decodes base64-encoded gzipped JSON data.
+// Returns a map of parameter names to their values.
 func decodeGzippedValues(data string) map[string]interface{} {
 	if data == "" {
 		return nil
@@ -1341,13 +1342,31 @@ func decodeGzippedValues(data string) map[string]interface{} {
 		return nil
 	}
 
-	// Parse JSON
-	var result map[string]interface{}
-	if err := json.Unmarshal(decompressed, &result); err != nil {
-		return nil
+	// Try to parse as array first (V2 action format)
+	var arrayResult []map[string]interface{}
+	if err := json.Unmarshal(decompressed, &arrayResult); err == nil {
+		// Convert array to map using "name" field as key
+		result := make(map[string]interface{})
+		for _, item := range arrayResult {
+			if name, ok := item["name"].(string); ok && name != "" {
+				// Use displayValue if available, otherwise value
+				if displayValue, ok := item["displayValue"].(string); ok && displayValue != "" {
+					result[name] = displayValue
+				} else if value, ok := item["value"].(string); ok {
+					result[name] = value
+				}
+			}
+		}
+		return result
 	}
 
-	return result
+	// Try to parse as map (fallback)
+	var mapResult map[string]interface{}
+	if err := json.Unmarshal(decompressed, &mapResult); err == nil {
+		return mapResult
+	}
+
+	return nil
 }
 
 // newFlowsVariablesCmd creates the flows variables command.
