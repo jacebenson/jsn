@@ -1,7 +1,3 @@
-THIS IS Rough.  
-
-only tested on arch linux but would love others input.
-
 # JSN - ServiceNow CLI
 
 **Agent-first, agent-native** 
@@ -96,12 +92,6 @@ The command structure is predictable and machine-readable. JSON output available
 
 <details>
 <summary>Other installation methods</summary>
-
-**Homebrew (macOS/Linux):**
-```bash
-brew tap jacebenson/jsn
-brew install jsn
-```
 
 **Go install:**
 ```bash
