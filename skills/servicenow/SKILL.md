@@ -1,47 +1,17 @@
 ---
 name: servicenow
 description: |
-  Interact with ServiceNow instances via the jsn CLI. Explore tables, records, business rules,
-  flows, script includes, ACLs, update sets, and more. Use for ANY ServiceNow question or action.
-triggers:
-  # Direct invocations
-  - servicenow
-  - jsn
-  - /servicenow
-  - /jsn
-  # Resource actions
-  - jsn tables
-  - jsn records
-  - jsn rules
-  - jsn flows
-  - jsn acls
-  - jsn script-includes
-  - jsn updateset
-  - jsn choices
-  - jsn jobs
-  - jsn forms
-  - jsn ui-policies
-  - jsn client-scripts
-  # Common actions
-  - query servicenow
-  - list records
-  - show table
-  - business rules
-  - script include
-  - update set
-  - gliderecord
-  # Questions
-  - what tables
-  - what business rules
-  - what flows
-  - how do I servicenow
-  # URLs
-  - service-now.com
-  - servicenow.com
-invocable: true
-argument-hint: "[command] [args...]"
+  Interact with ServiceNow instances via the jsn CLI. Use when working with ServiceNow
+  development, administration, or data exploration. Handles tables, records, business rules,
+  flows, script includes, ACLs, update sets, and more. Triggered by ServiceNow URLs
+  (service-now.com, servicenow.com) or when the user mentions ServiceNow, jsn, servicenow,
+  or related terms like tables, records, business rules, flows, script includes, ACLs,
+  update sets, or encoded queries.
 license: MIT
-compatibility: Requires jsn CLI to be installed. Works with Claude Code, OpenCode, Cursor, and other agentskills-compatible tools.
+compatibility: |
+  Requires jsn CLI (github.com/jacebenson/jsn). Install via:
+  curl -fsSL https://jsn.jace.pro/install | bash
+  Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
 metadata:
   author: jacebenson
   version: "1.0.0"
