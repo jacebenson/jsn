@@ -256,6 +256,47 @@
             </div>
         </section>
 
+        <section class="skills-setup">
+            <h2 style="color: #fff; font-size: 1.5rem; margin-bottom: 1.5rem; font-family: 'SF Mono', Monaco, monospace;">Quick Setup for AI Agents</h2>
+            
+            <div class="feature" style="margin-bottom: 1.5rem;">
+                <h3>1. Install CLI</h3>
+                <div class="code-block" style="margin-top: 0.5rem;">
+                    <span class="cmd">curl -fsSL https://jsn.jace.pro/install | bash</span><br>
+                    <span class="cmd">jsn --version</span> <span class="comment"># Verify: jsn version X.Y.Z</span>
+                </div>
+            </div>
+
+            <div class="feature" style="margin-bottom: 1.5rem;">
+                <h3>2. Authenticate</h3>
+                <div class="code-block" style="margin-top: 0.5rem;">
+                    <span class="cmd">jsn setup</span> <span class="comment"># Interactive setup</span><br>
+                    <span class="cmd">jsn auth status</span> <span class="comment"># Verify: Authenticated</span>
+                </div>
+            </div>
+
+            <div class="feature" style="margin-bottom: 1.5rem;">
+                <h3>3. Install Skill</h3>
+                <div class="code-block" style="margin-top: 0.5rem;">
+                    <span class="cmd">npx skills add jacebenson/jsn</span> <span class="comment"># Auto-detects your agent</span><br>
+                    <span class="cmd">npx skills list</span> <span class="comment"># Verify: servicenow skill listed</span>
+                </div>
+            </div>
+
+            <div class="feature">
+                <h3>4. Start Using</h3>
+                <div class="code-block" style="margin-top: 0.5rem;">
+                    <span class="comment"># Restart your agent, then:</span><br>
+                    <span class="cmd">/jsn</span> <span class="comment"># Activates the skill</span><br>
+                    <span class="comment"># Ask: "What tables exist?" or "List business rules on incident"</span>
+                </div>
+            </div>
+
+            <p style="text-align: center; margin-top: 2rem; color: var(--muted);">
+                <a href="https://github.com/jacebenson/jsn/blob/main/SKILL.md" style="color: var(--accent); text-decoration: none;">View full skill documentation →</a>
+            </p>
+        </section>
+
         <footer class="footer">
             <a href="https://github.com/jacebenson/jsn" class="github-link">github.com/jacebenson/jsn</a>
             <p>Open source • MIT License</p>
