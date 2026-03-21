@@ -101,14 +101,25 @@ else
   tar -xzf "$ASSET_NAME"
 fi
 
+# Find the binary (support both old format with versioned name and new format)
+BINARY_FILE=$(find . -maxdepth 1 -type f \( -name "jsn" -o -name "jsn.exe" -o -name "jsn_*" \) ! -name "*.tar.gz" ! -name "*.zip" | head -1)
+if [ -z "$BINARY_FILE" ]; then
+  echo -e "${RED}Could not find binary in archive${NC}"
+  ls -la
+  exit 1
+fi
+# Remove leading ./ if present
+BINARY_FILE=$(basename "$BINARY_FILE")
+echo "Found binary: $BINARY_FILE"
+
 # Install
 echo "Installing to $INSTALL_DIR..."
 if [ -w "$INSTALL_DIR" ]; then
-  mv "$BINARY_NAME" "$INSTALL_DIR/"
+  mv "$BINARY_FILE" "$INSTALL_DIR/$BINARY_NAME"
 else
-  mv "$BINARY_NAME" "$INSTALL_DIR/" 2>/dev/null || {
+  mv "$BINARY_FILE" "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || {
     echo -e "${YELLOW}Need sudo access to install to $INSTALL_DIR${NC}"
-    sudo mv "$BINARY_NAME" "$INSTALL_DIR/"
+    sudo mv "$BINARY_FILE" "$INSTALL_DIR/$BINARY_NAME"
   }
 fi
 

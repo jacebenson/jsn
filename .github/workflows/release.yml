@@ -43,12 +43,16 @@ jobs:
         run: |
           cd dist
           for file in jsn_*; do
+            # Rename to just 'jsn' or 'jsn.exe' before archiving
             if [[ "$file" == *.exe ]]; then
-              zip "${file%.exe}.zip" "$file"
+              mv "$file" "jsn.exe"
+              zip "${file%.exe}.zip" "jsn.exe"
+              rm "jsn.exe"
             else
-              tar -czf "${file}.tar.gz" "$file"
+              mv "$file" "jsn"
+              tar -czf "${file}.tar.gz" "jsn"
+              rm "jsn"
             fi
-            rm "$file"
           done
           ls -la
 
