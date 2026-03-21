@@ -1,4 +1,4 @@
-{"version":3,"term":{"cols":150,"rows":38,"type":"xterm-256color","theme":{"fg":"#bebebe","bg":"#121212","palette":"#333333:#d35f5f:#ffc107:#b91c1c:#e68e0d:#d35f5f:#bebebe:#bebebe:#8a8a8d:#b91c1c:#ffc107:#b90a0a:#f59e0b:#b91c1c:#eaeaea:#ffffff"}},"timestamp":1774064191,"env":{"SHELL":"/usr/bin/bash"}}
+{"version":2,"term":{"cols":150,"rows":38,"type":"xterm-256color","theme":{"fg":"#bebebe","bg":"#121212","palette":"#333333:#d35f5f:#ffc107:#b91c1c:#e68e0d:#d35f5f:#bebebe:#bebebe:#8a8a8d:#b91c1c:#ffc107:#b90a0a:#f59e0b:#b91c1c:#eaeaea:#ffffff"}},"timestamp":1774064191,"env":{"SHELL":"/usr/bin/bash"}}
 [0.263, "o", "\u001b]0;jace@framework:~/git/aiinabox\u0007"]
 [0.007, "o", "\u001b[?2004h\r\n\u001b[1;36m…/git/aiinabox\u001b[0m \u001b[1;36m❯\u001b[0m \r\u001b[1;36m…/git/aiinabox\u001b[0m \u001b[1;36m❯\u001b[0m "]
 [4.876, "o", "j\r\u001b[1;36m…/git/aiinabox\u001b[0m \u001b[1;36m❯\u001b[0m \u001b[C"]
