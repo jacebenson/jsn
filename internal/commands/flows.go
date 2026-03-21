@@ -19,13 +19,13 @@ import (
 
 // flowsListFlags holds the flags for the flows list command.
 type flowsListFlags struct {
-	limit       int
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit  int
+	active bool
+	search string
+	query  string
+	order  string
+	desc   bool
+	all    bool
 }
 
 // NewFlowsCmd creates the flows command group.
@@ -55,10 +55,15 @@ func newFlowsListCmd() *cobra.Command {
 		Short: "List flows",
 		Long: `List Flow Designer flows from sys_hub_flow.
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn flows list
+  jsn flows list --search approval
   jsn flows list --active
-  jsn flows list --query "nameLIKEapproval" --limit 50`,
+  jsn flows list --query "nameLIKEapproval^active=true" --limit 50`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFlowsList(cmd, flags)
 		},
@@ -66,11 +71,12 @@ Examples:
 
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of flows to fetch")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active flows")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding flows
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all flows (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select a flow to view details")
 
 	return cmd
 }
@@ -101,6 +107,9 @@ func runFlowsList(cmd *cobra.Command, flags flowsListFlags) error {
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
 	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("nameLIKE%s", flags.search))
+	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
 		queryParts = append(queryParts, wrapSimpleQuery(flags.query, "sys_hub_flow"))
@@ -129,8 +138,9 @@ func runFlowsList(cmd *cobra.Command, flags flowsListFlags) error {
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select a flow to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - let user select a flow to view (auto-detect TTY)
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
 		selectedFlow, err := pickFlowFromList(flows)
 		if err != nil {
 			return err
@@ -296,7 +306,8 @@ func printStyledFlowsList(cmd *cobra.Command, flows []sdk.Flow, instanceURL stri
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-20s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-20s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Status"),
 		headerStyle.Render("Scope"),
@@ -321,20 +332,22 @@ func printStyledFlowsList(cmd *cobra.Command, flows []sdk.Flow, instanceURL stri
 		}
 
 		name := flow.Name
-		if len(name) > 38 {
-			name = name[:35] + "..."
+		if len(name) > 34 {
+			name = name[:31] + "..."
 		}
 
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_hub_flow.do?sys_id=%s", instanceURL, flow.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-20s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-20s\n",
+				mutedStyle.Render(flow.SysID),
 				nameWithLink,
 				statusStyle.Render(status),
 				mutedStyle.Render(scope),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-20s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-20s\n",
+				mutedStyle.Render(flow.SysID),
 				name,
 				statusStyle.Render(status),
 				mutedStyle.Render(scope),
@@ -358,8 +371,8 @@ func printStyledFlowsList(cmd *cobra.Command, flows []sdk.Flow, instanceURL stri
 // printMarkdownFlowsList outputs markdown flows list.
 func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**Flows**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Status | Scope |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|--------|-------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Status | Scope |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|--------|-------|")
 
 	for _, flow := range flows {
 		status := "Active"
@@ -373,7 +386,7 @@ func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
 		if scope == "" {
 			scope = "global"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s |\n", flow.Name, status, scope)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n", flow.SysID, flow.Name, status, scope)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -383,15 +396,17 @@ func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
 // newFlowsShowCmd creates the flows show command.
 func newFlowsShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<name>] [variables]",
+		Use:   "show [<identifier>] [variables]",
 		Short: "Show flow details",
 		Long: `Display detailed information about a flow.
 
-If no name is provided, an interactive picker will help you select one.
+The identifier can be a flow name or sys_id.
+If no identifier is provided, an interactive picker will help you select one.
 Use "variables" as the second argument to show only flow variables.
 
 Examples:
   jsn flows show "Approval Flow"
+  jsn flows show 0123456789abcdef0123456789abcdef
   jsn flows show "Approval Flow" variables
   jsn flows show  # Interactive picker`,
 		Args: cobra.RangeArgs(0, 2),

@@ -76,6 +76,26 @@ func (c *Client) ListLogs(ctx context.Context, opts *ListLogsOptions) ([]LogEntr
 	return logs, nil
 }
 
+// GetLog retrieves a single log entry by sys_id.
+func (c *Client) GetLog(ctx context.Context, sysID string) (*LogEntry, error) {
+	query := url.Values{}
+	query.Set("sysparm_limit", "1")
+	query.Set("sysparm_query", fmt.Sprintf("sys_id=%s", sysID))
+	query.Set("sysparm_fields", "sys_id,level,message,source,sys_created_on,sys_created_by")
+
+	resp, err := c.Get(ctx, "syslog", query)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Result) == 0 {
+		return nil, fmt.Errorf("log entry not found: %s", sysID)
+	}
+
+	log := logEntryFromRecord(resp.Result[0])
+	return &log, nil
+}
+
 // logEntryFromRecord converts a record map to a LogEntry struct.
 func logEntryFromRecord(record map[string]interface{}) LogEntry {
 	return LogEntry{

@@ -119,8 +119,9 @@ func runUpdateSetList(cmd *cobra.Command, flags updateSetListFlags) error {
 	}
 
 	opts := &sdk.ListUpdateSetsOptions{
-		Limit:     limit,
-		Query:     sysparmQuery,
+		Limit: limit,
+		Query: sysparmQuery,
+		// Default order: "sys_updated_on" descending - most recently modified first
 		OrderBy:   "sys_updated_on",
 		OrderDesc: true,
 	}

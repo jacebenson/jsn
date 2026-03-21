@@ -16,15 +16,15 @@ import (
 
 // clientScriptsListFlags holds the flags for the client-scripts list command.
 type clientScriptsListFlags struct {
-	limit       int
-	table       string
-	scriptType  string
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit      int
+	table      string
+	scriptType string
+	active     bool
+	search     string
+	query      string
+	order      string
+	desc       bool
+	all        bool
 }
 
 // NewClientScriptsCmd creates the client-scripts command group.
@@ -53,8 +53,13 @@ func newClientScriptsListCmd() *cobra.Command {
 		Short: "List client scripts",
 		Long: `List client scripts from sys_script_client.
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn client-scripts list --table incident
+  jsn client-scripts list --search validate
   jsn client-scripts list --type onLoad
   jsn client-scripts list --active --limit 50`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -66,11 +71,12 @@ Examples:
 	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Filter by table name")
 	cmd.Flags().StringVar(&flags.scriptType, "type", "", "Filter by type (onLoad, onChange, onSubmit, onCellEdit)")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active scripts")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "order" for execution sequence - scripts run in this order on forms
 	cmd.Flags().StringVar(&flags.order, "order", "order", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all scripts (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select a script to view details")
 
 	return cmd
 }
@@ -100,6 +106,9 @@ func runClientScriptsList(cmd *cobra.Command, flags clientScriptsListFlags) erro
 	var queryParts []string
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
+	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("nameLIKE%s", flags.search))
 	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
@@ -131,8 +140,9 @@ func runClientScriptsList(cmd *cobra.Command, flags clientScriptsListFlags) erro
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select a script to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - let user select a script to view (auto-detect TTY)
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
 		selectedScript, err := pickClientScriptFromList(scripts)
 		if err != nil {
 			return err
@@ -201,7 +211,8 @@ func printStyledClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-15s %-12s %-8s %-10s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-15s %-12s %-8s %-10s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Table"),
 		headerStyle.Render("Type"),
@@ -218,8 +229,8 @@ func printStyledClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript
 		}
 
 		name := script.Name
-		if len(name) > 33 {
-			name = name[:30] + "..."
+		if len(name) > 30 {
+			name = name[:27] + "..."
 		}
 
 		table := script.Table
@@ -230,7 +241,8 @@ func printStyledClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_script_client.do?sys_id=%s", instanceURL, script.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-15s %-12s %-8s %-10s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-15s %-12s %-8s %-10s\n",
+				mutedStyle.Render(script.SysID),
 				nameWithLink,
 				mutedStyle.Render(table),
 				statusStyle.Render(script.Type),
@@ -238,7 +250,8 @@ func printStyledClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript
 				mutedStyle.Render(script.UiType),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-15s %-12s %-8s %-10s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-15s %-12s %-8s %-10s\n",
+				mutedStyle.Render(script.SysID),
 				name,
 				mutedStyle.Render(table),
 				statusStyle.Render(script.Type),
@@ -268,11 +281,11 @@ func printStyledClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript
 // printMarkdownClientScriptsList outputs markdown client scripts list.
 func printMarkdownClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**Client Scripts**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Table | Type | Order | UI Type |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|-------|------|-------|---------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Table | Type | Order | UI Type |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|-------|------|-------|---------|")
 
 	for _, script := range scripts {
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %d | %s |\n", script.Name, script.Table, script.Type, script.Order, script.UiType)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %d | %s |\n", script.SysID, script.Name, script.Table, script.Type, script.Order, script.UiType)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())

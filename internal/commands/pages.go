@@ -15,17 +15,18 @@ import (
 
 // pagesListFlags holds the flags for the pages list command.
 type pagesListFlags struct {
-	limit int
-	query string
-	order string
-	desc  bool
+	limit  int
+	search string
+	query  string
+	order  string
+	desc   bool
 }
 
 // NewPagesCmd creates the pages command group.
 func NewPagesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "sp-page",
-		Aliases: []string{"pages", "page"},
+		Use:     "sp-pages",
+		Aliases: []string{"sp-page", "pages", "page"},
 		Short:   "Manage Service Portal Pages",
 		Long:    "List and view ServiceNow Service Portal Pages with their widget instances.",
 	}
@@ -47,17 +48,24 @@ func newPagesListCmd() *cobra.Command {
 		Short: "List Service Portal Pages",
 		Long: `List all ServiceNow Service Portal Pages.
 
+Filtering:
+  --search <term>   Fuzzy search on id or title (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
-  jsn sp-page list
-  jsn sp-page list --limit 50
-  jsn sp-page list --query "active=true"`,
+  jsn sp-pages list
+  jsn sp-pages list --search index
+  jsn sp-pages list --limit 50
+  jsn sp-pages list --query "active=true"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPagesList(cmd, flags)
 		},
 	}
 
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of pages to fetch")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on id or title")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding pages
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 
@@ -85,9 +93,20 @@ func runPagesList(cmd *cobra.Command, flags pagesListFlags) error {
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
+	// Build query with search support
+	query := flags.query
+	if flags.search != "" {
+		searchQuery := fmt.Sprintf("idLIKE%s^ORtitleLIKE%s", flags.search, flags.search)
+		if query != "" {
+			query = searchQuery + "^" + query
+		} else {
+			query = searchQuery
+		}
+	}
+
 	opts := &sdk.ListPagesOptions{
 		Limit:     flags.limit,
-		Query:     flags.query,
+		Query:     query,
 		OrderBy:   flags.order,
 		OrderDesc: flags.desc,
 	}
@@ -136,7 +155,7 @@ func runPagesList(cmd *cobra.Command, flags pagesListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn sp-page show <id>",
+			Cmd:         "jsn sp-pages show <id>",
 			Description: "Show page details with widgets",
 		},
 	}
@@ -159,7 +178,8 @@ func printStyledPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL stri
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %-30s %-10s %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-25s %-28s %-10s %s\n",
+		headerStyle.Render("Sys ID"),
 		mutedStyle.Render("ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Active"),
@@ -185,8 +205,12 @@ func printStyledPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL stri
 		if displayName == "" {
 			displayName = page.ID
 		}
+		if len(displayName) > 26 {
+			displayName = displayName[:23] + "..."
+		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %-30s %-10s %s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-25s %-28s %-10s %s\n",
+			mutedStyle.Render(page.SysID),
 			brandStyle.Render(idDisplay),
 			displayName,
 			activeStr,
@@ -201,7 +225,7 @@ func printStyledPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL stri
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp-page show <id>",
+		"jsn sp-pages show <id>",
 		labelStyle.Render("Show page details with widget instances"),
 	)
 
@@ -215,8 +239,8 @@ func printMarkdownPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL st
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Header row
-	fmt.Fprintln(cmd.OutOrStdout(), "| ID | Title | Active | Theme |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|----|-------|--------|-------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | ID | Title | Active | Theme |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|-------|-------|--------|-------|")
 
 	// Pages
 	for _, page := range pages {
@@ -228,8 +252,8 @@ func printMarkdownPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL st
 		if displayName == "" {
 			displayName = page.ID
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n",
-			page.ID, displayName, activeStr, page.ThemeName)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %s |\n",
+			page.SysID, page.ID, displayName, activeStr, page.ThemeName)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -239,15 +263,16 @@ func printMarkdownPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL st
 // newPagesShowCmd creates the pages show command.
 func newPagesShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show [<id>]",
+		Use:   "show [<identifier>]",
 		Short: "Show page details with widget instances",
 		Long: `Display detailed information about a Service Portal Page including all widget instances.
 
-If no ID is provided, an interactive picker will help you select one.
+The identifier can be a page ID (e.g., "index") or sys_id.
+If no identifier is provided, an interactive picker will help you select one.
 
 Examples:
-  jsn sp-page show index
-  jsn sp-page show <sys_id>`,
+  jsn sp-pages show index
+  jsn sp-pages show 0123456789abcdef0123456789abcdef`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var id string
@@ -335,12 +360,12 @@ func runPagesShow(cmd *cobra.Command, id string) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         "jsn sp-page list",
+			Cmd:         "jsn sp-pages list",
 			Description: "List all pages",
 		},
 		{
 			Action:      "widget",
-			Cmd:         "jsn sp-widget show <id>",
+			Cmd:         "jsn sp-widgets show <id>",
 			Description: "View widget details",
 		},
 	}
@@ -447,12 +472,12 @@ func printStyledPage(cmd *cobra.Command, page *sdk.Page, instances []sdk.WidgetI
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp-page list",
+		"jsn sp-pages list",
 		labelStyle.Render("List all pages"),
 	)
 	if len(instances) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-			"jsn sp-widget show <widget_id>",
+			"jsn sp-widgets show <widget_id>",
 			labelStyle.Render("View widget details"),
 		)
 	}

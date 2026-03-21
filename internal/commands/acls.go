@@ -16,16 +16,16 @@ import (
 
 // aclsListFlags holds the flags for the acls list command.
 type aclsListFlags struct {
-	limit       int
-	table       string
-	operation   string
-	aclType     string
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit     int
+	table     string
+	operation string
+	aclType   string
+	active    bool
+	search    string
+	query     string
+	order     string
+	desc      bool
+	all       bool
 }
 
 // NewACLsCmd creates the acls command group.
@@ -55,8 +55,13 @@ func newACLsListCmd() *cobra.Command {
 		Short: "List ACLs",
 		Long: `List Access Control Lists from sys_security_acl.
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn acls list --table incident
+  jsn acls list --search read
   jsn acls list --operation write
   jsn acls list --type record
   jsn acls list --active --limit 50`,
@@ -70,11 +75,12 @@ Examples:
 	cmd.Flags().StringVarP(&flags.operation, "operation", "o", "", "Filter by operation (read, write, create, delete, execute)")
 	cmd.Flags().StringVar(&flags.aclType, "type", "", "Filter by ACL type (record, field, processor, etc.)")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active ACLs")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding ACLs
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all ACLs (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select an ACL to view details")
 
 	return cmd
 }
@@ -104,6 +110,9 @@ func runACLsList(cmd *cobra.Command, flags aclsListFlags) error {
 	var queryParts []string
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
+	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("nameLIKE%s", flags.search))
 	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
@@ -136,8 +145,9 @@ func runACLsList(cmd *cobra.Command, flags aclsListFlags) error {
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select an ACL to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - auto-detect TTY unless disabled or explicit format requested
+	// Show picker automatically in terminal when no explicit format is requested
+	if isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto {
 		selectedACL, err := pickACLFromList(acls)
 		if err != nil {
 			return err
@@ -206,7 +216,8 @@ func printStyledACLsList(cmd *cobra.Command, acls []sdk.ACL, instanceURL string)
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-10s %-10s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-10s %-10s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Operation"),
 		headerStyle.Render("Type"),
@@ -222,8 +233,8 @@ func printStyledACLsList(cmd *cobra.Command, acls []sdk.ACL, instanceURL string)
 		}
 
 		name := acl.Name
-		if len(name) > 38 {
-			name = name[:35] + "..."
+		if len(name) > 34 {
+			name = name[:31] + "..."
 		}
 
 		advanced := "No"
@@ -234,14 +245,16 @@ func printStyledACLsList(cmd *cobra.Command, acls []sdk.ACL, instanceURL string)
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_security_acl.do?sys_id=%s", instanceURL, acl.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-10s %-10s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-10s %-10s\n",
+				mutedStyle.Render(acl.SysID),
 				nameWithLink,
 				statusStyle.Render(acl.Operation),
 				mutedStyle.Render(acl.Type),
 				mutedStyle.Render(advanced),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-10s %-10s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-10s %-10s\n",
+				mutedStyle.Render(acl.SysID),
 				name,
 				statusStyle.Render(acl.Operation),
 				mutedStyle.Render(acl.Type),
@@ -270,15 +283,15 @@ func printStyledACLsList(cmd *cobra.Command, acls []sdk.ACL, instanceURL string)
 // printMarkdownACLsList outputs markdown ACLs list.
 func printMarkdownACLsList(cmd *cobra.Command, acls []sdk.ACL) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**Access Control Lists (ACLs)**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Operation | Type | Advanced |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|-----------|------|----------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Operation | Type | Advanced |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|-----------|------|----------|")
 
 	for _, acl := range acls {
 		advanced := "No"
 		if acl.Advanced {
 			advanced = "Yes"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n", acl.Name, acl.Operation, acl.Type, advanced)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %s |\n", acl.SysID, acl.Name, acl.Operation, acl.Type, advanced)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())

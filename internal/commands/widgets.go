@@ -15,17 +15,18 @@ import (
 
 // widgetsListFlags holds the flags for the widgets list command.
 type widgetsListFlags struct {
-	limit int
-	query string
-	order string
-	desc  bool
+	limit  int
+	search string
+	query  string
+	order  string
+	desc   bool
 }
 
 // NewWidgetsCmd creates the widgets command group.
 func NewWidgetsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "sp-widget",
-		Aliases: []string{"widgets", "widget"},
+		Use:     "sp-widgets",
+		Aliases: []string{"sp-widget", "widgets", "widget"},
 		Short:   "Manage Service Portal Widgets",
 		Long:    "List and view ServiceNow Service Portal Widgets (global, not portal-specific).",
 	}
@@ -49,17 +50,24 @@ func newWidgetsListCmd() *cobra.Command {
 
 These are global widgets that can be used across all portals.
 
+Filtering:
+  --search <term>   Fuzzy search on name or id (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
-  jsn sp-widget list
-  jsn sp-widget list --limit 50
-  jsn sp-widget list --query "active=true"`,
+  jsn sp-widgets list
+  jsn sp-widgets list --search kb
+  jsn sp-widgets list --limit 50
+  jsn sp-widgets list --query "active=true"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWidgetsList(cmd, flags)
 		},
 	}
 
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of widgets to fetch")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name or id")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding widgets
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 
@@ -87,9 +95,20 @@ func runWidgetsList(cmd *cobra.Command, flags widgetsListFlags) error {
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
+	// Build query with search support
+	query := flags.query
+	if flags.search != "" {
+		searchQuery := fmt.Sprintf("nameLIKE%s^ORidLIKE%s", flags.search, flags.search)
+		if query != "" {
+			query = searchQuery + "^" + query
+		} else {
+			query = searchQuery
+		}
+	}
+
 	opts := &sdk.ListWidgetsOptions{
 		Limit:     flags.limit,
-		Query:     flags.query,
+		Query:     query,
 		OrderBy:   flags.order,
 		OrderDesc: flags.desc,
 	}
@@ -131,7 +150,7 @@ func runWidgetsList(cmd *cobra.Command, flags widgetsListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn sp-widget show <id>",
+			Cmd:         "jsn sp-widgets show <id>",
 			Description: "Show widget details",
 		},
 	}
@@ -154,7 +173,8 @@ func printStyledWidgetsList(cmd *cobra.Command, widgets []sdk.Widget, instanceUR
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %-30s %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-25s %-30s %s\n",
+		headerStyle.Render("Sys ID"),
 		mutedStyle.Render("Widget ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Scope"),
@@ -178,9 +198,15 @@ func printStyledWidgetsList(cmd *cobra.Command, widgets []sdk.Widget, instanceUR
 			idDisplay = fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, displayID)
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s %-30s %s\n",
+		name := widget.Name
+		if len(name) > 28 {
+			name = name[:25] + "..."
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-25s %-30s %s\n",
+			mutedStyle.Render(widget.SysID),
 			brandStyle.Render(idDisplay),
-			widget.Name,
+			name,
 			labelStyle.Render(widget.Scope),
 		)
 	}
@@ -192,7 +218,7 @@ func printStyledWidgetsList(cmd *cobra.Command, widgets []sdk.Widget, instanceUR
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp-widget show <id>",
+		"jsn sp-widgets show <id>",
 		labelStyle.Render("Show widget details"),
 	)
 
@@ -206,8 +232,8 @@ func printMarkdownWidgetsList(cmd *cobra.Command, widgets []sdk.Widget, instance
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Header row
-	fmt.Fprintln(cmd.OutOrStdout(), "| Widget ID | Name | Scope |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|-----------|------|-------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Widget ID | Name | Scope |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|-----------|------|-------|")
 
 	// Widgets
 	for _, widget := range widgets {
@@ -217,8 +243,8 @@ func printMarkdownWidgetsList(cmd *cobra.Command, widgets []sdk.Widget, instance
 		} else if displayID == "" {
 			displayID = widget.SysID
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s |\n",
-			displayID, widget.Name, widget.Scope)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n",
+			widget.SysID, displayID, widget.Name, widget.Scope)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -236,20 +262,21 @@ func newWidgetsShowCmd() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "show [<id>]",
+		Use:   "show [<identifier>]",
 		Short: "Show widget details",
 		Long: `Display detailed information about a Service Portal Widget.
 
-If no ID is provided, an interactive picker will help you select one.
+The identifier can be a widget ID (e.g., "kb-list") or sys_id.
+If no identifier is provided, an interactive picker will help you select one.
 
 Use --html, --css, --client, --server flags to show specific code fields.
 If no code flags are provided, only basic info is shown.
 
 Examples:
-  jsn sp-widget show kb-list
-  jsn sp-widget show kb-list --html --css
-  jsn sp-widget show kb-list --client --server
-  jsn sp-widget show <sys_id> --html`,
+  jsn sp-widgets show kb-list
+  jsn sp-widgets show 0123456789abcdef0123456789abcdef
+  jsn sp-widgets show kb-list --html --css
+  jsn sp-widgets show kb-list --client --server`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var id string
@@ -340,7 +367,7 @@ func runWidgetsShow(cmd *cobra.Command, id string, flags struct {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         "jsn sp-widget list",
+			Cmd:         "jsn sp-widgets list",
 			Description: "List all widgets",
 		},
 	}
@@ -400,27 +427,27 @@ func printStyledWidget(cmd *cobra.Command, widget *sdk.Widget, instanceURL strin
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp-widget list",
+		"jsn sp-widgets list",
 		labelStyle.Render("List all widgets"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn sp-widget show %s --html", hintID),
+		fmt.Sprintf("jsn sp-widgets show %s --html", hintID),
 		labelStyle.Render("Show HTML template"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn sp-widget show %s --css", hintID),
+		fmt.Sprintf("jsn sp-widgets show %s --css", hintID),
 		labelStyle.Render("Show CSS"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn sp-widget show %s --client", hintID),
+		fmt.Sprintf("jsn sp-widgets show %s --client", hintID),
 		labelStyle.Render("Show client script"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn sp-widget show %s --server", hintID),
+		fmt.Sprintf("jsn sp-widgets show %s --server", hintID),
 		labelStyle.Render("Show server script"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn sp-widget show %s --html --css --client --server", hintID),
+		fmt.Sprintf("jsn sp-widgets show %s --html --css --client --server", hintID),
 		labelStyle.Render("Show all code"),
 	)
 
@@ -459,11 +486,11 @@ func printMarkdownWidget(cmd *cobra.Command, widget *sdk.Widget, instanceURL str
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), "#### View Code")
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widget show %s --html` - HTML template\n", hintID)
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widget show %s --css` - CSS\n", hintID)
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widget show %s --client` - Client script\n", hintID)
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widget show %s --server` - Server script\n", hintID)
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widget show %s --html --css --client --server` - All code\n", hintID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widgets show %s --html` - HTML template\n", hintID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widgets show %s --css` - CSS\n", hintID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widgets show %s --client` - Client script\n", hintID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widgets show %s --server` - Server script\n", hintID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn sp-widgets show %s --html --css --client --server` - All code\n", hintID)
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil

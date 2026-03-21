@@ -16,14 +16,14 @@ import (
 
 // scriptIncludesListFlags holds the flags for the script-includes list command.
 type scriptIncludesListFlags struct {
-	limit       int
-	scope       string
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit  int
+	scope  string
+	active bool
+	search string
+	query  string
+	order  string
+	desc   bool
+	all    bool
 }
 
 // NewScriptIncludesCmd creates the script-includes command group.
@@ -38,7 +38,7 @@ func NewScriptIncludesCmd() *cobra.Command {
 	cmd.AddCommand(
 		newScriptIncludesListCmd(),
 		newScriptIncludesShowCmd(),
-		newScriptIncludesCodeCmd(),
+		newScriptIncludesScriptCmd(),
 	)
 
 	return cmd
@@ -53,8 +53,13 @@ func newScriptIncludesListCmd() *cobra.Command {
 		Short: "List script includes",
 		Long: `List script includes from sys_script_include.
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn script-includes list
+  jsn script-includes list --search Utils
   jsn script-includes list --scope global
   jsn script-includes list --active --limit 50`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -65,11 +70,12 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of script includes to fetch")
 	cmd.Flags().StringVarP(&flags.scope, "scope", "s", "", "Filter by scope")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active script includes")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding script includes
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all script includes (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select a script include to view details")
 
 	return cmd
 }
@@ -103,6 +109,9 @@ func runScriptIncludesList(cmd *cobra.Command, flags scriptIncludesListFlags) er
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
 	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("nameLIKE%s", flags.search))
+	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
 		queryParts = append(queryParts, wrapSimpleQuery(flags.query, "sys_script_include"))
@@ -131,8 +140,9 @@ func runScriptIncludesList(cmd *cobra.Command, flags scriptIncludesListFlags) er
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select a script include to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - let user select a script include to view (auto-detect TTY)
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
 		selectedScript, err := pickScriptIncludeFromList(scripts)
 		if err != nil {
 			return err
@@ -178,9 +188,9 @@ func runScriptIncludesList(cmd *cobra.Command, flags scriptIncludesListFlags) er
 				Description: "Show script include details",
 			},
 			output.Breadcrumb{
-				Action:      "code",
-				Cmd:         "jsn script-includes code <name>",
-				Description: "View code only",
+				Action:      "script",
+				Cmd:         "jsn script-includes script <name>",
+				Description: "View script only",
 			},
 		),
 	)
@@ -198,7 +208,8 @@ func printStyledScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclu
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-20s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-20s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Status"),
 		headerStyle.Render("Scope"),
@@ -223,20 +234,22 @@ func printStyledScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclu
 		}
 
 		name := script.Name
-		if len(name) > 38 {
-			name = name[:35] + "..."
+		if len(name) > 34 {
+			name = name[:31] + "..."
 		}
 
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_script_include.do?sys_id=%s", instanceURL, script.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-20s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-20s\n",
+				mutedStyle.Render(script.SysID),
 				nameWithLink,
 				statusStyle.Render(status),
 				mutedStyle.Render(scope),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-20s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-20s\n",
+				mutedStyle.Render(script.SysID),
 				name,
 				statusStyle.Render(status),
 				mutedStyle.Render(scope),
@@ -253,8 +266,8 @@ func printStyledScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclu
 		mutedStyle.Render("Show script include details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn script-includes code <name>",
-		mutedStyle.Render("View code only"),
+		"jsn script-includes script <name>",
+		mutedStyle.Render("View script only"),
 	)
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -264,8 +277,8 @@ func printStyledScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclu
 // printMarkdownScriptIncludesList outputs markdown script-includes list.
 func printMarkdownScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclude) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**Script Includes**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Status | Scope |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|--------|-------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Status | Scope |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|--------|-------|")
 
 	for _, script := range scripts {
 		status := "Active"
@@ -279,7 +292,7 @@ func printMarkdownScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInc
 		if scope == "" {
 			scope = "global"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s |\n", script.Name, status, scope)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n", script.SysID, script.Name, status, scope)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -289,14 +302,16 @@ func printMarkdownScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInc
 // newScriptIncludesShowCmd creates the script-includes show command.
 func newScriptIncludesShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<name>]",
+		Use:   "show [<identifier>]",
 		Short: "Show script include details",
 		Long: `Display detailed information about a script include.
 
-If no name is provided, an interactive picker will help you select one.
+The identifier can be a script include name or sys_id.
+If no identifier is provided, an interactive picker will help you select one.
 
 Examples:
   jsn script-includes show "MyScriptInclude"
+  jsn script-includes show 0123456789abcdef0123456789abcdef
   jsn script-includes show  # Interactive picker`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -389,9 +404,9 @@ func runScriptIncludesShow(cmd *cobra.Command, name string) error {
 				Description: "List all script includes",
 			},
 			output.Breadcrumb{
-				Action:      "code",
-				Cmd:         fmt.Sprintf("jsn script-includes code %s", script.Name),
-				Description: "View code only",
+				Action:      "script",
+				Cmd:         fmt.Sprintf("jsn script-includes script %s", script.Name),
+				Description: "View script only",
 			},
 		),
 	)
@@ -465,8 +480,8 @@ func printStyledScriptInclude(cmd *cobra.Command, script *sdk.ScriptInclude, ins
 		mutedStyle.Render("List all script includes"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn script-includes code %s", script.Name),
-		mutedStyle.Render("View code only"),
+		fmt.Sprintf("jsn script-includes script %s", script.Name),
+		mutedStyle.Render("View script only"),
 	)
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -516,25 +531,30 @@ func printMarkdownScriptInclude(cmd *cobra.Command, script *sdk.ScriptInclude, i
 	return nil
 }
 
-// newScriptIncludesCodeCmd creates the script-includes code command.
-func newScriptIncludesCodeCmd() *cobra.Command {
+// newScriptIncludesScriptCmd creates the script-includes script command.
+func newScriptIncludesScriptCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "code <name>",
-		Short: "Output just the code",
+		Use:     "script <identifier>",
+		Aliases: []string{"code"}, // Keep "code" as alias for backwards compatibility
+		Short:   "Output just the script",
 		Long: `Output only the script code of a script include.
 
+The identifier can be a script include name or sys_id.
+Use sys_id when multiple script includes share the same name.
+
 Examples:
-  jsn script-includes code "MyScriptInclude"
-  jsn script-includes code "MyScriptInclude" > script.js`,
+  jsn script-includes script "MyScriptInclude"
+  jsn script-includes script 0123456789abcdef0123456789abcdef
+  jsn script-includes script "MyScriptInclude" > script.js`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runScriptIncludesCode(cmd, args[0])
+			return runScriptIncludesScript(cmd, args[0])
 		},
 	}
 }
 
-// runScriptIncludesCode executes the script-includes code command.
-func runScriptIncludesCode(cmd *cobra.Command, name string) error {
+// runScriptIncludesScript executes the script-includes script command.
+func runScriptIncludesScript(cmd *cobra.Command, identifier string) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -547,7 +567,7 @@ func runScriptIncludesCode(cmd *cobra.Command, name string) error {
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
 	// Get the script include
-	script, err := sdkClient.GetScriptInclude(cmd.Context(), name)
+	script, err := sdkClient.GetScriptInclude(cmd.Context(), identifier)
 	if err != nil {
 		return fmt.Errorf("failed to get script include: %w", err)
 	}

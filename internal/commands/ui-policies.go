@@ -16,14 +16,14 @@ import (
 
 // uiPoliciesListFlags holds the flags for the ui-policies list command.
 type uiPoliciesListFlags struct {
-	limit       int
-	table       string
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit  int
+	table  string
+	active bool
+	search string
+	query  string
+	order  string
+	desc   bool
+	all    bool
 }
 
 // NewUIPoliciesCmd creates the ui-policies command group.
@@ -52,10 +52,15 @@ func newUIPoliciesListCmd() *cobra.Command {
 		Short: "List UI policies",
 		Long: `List UI policies from sys_ui_policy.
 
+Filtering:
+  --search <term>   Fuzzy search on short_description (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn ui-policies list --table incident
+  jsn ui-policies list --search approval
   jsn ui-policies list --active
-  jsn ui-policies list --query "nameLIKEapproval" --limit 50`,
+  jsn ui-policies list --query "short_descriptionLIKEapproval^active=true" --limit 50`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUIPoliciesList(cmd, flags)
 		},
@@ -64,11 +69,12 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of policies to fetch")
 	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Filter by table name")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active policies")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on short_description")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "order" for execution sequence - policies run in this order on forms
 	cmd.Flags().StringVar(&flags.order, "order", "order", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all policies (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select a policy to view details")
 
 	return cmd
 }
@@ -99,6 +105,9 @@ func runUIPoliciesList(cmd *cobra.Command, flags uiPoliciesListFlags) error {
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
 	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("short_descriptionLIKE%s", flags.search))
+	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
 		queryParts = append(queryParts, wrapSimpleQuery(flags.query, "sys_ui_policy"))
@@ -128,8 +137,9 @@ func runUIPoliciesList(cmd *cobra.Command, flags uiPoliciesListFlags) error {
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select a policy to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - let user select a policy to view (auto-detect TTY)
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
 		selectedPolicy, err := pickUIPolicyFromList(policies)
 		if err != nil {
 			return err
@@ -199,7 +209,8 @@ func printStyledUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy, inst
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-20s %-8s %-10s %-10s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-20s %-8s %-10s %-10s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Table"),
 		headerStyle.Render("Order"),
@@ -216,8 +227,8 @@ func printStyledUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy, inst
 		}
 
 		name := policy.Name
-		if len(name) > 33 {
-			name = name[:30] + "..."
+		if len(name) > 30 {
+			name = name[:27] + "..."
 		}
 
 		onLoad := "No"
@@ -233,7 +244,8 @@ func printStyledUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy, inst
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_ui_policy.do?sys_id=%s", instanceURL, policy.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-20s %-8s %-10s %-10s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-20s %-8s %-10s %-10s\n",
+				mutedStyle.Render(policy.SysID),
 				nameWithLink,
 				mutedStyle.Render(policy.Table),
 				statusStyle.Render(fmt.Sprintf("%d", policy.Order)),
@@ -241,7 +253,8 @@ func printStyledUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy, inst
 				mutedStyle.Render(onChange),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-20s %-8s %-10s %-10s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-20s %-8s %-10s %-10s\n",
+				mutedStyle.Render(policy.SysID),
 				name,
 				mutedStyle.Render(policy.Table),
 				statusStyle.Render(fmt.Sprintf("%d", policy.Order)),
@@ -271,8 +284,8 @@ func printStyledUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy, inst
 // printMarkdownUIPoliciesList outputs markdown UI policies list.
 func printMarkdownUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**UI Policies**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Table | Order | On Load | On Change |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|-------|-------|---------|-----------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Table | Order | On Load | On Change |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|-------|-------|---------|-----------|")
 
 	for _, policy := range policies {
 		onLoad := "No"
@@ -283,7 +296,7 @@ func printMarkdownUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy) er
 		if policy.OnChange {
 			onChange = "Yes"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %d | %s | %s |\n", policy.Name, policy.Table, policy.Order, onLoad, onChange)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %d | %s | %s |\n", policy.SysID, policy.Name, policy.Table, policy.Order, onLoad, onChange)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())

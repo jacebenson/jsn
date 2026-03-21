@@ -39,8 +39,29 @@ func newChoicesListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list <table> <column>",
 		Short: "List choice values",
-		Long:  "Display choice values for a specific column, ordered by sequence. Active choices are highlighted, inactive are muted.",
-		Args:  cobra.ExactArgs(2),
+		Long: `Display choice values for a specific column, ordered by sequence.
+Active choices are highlighted, inactive are muted.
+
+Arguments:
+  <table>   The table name (e.g., incident, task, change_request)
+  <column>  The column/field name (e.g., state, priority, category)
+
+Examples:
+  jsn choices list incident state
+  jsn choices list task priority
+  jsn choices list change_request type`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 1 {
+				return fmt.Errorf("missing required arguments: <table> and <column>\n\nUsage: jsn choices list <table> <column>\n\nExample: jsn choices list incident state")
+			}
+			if len(args) < 2 {
+				return fmt.Errorf("missing required argument: <column>\n\nUsage: jsn choices list %s <column>\n\nExample: jsn choices list %s state", args[0], args[0])
+			}
+			if len(args) > 2 {
+				return fmt.Errorf("too many arguments\n\nUsage: jsn choices list <table> <column>")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runChoicesList(cmd, args[0], args[1])
 		},
@@ -145,12 +166,21 @@ func printStyledChoicesList(cmd *cobra.Command, tableName, columnName string, ch
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
 	valueStyle := lipgloss.NewStyle()
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Title
 	title := fmt.Sprintf("%s.%s Choices", tableName, columnName)
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(title))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Column headers
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-20s %s\n",
+		headerStyle.Render("Sys ID"),
+		headerStyle.Render("Value"),
+		headerStyle.Render("Label"),
+	)
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Choices list
@@ -187,13 +217,15 @@ func printStyledChoicesList(cmd *cobra.Command, tableName, columnName string, ch
 		}
 
 		if extraInfo != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-20s  %s  %s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-20s %s  %s\n",
+				mutedStyle.Render(choice.SysID),
 				valueDisplay,
 				labelDisplay,
 				labelStyle.Render(extraInfo),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-20s  %s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-20s %s\n",
+				mutedStyle.Render(choice.SysID),
 				valueDisplay,
 				labelDisplay,
 			)
@@ -228,8 +260,8 @@ func printMarkdownChoicesList(cmd *cobra.Command, tableName, columnName string, 
 	title := fmt.Sprintf("**%s.%s Choices**", tableName, columnName)
 	fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", title)
 
-	fmt.Fprintln(cmd.OutOrStdout(), "| Sequence | Value | Label | Status | Dependent |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|----------|-------|-------|--------|----------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Sequence | Value | Label | Status | Dependent |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|----------|-------|-------|--------|----------|")
 
 	for _, choice := range choices {
 		status := "Active"
@@ -240,8 +272,8 @@ func printMarkdownChoicesList(cmd *cobra.Command, tableName, columnName string, 
 		if dep == "" {
 			dep = "-"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %d | %s | %s | %s | %s |\n",
-			choice.Sequence, choice.Value, choice.Label, status, dep)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %d | %s | %s | %s | %s |\n",
+			choice.SysID, choice.Sequence, choice.Value, choice.Label, status, dep)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())

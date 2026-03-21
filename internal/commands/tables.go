@@ -17,14 +17,13 @@ import (
 
 // tablesListFlags holds the flags for the tables list command.
 type tablesListFlags struct {
-	limit         int
-	app           string
-	showExtends   bool
-	search        string
-	order         string
-	desc          bool
-	all           bool
-	noInteractive bool
+	limit       int
+	app         string
+	showExtends bool
+	search      string
+	order       string
+	desc        bool
+	all         bool
 }
 
 // chainItem represents a table in the inheritance chain
@@ -67,14 +66,12 @@ func newTablesListCmd() *cobra.Command {
 
 Interactive Mode:
   When running in a terminal, automatically uses an interactive picker
-  that allows scrolling through all tables with pagination. Use --no-interactive
-  to disable and get a static list output.
+  that allows scrolling through all tables with pagination.
 
 Filtering:
   --app <scope>        Filter by application scope
   --search <term>      Search name OR label LIKE term
   --search <query>     If contains '^', use as raw encoded query
-  --no-interactive     Disable interactive mode (use static list output)
 
 Examples:
   jsn tables list --search incident
@@ -86,14 +83,14 @@ Examples:
 		},
 	}
 
-	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 100, "Maximum number of tables to fetch (use with --no-interactive)")
+	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 100, "Maximum number of tables to fetch (non-interactive)")
 	cmd.Flags().StringVar(&flags.app, "app", "", "Filter by application scope")
 	cmd.Flags().BoolVar(&flags.showExtends, "show-extends", false, "Show what table each extends")
 	cmd.Flags().StringVar(&flags.search, "search", "", "Search term or raw query (if contains '^')")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding tables
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field (name, label, sys_created_on, etc.)")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all tables (no limit)")
-	cmd.Flags().BoolVar(&flags.noInteractive, "no-interactive", false, "Disable interactive mode and show static list")
 
 	return cmd
 }
@@ -125,13 +122,13 @@ func runTablesList(cmd *cobra.Command, flags tablesListFlags) error {
 	// Determine if we should use interactive mode
 	// Disable interactive mode when:
 	// - Not in a terminal
-	// - --no-interactive flag is set
+	// - --no-interactive flag is set (global)
 	// - Explicit output format requested (json/md/quiet)
 	// - Agent mode (via format detection)
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 	explicitFormat := cmd.Flags().Changed("json") || cmd.Flags().Changed("md") || cmd.Flags().Changed("quiet")
 	isAgentMode := outputWriter.GetFormat() == output.FormatQuiet || outputWriter.GetFormat() == output.FormatJSON
-	useInteractive := isTerminal && !flags.noInteractive && !explicitFormat && !isAgentMode
+	useInteractive := isTerminal && !appCtx.NoInteractive() && !explicitFormat && !isAgentMode
 
 	// Interactive mode with pagination
 	if useInteractive {
@@ -249,9 +246,10 @@ func runTablesList(cmd *cobra.Command, flags tablesListFlags) error {
 	var data []map[string]any
 	for _, t := range tables {
 		row := map[string]any{
-			"name":  t.Name,
-			"scope": t.Scope,
-			"label": t.Label,
+			"sys_id": t.SysID,
+			"name":   t.Name,
+			"scope":  t.Scope,
+			"label":  t.Label,
 		}
 		if row["scope"] == "" {
 			row["scope"] = "global"

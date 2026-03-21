@@ -168,10 +168,20 @@ func TestLogsCommand(t *testing.T) {
 	assert.NotNil(t, cmd, "Logs command should not be nil")
 	assert.Equal(t, "logs", cmd.Use, "Command name should be logs")
 
-	// Check flags
+	// Check subcommands
+	subcommands := []string{"list", "show"}
+	for _, name := range subcommands {
+		t.Run(name, func(t *testing.T) {
+			sub := findSubcommand(cmd, name)
+			assert.NotNil(t, sub, "Subcommand %s should exist", name)
+		})
+	}
+
+	// Check flags on list subcommand
+	listCmd := findSubcommand(cmd, "list")
 	flags := []string{"table", "sys-id", "source", "minutes", "script", "level", "limit", "query"}
 	for _, flag := range flags {
-		assert.NotNil(t, cmd.Flag(flag), "Flag %s should exist", flag)
+		assert.NotNil(t, listCmd.Flag(flag), "Flag %s should exist on list subcommand", flag)
 	}
 }
 

@@ -18,13 +18,12 @@ import (
 
 // recordsListFlags holds the flags for the records list command.
 type recordsListFlags struct {
-	limit         int
-	query         string
-	fields        string
-	order         string
-	desc          bool
-	all           bool
-	noInteractive bool
+	limit  int
+	query  string
+	fields string
+	order  string
+	desc   bool
+	all    bool
 }
 
 // NewRecordsCmd creates the records command group.
@@ -60,7 +59,7 @@ func newRecordsListCmd() *cobra.Command {
 
 Interactive Mode:
   When running in a terminal without a table argument, automatically uses an interactive
-  picker to select a table. Use --no-interactive to disable and require explicit table name.
+  picker to select a table.
 
 Filtering:
   --query <encoded_query>  Use ServiceNow encoded query syntax
@@ -88,10 +87,10 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of records to fetch")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
 	cmd.Flags().StringVar(&flags.fields, "fields", "", "Comma-separated fields to display (default: sys_id,number,display_field)")
+	// Default order: "sys_updated_on" for most recently changed - shows active records first
 	cmd.Flags().StringVar(&flags.order, "order", "sys_updated_on", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all records (no limit)")
-	cmd.Flags().BoolVar(&flags.noInteractive, "no-interactive", false, "Disable interactive mode")
 
 	return cmd
 }
@@ -120,7 +119,7 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 	// Interactive table selection if no table provided
 	if table == "" {
 		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal || flags.noInteractive {
+		if !isTerminal || appCtx.NoInteractive() {
 			return output.ErrUsage("Table name is required in non-interactive mode")
 		}
 
@@ -1023,6 +1022,7 @@ Examples:
 
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of records to fetch")
 	cmd.Flags().StringVar(&flags.fields, "fields", "", "Comma-separated fields to display")
+	// Default order: "sys_updated_on" for most recently changed - shows active records first
 	cmd.Flags().StringVar(&flags.order, "order", "sys_updated_on", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all records (no limit)")

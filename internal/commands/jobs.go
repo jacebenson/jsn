@@ -16,14 +16,14 @@ import (
 
 // jobsListFlags holds the flags for the jobs list command.
 type jobsListFlags struct {
-	limit       int
-	jobType     string
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit   int
+	jobType string
+	active  bool
+	search  string
+	query   string
+	order   string
+	desc    bool
+	all     bool
 }
 
 // NewJobsCmd creates the jobs command group.
@@ -55,8 +55,13 @@ func newJobsListCmd() *cobra.Command {
 		Short: "List scheduled jobs",
 		Long: `List scheduled jobs from sys_trigger (scheduled jobs) and sysauto_script (scheduled scripts).
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn jobs list
+  jsn jobs list --search daily
   jsn jobs list --type scheduled
   jsn jobs list --type script
   jsn jobs list --active --limit 50`,
@@ -68,11 +73,12 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of jobs to fetch")
 	cmd.Flags().StringVarP(&flags.jobType, "type", "t", "", "Job type: scheduled or script")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active jobs")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding jobs
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all jobs (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select a job to view details")
 
 	return cmd
 }
@@ -111,6 +117,9 @@ func runJobsList(cmd *cobra.Command, flags jobsListFlags) error {
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
 	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("nameLIKE%s", flags.search))
+	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
 		queryParts = append(queryParts, wrapSimpleQuery(flags.query, table))
@@ -140,8 +149,9 @@ func runJobsList(cmd *cobra.Command, flags jobsListFlags) error {
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select a job to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - let user select a job to view (auto-detect TTY)
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
 		selectedJob, err := pickJobFromList(cmd.Context(), sdkClient, jobs, table)
 		if err != nil {
 			return err
@@ -206,7 +216,8 @@ func printStyledJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob, instanceUR
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-12s %-20s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-12s %-20s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Type"),
 		headerStyle.Render("Status"),
@@ -224,8 +235,8 @@ func printStyledJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob, instanceUR
 		}
 
 		name := job.Name
-		if len(name) > 38 {
-			name = name[:35] + "..."
+		if len(name) > 34 {
+			name = name[:31] + "..."
 		}
 
 		nextRun := job.NextAction
@@ -241,14 +252,16 @@ func printStyledJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob, instanceUR
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/%s.do?sys_id=%s", instanceURL, tableName, job.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-12s %-20s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-12s %-20s\n",
+				mutedStyle.Render(job.SysID),
 				nameWithLink,
 				mutedStyle.Render(job.JobType),
 				statusStyle.Render(status),
 				mutedStyle.Render(nextRun),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-40s %-12s %-12s %-20s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-36s %-12s %-12s %-20s\n",
+				mutedStyle.Render(job.SysID),
 				name,
 				mutedStyle.Render(job.JobType),
 				statusStyle.Render(status),
@@ -273,8 +286,8 @@ func printStyledJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob, instanceUR
 // printMarkdownJobsList outputs markdown jobs list.
 func printMarkdownJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**Scheduled Jobs**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Type | Status | Next Run |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|------|--------|----------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Type | Status | Next Run |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|------|--------|----------|")
 
 	for _, job := range jobs {
 		status := "Active"
@@ -285,7 +298,7 @@ func printMarkdownJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob) error {
 		if nextRun == "" {
 			nextRun = "-"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n", job.Name, job.JobType, status, nextRun)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %s |\n", job.SysID, job.Name, job.JobType, status, nextRun)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())

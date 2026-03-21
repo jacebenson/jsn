@@ -14,6 +14,17 @@ type App struct {
 	Flags  map[string]interface{}
 }
 
+// NoInteractive returns true if interactive mode is disabled via --no-interactive or --agent flags.
+func (a *App) NoInteractive() bool {
+	if a.Flags == nil {
+		return false
+	}
+	if v, ok := a.Flags["no-interactive"].(bool); ok {
+		return v
+	}
+	return false
+}
+
 func WithContext(ctx context.Context, app *App) context.Context {
 	return context.WithValue(ctx, appKey, app)
 }

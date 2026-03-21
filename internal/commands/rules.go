@@ -16,14 +16,14 @@ import (
 
 // rulesListFlags holds the flags for the rules list command.
 type rulesListFlags struct {
-	limit       int
-	table       string
-	active      bool
-	query       string
-	order       string
-	desc        bool
-	all         bool
-	interactive bool
+	limit  int
+	table  string
+	active bool
+	search string
+	query  string
+	order  string
+	desc   bool
+	all    bool
 }
 
 // NewRulesCmd creates the rules command group.
@@ -52,10 +52,15 @@ func newRulesListCmd() *cobra.Command {
 		Short: "List business rules",
 		Long: `List business rules from sys_script.
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn rules list --table incident
+  jsn rules list --search approval
   jsn rules list --active
-  jsn rules list --query "nameLIKEapproval" --limit 50`,
+  jsn rules list --query "nameLIKEapproval^active=true" --limit 50`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRulesList(cmd, flags)
 		},
@@ -64,11 +69,12 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of rules to fetch")
 	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Filter by table name")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active rules")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding rules
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all rules (no limit)")
-	cmd.Flags().BoolVarP(&flags.interactive, "interactive", "i", false, "Interactive mode - select a rule to view details")
 
 	return cmd
 }
@@ -102,6 +108,9 @@ func runRulesList(cmd *cobra.Command, flags rulesListFlags) error {
 	if flags.active {
 		queryParts = append(queryParts, "active=true")
 	}
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("nameLIKE%s", flags.search))
+	}
 	if flags.query != "" {
 		// Wrap simple queries with table-specific display column
 		queryParts = append(queryParts, wrapSimpleQuery(flags.query, "sys_script"))
@@ -130,8 +139,9 @@ func runRulesList(cmd *cobra.Command, flags rulesListFlags) error {
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive mode - let user select a rule to view
-	if flags.interactive && isTerminal {
+	// Interactive mode - let user select a rule to view (auto-detect TTY)
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
 		selectedRule, err := pickRuleFromList(rules)
 		if err != nil {
 			return err
@@ -198,7 +208,8 @@ func printStyledRulesList(cmd *cobra.Command, rules []sdk.BusinessRule, instance
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-15s %-10s %-8s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-15s %-10s %-8s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Name"),
 		headerStyle.Render("Table"),
 		headerStyle.Render("When"),
@@ -214,8 +225,8 @@ func printStyledRulesList(cmd *cobra.Command, rules []sdk.BusinessRule, instance
 		}
 
 		name := rule.Name
-		if len(name) > 33 {
-			name = name[:30] + "..."
+		if len(name) > 30 {
+			name = name[:27] + "..."
 		}
 
 		table := rule.Collection
@@ -226,14 +237,16 @@ func printStyledRulesList(cmd *cobra.Command, rules []sdk.BusinessRule, instance
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_script.do?sys_id=%s", instanceURL, rule.SysID)
 			nameWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, name)
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-15s %-10s %-8s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-15s %-10s %-8s\n",
+				mutedStyle.Render(rule.SysID),
 				nameWithLink,
 				mutedStyle.Render(table),
 				mutedStyle.Render(rule.When),
 				statusStyle.Render(fmt.Sprintf("%d", rule.Order)),
 			)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %-35s %-15s %-10s %-8s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-32s %-15s %-10s %-8s\n",
+				mutedStyle.Render(rule.SysID),
 				name,
 				mutedStyle.Render(table),
 				mutedStyle.Render(rule.When),
@@ -262,15 +275,15 @@ func printStyledRulesList(cmd *cobra.Command, rules []sdk.BusinessRule, instance
 // printMarkdownRulesList outputs markdown rules list.
 func printMarkdownRulesList(cmd *cobra.Command, rules []sdk.BusinessRule) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**Business Rules**")
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | Table | When | Order |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|-------|------|-------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | Table | When | Order |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|-------|------|-------|")
 
 	for _, rule := range rules {
 		table := rule.Collection
 		if table == "" {
 			table = "global"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %d |\n", rule.Name, table, rule.When, rule.Order)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %d |\n", rule.SysID, rule.Name, table, rule.When, rule.Order)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())

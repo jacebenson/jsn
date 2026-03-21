@@ -15,10 +15,11 @@ import (
 
 // uiScriptsListFlags holds the flags for the ui-scripts list command.
 type uiScriptsListFlags struct {
-	limit int
-	query string
-	order string
-	desc  bool
+	limit  int
+	search string
+	query  string
+	order  string
+	desc   bool
 }
 
 // NewUIScriptsCmd creates the ui-scripts command group.
@@ -33,6 +34,7 @@ func NewUIScriptsCmd() *cobra.Command {
 	cmd.AddCommand(
 		newUIScriptsListCmd(),
 		newUIScriptsShowCmd(),
+		newUIScriptsScriptCmd(),
 	)
 
 	return cmd
@@ -47,8 +49,13 @@ func newUIScriptsListCmd() *cobra.Command {
 		Short: "List UI Scripts",
 		Long: `List all ServiceNow UI Scripts.
 
+Filtering:
+  --search <term>   Fuzzy search on name (LIKE match)
+  --query <query>   Raw ServiceNow encoded query for advanced filtering
+
 Examples:
   jsn ui-scripts list
+  jsn ui-scripts list --search pwd
   jsn ui-scripts list --limit 50
   jsn ui-scripts list --query "active=true"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,7 +64,9 @@ Examples:
 	}
 
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of UI scripts to fetch")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	// Default order: "name" for alphabetical browsing - most intuitive for finding UI scripts
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 
@@ -85,9 +94,20 @@ func runUIScriptsList(cmd *cobra.Command, flags uiScriptsListFlags) error {
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
+	// Build query with search support
+	query := flags.query
+	if flags.search != "" {
+		searchQuery := fmt.Sprintf("nameLIKE%s", flags.search)
+		if query != "" {
+			query = searchQuery + "^" + query
+		} else {
+			query = searchQuery
+		}
+	}
+
 	opts := &sdk.ListUIScriptsOptions{
 		Limit:     flags.limit,
-		Query:     flags.query,
+		Query:     query,
 		OrderBy:   flags.order,
 		OrderDesc: flags.desc,
 	}
@@ -152,7 +172,8 @@ func printStyledUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, instan
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-30s %-20s %-10s %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-28s %-20s %-10s %s\n",
+		headerStyle.Render("Sys ID"),
 		mutedStyle.Render("Name"),
 		headerStyle.Render("UI Type"),
 		headerStyle.Render("Active"),
@@ -169,9 +190,12 @@ func printStyledUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, instan
 
 		// Create hyperlink if instance URL available
 		nameDisplay := script.Name
+		if len(nameDisplay) > 26 {
+			nameDisplay = nameDisplay[:23] + "..."
+		}
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/sys_ui_script.do?sys_id=%s", instanceURL, script.SysID)
-			nameDisplay = fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, script.Name)
+			nameDisplay = fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, nameDisplay)
 		}
 
 		desc := script.Description
@@ -187,7 +211,8 @@ func printStyledUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, instan
 			uiType = "All"
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-30s %-20s %-10s %s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-28s %-20s %-10s %s\n",
+			mutedStyle.Render(script.SysID),
 			brandStyle.Render(nameDisplay),
 			labelStyle.Render(uiType),
 			activeStr,
@@ -216,8 +241,8 @@ func printMarkdownUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, inst
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Header row
-	fmt.Fprintln(cmd.OutOrStdout(), "| Name | UI Type | Active | Description |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|------|---------|--------|-------------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Name | UI Type | Active | Description |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|---------|--------|-------------|")
 
 	// UI Scripts
 	for _, script := range scripts {
@@ -233,8 +258,8 @@ func printMarkdownUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, inst
 		if desc == "" {
 			desc = "-"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n",
-			script.Name, uiType, activeStr, desc)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %s |\n",
+			script.SysID, script.Name, uiType, activeStr, desc)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -246,16 +271,18 @@ func newUIScriptsShowCmd() *cobra.Command {
 	var showScript bool
 
 	cmd := &cobra.Command{
-		Use:   "show [<name>]",
+		Use:   "show [<identifier>]",
 		Short: "Show UI script details",
 		Long: `Display detailed information about a UI Script.
 
-If no name is provided, an interactive picker will help you select one.
+The identifier can be a UI script name or sys_id.
+If no identifier is provided, an interactive picker will help you select one.
 
 Use --script flag to show the script content.
 
 Examples:
   jsn ui-scripts show pwd_enroll_questions_ui
+  jsn ui-scripts show 0123456789abcdef0123456789abcdef
   jsn ui-scripts show pwd_enroll_questions_ui --script`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -512,4 +539,49 @@ func pickUIScript(ctx context.Context, sdkClient *sdk.Client, title string) (str
 	}
 
 	return selected.ID, nil
+}
+
+// newUIScriptsScriptCmd creates the ui-scripts script command.
+func newUIScriptsScriptCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "script <identifier>",
+		Short: "Output just the script",
+		Long: `Output only the script code of a UI Script.
+
+The identifier can be a UI script name or sys_id.
+Use sys_id when multiple UI scripts share the same name.
+
+Examples:
+  jsn ui-scripts script pwd_enroll_questions_ui
+  jsn ui-scripts script 0123456789abcdef0123456789abcdef
+  jsn ui-scripts script pwd_enroll_questions_ui > script.js`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUIScriptsScript(cmd, args[0])
+		},
+	}
+}
+
+// runUIScriptsScript executes the ui-scripts script command.
+func runUIScriptsScript(cmd *cobra.Command, identifier string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Get the UI script
+	script, err := sdkClient.GetUIScript(cmd.Context(), identifier)
+	if err != nil {
+		return fmt.Errorf("failed to get UI script: %w", err)
+	}
+
+	// Just output the script
+	fmt.Fprintln(cmd.OutOrStdout(), script.Script)
+	return nil
 }

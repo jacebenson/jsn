@@ -1,5 +1,24 @@
 package cli
 
+// Reserved Short Flags
+//
+// These short flags have established meanings across multiple commands.
+// Avoid reusing them for different purposes to prevent conflicts.
+//
+//   -p  --profile       (global) Profile to use
+//   -q  --quiet         (global) Quiet output
+//   -n  --limit/count   Number of items to fetch
+//   -t  --table/type    Table name or type filter
+//   -f  --field/file    Field name or file path
+//   -i  --interactive   Enable interactive mode
+//   -o  --output        Output file or format
+//   -s  --scope         Application scope filter
+//   -l  --level/limit   Log level or limit
+//   -m  --minutes       Time range in minutes
+//
+// When adding new flags, prefer long-form only if the short form
+// would conflict or be ambiguous.
+
 import (
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/auth"
@@ -11,13 +30,14 @@ import (
 )
 
 var (
-	cfgFile    string
-	profile    string
-	jsonOutput bool
-	agentMode  bool
-	quietMode  bool
-	mdOutput   bool
-	jqFilter   string
+	cfgFile       string
+	profile       string
+	jsonOutput    bool
+	agentMode     bool
+	quietMode     bool
+	mdOutput      bool
+	jqFilter      string
+	noInteractive bool
 )
 
 func NewRootCommand() *cobra.Command {
@@ -39,33 +59,47 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVarP(&quietMode, "quiet", "q", false, "Quiet output (data only, no envelope)")
 	root.PersistentFlags().BoolVar(&mdOutput, "md", false, "Output as Markdown")
 	root.PersistentFlags().StringVar(&jqFilter, "jq", "", "Apply jq filter to JSON output")
+	root.PersistentFlags().BoolVar(&noInteractive, "no-interactive", false, "Disable interactive prompts (for scripts/CI)")
 
-	root.AddCommand(commands.NewAuthCommand())
-	root.AddCommand(commands.NewConfigCommand())
-	root.AddCommand(commands.NewSetupCommand())
+	// ─── Explore ─────────────────────────────────────────────────────────
 	root.AddCommand(commands.NewTablesCmd())
-	root.AddCommand(commands.NewUpdateSetCmd())
-	root.AddCommand(commands.NewChoicesCommand())
 	root.AddCommand(commands.NewRecordsCmd())
-	root.AddCommand(commands.NewFlowsCmd())
 	root.AddCommand(commands.NewRulesCmd())
+	root.AddCommand(commands.NewFlowsCmd())
 	root.AddCommand(commands.NewJobsCmd())
-	root.AddCommand(commands.NewScriptIncludesCmd())
-	root.AddCommand(commands.NewUIPoliciesCmd())
-	root.AddCommand(commands.NewACLsCmd())
-	root.AddCommand(commands.NewClientScriptsCmd())
-	root.AddCommand(commands.NewDocsCmd())
 	root.AddCommand(commands.NewLogsCmd())
-	root.AddCommand(commands.NewInstanceCmd())
+
+	// ─── Scripts ─────────────────────────────────────────────────────────
+	root.AddCommand(commands.NewScriptIncludesCmd())
+	root.AddCommand(commands.NewClientScriptsCmd())
+	root.AddCommand(commands.NewUIScriptsCmd())
+	root.AddCommand(commands.NewACLsCmd())
+
+	// ─── UI ──────────────────────────────────────────────────────────────
+	root.AddCommand(commands.NewUIPoliciesCmd())
+	root.AddCommand(commands.NewFormsCmd())
+	root.AddCommand(commands.NewChoicesCommand())
+
+	// ─── Service Portal ──────────────────────────────────────────────────
+	root.AddCommand(commands.NewPortalsCmd())
+	root.AddCommand(commands.NewWidgetsCmd())
+	root.AddCommand(commands.NewPagesCmd())
+
+	// ─── Dev Tools ───────────────────────────────────────────────────────
+	root.AddCommand(commands.NewUpdateSetCmd())
 	root.AddCommand(commands.NewCompareCmd())
 	root.AddCommand(commands.NewExportCmd())
 	root.AddCommand(commands.NewImportCmd())
 	root.AddCommand(commands.NewGenerateCmd())
-	root.AddCommand(commands.NewPortalsCmd())
-	root.AddCommand(commands.NewWidgetsCmd())
-	root.AddCommand(commands.NewPagesCmd())
-	root.AddCommand(commands.NewFormsCmd())
-	root.AddCommand(commands.NewUIScriptsCmd())
+
+	// ─── Config ──────────────────────────────────────────────────────────
+	root.AddCommand(commands.NewConfigCommand())
+	root.AddCommand(commands.NewAuthCommand())
+	root.AddCommand(commands.NewSetupCommand())
+	root.AddCommand(commands.NewInstanceCmd())
+
+	// ─── Help ────────────────────────────────────────────────────────────
+	root.AddCommand(commands.NewDocsCmd())
 	root.AddCommand(commands.NewCommandsCmd())
 	root.AddCommand(commands.NewVersionCmd())
 
@@ -128,6 +162,9 @@ func initializeApp(cmd *cobra.Command) error {
 		Config: cfg,
 		Auth:   authManager,
 		Output: outputWriter,
+		Flags: map[string]interface{}{
+			"no-interactive": noInteractive || agentMode,
+		},
 	}
 
 	// Only set SDK if we have a valid client

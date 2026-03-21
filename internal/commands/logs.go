@@ -11,8 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// logsFlags holds the flags for the logs command.
-type logsFlags struct {
+// logsListFlags holds the flags for the logs list command.
+type logsListFlags struct {
 	table   string
 	sysID   string
 	source  string
@@ -25,26 +25,65 @@ type logsFlags struct {
 
 // NewLogsCmd creates the logs command group.
 func NewLogsCmd() *cobra.Command {
-	var flags logsFlags
+	var flags logsListFlags
 
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Query system logs",
 		Long: `Query ServiceNow system logs (syslog, syslog_transaction).
 
+Running "jsn logs" without a subcommand lists recent logs.
+
 Examples:
-  jsn logs --table incident --sys_id <sys_id>
-  jsn logs --source "Business Rule" --minutes 60
-  jsn logs --script "MyScriptInclude" --level error
-  jsn logs --query "sourceLIKEscheduler" --limit 50`,
+  jsn logs
+  jsn logs list --source "Business Rule" --minutes 60
+  jsn logs show <sys_id>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(cmd, flags)
+			// Default to list behavior when no subcommand specified
+			return runLogsList(cmd, flags)
+		},
+	}
+
+	// Add flags to root command for default list behavior
+	cmd.Flags().StringVar(&flags.table, "table", "", "Filter by table name")
+	cmd.Flags().StringVar(&flags.sysID, "sys-id", "", "Filter by record sys_id")
+	cmd.Flags().StringVar(&flags.source, "source", "", "Filter by source")
+	cmd.Flags().IntVarP(&flags.minutes, "minutes", "m", 60, "Show logs from last N minutes")
+	cmd.Flags().StringVar(&flags.script, "script", "", "Filter by script name")
+	cmd.Flags().StringVarP(&flags.level, "level", "l", "", "Filter by level (error, warn, info, debug)")
+	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of log entries")
+	cmd.Flags().StringVar(&flags.query, "query", "", "Additional encoded query")
+
+	cmd.AddCommand(
+		newLogsListCmd(),
+		newLogsShowCmd(),
+	)
+
+	return cmd
+}
+
+// newLogsListCmd creates the logs list command.
+func newLogsListCmd() *cobra.Command {
+	var flags logsListFlags
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List system log entries",
+		Long: `List ServiceNow system logs (syslog, syslog_transaction).
+
+Examples:
+  jsn logs list
+  jsn logs list --source "Business Rule" --minutes 60
+  jsn logs list --level error --minutes 30
+  jsn logs list --query "sourceLIKEscheduler" --limit 50`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLogsList(cmd, flags)
 		},
 	}
 
 	cmd.Flags().StringVar(&flags.table, "table", "", "Filter by table name")
 	cmd.Flags().StringVar(&flags.sysID, "sys-id", "", "Filter by record sys_id")
-	cmd.Flags().StringVarP(&flags.source, "source", "s", "", "Filter by source")
+	cmd.Flags().StringVar(&flags.source, "source", "", "Filter by source")
 	cmd.Flags().IntVarP(&flags.minutes, "minutes", "m", 60, "Show logs from last N minutes")
 	cmd.Flags().StringVar(&flags.script, "script", "", "Filter by script name")
 	cmd.Flags().StringVarP(&flags.level, "level", "l", "", "Filter by level (error, warn, info, debug)")
@@ -54,8 +93,8 @@ Examples:
 	return cmd
 }
 
-// runLogs executes the logs command.
-func runLogs(cmd *cobra.Command, flags logsFlags) error {
+// runLogsList executes the logs list command.
+func runLogsList(cmd *cobra.Command, flags logsListFlags) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -99,8 +138,9 @@ func runLogs(cmd *cobra.Command, flags logsFlags) error {
 	sysparmQuery := strings.Join(queryParts, "^")
 
 	opts := &sdk.ListLogsOptions{
-		Limit:     flags.limit,
-		Query:     sysparmQuery,
+		Limit: flags.limit,
+		Query: sysparmQuery,
+		// Default order: "sys_created_on" descending - newest logs first for debugging
 		OrderBy:   "sys_created_on",
 		OrderDesc: true,
 	}
@@ -141,7 +181,7 @@ func runLogs(cmd *cobra.Command, flags logsFlags) error {
 }
 
 // printStyledLogs outputs styled logs list.
-func printStyledLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags) error {
+func printStyledLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsListFlags) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
@@ -177,7 +217,8 @@ func printStyledLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags) e
 	}
 
 	// Column headers
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-8s %-20s %-30s %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-8s %-20s %-28s %s\n",
+		headerStyle.Render("Sys ID"),
 		headerStyle.Render("Level"),
 		headerStyle.Render("Time"),
 		headerStyle.Render("Source"),
@@ -208,19 +249,20 @@ func printStyledLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags) e
 		if source == "" {
 			source = "-"
 		}
-		if len(source) > 28 {
-			source = source[:25] + "..."
+		if len(source) > 26 {
+			source = source[:23] + "..."
 		}
 
 		message := log.Message
 		if message == "" {
 			message = "-"
 		}
-		if len(message) > 50 {
-			message = message[:47] + "..."
+		if len(message) > 40 {
+			message = message[:37] + "..."
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-8s %-20s %-30s %s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-8s %-20s %-28s %s\n",
+			mutedStyle.Render(log.SysID),
 			levelStyle.Render(log.Level),
 			mutedStyle.Render(time),
 			mutedStyle.Render(source),
@@ -233,12 +275,16 @@ func printStyledLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags) e
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn logs --source \"Business Rule\" --minutes 60",
+		"jsn logs list --source \"Business Rule\" --minutes 60",
 		mutedStyle.Render("Recent business rule logs"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn logs --level error --minutes 30",
+		"jsn logs list --level error --minutes 30",
 		mutedStyle.Render("Recent errors"),
+	)
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+		"jsn logs show <sys_id>",
+		mutedStyle.Render("Show log details"),
 	)
 
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -246,7 +292,7 @@ func printStyledLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags) e
 }
 
 // printMarkdownLogs outputs markdown logs list.
-func printMarkdownLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags) error {
+func printMarkdownLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsListFlags) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "**System Logs**")
 	fmt.Fprintln(cmd.OutOrStdout())
 
@@ -255,8 +301,8 @@ func printMarkdownLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags)
 		return nil
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), "| Level | Time | Source | Message |")
-	fmt.Fprintln(cmd.OutOrStdout(), "|-------|------|--------|---------|")
+	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Level | Time | Source | Message |")
+	fmt.Fprintln(cmd.OutOrStdout(), "|--------|-------|------|--------|---------|")
 
 	for _, log := range logs {
 		time := log.CreatedOn
@@ -271,10 +317,130 @@ func printMarkdownLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsFlags)
 		if message == "" {
 			message = "-"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n",
-			log.Level, time, source, message)
+		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s | %s |\n",
+			log.SysID, log.Level, time, source, message)
 	}
 
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// newLogsShowCmd creates the logs show command.
+func newLogsShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <sys_id>",
+		Short: "Show a log entry",
+		Long: `Display detailed information about a specific log entry.
+
+Examples:
+  jsn logs show 0123456789abcdef0123456789abcdef`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLogsShow(cmd, args[0])
+		},
+	}
+}
+
+// runLogsShow executes the logs show command.
+func runLogsShow(cmd *cobra.Command, sysID string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Get the log entry
+	log, err := sdkClient.GetLog(cmd.Context(), sysID)
+	if err != nil {
+		return fmt.Errorf("failed to get log entry: %w", err)
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledLogEntry(cmd, log)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownLogEntry(cmd, log)
+	}
+
+	// Build data for JSON
+	data := map[string]any{
+		"sys_id":         log.SysID,
+		"level":          log.Level,
+		"message":        log.Message,
+		"source":         log.Source,
+		"sys_created_on": log.CreatedOn,
+		"sys_created_by": log.CreatedBy,
+	}
+
+	return outputWriter.OK(data,
+		output.WithSummary(fmt.Sprintf("Log Entry: %s", log.SysID)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn logs list",
+				Description: "List all logs",
+			},
+		),
+	)
+}
+
+// printStyledLogEntry outputs styled log entry details.
+func printStyledLogEntry(cmd *cobra.Command, log *sdk.LogEntry) error {
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	valueStyle := lipgloss.NewStyle()
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Log Entry"))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Sys ID:"), valueStyle.Render(log.SysID))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Level:"), valueStyle.Render(log.Level))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Source:"), valueStyle.Render(log.Source))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Created:"), valueStyle.Render(log.CreatedOn))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-20s %s\n", mutedStyle.Render("Created By:"), valueStyle.Render(log.CreatedBy))
+
+	if log.Message != "" {
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", headerStyle.Render("Message:"))
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", valueStyle.Render(log.Message))
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), "─────")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+		"jsn logs list",
+		mutedStyle.Render("List all logs"),
+	)
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// printMarkdownLogEntry outputs markdown log entry details.
+func printMarkdownLogEntry(cmd *cobra.Command, log *sdk.LogEntry) error {
+	fmt.Fprintln(cmd.OutOrStdout(), "**Log Entry**")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "- **Sys ID:** %s\n", log.SysID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- **Level:** %s\n", log.Level)
+	fmt.Fprintf(cmd.OutOrStdout(), "- **Source:** %s\n", log.Source)
+	fmt.Fprintf(cmd.OutOrStdout(), "- **Created:** %s by %s\n", log.CreatedOn, log.CreatedBy)
+	if log.Message != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "- **Message:** %s\n", log.Message)
+	}
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
 }
@@ -284,7 +450,17 @@ func NewInstanceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "instance",
 		Short: "Instance information and diagnostics",
-		Long:  "Query ServiceNow instance information, version, plugins, and statistics.",
+		Long: `Query ServiceNow instance information, version, plugins, and statistics.
+
+Running "jsn instance" without a subcommand shows instance info.
+
+Examples:
+  jsn instance
+  jsn instance info`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Default to showing instance info
+			return runInstanceInfo(cmd)
+		},
 	}
 
 	cmd.AddCommand(
@@ -384,7 +560,7 @@ func printStyledInstanceInfo(cmd *cobra.Command, info *sdk.InstanceInfo) error {
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn logs --level error --minutes 60",
+		"jsn logs list --level error --minutes 60",
 		mutedStyle.Render("View recent errors"),
 	)
 
