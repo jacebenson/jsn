@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSN - ServiceNow CLI</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.6.3/dist/bundle/asciinema-player.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #121212;
+            --fg: #bebebe;
+            --accent: #ffc107;
+            --accent-dim: #e68e0d;
+            --muted: #8a8a8d;
+            --border: #333333;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 4rem 0 3rem;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.5rem;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 12px;
+            height: 1.2em;
+            background: var(--accent);
+            animation: blink 1s step-end infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        .tagline {
+            font-size: 1.25rem;
+            color: var(--muted);
+            margin-bottom: 2rem;
+        }
+
+        /* Install */
+        .install {
+            background: var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            margin: 2rem 0;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border: 1px solid #444;
+        }
+
+        .install code {
+            color: var(--accent);
+            flex: 1;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--muted);
+            color: var(--fg);
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Asciinema */
+        .demo {
+            margin: 3rem 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        /* Features */
+        .features {
+            display: grid;
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+
+        .feature {
+            padding: 1.5rem;
+            border-left: 3px solid var(--accent);
+            background: rgba(255, 193, 7, 0.03);
+        }
+
+        .feature h3 {
+            color: #fff;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
+        .feature p {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        /* Code examples */
+        .code-block {
+            background: var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+        }
+
+        .code-block .comment {
+            color: var(--muted);
+        }
+
+        .code-block .cmd {
+            color: var(--accent);
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 3rem 0;
+            border-top: 1px solid var(--border);
+            margin-top: 3rem;
+        }
+
+        .github-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.95rem;
+        }
+
+        .github-link:hover {
+            text-decoration: underline;
+        }
+
+        .footer p {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+            .install {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 0.75rem;
+            }
+            .install code {
+                font-size: 0.8rem;
+                word-break: break-all;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="hero">
+            <h1>Agent-first, agent-native<span class="cursor"></span></h1>
+            <p class="tagline">A CLI for exploring and managing ServiceNow instances.<br>Works standalone or with any AI agent.</p>
+            
+            <div class="install">
+                <code>curl -fsSL https://jsn.jace.pro/install | bash</code>
+                <button class="copy-btn" onclick="copyInstall()">Copy</button>
+            </div>
+        </header>
+
+        <div class="demo" id="demo"></div>
+
+        <section class="features">
+            <div class="feature">
+                <h3>Zero Bullshit Setup</h3>
+                <p>One binary. No server-side plugins. No dependency hell. No auth configuration that requires a PhD.</p>
+                <div class="code-block">
+                    <span class="cmd">jsn setup</span> <span class="comment"># Interactive first-time setup</span><br>
+                    <span class="cmd">jsn tables list</span> <span class="comment"># Start exploring</span>
+                </div>
+            </div>
+
+            <div class="feature">
+                <h3>Agent-Native</h3>
+                <p>Designed for AI agents. JSON output, breadcrumbs, and machine-readable structure. Works with Claude, Codex, Cursor, and more.</p>
+                <div class="code-block">
+                    <span class="cmd">jsn tables list --json</span> <span class="comment"># Structured output</span><br>
+                    <span class="cmd">jsn tables list --agent</span> <span class="comment"># Agent mode (no prompts)</span>
+                </div>
+            </div>
+
+            <div class="feature">
+                <h3>Explore Your Instance</h3>
+                <p>Understand your ServiceNow instance without clicking through 12 UI screens. Tables, schemas, business rules, flows, and more.</p>
+                <div class="code-block">
+                    <span class="cmd">jsn tables schema incident</span> <span class="comment"># Table structure</span><br>
+                    <span class="cmd">jsn rules list --table incident</span> <span class="comment"># Business rules</span><br>
+                    <span class="cmd">jsn flows list</span> <span class="comment"># Active flows</span>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <a href="https://github.com/jacebenson/jsn" class="github-link">github.com/jacebenson/jsn</a>
+            <p>Open source • MIT License</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.6.3/dist/bundle/asciinema-player.min.js"></script>
+    <script>
+        // Initialize asciinema player
+        AsciinemaPlayer.create('asciinema.cast', document.getElementById('demo'), {
+            cols: 150,
+            rows: 38,
+            autoPlay: true,
+            loop: true,
+            theme: 'monokai',
+            fit: 'width'
+        });
+
+        // Copy install command
+        function copyInstall() {
+            const code = 'curl -fsSL https://jsn.jace.pro/install | bash';
+            navigator.clipboard.writeText(code).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            });
+        }
+    </script>
+</body>
+</html>
