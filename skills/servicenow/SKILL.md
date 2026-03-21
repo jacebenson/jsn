@@ -40,6 +40,12 @@ triggers:
   - servicenow.com
 invocable: true
 argument-hint: "[command] [args...]"
+license: MIT
+compatibility: Requires jsn CLI to be installed. Works with Claude Code, OpenCode, Cursor, and other agentskills-compatible tools.
+metadata:
+  author: jacebenson
+  version: "1.0.0"
+  repository: https://github.com/jacebenson/jsn
 ---
 
 # /jsn - ServiceNow CLI
