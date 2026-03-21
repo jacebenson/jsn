@@ -250,20 +250,42 @@
 
     <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.6.3/dist/bundle/asciinema-player.min.js"></script>
     <script>
-        // Initialize asciinema player
-        AsciinemaPlayer.create('asciinema.cast', document.getElementById('demo'), {
-            cols: 150,
-            rows: 38,
-            autoPlay: true,
-            loop: true,
-            theme: 'monokai',
-            fit: 'width'
+        // Initialize asciinema player when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            const demoContainer = document.getElementById('demo');
+            if (demoContainer && typeof AsciinemaPlayer !== 'undefined') {
+                try {
+                    AsciinemaPlayer.create('asciinema.cast', demoContainer, {
+                        cols: 150,
+                        rows: 38,
+                        autoPlay: true,
+                        loop: true,
+                        theme: 'monokai',
+                        fit: 'width',
+                        preload: true
+                    });
+                } catch (e) {
+                    console.error('Asciinema player failed to load:', e);
+                    demoContainer.innerHTML = '<p style="text-align:center;padding:2rem;color:#8a8a8d;">Demo loading failed. <a href="asciinema.cast" style="color:#ffc107;">Download recording</a></p>';
+                }
+            }
         });
 
         // Copy install command
         function copyInstall() {
             const code = 'curl -fsSL https://jsn.jace.pro/install | bash';
             navigator.clipboard.writeText(code).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            }).catch(() => {
+                // Fallback for browsers that don't support clipboard API
+                const textarea = document.createElement('textarea');
+                textarea.value = code;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
                 const btn = document.querySelector('.copy-btn');
                 btn.textContent = 'Copied!';
                 setTimeout(() => btn.textContent = 'Copy', 2000);
