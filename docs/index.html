@@ -246,10 +246,10 @@
 
             <div class="feature">
                 <h3>AI Agent Skills</h3>
-                <p>Specialized capabilities for AI agents. Load the ServiceNow skill and your agent gains expert-level knowledge of your instance.</p>
+                <p>Specialized capabilities for AI agents. Install the skill and your agent automatically gains expert-level ServiceNow knowledge.</p>
                 <div class="code-block">
-                    <span class="comment"># Your AI agent loads the skill automatically</span><br>
-                    <span class="cmd">/jsn</span> <span class="comment"># Agent now understands ServiceNow</span><br>
+                    <span class="cmd">npx skills add jacebenson/jsn</span> <span class="comment"># Install once</span><br>
+                    <span class="comment"># Agent now automatically understands ServiceNow context</span><br>
                     <span class="comment"># "What business rules run on incident?"</span><br>
                     <span class="comment"># "Show me the script include for MyUtil"</span>
                 </div>
@@ -278,17 +278,18 @@
             <div class="feature" style="margin-bottom: 1.5rem;">
                 <h3>3. Install Skill</h3>
                 <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">npx skills add jacebenson/jsn</span> <span class="comment"># Auto-detects your agent</span><br>
-                    <span class="cmd">npx skills list</span> <span class="comment"># Verify: servicenow skill listed</span>
+                    <span class="cmd">npx skills add jacebenson/jsn</span> <span class="comment"># One command, works with all agents</span><br>
+                    <span class="cmd">npx skills list</span> <span class="comment"># Verify servicenow skill is installed</span>
                 </div>
             </div>
 
             <div class="feature">
                 <h3>4. Start Using</h3>
                 <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="comment"># Restart your agent, then:</span><br>
-                    <span class="cmd">/jsn</span> <span class="comment"># Activates the skill</span><br>
-                    <span class="comment"># Ask: "What tables exist?" or "List business rules on incident"</span>
+                    <span class="comment"># Restart your agent to load the skill</span><br>
+                    <span class="comment"># Then just ask naturally about ServiceNow:</span><br>
+                    <span class="comment"># "What tables exist?" or "List business rules on incident"</span><br>
+                    <span class="comment"># The agent automatically invokes jsn commands for you</span>
                 </div>
             </div>
 
