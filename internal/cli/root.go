@@ -96,6 +96,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(commands.NewExportCmd())
 	root.AddCommand(commands.NewImportCmd())
 	root.AddCommand(commands.NewGenerateCmd())
+	root.AddCommand(commands.NewRestCmd())
 
 	// ─── Config ──────────────────────────────────────────────────────────
 	root.AddCommand(commands.NewConfigCommand())

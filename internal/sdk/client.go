@@ -214,6 +214,67 @@ func (c *Client) Patch(ctx context.Context, table, sysID string, data map[string
 	return &result, nil
 }
 
+// RawRequest performs an arbitrary HTTP request to any endpoint on the instance.
+// The path should start with "/" (e.g., "/api/now/table/incident" or "/api/x_custom/myapi").
+// For GET/DELETE, body can be nil. For POST/PATCH/PUT, body is sent as JSON.
+// Returns the raw response body as parsed JSON (interface{}) along with the HTTP status code.
+func (c *Client) RawRequest(ctx context.Context, method, path string, body map[string]interface{}, headers map[string]string) (interface{}, int, error) {
+	endpoint := c.baseURL + path
+
+	var reqBody io.Reader
+	if body != nil && (method == "POST" || method == "PATCH" || method == "PUT") {
+		bodyData, err := json.Marshal(body)
+		if err != nil {
+			return nil, 0, fmt.Errorf("marshaling request body: %w", err)
+		}
+		reqBody = strings.NewReader(string(bodyData))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, reqBody)
+	if err != nil {
+		return nil, 0, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	if body != nil && (method == "POST" || method == "PATCH" || method == "PUT") {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// Apply custom headers
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	c.setAuth(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("reading response body: %w", err)
+	}
+
+	// Try to parse as JSON; if it fails, return as string
+	var result interface{}
+	if len(respBody) > 0 {
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			// Not JSON, return as string
+			result = string(respBody)
+		}
+	}
+
+	return result, resp.StatusCode, nil
+}
+
+// GetBaseURL returns the instance base URL.
+func (c *Client) GetBaseURL() string {
+	return c.baseURL
+}
+
 // Delete performs a DELETE request to delete a record.
 func (c *Client) Delete(ctx context.Context, table, sysID string) error {
 	endpoint := fmt.Sprintf("%s/api/now/table/%s/%s", c.baseURL, table, sysID)

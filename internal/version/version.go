@@ -11,7 +11,7 @@ import (
 var (
 	// Version is the semantic version (e.g., "1.0.0")
 	// This is the default; overridden by ldflags at build/release time.
-	Version = "0.2.3"
+	Version = "0.2.4"
 
 	// Commit is the git commit SHA
 	Commit = "none"

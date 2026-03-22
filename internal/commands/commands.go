@@ -69,6 +69,7 @@ func CommandCategories() []CommandCategory {
 				{Name: "compare", Category: "dev", Description: "Compare across instances", Actions: []string{"tables", "script-includes", "choices", "flows"}},
 				{Name: "export", Category: "dev", Description: "Export resources", Actions: []string{"script-includes", "tables", "update-set"}},
 				{Name: "import", Category: "dev", Description: "Import resources"},
+				{Name: "rest", Category: "dev", Description: "Make arbitrary REST API calls", Actions: []string{"get", "post", "patch", "delete"}},
 			},
 		},
 		{
