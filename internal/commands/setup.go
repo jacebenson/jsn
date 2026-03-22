@@ -2,8 +2,10 @@ package commands
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -318,32 +320,47 @@ func setupBasicAuth(reader *bufio.Reader, cfg *config.Config, authManager *auth.
 func setupGCKAuth(reader *bufio.Reader, cfg *config.Config, authManager *auth.Manager, instanceURL, profileName, configScope string) error {
 	fmt.Println("g_ck Token Authentication")
 	fmt.Println()
-	fmt.Println("You need a g_ck (glide cookie) token from your ServiceNow instance.")
+	fmt.Println("To authenticate, paste a curl command from your browser.")
 	fmt.Println()
-	fmt.Println("To get your token (choose either method):")
-	fmt.Println("  Quick method:")
-	fmt.Println("    1. Log into your ServiceNow instance in a browser")
-	fmt.Println("    2. Press F12 to open DevTools console")
-	fmt.Println("    3. Type: g_ck")
-	fmt.Println("    4. Copy the token that appears")
+	fmt.Println("Steps:")
+	fmt.Println("  1. Log into your ServiceNow instance in a browser")
+	fmt.Println("  2. Open DevTools (F12) → Network tab")
+	fmt.Println("  3. Filter for API requests (type 'api' in the filter)")
+	fmt.Println("  4. Right-click any api/now/* request")
+	fmt.Println("  5. Select: Copy → Copy as cURL")
+	fmt.Println("  6. Paste the command below and press Ctrl+D")
 	fmt.Println()
-	fmt.Println("  Alternative method:")
-	fmt.Println("    1. Log into your ServiceNow instance in a browser")
-	fmt.Println("    2. Open Developer Tools (F12)")
-	fmt.Println("    3. Go to Application/Storage → Cookies")
-	fmt.Println("    4. Find the 'g_ck' cookie and copy its value")
+	fmt.Println("(Press Ctrl+D when done, or Ctrl+C to cancel)")
 	fmt.Println()
 
-	var token string
+	// Read all stdin until EOF
+	var curlLines []string
 	for {
-		fmt.Print("g_ck token: ")
-		input, _ := reader.ReadString('\n')
-		token = strings.TrimSpace(input)
-
-		if token != "" {
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			// EOF reached
 			break
 		}
-		fmt.Println("Token is required.")
+		curlLines = append(curlLines, input)
+	}
+
+	if len(curlLines) == 0 {
+		return output.ErrUsage("no input received")
+	}
+
+	curlCmd := strings.TrimSpace(strings.Join(curlLines, " "))
+
+	// Parse the curl command
+	token, cookies, err := parseCurlForAuth(curlCmd)
+	if err != nil {
+		return output.ErrUsage(fmt.Sprintf("failed to parse curl: %v", err))
+	}
+
+	if token == "" {
+		return output.ErrUsage("no X-UserToken found in curl command")
+	}
+	if cookies == "" {
+		return output.ErrUsage("no Cookie header found in curl command")
 	}
 
 	// Save profile with auth method
@@ -371,6 +388,7 @@ func setupGCKAuth(reader *bufio.Reader, cfg *config.Config, authManager *auth.Ma
 	// Store credentials
 	creds := &auth.Credentials{
 		Token:     token,
+		Cookies:   cookies,
 		CreatedAt: 0,
 	}
 
@@ -379,8 +397,59 @@ func setupGCKAuth(reader *bufio.Reader, cfg *config.Config, authManager *auth.Ma
 	}
 
 	fmt.Println()
-	fmt.Println("  ✓ g_ck token saved.")
+	fmt.Println("  ✓ Authentication saved.")
 	fmt.Println()
 
 	return nil
+}
+
+// parseCurlForAuth extracts auth info from a curl command
+func parseCurlForAuth(curlCmd string) (token, cookies string, err error) {
+	// Extract X-UserToken header (case insensitive)
+	tokenPatterns := []string{
+		`(?i)x-usertoken:\s*([^\s'"]+)`,
+		`-H\s+['"]X-UserToken:\s*([^'"]+)['"]`,
+	}
+	for _, pattern := range tokenPatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(curlCmd)
+		if len(matches) >= 2 {
+			token = strings.TrimSpace(matches[1])
+			break
+		}
+	}
+
+	// Extract Cookie header (from -H or -b flags)
+	// Chrome's "Copy as cURL" uses: -b 'cookie1=val1; cookie2=val2'
+	// The -b pattern must handle quoted strings containing spaces and semicolons
+	cookiePatterns := []string{
+		`(?i)-H\s+['"]cookie:\s*([^'"]+)['"]`,
+		`-b\s+'([^']+)'`,
+		`-b\s+"([^"]+)"`,
+		`-b\s+(\S+)`,
+	}
+	for _, pattern := range cookiePatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(curlCmd)
+		if len(matches) >= 2 {
+			cookies = strings.TrimSpace(matches[1])
+			break
+		}
+	}
+
+	if token == "" && cookies == "" {
+		// Try to extract Basic Auth
+		authMatch := regexp.MustCompile(`-H\s+['"]Authorization:\s*Basic\s+([^'"]+)['"]`).FindStringSubmatch(curlCmd)
+		if len(authMatch) >= 2 {
+			decoded, decodeErr := base64.StdEncoding.DecodeString(authMatch[1])
+			if decodeErr == nil {
+				parts := strings.SplitN(string(decoded), ":", 2)
+				if len(parts) == 2 {
+					return parts[1], "", nil // password is the token
+				}
+			}
+		}
+	}
+
+	return token, cookies, nil
 }

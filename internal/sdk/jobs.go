@@ -273,8 +273,7 @@ func (c *Client) ExecuteJob(ctx context.Context, sysID, table string) error {
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Content-Type", "application/json")
 
-		username, password := c.getAuth()
-		req.SetBasicAuth(username, password)
+		c.setAuth(req)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -318,8 +317,7 @@ func (c *Client) ExecuteJob(ctx context.Context, sysID, table string) error {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	username, password := c.getAuth()
-	req.SetBasicAuth(username, password)
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

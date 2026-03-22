@@ -147,19 +147,20 @@ func initializeApp(cmd *cobra.Command) error {
 	// Create SDK client
 	var sdkClient *sdk.Client
 	if activeProfile := cfg.GetActiveProfile(); activeProfile != nil {
-		sdkClient = sdk.NewClient(activeProfile.InstanceURL, func() (string, string) {
+		sdkClient = sdk.NewClient(activeProfile.InstanceURL, func() (string, string, bool) {
 			// Get credentials
 			creds, err := authManager.GetCredentials()
 			if err != nil {
-				return "", ""
+				return "", "", false
 			}
 
-			// For basic auth: username/password
-			// For gck: use token as password with empty username
-			if activeProfile.AuthMethod == "basic" {
-				return activeProfile.Username, creds.Token
+			// For g_ck tokens: use X-UserToken header + cookies
+			// For basic auth: token=password, cookies=username (repurposed)
+			if activeProfile.AuthMethod == "gck" {
+				return creds.Token, creds.Cookies, true
 			}
-			return "", creds.Token
+			// Basic auth: token is password, pass username via cookies slot
+			return creds.Token, creds.Username, false
 		})
 	}
 

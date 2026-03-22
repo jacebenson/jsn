@@ -16,17 +16,33 @@ import (
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
-	getAuth    func() (username, password string)
+	// getAuth returns (token, cookiesOrUsername, isGCK)
+	// For g_ck: token = X-UserToken, cookiesOrUsername = Cookie header value
+	// For basic: token = password, cookiesOrUsername = username
+	getAuth func() (token, cookiesOrUsername string, isGCK bool)
 }
 
 // NewClient creates a new ServiceNow API client.
-func NewClient(baseURL string, getAuth func() (username, password string)) *Client {
+func NewClient(baseURL string, getAuth func() (token, cookiesOrUsername string, isGCK bool)) *Client {
 	return &Client{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 		getAuth: getAuth,
+	}
+}
+
+// setAuth applies authentication headers to a request.
+func (c *Client) setAuth(req *http.Request) {
+	token, cookiesOrUsername, isGCK := c.getAuth()
+	if isGCK {
+		req.Header.Set("X-UserToken", token)
+		if cookiesOrUsername != "" {
+			req.Header.Set("Cookie", cookiesOrUsername)
+		}
+	} else {
+		req.SetBasicAuth(cookiesOrUsername, token)
 	}
 }
 
@@ -47,8 +63,7 @@ func (c *Client) Get(ctx context.Context, table string, query url.Values) (*Resp
 	req.Header.Set("Content-Type", "application/json")
 
 	// Set auth
-	username, password := c.getAuth()
-	req.SetBasicAuth(username, password)
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -90,8 +105,7 @@ func (c *Client) Post(ctx context.Context, table string, data map[string]interfa
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	username, password := c.getAuth()
-	req.SetBasicAuth(username, password)
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -133,8 +147,7 @@ func (c *Client) Put(ctx context.Context, table, sysID string, data map[string]i
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	username, password := c.getAuth()
-	req.SetBasicAuth(username, password)
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -176,8 +189,7 @@ func (c *Client) Patch(ctx context.Context, table, sysID string, data map[string
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	username, password := c.getAuth()
-	req.SetBasicAuth(username, password)
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -213,8 +225,7 @@ func (c *Client) Delete(ctx context.Context, table, sysID string) error {
 
 	req.Header.Set("Accept", "application/json")
 
-	username, password := c.getAuth()
-	req.SetBasicAuth(username, password)
+	c.setAuth(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

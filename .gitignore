@@ -37,6 +37,7 @@ Thumbs.db
 # Local config (if any)
 .env
 .env.local
+.servicenow/
 
 # AI tools
 .opencode/
@@ -50,3 +51,6 @@ tmp/
 # Build artifacts
 dist/
 build/
+
+# bruno tests
+.bruno/

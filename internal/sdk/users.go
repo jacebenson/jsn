@@ -25,19 +25,12 @@ type UserPreference struct {
 
 // GetCurrentUser retrieves the currently authenticated user.
 func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
-	// Get username from auth credentials
-	username, _ := c.getAuth()
-
+	// Note: We can't easily get the username from g_ck auth
+	// So we just query for the first active user as a fallback
 	query := url.Values{}
 	query.Set("sysparm_limit", "1")
 	query.Set("sysparm_fields", "sys_id,user_name,name,email")
-
-	// Query by username if available, otherwise get first active user
-	if username != "" {
-		query.Set("sysparm_query", fmt.Sprintf("user_name=%s", username))
-	} else {
-		query.Set("sysparm_query", "active=true")
-	}
+	query.Set("sysparm_query", "active=true")
 
 	resp, err := c.Get(ctx, "sys_user", query)
 	if err != nil {

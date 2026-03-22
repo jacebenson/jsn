@@ -17,12 +17,15 @@ type Config struct {
 	Profiles       map[string]*Profile    `json:"profiles,omitempty"`
 	Raw            map[string]interface{} `json:"-"`
 	Source         map[string]Source      `json:"-"`
+	GlobalPath     string                 `json:"-"`
+	LocalPath      string                 `json:"-"`
 }
 
 type Profile struct {
 	InstanceURL string `json:"instance_url"`
 	Username    string `json:"username,omitempty"`
 	AuthMethod  string `json:"auth_method,omitempty"`
+	Source      string `json:"-"` // "global" or "local" — not persisted
 }
 
 type Source int
@@ -64,10 +67,31 @@ func Load(cfgFile, profileName string) (*Config, error) {
 		Source:   make(map[string]Source),
 	}
 
+	// Load global config first (lowest precedence)
 	globalPath := GlobalConfigPath()
 	if _, err := os.Stat(globalPath); err == nil {
 		if err := loadFromFile(cfg, globalPath); err != nil {
 			return nil, fmt.Errorf("failed to load global config: %w", err)
+		}
+		cfg.GlobalPath = globalPath
+		for _, p := range cfg.Profiles {
+			p.Source = "global"
+		}
+	}
+
+	// Load local config (overrides global)
+	localPath := LocalConfigPath()
+	if _, err := os.Stat(localPath); err == nil {
+		if err := loadFromFile(cfg, localPath); err != nil {
+			return nil, fmt.Errorf("failed to load local config: %w", err)
+		}
+		cfg.LocalPath = localPath
+
+		// Any profile without a source was created/overridden by local config
+		for _, p := range cfg.Profiles {
+			if p.Source == "" {
+				p.Source = "local"
+			}
 		}
 	}
 

@@ -75,9 +75,9 @@ fi
 
 # Build download URL
 if [ "$PLATFORM" = "windows" ]; then
-  ASSET_NAME="${BINARY_NAME}_${VERSION}_${PLATFORM}_${ARCH}.zip"
+  ASSET_NAME="jsn_${VERSION}_${PLATFORM}_${ARCH}.zip"
 else
-  ASSET_NAME="${BINARY_NAME}_${VERSION}_${PLATFORM}_${ARCH}.tar.gz"
+  ASSET_NAME="jsn_${VERSION}_${PLATFORM}_${ARCH}.tar.gz"
 fi
 
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$ASSET_NAME"

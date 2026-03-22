@@ -102,6 +102,7 @@ func (m *Manager) GetStore() *Store {
 type Credentials struct {
 	Token     string `json:"token"`
 	Username  string `json:"username,omitempty"`
+	Cookies   string `json:"cookies,omitempty"`
 	ExpiresAt int64  `json:"expires_at,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 }
