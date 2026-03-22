@@ -32,12 +32,19 @@ jobs:
           # Create output directory
           mkdir -p dist
 
+          # Version info
+          VERSION="${{ github.ref_name }}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PKG="github.com/jacebenson/jsn/internal/version"
+          LDFLAGS="-s -w -X ${PKG}.Version=${VERSION#v} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}"
+
           # Build for multiple platforms
-          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/jsn_${{ github.ref_name }}_linux_amd64 ./cmd/jsn/main.go
-          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/jsn_${{ github.ref_name }}_linux_arm64 ./cmd/jsn/main.go
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/jsn_${{ github.ref_name }}_darwin_amd64 ./cmd/jsn/main.go
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/jsn_${{ github.ref_name }}_darwin_arm64 ./cmd/jsn/main.go
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/jsn_${{ github.ref_name }}_windows_amd64.exe ./cmd/jsn/main.go
+          GOOS=linux GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o dist/jsn_${VERSION}_linux_amd64 ./cmd/jsn/main.go
+          GOOS=linux GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o dist/jsn_${VERSION}_linux_arm64 ./cmd/jsn/main.go
+          GOOS=darwin GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o dist/jsn_${VERSION}_darwin_amd64 ./cmd/jsn/main.go
+          GOOS=darwin GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o dist/jsn_${VERSION}_darwin_arm64 ./cmd/jsn/main.go
+          GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o dist/jsn_${VERSION}_windows_amd64.exe ./cmd/jsn/main.go
 
       - name: Create archives
         run: |
