@@ -80,6 +80,11 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(commands.NewFormsCmd())
 	root.AddCommand(commands.NewChoicesCommand())
 
+	// ─── Service Catalog ─────────────────────────────────────────────────
+	root.AddCommand(commands.NewCatalogItemCmd())
+	root.AddCommand(commands.NewVariableCmd())
+	root.AddCommand(commands.NewVariableTypesCmd())
+
 	// ─── Service Portal ──────────────────────────────────────────────────
 	root.AddCommand(commands.NewPortalsCmd())
 	root.AddCommand(commands.NewWidgetsCmd())

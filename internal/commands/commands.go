@@ -54,6 +54,14 @@ func CommandCategories() []CommandCategory {
 			},
 		},
 		{
+			Name: "Service Catalog",
+			Commands: []CommandInfo{
+				{Name: "catalog-item", Category: "catalog", Description: "Manage Service Catalog items", Actions: []string{"list", "show", "variables"}},
+				{Name: "variable", Category: "catalog", Description: "Manage catalog item variables", Actions: []string{"show", "choices", "add-choice", "remove-choice"}},
+				{Name: "variable-types", Category: "catalog", Description: "List catalog variable types"},
+			},
+		},
+		{
 			Name: "Development",
 			Commands: []CommandInfo{
 				{Name: "updateset", Category: "dev", Description: "Manage update sets", Actions: []string{"list", "show", "use", "create", "parent"}},

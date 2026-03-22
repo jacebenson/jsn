@@ -18,7 +18,7 @@ metadata:
   repository: https://github.com/jacebenson/jsn
 ---
 
-# /jsn - ServiceNow CLI
+# Jace's ServiceNow CLI
 
 Explore and manage ServiceNow instances. Works standalone or with AI agents.
 
@@ -84,6 +84,11 @@ Breadcrumbs suggest next commands for navigation.
 | List forms | `jsn forms list --table incident --json` |
 | List UI policies | `jsn ui-policies list --table incident --json` |
 | List client scripts | `jsn client-scripts list --table incident --json` |
+| List catalog items | `jsn catalog-item list --json` |
+| List item variables | `jsn catalog-item variables <sys_id> --json` |
+| List variable choices | `jsn variable choices <name> --json` |
+| Add variable choice | `jsn variable add-choice <name> "value"` |
+| Variable types | `jsn variable-types --json` |
 | Search docs | `jsn docs search <term>` |
 | Compare instances | `jsn compare tables --source prod --target dev --json` |
 | Generate code | `jsn generate gliderecord --table incident` |
@@ -199,6 +204,24 @@ jsn sp show <id> --json                   # Portal details
 jsn sp-widgets list --json                # Widgets
 jsn sp-pages list --json                  # Pages
 ```
+
+### Service Catalog
+
+```bash
+jsn catalog-item list --json              # List catalog items
+jsn catalog-item list --active --json     # Active items only
+jsn catalog-item show <sys_id> --json     # Item details
+jsn catalog-item variables <sys_id> --json  # Variables on item
+
+jsn variable show <name_or_sys_id> --json # Variable details
+jsn variable choices <name> --json        # Choices for dropdown variable
+jsn variable add-choice <name> "value" "Display Text"  # Add choice
+jsn variable remove-choice <name> "value" # Remove choice
+
+jsn variable-types --json                 # Variable type reference
+```
+
+**Note:** `jsn choices` manages `sys_choice` (field-level choices). Use `jsn variable choices` for catalog variable dropdown choices (`question_choice` table).
 
 ### Logs
 
@@ -320,3 +343,4 @@ jsn instance info                         # Check connectivity
 | Jobs | `sysauto_script`, `sys_trigger` |
 | Logs | `syslog` |
 | Service Portal | `sp_portal`, `sp_widget`, `sp_page` |
+| Service Catalog | `sc_cat_item`, `item_option_new`, `question_choice`, `sc_item_option_mtom` |
