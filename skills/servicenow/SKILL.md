@@ -85,6 +85,8 @@ Breadcrumbs suggest next commands for navigation.
 | List jobs | `jsn jobs list --json` |
 | Run job | `jsn jobs run <sys_id>` |
 | List forms | `jsn forms list --table incident --json` |
+| Show list columns | `jsn lists show incident --json` |
+| List list views | `jsn lists list --table incident --json` |
 | List UI policies | `jsn ui-policies list --table incident --json` |
 | List client scripts | `jsn client-scripts list --table incident --json` |
 | List catalog items | `jsn catalog-item list --json` |
@@ -95,6 +97,8 @@ Breadcrumbs suggest next commands for navigation.
 | Search docs | `jsn docs search <term>` |
 | Compare instances | `jsn compare tables --source prod --target dev --json` |
 | Generate code | `jsn generate gliderecord --table incident` |
+| Run background script | `jsn eval "gs.print(gs.getProperty('instance_name'))"` |
+| Run script from file | `jsn eval --file /tmp/my_script.js` |
 
 ## Command Categories
 
@@ -123,7 +127,7 @@ jsn records show <table> <sys_id> --json                     # Single record (al
 jsn records count <table> --query "priority=1"               # Count
 jsn records create <table> -f short_description="Test"       # Create with fields
 jsn records create <table> -f script=@/tmp/script.js         # Read value from file
-jsn records create <table> --json '{"field":"value"}'        # Create with JSON
+jsn records create <table> --data '{"field":"value"}'        # Create with JSON
 jsn records update <table> <sys_id> -f state=2               # Update with fields
 jsn records update <table> <sys_id> -f script=@/tmp/fix.js   # Update from file
 jsn records delete <table> <sys_id> --force                  # Delete
@@ -199,6 +203,9 @@ jsn jobs run <sys_id>                     # Execute now
 ```bash
 jsn forms list --table incident --json           # Form views
 jsn forms show incident --view default --json    # Form layout
+jsn lists list --table incident --json           # List views
+jsn lists show incident --json                   # List columns (Default view)
+jsn lists show incident --view "Default view"    # List columns for specific view
 jsn ui-policies list --table incident --json     # UI policies
 jsn ui-policies script <sys_id>                  # Policy script
 jsn client-scripts list --table incident --json  # Client scripts
@@ -269,6 +276,21 @@ jsn rest patch /api/now/table/incident/<sys_id> --data '{"state":"2"}'
 jsn rest delete /api/now/table/incident/<sys_id>           # Shows confirmation on success
 jsn rest get /api/x_myapp/custom_api/resource              # Custom/scoped APIs
 ```
+
+### Background Scripts (eval)
+
+```bash
+jsn eval "gs.print(gs.getProperty('instance_name'))"             # Inline script
+jsn eval --file /tmp/check_records.js                             # Script from file
+echo "gs.print('hello')" | jsn eval                               # Piped from stdin
+jsn eval --scope x_myapp_scope "gs.print(gs.getCurrentScopeName())" # Run in app scope
+jsn eval --no-rollback "gs.print('skip rollback')"                # Disable rollback recording
+jsn eval --no-quota "gs.print('no timeout')"                      # Disable 4-hour timeout
+jsn eval "gs.print(JSON.stringify({user: gs.getUserName()}))" --json  # JSON output
+```
+
+Equivalent to "Scripts - Background" in the ServiceNow UI. Uses `sys.scripts.do` internally.
+Use `gs.print()` or `gs.info()` to produce output. Full server-side API access (GlideRecord, gs, etc.).
 
 ### Code Generation
 

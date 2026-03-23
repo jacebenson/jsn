@@ -689,7 +689,7 @@ func newRecordsCreateCmd() *cobra.Command {
 
 Field Input:
   Use --field (or -f) to set field values: --field short_description="Server down"
-  Use --json to provide a JSON object: --json '{"short_description":"Server down"}'
+  Use --data (or -d) to provide a JSON object: --data '{"short_description":"Server down"}'
   Use @file to read a value from a file: -f script=@/tmp/script.js
 
 Interactive Mode:
@@ -699,7 +699,8 @@ Examples:
   jsn records create incident --field short_description="Server down" --field priority=1
   jsn records create incident -f short_description="Server down" -f priority=1
   jsn records create incident -f script=@/tmp/my_script.js
-  jsn records create incident --json '{"short_description":"Server down","priority":"1"}'`,
+  jsn records create incident --data '{"short_description":"Server down","priority":"1"}'
+  jsn records create incident -d '{"short_description":"Server down","priority":"1"}'`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var table string
@@ -711,7 +712,7 @@ Examples:
 	}
 
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
-	cmd.Flags().StringVar(&jsonData, "json", "", "JSON object with field values")
+	cmd.Flags().StringVarP(&jsonData, "data", "d", "", "JSON object with field values")
 
 	return cmd
 }
@@ -783,7 +784,7 @@ func runRecordsCreate(cmd *cobra.Command, table string, fields []string, jsonDat
 	}
 
 	if len(data) == 0 {
-		return output.ErrUsage("No field values provided. Use --field or --json")
+		return output.ErrUsage("No field values provided. Use --field or --data")
 	}
 
 	// Create the record
@@ -821,7 +822,7 @@ func newRecordsUpdateCmd() *cobra.Command {
 
 Field Input:
   Use --field (or -f) to set field values: --field short_description="Updated description"
-  Use --json to provide a JSON object: --json '{"short_description":"Updated"}'
+  Use --data (or -d) to provide a JSON object: --data '{"short_description":"Updated"}'
   Use @file to read a value from a file: -f script=@/tmp/script.js
 
 Interactive Mode:
@@ -830,6 +831,7 @@ Interactive Mode:
 Examples:
   jsn records update incident <sys_id> --field priority=2
   jsn records update incident <sys_id> -f state=6 -f close_code="Resolved"
+  jsn records update incident <sys_id> --data '{"state":"6","close_code":"Resolved"}'
   jsn records update sys_script <sys_id> -f script=@/tmp/fix.js`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -845,7 +847,7 @@ Examples:
 	}
 
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
-	cmd.Flags().StringVar(&jsonData, "json", "", "JSON object with field values")
+	cmd.Flags().StringVarP(&jsonData, "data", "d", "", "JSON object with field values")
 
 	return cmd
 }
@@ -904,7 +906,7 @@ func runRecordsUpdate(cmd *cobra.Command, table, sysID string, fields []string, 
 	}
 
 	if len(data) == 0 {
-		return output.ErrUsage("No updates specified. Use --field or --json")
+		return output.ErrUsage("No updates specified. Use --field or --data")
 	}
 
 	// Update the record

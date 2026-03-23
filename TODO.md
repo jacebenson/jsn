@@ -2,11 +2,6 @@
 
 ## High Priority
 
-### UI List Layouts
-- [ ] `jsn lists list --table <table>` - List UI list layouts
-- [ ] `jsn lists show <table> [--view <view>]` - Show list columns
-- Uses `sys_ui_list` and `sys_ui_list_element` tables
-
 ### Workspaces
 - [ ] `jsn workspaces list` - List workspaces
 - [ ] `jsn workspaces show [<name>]` - Show workspace details

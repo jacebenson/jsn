@@ -45,7 +45,7 @@ Examples:
 	}
 
 	// Add flags to root command for default list behavior
-	cmd.Flags().StringVar(&flags.table, "table", "", "Filter by table name")
+	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Filter by table name")
 	cmd.Flags().StringVar(&flags.sysID, "sys-id", "", "Filter by record sys_id")
 	cmd.Flags().StringVar(&flags.source, "source", "", "Filter by source")
 	cmd.Flags().IntVarP(&flags.minutes, "minutes", "m", 60, "Show logs from last N minutes")
@@ -81,7 +81,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&flags.table, "table", "", "Filter by table name")
+	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Filter by table name")
 	cmd.Flags().StringVar(&flags.sysID, "sys-id", "", "Filter by record sys_id")
 	cmd.Flags().StringVar(&flags.source, "source", "", "Filter by source")
 	cmd.Flags().IntVarP(&flags.minutes, "minutes", "m", 60, "Show logs from last N minutes")

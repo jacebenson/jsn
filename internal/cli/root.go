@@ -78,6 +78,7 @@ func NewRootCommand() *cobra.Command {
 	// ─── UI ──────────────────────────────────────────────────────────────
 	root.AddCommand(commands.NewUIPoliciesCmd())
 	root.AddCommand(commands.NewFormsCmd())
+	root.AddCommand(commands.NewListsCmd())
 	root.AddCommand(commands.NewChoicesCommand())
 
 	// ─── Service Catalog ─────────────────────────────────────────────────
@@ -97,6 +98,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(commands.NewImportCmd())
 	root.AddCommand(commands.NewGenerateCmd())
 	root.AddCommand(commands.NewRestCmd())
+	root.AddCommand(commands.NewEvalCmd())
 
 	// ─── Config ──────────────────────────────────────────────────────────
 	root.AddCommand(commands.NewConfigCommand())

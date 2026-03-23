@@ -64,7 +64,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&flags.table, "table", "", "Table name to filter views")
+	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Table name to filter views")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 50, "Maximum number of views to fetch")
 
 	return cmd
@@ -334,16 +334,26 @@ func runFormsShow(cmd *cobra.Command, table string, flags formsShowFlags) error 
 		sectionElements[section.SysID] = elements
 	}
 
+	// Fetch related lists for this table/view
+	relatedLists, err := sdkClient.ListRelatedLists(cmd.Context(), &sdk.ListRelatedListsOptions{
+		ParentTable: table,
+		ViewName:    flags.view,
+	})
+	if err != nil {
+		// Non-fatal — show form layout without related lists
+		relatedLists = nil
+	}
+
 	// Determine output format
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledFormLayout(cmd, table, flags.view, sections, sectionElements, instanceURL)
+		return printStyledFormLayout(cmd, table, flags.view, sections, sectionElements, relatedLists, instanceURL)
 	}
 
 	if format == output.FormatMarkdown {
-		return printMarkdownFormLayout(cmd, table, flags.view, sections, sectionElements, instanceURL)
+		return printMarkdownFormLayout(cmd, table, flags.view, sections, sectionElements, relatedLists, instanceURL)
 	}
 
 	// Build data for JSON/quiet output - include elements sorted by order
@@ -372,6 +382,25 @@ func runFormsShow(cmd *cobra.Command, table string, flags formsShowFlags) error 
 		"sections": sectionsWithElements,
 	}
 
+	if len(relatedLists) > 0 {
+		var relData []map[string]interface{}
+		for _, rl := range relatedLists {
+			entry := map[string]interface{}{
+				"table": rl.Layout.Name,
+			}
+			if rl.Layout.Relationship != "" {
+				entry["relationship"] = rl.Layout.Relationship
+			}
+			var cols []string
+			for _, e := range rl.Elements {
+				cols = append(cols, e.Element)
+			}
+			entry["columns"] = cols
+			relData = append(relData, entry)
+		}
+		data["related_lists"] = relData
+	}
+
 	// Build breadcrumbs
 	breadcrumbs := []output.Breadcrumb{
 		{
@@ -379,27 +408,34 @@ func runFormsShow(cmd *cobra.Command, table string, flags formsShowFlags) error 
 			Cmd:         fmt.Sprintf("jsn forms list --table %s", table),
 			Description: "List all views",
 		},
+		{
+			Action:      "list-layout",
+			Cmd:         fmt.Sprintf("jsn lists show %s --view \"%s\"", table, flags.view),
+			Description: "Show list columns",
+		},
 	}
 
 	return outputWriter.OK(data,
-		output.WithSummary(fmt.Sprintf("Form: %s (%s) - %d sections", table, flags.view, len(sections))),
+		output.WithSummary(fmt.Sprintf("Form: %s (%s) - %d sections, %d related lists", table, flags.view, len(sections), len(relatedLists))),
 		output.WithBreadcrumbs(breadcrumbs...),
 	)
 }
 
 // printStyledFormLayout outputs styled form layout.
-func printStyledFormLayout(cmd *cobra.Command, table, view string, sections []sdk.FormSection, sectionElements map[string][]sdk.FormElement, instanceURL string) error {
+func printStyledFormLayout(cmd *cobra.Command, table, view string, sections []sdk.FormSection, sectionElements map[string][]sdk.FormElement, relatedLists []sdk.RelatedList, instanceURL string) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	fieldStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
 
-	fmt.Fprintln(cmd.OutOrStdout())
+	w := cmd.OutOrStdout()
+
+	fmt.Fprintln(w)
 
 	// Title
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("%s (%s)", table, view)))
-	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(w, headerStyle.Render(fmt.Sprintf("%s (%s)", table, view)))
+	fmt.Fprintln(w)
 
 	// Sections
 	for i, section := range sections {
@@ -413,11 +449,11 @@ func printStyledFormLayout(cmd *cobra.Command, table, view string, sections []sd
 		if sectionTitle == "" {
 			sectionTitle = fmt.Sprintf("Section %d", i+1)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render(fmt.Sprintf("─ %s ─", sectionTitle)))
+		fmt.Fprintln(w, sectionStyle.Render(fmt.Sprintf("─ %s ─", sectionTitle)))
 
 		if len(elements) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  (no fields)"))
-			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(w, mutedStyle.Render("  (no fields)"))
+			fmt.Fprintln(w)
 			continue
 		}
 
@@ -451,39 +487,63 @@ func printStyledFormLayout(cmd *cobra.Command, table, view string, sections []sd
 				indicators += " (RO)"
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s%s\n", fieldStyle.Render(displayName), labelStyle.Render(indicators))
+			fmt.Fprintf(w, "  %s%s\n", fieldStyle.Render(displayName), labelStyle.Render(indicators))
 		}
 
-		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(w)
+	}
+
+	// Related lists
+	if len(relatedLists) > 0 {
+		fmt.Fprintln(w, sectionStyle.Render(fmt.Sprintf("─ Related Lists (%d) ─", len(relatedLists))))
+		fmt.Fprintln(w)
+		for _, rl := range relatedLists {
+			name := relatedListDisplayName(rl)
+			fmt.Fprintf(w, "  %s\n", fieldStyle.Render(name))
+			if len(rl.Elements) > 0 {
+				var colNames []string
+				for _, e := range rl.Elements {
+					colNames = append(colNames, e.Element)
+				}
+				fmt.Fprintf(w, "    %s\n", labelStyle.Render(strings.Join(colNames, ", ")))
+			}
+		}
+		fmt.Fprintln(w)
 	}
 
 	// Link to form layout
 	if instanceURL != "" {
 		link := fmt.Sprintf("%s/sys_ui_section_list.do?sysparm_query=name%%3D%s%%5Eview%%3D%s", instanceURL, table, view)
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s  \x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\\n",
+		fmt.Fprintf(w, "  %s  \x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\\n",
 			labelStyle.Render("Form Layout:"),
 			link,
 			"View in ServiceNow",
 		)
-		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(w)
 	}
 
 	// Hints
-	fmt.Fprintln(cmd.OutOrStdout(), "─────")
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+	fmt.Fprintln(w, "─────")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, headerStyle.Render("Hints:"))
+	fmt.Fprintf(w, "  %-50s  %s\n",
 		fmt.Sprintf("jsn forms list --table %s", table),
 		labelStyle.Render("List all views"),
 	)
+	fmt.Fprintf(w, "  %-50s  %s\n",
+		fmt.Sprintf("jsn lists show %s --view \"%s\"", table, view),
+		labelStyle.Render("Show list columns"),
+	)
 
-	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(w)
 	return nil
 }
 
 // printMarkdownFormLayout outputs markdown form layout.
-func printMarkdownFormLayout(cmd *cobra.Command, table, view string, sections []sdk.FormSection, sectionElements map[string][]sdk.FormElement, instanceURL string) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "**%s (%s)**\n\n", table, view)
+func printMarkdownFormLayout(cmd *cobra.Command, table, view string, sections []sdk.FormSection, sectionElements map[string][]sdk.FormElement, relatedLists []sdk.RelatedList, instanceURL string) error {
+	w := cmd.OutOrStdout()
+
+	fmt.Fprintf(w, "**%s (%s)**\n\n", table, view)
 
 	// Sections
 	for i, section := range sections {
@@ -497,11 +557,11 @@ func printMarkdownFormLayout(cmd *cobra.Command, table, view string, sections []
 		if sectionTitle == "" {
 			sectionTitle = fmt.Sprintf("Section %d", i+1)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "#### %s\n\n", sectionTitle)
+		fmt.Fprintf(w, "#### %s\n\n", sectionTitle)
 
 		if len(elements) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "*(no fields)*")
-			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(w, "*(no fields)*")
+			fmt.Fprintln(w)
 			continue
 		}
 
@@ -535,15 +595,33 @@ func printMarkdownFormLayout(cmd *cobra.Command, table, view string, sections []
 				indicators += " (RO)"
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "- %s%s\n", displayName, indicators)
+			fmt.Fprintf(w, "- %s%s\n", displayName, indicators)
 		}
-		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(w)
+	}
+
+	// Related lists
+	if len(relatedLists) > 0 {
+		fmt.Fprintf(w, "#### Related Lists (%d)\n\n", len(relatedLists))
+		for _, rl := range relatedLists {
+			name := relatedListDisplayName(rl)
+			if len(rl.Elements) > 0 {
+				var colNames []string
+				for _, e := range rl.Elements {
+					colNames = append(colNames, e.Element)
+				}
+				fmt.Fprintf(w, "- **%s**: %s\n", name, strings.Join(colNames, ", "))
+			} else {
+				fmt.Fprintf(w, "- **%s**\n", name)
+			}
+		}
+		fmt.Fprintln(w)
 	}
 
 	// Link to form layout
 	if instanceURL != "" {
 		link := fmt.Sprintf("%s/sys_ui_section_list.do?sysparm_query=name%%3D%s%%5Eview%%3D%s", instanceURL, table, view)
-		fmt.Fprintf(cmd.OutOrStdout(), "**Form Layout:** [View in ServiceNow](%s)\n\n", link)
+		fmt.Fprintf(w, "**Form Layout:** [View in ServiceNow](%s)\n\n", link)
 	}
 
 	return nil

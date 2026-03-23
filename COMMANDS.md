@@ -444,10 +444,22 @@ These are used globally or have established meanings:
 |------|-----------|-------|
 | `-p` | `--profile` | Profile to use (global) |
 | `-q` | `--quiet` | Quiet output (global) |
+| `-d` | `--data` | JSON request body (input) |
 | `-n` | `--limit` | Number of items |
 | `-t` | `--table` | Table name |
-| `-f` | `--field` | Field name |
+| `-f` | `--field` | Field name/value pair |
 | `-s` | `--scope` | Application scope |
+
+### Table Parameter Pattern
+
+Table names follow two patterns depending on their role:
+
+| Role | Mechanism | Example |
+|------|-----------|---------|
+| Primary noun (operating on this table) | Positional arg | `jsn records list incident`, `jsn forms show incident` |
+| Optional filter (narrowing a cross-table list) | `--table` / `-t` flag | `jsn forms list -t incident`, `jsn rules list -t incident` |
+
+All `--table` flags support the `-t` shorthand consistently across every command.
 
 ### Error Handling
 

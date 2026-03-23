@@ -177,8 +177,9 @@ func (c *Client) ListFormSections(ctx context.Context, opts *ListFormSectionsOpt
 	return sections, nil
 }
 
-// getViewSysID looks up a view's sys_id by its name from sys_ui_view.
+// getViewSysID looks up a view's sys_id by its name or title from sys_ui_view.
 func (c *Client) getViewSysID(ctx context.Context, viewName string) (string, error) {
+	// Try by name first
 	query := url.Values{}
 	query.Set("sysparm_limit", "1")
 	query.Set("sysparm_fields", "sys_id")
@@ -189,11 +190,26 @@ func (c *Client) getViewSysID(ctx context.Context, viewName string) (string, err
 		return "", err
 	}
 
-	if len(resp.Result) == 0 {
-		return "", fmt.Errorf("view not found: %s", viewName)
+	if len(resp.Result) > 0 {
+		return getString(resp.Result[0], "sys_id"), nil
 	}
 
-	return getString(resp.Result[0], "sys_id"), nil
+	// Fall back to title (display value shown in list/form view queries)
+	query = url.Values{}
+	query.Set("sysparm_limit", "1")
+	query.Set("sysparm_fields", "sys_id")
+	query.Set("sysparm_query", fmt.Sprintf("title=%s", viewName))
+
+	resp, err = c.Get(ctx, "sys_ui_view", query)
+	if err != nil {
+		return "", err
+	}
+
+	if len(resp.Result) > 0 {
+		return getString(resp.Result[0], "sys_id"), nil
+	}
+
+	return "", fmt.Errorf("view not found: %s", viewName)
 }
 
 // ListFormElementsOptions holds options for listing form elements.
