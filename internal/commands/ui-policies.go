@@ -306,8 +306,9 @@ func printMarkdownUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy) er
 // newUIPoliciesShowCmd creates the ui-policies show command.
 func newUIPoliciesShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<sys_id>]",
-		Short: "Show UI policy details",
+		Use:     "show [<sys_id>]",
+		Aliases: []string{"get"},
+		Short:   "Show UI policy details",
 		Long: `Display detailed information about a UI policy.
 
 If no sys_id is provided, an interactive picker will help you select one.

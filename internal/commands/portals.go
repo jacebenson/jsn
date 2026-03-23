@@ -250,8 +250,9 @@ func printMarkdownPortalsList(cmd *cobra.Command, portals []sdk.Portal, instance
 // newPortalsShowCmd creates the portals show command.
 func newPortalsShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show [<identifier>]",
-		Short: "Show portal details",
+		Use:     "show [<identifier>]",
+		Aliases: []string{"get"},
+		Short:   "Show portal details",
 		Long: `Display detailed information about a Service Portal.
 
 The identifier can be a portal URL suffix (e.g., "itsm") or sys_id.

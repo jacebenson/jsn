@@ -262,8 +262,9 @@ func newWidgetsShowCmd() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "show [<identifier>]",
-		Short: "Show widget details",
+		Use:     "show [<identifier>]",
+		Aliases: []string{"get"},
+		Short:   "Show widget details",
 		Long: `Display detailed information about a Service Portal Widget.
 
 The identifier can be a widget ID (e.g., "kb-list") or sys_id.

@@ -187,10 +187,11 @@ func runUpdateSetList(cmd *cobra.Command, flags updateSetListFlags) error {
 // newUpdateSetShowCmd creates the updateset show command.
 func newUpdateSetShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <name>",
-		Short: "Show update set details",
-		Long:  "Display detailed information about an update set.",
-		Args:  cobra.ExactArgs(1),
+		Use:     "show <name>",
+		Aliases: []string{"get"},
+		Short:   "Show update set details",
+		Long:    "Display detailed information about an update set.",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpdateSetShow(cmd, args[0])
 		},

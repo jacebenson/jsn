@@ -293,8 +293,9 @@ func printMarkdownRulesList(cmd *cobra.Command, rules []sdk.BusinessRule) error 
 // newRulesShowCmd creates the rules show command.
 func newRulesShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<sys_id>]",
-		Short: "Show business rule details",
+		Use:     "show [<sys_id>]",
+		Aliases: []string{"get"},
+		Short:   "Show business rule details",
 		Long: `Display detailed information about a business rule.
 
 If no sys_id is provided, an interactive picker will help you select one.

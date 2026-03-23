@@ -396,8 +396,9 @@ func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
 // newFlowsShowCmd creates the flows show command.
 func newFlowsShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<identifier>] [variables]",
-		Short: "Show flow details",
+		Use:     "show [<identifier>] [variables]",
+		Aliases: []string{"get"},
+		Short:   "Show flow details",
 		Long: `Display detailed information about a flow.
 
 The identifier can be a flow name or sys_id.

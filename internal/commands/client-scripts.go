@@ -295,8 +295,9 @@ func printMarkdownClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScri
 // newClientScriptsShowCmd creates the client-scripts show command.
 func newClientScriptsShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<sys_id>]",
-		Short: "Show client script details",
+		Use:     "show [<sys_id>]",
+		Aliases: []string{"get"},
+		Short:   "Show client script details",
 		Long: `Display detailed information about a client script.
 
 If no sys_id is provided, an interactive picker will help you select one.

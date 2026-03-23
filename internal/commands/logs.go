@@ -328,8 +328,9 @@ func printMarkdownLogs(cmd *cobra.Command, logs []sdk.LogEntry, flags logsListFl
 // newLogsShowCmd creates the logs show command.
 func newLogsShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <sys_id>",
-		Short: "Show a log entry",
+		Use:     "show <sys_id>",
+		Aliases: []string{"get"},
+		Short:   "Show a log entry",
 		Long: `Display detailed information about a specific log entry.
 
 Examples:

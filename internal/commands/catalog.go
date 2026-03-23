@@ -236,8 +236,9 @@ func printMarkdownCatalogItemList(cmd *cobra.Command, items []map[string]interfa
 // newCatalogItemShowCmd creates the catalog-item show command.
 func newCatalogItemShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <sys_id_or_name>",
-		Short: "Show catalog item details",
+		Use:     "show <sys_id_or_name>",
+		Aliases: []string{"get"},
+		Short:   "Show catalog item details",
 		Long: `Display detailed information about a catalog item.
 
 Examples:

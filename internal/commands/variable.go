@@ -35,8 +35,9 @@ func NewVariableCmd() *cobra.Command {
 // newVariableShowCmd creates the variable show command.
 func newVariableShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <sys_id_or_name>",
-		Short: "Show variable details",
+		Use:     "show <sys_id_or_name>",
+		Aliases: []string{"get"},
+		Short:   "Show variable details",
 		Long: `Display detailed information about a catalog variable.
 
 Examples:

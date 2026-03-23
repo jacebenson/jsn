@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -91,6 +92,16 @@ func runRest(cmd *cobra.Command, method, path string, flags restFlags) error {
 	// Ensure path starts with /
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
+	}
+
+	// Auto-encode query parameters to prevent 400 errors from unescaped characters
+	if idx := strings.IndexByte(path, '?'); idx >= 0 {
+		basePath := path[:idx]
+		rawQuery := path[idx+1:]
+		params, err := url.ParseQuery(rawQuery)
+		if err == nil {
+			path = basePath + "?" + params.Encode()
+		}
 	}
 
 	// Parse body for POST/PATCH
@@ -184,7 +195,11 @@ func printStyledRest(cmd *cobra.Command, method, path string, statusCode int, re
 			fmt.Fprintf(w, "  %s\n", string(jsonBytes))
 		}
 	} else {
-		fmt.Fprintln(w, mutedStyle.Render("  (no response body)"))
+		if method == "DELETE" && statusCode >= 200 && statusCode < 300 {
+			fmt.Fprintln(w, successStyle.Render("  ✓ Deleted successfully"))
+		} else {
+			fmt.Fprintln(w, mutedStyle.Render("  (no response body)"))
+		}
 	}
 
 	fmt.Fprintln(w)

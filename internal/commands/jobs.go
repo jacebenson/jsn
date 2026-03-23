@@ -310,8 +310,9 @@ func newJobsShowCmd() *cobra.Command {
 	var jobType string
 
 	cmd := &cobra.Command{
-		Use:   "show [<sys_id>]",
-		Short: "Show scheduled job details",
+		Use:     "show [<sys_id>]",
+		Aliases: []string{"get"},
+		Short:   "Show scheduled job details",
 		Long: `Display detailed information about a scheduled job.
 
 If no sys_id is provided, an interactive picker will help you select one.

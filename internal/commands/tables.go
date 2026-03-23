@@ -50,6 +50,8 @@ func NewTablesCmd() *cobra.Command {
 		newTablesRelationshipsCmd(),
 		newTablesDependenciesCmd(),
 		newTablesDiagramCmd(),
+		newTablesCreateCmd(),
+		newTablesAddColumnCmd(),
 	)
 
 	return cmd
@@ -281,10 +283,11 @@ func runTablesList(cmd *cobra.Command, flags tablesListFlags) error {
 // newTablesShowCmd creates the tables show command.
 func newTablesShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<name>]",
-		Short: "Show table details",
-		Long:  "Display detailed information about a table including columns and inheritance. If no name is provided, shows an interactive picker.",
-		Args:  cobra.RangeArgs(0, 1),
+		Use:     "show [<name>]",
+		Aliases: []string{"get"},
+		Short:   "Show table details",
+		Long:    "Display detailed information about a table including columns and inheritance. If no name is provided, shows an interactive picker.",
+		Args:    cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var name string
 			if len(args) > 0 {
@@ -1672,4 +1675,253 @@ func printDOTDiagram(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableCo
 
 	fmt.Fprintln(cmd.OutOrStdout(), "}")
 	return nil
+}
+
+// ─── CREATE TABLE ──────────────────────────────────────────────────────────
+
+type tablesCreateFlags struct {
+	label      string
+	extends    string
+	scope      string
+	extendable bool
+}
+
+// newTablesCreateCmd creates the tables create command.
+func newTablesCreateCmd() *cobra.Command {
+	var flags tablesCreateFlags
+
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a new table",
+		Long: `Create a new table in ServiceNow.
+
+The table name must follow ServiceNow naming conventions (e.g., u_my_table for custom tables).
+Use --extends to inherit from an existing table (defaults to "task").
+
+Examples:
+  jsn tables create u_my_table --label "My Table"
+  jsn tables create u_assets --label "Assets" --extends cmdb_ci
+  jsn tables create u_requests --label "Requests" --extends task --extendable`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTablesCreate(cmd, args[0], flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.label, "label", "", "Display label for the table (defaults to name)")
+	cmd.Flags().StringVar(&flags.extends, "extends", "", "Parent table to extend")
+	cmd.Flags().StringVar(&flags.scope, "scope", "", "Application scope")
+	cmd.Flags().BoolVar(&flags.extendable, "extendable", false, "Allow other tables to extend this one")
+
+	return cmd
+}
+
+// runTablesCreate executes the tables create command.
+func runTablesCreate(cmd *cobra.Command, name string, flags tablesCreateFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+	outputWriter := appCtx.Output.(*output.Writer)
+
+	data := map[string]interface{}{
+		"name": name,
+	}
+
+	label := flags.label
+	if label == "" {
+		label = name
+	}
+	data["label"] = label
+
+	if flags.extends != "" {
+		data["super_class"] = flags.extends
+	}
+
+	if flags.scope != "" {
+		data["sys_scope"] = flags.scope
+	}
+
+	if flags.extendable {
+		data["is_extendable"] = "true"
+	}
+
+	record, err := sdkClient.CreateRecord(cmd.Context(), "sys_db_object", data)
+	if err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return outputWriter.OK(record,
+		output.WithSummary(fmt.Sprintf("Created table %s", name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn tables show %s", name),
+				Description: "View table details",
+			},
+			output.Breadcrumb{
+				Action:      "add-column",
+				Cmd:         fmt.Sprintf("jsn tables add-column %s <column_name>", name),
+				Description: "Add a column",
+			},
+		),
+	)
+}
+
+// ─── ADD COLUMN ────────────────────────────────────────────────────────────
+
+type tablesAddColumnFlags struct {
+	colType   string
+	maxLength int
+	label     string
+	mandatory bool
+	reference string
+}
+
+// newTablesAddColumnCmd creates the tables add-column command.
+func newTablesAddColumnCmd() *cobra.Command {
+	var flags tablesAddColumnFlags
+
+	cmd := &cobra.Command{
+		Use:   "add-column <table> <column_name>",
+		Short: "Add a column to a table",
+		Long: `Add a new column (field) to a ServiceNow table.
+
+Creates a sys_dictionary record for the specified table and column.
+
+Column types: string (default), integer, boolean, reference, date, datetime,
+  journal, journal_input, glide_date, glide_date_time, html, script,
+  script_plain, conditions, url, email, phone_number_e164, currency
+
+Examples:
+  jsn tables add-column u_my_table u_description --label "Description" --type string
+  jsn tables add-column u_my_table u_priority --label "Priority" --type integer
+  jsn tables add-column u_my_table u_assigned_to --label "Assigned To" --type reference --reference sys_user
+  jsn tables add-column incident u_custom_field --label "Custom Field" --mandatory`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTablesAddColumn(cmd, args[0], args[1], flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.colType, "type", "string", "Column type (string, integer, boolean, reference, etc.)")
+	cmd.Flags().IntVar(&flags.maxLength, "max-length", 0, "Maximum length (for string types)")
+	cmd.Flags().StringVar(&flags.label, "label", "", "Display label (defaults to column name)")
+	cmd.Flags().BoolVar(&flags.mandatory, "mandatory", false, "Make the column mandatory")
+	cmd.Flags().StringVar(&flags.reference, "reference", "", "Referenced table (for reference type columns)")
+
+	return cmd
+}
+
+// runTablesAddColumn executes the tables add-column command.
+func runTablesAddColumn(cmd *cobra.Command, table, column string, flags tablesAddColumnFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+	outputWriter := appCtx.Output.(*output.Writer)
+
+	// Map friendly type names to ServiceNow internal types
+	internalType := mapColumnType(flags.colType)
+
+	label := flags.label
+	if label == "" {
+		label = column
+	}
+
+	data := map[string]interface{}{
+		"name":          column,
+		"element":       column,
+		"column_label":  label,
+		"internal_type": internalType,
+		"name_table":    table,
+		"active":        "true",
+	}
+
+	if flags.maxLength > 0 {
+		data["max_length"] = fmt.Sprintf("%d", flags.maxLength)
+	} else if internalType == "string" {
+		data["max_length"] = "255"
+	}
+
+	if flags.mandatory {
+		data["mandatory"] = "true"
+	}
+
+	if flags.reference != "" {
+		data["reference"] = flags.reference
+	}
+
+	record, err := sdkClient.CreateRecord(cmd.Context(), "sys_dictionary", data)
+	if err != nil {
+		return fmt.Errorf("failed to add column: %w", err)
+	}
+
+	return outputWriter.OK(record,
+		output.WithSummary(fmt.Sprintf("Added column %s to %s", column, table)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "columns",
+				Cmd:         fmt.Sprintf("jsn tables columns %s", table),
+				Description: "View all columns",
+			},
+			output.Breadcrumb{
+				Action:      "show",
+				Cmd:         fmt.Sprintf("jsn tables show %s", table),
+				Description: "View table details",
+			},
+		),
+	)
+}
+
+// mapColumnType maps user-friendly type names to ServiceNow internal type values.
+func mapColumnType(t string) string {
+	switch strings.ToLower(t) {
+	case "string":
+		return "string"
+	case "integer", "int":
+		return "integer"
+	case "boolean", "bool":
+		return "boolean"
+	case "reference", "ref":
+		return "reference"
+	case "date":
+		return "glide_date"
+	case "datetime":
+		return "glide_date_time"
+	case "journal":
+		return "journal"
+	case "journal_input":
+		return "journal_input"
+	case "html":
+		return "html"
+	case "script":
+		return "script"
+	case "script_plain":
+		return "script_plain"
+	case "conditions":
+		return "conditions"
+	case "url":
+		return "url"
+	case "email":
+		return "email"
+	case "phone":
+		return "phone_number_e164"
+	case "currency":
+		return "currency"
+	default:
+		return t
+	}
 }

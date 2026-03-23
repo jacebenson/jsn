@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -376,8 +377,9 @@ func newRecordsShowCmd() *cobra.Command {
 	var flags recordsShowFlags
 
 	cmd := &cobra.Command{
-		Use:   "show [<table>] <sys_id>",
-		Short: "Show record details",
+		Use:     "show [<table>] <sys_id>",
+		Aliases: []string{"get"},
+		Short:   "Show record details",
 		Long: `Display detailed information about a specific record.
 
 If no table is provided, an interactive picker will help you select one.
@@ -688,6 +690,7 @@ func newRecordsCreateCmd() *cobra.Command {
 Field Input:
   Use --field (or -f) to set field values: --field short_description="Server down"
   Use --json to provide a JSON object: --json '{"short_description":"Server down"}'
+  Use @file to read a value from a file: -f script=@/tmp/script.js
 
 Interactive Mode:
   If no table is provided, an interactive picker will help you select one.
@@ -695,6 +698,7 @@ Interactive Mode:
 Examples:
   jsn records create incident --field short_description="Server down" --field priority=1
   jsn records create incident -f short_description="Server down" -f priority=1
+  jsn records create incident -f script=@/tmp/my_script.js
   jsn records create incident --json '{"short_description":"Server down","priority":"1"}'`,
 		Args: cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -706,10 +710,23 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (format: name=value, repeatable)")
+	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
 	cmd.Flags().StringVar(&jsonData, "json", "", "JSON object with field values")
 
 	return cmd
+}
+
+// resolveFieldValue resolves a field value, reading from a file if it starts with @.
+func resolveFieldValue(value string) (string, error) {
+	if strings.HasPrefix(value, "@") {
+		filePath := value[1:]
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", fmt.Errorf("reading %s: %w", filePath, err)
+		}
+		return string(content), nil
+	}
+	return value, nil
 }
 
 // runRecordsCreate executes the records create command.
@@ -758,7 +775,11 @@ func runRecordsCreate(cmd *cobra.Command, table string, fields []string, jsonDat
 		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		data[key] = value
+		resolved, err := resolveFieldValue(value)
+		if err != nil {
+			return output.ErrUsage(fmt.Sprintf("Failed to read file for field %s: %v", key, err))
+		}
+		data[key] = resolved
 	}
 
 	if len(data) == 0 {
@@ -801,13 +822,15 @@ func newRecordsUpdateCmd() *cobra.Command {
 Field Input:
   Use --field (or -f) to set field values: --field short_description="Updated description"
   Use --json to provide a JSON object: --json '{"short_description":"Updated"}'
+  Use @file to read a value from a file: -f script=@/tmp/script.js
 
 Interactive Mode:
   If no table is provided, an interactive picker will help you select one.
 
 Examples:
   jsn records update incident <sys_id> --field priority=2
-  jsn records update incident <sys_id> -f state=6 -f close_code="Resolved"`,
+  jsn records update incident <sys_id> -f state=6 -f close_code="Resolved"
+  jsn records update sys_script <sys_id> -f script=@/tmp/fix.js`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var table, sysID string
@@ -821,7 +844,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (format: name=value, repeatable)")
+	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
 	cmd.Flags().StringVar(&jsonData, "json", "", "JSON object with field values")
 
 	return cmd
@@ -873,7 +896,11 @@ func runRecordsUpdate(cmd *cobra.Command, table, sysID string, fields []string, 
 		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		data[key] = value
+		resolved, err := resolveFieldValue(value)
+		if err != nil {
+			return output.ErrUsage(fmt.Sprintf("Failed to read file for field %s: %v", key, err))
+		}
+		data[key] = resolved
 	}
 
 	if len(data) == 0 {

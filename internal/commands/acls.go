@@ -301,8 +301,9 @@ func printMarkdownACLsList(cmd *cobra.Command, acls []sdk.ACL) error {
 // newACLsShowCmd creates the acls show command.
 func newACLsShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<sys_id>]",
-		Short: "Show ACL details",
+		Use:     "show [<sys_id>]",
+		Aliases: []string{"get"},
+		Short:   "Show ACL details",
 		Long: `Display detailed information about an ACL.
 
 If no sys_id is provided, an interactive picker will help you select one.

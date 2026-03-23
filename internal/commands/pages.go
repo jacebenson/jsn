@@ -263,8 +263,9 @@ func printMarkdownPagesList(cmd *cobra.Command, pages []sdk.Page, instanceURL st
 // newPagesShowCmd creates the pages show command.
 func newPagesShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "show [<identifier>]",
-		Short: "Show page details with widget instances",
+		Use:     "show [<identifier>]",
+		Aliases: []string{"get"},
+		Short:   "Show page details with widget instances",
 		Long: `Display detailed information about a Service Portal Page including all widget instances.
 
 The identifier can be a page ID (e.g., "index") or sys_id.

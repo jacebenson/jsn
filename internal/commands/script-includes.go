@@ -302,8 +302,9 @@ func printMarkdownScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInc
 // newScriptIncludesShowCmd creates the script-includes show command.
 func newScriptIncludesShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [<identifier>]",
-		Short: "Show script include details",
+		Use:     "show [<identifier>]",
+		Aliases: []string{"get"},
+		Short:   "Show script include details",
 		Long: `Display detailed information about a script include.
 
 The identifier can be a script include name or sys_id.

@@ -262,8 +262,9 @@ func newFormsShowCmd() *cobra.Command {
 	var flags formsShowFlags
 
 	cmd := &cobra.Command{
-		Use:   "show <table>",
-		Short: "Show form layout for a table",
+		Use:     "show <table>",
+		Aliases: []string{"get"},
+		Short:   "Show form layout for a table",
 		Long: `Display the form layout (sections and fields) for a table and view.
 
 If no view is specified, defaults to "Default view" for Core UI.

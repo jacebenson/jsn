@@ -271,8 +271,9 @@ func newUIScriptsShowCmd() *cobra.Command {
 	var showScript bool
 
 	cmd := &cobra.Command{
-		Use:   "show [<identifier>]",
-		Short: "Show UI script details",
+		Use:     "show [<identifier>]",
+		Aliases: []string{"get"},
+		Short:   "Show UI script details",
 		Long: `Display detailed information about a UI Script.
 
 The identifier can be a UI script name or sys_id.
