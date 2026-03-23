@@ -64,11 +64,14 @@ Breadcrumbs suggest next commands for navigation.
 | List tables | `jsn tables list --json` |
 | Show table schema | `jsn tables schema incident --json` |
 | List table columns | `jsn tables columns incident --json` |
+| Create table | `jsn tables create u_my_table --label "My Table"` |
+| Add column to table | `jsn tables add-column u_my_table u_field --type string --label "Field"` |
 | Query records | `jsn records list incident --query "active=true" --json` |
 | Show record | `jsn records show incident <sys_id> --json` |
 | Count records | `jsn records count incident --query "priority=1" --json` |
-| Create record | `jsn records create incident --data '{"short_description":"Test"}' --json` |
-| Update record | `jsn records update incident <sys_id> --data '{"state":"2"}' --json` |
+| Create record | `jsn records create incident -f short_description="Test" --json` |
+| Create with file | `jsn records create sys_script -f script=@/tmp/script.js --json` |
+| Update record | `jsn records update incident <sys_id> -f state=2 --json` |
 | Delete record | `jsn records delete incident <sys_id> --force --json` |
 | List business rules | `jsn rules list --table incident --json` |
 | Show rule script | `jsn rules script <sys_id>` |
@@ -95,15 +98,19 @@ Breadcrumbs suggest next commands for navigation.
 
 ## Command Categories
 
-### Tables & Schema (Read-only exploration)
+### Tables & Schema
 
 ```bash
 jsn tables list --json                    # All tables
 jsn tables list --search "incident"       # Filter by name
 jsn tables list --app "global"            # Filter by scope
-jsn tables show incident --json           # Table details
+jsn tables show incident --json           # Table details (alias: get)
 jsn tables schema incident --json         # Inheritance tree
 jsn tables columns incident --json        # Column definitions
+jsn tables create u_my_table --label "My Table"              # Create table
+jsn tables create u_assets --label "Assets" --extends cmdb_ci  # Extend existing
+jsn tables add-column u_my_table u_desc --type string --label "Description"
+jsn tables add-column u_my_table u_ref --type reference --reference sys_user
 ```
 
 ### Records (CRUD operations)
@@ -112,10 +119,13 @@ jsn tables columns incident --json        # Column definitions
 jsn records list <table> --json                              # List records
 jsn records list <table> --query "active=true" --limit 10    # With filter
 jsn records list <table> --fields "number,short_description" # Specific fields
-jsn records show <table> <sys_id> --json                     # Single record
+jsn records show <table> <sys_id> --json                     # Single record (alias: get)
 jsn records count <table> --query "priority=1"               # Count
-jsn records create <table> --data '{"field":"value"}'        # Create
-jsn records update <table> <sys_id> --data '{"field":"value"}'  # Update
+jsn records create <table> -f short_description="Test"       # Create with fields
+jsn records create <table> -f script=@/tmp/script.js         # Read value from file
+jsn records create <table> --json '{"field":"value"}'        # Create with JSON
+jsn records update <table> <sys_id> -f state=2               # Update with fields
+jsn records update <table> <sys_id> -f script=@/tmp/fix.js   # Update from file
 jsn records delete <table> <sys_id> --force                  # Delete
 jsn records variables <ritm_sys_id> --json                   # Catalog variables
 ```
@@ -250,6 +260,16 @@ jsn export script-includes --name "MyUtil" --output ./scripts
 jsn export tables --name incident --output ./schema
 ```
 
+### Raw REST API
+
+```bash
+jsn rest get /api/now/table/incident?sysparm_limit=5      # GET (query params auto-encoded)
+jsn rest post /api/now/table/incident --data '{"short_description":"test"}'
+jsn rest patch /api/now/table/incident/<sys_id> --data '{"state":"2"}'
+jsn rest delete /api/now/table/incident/<sys_id>           # Shows confirmation on success
+jsn rest get /api/x_myapp/custom_api/resource              # Custom/scoped APIs
+```
+
 ### Code Generation
 
 ```bash
@@ -301,6 +321,8 @@ jsn tables show [<name>]      # Opens picker if name not provided
 jsn rules show [<id>]         # Opens picker if id not provided
 jsn updateset use [<name>]    # Opens picker if name not provided
 ```
+
+**Alias:** `get` works as an alias for `show` on all commands (e.g., `jsn records get`, `jsn tables get`).
 
 ## Global Flags
 
