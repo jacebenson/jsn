@@ -163,7 +163,7 @@ type JobExecution struct {
 
 // ListJobExecutionsOptions holds options for listing job executions.
 type ListJobExecutionsOptions struct {
-	JobID     string // Filter by specific job sys_id (not directly available in syslog_transaction)
+	JobID     string // Filter by specific job sys_id (stored in 'source' field of syslog_transaction)
 	Limit     int
 	Offset    int
 	OrderBy   string
@@ -205,6 +205,23 @@ func (c *Client) ListJobExecutions(ctx context.Context, opts *ListJobExecutionsO
 
 	// Filter for scheduler type entries
 	sysparmQuery = sysparmQuery + "^type=Scheduler"
+
+	// Filter by specific job if provided
+	// First, get the job name from sys_trigger using the sys_id
+	// Then filter syslog_transaction by url field which contains "JOB: <name>"
+	if opts.JobID != "" {
+		// Lookup job name from sys_trigger
+		jobQuery := url.Values{}
+		jobQuery.Set("sysparm_fields", "name")
+		jobQuery.Set("sysparm_query", "sys_id="+opts.JobID)
+		jobResp, err := c.Get(ctx, "sys_trigger", jobQuery)
+		if err == nil && len(jobResp.Result) > 0 {
+			jobName := getString(jobResp.Result[0], "name")
+			if jobName != "" {
+				sysparmQuery = sysparmQuery + "^url=JOB: " + jobName
+			}
+		}
+	}
 
 	query.Set("sysparm_query", sysparmQuery)
 
