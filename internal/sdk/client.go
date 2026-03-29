@@ -322,10 +322,7 @@ func (c *Client) CountRecords(ctx context.Context, table string, opts *CountReco
 	}
 
 	// Use Aggregate API for accurate counts
-	endpoint := fmt.Sprintf("%s/api/now/stats/%s", c.baseURL, table)
-	if query != nil {
-		endpoint = endpoint + "?" + query.Encode()
-	}
+	endpoint := fmt.Sprintf("%s/api/now/stats/%s?%s", c.baseURL, table, query.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
