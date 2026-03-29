@@ -312,6 +312,10 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 		fmt.Sprintf("jsn tables schema %s", table),
 		labelStyle.Render("View table schema"),
 	)
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Query with --query or jsn records query <table> <encoded_query>"))
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Operators: = != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR"))
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Full docs: jsn docs operators"))
 
 	// Show filter link if query was used, has valid operators, and instance URL is available
 	if query != "" && instanceURL != "" {
@@ -363,6 +367,17 @@ func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[st
 			fmt.Fprintf(cmd.OutOrStdout(), "**Filter:** %s\n\n", filterLink)
 		}
 	}
+
+	// Hints
+	fmt.Fprintln(cmd.OutOrStdout(), "#### Hints")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records show %s <sys_id>` — Show record details\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records create %s` — Create new record\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn tables schema %s` — View table schema\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- Query with `--query` or `jsn records query %s <encoded_query>`\n", table)
+	fmt.Fprintln(cmd.OutOrStdout(), "- Operators: `= != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR`")
+	fmt.Fprintln(cmd.OutOrStdout(), "- Full docs: `jsn docs operators`")
+	fmt.Fprintln(cmd.OutOrStdout())
 
 	return nil
 }
@@ -672,6 +687,9 @@ func printMarkdownRecord(cmd *cobra.Command, table string, record map[string]int
 	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records list %s` — List all records\n", table)
 	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records update %s %s` — Update this record\n", table, getStringField(record, "sys_id"))
 	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records delete %s %s` — Delete this record\n", table, getStringField(record, "sys_id"))
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records list %s --query \"active=true\"` — Query with filter\n", table)
+	fmt.Fprintln(cmd.OutOrStdout(), "- Query operators: `= != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR`")
+	fmt.Fprintln(cmd.OutOrStdout(), "- Full docs: `jsn docs operators`")
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
@@ -1207,6 +1225,9 @@ func printStyledCount(cmd *cobra.Command, table string, count int, query string)
 			labelStyle.Render("Query with filter"),
 		)
 	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Query operators: = != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR"))
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Full docs: jsn docs operators"))
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
