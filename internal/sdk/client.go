@@ -308,6 +308,7 @@ type CountRecordsOptions struct {
 }
 
 // CountRecords returns the count of records in a table matching the query.
+// Uses the Aggregate API (/api/now/stats) for accurate counts without limit issues.
 func (c *Client) CountRecords(ctx context.Context, table string, opts *CountRecordsOptions) (int, error) {
 	if opts == nil {
 		opts = &CountRecordsOptions{}
@@ -315,22 +316,59 @@ func (c *Client) CountRecords(ctx context.Context, table string, opts *CountReco
 
 	query := url.Values{}
 	query.Set("sysparm_count", "true")
-	query.Set("sysparm_limit", "1")
 
 	if opts.Query != "" {
 		query.Set("sysparm_query", opts.Query)
 	}
 
-	resp, err := c.Get(ctx, table, query)
-	if err != nil {
-		return 0, err
+	// Use Aggregate API for accurate counts
+	endpoint := fmt.Sprintf("%s/api/now/stats/%s", c.baseURL, table)
+	if query != nil {
+		endpoint = endpoint + "?" + query.Encode()
 	}
 
-	// The count is in a special field in the response
-	// ServiceNow returns: {"result": [{...}], "count": N}
-	// But our Response struct only captures "result"
-	// We need to make a raw request to get the count
-	return len(resp.Result), nil
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return 0, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	c.setAuth(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Aggregate API returns: {"result": {"stats": {"count": "42"}}}
+	var result struct {
+		Result struct {
+			Stats struct {
+				Count string `json:"count"`
+			} `json:"stats"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0, fmt.Errorf("parsing response: %w", err)
+	}
+
+	count, err := strconv.Atoi(result.Result.Stats.Count)
+	if err != nil {
+		return 0, fmt.Errorf("parsing count: %w", err)
+	}
+
+	return count, nil
 }
 
 // getString extracts a string value from a record map, handling display_value objects.
