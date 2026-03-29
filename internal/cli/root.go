@@ -20,6 +20,12 @@ package cli
 // would conflict or be ambiguous.
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/auth"
 	"github.com/jacebenson/jsn/internal/commands"
@@ -93,6 +99,7 @@ func NewRootCommand() *cobra.Command {
 
 	// ─── Dev Tools ───────────────────────────────────────────────────────
 	root.AddCommand(commands.NewUpdateSetCmd())
+	root.AddCommand(commands.NewScopeCmd())
 	root.AddCommand(commands.NewCompareCmd())
 	root.AddCommand(commands.NewExportCmd())
 	root.AddCommand(commands.NewImportCmd())
@@ -184,5 +191,48 @@ func initializeApp(cmd *cobra.Command) error {
 	ctx := appctx.WithContext(cmd.Context(), app)
 	cmd.SetContext(ctx)
 
+	// Check for default update set warning (only in interactive mode)
+	if sdkClient != nil && format != output.FormatQuiet && format != output.FormatJSON && !agentMode {
+		checkDefaultUpdateSet(cmd.Context(), sdkClient)
+	}
+
 	return nil
+}
+
+// checkDefaultUpdateSet warns users if they're working in the default update set.
+// This helps prevent accidental changes to the default update set.
+func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client) {
+	currentUser, err := sdkClient.GetCurrentUser(ctx)
+	if err != nil {
+		return // Silently skip if we can't get the user
+	}
+
+	currentUpdateSet, err := sdkClient.GetCurrentUpdateSet(ctx, currentUser.SysID)
+	if err != nil || currentUpdateSet == nil {
+		return // Silently skip if we can't get the update set
+	}
+
+	// Check if update set name contains "default" (case-insensitive)
+	if strings.Contains(strings.ToLower(currentUpdateSet.Name), "default") {
+		warningStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#ffaa00"))
+		hintStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888"))
+		scopeStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e8a217"))
+
+		scope := currentUpdateSet.AppName
+		if scope == "" {
+			scope = currentUpdateSet.Application
+		}
+		if scope == "" {
+			scope = "global"
+		}
+
+		fmt.Fprintln(os.Stderr, warningStyle.Render("⚠ You're in the 'default' update set"))
+		fmt.Fprintln(os.Stderr, scopeStyle.Render("  Scope: "+scope))
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  Run 'jsn updateset use' to select or create an update set"))
+		fmt.Fprintln(os.Stderr)
+	}
 }

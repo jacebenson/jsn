@@ -212,10 +212,10 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 				m.adjustScroll()
 
-				// Check if we need to load more items (3 from bottom)
+				// Check if we need to load more items (5 from bottom for smoother experience)
 				if m.fetcher != nil && m.hasMore && !m.loadingMore {
 					itemsFromBottom := len(m.filtered) - m.cursor - 1
-					if itemsFromBottom <= 3 {
+					if itemsFromBottom <= 5 {
 						return m, m.loadMoreItems()
 					}
 				}
@@ -308,32 +308,46 @@ func (m pickerModel) View() string {
 			b.WriteString(line + "\n")
 		}
 
-		// Pagination info
-		if m.totalCount > 0 || m.hasMore {
-			b.WriteString("\n")
-			var info string
-			if m.totalCount > 0 {
-				info = fmt.Sprintf("Showing %d-%d of %d", start+1, end, m.totalCount)
-			} else {
-				info = fmt.Sprintf("Showing %d-%d", start+1, end)
+		// Pagination status line - shows visible range, loaded count, and total
+		b.WriteString("\n")
+		var statusParts []string
+
+		// Visible range (e.g., "15-30")
+		if len(m.filtered) > 0 {
+			visibleEnd := end
+			if m.loadingMore && visibleEnd < len(m.filtered) {
+				visibleEnd = len(m.filtered)
 			}
-			if m.hasMore {
-				info += "+"
-			}
-			if m.loadingMore {
-				info += " (loading...)"
-			}
-			b.WriteString(m.styles.Muted.Render(info))
-		} else if len(m.filtered) > m.maxVisible {
-			b.WriteString("\n")
-			b.WriteString(m.styles.Muted.Render(
-				fmt.Sprintf("Showing %d-%d of %d", start+1, end, len(m.filtered)),
-			))
+			statusParts = append(statusParts, fmt.Sprintf("%d-%d", start+1, visibleEnd))
+		} else {
+			statusParts = append(statusParts, "0")
+		}
+
+		// Loaded count
+		statusParts = append(statusParts, fmt.Sprintf("of %d loaded", len(m.filtered)))
+
+		// Total count (if known)
+		if m.totalCount > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("(%d total)", m.totalCount))
+		} else if m.hasMore {
+			statusParts = append(statusParts, "(more available)")
+		}
+
+		status := strings.Join(statusParts, " ")
+		b.WriteString(m.styles.Muted.Render(status))
+
+		// Loading indicator
+		if m.loadingMore {
+			b.WriteString(" " + m.styles.Loading.Render("⟳ loading..."))
 		}
 	}
 
 	// Help
-	b.WriteString("\n" + m.styles.Muted.Render("↑/↓/jk navigate • enter select • esc cancel"))
+	helpText := "↑/↓/jk navigate • enter select • esc cancel"
+	if m.fetcher != nil && m.hasMore {
+		helpText += " • scroll to load more"
+	}
+	b.WriteString("\n" + m.styles.Muted.Render(helpText))
 	b.WriteString("\n")
 
 	return b.String()
