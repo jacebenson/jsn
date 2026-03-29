@@ -12,6 +12,10 @@ compatibility: |
   Requires jsn CLI (github.com/jacebenson/jsn). Install via:
   curl -fsSL https://jsn.jace.pro/install | bash
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
+  
+  Windows users: Download from GitHub releases. If jsn is not in your PATH, the setup
+  command will automatically detect its location and show the correct command path
+  (e.g., `.\jsn.exe tables list` instead of `jsn tables list`).
 metadata:
   author: jacebenson
   version: "1.0.0"
@@ -369,6 +373,23 @@ jsn instance info                         # Check connectivity
 - Auth error → `jsn auth login`
 - Not found → Verify sys_id or table name
 - Forbidden → Check user roles/permissions
+
+## Troubleshooting
+
+### Windows: "jsn is not recognized as a command"
+
+On Windows, jsn may not be in your PATH after installation. The setup command detects this automatically and shows the correct path:
+
+```bash
+# If jsn is not in PATH, setup will show commands like:
+.\jsn.exe tables list
+C:\Users\name\bin\jsn.exe tables list
+
+# To fix permanently, add the install directory to your PATH:
+# System Properties → Environment Variables → Edit PATH
+```
+
+**For AI agents:** When a Windows user says jsn commands don't work, check if they're using the full path shown by `jsn setup`, or help them add the install directory to PATH.
 
 ## System Tables Reference
 
