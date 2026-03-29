@@ -506,11 +506,8 @@ func runFlowsShow(cmd *cobra.Command, name string, showVariables bool) error {
 		"action_instances":    inspection.ActionInstances,
 		"action_instances_v2": inspection.ActionInstancesV2,
 		"trigger_instances":   inspection.TriggerInstances,
-		"timer_triggers":      inspection.TimerTriggers,
-		"record_triggers":     inspection.RecordTriggers,
 		"flow_inputs":         inspection.FlowInputs,
 		"flow_outputs":        inspection.FlowOutputs,
-		"flow_data_vars":      inspection.FlowDataVars,
 		"version_record":      inspection.Version,
 	}
 	if instanceURL != "" {
@@ -949,7 +946,6 @@ func printMarkdownFlowExecutions(cmd *cobra.Command, executions []sdk.FlowExecut
 	return nil
 }
 
-// newFlowsDebugCmd creates the flows debug command.
 // printStyledFlowInspection outputs comprehensive styled flow inspection.
 func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspection, instanceURL string) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
@@ -1334,25 +1330,6 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 				if step.kind == "subflow" && step.name != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", mutedStyle.Render(fmt.Sprintf("jsn flows show \"%s\"", step.name)))
 				}
-			}
-		}
-	}
-
-	// Show step instances if they have labels (these are the actual configured steps)
-	labeledSteps := 0
-	for _, step := range inspection.StepInstances {
-		if getString(step, "label") != "" {
-			labeledSteps++
-		}
-	}
-
-	if labeledSteps > 0 {
-		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("Steps:"))
-		for _, step := range inspection.StepInstances {
-			label := getString(step, "label")
-			if label != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  • %s\n", valueStyle.Render(label))
 			}
 		}
 	}
@@ -1825,7 +1802,7 @@ func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspect
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
 
-	if len(inspection.FlowOutputs) > 0 {
+	if isSubflow && len(inspection.FlowOutputs) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "## Outputs (%d)\n\n", len(inspection.FlowOutputs))
 		for _, output := range inspection.FlowOutputs {
 			label := getString(output, "label")
