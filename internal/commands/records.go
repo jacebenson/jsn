@@ -170,16 +170,25 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 		return fmt.Errorf("failed to list records: %w", err)
 	}
 
+	// Get total count for display
+	countOpts := &sdk.CountRecordsOptions{
+		Query: flags.query,
+	}
+	totalCount, countErr := sdkClient.CountRecords(cmd.Context(), table, countOpts)
+	if countErr != nil {
+		totalCount = 0 // Will fall back to just showing returned count
+	}
+
 	// Determine output format
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledRecordsList(cmd, table, records, fields, displayColumn, instanceURL, flags.query)
+		return printStyledRecordsList(cmd, table, records, fields, displayColumn, instanceURL, flags.query, totalCount)
 	}
 
 	if format == output.FormatMarkdown {
-		return printMarkdownRecordsList(cmd, table, records, fields, instanceURL, flags.query)
+		return printMarkdownRecordsList(cmd, table, records, fields, instanceURL, flags.query, totalCount)
 	}
 
 	// Build data for JSON/quiet output
@@ -232,7 +241,7 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 }
 
 // printStyledRecordsList outputs styled records list.
-func printStyledRecordsList(cmd *cobra.Command, table string, records []map[string]interface{}, fields []string, displayColumn, instanceURL, query string) error {
+func printStyledRecordsList(cmd *cobra.Command, table string, records []map[string]interface{}, fields []string, displayColumn, instanceURL, query string, totalCount int) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	brandStyle := lipgloss.NewStyle().Foreground(output.BrandColor)
@@ -296,6 +305,14 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 
 	fmt.Fprintln(cmd.OutOrStdout())
 
+	// Show count - always show at least the number of records returned
+	countText := fmt.Sprintf("%d records", len(records))
+	if totalCount > len(records) {
+		countText = fmt.Sprintf("Showing %d of %d records", len(records), totalCount)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render(countText))
+	fmt.Fprintln(cmd.OutOrStdout())
+
 	// Hints
 	fmt.Fprintln(cmd.OutOrStdout(), "─────")
 	fmt.Fprintln(cmd.OutOrStdout())
@@ -335,8 +352,15 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 }
 
 // printMarkdownRecordsList outputs markdown records list.
-func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[string]interface{}, fields []string, instanceURL, query string) error {
+func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[string]interface{}, fields []string, instanceURL, query string, totalCount int) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "**Records from %s**\n\n", table)
+
+	// Show count - always show at least the number of records returned
+	countText := fmt.Sprintf("%d records", len(records))
+	if totalCount > len(records) {
+		countText = fmt.Sprintf("Showing %d of %d records", len(records), totalCount)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "*%s*\n\n", countText)
 
 	// Header row
 	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Number | Display |")
@@ -442,6 +466,13 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFl
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
+	// Interactive mode: if single arg looks like a table name, use it as table and pick record
+	if table == "" && !looksLikeSysID(sysID) {
+		// Single arg looks like a table name - use it as table
+		table = sysID
+		sysID = ""
+	}
+
 	// Interactive table selection if no table provided
 	if table == "" {
 		isTerminal := output.IsTTY(cmd.OutOrStdout())
@@ -454,6 +485,20 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFl
 			return err
 		}
 		table = selectedTable
+	}
+
+	// Interactive record selection if no sys_id provided (but table is set)
+	if sysID == "" {
+		isTerminal := output.IsTTY(cmd.OutOrStdout())
+		if !isTerminal {
+			return output.ErrUsage("sys_id is required in non-interactive mode")
+		}
+
+		selectedRecord, err := pickRecord(cmd.Context(), sdkClient, table, "Select a record:")
+		if err != nil {
+			return err
+		}
+		sysID = selectedRecord
 	}
 
 	// Get the record
@@ -1292,6 +1337,74 @@ func pickTable(ctx context.Context, sdkClient *sdk.Client, title string) (string
 	}
 
 	return selected.ID, nil
+}
+
+// pickRecord shows an interactive record picker for a table and returns the selected sys_id.
+func pickRecord(ctx context.Context, sdkClient *sdk.Client, table, title string) (string, error) {
+	fetcher := func(ctx context.Context, offset, limit int) (*tui.PageResult, error) {
+		opts := &sdk.ListRecordsOptions{
+			Limit:   limit,
+			Offset:  offset,
+			OrderBy: "sys_updated_on",
+			Fields:  []string{"sys_id", "number", "short_description", "name"},
+		}
+		records, err := sdkClient.ListRecords(ctx, table, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		var items []tui.PickerItem
+		for _, r := range records {
+			sysID := getStringField(r, "sys_id")
+			number := getStringField(r, "number")
+			name := getStringField(r, "name")
+			desc := getStringField(r, "short_description")
+
+			// Use number if available, otherwise name
+			displayTitle := number
+			if displayTitle == "" {
+				displayTitle = name
+			}
+			if displayTitle == "" {
+				displayTitle = sysID[:8] + "..."
+			}
+
+			items = append(items, tui.PickerItem{
+				ID:          sysID,
+				Title:       displayTitle,
+				Description: desc,
+			})
+		}
+
+		hasMore := len(records) >= limit
+		return &tui.PageResult{
+			Items:   items,
+			HasMore: hasMore,
+		}, nil
+	}
+
+	selected, err := tui.PickWithPagination(title, fetcher, tui.WithMaxVisible(15))
+	if err != nil {
+		return "", err
+	}
+	if selected == nil {
+		return "", fmt.Errorf("selection cancelled")
+	}
+
+	return selected.ID, nil
+}
+
+// looksLikeSysID returns true if the string looks like a ServiceNow sys_id (32 hex chars).
+func looksLikeSysID(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // getFieldValue safely extracts a value from a record map.

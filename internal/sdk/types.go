@@ -4,6 +4,7 @@ package sdk
 // Response represents a ServiceNow Table API response (array result).
 type Response struct {
 	Result []map[string]interface{} `json:"result"`
+	Count  int                      `json:"count"`
 }
 
 // SingleResponse represents a ServiceNow Table API response for single record operations.
