@@ -977,8 +977,9 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 		fmt.Fprintf(cmd.OutOrStdout(), "  Link: %s\n", linkStyle.Render(flowURL))
 	}
 
-	// Show Inputs/Outputs section if the flow has them (for subflows)
-	if len(inspection.FlowInputs) > 0 || len(inspection.FlowOutputs) > 0 {
+	// Show Inputs/Outputs section only for subflows
+	isSubflow := strings.EqualFold(inspection.Flow.Type, "subflow")
+	if isSubflow && (len(inspection.FlowInputs) > 0 || len(inspection.FlowOutputs) > 0) {
 		fmt.Fprintln(cmd.OutOrStdout())
 		fmt.Fprintln(cmd.OutOrStdout(), triggerStyle.Render("▶ SUBFLOW"))
 		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
@@ -1011,7 +1012,7 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 		}
 
 		// Show outputs
-		if len(inspection.FlowOutputs) > 0 {
+		if isSubflow && len(inspection.FlowOutputs) > 0 {
 			if len(inspection.FlowInputs) > 0 {
 				fmt.Fprintln(cmd.OutOrStdout())
 			}
@@ -1035,112 +1036,79 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 		}
 
 		// Add spacing before trigger section if there are also triggers
-		if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 || len(inspection.TriggerInstances) > 0 {
+		if len(inspection.TriggerInstances) > 0 || len(inspection.Version) > 0 {
 			fmt.Fprintln(cmd.OutOrStdout())
 		}
 	}
 
-	// TRIGGER SECTION (for flows with triggers)
-	if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 || len(inspection.TriggerInstances) > 0 {
+	// TRIGGER SECTION
+	// Primary source: version payload's triggerInstances (has name, type, table)
+	// Fallback: sys_hub_trigger_instance table (has flow field)
+	triggerName := ""
+	triggerType := ""
+	triggerTable := ""
+	triggerTime := ""
+
+	if len(inspection.Version) > 0 {
+		if tn, ok := inspection.Version["trigger_name"].(string); ok && tn != "" {
+			triggerName = tn
+		}
+		if tt, ok := inspection.Version["trigger_type"].(string); ok && tt != "" {
+			triggerType = tt
+		}
+		if tb, ok := inspection.Version["trigger_table"].(string); ok && tb != "" {
+			triggerTable = tb
+		}
+		if tt, ok := inspection.Version["trigger_time"].(string); ok && tt != "" {
+			// Extract just the time part (HH:MM:SS) from the datetime
+			parts := strings.Split(tt, " ")
+			if len(parts) == 2 {
+				triggerTime = parts[1]
+			} else {
+				triggerTime = tt
+			}
+		}
+	}
+
+	// Fallback to trigger instances table
+	if triggerName == "" && len(inspection.TriggerInstances) > 0 {
+		ti := inspection.TriggerInstances[0]
+		triggerName = getString(ti, "name")
+		if triggerName == "" {
+			triggerName = getString(ti, "trigger_type")
+		}
+		triggerType = getString(ti, "trigger_type")
+	}
+
+	if triggerName != "" || triggerType != "" {
 		fmt.Fprintln(cmd.OutOrStdout())
 		fmt.Fprintln(cmd.OutOrStdout(), triggerStyle.Render("▶ TRIGGER"))
 		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
-	}
 
-	if len(inspection.TimerTriggers) > 0 {
-		// Show only the first active timer trigger (flows typically have one main trigger)
-		activeTrigger := inspection.TimerTriggers[0]
-		for _, trigger := range inspection.TimerTriggers {
-			if getString(trigger, "active") == "true" {
-				activeTrigger = trigger
-				break
-			}
-		}
-
-		// Handle timer_type which may be a choice field
-		timerType := ""
-		if tt, ok := activeTrigger["timer_type"]; ok {
-			switch v := tt.(type) {
-			case string:
-				timerType = v
-			case map[string]interface{}:
-				timerType = getString(v, "display_value")
-				if timerType == "" {
-					timerType = getString(v, "value")
-				}
-			}
-		}
-		// Map common timer type values to display names
-		timerTypeDisplay := map[string]string{
-			"11": "Daily",
-			"10": "Hourly",
-			"12": "Weekly",
-			"13": "Monthly",
-			"0":  "Once",
-			"1":  "Periodically",
-		}[timerType]
-		if timerTypeDisplay == "" {
-			timerTypeDisplay = timerType
-		}
-
-		time := getString(activeTrigger, "time")
-		runStart := getString(activeTrigger, "run_start")
-
-		// Get trigger time and name from version record payload if available
-		triggerTime := ""
-		triggerName := ""
-		if len(inspection.Version) > 0 {
-			if tt, ok := inspection.Version["trigger_time"].(string); ok && tt != "" {
-				// Extract just the time part (HH:MM:SS) from the datetime
-				parts := strings.Split(tt, " ")
-				if len(parts) == 2 {
-					triggerTime = parts[1]
-				} else {
-					triggerTime = tt
-				}
-			}
-			if tn, ok := inspection.Version["trigger_name"].(string); ok && tn != "" {
-				triggerName = tn
-			}
-		}
-		if triggerTime == "" && time != "" && time != "1970-01-01 00:00:00" {
-			triggerTime = time
-		}
-
-		// Show trigger name if available, otherwise show type
+		// Display trigger name
 		if triggerName != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", valueStyle.Render(triggerName))
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Schedule"), valueStyle.Render(timerTypeDisplay))
-		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(timerTypeDisplay))
 		}
+
+		// Display trigger type if different from name
+		if triggerType != "" {
+			// Format type for display (e.g., "record_create" -> "Record Create")
+			typeDisplay := strings.ReplaceAll(triggerType, "_", " ")
+			typeDisplay = titleCase(typeDisplay)
+			if typeDisplay != triggerName {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Type"), mutedStyle.Render(typeDisplay))
+			}
+		}
+
+		// Display table for record-based triggers
+		if triggerTable != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Table"), valueStyle.Render(triggerTable))
+		}
+
+		// Display time for scheduled triggers
 		if triggerTime != "" {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Time"), mutedStyle.Render(triggerTime))
 		}
-		if runStart != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", mutedStyle.Render("Run Start"), mutedStyle.Render(runStart))
-		}
-
-		// If there are multiple triggers, note it
-		if len(inspection.TimerTriggers) > 1 {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", mutedStyle.Render(fmt.Sprintf("(+%d additional timer triggers)", len(inspection.TimerTriggers)-1)))
-		}
-	} else if len(inspection.TriggerInstances) > 0 {
-		for _, trigger := range inspection.TriggerInstances {
-			triggerType := getString(trigger, "trigger_type")
-			name := getString(trigger, "name")
-
-			if name == "" {
-				name = triggerType
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "  Type: %s\n", valueStyle.Render(name))
-			if triggerType != "" && triggerType != name {
-				fmt.Fprintf(cmd.OutOrStdout(), "  (%s)\n", mutedStyle.Render(triggerType))
-			}
-		}
-	} else {
-		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("  No trigger configured"))
 	}
 
 	// ACTIONS SECTION
@@ -1154,91 +1122,217 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 				fmt.Fprintln(cmd.OutOrStdout(), actionStyle.Render("⚡ FLOW STRUCTURE"))
 				fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
 
-				// Build maps for quick lookup
-				// IMPORTANT: Use uiUniqueIdentifier as the key, not id (sys_id)
-				// because parent references use uiUniqueIdentifier
-				logicMap := make(map[string]map[string]interface{})
+				// Collect all top-level items (actions, logic, subflows) sorted by order.
+				// Logic instances with flowBlock arrays contain their children inline.
+				// We build a tree by:
+				//  1. Identifying which uiUniqueIdentifiers appear inside any flowBlock
+				//  2. Top-level = items NOT inside any flowBlock
+				//  3. Logic blocks' children come from their flowBlock array (recursive)
+
+				// First pass: collect all uids that appear inside a flowBlock
+				childUIDs := make(map[string]bool)
+				var markChildren func(items []interface{})
+				markChildren = func(items []interface{}) {
+					for _, item := range items {
+						if m, ok := item.(map[string]interface{}); ok {
+							if uid, ok := m["uiUniqueIdentifier"].(string); ok && uid != "" {
+								childUIDs[uid] = true
+							}
+							// Recurse into nested flowBlocks
+							if fb, ok := m["flowBlock"].([]interface{}); ok {
+								markChildren(fb)
+							}
+						}
+					}
+				}
+				// Scan logic instances for flowBlock children
 				if flowLogic, ok := payloadData["flowLogicInstances"].([]interface{}); ok {
 					for _, logic := range flowLogic {
-						if logicMapItem, ok := logic.(map[string]interface{}); ok {
-							// Use uiUniqueIdentifier as the key since parent refs use this
-							if uiID, ok := logicMapItem["uiUniqueIdentifier"].(string); ok && uiID != "" {
-								logicMap[uiID] = logicMapItem
-							} else if logicID, ok := logicMapItem["id"].(string); ok {
-								// Fallback to id if uiUniqueIdentifier not present
-								logicMap[logicID] = logicMapItem
+						if m, ok := logic.(map[string]interface{}); ok {
+							if fb, ok := m["flowBlock"].([]interface{}); ok {
+								markChildren(fb)
 							}
 						}
 					}
 				}
 
-				// Build action map keyed by uiUniqueIdentifier (since parent refs use this)
-				actionMap := make(map[string]map[string]interface{})
+				// Build top-level step list (items not inside any flowBlock)
+				var rootSteps []flowStep
+
 				if actionInstances, ok := payloadData["actionInstances"].([]interface{}); ok {
 					for _, action := range actionInstances {
-						if actionMapItem, ok := action.(map[string]interface{}); ok {
-							// Use uiUniqueIdentifier as the key since parent refs use this
-							if uiID, ok := actionMapItem["uiUniqueIdentifier"].(string); ok && uiID != "" {
-								actionMap[uiID] = actionMapItem
-							} else if actionID, ok := actionMapItem["id"].(string); ok {
-								// Fallback to id if uiUniqueIdentifier not present
-								actionMap[actionID] = actionMapItem
+						if m, ok := action.(map[string]interface{}); ok {
+							uid := getString(m, "uiUniqueIdentifier")
+							if uid != "" && childUIDs[uid] {
+								continue // skip, it's a child of a logic block
 							}
+							orderStr := getString(m, "order")
+							order, _ := strconv.Atoi(orderStr)
+							rootSteps = append(rootSteps, flowStep{stepType: "action", data: m, order: order})
+						}
+					}
+				}
+				if subFlowInstances, ok := payloadData["subFlowInstances"].([]interface{}); ok {
+					for _, sf := range subFlowInstances {
+						if m, ok := sf.(map[string]interface{}); ok {
+							uid := getString(m, "uiUniqueIdentifier")
+							if uid != "" && childUIDs[uid] {
+								continue
+							}
+							orderStr := getString(m, "order")
+							order, _ := strconv.Atoi(orderStr)
+							rootSteps = append(rootSteps, flowStep{stepType: "subflow", data: m, order: order})
+						}
+					}
+				}
+				if flowLogic, ok := payloadData["flowLogicInstances"].([]interface{}); ok {
+					for _, logic := range flowLogic {
+						if m, ok := logic.(map[string]interface{}); ok {
+							uid := getString(m, "uiUniqueIdentifier")
+							if uid != "" && childUIDs[uid] {
+								continue
+							}
+							orderStr := getString(m, "order")
+							order, _ := strconv.Atoi(orderStr)
+							rootSteps = append(rootSteps, flowStep{stepType: "logic", data: m, order: order})
 						}
 					}
 				}
 
-				// Collect and sort all flow steps (actions + logic) by order
-				var steps []flowStep
-
-				// Add actions (use uiUniqueIdentifier as id to match parent references)
-				for _, action := range actionMap {
-					orderStr := getString(action, "order")
-					order, _ := strconv.Atoi(orderStr)
-					// Use uiUniqueIdentifier as the step id to match parent references
-					stepID := getString(action, "uiUniqueIdentifier")
-					if stepID == "" {
-						stepID = getString(action, "id")
-					}
-					steps = append(steps, flowStep{
-						id:       stepID,
-						stepType: "action",
-						data:     action,
-						order:    order,
-					})
-				}
-
-				// Add logic instances
-				for _, logic := range logicMap {
-					orderStr := getString(logic, "order")
-					order, _ := strconv.Atoi(orderStr)
-					// Use uiUniqueIdentifier as the step id to match parent references
-					stepID := getString(logic, "uiUniqueIdentifier")
-					if stepID == "" {
-						stepID = getString(logic, "id")
-					}
-					steps = append(steps, flowStep{
-						id:       stepID,
-						stepType: "logic",
-						data:     logic,
-						order:    order,
-					})
-				}
-
-				// Sort all steps by order
-				sort.Slice(steps, func(i, j int) bool {
-					return steps[i].order < steps[j].order
+				sort.Slice(rootSteps, func(i, j int) bool {
+					return rootSteps[i].order < rootSteps[j].order
 				})
 
-				// Print all steps in flat sequential order (1, 2, 3, 4...)
+				// Recursive walk: print a step, then if it's a logic block, walk its flowBlock children
 				stepNum := 1
-				for _, step := range steps {
-					if step.stepType == "action" {
-						printFlowStepFlat(cmd, stepNum, step.data, valueStyle, mutedStyle)
-					} else {
-						printLogicStepFlat(cmd, stepNum, step.data, valueStyle, mutedStyle)
+				var walkSteps func(steps []flowStep, indent int)
+				walkSteps = func(steps []flowStep, indent int) {
+					for _, step := range steps {
+						printFlowStep(cmd, stepNum, indent, step, valueStyle, mutedStyle)
+						stepNum++
+
+						// If this is a logic block, walk its flowBlock children
+						if step.stepType == "logic" {
+							if fb, ok := step.data["flowBlock"].([]interface{}); ok && len(fb) > 0 {
+								var children []flowStep
+								for _, child := range fb {
+									if m, ok := child.(map[string]interface{}); ok {
+										childType := classifyPayloadItem(m)
+										orderStr := getString(m, "order")
+										order, _ := strconv.Atoi(orderStr)
+										children = append(children, flowStep{stepType: childType, data: m, order: order})
+									}
+								}
+								sort.Slice(children, func(i, j int) bool {
+									return children[i].order < children[j].order
+								})
+								walkSteps(children, indent+1)
+							}
+						}
 					}
-					stepNum++
+				}
+				walkSteps(rootSteps, 0)
+			}
+		}
+	}
+
+	// Fallback: show flat list from V1/V2 action instances + flow logic + subflow instances
+	// when no version payload was available
+	hasPayload := false
+	if len(inspection.Version) > 0 {
+		if payload, ok := inspection.Version["payload"].(string); ok && payload != "" {
+			hasPayload = true
+		}
+	}
+	if !hasPayload {
+		type flatStep struct {
+			order int
+			label string
+			name  string // original name (for subflow hints)
+			kind  string // "action", "logic", "subflow"
+		}
+		var steps []flatStep
+
+		// Add V1 action instances
+		for _, action := range inspection.ActionInstances {
+			name := ""
+			if at, ok := action["action_type"].(map[string]interface{}); ok {
+				name = getString(at, "display_value")
+			}
+			if name == "" {
+				name = getString(action, "name")
+			}
+			if name == "" {
+				name = getString(action, "display_text")
+			}
+			if name == "" {
+				name = "Action"
+			}
+			orderStr := getString(action, "order")
+			order, _ := strconv.Atoi(orderStr)
+			steps = append(steps, flatStep{order: order, label: name, kind: "action"})
+		}
+
+		// Add V2 action instances
+		for _, action := range inspection.ActionInstancesV2 {
+			name := ""
+			if at, ok := action["action_type"].(map[string]interface{}); ok {
+				name = getString(at, "display_value")
+			}
+			if name == "" {
+				name = getString(action, "name")
+			}
+			if name == "" {
+				name = getString(action, "display_text")
+			}
+			if name == "" {
+				name = "Action"
+			}
+			orderStr := getString(action, "order")
+			order, _ := strconv.Atoi(orderStr)
+			steps = append(steps, flatStep{order: order, label: name, kind: "action"})
+		}
+
+		// Add flow logic instances
+		for _, logic := range inspection.FlowLogicInstances {
+			name := getString(logic, "name")
+			if name == "" {
+				name = getString(logic, "display_text")
+			}
+			if name == "" {
+				name = "Logic"
+			}
+			orderStr := getString(logic, "order")
+			order, _ := strconv.Atoi(orderStr)
+			steps = append(steps, flatStep{order: order, label: name, kind: "logic"})
+		}
+
+		// Add subflow instances
+		for _, sf := range inspection.SubFlowInstances {
+			name := getString(sf, "name")
+			if name == "" {
+				name = getString(sf, "display_text")
+			}
+			if name == "" {
+				name = "Subflow"
+			}
+			orderStr := getString(sf, "order")
+			order, _ := strconv.Atoi(orderStr)
+			steps = append(steps, flatStep{order: order, label: "↪ " + name, name: name, kind: "subflow"})
+		}
+
+		if len(steps) > 0 {
+			sort.Slice(steps, func(i, j int) bool {
+				return steps[i].order < steps[j].order
+			})
+
+			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(cmd.OutOrStdout(), actionStyle.Render("⚡ FLOW STRUCTURE"))
+			fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("─", 50))
+			for i, step := range steps {
+				fmt.Fprintf(cmd.OutOrStdout(), "%d. %s\n", i+1, valueStyle.Render(step.label))
+				if step.kind == "subflow" && step.name != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", mutedStyle.Render(fmt.Sprintf("jsn flows show \"%s\"", step.name)))
 				}
 			}
 		}
@@ -1267,16 +1361,49 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 	return nil
 }
 
-// flowStep represents either an action or logic step for sorting
+// flowStep represents an action, logic, or subflow step for tree display
 type flowStep struct {
-	id       string
-	stepType string // "action" or "logic"
+	stepType string // "action", "logic", or "subflow"
 	data     map[string]interface{}
 	order    int
 }
 
-// printFlowStepFlat prints a flow action step with flat sequential numbering
-func printFlowStepFlat(cmd *cobra.Command, stepNum int, action map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+// classifyPayloadItem determines the step type of a payload item by checking for
+// type-specific fields: flowLogicDefinition (logic), subFlowType (subflow), else action.
+func classifyPayloadItem(m map[string]interface{}) string {
+	if _, ok := m["flowLogicDefinition"]; ok {
+		return "logic"
+	}
+	if _, ok := m["subFlowType"]; ok {
+		return "subflow"
+	}
+	// Some subflows lack subFlowType but have subflowSysId or subFlow
+	if _, ok := m["subflowSysId"]; ok {
+		return "subflow"
+	}
+	if _, ok := m["subFlow"]; ok {
+		return "subflow"
+	}
+	return "action"
+}
+
+// printFlowStep prints a single flow step (action, logic, or subflow) with tree indentation.
+// indent=0 is top-level, indent=1 adds 4 spaces, etc.
+func printFlowStep(cmd *cobra.Command, stepNum int, indent int, step flowStep, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+	pad := strings.Repeat("    ", indent)
+
+	switch step.stepType {
+	case "action":
+		printActionStep(cmd, stepNum, pad, step.data, valueStyle, mutedStyle)
+	case "subflow":
+		printSubFlowStep(cmd, stepNum, pad, step.data, valueStyle, mutedStyle)
+	default: // "logic"
+		printLogicStep(cmd, stepNum, pad, step.data, valueStyle, mutedStyle)
+	}
+}
+
+// printActionStep prints a flow action step with indentation
+func printActionStep(cmd *cobra.Command, stepNum int, pad string, action map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
 	// Get action name from actionType.fName or fallbacks
 	actionName := ""
 	if actionType, ok := action["actionType"].(map[string]interface{}); ok {
@@ -1323,16 +1450,55 @@ func printFlowStepFlat(cmd *cobra.Command, stepNum int, action map[string]interf
 		comment = getString(action, "displayText")
 	}
 
-	// Print the action with flat numbering
+	// Print the action with indentation
 	if comment != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n%d. %s (%s)\n", stepNum, valueStyle.Render(actionDisplay), valueStyle.Render(comment))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s%d. %s (%s)\n", pad, stepNum, valueStyle.Render(actionDisplay), mutedStyle.Render(comment))
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "\n%d. %s\n", stepNum, valueStyle.Render(actionDisplay))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s%d. %s\n", pad, stepNum, valueStyle.Render(actionDisplay))
 	}
 }
 
-// printLogicStepFlat prints a flow logic step with flat sequential numbering
-func printLogicStepFlat(cmd *cobra.Command, stepNum int, logic map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+// printSubFlowStep prints a subflow call step with indentation
+func printSubFlowStep(cmd *cobra.Command, stepNum int, pad string, subFlow map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
+	// Get subflow name from subFlowType.fName or fallbacks
+	subFlowName := ""
+	if subFlowType, ok := subFlow["subFlowType"].(map[string]interface{}); ok {
+		subFlowName = getString(subFlowType, "fName")
+	}
+	if subFlowName == "" {
+		subFlowName = getString(subFlow, "subFlowName")
+	}
+	if subFlowName == "" {
+		subFlowName = getString(subFlow, "subFlowInternalName")
+	}
+	// Check subFlow object (nested flow definition with name)
+	if subFlowName == "" {
+		if sf, ok := subFlow["subFlow"].(map[string]interface{}); ok {
+			subFlowName = getString(sf, "name")
+		}
+	}
+	if subFlowName == "" {
+		subFlowName = getString(subFlow, "name")
+	}
+	if subFlowName == "" {
+		subFlowName = "Unknown Subflow"
+	}
+
+	// Get annotation/comment
+	comment := getString(subFlow, "comment")
+
+	if comment != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s%d. %s (%s)\n", pad, stepNum, valueStyle.Render("↪ "+subFlowName), mutedStyle.Render(comment))
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s%d. %s\n", pad, stepNum, valueStyle.Render("↪ "+subFlowName))
+	}
+
+	// Show drill-down hint
+	fmt.Fprintf(cmd.OutOrStdout(), "%s   %s\n", pad, mutedStyle.Render(fmt.Sprintf("jsn flows show \"%s\"", subFlowName)))
+}
+
+// printLogicStep prints a flow logic step with indentation
+func printLogicStep(cmd *cobra.Command, stepNum int, pad string, logic map[string]interface{}, valueStyle lipgloss.Style, mutedStyle lipgloss.Style) {
 	// Get logic type from flowLogicDefinition
 	logicType := "Logic"
 	if flowLogicDef, ok := logic["flowLogicDefinition"].(map[string]interface{}); ok {
@@ -1377,28 +1543,27 @@ func printLogicStepFlat(cmd *cobra.Command, stepNum int, logic map[string]interf
 	// Build display text
 	displayText := logicType
 	if conditionLabel != "" {
-		displayText = logicType + " - " + conditionLabel
+		displayText = logicType + ": " + conditionLabel
 	} else if condition != "" && len(condition) < 60 {
-		// Show short conditions inline
-		displayText = logicType + " - " + condition
+		displayText = logicType + ": " + condition
 	}
 
-	// Print the logic step with flat numbering
-	fmt.Fprintf(cmd.OutOrStdout(), "\n%d. %s\n", stepNum, valueStyle.Render(displayText))
+	// Print the logic step with indentation
+	fmt.Fprintf(cmd.OutOrStdout(), "%s%d. %s\n", pad, stepNum, valueStyle.Render(displayText))
 
 	// Print condition on separate line if it's long
 	if condition != "" && len(condition) >= 60 && conditionLabel == "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "   %s: %s\n", mutedStyle.Render("Condition"), valueStyle.Render(condition))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s   %s: %s\n", pad, mutedStyle.Render("Condition"), valueStyle.Render(condition))
 	}
 
 	if comment != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "   %s: %s\n", mutedStyle.Render("Annotation"), valueStyle.Render(comment))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s   %s: %s\n", pad, mutedStyle.Render("Annotation"), valueStyle.Render(comment))
 	}
 
 	// For Set Flow Variables, show the variables being set
 	if logicType == "Set Flow Variables" {
 		if flowVars, ok := logic["flowVariables"].([]interface{}); ok && len(flowVars) > 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "   %s:\n", mutedStyle.Render("Variables Set"))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s   %s:\n", pad, mutedStyle.Render("Variables Set"))
 			for _, fv := range flowVars {
 				if fvMap, ok := fv.(map[string]interface{}); ok {
 					varName := getString(fvMap, "name")
@@ -1408,9 +1573,9 @@ func printLogicStepFlat(cmd *cobra.Command, stepNum int, logic map[string]interf
 					}
 					if varName != "" {
 						if varValue != "" {
-							fmt.Fprintf(cmd.OutOrStdout(), "     • %s = %s\n", varName, valueStyle.Render(varValue))
+							fmt.Fprintf(cmd.OutOrStdout(), "%s     • %s = %s\n", pad, varName, valueStyle.Render(varValue))
 						} else {
-							fmt.Fprintf(cmd.OutOrStdout(), "     • %s\n", varName)
+							fmt.Fprintf(cmd.OutOrStdout(), "%s     • %s\n", pad, varName)
 						}
 					}
 				}
@@ -1507,38 +1672,84 @@ func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspect
 		})
 	}
 
-	// Add V1 action instances
+	// Add V1 action instances (may come from API or version payload)
 	for _, action := range inspection.ActionInstances {
 		orderStr := getString(action, "order")
 		order, _ := strconv.Atoi(orderStr)
-		actionType := getString(action, "action_type")
+
+		// Handle both API format (action_type) and payload format (actionType.fName)
+		actionName := getString(action, "action_type")
+		if actionName == "" {
+			if at, ok := action["actionType"].(map[string]interface{}); ok {
+				actionName = getString(at, "fName")
+			}
+		}
+		if actionName == "" {
+			actionName = getString(action, "actionName")
+		}
+
 		comment := getString(action, "comment")
 		sysID := getString(action, "sys_id")
+		if sysID == "" {
+			sysID = getString(action, "id")
+		}
 
 		items = append(items, flowItem{
 			order:    order,
 			itemType: "sys_hub_action_instance",
-			name:     actionType,
+			name:     actionName,
 			details:  sysID,
 			comment:  comment,
 		})
 	}
 
-	// Add subflow instances from components
-	for _, comp := range inspection.Components {
-		className := getString(comp, "sys_class_name")
-		if className == "sys_hub_sub_flow_instance" {
-			orderStr := getString(comp, "order")
+	// Add subflow instances from payload (preferred — has names) or components (fallback)
+	if len(inspection.SubFlowInstances) > 0 {
+		for _, subFlow := range inspection.SubFlowInstances {
+			orderStr := getString(subFlow, "order")
 			order, _ := strconv.Atoi(orderStr)
-			sysID := getString(comp, "sys_id")
+			sysID := getString(subFlow, "id")
+
+			subFlowName := ""
+			if subFlowType, ok := subFlow["subFlowType"].(map[string]interface{}); ok {
+				subFlowName = getString(subFlowType, "fName")
+			}
+			if subFlowName == "" {
+				subFlowName = getString(subFlow, "subFlowName")
+			}
+			if subFlowName == "" {
+				subFlowName = getString(subFlow, "name")
+			}
+			if subFlowName == "" {
+				subFlowName = "Subflow"
+			}
+
+			comment := getString(subFlow, "comment")
 
 			items = append(items, flowItem{
 				order:    order,
 				itemType: "sys_hub_sub_flow_instance",
-				name:     "Subflow",
+				name:     subFlowName,
 				details:  sysID,
-				comment:  "",
+				comment:  comment,
 			})
+		}
+	} else {
+		for _, comp := range inspection.Components {
+			className := getString(comp, "sys_class_name")
+			if className == "sys_hub_sub_flow_instance" {
+				orderStr := getString(comp, "order")
+				order, _ := strconv.Atoi(orderStr)
+				sysID := getString(comp, "sys_id")
+
+				items = append(items, flowItem{
+					order:    order,
+					itemType: "sys_hub_sub_flow_instance",
+					name:     "Subflow",
+					details:  sysID,
+					comment:  "",
+				})
+			}
 		}
 	}
 
@@ -1585,8 +1796,9 @@ func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspect
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
 
-	// Show Inputs/Outputs if the flow has them
-	if len(inspection.FlowInputs) > 0 {
+	// Show Inputs/Outputs only for subflows
+	isSubflow := strings.EqualFold(inspection.Flow.Type, "subflow")
+	if isSubflow && len(inspection.FlowInputs) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "## Inputs (%d)\n\n", len(inspection.FlowInputs))
 		for _, input := range inspection.FlowInputs {
 			label := getString(input, "label")
@@ -1634,19 +1846,39 @@ func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspect
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
 
-	// Show Triggers if the flow has them
-	if len(inspection.TimerTriggers) > 0 || len(inspection.RecordTriggers) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "## Triggers\n\n")
-
-		for _, trigger := range inspection.TimerTriggers {
-			timerType := getString(trigger, "timer_type")
-			fmt.Fprintf(cmd.OutOrStdout(), "- Timer: %s\n", timerType)
+	// Show Trigger info in markdown from version payload or trigger instances
+	triggerNameMD := ""
+	triggerTypeMD := ""
+	triggerTableMD := ""
+	if len(inspection.Version) > 0 {
+		if tn, ok := inspection.Version["trigger_name"].(string); ok && tn != "" {
+			triggerNameMD = tn
 		}
-
-		for _, trigger := range inspection.RecordTriggers {
-			table := getString(trigger, "table")
-			when := getString(trigger, "when")
-			fmt.Fprintf(cmd.OutOrStdout(), "- Record: %s on %s\n", when, table)
+		if tt, ok := inspection.Version["trigger_type"].(string); ok && tt != "" {
+			triggerTypeMD = tt
+		}
+		if tb, ok := inspection.Version["trigger_table"].(string); ok && tb != "" {
+			triggerTableMD = tb
+		}
+	}
+	if triggerNameMD == "" && len(inspection.TriggerInstances) > 0 {
+		ti := inspection.TriggerInstances[0]
+		triggerNameMD = getString(ti, "name")
+		triggerTypeMD = getString(ti, "trigger_type")
+	}
+	if triggerNameMD != "" || triggerTypeMD != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "## Trigger\n\n")
+		if triggerNameMD != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "- **%s**", triggerNameMD)
+			if triggerTypeMD != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), " (%s)", triggerTypeMD)
+			}
+			fmt.Fprintln(cmd.OutOrStdout())
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "- Type: %s\n", triggerTypeMD)
+		}
+		if triggerTableMD != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "- Table: %s\n", triggerTableMD)
 		}
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
@@ -1655,6 +1887,18 @@ func printMarkdownFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspect
 }
 
 // getString safely extracts a string value from a map.
+// titleCase capitalizes the first letter of each space-separated word.
+// Replaces deprecated strings.Title for simple cases.
+func titleCase(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func getString(m map[string]interface{}, key string) string {
 	if v, ok := m[key]; ok {
 		switch val := v.(type) {
