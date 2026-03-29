@@ -128,6 +128,25 @@ func (c *Client) SetCurrentUpdateSet(ctx context.Context, userID, updateSetSysID
 	return c.SetUserPreference(ctx, userID, "sys_update_set", updateSetSysID)
 }
 
+// GetCurrentApplication retrieves the current application scope for the user.
+func (c *Client) GetCurrentApplication(ctx context.Context, userID string) (*Application, error) {
+	pref, err := c.GetUserPreference(ctx, userID, "apps.current_app")
+	if err != nil {
+		return nil, err
+	}
+
+	if pref == nil || pref.Value == "" {
+		return nil, nil
+	}
+
+	return c.GetApplication(ctx, pref.Value)
+}
+
+// SetCurrentApplication sets the current application scope for the user.
+func (c *Client) SetCurrentApplication(ctx context.Context, userID, appSysID string) error {
+	return c.SetUserPreference(ctx, userID, "apps.current_app", appSysID)
+}
+
 func userFromRecord(record map[string]interface{}) User {
 	return User{
 		SysID:    getString(record, "sys_id"),

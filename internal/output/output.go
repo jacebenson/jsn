@@ -206,6 +206,18 @@ func (w *Writer) writeMarkdown(resp *Response) error {
 		if err := w.writeMarkdownTable(data); err != nil {
 			return err
 		}
+	case []map[string]string:
+		// Convert to map[string]any for reuse
+		converted := make([]map[string]any, len(data))
+		for i, item := range data {
+			converted[i] = make(map[string]any)
+			for k, v := range item {
+				converted[i][k] = v
+			}
+		}
+		if err := w.writeMarkdownTable(converted); err != nil {
+			return err
+		}
 	case []any:
 		if err := w.writeMarkdownList(data); err != nil {
 			return err
@@ -316,6 +328,18 @@ func (w *Writer) writeStyled(resp *Response) error {
 	switch data := resp.Data.(type) {
 	case []map[string]any:
 		if err := w.writeStyledTable(data); err != nil {
+			return err
+		}
+	case []map[string]string:
+		// Convert to map[string]any for reuse
+		converted := make([]map[string]any, len(data))
+		for i, item := range data {
+			converted[i] = make(map[string]any)
+			for k, v := range item {
+				converted[i][k] = v
+			}
+		}
+		if err := w.writeStyledTable(converted); err != nil {
 			return err
 		}
 	case []any:
