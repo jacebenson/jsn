@@ -522,7 +522,7 @@ func printStyledCatalogItem(cmd *cobra.Command, item map[string]interface{}, var
 		labelStyle.Render("Create a variable on this item"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn catalog-item create --field name=\"...\""),
+		"jsn catalog-item create --field name=\"...\"",
 		labelStyle.Render("Create new catalog item"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -847,8 +847,8 @@ Examples:
 	cmd.Flags().IntVarP(&order, "order", "o", 100, "Sort order for the variable")
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Additional field values (name=value)")
 
-	cmd.MarkFlagRequired("type")
-	cmd.MarkFlagRequired("question")
+	_ = cmd.MarkFlagRequired("type")
+	_ = cmd.MarkFlagRequired("question")
 
 	return cmd
 }
