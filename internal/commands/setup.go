@@ -5,7 +5,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -78,10 +81,14 @@ func runSetup(cmd *cobra.Command, app *appctx.App) error {
 	fmt.Printf("Instance: %s\n", instanceURL)
 	fmt.Printf("Profile:  %s\n", profileName)
 	fmt.Println()
+
+	// Find the jsn binary to show correct command examples
+	jsnCmd := findJSNBinary()
+
 	fmt.Println("Try these commands:")
-	fmt.Printf("  jsn tables list          List available tables\n")
-	fmt.Printf("  jsn tables get incident  Get an incident record\n")
-	fmt.Printf("  jsn auth status          Check authentication status\n")
+	fmt.Printf("  %s tables list          List available tables\n", jsnCmd)
+	fmt.Printf("  %s tables get incident  Get an incident record\n", jsnCmd)
+	fmt.Printf("  %s auth status          Check authentication status\n", jsnCmd)
 	fmt.Println()
 
 	return nil
@@ -401,6 +408,67 @@ func setupGCKAuth(reader *bufio.Reader, cfg *config.Config, authManager *auth.Ma
 	fmt.Println()
 
 	return nil
+}
+
+// findJSNBinary attempts to locate the jsn executable for displaying
+// the correct command examples. It checks in order:
+// 1. Current executable path (os.Executable)
+// 2. Current directory
+// 3. PATH (using which/where)
+// Returns "jsn" if not found, or the appropriate path/command to use
+func findJSNBinary() string {
+	// First, try to get the current executable path
+	if exePath, err := os.Executable(); err == nil {
+		// If it's already just "jsn" or "jsn.exe", it's in PATH
+		if filepath.Base(exePath) == exePath {
+			return "jsn"
+		}
+		// If the directory is in PATH, we can just use "jsn"
+		exeDir := filepath.Dir(exePath)
+		if pathInPATH(exeDir) {
+			return "jsn"
+		}
+		// Return the full path as fallback
+		return exePath
+	}
+
+	// Check current directory
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat("jsn.exe"); err == nil {
+			return ".\\jsn.exe"
+		}
+	} else {
+		if _, err := os.Stat("jsn"); err == nil {
+			return "./jsn"
+		}
+	}
+
+	// Try to find in PATH using which/where
+	lookCmd := "which"
+	if runtime.GOOS == "windows" {
+		lookCmd = "where"
+	}
+	if path, err := exec.LookPath("jsn"); err == nil {
+		// If found in PATH, just return "jsn"
+		_ = lookCmd // suppress unused warning
+		_ = path
+		return "jsn"
+	}
+
+	// Default fallback
+	return "jsn"
+}
+
+// pathInPATH checks if a directory is in the system's PATH
+func pathInPATH(dir string) bool {
+	pathEnv := os.Getenv("PATH")
+	separator := string(filepath.ListSeparator)
+	for _, p := range strings.Split(pathEnv, separator) {
+		if filepath.Clean(p) == filepath.Clean(dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseCurlForAuth extracts auth info from a curl command
