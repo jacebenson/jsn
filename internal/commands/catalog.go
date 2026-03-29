@@ -424,9 +424,7 @@ func newCatalogItemVariablesCmd() *cobra.Command {
 		Short: "List variables on a catalog item",
 		Long: `List all variables (questions) configured on a catalog item.
 
-This queries:
-- item_option_new: Variable definitions linked to the item
-- sc_cat_item_option: Links between variables and catalog items
+This queries the item_option_new table where cat_item references the catalog item.
 
 Examples:
   jsn catalog-item variables cd21f895c3bbb2103c71770d050131a3`,
@@ -458,43 +456,22 @@ func runCatalogItemVariables(cmd *cobra.Command, catItemSysID string) error {
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
-	// Query the sc_item_option_mtom table to find linked variables
-	query := url.Values{}
-	query.Set("sysparm_limit", "100")
-	query.Set("sysparm_query", fmt.Sprintf("sc_cat_item=%s", catItemSysID))
-	query.Set("sysparm_fields", "sc_item_option")
-	query.Set("sysparm_display_value", "false")
-
-	resp, err := sdkClient.Get(cmd.Context(), "sc_item_option_mtom", query)
-	if err != nil {
-		return fmt.Errorf("failed to get catalog item variables: %w", err)
-	}
-
-	// Get the variable sys_ids
-	varSysIDs := []string{}
-	for _, link := range resp.Result {
-		varID := getStringField(link, "sc_item_option")
-		if varID != "" {
-			varSysIDs = append(varSysIDs, varID)
-		}
-	}
-
-	if len(varSysIDs) == 0 {
-		return outputWriter.OK([]map[string]interface{}{},
-			output.WithSummary("No variables found on this catalog item"),
-		)
-	}
-
-	// Now get the variable details from item_option_new
+	// Query item_option_new directly where cat_item points to the catalog item
 	varQuery := url.Values{}
 	varQuery.Set("sysparm_limit", "100")
-	varQuery.Set("sysparm_query", fmt.Sprintf("sys_idIN%s^ORDERBYorder", strings.Join(varSysIDs, ",")))
+	varQuery.Set("sysparm_query", fmt.Sprintf("cat_item=%s^ORDERBYorder", catItemSysID))
 	varQuery.Set("sysparm_fields", "sys_id,name,question_text,type,mandatory,order,active")
 	varQuery.Set("sysparm_display_value", "true")
 
 	varResp, err := sdkClient.Get(cmd.Context(), "item_option_new", varQuery)
 	if err != nil {
 		return fmt.Errorf("failed to get variable details: %w", err)
+	}
+
+	if len(varResp.Result) == 0 {
+		return outputWriter.OK([]map[string]interface{}{},
+			output.WithSummary("No variables found on this catalog item"),
+		)
 	}
 
 	// Determine output format

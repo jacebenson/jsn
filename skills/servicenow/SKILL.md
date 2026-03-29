@@ -412,4 +412,4 @@ C:\Users\name\bin\jsn.exe tables list
 | Jobs | `sysauto_script`, `sys_trigger` |
 | Logs | `syslog` |
 | Service Portal | `sp_portal`, `sp_widget`, `sp_page` |
-| Service Catalog | `sc_cat_item`, `item_option_new`, `question_choice`, `sc_item_option_mtom` |
+| Service Catalog | `sc_cat_item`, `item_option_new`, `question_choice`, `sc_cat_item_option` |
