@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // User represents a ServiceNow user (sys_user record).
@@ -24,13 +25,31 @@ type UserPreference struct {
 }
 
 // GetCurrentUser retrieves the currently authenticated user.
+// Uses gs.getUserID() via background script to get the actual current user's sys_id,
+// then queries sys_user for the full user record.
 func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
-	// Note: We can't easily get the username from g_ck auth
-	// So we just query for the first active user as a fallback
+	// Use background script to get the current user's sys_id
+	script := "gs.print(gs.getUserID());"
+	result, err := c.Eval(ctx, script, DefaultEvalOptions())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user ID: %w", err)
+	}
+
+	if result.Error != "" {
+		return nil, fmt.Errorf("script error: %s", result.Error)
+	}
+
+	// Parse the output to get the sys_id
+	userID := strings.TrimSpace(result.Output)
+	if userID == "" {
+		return nil, fmt.Errorf("could not determine current user ID")
+	}
+
+	// Query sys_user for the full user record
 	query := url.Values{}
 	query.Set("sysparm_limit", "1")
 	query.Set("sysparm_fields", "sys_id,user_name,name,email")
-	query.Set("sysparm_query", "active=true")
+	query.Set("sysparm_query", "sys_id="+userID)
 
 	resp, err := c.Get(ctx, "sys_user", query)
 	if err != nil {
@@ -38,7 +57,7 @@ func (c *Client) GetCurrentUser(ctx context.Context) (*User, error) {
 	}
 
 	if len(resp.Result) == 0 {
-		return nil, fmt.Errorf("could not determine current user")
+		return nil, fmt.Errorf("user not found: %s", userID)
 	}
 
 	user := userFromRecord(resp.Result[0])

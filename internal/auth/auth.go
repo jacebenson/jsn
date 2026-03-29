@@ -4,6 +4,7 @@ package auth
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jacebenson/jsn/internal/config"
 )
@@ -100,9 +101,42 @@ func (m *Manager) GetStore() *Store {
 
 // Credentials holds authentication tokens.
 type Credentials struct {
-	Token     string `json:"token"`
-	Username  string `json:"username,omitempty"`
-	Cookies   string `json:"cookies,omitempty"`
-	ExpiresAt int64  `json:"expires_at,omitempty"`
-	CreatedAt int64  `json:"created_at"`
+	Token      string `json:"token"`
+	Username   string `json:"username,omitempty"`
+	Cookies    string `json:"cookies,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
+	CreatedAt  int64  `json:"created_at"`
+	LastTested int64  `json:"last_tested,omitempty"`
+}
+
+// GetCredentialsForProfile retrieves credentials for a specific profile by instance URL.
+// Checks SERVICENOW_TOKEN env var first only if this is the active profile.
+func (m *Manager) GetCredentialsForProfile(instanceURL string) (*Credentials, error) {
+	// Only check env var if this is the active profile
+	if instanceURL == m.credentialKey() {
+		if token := os.Getenv("SERVICENOW_TOKEN"); token != "" {
+			return &Credentials{
+				Token:     token,
+				CreatedAt: 0,
+			}, nil
+		}
+	}
+
+	return m.store.Load(instanceURL)
+}
+
+// UpdateLastTested updates the last_tested timestamp for the active profile's credentials.
+func (m *Manager) UpdateLastTested() error {
+	credKey := m.credentialKey()
+	if credKey == "" {
+		return fmt.Errorf("no active profile configured")
+	}
+
+	creds, err := m.store.Load(credKey)
+	if err != nil {
+		return err
+	}
+
+	creds.LastTested = time.Now().Unix()
+	return m.store.Save(credKey, creds)
 }
