@@ -28,8 +28,9 @@ Explore and manage ServiceNow instances. Works standalone or with AI agents.
 
 1. **Choose the right output mode** — `--json` when parsing data; `--md` when presenting to humans
 2. **Use sys_id for updates** — All update/delete operations require sys_id
-3. **Check auth first** — Run `jsn auth status` if commands fail
+3. **Check auth status** — Run `jsn auth status` to verify credentials are working before operations
 4. **Profile scope** — Use `--profile <name>` or switch with `jsn config switch <name>`
+5. **NEVER logout without explicit permission** — Only run `jsn auth logout` if the user explicitly asks you to clear credentials
 
 ### Output Modes
 
@@ -326,13 +327,16 @@ jsn --profile prod tables list            # Use specific profile
 
 ```bash
 jsn auth login                            # Interactive login
-jsn auth status                           # Check auth
-jsn auth logout                           # Clear credentials
+jsn auth status                           # Check auth for all profiles
+jsn auth logout                           # Clear credentials (requires confirmation)
+jsn auth logout --force                   # Clear credentials without confirmation
 ```
 
 **Environment variables:**
 - `SERVICENOW_TOKEN` — Override stored token
 - `SERVICENOW_INSTANCE` — Override instance URL
+
+**Important:** Always test auth before operations: `jsn auth test` returns exit code 0 on success, 1 on failure.
 
 ## Interactive Pickers
 
@@ -361,12 +365,12 @@ jsn updateset use [<name>]    # Opens picker if name not provided
 ## Error Handling
 
 ```bash
-jsn auth status                           # Check authentication
+jsn auth status                           # Check authentication status
 jsn instance info                         # Check connectivity
 ```
 
 **Common errors:**
-- Auth error → `jsn auth login`
+- Auth error → Run `jsn auth status` first, then `jsn auth login` if needed
 - Not found → Verify sys_id or table name
 - Forbidden → Check user roles/permissions
 

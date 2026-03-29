@@ -386,32 +386,17 @@ func loginFromCurl(cmd *cobra.Command, cfg *config.Config, authManager *auth.Man
 }
 
 func newAuthLogoutCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "logout",
-		Short: "Remove stored credentials",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			if app == nil {
-				return output.ErrAuth("app not initialized")
-			}
-
-			authManager := app.Auth.(*auth.Manager)
-			if err := authManager.DeleteCredentials(); err != nil {
-				return output.ErrAuth(fmt.Sprintf("failed to remove credentials: %v", err))
-			}
-
-			fmt.Println("Successfully logged out")
-			return nil
-		},
-	}
-}
-
-func newAuthStatusCommand() *cobra.Command {
-	var jsonOutput bool
+	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "status",
-		Short: "Show authentication status",
+		Use:   "logout",
+		Short: "Remove stored credentials",
+		Long: `Remove stored credentials for the active profile.
+
+WARNING: This will permanently delete your stored authentication credentials.
+You will need to run "jsn auth login" again to authenticate.
+
+Use --force to skip the confirmation prompt (for scripts/automation).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 			if app == nil {
@@ -421,48 +406,167 @@ func newAuthStatusCommand() *cobra.Command {
 			cfg := app.Config.(*config.Config)
 			profile := cfg.GetActiveProfile()
 			authManager := app.Auth.(*auth.Manager)
-			authenticated := authManager.IsAuthenticated()
-
-			if jsonOutput {
-				source := "file"
-				if os.Getenv("SERVICENOW_TOKEN") != "" {
-					source = "env"
-				}
-
-				result := map[string]interface{}{
-					"authenticated": authenticated,
-					"source":        source,
-				}
-
-				if profile != nil {
-					result["instance"] = profile.InstanceURL
-					result["profile"] = cfg.DefaultProfile
-				}
-
-				w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
-				return w.OK(result)
-			}
 
 			if profile == nil {
-				fmt.Println("Not authenticated (no profile configured)")
+				return output.ErrAuth("no active profile configured")
+			}
+
+			// Check if we have credentials to delete
+			if !authManager.IsAuthenticated() {
+				fmt.Println("No credentials found for the active profile")
 				return nil
 			}
 
-			if authenticated {
-				fmt.Printf("Authenticated with %s\n", profile.InstanceURL)
-				fmt.Printf("Profile: %s\n", cfg.DefaultProfile)
-				if profile.AuthMethod != "" {
-					fmt.Printf("Auth:    %s\n", profile.AuthMethod)
+			// Require confirmation unless --force is used
+			if !force {
+				fmt.Printf("⚠️  WARNING: This will remove stored credentials for profile '%s' (%s)\n", cfg.DefaultProfile, profile.InstanceURL)
+				fmt.Print("Are you sure? [y/N]: ")
+
+				reader := bufio.NewReader(os.Stdin)
+				response, _ := reader.ReadString('\n')
+				response = strings.TrimSpace(strings.ToLower(response))
+
+				if response != "y" && response != "yes" {
+					fmt.Println("Logout cancelled")
+					return nil
 				}
-				if os.Getenv("SERVICENOW_TOKEN") != "" {
-					fmt.Println("Source:  environment variable")
-				} else if authManager.GetStore().UsingKeyring() {
-					fmt.Println("Source:  system keyring")
+			}
+
+			if err := authManager.DeleteCredentials(); err != nil {
+				return output.ErrAuth(fmt.Sprintf("failed to remove credentials: %v", err))
+			}
+
+			fmt.Println("✓ Successfully logged out")
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
+
+	return cmd
+}
+
+func newAuthStatusCommand() *cobra.Command {
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show authentication status for all profiles",
+		Long: `Show authentication status for all configured profiles.
+
+This command tests each profile by attempting to connect to its ServiceNow instance
+and displays the results in a simple table format.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			if app == nil {
+				return output.ErrAuth("app not initialized")
+			}
+
+			cfg := app.Config.(*config.Config)
+			authManager := app.Auth.(*auth.Manager)
+
+			if len(cfg.Profiles) == 0 {
+				if jsonOutput {
+					w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
+					return w.OK(map[string]interface{}{
+						"profiles": []map[string]interface{}{},
+					})
+				}
+				fmt.Println("No profiles configured. Run: jsn config add")
+				return nil
+			}
+
+			type profileStatus struct {
+				Profile    string `json:"profile"`
+				Instance   string `json:"instance"`
+				User       string `json:"user"`
+				StatusCode int    `json:"status_code"`
+				Status     string `json:"status"`
+			}
+
+			var results []profileStatus
+
+			// Get the original active profile to restore later
+			originalProfile := cfg.DefaultProfile
+
+			for profileName, profile := range cfg.Profiles {
+				result := profileStatus{
+					Profile:  profileName,
+					Instance: profile.InstanceURL,
+				}
+
+				// Temporarily set this as the active profile to test it
+				cfg.DefaultProfile = profileName
+
+				// Check if we have credentials
+				creds, err := authManager.GetCredentialsForProfile(profile.InstanceURL)
+				if err != nil || creds == nil || creds.Token == "" {
+					result.StatusCode = 0
+					result.Status = "no credentials"
+					results = append(results, result)
+					continue
+				}
+
+				// Create a temporary SDK client for this profile
+				testClient := sdk.NewClient(profile.InstanceURL, func() (string, string, bool) {
+					if profile.AuthMethod == "gck" {
+						return creds.Token, creds.Cookies, true
+					}
+					return creds.Token, creds.Username, false
+				})
+
+				// Test the connection
+				user, err := testClient.GetCurrentUser(cmd.Context())
+				if err != nil {
+					result.StatusCode = 401
+					result.Status = "auth failed"
 				} else {
-					fmt.Printf("Source:  %s\n", config.GlobalConfigDir()+"/credentials.json")
+					result.StatusCode = 200
+					result.Status = "ok"
+					result.User = user.UserName
+
+					// Update last tested timestamp
+					creds.LastTested = time.Now().Unix()
+					_ = authManager.StoreCredentials(creds)
 				}
-			} else {
-				fmt.Printf("Not authenticated with %s\n", profile.InstanceURL)
+
+				results = append(results, result)
+			}
+
+			// Restore the original active profile
+			cfg.DefaultProfile = originalProfile
+
+			if jsonOutput {
+				w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
+				return w.OK(map[string]interface{}{
+					"profiles": results,
+				})
+			}
+
+			// Print simple table output
+			fmt.Printf("%-20s %-35s %-20s %s\n", "PROFILE", "INSTANCE", "USER", "STATUS")
+			fmt.Println(strings.Repeat("-", 90))
+
+			for _, r := range results {
+				instance := r.Instance
+				if len(instance) > 33 {
+					instance = instance[:30] + "..."
+				}
+
+				user := r.User
+				if user == "" {
+					user = "-"
+				}
+				if len(user) > 18 {
+					user = user[:15] + "..."
+				}
+
+				statusStr := fmt.Sprintf("%d %s", r.StatusCode, r.Status)
+				if r.StatusCode == 0 {
+					statusStr = r.Status
+				}
+
+				fmt.Printf("%-20s %-35s %-20s %s\n", r.Profile, instance, user, statusStr)
 			}
 
 			return nil

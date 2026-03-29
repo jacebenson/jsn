@@ -32,8 +32,12 @@ jobs:
           # Create output directory
           mkdir -p dist
 
-          # Version info
-          VERSION="${{ github.ref_name }}"
+          # Version info - use PR number for PRs, tag name for tags
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            VERSION="pr-${{ github.event.pull_request.number }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
           COMMIT="$(git rev-parse --short HEAD)"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           PKG="github.com/jacebenson/jsn/internal/version"
