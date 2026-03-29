@@ -1026,7 +1026,9 @@ func printMarkdownSchema(cmd *cobra.Command, table *sdk.Table, parentChain []cha
 
 // newTablesColumnsCmd creates the tables columns command.
 func newTablesColumnsCmd() *cobra.Command {
-	return &cobra.Command{
+	var limit int
+
+	cmd := &cobra.Command{
 		Use:   "columns [<name>]",
 		Short: "Show table columns only",
 		Long:  "Display only the columns for a table in a focused view. If no name is provided, shows an interactive picker.",
@@ -1036,13 +1038,17 @@ func newTablesColumnsCmd() *cobra.Command {
 			if len(args) > 0 {
 				name = args[0]
 			}
-			return runTablesColumns(cmd, name)
+			return runTablesColumns(cmd, name, limit)
 		},
 	}
+
+	cmd.Flags().IntVarP(&limit, "limit", "n", 0, "Maximum number of columns to display (0 = all)")
+
+	return cmd
 }
 
 // runTablesColumns executes the tables columns command.
-func runTablesColumns(cmd *cobra.Command, name string) error {
+func runTablesColumns(cmd *cobra.Command, name string, limit int) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -1070,9 +1076,9 @@ func runTablesColumns(cmd *cobra.Command, name string) error {
 		}
 
 		// Create paginated fetcher for tables
-		fetcher := func(ctx context.Context, offset, limit int) (*tui.PageResult, error) {
+		fetcher := func(ctx context.Context, offset, pageLimit int) (*tui.PageResult, error) {
 			opts := &sdk.ListTablesOptions{
-				Limit:   limit,
+				Limit:   pageLimit,
 				Offset:  offset,
 				OrderBy: "name",
 			}
@@ -1098,7 +1104,7 @@ func runTablesColumns(cmd *cobra.Command, name string) error {
 				})
 			}
 
-			hasMore := len(tables) >= limit
+			hasMore := len(tables) >= pageLimit
 			return &tui.PageResult{
 				Items:   items,
 				HasMore: hasMore,
@@ -1130,16 +1136,22 @@ func runTablesColumns(cmd *cobra.Command, name string) error {
 		return fmt.Errorf("failed to get columns: %w", err)
 	}
 
+	// Apply limit if specified
+	totalColumns := len(columns)
+	if limit > 0 && limit < totalColumns {
+		columns = columns[:limit]
+	}
+
 	// Determine output format
 	format := outputWriter.GetFormat()
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledColumns(cmd, table, columns, instanceURL)
+		return printStyledColumns(cmd, table, columns, instanceURL, limit, totalColumns)
 	}
 
 	if format == output.FormatMarkdown {
-		return printMarkdownColumns(cmd, table, columns, instanceURL)
+		return printMarkdownColumns(cmd, table, columns, instanceURL, limit, totalColumns)
 	}
 
 	// Build result for JSON/quiet
@@ -1153,6 +1165,12 @@ func runTablesColumns(cmd *cobra.Command, name string) error {
 		"label":   table.Label,
 		"scope":   scope,
 		"columns": columns,
+	}
+
+	// Add limit info to summary if applicable
+	summary := fmt.Sprintf("%s (%s) - %d columns", table.Label, table.Name, totalColumns)
+	if limit > 0 && limit < totalColumns {
+		summary = fmt.Sprintf("%s (%s) - showing %d of %d columns", table.Label, table.Name, limit, totalColumns)
 	}
 
 	// Build breadcrumbs
@@ -1170,22 +1188,28 @@ func runTablesColumns(cmd *cobra.Command, name string) error {
 	}
 
 	return outputWriter.OK(result,
-		output.WithSummary(fmt.Sprintf("%s (%s) - %d columns", table.Label, table.Name, len(columns))),
+		output.WithSummary(summary),
 		output.WithBreadcrumbs(breadcrumbs...),
 	)
 }
 
 // printStyledColumns outputs styled columns only view.
-func printStyledColumns(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableColumn, instanceURL string) error {
+func printStyledColumns(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableColumn, instanceURL string, limit, totalColumns int) error {
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	valueStyle := lipgloss.NewStyle()
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Title
 	title := fmt.Sprintf("%s (%s) - Columns", table.Label, table.Name)
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(title))
+
+	// Show limit info if applicable
+	if limit > 0 && limit < totalColumns {
+		fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render(fmt.Sprintf("  (showing %d of %d columns)", len(columns), totalColumns)))
+	}
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Columns list
@@ -1232,9 +1256,14 @@ func printStyledColumns(cmd *cobra.Command, table *sdk.Table, columns []sdk.Tabl
 }
 
 // printMarkdownColumns outputs markdown columns only view.
-func printMarkdownColumns(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableColumn, instanceURL string) error {
+func printMarkdownColumns(cmd *cobra.Command, table *sdk.Table, columns []sdk.TableColumn, instanceURL string, limit, totalColumns int) error {
 	title := fmt.Sprintf("**%s (%s) - Columns**", table.Label, table.Name)
 	fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", title)
+
+	// Show limit info if applicable
+	if limit > 0 && limit < totalColumns {
+		fmt.Fprintf(cmd.OutOrStdout(), "*Showing %d of %d columns*\n\n", len(columns), totalColumns)
+	}
 
 	for _, col := range columns {
 		mandatory := ""
