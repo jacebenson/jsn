@@ -24,40 +24,32 @@ type portalsListFlags struct {
 
 // NewPortalsCmd creates the portals command group.
 func NewPortalsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "sp",
-		Aliases: []string{"portals", "portal"},
-		Short:   "Manage Service Portals",
-		Long:    "List and view ServiceNow Service Portals.",
-	}
-
-	cmd.AddCommand(
-		newPortalsListCmd(),
-		newPortalsShowCmd(),
-	)
-
-	return cmd
-}
-
-// newPortalsListCmd creates the portals list command.
-func newPortalsListCmd() *cobra.Command {
 	var flags portalsListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List Service Portals",
-		Long: `List all ServiceNow Service Portals.
+		Use:     "sp [<identifier>]",
+		Aliases: []string{"portals", "portal"},
+		Short:   "Manage Service Portals",
+		Long: `List and view ServiceNow Service Portals.
 
-Filtering:
-  --search <term>   Fuzzy search on title or url_suffix (LIKE match)
-  --query <query>   Raw ServiceNow encoded query for advanced filtering
+Usage:
+  jsn sp                                       Interactive picker (TTY) or usage info
+  jsn sp <id_or_sys_id>                        Show portal details
+  jsn sp --search <term>                       Fuzzy search on title or url_suffix (LIKE match)
+  jsn sp --query <encoded_query>               Raw ServiceNow encoded query
 
 Examples:
-  jsn sp list
-  jsn sp list --search itsm
-  jsn sp list --limit 50
-  jsn sp list --query "active=true"`,
+  jsn sp itsm
+  jsn sp --search itsm
+  jsn sp --query "active=true"`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by identifier
+			if len(args) > 0 {
+				return runPortalsShow(cmd, args[0])
+			}
+
+			// Mode 2 & 3: Search/list (handles interactive picker when no filters)
 			return runPortalsList(cmd, flags)
 		},
 	}
@@ -65,7 +57,6 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of portals to fetch")
 	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on title or url_suffix")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
-	// Default order: "title" for alphabetical browsing - portals use title as display name
 	cmd.Flags().StringVar(&flags.order, "order", "title", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 
@@ -151,7 +142,7 @@ func runPortalsList(cmd *cobra.Command, flags portalsListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn sp show <id>",
+			Cmd:         "jsn sp <id>",
 			Description: "Show portal details",
 		},
 	}
@@ -216,7 +207,7 @@ func printStyledPortalsList(cmd *cobra.Command, portals []sdk.Portal, instanceUR
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp show <id>",
+		"jsn sp <id>",
 		labelStyle.Render("Show portal details"),
 	)
 
@@ -245,33 +236,6 @@ func printMarkdownPortalsList(cmd *cobra.Command, portals []sdk.Portal, instance
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newPortalsShowCmd creates the portals show command.
-func newPortalsShowCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "show [<identifier>]",
-		Aliases: []string{"get"},
-		Short:   "Show portal details",
-		Long: `Display detailed information about a Service Portal.
-
-The identifier can be a portal URL suffix (e.g., "itsm") or sys_id.
-If no identifier is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn sp show itsm
-  jsn sp show 0123456789abcdef0123456789abcdef`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var id string
-			if len(args) > 0 {
-				id = args[0]
-			}
-			return runPortalsShow(cmd, id)
-		},
-	}
-
-	return cmd
 }
 
 // runPortalsShow executes the portals show command.
@@ -330,8 +294,8 @@ func runPortalsShow(cmd *cobra.Command, id string) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         "jsn sp list",
-			Description: "List all portals",
+			Cmd:         "jsn sp --search <term>",
+			Description: "Search portals",
 		},
 	}
 
@@ -393,12 +357,12 @@ func printStyledPortal(cmd *cobra.Command, portal *sdk.Portal, instanceURL strin
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp list",
-		labelStyle.Render("List all portals"),
+		"jsn sp --search <term>",
+		labelStyle.Render("Search portals"),
 	)
 	if portal.HomepageID != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-			fmt.Sprintf("jsn sp-page show %s", portal.HomepageID),
+			fmt.Sprintf("jsn sp-pages %s", portal.HomepageID),
 			labelStyle.Render("View homepage"),
 		)
 	}

@@ -99,7 +99,7 @@ make clean          # Remove bin/ and dist/
    ```bash
    ./bin/jsn auth status
    ./bin/jsn tables list
-   ./bin/jsn records list incident --limit 5
+   ./bin/jsn records --table incident --limit 5
    ```
 
 ### Without a ServiceNow Instance

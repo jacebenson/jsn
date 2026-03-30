@@ -20,7 +20,11 @@ func NewChoicesCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "choices",
 		Short: "Manage choice values",
-		Long:  "List, create, update, and delete choice values from sys_choice table.",
+		Long: `List, create, update, and delete choice values from the sys_choice table.
+
+This manages field-level dropdown choices (e.g., incident.state, task.priority).
+For Service Catalog variable dropdown choices, use 'jsn variable choices' instead
+(which manages the question_choice table).`,
 	}
 
 	cmd.AddCommand(

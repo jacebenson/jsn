@@ -27,42 +27,31 @@ type clientScriptsListFlags struct {
 	all        bool
 }
 
-// NewClientScriptsCmd creates the client-scripts command group.
+// NewClientScriptsCmd creates the client-scripts command.
 func NewClientScriptsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "client-scripts",
-		Short: "Manage client scripts",
-		Long:  "List and inspect ServiceNow client scripts (sys_script_client).",
-	}
-
-	cmd.AddCommand(
-		newClientScriptsListCmd(),
-		newClientScriptsShowCmd(),
-		newClientScriptsScriptCmd(),
-	)
-
-	return cmd
-}
-
-// newClientScriptsListCmd creates the client-scripts list command.
-func newClientScriptsListCmd() *cobra.Command {
 	var flags clientScriptsListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List client scripts",
-		Long: `List client scripts from sys_script_client.
+		Use:   "client-scripts [<name_or_sys_id>]",
+		Short: "Manage client scripts",
+		Long: `List and inspect ServiceNow client scripts (sys_script_client).
 
-Filtering:
-  --search <term>   Fuzzy search on name (LIKE match)
-  --query <query>   Raw ServiceNow encoded query for advanced filtering
+With no arguments, lists client scripts (with optional filters).
+With a name or sys_id argument, shows details for that client script.
 
 Examples:
-  jsn client-scripts list --table incident
-  jsn client-scripts list --search validate
-  jsn client-scripts list --type onLoad
-  jsn client-scripts list --active --limit 50`,
+  jsn client-scripts                          # List client scripts (interactive)
+  jsn client-scripts --search validate        # Search by name
+  jsn client-scripts --table incident         # Filter by table
+  jsn client-scripts --type onLoad            # Filter by type
+  jsn client-scripts --active --limit 50      # Active only, limit 50
+  jsn client-scripts MyClientScript           # Show details for a client script
+  jsn client-scripts <sys_id>                 # Show by sys_id`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return runClientScriptsShow(cmd, args[0])
+			}
 			return runClientScriptsList(cmd, flags)
 		},
 	}
@@ -77,6 +66,10 @@ Examples:
 	cmd.Flags().StringVar(&flags.order, "order", "order", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all scripts (no limit)")
+
+	cmd.AddCommand(
+		newClientScriptsScriptCmd(),
+	)
 
 	return cmd
 }
@@ -187,7 +180,7 @@ func runClientScriptsList(cmd *cobra.Command, flags clientScriptsListFlags) erro
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn client-scripts show <sys_id>",
+				Cmd:         "jsn client-scripts <name>",
 				Description: "Show script details",
 			},
 			output.Breadcrumb{
@@ -266,7 +259,7 @@ func printStyledClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScript
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn client-scripts show <sys_id>",
+		"jsn client-scripts <name>",
 		mutedStyle.Render("Show script details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -290,30 +283,6 @@ func printMarkdownClientScriptsList(cmd *cobra.Command, scripts []sdk.ClientScri
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newClientScriptsShowCmd creates the client-scripts show command.
-func newClientScriptsShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show [<sys_id>]",
-		Aliases: []string{"get"},
-		Short:   "Show client script details",
-		Long: `Display detailed information about a client script.
-
-If no sys_id is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn client-scripts show 0123456789abcdef0123456789abcdef
-  jsn client-scripts show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var sysID string
-			if len(args) > 0 {
-				sysID = args[0]
-			}
-			return runClientScriptsShow(cmd, sysID)
-		},
-	}
 }
 
 // runClientScriptsShow executes the client-scripts show command.
@@ -397,7 +366,7 @@ func runClientScriptsShow(cmd *cobra.Command, sysID string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn client-scripts list",
+				Cmd:         "jsn client-scripts --search <term>",
 				Description: "List all scripts",
 			},
 			output.Breadcrumb{
@@ -472,7 +441,7 @@ func printStyledClientScript(cmd *cobra.Command, script *sdk.ClientScript, insta
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn client-scripts list",
+		"jsn client-scripts --search <term>",
 		mutedStyle.Render("List all scripts"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",

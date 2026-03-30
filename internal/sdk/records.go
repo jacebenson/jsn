@@ -92,7 +92,7 @@ func (c *Client) GetRecord(ctx context.Context, table, sysID string) (map[string
 	query := url.Values{}
 	query.Set("sysparm_limit", "1")
 	query.Set("sysparm_query", fmt.Sprintf("sys_id=%s", sysID))
-	query.Set("sysparm_display_value", "true")
+	query.Set("sysparm_display_value", "all")
 
 	resp, err := c.Get(ctx, table, query)
 	if err != nil {

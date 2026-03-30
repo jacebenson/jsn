@@ -13,16 +13,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listsListFlags holds the flags for the lists list command.
+// listsListFlags holds the flags for the lists command.
 type listsListFlags struct {
 	table string
 	limit int
+	view  string
 }
 
 // NewListsCmd creates the lists command group.
 func NewListsCmd() *cobra.Command {
+	var flags listsListFlags
+
 	cmd := &cobra.Command{
-		Use:     "lists",
+		Use:     "lists [<table>]",
 		Aliases: []string{"list-layout"},
 		Short:   "Manage UI List layouts",
 		Long: `List and view ServiceNow UI List column layouts.
@@ -33,42 +36,32 @@ may show different columns.
 
 Uses sys_ui_list and sys_ui_list_element tables.
 
-Examples:
-  jsn lists list --table incident
-  jsn lists show incident
-  jsn lists show incident --view "Default view"`,
-	}
-
-	cmd.AddCommand(
-		newListsListCmd(),
-		newListsShowCmd(),
-	)
-
-	return cmd
-}
-
-// newListsListCmd creates the lists list command.
-func newListsListCmd() *cobra.Command {
-	var flags listsListFlags
-
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List views that have list layouts for a table",
-		Long: `List all views that have list layouts defined for a table.
-
-If no table is specified, shows views across all tables.
+Usage:
+  jsn lists                                       List views (requires --table)
+  jsn lists <table>                               Show list columns (Default view)
+  jsn lists <table> --view "service operations workspace"   Show specific view
+  jsn lists --table incident                      List all views for a table
 
 Examples:
-  jsn lists list
-  jsn lists list --table incident
-  jsn lists list --table incident --limit 50`,
+  jsn lists incident
+  jsn lists incident --view "Default view"
+  jsn lists --table incident`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct table lookup — show list layout
+			if len(args) > 0 {
+				showFlags := listsShowFlags{view: flags.view}
+				return runListsShow(cmd, args[0], showFlags)
+			}
+
+			// Mode 2: List views (requires --table flag)
 			return runListsList(cmd, flags)
 		},
 	}
 
 	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Table name to filter views")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 50, "Maximum number of views to fetch")
+	cmd.Flags().StringVar(&flags.view, "view", "Default view", "View name (default: \"Default view\")")
 
 	return cmd
 }
@@ -128,7 +121,7 @@ func runListsList(cmd *cobra.Command, flags listsListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         fmt.Sprintf("jsn lists show %s --view <view>", flags.table),
+			Cmd:         fmt.Sprintf("jsn lists %s --view <view>", flags.table),
 			Description: "Show list columns",
 		},
 	}
@@ -196,7 +189,7 @@ func printStyledListsList(cmd *cobra.Command, views []string, table string) erro
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	if table != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-			fmt.Sprintf("jsn lists show %s --view \"Default view\"", table),
+			fmt.Sprintf("jsn lists %s --view \"Default view\"", table),
 			labelStyle.Render("Show Default view columns"),
 		)
 	}
@@ -253,37 +246,9 @@ func printMarkdownListsList(cmd *cobra.Command, views []string, table string) er
 	return nil
 }
 
-// listsShowFlags holds the flags for the lists show command.
+// listsShowFlags holds the flags for lists show mode.
 type listsShowFlags struct {
 	view string
-}
-
-// newListsShowCmd creates the lists show command.
-func newListsShowCmd() *cobra.Command {
-	var flags listsShowFlags
-
-	cmd := &cobra.Command{
-		Use:     "show <table>",
-		Aliases: []string{"get"},
-		Short:   "Show list columns for a table",
-		Long: `Display the list columns for a table and view.
-
-Shows the columns that appear in the list view, in left-to-right order.
-If no view is specified, defaults to "Default view".
-
-Examples:
-  jsn lists show incident
-  jsn lists show incident --view "Default view"
-  jsn lists show sys_user --view "service operations workspace"`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runListsShow(cmd, args[0], flags)
-		},
-	}
-
-	cmd.Flags().StringVar(&flags.view, "view", "Default view", "View name (default: \"Default view\")")
-
-	return cmd
 }
 
 // runListsShow executes the lists show command.
@@ -401,12 +366,12 @@ func runListsShow(cmd *cobra.Command, table string, flags listsShowFlags) error 
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         fmt.Sprintf("jsn lists list --table %s", table),
+			Cmd:         fmt.Sprintf("jsn lists --table %s", table),
 			Description: "List all views",
 		},
 		{
 			Action:      "form",
-			Cmd:         fmt.Sprintf("jsn forms show %s --view \"%s\"", table, flags.view),
+			Cmd:         fmt.Sprintf("jsn forms %s --view \"%s\"", table, flags.view),
 			Description: "Show form layout",
 		},
 	}
@@ -490,11 +455,11 @@ func printStyledListLayout(cmd *cobra.Command, table, view string, elements []sd
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, headerStyle.Render("Hints:"))
 	fmt.Fprintf(w, "  %-50s  %s\n",
-		fmt.Sprintf("jsn lists list --table %s", table),
+		fmt.Sprintf("jsn lists --table %s", table),
 		labelStyle.Render("List all views"),
 	)
 	fmt.Fprintf(w, "  %-50s  %s\n",
-		fmt.Sprintf("jsn forms show %s --view \"%s\"", table, view),
+		fmt.Sprintf("jsn forms %s --view \"%s\"", table, view),
 		labelStyle.Render("Show form layout"),
 	)
 

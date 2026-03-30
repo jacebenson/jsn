@@ -22,43 +22,33 @@ type uiScriptsListFlags struct {
 	desc   bool
 }
 
-// NewUIScriptsCmd creates the ui-scripts command group.
+// NewUIScriptsCmd creates the ui-scripts command.
 func NewUIScriptsCmd() *cobra.Command {
+	var flags uiScriptsListFlags
+	var showScript bool
+
 	cmd := &cobra.Command{
-		Use:     "ui-scripts",
+		Use:     "ui-scripts [<name_or_sys_id>]",
 		Aliases: []string{"uiscripts", "ui-script", "uiscript"},
 		Short:   "Manage UI Scripts",
-		Long:    "List and view ServiceNow UI Scripts (sys_ui_script).",
-	}
+		Long: `List and inspect ServiceNow UI Scripts (sys_ui_script).
 
-	cmd.AddCommand(
-		newUIScriptsListCmd(),
-		newUIScriptsShowCmd(),
-		newUIScriptsScriptCmd(),
-	)
-
-	return cmd
-}
-
-// newUIScriptsListCmd creates the ui-scripts list command.
-func newUIScriptsListCmd() *cobra.Command {
-	var flags uiScriptsListFlags
-
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List UI Scripts",
-		Long: `List all ServiceNow UI Scripts.
-
-Filtering:
-  --search <term>   Fuzzy search on name (LIKE match)
-  --query <query>   Raw ServiceNow encoded query for advanced filtering
+With no arguments, lists UI scripts (with optional filters).
+With a name or sys_id argument, shows details for that UI script.
 
 Examples:
-  jsn ui-scripts list
-  jsn ui-scripts list --search pwd
-  jsn ui-scripts list --limit 50
-  jsn ui-scripts list --query "active=true"`,
+  jsn ui-scripts                              # List UI scripts (interactive)
+  jsn ui-scripts --search pwd                 # Search by name
+  jsn ui-scripts --limit 50                   # Limit results
+  jsn ui-scripts --query "active=true"        # Encoded query filter
+  jsn ui-scripts pwd_enroll_questions_ui       # Show details for a UI script
+  jsn ui-scripts <sys_id>                      # Show by sys_id
+  jsn ui-scripts <name> --script              # Show script content`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return runUIScriptsShow(cmd, args[0], showScript)
+			}
 			return runUIScriptsList(cmd, flags)
 		},
 	}
@@ -69,6 +59,11 @@ Examples:
 	// Default order: "name" for alphabetical browsing - most intuitive for finding UI scripts
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
+	cmd.Flags().BoolVar(&showScript, "script", false, "Show script content")
+
+	cmd.AddCommand(
+		newUIScriptsScriptCmd(),
+	)
 
 	return cmd
 }
@@ -149,7 +144,7 @@ func runUIScriptsList(cmd *cobra.Command, flags uiScriptsListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn ui-scripts show <name>",
+			Cmd:         "jsn ui-scripts <name>",
 			Description: "Show UI script details",
 		},
 	}
@@ -227,7 +222,7 @@ func printStyledUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, instan
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn ui-scripts show <name>",
+		"jsn ui-scripts <name>",
 		labelStyle.Render("Show UI script details"),
 	)
 
@@ -264,40 +259,6 @@ func printMarkdownUIScriptsList(cmd *cobra.Command, scripts []sdk.UIScript, inst
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newUIScriptsShowCmd creates the ui-scripts show command.
-func newUIScriptsShowCmd() *cobra.Command {
-	var showScript bool
-
-	cmd := &cobra.Command{
-		Use:     "show [<identifier>]",
-		Aliases: []string{"get"},
-		Short:   "Show UI script details",
-		Long: `Display detailed information about a UI Script.
-
-The identifier can be a UI script name or sys_id.
-If no identifier is provided, an interactive picker will help you select one.
-
-Use --script flag to show the script content.
-
-Examples:
-  jsn ui-scripts show pwd_enroll_questions_ui
-  jsn ui-scripts show 0123456789abcdef0123456789abcdef
-  jsn ui-scripts show pwd_enroll_questions_ui --script`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			if len(args) > 0 {
-				name = args[0]
-			}
-			return runUIScriptsShow(cmd, name, showScript)
-		},
-	}
-
-	cmd.Flags().BoolVar(&showScript, "script", false, "Show script content")
-
-	return cmd
 }
 
 // runUIScriptsShow executes the ui-scripts show command.
@@ -362,7 +323,7 @@ func runUIScriptsShow(cmd *cobra.Command, name string, showScript bool) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         "jsn ui-scripts list",
+			Cmd:         "jsn ui-scripts --search <term>",
 			Description: "List all UI scripts",
 		},
 	}
@@ -416,11 +377,11 @@ func printStyledUIScript(cmd *cobra.Command, script *sdk.UIScript, instanceURL s
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn ui-scripts list",
+		"jsn ui-scripts --search <term>",
 		labelStyle.Render("List all UI scripts"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn ui-scripts show %s --script", script.Name),
+		fmt.Sprintf("jsn ui-scripts %s --script", script.Name),
 		labelStyle.Render("Show script content"),
 	)
 
@@ -452,7 +413,7 @@ func printMarkdownUIScript(cmd *cobra.Command, script *sdk.UIScript, instanceURL
 	// Hints
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), "#### View Script")
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn ui-scripts show %s --script`\n", script.Name)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn ui-scripts %s --script`\n", script.Name)
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil

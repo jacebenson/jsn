@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// flowsListFlags holds the flags for the flows list command.
+// flowsListFlags holds the flags for the flows command.
 type flowsListFlags struct {
 	limit  int
 	active bool
@@ -28,43 +28,42 @@ type flowsListFlags struct {
 	all    bool
 }
 
-// NewFlowsCmd creates the flows command group.
+// NewFlowsCmd creates the flows command.
 func NewFlowsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "flows",
-		Short: "Manage Flow Designer flows",
-		Long:  "List and inspect ServiceNow Flow Designer flows.",
-	}
-
-	cmd.AddCommand(
-		newFlowsListCmd(),
-		newFlowsShowCmd(),
-		newFlowsExecutionsCmd(),
-		newFlowsExecuteCmd(),
-	)
-
-	return cmd
-}
-
-// newFlowsListCmd creates the flows list command.
-func newFlowsListCmd() *cobra.Command {
 	var flags flowsListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List flows",
-		Long: `List Flow Designer flows from sys_hub_flow.
+		Use:   "flows [<name_or_sys_id>] [variables]",
+		Short: "Manage Flow Designer flows",
+		Long: `List and inspect ServiceNow Flow Designer flows.
+
+Usage:
+  jsn flows                                    Interactive picker (TTY) or usage info
+  jsn flows <name_or_sys_id>                   Show flow details
+  jsn flows <name_or_sys_id> variables         Show flow variables only
+  jsn flows --search <term>                    Fuzzy search on name (LIKE match)
+  jsn flows --query <encoded_query>            Raw ServiceNow encoded query
 
 Filtering:
   --search <term>   Fuzzy search on name (LIKE match)
   --query <query>   Raw ServiceNow encoded query for advanced filtering
+  --active          Show only active flows
 
 Examples:
-  jsn flows list
-  jsn flows list --search approval
-  jsn flows list --active
-  jsn flows list --query "nameLIKEapproval^active=true" --limit 50`,
+  jsn flows "Approval Flow"
+  jsn flows --search approval
+  jsn flows --active --json
+  jsn flows --query "nameLIKEapproval^active=true" --limit 50`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by name or sys_id
+			if len(args) > 0 {
+				name := args[0]
+				showVariables := len(args) > 1 && args[1] == "variables"
+				return runFlowsShow(cmd, name, showVariables)
+			}
+
+			// Mode 2 & 3: Search/list (handles interactive picker when no filters)
 			return runFlowsList(cmd, flags)
 		},
 	}
@@ -73,10 +72,14 @@ Examples:
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active flows")
 	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
-	// Default order: "name" for alphabetical browsing - most intuitive for finding flows
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all flows (no limit)")
+
+	cmd.AddCommand(
+		newFlowsExecutionsCmd(),
+		newFlowsExecuteCmd(),
+	)
 
 	return cmd
 }
@@ -184,7 +187,7 @@ func runFlowsList(cmd *cobra.Command, flags flowsListFlags) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn flows show <name>",
+				Cmd:         "jsn flows <name>",
 				Description: "Show flow details",
 			},
 		),
@@ -360,7 +363,7 @@ func printStyledFlowsList(cmd *cobra.Command, flows []sdk.Flow, instanceURL stri
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn flows show <name>",
+		"jsn flows <name>",
 		mutedStyle.Render("Show flow details"),
 	)
 
@@ -391,40 +394,6 @@ func printMarkdownFlowsList(cmd *cobra.Command, flows []sdk.Flow) error {
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newFlowsShowCmd creates the flows show command.
-func newFlowsShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show [<identifier>] [variables]",
-		Aliases: []string{"get"},
-		Short:   "Show flow details",
-		Long: `Display detailed information about a flow.
-
-The identifier can be a flow name or sys_id.
-If no identifier is provided, an interactive picker will help you select one.
-Use "variables" as the second argument to show only flow variables.
-
-Examples:
-  jsn flows show "Approval Flow"
-  jsn flows show 0123456789abcdef0123456789abcdef
-  jsn flows show "Approval Flow" variables
-  jsn flows show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			var showVariables bool
-
-			if len(args) > 0 {
-				name = args[0]
-			}
-			if len(args) > 1 && args[1] == "variables" {
-				showVariables = true
-			}
-
-			return runFlowsShow(cmd, name, showVariables)
-		},
-	}
 }
 
 // runFlowsShow executes the flows show command.
@@ -519,8 +488,8 @@ func runFlowsShow(cmd *cobra.Command, name string, showVariables bool) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn flows list",
-				Description: "List all flows",
+				Cmd:         "jsn flows --search <term>",
+				Description: "Search flows",
 			},
 		),
 	)
@@ -835,7 +804,7 @@ func runFlowsExecutions(cmd *cobra.Command, name string, limit int) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn flows show %s", name),
+				Cmd:         fmt.Sprintf("jsn flows %s", name),
 				Description: "Show flow details",
 			},
 		),
@@ -1328,7 +1297,7 @@ func printStyledFlowInspection(cmd *cobra.Command, inspection *sdk.FlowInspectio
 			for i, step := range steps {
 				fmt.Fprintf(cmd.OutOrStdout(), "%d. %s\n", i+1, valueStyle.Render(step.label))
 				if step.kind == "subflow" && step.name != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", mutedStyle.Render(fmt.Sprintf("jsn flows show \"%s\"", step.name)))
+					fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", mutedStyle.Render(fmt.Sprintf("jsn flows \"%s\"", step.name)))
 				}
 			}
 		}
@@ -1471,7 +1440,7 @@ func printSubFlowStep(cmd *cobra.Command, stepNum int, pad string, subFlow map[s
 	}
 
 	// Show drill-down hint
-	fmt.Fprintf(cmd.OutOrStdout(), "%s   %s\n", pad, mutedStyle.Render(fmt.Sprintf("jsn flows show \"%s\"", subFlowName)))
+	fmt.Fprintf(cmd.OutOrStdout(), "%s   %s\n", pad, mutedStyle.Render(fmt.Sprintf("jsn flows \"%s\"", subFlowName)))
 }
 
 // printLogicStep prints a flow logic step with indentation

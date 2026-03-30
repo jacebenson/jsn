@@ -26,46 +26,40 @@ type jobsListFlags struct {
 	all     bool
 }
 
-// NewJobsCmd creates the jobs command group.
+// NewJobsCmd creates the jobs command.
 func NewJobsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "jobs",
-		Short: "Manage scheduled jobs/scripts",
-		Long:  "List and inspect ServiceNow scheduled jobs (sys_trigger, sysauto_script).",
-	}
-
-	cmd.AddCommand(
-		newJobsListCmd(),
-		newJobsShowCmd(),
-		newJobsExecutionsCmd(),
-		newJobsLogsCmd(),
-		newJobsRunCmd(),
-		newJobsScriptCmd(),
-	)
-
-	return cmd
-}
-
-// newJobsListCmd creates the jobs list command.
-func newJobsListCmd() *cobra.Command {
 	var flags jobsListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List scheduled jobs",
-		Long: `List scheduled jobs from sys_trigger (scheduled jobs) and sysauto_script (scheduled scripts).
+		Use:   "jobs [<name_or_sys_id>]",
+		Short: "Manage scheduled jobs/scripts",
+		Long: `List and inspect ServiceNow scheduled jobs (sys_trigger, sysauto_script).
+
+Usage:
+  jsn jobs                                    Interactive picker (TTY) or list jobs
+  jsn jobs <name_or_sys_id>                   Show job details
+  jsn jobs --search <term>                    Fuzzy search on name (LIKE match)
+  jsn jobs --query <encoded_query>            Raw ServiceNow encoded query
 
 Filtering:
   --search <term>   Fuzzy search on name (LIKE match)
   --query <query>   Raw ServiceNow encoded query for advanced filtering
+  --active          Show only active jobs
+  --type            Job type: scheduled or script
 
 Examples:
-  jsn jobs list
-  jsn jobs list --search daily
-  jsn jobs list --type scheduled
-  jsn jobs list --type script
-  jsn jobs list --active --limit 50`,
+  jsn jobs "Daily Cleanup"
+  jsn jobs --search daily
+  jsn jobs --type script
+  jsn jobs --active --limit 50`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by name or sys_id
+			if len(args) > 0 {
+				return runJobsShow(cmd, args[0], flags.jobType)
+			}
+
+			// Mode 2: Search/list (handles interactive picker when no filters)
 			return runJobsList(cmd, flags)
 		},
 	}
@@ -75,10 +69,16 @@ Examples:
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active jobs")
 	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
-	// Default order: "name" for alphabetical browsing - most intuitive for finding jobs
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all jobs (no limit)")
+
+	cmd.AddCommand(
+		newJobsExecutionsCmd(),
+		newJobsLogsCmd(),
+		newJobsRunCmd(),
+		newJobsScriptCmd(),
+	)
 
 	return cmd
 }
@@ -197,7 +197,7 @@ func runJobsList(cmd *cobra.Command, flags jobsListFlags) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn jobs show <sys_id>",
+				Cmd:         "jsn jobs <name>",
 				Description: "Show job details",
 			},
 		),
@@ -275,7 +275,7 @@ func printStyledJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob, instanceUR
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn jobs show <sys_id>",
+		"jsn jobs <name>",
 		mutedStyle.Render("Show job details"),
 	)
 
@@ -303,38 +303,6 @@ func printMarkdownJobsList(cmd *cobra.Command, jobs []sdk.ScheduledJob) error {
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newJobsShowCmd creates the jobs show command.
-func newJobsShowCmd() *cobra.Command {
-	var jobType string
-
-	cmd := &cobra.Command{
-		Use:     "show [<sys_id>]",
-		Aliases: []string{"get"},
-		Short:   "Show scheduled job details",
-		Long: `Display detailed information about a scheduled job.
-
-If no sys_id is provided, an interactive picker will help you select one.
-Use --type to specify if looking for a scheduled script (sysauto_script).
-
-Examples:
-  jsn jobs show 0123456789abcdef0123456789abcdef
-  jsn jobs show --type script 0123456789abcdef0123456789abcdef
-  jsn jobs show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var sysID string
-			if len(args) > 0 {
-				sysID = args[0]
-			}
-			return runJobsShow(cmd, sysID, jobType)
-		},
-	}
-
-	cmd.Flags().StringVarP(&jobType, "type", "t", "", "Job type: scheduled or script (required if sys_id not from sys_trigger)")
-
-	return cmd
 }
 
 // runJobsShow executes the jobs show command.
@@ -423,7 +391,7 @@ func runJobsShow(cmd *cobra.Command, sysID, jobType string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn jobs list",
+				Cmd:         "jsn jobs --search <term>",
 				Description: "List all jobs",
 			},
 		),
@@ -491,7 +459,7 @@ func printStyledJob(cmd *cobra.Command, job *sdk.ScheduledJob, instanceURL strin
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn jobs list",
+		"jsn jobs --search <term>",
 		mutedStyle.Render("List all jobs"),
 	)
 
@@ -648,7 +616,7 @@ func runJobsExecutions(cmd *cobra.Command, sysID string, limit int) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn jobs list",
+				Cmd:         "jsn jobs --search <term>",
 				Description: "List all jobs",
 			},
 		),
@@ -744,7 +712,7 @@ func printStyledJobExecutions(cmd *cobra.Command, executions []sdk.JobExecution,
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn jobs show "+jobID,
+		"jsn jobs "+jobID,
 		mutedStyle.Render("Show job details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -911,7 +879,7 @@ func runJobsRun(cmd *cobra.Command, sysID, jobType string) error {
 			},
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn jobs show %s", sysID),
+				Cmd:         fmt.Sprintf("jsn jobs %s", sysID),
 				Description: "Show job details",
 			},
 		),

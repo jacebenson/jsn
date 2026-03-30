@@ -28,44 +28,43 @@ type aclsListFlags struct {
 	all       bool
 }
 
-// NewACLsCmd creates the acls command group.
+// NewACLsCmd creates the acls command.
 func NewACLsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "acls",
-		Short: "Manage Access Control Lists (ACLs)",
-		Long:  "List and inspect ServiceNow ACLs (sys_security_acl).",
-	}
-
-	cmd.AddCommand(
-		newACLsListCmd(),
-		newACLsShowCmd(),
-		newACLsScriptCmd(),
-		newACLsCheckCmd(),
-	)
-
-	return cmd
-}
-
-// newACLsListCmd creates the acls list command.
-func newACLsListCmd() *cobra.Command {
 	var flags aclsListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List ACLs",
-		Long: `List Access Control Lists from sys_security_acl.
+		Use:   "acls [<name_or_sys_id>]",
+		Short: "Manage Access Control Lists (ACLs)",
+		Long: `List and inspect ServiceNow ACLs (sys_security_acl).
+
+Usage:
+  jsn acls                                    Interactive picker (TTY) or usage info
+  jsn acls <name_or_sys_id>                   Show ACL details
+  jsn acls --search <term>                    Fuzzy search on name (LIKE match)
+  jsn acls --query <encoded_query>            Raw ServiceNow encoded query
 
 Filtering:
   --search <term>   Fuzzy search on name (LIKE match)
   --query <query>   Raw ServiceNow encoded query for advanced filtering
+  --table <name>    Filter by table name
+  --active          Show only active ACLs
 
 Examples:
-  jsn acls list --table incident
-  jsn acls list --search read
-  jsn acls list --operation write
-  jsn acls list --type record
-  jsn acls list --active --limit 50`,
+  jsn acls "incident.read"
+  jsn acls --table incident
+  jsn acls --search read
+  jsn acls --operation write
+  jsn acls --type record
+  jsn acls --active --json
+  jsn acls --query "nameLIKEread^active=true" --limit 50`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by name or sys_id
+			if len(args) > 0 {
+				return runACLsShow(cmd, args[0])
+			}
+
+			// Mode 2 & 3: Search/list (handles interactive picker when no filters)
 			return runACLsList(cmd, flags)
 		},
 	}
@@ -81,6 +80,11 @@ Examples:
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all ACLs (no limit)")
+
+	cmd.AddCommand(
+		newACLsScriptCmd(),
+		newACLsCheckCmd(),
+	)
 
 	return cmd
 }
@@ -192,7 +196,7 @@ func runACLsList(cmd *cobra.Command, flags aclsListFlags) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn acls show <sys_id>",
+				Cmd:         "jsn acls <name>",
 				Description: "Show ACL details",
 			},
 			output.Breadcrumb{
@@ -268,7 +272,7 @@ func printStyledACLsList(cmd *cobra.Command, acls []sdk.ACL, instanceURL string)
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn acls show <sys_id>",
+		"jsn acls <name>",
 		mutedStyle.Render("Show ACL details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -296,30 +300,6 @@ func printMarkdownACLsList(cmd *cobra.Command, acls []sdk.ACL) error {
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newACLsShowCmd creates the acls show command.
-func newACLsShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show [<sys_id>]",
-		Aliases: []string{"get"},
-		Short:   "Show ACL details",
-		Long: `Display detailed information about an ACL.
-
-If no sys_id is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn acls show 0123456789abcdef0123456789abcdef
-  jsn acls show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var sysID string
-			if len(args) > 0 {
-				sysID = args[0]
-			}
-			return runACLsShow(cmd, sysID)
-		},
-	}
 }
 
 // runACLsShow executes the acls show command.
@@ -421,7 +401,7 @@ func runACLsShow(cmd *cobra.Command, sysID string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn acls list",
+				Cmd:         "jsn acls",
 				Description: "List all ACLs",
 			},
 			output.Breadcrumb{
@@ -514,7 +494,7 @@ func printStyledACL(cmd *cobra.Command, acl *sdk.ACL, roles []sdk.ACLRole, insta
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn acls list",
+		"jsn acls",
 		mutedStyle.Render("List all ACLs"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -748,7 +728,7 @@ func runACLsCheck(cmd *cobra.Command, table, operation string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn acls show <sys_id>",
+				Cmd:         "jsn acls <name>",
 				Description: "Show ACL details",
 			},
 		),
@@ -835,7 +815,7 @@ func printStyledACLCheck(cmd *cobra.Command, table, operation string, acls []sdk
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn acls list --table "+table,
+		"jsn acls --table "+table,
 		mutedStyle.Render("List all ACLs for table"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",

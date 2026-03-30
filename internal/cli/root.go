@@ -48,9 +48,23 @@ var (
 
 func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "jsn",
-		Short:         "ServiceNow CLI - agent-first, agent-native",
-		Long:          `A CLI for exploring and managing ServiceNow instances.`,
+		Use:   "jsn",
+		Short: "ServiceNow CLI - agent-first, agent-native",
+		Long: `A CLI for exploring and managing ServiceNow instances.
+
+Output modes (pick one):
+  --json     JSON envelope {ok, data, summary, breadcrumbs} — use when parsing
+  --md       Markdown tables — use when showing results to humans
+  --quiet    Raw JSON data only (no envelope)
+  --agent    JSON + quiet + no interactive prompts (for automation)
+  --jq <f>   Apply jq filter to JSON output
+
+Discovery:
+  jsn commands --md       Full command catalog with descriptions and hints
+  jsn <command> --help    Detailed usage for any command
+
+Hierarchy: Use specific commands (rules, flows, etc.) first. Fall back to
+'records --table <name>' for generic CRUD. Use 'rest' as a raw escape hatch.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -100,10 +114,7 @@ func NewRootCommand() *cobra.Command {
 	// ─── Dev Tools ───────────────────────────────────────────────────────
 	root.AddCommand(commands.NewUpdateSetCmd())
 	root.AddCommand(commands.NewScopeCmd())
-	root.AddCommand(commands.NewCompareCmd())
-	root.AddCommand(commands.NewExportCmd())
-	root.AddCommand(commands.NewImportCmd())
-	root.AddCommand(commands.NewGenerateCmd())
+
 	root.AddCommand(commands.NewRestCmd())
 	root.AddCommand(commands.NewEvalCmd())
 

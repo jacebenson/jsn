@@ -47,42 +47,42 @@ func TestCommandCreation(t *testing.T) {
 		{
 			name:     "Records command",
 			cmd:      NewRecordsCmd(),
-			expected: "records",
+			expected: "records [<sys_id>]",
 		},
 		{
 			name:     "Flows command",
 			cmd:      NewFlowsCmd(),
-			expected: "flows",
+			expected: "flows [<name_or_sys_id>] [variables]",
 		},
 		{
 			name:     "Rules command",
 			cmd:      NewRulesCmd(),
-			expected: "rules",
+			expected: "rules [<name_or_sys_id>]",
 		},
 		{
 			name:     "Jobs command",
 			cmd:      NewJobsCmd(),
-			expected: "jobs",
+			expected: "jobs [<name_or_sys_id>]",
 		},
 		{
 			name:     "ScriptIncludes command",
 			cmd:      NewScriptIncludesCmd(),
-			expected: "script-includes",
+			expected: "script-includes [<name_or_sys_id>]",
 		},
 		{
 			name:     "UI Policies command",
 			cmd:      NewUIPoliciesCmd(),
-			expected: "ui-policies",
+			expected: "ui-policies [<name_or_sys_id>]",
 		},
 		{
 			name:     "ACLs command",
 			cmd:      NewACLsCmd(),
-			expected: "acls",
+			expected: "acls [<name_or_sys_id>]",
 		},
 		{
 			name:     "Client Scripts command",
 			cmd:      NewClientScriptsCmd(),
-			expected: "client-scripts",
+			expected: "client-scripts [<name_or_sys_id>]",
 		},
 		{
 			name:     "Docs command",
@@ -98,6 +98,36 @@ func TestCommandCreation(t *testing.T) {
 			name:     "Version command",
 			cmd:      NewVersionCmd(),
 			expected: "version",
+		},
+		{
+			name:     "Portals command",
+			cmd:      NewPortalsCmd(),
+			expected: "sp [<identifier>]",
+		},
+		{
+			name:     "Widgets command",
+			cmd:      NewWidgetsCmd(),
+			expected: "sp-widgets [<identifier>]",
+		},
+		{
+			name:     "Pages command",
+			cmd:      NewPagesCmd(),
+			expected: "sp-pages [<identifier>]",
+		},
+		{
+			name:     "Catalog Item command",
+			cmd:      NewCatalogItemCmd(),
+			expected: "catalog-item [<sys_id_or_name>]",
+		},
+		{
+			name:     "Forms command",
+			cmd:      NewFormsCmd(),
+			expected: "forms [<table>]",
+		},
+		{
+			name:     "Lists command",
+			cmd:      NewListsCmd(),
+			expected: "lists [<table>]",
 		},
 	}
 
@@ -127,12 +157,26 @@ func TestTablesSubcommands(t *testing.T) {
 func TestACLsSubcommands(t *testing.T) {
 	cmd := NewACLsCmd()
 
-	subcommands := []string{"list", "show", "script", "check"}
+	// list and show were merged into the root command
+	subcommands := []string{"script", "check"}
 	for _, name := range subcommands {
 		t.Run(name, func(t *testing.T) {
 			sub := findSubcommand(cmd, name)
 			assert.NotNil(t, sub, "Subcommand %s should exist", name)
 		})
+	}
+
+	// Verify list and show are NOT subcommands anymore
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "order", "desc"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root acls command", flag)
 	}
 }
 
@@ -153,12 +197,26 @@ func TestDocsSubcommands(t *testing.T) {
 func TestJobsSubcommands(t *testing.T) {
 	cmd := NewJobsCmd()
 
-	subcommands := []string{"list", "show", "executions", "logs", "run", "script"}
+	// list and show were merged into the root command
+	subcommands := []string{"executions", "logs", "run", "script"}
 	for _, name := range subcommands {
 		t.Run(name, func(t *testing.T) {
 			sub := findSubcommand(cmd, name)
 			assert.NotNil(t, sub, "Subcommand %s should exist", name)
 		})
+	}
+
+	// Verify list and show are NOT subcommands anymore
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "order", "desc"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root jobs command", flag)
 	}
 }
 
@@ -200,12 +258,26 @@ func TestInstanceCommand(t *testing.T) {
 func TestFlowsSubcommands(t *testing.T) {
 	cmd := NewFlowsCmd()
 
-	subcommands := []string{"list", "show", "executions", "execute"}
+	// list and show were merged into the root command
+	subcommands := []string{"executions", "execute"}
 	for _, name := range subcommands {
 		t.Run(name, func(t *testing.T) {
 			sub := findSubcommand(cmd, name)
 			assert.NotNil(t, sub, "Subcommand %s should exist", name)
 		})
+	}
+
+	// Verify list and show are NOT subcommands anymore
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "active", "order", "desc", "all"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root flows command", flag)
 	}
 }
 
@@ -222,71 +294,155 @@ func TestTablesSubcommandsExtended(t *testing.T) {
 	}
 }
 
-// TestCompareCommand tests compare command
-func TestCompareCommand(t *testing.T) {
-	cmd := NewCompareCmd()
-	assert.NotNil(t, cmd, "Compare command should not be nil")
-	assert.Equal(t, "compare", cmd.Use, "Command name should be compare")
-
-	// Check subcommands
-	subcommands := []string{"tables", "script-includes", "choices", "flows"}
-	for _, name := range subcommands {
-		t.Run(name, func(t *testing.T) {
-			sub := findSubcommand(cmd, name)
-			assert.NotNil(t, sub, "Subcommand %s should exist", name)
-		})
-	}
-}
-
-// TestExportCommand tests export command
-func TestExportCommand(t *testing.T) {
-	cmd := NewExportCmd()
-	assert.NotNil(t, cmd, "Export command should not be nil")
-	assert.Equal(t, "export", cmd.Use, "Command name should be export")
-
-	// Check subcommands
-	subcommands := []string{"script-includes", "tables", "update-set"}
-	for _, name := range subcommands {
-		t.Run(name, func(t *testing.T) {
-			sub := findSubcommand(cmd, name)
-			assert.NotNil(t, sub, "Subcommand %s should exist", name)
-		})
-	}
-}
-
-// TestImportCommand tests import command
-func TestImportCommand(t *testing.T) {
-	cmd := NewImportCmd()
-	assert.NotNil(t, cmd, "Import command should not be nil")
-	assert.Equal(t, "import", cmd.Use, "Command name should be import")
-
-	// Check flags
-	assert.NotNil(t, cmd.Flag("file"), "Flag file should exist")
-	assert.NotNil(t, cmd.Flag("preview"), "Flag preview should exist")
-	assert.NotNil(t, cmd.Flag("force"), "Flag force should exist")
-}
-
-// TestGenerateCommand tests generate command
-func TestGenerateCommand(t *testing.T) {
-	cmd := NewGenerateCmd()
-	assert.NotNil(t, cmd, "Generate command should not be nil")
-	assert.Equal(t, "generate", cmd.Use, "Command name should be generate")
-
-	// Check subcommands
-	subcommands := []string{"gliderecord", "script-include", "rest", "test", "acl"}
-	for _, name := range subcommands {
-		t.Run(name, func(t *testing.T) {
-			sub := findSubcommand(cmd, name)
-			assert.NotNil(t, sub, "Subcommand %s should exist", name)
-		})
-	}
-}
-
 // TestKnownTopics tests that knownTopics is populated
 func TestKnownTopics(t *testing.T) {
 	assert.NotEmpty(t, knownTopics, "knownTopics should not be empty")
 	assert.Contains(t, knownTopics, "gliderecord", "should contain gliderecord")
 	assert.Contains(t, knownTopics, "operators", "should contain operators")
+}
+
+// TestPortalsCommand tests portals command (list/show merged into root)
+func TestPortalsCommand(t *testing.T) {
+	cmd := NewPortalsCmd()
+
+	// Verify list and show are NOT subcommands
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "order", "desc"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root sp command", flag)
+	}
+}
+
+// TestWidgetsCommand tests widgets command (list merged into root, show kept)
+func TestWidgetsCommand(t *testing.T) {
+	cmd := NewWidgetsCmd()
+
+	// show is kept as subcommand (has code-viewing flags)
+	sub := findSubcommand(cmd, "show")
+	assert.NotNil(t, sub, "Subcommand show should exist (kept for code flags)")
+
+	// list should NOT exist
+	assert.Nil(t, findSubcommand(cmd, "list"), "Subcommand list should NOT exist (merged into root)")
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "order", "desc"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root sp-widgets command", flag)
+	}
+}
+
+// TestPagesCommand tests pages command (list/show merged into root)
+func TestPagesCommand(t *testing.T) {
+	cmd := NewPagesCmd()
+
+	// Verify list and show are NOT subcommands
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "order", "desc"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root sp-pages command", flag)
+	}
+}
+
+// TestCatalogItemCommand tests catalog-item command (list/show merged into root)
+func TestCatalogItemCommand(t *testing.T) {
+	cmd := NewCatalogItemCmd()
+
+	// list and show should NOT exist as subcommands
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Action subcommands should still exist
+	for _, name := range []string{"create", "create-variable", "variables"} {
+		t.Run(name, func(t *testing.T) {
+			sub := findSubcommand(cmd, name)
+			assert.NotNil(t, sub, "Subcommand %s should exist", name)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"query", "limit", "catalog", "active"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root catalog-item command", flag)
+	}
+}
+
+// TestFormsCommand tests forms command (list/show merged into root)
+func TestFormsCommand(t *testing.T) {
+	cmd := NewFormsCmd()
+
+	// list and show should NOT exist as subcommands
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"table", "limit", "view"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root forms command", flag)
+	}
+}
+
+// TestListsCommand tests lists command (list/show merged into root)
+func TestListsCommand(t *testing.T) {
+	cmd := NewListsCmd()
+
+	// list and show should NOT exist as subcommands
+	for _, removed := range []string{"list", "show"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify root flags exist
+	for _, flag := range []string{"table", "limit", "view"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root lists command", flag)
+	}
+}
+
+// TestRecordsCommand tests records command (list/show/query/count/variables merged into root)
+func TestRecordsCommand(t *testing.T) {
+	cmd := NewRecordsCmd()
+
+	// create, update, delete should exist as subcommands
+	for _, name := range []string{"create", "update", "delete"} {
+		t.Run(name, func(t *testing.T) {
+			sub := findSubcommand(cmd, name)
+			assert.NotNil(t, sub, "Subcommand %s should exist", name)
+		})
+	}
+
+	// list, show, query, count, variables should NOT exist as subcommands (merged into root)
+	for _, removed := range []string{"list", "show", "query", "count", "variables"} {
+		t.Run("no_"+removed, func(t *testing.T) {
+			sub := findSubcommand(cmd, removed)
+			assert.Nil(t, sub, "Subcommand %s should NOT exist (merged into root)", removed)
+		})
+	}
+
+	// Verify --table persistent flag exists
+	assert.NotNil(t, cmd.PersistentFlags().Lookup("table"), "Persistent flag --table should exist on records command")
+
+	// Verify root flags exist
+	for _, flag := range []string{"search", "query", "limit", "fields", "order", "desc", "all", "count"} {
+		assert.NotNil(t, cmd.Flag(flag), "Flag --%s should exist on root records command", flag)
+	}
 }
 
 // findSubcommand finds a subcommand by name

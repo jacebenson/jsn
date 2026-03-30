@@ -456,7 +456,7 @@ Table names follow two patterns depending on their role:
 
 | Role | Mechanism | Example |
 |------|-----------|---------|
-| Primary noun (operating on this table) | Positional arg | `jsn records list incident`, `jsn forms show incident` |
+| Primary noun (operating on this table) | Positional arg or `--table` | `jsn records --table incident`, `jsn forms incident` |
 | Optional filter (narrowing a cross-table list) | `--table` / `-t` flag | `jsn forms list -t incident`, `jsn rules list -t incident` |
 
 All `--table` flags support the `-t` shorthand consistently across every command.

@@ -24,42 +24,38 @@ type widgetsListFlags struct {
 
 // NewWidgetsCmd creates the widgets command group.
 func NewWidgetsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "sp-widgets",
-		Aliases: []string{"sp-widget", "widgets", "widget"},
-		Short:   "Manage Service Portal Widgets",
-		Long:    "List and view ServiceNow Service Portal Widgets (global, not portal-specific).",
-	}
-
-	cmd.AddCommand(
-		newWidgetsListCmd(),
-		newWidgetsShowCmd(),
-	)
-
-	return cmd
-}
-
-// newWidgetsListCmd creates the widgets list command.
-func newWidgetsListCmd() *cobra.Command {
 	var flags widgetsListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List Service Portal Widgets",
-		Long: `List all ServiceNow Service Portal Widgets.
+		Use:     "sp-widgets [<identifier>]",
+		Aliases: []string{"sp-widget", "widgets", "widget"},
+		Short:   "Manage Service Portal Widgets",
+		Long: `List and view ServiceNow Service Portal Widgets (global, not portal-specific).
 
-These are global widgets that can be used across all portals.
-
-Filtering:
-  --search <term>   Fuzzy search on name or id (LIKE match)
-  --query <query>   Raw ServiceNow encoded query for advanced filtering
+Usage:
+  jsn sp-widgets                               Interactive picker (TTY) or usage info
+  jsn sp-widgets <id_or_sys_id>                Show widget details
+  jsn sp-widgets --search <term>               Fuzzy search on name or id (LIKE match)
+  jsn sp-widgets --query <encoded_query>       Raw ServiceNow encoded query
 
 Examples:
-  jsn sp-widgets list
-  jsn sp-widgets list --search kb
-  jsn sp-widgets list --limit 50
-  jsn sp-widgets list --query "active=true"`,
+  jsn sp-widgets kb-list
+  jsn sp-widgets --search kb
+  jsn sp-widgets --query "active=true"`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by identifier
+			if len(args) > 0 {
+				return runWidgetsShow(cmd, args[0], struct {
+					html   bool
+					css    bool
+					client bool
+					server bool
+					link   bool
+				}{})
+			}
+
+			// Mode 2 & 3: Search/list (handles interactive picker when no filters)
 			return runWidgetsList(cmd, flags)
 		},
 	}
@@ -67,9 +63,13 @@ Examples:
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of widgets to fetch")
 	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name or id")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
-	// Default order: "name" for alphabetical browsing - most intuitive for finding widgets
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
+
+	// Keep show as a subcommand for its code-viewing flags
+	cmd.AddCommand(
+		newWidgetsShowCmd(),
+	)
 
 	return cmd
 }
@@ -150,7 +150,7 @@ func runWidgetsList(cmd *cobra.Command, flags widgetsListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn sp-widgets show <id>",
+			Cmd:         "jsn sp-widgets <id>",
 			Description: "Show widget details",
 		},
 	}
@@ -218,7 +218,7 @@ func printStyledWidgetsList(cmd *cobra.Command, widgets []sdk.Widget, instanceUR
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp-widgets show <id>",
+		"jsn sp-widgets <id>",
 		labelStyle.Render("Show widget details"),
 	)
 
@@ -368,8 +368,8 @@ func runWidgetsShow(cmd *cobra.Command, id string, flags struct {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         "jsn sp-widgets list",
-			Description: "List all widgets",
+			Cmd:         "jsn sp-widgets --search <term>",
+			Description: "Search widgets",
 		},
 	}
 
@@ -428,8 +428,8 @@ func printStyledWidget(cmd *cobra.Command, widget *sdk.Widget, instanceURL strin
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn sp-widgets list",
-		labelStyle.Render("List all widgets"),
+		"jsn sp-widgets --search <term>",
+		labelStyle.Render("Search widgets"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
 		fmt.Sprintf("jsn sp-widgets show %s --html", hintID),
