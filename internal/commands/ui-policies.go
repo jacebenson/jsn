@@ -26,42 +26,41 @@ type uiPoliciesListFlags struct {
 	all    bool
 }
 
-// NewUIPoliciesCmd creates the ui-policies command group.
+// NewUIPoliciesCmd creates the ui-policies command.
 func NewUIPoliciesCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "ui-policies",
-		Short: "Manage UI policies",
-		Long:  "List and inspect ServiceNow UI policies (sys_ui_policy).",
-	}
-
-	cmd.AddCommand(
-		newUIPoliciesListCmd(),
-		newUIPoliciesShowCmd(),
-		newUIPoliciesScriptCmd(),
-	)
-
-	return cmd
-}
-
-// newUIPoliciesListCmd creates the ui-policies list command.
-func newUIPoliciesListCmd() *cobra.Command {
 	var flags uiPoliciesListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List UI policies",
-		Long: `List UI policies from sys_ui_policy.
+		Use:   "ui-policies [<name_or_sys_id>]",
+		Short: "Manage UI policies",
+		Long: `List and inspect ServiceNow UI policies (sys_ui_policy).
+
+Usage:
+  jsn ui-policies                                Interactive picker (TTY) or usage info
+  jsn ui-policies <name_or_sys_id>               Show policy details
+  jsn ui-policies --search <term>                Fuzzy search on short_description (LIKE match)
+  jsn ui-policies --query <encoded_query>        Raw ServiceNow encoded query
 
 Filtering:
   --search <term>   Fuzzy search on short_description (LIKE match)
   --query <query>   Raw ServiceNow encoded query for advanced filtering
+  --table <name>    Filter by table name
+  --active          Show only active policies
 
 Examples:
-  jsn ui-policies list --table incident
-  jsn ui-policies list --search approval
-  jsn ui-policies list --active
-  jsn ui-policies list --query "short_descriptionLIKEapproval^active=true" --limit 50`,
+  jsn ui-policies "My UI Policy"
+  jsn ui-policies --table incident
+  jsn ui-policies --search approval
+  jsn ui-policies --active --json
+  jsn ui-policies --query "short_descriptionLIKEapproval^active=true" --limit 50`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by name or sys_id
+			if len(args) > 0 {
+				return runUIPoliciesShow(cmd, args[0])
+			}
+
+			// Mode 2 & 3: Search/list (handles interactive picker when no filters)
 			return runUIPoliciesList(cmd, flags)
 		},
 	}
@@ -75,6 +74,10 @@ Examples:
 	cmd.Flags().StringVar(&flags.order, "order", "order", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all policies (no limit)")
+
+	cmd.AddCommand(
+		newUIPoliciesScriptCmd(),
+	)
 
 	return cmd
 }
@@ -185,7 +188,7 @@ func runUIPoliciesList(cmd *cobra.Command, flags uiPoliciesListFlags) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn ui-policies show <sys_id>",
+				Cmd:         "jsn ui-policies <name>",
 				Description: "Show policy details",
 			},
 			output.Breadcrumb{
@@ -269,7 +272,7 @@ func printStyledUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy, inst
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn ui-policies show <sys_id>",
+		"jsn ui-policies <name>",
 		mutedStyle.Render("Show policy details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -301,30 +304,6 @@ func printMarkdownUIPoliciesList(cmd *cobra.Command, policies []sdk.UIPolicy) er
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newUIPoliciesShowCmd creates the ui-policies show command.
-func newUIPoliciesShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show [<sys_id>]",
-		Aliases: []string{"get"},
-		Short:   "Show UI policy details",
-		Long: `Display detailed information about a UI policy.
-
-If no sys_id is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn ui-policies show 0123456789abcdef0123456789abcdef
-  jsn ui-policies show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var sysID string
-			if len(args) > 0 {
-				sysID = args[0]
-			}
-			return runUIPoliciesShow(cmd, sysID)
-		},
-	}
 }
 
 // runUIPoliciesShow executes the ui-policies show command.
@@ -412,7 +391,7 @@ func runUIPoliciesShow(cmd *cobra.Command, sysID string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn ui-policies list",
+				Cmd:         "jsn ui-policies --search <term>",
 				Description: "List all policies",
 			},
 			output.Breadcrumb{
@@ -502,7 +481,7 @@ func printStyledUIPolicy(cmd *cobra.Command, policy *sdk.UIPolicy, instanceURL s
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn ui-policies list",
+		"jsn ui-policies --search <term>",
 		mutedStyle.Render("List all policies"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",

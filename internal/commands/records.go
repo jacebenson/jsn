@@ -17,87 +17,120 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// recordsListFlags holds the flags for the records list command.
-type recordsListFlags struct {
+// recordsFlags holds the flags for the records root command.
+type recordsFlags struct {
+	table  string
 	limit  int
+	search string
 	query  string
 	fields string
 	order  string
 	desc   bool
 	all    bool
+	count  bool
 }
 
 // NewRecordsCmd creates the records command group.
 func NewRecordsCmd() *cobra.Command {
+	var flags recordsFlags
+
 	cmd := &cobra.Command{
-		Use:   "records",
+		Use:   "records [<sys_id>]",
 		Short: "Manage table records",
-		Long:  "List, show, create, update, and delete records from any ServiceNow table via the Table API.",
+		Long: `Query, inspect, and manage records from any ServiceNow table via the Table API.
+
+The --table flag is required and inherited by all subcommands (create, update, delete).
+Use specific commands (rules, flows, etc.) when they exist for a table — they provide
+curated views. Use records for everything else.
+
+Usage:
+  jsn records --table <table>                       List records (with count)
+  jsn records --table <table> <sys_id>              Show record details (with enrichment)
+  jsn records --table <table> --search <term>       Fuzzy search on display column
+  jsn records --table <table> --query <encoded>     Raw ServiceNow encoded query
+  jsn records --table <table> --count               Count records only
+
+Write Operations:
+  jsn records --table <table> create -f key=value   Create a new record
+  jsn records --table <table> update <sys_id> -f k=v  Update an existing record
+  jsn records --table <table> delete <sys_id>       Delete a record
+
+Filtering:
+  --search <term>    Fuzzy search on the table's display column (LIKE match)
+  --query <query>    Raw ServiceNow encoded query for advanced filtering
+  --count            Return only the record count (composable with --search/--query)
+  --fields <list>    Comma-separated fields to display
+
+Enrichment (on show):
+  All records:    Fetches record producer variable answers (question_answer table)
+  sc_req_item:    Fetches catalog variables (sc_item_option_mtom → item_option_new
+                  → sc_item_option) and multi-row variable sets (sc_multi_row_question_answer)
+  Task classes:   If sys_class_name differs from --table, re-fetches from the actual
+                  table to get class-specific fields (e.g., task → change_request)
+
+Examples:
+  jsn records --table incident
+  jsn records --table incident --search "server down"
+  jsn records --table incident --query "priority=1^active=true" --limit 50
+  jsn records --table incident --count --query "active=true"
+  jsn records --table incident 78271e1347c12200e0ef563dbb9a7109
+  jsn records --table sc_req_item RITM0010042
+  jsn records --table incident create -f short_description="Server down"`,
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by sys_id
+			if len(args) > 0 {
+				return runRecordsShow(cmd, args[0])
+			}
+
+			// Mode 2: Count-only mode
+			if flags.count {
+				return runRecordsCount(cmd, flags)
+			}
+
+			// Mode 3: List / search / picker
+			return runRecordsList(cmd, flags)
+		},
 	}
 
+	cmd.PersistentFlags().StringVar(&flags.table, "table", "", "ServiceNow table name (required)")
+	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of records to fetch")
+	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on the table's display column")
+	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+	cmd.Flags().StringVar(&flags.fields, "fields", "", "Comma-separated fields to display (default: sys_id,number,display_column)")
+	cmd.Flags().StringVar(&flags.order, "order", "sys_updated_on", "Order by field")
+	cmd.Flags().BoolVar(&flags.desc, "desc", true, "Sort in descending order")
+	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all records (no limit)")
+	cmd.Flags().BoolVar(&flags.count, "count", false, "Return only the record count")
+
 	cmd.AddCommand(
-		newRecordsListCmd(),
-		newRecordsShowCmd(),
 		newRecordsCreateCmd(),
 		newRecordsUpdateCmd(),
 		newRecordsDeleteCmd(),
-		newRecordsQueryCmd(),
-		newRecordsCountCmd(),
-		newRecordsVariablesCmd(),
 	)
 
 	return cmd
 }
 
-// newRecordsListCmd creates the records list command.
-func newRecordsListCmd() *cobra.Command {
-	var flags recordsListFlags
-
-	cmd := &cobra.Command{
-		Use:   "list [<table>]",
-		Short: "List records from a table",
-		Long: `List records from any ServiceNow table with optional filtering.
-
-Interactive Mode:
-  When running in a terminal without a table argument, automatically uses an interactive
-  picker to select a table.
-
-Filtering:
-  --query <encoded_query>  Use ServiceNow encoded query syntax
-  --fields <field1,field2> Comma-separated list of fields to display
-  --order <field>          Order by field (default: sys_updated_on)
-  --desc                   Sort in descending order
-
-Default Output:
-  Shows sys_id, number (or u_number), and the table's display column.
-
-Examples:
-  jsn records list incident
-  jsn records list incident --query "priority=1^state!=6" --limit 50
-  jsn records list --fields "sys_id,number,short_description" incident`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var table string
-			if len(args) > 0 {
-				table = args[0]
-			}
-			return runRecordsList(cmd, table, flags)
-		},
+// getTableFromFlags resolves the table name from the persistent --table flag,
+// falling back to interactive picker if TTY and no table provided.
+func getTableFromFlags(cmd *cobra.Command, sdkClient *sdk.Client, prompt string) (string, error) {
+	table, _ := cmd.Flags().GetString("table")
+	if table != "" {
+		return table, nil
 	}
 
-	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of records to fetch")
-	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
-	cmd.Flags().StringVar(&flags.fields, "fields", "", "Comma-separated fields to display (default: sys_id,number,display_field)")
-	// Default order: "sys_updated_on" for most recently changed - shows active records first
-	cmd.Flags().StringVar(&flags.order, "order", "sys_updated_on", "Order by field")
-	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
-	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all records (no limit)")
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+	appCtx := appctx.FromContext(cmd.Context())
+	if !isTerminal || (appCtx != nil && appCtx.NoInteractive()) {
+		return "", output.ErrUsage("--table is required. Example: jsn records --table incident")
+	}
 
-	return cmd
+	return pickTable(cmd.Context(), sdkClient, prompt)
 }
 
 // runRecordsList executes the records list command.
-func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) error {
+func runRecordsList(cmd *cobra.Command, flags recordsFlags) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -117,18 +150,9 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
-	// Interactive table selection if no table provided
-	if table == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal || appCtx.NoInteractive() {
-			return output.ErrUsage("Table name is required in non-interactive mode")
-		}
-
-		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table to list records from:")
-		if err != nil {
-			return err
-		}
-		table = selectedTable
+	table, err := getTableFromFlags(cmd, sdkClient, "Select a table to list records from:")
+	if err != nil {
+		return err
 	}
 
 	// Get the display column for this table
@@ -137,16 +161,38 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 		displayColumn = "name" // fallback
 	}
 
+	// Build query parts
+	var queryParts []string
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("%sLIKE%s", displayColumn, flags.search))
+	}
+	if flags.query != "" {
+		queryParts = append(queryParts, wrapSimpleQuery(flags.query, table))
+	}
+	combinedQuery := strings.Join(queryParts, "^")
+
+	// Determine output format early for interactive check
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	// Interactive mode - paginated picker, fetches on demand
+	useInteractive := isTerminal && !appCtx.NoInteractive() && format == output.FormatAuto
+	if useInteractive {
+		selectedID, err := pickRecordPaginated(cmd, sdkClient, table, displayColumn, combinedQuery, flags.order, flags.desc)
+		if err != nil {
+			return err
+		}
+		return runRecordsShow(cmd, selectedID)
+	}
+
 	// Build fields list
 	var fields []string
 	if flags.fields != "" {
 		fields = strings.Split(flags.fields, ",")
-		// Trim spaces
 		for i, f := range fields {
 			fields[i] = strings.TrimSpace(f)
 		}
 	} else {
-		// Default fields: sys_id, number, and display column
 		fields = []string{"sys_id", "number", displayColumn}
 	}
 
@@ -159,7 +205,7 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 	// Build options
 	opts := &sdk.ListRecordsOptions{
 		Limit:     limit,
-		Query:     flags.query,
+		Query:     combinedQuery,
 		Fields:    fields,
 		OrderBy:   flags.order,
 		OrderDesc: flags.desc,
@@ -172,23 +218,19 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 
 	// Get total count for display
 	countOpts := &sdk.CountRecordsOptions{
-		Query: flags.query,
+		Query: combinedQuery,
 	}
 	totalCount, countErr := sdkClient.CountRecords(cmd.Context(), table, countOpts)
 	if countErr != nil {
-		totalCount = 0 // Will fall back to just showing returned count
+		totalCount = 0
 	}
 
-	// Determine output format
-	format := outputWriter.GetFormat()
-	isTerminal := output.IsTTY(cmd.OutOrStdout())
-
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledRecordsList(cmd, table, records, fields, displayColumn, instanceURL, flags.query, totalCount)
+		return printStyledRecordsList(cmd, table, records, fields, displayColumn, instanceURL, combinedQuery, totalCount)
 	}
 
 	if format == output.FormatMarkdown {
-		return printMarkdownRecordsList(cmd, table, records, fields, instanceURL, flags.query, totalCount)
+		return printMarkdownRecordsList(cmd, table, records, fields, instanceURL, combinedQuery, totalCount)
 	}
 
 	// Build data for JSON/quiet output
@@ -198,7 +240,6 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 		for _, field := range fields {
 			row[field] = getFieldValue(record, field)
 		}
-		// Add link for styled output
 		if instanceURL != "" {
 			sysID := getFieldValue(record, "sys_id")
 			if sysIDStr, ok := sysID.(string); ok && sysIDStr != "" {
@@ -212,19 +253,18 @@ func runRecordsList(cmd *cobra.Command, table string, flags recordsListFlags) er
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         fmt.Sprintf("jsn records show %s <sys_id>", table),
+			Cmd:         fmt.Sprintf("jsn records --table %s <sys_id>", table),
 			Description: "Show record details",
 		},
 		{
 			Action:      "create",
-			Cmd:         fmt.Sprintf("jsn records create %s", table),
+			Cmd:         fmt.Sprintf("jsn records --table %s create", table),
 			Description: "Create new record",
 		},
 	}
 
-	// Add filter link breadcrumb if query was used, has valid operators, and instance URL is available
-	if flags.query != "" && instanceURL != "" {
-		filterLink := buildFilterLink(instanceURL, table, flags.query)
+	if combinedQuery != "" && instanceURL != "" {
+		filterLink := buildFilterLink(instanceURL, table, combinedQuery)
 		if filterLink != "" {
 			breadcrumbs = append(breadcrumbs, output.Breadcrumb{
 				Action:      "filter",
@@ -254,7 +294,6 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 	if query != "" && instanceURL != "" {
 		filterLink := buildFilterLink(instanceURL, table, query)
 		if filterLink != "" {
-			// Render title as hyperlink
 			titleWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", filterLink, title)
 			fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(titleWithLink))
 		} else {
@@ -265,7 +304,7 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Column headers - sys_id is exactly 32 chars, number ~20, display variable
+	// Column headers
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-32s %-20s %s\n",
 		mutedStyle.Render("Sys ID"),
 		headerStyle.Render("Number"),
@@ -279,13 +318,11 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 		number := getStringField(record, "number")
 		display := getStringField(record, displayColumn)
 
-		// Truncate display value if too long
 		displayWidth := 50
 		if len(display) > displayWidth {
 			display = display[:displayWidth-3] + "..."
 		}
 
-		// Create hyperlink if instance URL available (wrap sys_id with link)
 		if instanceURL != "" {
 			link := fmt.Sprintf("%s/%s.do?sys_id=%s", instanceURL, table, sysID)
 			sysIDWithLink := fmt.Sprintf("\x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\", link, sysID)
@@ -305,7 +342,7 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Show count - always show at least the number of records returned
+	// Show count
 	countText := fmt.Sprintf("%d records", len(records))
 	if totalCount > len(records) {
 		countText = fmt.Sprintf("Showing %d of %d records", len(records), totalCount)
@@ -317,24 +354,23 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 	fmt.Fprintln(cmd.OutOrStdout(), "─────")
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn records show %s <sys_id>", table),
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
+		fmt.Sprintf("jsn records --table %s <sys_id>", table),
 		labelStyle.Render("Show record details"),
 	)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn records create %s", table),
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
+		fmt.Sprintf("jsn records --table %s create", table),
 		labelStyle.Render("Create new record"),
 	)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
 		fmt.Sprintf("jsn tables schema %s", table),
 		labelStyle.Render("View table schema"),
 	)
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Query with --query or jsn records query <table> <encoded_query>"))
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Search: --search <term>  |  Query: --query <encoded_query>  |  Count: --count"))
 	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Operators: = != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR"))
-	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Full docs: jsn docs operators"))
 
-	// Show filter link if query was used, has valid operators, and instance URL is available
+	// Show filter link if query was used
 	if query != "" && instanceURL != "" {
 		filterLink := buildFilterLink(instanceURL, table, query)
 		if filterLink != "" {
@@ -355,7 +391,6 @@ func printStyledRecordsList(cmd *cobra.Command, table string, records []map[stri
 func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[string]interface{}, fields []string, instanceURL, query string, totalCount int) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "**Records from %s**\n\n", table)
 
-	// Show count - always show at least the number of records returned
 	countText := fmt.Sprintf("%d records", len(records))
 	if totalCount > len(records) {
 		countText = fmt.Sprintf("Showing %d of %d records", len(records), totalCount)
@@ -366,25 +401,21 @@ func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[st
 	fmt.Fprintln(cmd.OutOrStdout(), "| Sys ID | Number | Display |")
 	fmt.Fprintln(cmd.OutOrStdout(), "|--------|--------|---------|")
 
-	// Records
 	for _, record := range records {
 		sysID := getStringField(record, "sys_id")
 		number := getStringField(record, "number")
 		display := ""
-		// Try to find a display value
 		for _, field := range fields {
 			if field != "sys_id" && field != "number" {
 				display = getStringField(record, field)
 				break
 			}
 		}
-
 		fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s |\n", sysID, number, display)
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
 
-	// Show filter link if query was used, has valid operators, and instance URL is available
 	if query != "" && instanceURL != "" {
 		filterLink := buildFilterLink(instanceURL, table, query)
 		if filterLink != "" {
@@ -395,58 +426,18 @@ func printMarkdownRecordsList(cmd *cobra.Command, table string, records []map[st
 	// Hints
 	fmt.Fprintln(cmd.OutOrStdout(), "#### Hints")
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records show %s <sys_id>` — Show record details\n", table)
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records create %s` — Create new record\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records --table %s <sys_id>` — Show record details\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records --table %s create` — Create new record\n", table)
 	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn tables schema %s` — View table schema\n", table)
-	fmt.Fprintf(cmd.OutOrStdout(), "- Query with `--query` or `jsn records query %s <encoded_query>`\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- Search: `--search <term>` | Query: `--query <encoded_query>` | Count: `--count`\n")
 	fmt.Fprintln(cmd.OutOrStdout(), "- Operators: `= != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR`")
-	fmt.Fprintln(cmd.OutOrStdout(), "- Full docs: `jsn docs operators`")
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	return nil
 }
 
-// newRecordsShowCmd creates the records show command.
-// recordsShowFlags holds the flags for the records show command.
-type recordsShowFlags struct {
-	fields string
-}
-
-func newRecordsShowCmd() *cobra.Command {
-	var flags recordsShowFlags
-
-	cmd := &cobra.Command{
-		Use:     "show [<table>] <sys_id>",
-		Aliases: []string{"get"},
-		Short:   "Show record details",
-		Long: `Display detailed information about a specific record.
-
-If no table is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn records show incident <sys_id>
-  jsn records show incident <sys_id> --fields number,state,short_description
-  jsn records show <sys_id>  # Interactive table selection`,
-		Args: cobra.RangeArgs(1, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var table, sysID string
-			if len(args) == 2 {
-				table = args[0]
-				sysID = args[1]
-			} else {
-				sysID = args[0]
-			}
-			return runRecordsShow(cmd, table, sysID, flags)
-		},
-	}
-
-	cmd.Flags().StringVarP(&flags.fields, "fields", "f", "", "Comma-separated list of fields to display (e.g., 'number,state,short_description')")
-
-	return cmd
-}
-
 // runRecordsShow executes the records show command.
-func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFlags) error {
+func runRecordsShow(cmd *cobra.Command, sysID string) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -466,39 +457,20 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFl
 
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
-	// Interactive mode: if single arg looks like a table name, use it as table and pick record
-	if table == "" && !looksLikeSysID(sysID) {
-		// Single arg looks like a table name - use it as table
-		table = sysID
-		sysID = ""
+	// Resolve table from --table flag or picker
+	table, err := getTableFromFlags(cmd, sdkClient, "Select a table:")
+	if err != nil {
+		return err
 	}
 
-	// Interactive table selection if no table provided
-	if table == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Table name is required in non-interactive mode")
+	// If sysID doesn't look like a sys_id, treat it as a record number or name search
+	if !looksLikeSysID(sysID) {
+		// Try by number first
+		record, err := sdkClient.GetRecordByNumber(cmd.Context(), table, sysID)
+		if err == nil {
+			sysID = getStringField(record, "sys_id")
 		}
-
-		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table:")
-		if err != nil {
-			return err
-		}
-		table = selectedTable
-	}
-
-	// Interactive record selection if no sys_id provided (but table is set)
-	if sysID == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("sys_id is required in non-interactive mode")
-		}
-
-		selectedRecord, err := pickRecord(cmd.Context(), sdkClient, table, "Select a record:")
-		if err != nil {
-			return err
-		}
-		sysID = selectedRecord
+		// If not found by number, it stays as-is and GetRecord will fail with a clear error
 	}
 
 	// Get the record
@@ -507,21 +479,18 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFl
 		return fmt.Errorf("failed to get record: %w", err)
 	}
 
-	// Filter fields if specified
-	if flags.fields != "" {
-		fieldList := strings.Split(flags.fields, ",")
-		filteredRecord := make(map[string]interface{})
-		// Always include sys_id
-		if v, ok := record["sys_id"]; ok {
-			filteredRecord["sys_id"] = v
+	sysID = getStringField(record, "sys_id")
+
+	// If sys_class_name differs from the requested table, re-fetch from the
+	// actual table so we get class-specific fields and correct enrichment.
+	// E.g. querying "task" for CHG0000021 returns sys_class_name=change_request.
+	if actualClass := getRawField(record, "sys_class_name"); actualClass != "" && actualClass != table {
+		realRecord, err := sdkClient.GetRecord(cmd.Context(), actualClass, sysID)
+		if err == nil {
+			record = realRecord
+			table = actualClass
 		}
-		for _, field := range fieldList {
-			field = strings.TrimSpace(field)
-			if v, ok := record[field]; ok {
-				filteredRecord[field] = v
-			}
-		}
-		record = filteredRecord
+		// If re-fetch fails, fall through with the original record
 	}
 
 	// Determine output format
@@ -529,13 +498,14 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFl
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
 	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		err := printStyledRecord(cmd, table, record, instanceURL)
-		if err != nil {
+		if err := printStyledRecord(cmd, table, record, instanceURL); err != nil {
 			return err
 		}
-		// If this is a request item, show variables
+		// Enrichment: question_answer for ALL records
+		_ = printQuestionAnswers(cmd, sdkClient, table, sysID)
+		// Enrichment: sc_req_item gets catalog variables + MRVS
 		if table == "sc_req_item" {
-			_ = printSingleRowVariables(cmd, sdkClient, sysID)
+			_ = printCatalogVariables(cmd, sdkClient, sysID)
 			_ = printMRVS(cmd, sdkClient, sysID, instanceURL)
 		}
 		return nil
@@ -549,17 +519,17 @@ func runRecordsShow(cmd *cobra.Command, table, sysID string, flags recordsShowFl
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         fmt.Sprintf("jsn records list %s", table),
+			Cmd:         fmt.Sprintf("jsn records --table %s", table),
 			Description: "List all records",
 		},
 		{
 			Action:      "update",
-			Cmd:         fmt.Sprintf("jsn records update %s %s", table, sysID),
+			Cmd:         fmt.Sprintf("jsn records --table %s update %s", table, sysID),
 			Description: "Update this record",
 		},
 		{
 			Action:      "delete",
-			Cmd:         fmt.Sprintf("jsn records delete %s %s", table, sysID),
+			Cmd:         fmt.Sprintf("jsn records --table %s delete %s", table, sysID),
 			Description: "Delete this record",
 		},
 	}
@@ -589,46 +559,51 @@ func printStyledRecord(cmd *cobra.Command, table string, record map[string]inter
 	fmt.Fprintln(cmd.OutOrStdout())
 
 	// Define field categories and their order
-	fieldCategories := map[string][]string{
-		"Core": {
+	// Use ordered slice of pairs to preserve category order
+	type fieldCategory struct {
+		name   string
+		fields []string
+	}
+	categories := []fieldCategory{
+		{"Core", []string{
 			"number", "sys_id", "sys_class_name", "state", "stage", "active",
 			"short_description", "description", "priority", "urgency", "impact",
-		},
-		"People": {
+		}},
+		{"People", []string{
 			"opened_by", "requested_for", "assigned_to", "assignment_group",
 			"closed_by", "resolved_by", "caller_id", "u_requester",
-		},
-		"Request Info": {
+		}},
+		{"Request Info", []string{
 			"cat_item", "sc_catalog", "request", "order_guide", "quantity",
 			"price", "recurring_price", "recurring_frequency", "backordered",
 			"billable", "configuration_item", "cmdb_ci", "business_service",
-		},
-		"Dates & Times": {
+		}},
+		{"Dates & Times", []string{
 			"opened_at", "sys_created_on", "sys_updated_on", "closed_at",
 			"resolved_at", "work_start", "work_end", "due_date", "expected_start",
 			"estimated_delivery", "sla_due", "activity_due", "approval_set",
-		},
-		"Status & Approvals": {
+		}},
+		{"Status & Approvals", []string{
 			"approval", "approval_history", "approval_set", "upon_approval",
 			"upon_reject", "escalation", "made_sla",
-		},
-		"System": {
+		}},
+		{"System", []string{
 			"sys_domain", "sys_domain_path", "sys_created_by", "sys_updated_by",
 			"sys_mod_count", "sys_tags",
-		},
+		}},
 	}
 
 	// Track which fields have been printed
 	printed := make(map[string]bool)
 
 	// Print fields by category
-	for category, fields := range fieldCategories {
+	for _, cat := range categories {
 		categoryPrinted := false
-		for _, field := range fields {
+		for _, field := range cat.fields {
 			if value, exists := record[field]; exists && !printed[field] {
 				if !categoryPrinted {
 					fmt.Fprintln(cmd.OutOrStdout())
-					fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ "+category+" ─"))
+					fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ "+cat.name+" ─"))
 					categoryPrinted = true
 				}
 				valStr := formatValue(value)
@@ -669,8 +644,8 @@ func printStyledRecord(cmd *cobra.Command, table string, record map[string]inter
 	}
 
 	// Link
+	sysID := getStringField(record, "sys_id")
 	if instanceURL != "" {
-		sysID := getStringField(record, "sys_id")
 		link := fmt.Sprintf("%s/%s.do?sys_id=%s", instanceURL, table, sysID)
 		fmt.Fprintf(cmd.OutOrStdout(), "\n  %s  \x1b]8;;%s\x1b\\%s\x1b]8;;\x1b\\\n",
 			labelStyle.Render("Link:"),
@@ -685,16 +660,16 @@ func printStyledRecord(cmd *cobra.Command, table string, record map[string]inter
 	fmt.Fprintln(cmd.OutOrStdout(), "─────")
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn records list %s", table),
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
+		fmt.Sprintf("jsn records --table %s", table),
 		labelStyle.Render("List all records"),
 	)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn records update %s %s", table, getStringField(record, "sys_id")),
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
+		fmt.Sprintf("jsn records --table %s update %s", table, sysID),
 		labelStyle.Render("Update this record"),
 	)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn records delete %s %s", table, getStringField(record, "sys_id")),
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
+		fmt.Sprintf("jsn records --table %s delete %s", table, sysID),
 		labelStyle.Render("Delete this record"),
 	)
 
@@ -708,6 +683,7 @@ func printMarkdownRecord(cmd *cobra.Command, table string, record map[string]int
 	if number == "" {
 		number = getStringField(record, "sys_id")
 	}
+	sysID := getStringField(record, "sys_id")
 	fmt.Fprintf(cmd.OutOrStdout(), "**%s (%s)**\n\n", number, table)
 
 	fmt.Fprintln(cmd.OutOrStdout(), "#### Fields")
@@ -719,7 +695,6 @@ func printMarkdownRecord(cmd *cobra.Command, table string, record map[string]int
 	}
 
 	if instanceURL != "" {
-		sysID := getStringField(record, "sys_id")
 		link := fmt.Sprintf("%s/%s.do?sys_id=%s", instanceURL, table, sysID)
 		fmt.Fprintf(cmd.OutOrStdout(), "- **Link:** %s\n", link)
 	}
@@ -729,72 +704,18 @@ func printMarkdownRecord(cmd *cobra.Command, table string, record map[string]int
 	// Hints
 	fmt.Fprintln(cmd.OutOrStdout(), "#### Hints")
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records list %s` — List all records\n", table)
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records update %s %s` — Update this record\n", table, getStringField(record, "sys_id"))
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records delete %s %s` — Delete this record\n", table, getStringField(record, "sys_id"))
-	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records list %s --query \"active=true\"` — Query with filter\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records --table %s` — List all records\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records --table %s update %s` — Update this record\n", table, sysID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records --table %s delete %s` — Delete this record\n", table, sysID)
+	fmt.Fprintf(cmd.OutOrStdout(), "- `jsn records --table %s --query \"active=true\"` — Query with filter\n", table)
 	fmt.Fprintln(cmd.OutOrStdout(), "- Query operators: `= != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR`")
-	fmt.Fprintln(cmd.OutOrStdout(), "- Full docs: `jsn docs operators`")
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
 }
 
-// newRecordsCreateCmd creates the records create command.
-func newRecordsCreateCmd() *cobra.Command {
-	var fields []string
-	var jsonData string
-
-	cmd := &cobra.Command{
-		Use:   "create [<table>]",
-		Short: "Create a new record",
-		Long: `Create a new record in the specified table.
-
-Field Input:
-  Use --field (or -f) to set field values: --field short_description="Server down"
-  Use --data (or -d) to provide a JSON object: --data '{"short_description":"Server down"}'
-  Use @file to read a value from a file: -f script=@/tmp/script.js
-
-Interactive Mode:
-  If no table is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn records create incident --field short_description="Server down" --field priority=1
-  jsn records create incident -f short_description="Server down" -f priority=1
-  jsn records create incident -f script=@/tmp/my_script.js
-  jsn records create incident --data '{"short_description":"Server down","priority":"1"}'
-  jsn records create incident -d '{"short_description":"Server down","priority":"1"}'`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var table string
-			if len(args) > 0 {
-				table = args[0]
-			}
-			return runRecordsCreate(cmd, table, fields, jsonData)
-		},
-	}
-
-	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
-	cmd.Flags().StringVarP(&jsonData, "data", "d", "", "JSON object with field values")
-
-	return cmd
-}
-
-// resolveFieldValue resolves a field value, reading from a file if it starts with @.
-func resolveFieldValue(value string) (string, error) {
-	if strings.HasPrefix(value, "@") {
-		filePath := value[1:]
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return "", fmt.Errorf("reading %s: %w", filePath, err)
-		}
-		return string(content), nil
-	}
-	return value, nil
-}
-
-// runRecordsCreate executes the records create command.
-func runRecordsCreate(cmd *cobra.Command, table string, fields []string, jsonData string) error {
+// runRecordsCount executes count-only mode.
+func runRecordsCount(cmd *cobra.Command, flags recordsFlags) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -807,31 +728,182 @@ func runRecordsCreate(cmd *cobra.Command, table string, fields []string, jsonDat
 	outputWriter := appCtx.Output.(*output.Writer)
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
-	// Interactive table selection if no table provided
-	if table == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Table name is required in non-interactive mode")
-		}
+	table, err := getTableFromFlags(cmd, sdkClient, "Select a table to count records from:")
+	if err != nil {
+		return err
+	}
 
-		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table to create record in:")
-		if err != nil {
-			return err
+	// Get the display column for search
+	displayColumn := "name"
+	if flags.search != "" {
+		dc, dcErr := sdkClient.GetTableDisplayColumn(cmd.Context(), table)
+		if dcErr == nil {
+			displayColumn = dc
 		}
-		table = selectedTable
+	}
+
+	// Build query
+	var queryParts []string
+	if flags.search != "" {
+		queryParts = append(queryParts, fmt.Sprintf("%sLIKE%s", displayColumn, flags.search))
+	}
+	if flags.query != "" {
+		queryParts = append(queryParts, wrapSimpleQuery(flags.query, table))
+	}
+	combinedQuery := strings.Join(queryParts, "^")
+
+	opts := &sdk.CountRecordsOptions{
+		Query: combinedQuery,
+	}
+
+	count, err := sdkClient.CountRecords(cmd.Context(), table, opts)
+	if err != nil {
+		return fmt.Errorf("failed to count records: %w", err)
+	}
+
+	// Determine output format
+	format := outputWriter.GetFormat()
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
+		return printStyledCount(cmd, table, count, combinedQuery)
+	}
+
+	if format == output.FormatMarkdown {
+		return printMarkdownCount(cmd, table, count, combinedQuery)
+	}
+
+	// Build breadcrumbs
+	breadcrumbs := []output.Breadcrumb{
+		{
+			Action:      "list",
+			Cmd:         fmt.Sprintf("jsn records --table %s", table),
+			Description: "List records",
+		},
+	}
+
+	return outputWriter.OK(map[string]interface{}{
+		"table": table,
+		"count": count,
+		"query": combinedQuery,
+	},
+		output.WithSummary(fmt.Sprintf("%d records in %s", count, table)),
+		output.WithBreadcrumbs(breadcrumbs...),
+	)
+}
+
+// printStyledCount outputs styled count result.
+func printStyledCount(cmd *cobra.Command, table string, count int, query string) error {
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	labelStyle := mutedStyle
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Record Count: %s", table)))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n",
+		labelStyle.Render("Count:"),
+		headerStyle.Render(fmt.Sprintf("%d", count)),
+	)
+
+	if query != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n",
+			labelStyle.Render("Query:"),
+			query,
+		)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Hints
+	fmt.Fprintln(cmd.OutOrStdout(), "─────")
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
+	fmt.Fprintf(cmd.OutOrStdout(), "  %-55s  %s\n",
+		fmt.Sprintf("jsn records --table %s", table),
+		labelStyle.Render("List all records"),
+	)
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Search: --search <term>  |  Query: --query <encoded_query>"))
+	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Operators: = != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR"))
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// printMarkdownCount outputs markdown count result.
+func printMarkdownCount(cmd *cobra.Command, table string, count int, query string) error {
+	fmt.Fprintf(cmd.OutOrStdout(), "**Record Count: %s**\n\n", table)
+	fmt.Fprintf(cmd.OutOrStdout(), "- **Count:** %d\n", count)
+	if query != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "- **Query:** `%s`\n", query)
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+	return nil
+}
+
+// --- Write operation subcommands ---
+
+// newRecordsCreateCmd creates the records create command.
+func newRecordsCreateCmd() *cobra.Command {
+	var fields []string
+	var jsonData string
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new record",
+		Long: `Create a new record in the table specified by --table.
+
+Field Input:
+  Use --field (or -f) to set field values: --field short_description="Server down"
+  Use --data (or -d) to provide a JSON object: --data '{"short_description":"Server down"}'
+  Use @file to read a value from a file: -f script=@/tmp/script.js
+
+Examples:
+  jsn records --table incident create -f short_description="Server down" -f priority=1
+  jsn records --table incident create -f script=@/tmp/my_script.js
+  jsn records --table incident create -d '{"short_description":"Server down","priority":"1"}'`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRecordsCreate(cmd, fields, jsonData)
+		},
+	}
+
+	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
+	cmd.Flags().StringVarP(&jsonData, "data", "d", "", "JSON object with field values")
+
+	return cmd
+}
+
+// runRecordsCreate executes the records create command.
+func runRecordsCreate(cmd *cobra.Command, fields []string, jsonData string) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	table, err := getTableFromFlags(cmd, sdkClient, "Select a table to create record in:")
+	if err != nil {
+		return err
 	}
 
 	// Build data from fields and/or JSON
 	data := make(map[string]interface{})
 
-	// Parse JSON if provided
 	if jsonData != "" {
 		if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
 			return output.ErrUsage(fmt.Sprintf("Invalid JSON: %v", err))
 		}
 	}
 
-	// Parse field flags (override JSON values)
 	for _, field := range fields {
 		parts := strings.SplitN(field, "=", 2)
 		if len(parts) != 2 {
@@ -850,7 +922,6 @@ func runRecordsCreate(cmd *cobra.Command, table string, fields []string, jsonDat
 		return output.ErrUsage("No field values provided. Use --field or --data")
 	}
 
-	// Create the record
 	record, err := sdkClient.CreateRecord(cmd.Context(), table, data)
 	if err != nil {
 		return fmt.Errorf("failed to create record: %w", err)
@@ -861,12 +932,12 @@ func runRecordsCreate(cmd *cobra.Command, table string, fields []string, jsonDat
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn records show %s %s", table, getStringField(record, "sys_id")),
+				Cmd:         fmt.Sprintf("jsn records --table %s %s", table, getStringField(record, "sys_id")),
 				Description: "View record",
 			},
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         fmt.Sprintf("jsn records list %s", table),
+				Cmd:         fmt.Sprintf("jsn records --table %s", table),
 				Description: "List all records",
 			},
 		),
@@ -879,33 +950,22 @@ func newRecordsUpdateCmd() *cobra.Command {
 	var jsonData string
 
 	cmd := &cobra.Command{
-		Use:   "update [<table>] <sys_id>",
+		Use:   "update <sys_id>",
 		Short: "Update an existing record",
-		Long: `Update an existing record by sys_id.
+		Long: `Update an existing record by sys_id. Table is specified by --table.
 
 Field Input:
   Use --field (or -f) to set field values: --field short_description="Updated description"
   Use --data (or -d) to provide a JSON object: --data '{"short_description":"Updated"}'
   Use @file to read a value from a file: -f script=@/tmp/script.js
 
-Interactive Mode:
-  If no table is provided, an interactive picker will help you select one.
-
 Examples:
-  jsn records update incident <sys_id> --field priority=2
-  jsn records update incident <sys_id> -f state=6 -f close_code="Resolved"
-  jsn records update incident <sys_id> --data '{"state":"6","close_code":"Resolved"}'
-  jsn records update sys_script <sys_id> -f script=@/tmp/fix.js`,
-		Args: cobra.RangeArgs(1, 2),
+  jsn records --table incident update <sys_id> -f priority=2
+  jsn records --table incident update <sys_id> -f state=6 -f close_code="Resolved"
+  jsn records --table sys_script update <sys_id> -f script=@/tmp/fix.js`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var table, sysID string
-			if len(args) == 2 {
-				table = args[0]
-				sysID = args[1]
-			} else {
-				sysID = args[0]
-			}
-			return runRecordsUpdate(cmd, table, sysID, fields, jsonData)
+			return runRecordsUpdate(cmd, args[0], fields, jsonData)
 		},
 	}
 
@@ -916,7 +976,7 @@ Examples:
 }
 
 // runRecordsUpdate executes the records update command.
-func runRecordsUpdate(cmd *cobra.Command, table, sysID string, fields []string, jsonData string) error {
+func runRecordsUpdate(cmd *cobra.Command, sysID string, fields []string, jsonData string) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -929,31 +989,20 @@ func runRecordsUpdate(cmd *cobra.Command, table, sysID string, fields []string, 
 	outputWriter := appCtx.Output.(*output.Writer)
 	sdkClient := appCtx.SDK.(*sdk.Client)
 
-	// Interactive table selection if no table provided
-	if table == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Table name is required in non-interactive mode")
-		}
-
-		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table:")
-		if err != nil {
-			return err
-		}
-		table = selectedTable
+	table, err := getTableFromFlags(cmd, sdkClient, "Select a table:")
+	if err != nil {
+		return err
 	}
 
 	// Build data from fields and/or JSON
 	data := make(map[string]interface{})
 
-	// Parse JSON if provided
 	if jsonData != "" {
 		if err := json.Unmarshal([]byte(jsonData), &data); err != nil {
 			return output.ErrUsage(fmt.Sprintf("Invalid JSON: %v", err))
 		}
 	}
 
-	// Parse field flags (override JSON values)
 	for _, field := range fields {
 		parts := strings.SplitN(field, "=", 2)
 		if len(parts) != 2 {
@@ -972,7 +1021,6 @@ func runRecordsUpdate(cmd *cobra.Command, table, sysID string, fields []string, 
 		return output.ErrUsage("No updates specified. Use --field or --data")
 	}
 
-	// Update the record
 	record, err := sdkClient.UpdateRecord(cmd.Context(), table, sysID, data)
 	if err != nil {
 		return fmt.Errorf("failed to update record: %w", err)
@@ -983,12 +1031,12 @@ func runRecordsUpdate(cmd *cobra.Command, table, sysID string, fields []string, 
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn records show %s %s", table, sysID),
+				Cmd:         fmt.Sprintf("jsn records --table %s %s", table, sysID),
 				Description: "View updated record",
 			},
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         fmt.Sprintf("jsn records list %s", table),
+				Cmd:         fmt.Sprintf("jsn records --table %s", table),
 				Description: "List all records",
 			},
 		),
@@ -1000,26 +1048,16 @@ func newRecordsDeleteCmd() *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "delete [<table>] <sys_id>",
+		Use:   "delete <sys_id>",
 		Short: "Delete a record",
-		Long: `Delete a record by sys_id.
-
-Interactive Mode:
-  If no table is provided, an interactive picker will help you select one.
+		Long: `Delete a record by sys_id. Table is specified by --table.
 
 Examples:
-  jsn records delete incident <sys_id>
-  jsn records delete incident <sys_id> --force  # Skip confirmation`,
-		Args: cobra.RangeArgs(1, 2),
+  jsn records --table incident delete <sys_id>
+  jsn records --table incident delete <sys_id> --force`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var table, sysID string
-			if len(args) == 2 {
-				table = args[0]
-				sysID = args[1]
-			} else {
-				sysID = args[0]
-			}
-			return runRecordsDelete(cmd, table, sysID, force)
+			return runRecordsDelete(cmd, args[0], force)
 		},
 	}
 
@@ -1029,7 +1067,7 @@ Examples:
 }
 
 // runRecordsDelete executes the records delete command.
-func runRecordsDelete(cmd *cobra.Command, table, sysID string, force bool) error {
+func runRecordsDelete(cmd *cobra.Command, sysID string, force bool) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -1043,17 +1081,9 @@ func runRecordsDelete(cmd *cobra.Command, table, sysID string, force bool) error
 	sdkClient := appCtx.SDK.(*sdk.Client)
 	isTerminal := output.IsTTY(cmd.OutOrStdout())
 
-	// Interactive table selection if no table provided
-	if table == "" {
-		if !isTerminal {
-			return output.ErrUsage("Table name is required in non-interactive mode")
-		}
-
-		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table:")
-		if err != nil {
-			return err
-		}
-		table = selectedTable
+	table, err := getTableFromFlags(cmd, sdkClient, "Select a table:")
+	if err != nil {
+		return err
 	}
 
 	// Get record details for confirmation
@@ -1070,13 +1100,12 @@ func runRecordsDelete(cmd *cobra.Command, table, sysID string, force bool) error
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Delete record %s from %s? [y/N]: ", number, table)
 		var response string
-		_, _ = fmt.Scanln(&response) // Ignore error - user can just press enter
+		_, _ = fmt.Scanln(&response)
 		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
 			return fmt.Errorf("deletion cancelled")
 		}
 	}
 
-	// Delete the record
 	if err := sdkClient.DeleteRecord(cmd.Context(), table, sysID); err != nil {
 		return fmt.Errorf("failed to delete record: %w", err)
 	}
@@ -1090,206 +1119,426 @@ func runRecordsDelete(cmd *cobra.Command, table, sysID string, force bool) error
 	)
 }
 
-// newRecordsQueryCmd creates the records query command.
-func newRecordsQueryCmd() *cobra.Command {
-	var flags recordsListFlags
+// --- Enrichment functions ---
 
-	cmd := &cobra.Command{
-		Use:   "query <table> <encoded_query>",
-		Short: "Query records with raw encoded query",
-		Long: `Query records using ServiceNow's encoded query syntax.
+// printQuestionAnswers displays record producer variable answers for any record.
+// Queries the question_answer table where table_name=<table> and table_sys_id=<sys_id>.
+func printQuestionAnswers(cmd *cobra.Command, sdkClient *sdk.Client, table, sysID string) error {
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_query", fmt.Sprintf("table_name=%s^table_sys_id=%s", table, sysID))
+	query.Set("sysparm_fields", "question,value")
+	query.Set("sysparm_display_value", "true")
 
-This is a convenience command equivalent to:
-  jsn records list <table> --query "<encoded_query>"
-
-Examples:
-  jsn records query incident "priority=1^state!=6"
-  jsn records query incident "active=true^assigned_toISEMPTY" --limit 100`,
-		Args: cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			flags.query = args[1]
-			return runRecordsList(cmd, args[0], flags)
-		},
-	}
-
-	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 20, "Maximum number of records to fetch")
-	cmd.Flags().StringVar(&flags.fields, "fields", "", "Comma-separated fields to display")
-	// Default order: "sys_updated_on" for most recently changed - shows active records first
-	cmd.Flags().StringVar(&flags.order, "order", "sys_updated_on", "Order by field")
-	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
-	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all records (no limit)")
-
-	return cmd
-}
-
-// newRecordsCountCmd creates the records count command.
-func newRecordsCountCmd() *cobra.Command {
-	var query string
-
-	cmd := &cobra.Command{
-		Use:   "count [<table>]",
-		Short: "Count records in a table",
-		Long: `Count the number of records in a ServiceNow table.
-
-Interactive Mode:
-  When running in a terminal without a table argument, automatically uses an interactive
-  picker to select a table.
-
-Examples:
-  jsn records count incident
-  jsn records count incident --query "active=true"
-  jsn records count --query "priority=1" incident`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var table string
-			if len(args) > 0 {
-				table = args[0]
-			}
-			return runRecordsCount(cmd, table, query)
-		},
-	}
-
-	cmd.Flags().StringVar(&query, "query", "", "ServiceNow encoded query filter")
-
-	return cmd
-}
-
-// runRecordsCount executes the records count command.
-func runRecordsCount(cmd *cobra.Command, table, query string) error {
-	appCtx := appctx.FromContext(cmd.Context())
-	if appCtx == nil {
-		return fmt.Errorf("app not initialized")
-	}
-
-	if appCtx.SDK == nil {
-		return output.ErrAuth("no instance configured. Run: jsn setup")
-	}
-
-	outputWriter := appCtx.Output.(*output.Writer)
-	sdkClient := appCtx.SDK.(*sdk.Client)
-
-	// Interactive table selection if no table provided
-	if table == "" {
-		isTerminal := output.IsTTY(cmd.OutOrStdout())
-		if !isTerminal {
-			return output.ErrUsage("Table name is required in non-interactive mode")
-		}
-
-		selectedTable, err := pickTable(cmd.Context(), sdkClient, "Select a table to count records from:")
-		if err != nil {
-			return err
-		}
-		table = selectedTable
-	}
-
-	// Count the records
-	opts := &sdk.CountRecordsOptions{
-		Query: query,
-	}
-
-	count, err := sdkClient.CountRecords(cmd.Context(), table, opts)
+	resp, err := sdkClient.Get(cmd.Context(), "question_answer", query)
 	if err != nil {
-		return fmt.Errorf("failed to count records: %w", err)
+		return nil // Silently fail - optional enrichment
 	}
 
-	// Determine output format
-	format := outputWriter.GetFormat()
-	isTerminal := output.IsTTY(cmd.OutOrStdout())
-
-	if format == output.FormatStyled || (format == output.FormatAuto && isTerminal) {
-		return printStyledCount(cmd, table, count, query)
+	if len(resp.Result) == 0 {
+		return nil
 	}
 
-	if format == output.FormatMarkdown {
-		return printMarkdownCount(cmd, table, count, query)
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	valueStyle := lipgloss.NewStyle()
+
+	var answers []struct {
+		question string
+		value    string
 	}
 
-	// Build breadcrumbs
-	breadcrumbs := []output.Breadcrumb{
-		{
-			Action:      "list",
-			Cmd:         fmt.Sprintf("jsn records list %s", table),
-			Description: "List records",
-		},
-		{
-			Action:      "query",
-			Cmd:         fmt.Sprintf("jsn records query %s \"%s\"", table, query),
-			Description: "Query with filter",
-		},
+	for _, record := range resp.Result {
+		question := ""
+		if v, ok := record["question"]; ok && v != nil {
+			switch val := v.(type) {
+			case string:
+				question = val
+			case map[string]interface{}:
+				if dv, ok := val["display_value"].(string); ok {
+					question = dv
+				}
+			}
+		}
+
+		value := getStringField(record, "value")
+
+		if question != "" && value != "" {
+			answers = append(answers, struct {
+				question string
+				value    string
+			}{question, value})
+		}
 	}
 
-	return outputWriter.OK(map[string]interface{}{
-		"table": table,
-		"count": count,
-		"query": query,
-	},
-		output.WithSummary(fmt.Sprintf("%d records in %s", count, table)),
-		output.WithBreadcrumbs(breadcrumbs...),
-	)
+	if len(answers) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Record Producer Variables ─"))
+	for _, a := range answers {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+			labelStyle.Render(a.question+":"),
+			valueStyle.Render(a.value),
+		)
+	}
+
+	return nil
 }
 
-// printStyledCount outputs styled count result.
-func printStyledCount(cmd *cobra.Command, table string, count int, query string) error {
+// printCatalogVariables displays catalog variables for an sc_req_item.
+// Uses sc_item_option_mtom to find variable definitions, then resolves display labels
+// from item_option_new, and gets values from sc_item_option.
+func printCatalogVariables(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string) error {
+	// Step 1: Get the catalog item sys_id from the RITM
+	ritmQuery := url.Values{}
+	ritmQuery.Set("sysparm_limit", "1")
+	ritmQuery.Set("sysparm_query", fmt.Sprintf("sys_id=%s", ritmSysID))
+	ritmQuery.Set("sysparm_fields", "cat_item")
+	ritmQuery.Set("sysparm_display_value", "false")
+
+	ritmResp, err := sdkClient.Get(cmd.Context(), "sc_req_item", ritmQuery)
+	if err != nil || len(ritmResp.Result) == 0 {
+		// Fall back to the simple approach
+		return printCatalogVariablesSimple(cmd, sdkClient, ritmSysID)
+	}
+
+	catItemSysID := getStringField(ritmResp.Result[0], "cat_item")
+	if catItemSysID == "" {
+		return printCatalogVariablesSimple(cmd, sdkClient, ritmSysID)
+	}
+
+	// Step 2: Get variable definitions from sc_item_option_mtom
+	mtomQuery := url.Values{}
+	mtomQuery.Set("sysparm_limit", "100")
+	mtomQuery.Set("sysparm_query", fmt.Sprintf("sc_cat_item=%s", catItemSysID))
+	mtomQuery.Set("sysparm_fields", "sc_item_option")
+	mtomQuery.Set("sysparm_display_value", "false")
+
+	mtomResp, err := sdkClient.Get(cmd.Context(), "sc_item_option_mtom", mtomQuery)
+	if err != nil || len(mtomResp.Result) == 0 {
+		// Fall back to the simple approach
+		return printCatalogVariablesSimple(cmd, sdkClient, ritmSysID)
+	}
+
+	// Collect variable definition sys_ids
+	var varDefIDs []string
+	for _, record := range mtomResp.Result {
+		varID := getStringField(record, "sc_item_option")
+		if varID != "" {
+			varDefIDs = append(varDefIDs, varID)
+		}
+	}
+
+	if len(varDefIDs) == 0 {
+		return printCatalogVariablesSimple(cmd, sdkClient, ritmSysID)
+	}
+
+	// Step 3: Get variable definitions (display labels) from item_option_new
+	varDefQuery := url.Values{}
+	varDefQuery.Set("sysparm_limit", "100")
+	varDefQuery.Set("sysparm_query", fmt.Sprintf("sys_idIN%s", strings.Join(varDefIDs, ",")))
+	varDefQuery.Set("sysparm_fields", "sys_id,question_text,name,order")
+	varDefQuery.Set("sysparm_display_value", "true")
+
+	varDefResp, err := sdkClient.Get(cmd.Context(), "item_option_new", varDefQuery)
+	if err != nil {
+		return printCatalogVariablesSimple(cmd, sdkClient, ritmSysID)
+	}
+
+	// Build lookup: sys_id → display label
+	varLabels := make(map[string]string)
+	for _, record := range varDefResp.Result {
+		defID := getStringField(record, "sys_id")
+		label := getStringField(record, "question_text")
+		if label == "" {
+			label = getStringField(record, "name")
+		}
+		if defID != "" && label != "" {
+			varLabels[defID] = label
+		}
+	}
+
+	// Step 4: Get actual variable values from sc_item_option
+	optQuery := url.Values{}
+	optQuery.Set("sysparm_limit", "100")
+	optQuery.Set("sysparm_query", fmt.Sprintf("request_item=%s", ritmSysID))
+	optQuery.Set("sysparm_fields", "item_option_new,value")
+	optQuery.Set("sysparm_display_value", "true")
+
+	optResp, err := sdkClient.Get(cmd.Context(), "sc_item_option", optQuery)
+	if err != nil {
+		return nil
+	}
+
+	if len(optResp.Result) == 0 {
+		return nil
+	}
+
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	valueStyle := lipgloss.NewStyle()
+
+	var variables []struct {
+		question string
+		value    string
+	}
+
+	for _, record := range optResp.Result {
+		// Get the variable definition reference
+		varRef := ""
+		displayName := ""
+		if v, ok := record["item_option_new"]; ok && v != nil {
+			switch val := v.(type) {
+			case string:
+				varRef = val
+			case map[string]interface{}:
+				if dv, ok := val["display_value"].(string); ok {
+					displayName = dv
+				}
+				if vv, ok := val["value"].(string); ok {
+					varRef = vv
+				}
+			}
+		}
+
+		// Use the resolved label from item_option_new definitions if we have it
+		question := displayName
+		if varRef != "" {
+			if label, ok := varLabels[varRef]; ok {
+				question = label
+			}
+		}
+
+		value := getStringField(record, "value")
+
+		if question != "" && value != "" {
+			variables = append(variables, struct {
+				question string
+				value    string
+			}{question, value})
+		}
+	}
+
+	if len(variables) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Catalog Variables ─"))
+	for _, v := range variables {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+			labelStyle.Render(v.question+":"),
+			valueStyle.Render(v.value),
+		)
+	}
+
+	return nil
+}
+
+// printCatalogVariablesSimple is the fallback that uses sc_item_option display_value directly.
+func printCatalogVariablesSimple(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string) error {
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_query", fmt.Sprintf("request_item=%s", ritmSysID))
+	query.Set("sysparm_fields", "item_option_new,value")
+	query.Set("sysparm_display_value", "true")
+
+	resp, err := sdkClient.Get(cmd.Context(), "sc_item_option", query)
+	if err != nil {
+		return err
+	}
+
+	if len(resp.Result) == 0 {
+		return nil
+	}
+
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	valueStyle := lipgloss.NewStyle()
+
+	var variables []struct {
+		question string
+		value    string
+	}
+
+	for _, record := range resp.Result {
+		question := ""
+		if v, ok := record["item_option_new"]; ok && v != nil {
+			switch val := v.(type) {
+			case string:
+				question = val
+			case map[string]interface{}:
+				if dv, ok := val["display_value"].(string); ok {
+					question = dv
+				}
+			}
+		}
+
+		value := getStringField(record, "value")
+
+		if question != "" && value != "" {
+			variables = append(variables, struct {
+				question string
+				value    string
+			}{question, value})
+		}
+	}
+
+	if len(variables) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Catalog Variables ─"))
+	for _, v := range variables {
+		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
+			labelStyle.Render(v.question+":"),
+			valueStyle.Render(v.value),
+		)
+	}
+
+	return nil
+}
+
+// printMRVS displays multi-row variable set answers for a request item
+func printMRVS(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string, instanceURL string) error {
+	query := url.Values{}
+	query.Set("sysparm_limit", "100")
+	query.Set("sysparm_query", fmt.Sprintf("parent_id=%s", ritmSysID))
+	query.Set("sysparm_fields", "row_index,item_option_new,value")
+	query.Set("sysparm_display_value", "true")
+
+	resp, err := sdkClient.Get(cmd.Context(), "sc_multi_row_question_answer", query)
+	if err != nil {
+		return nil // Silently fail - MRVS is optional
+	}
+
+	if len(resp.Result) == 0 {
+		return nil
+	}
+
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	labelStyle := mutedStyle
 
-	fmt.Fprintln(cmd.OutOrStdout())
+	// Group by row_index
+	rows := make(map[string]map[string]string)
+	var rowOrder []string
+	var allColumns []string
+	columnSet := make(map[string]bool)
 
-	// Title
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render(fmt.Sprintf("Record Count: %s", table)))
-	fmt.Fprintln(cmd.OutOrStdout())
+	for _, record := range resp.Result {
+		rowID := getStringField(record, "row_index")
+		if rowID == "" {
+			continue
+		}
 
-	// Count display
-	fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n",
-		labelStyle.Render("Count:"),
-		headerStyle.Render(fmt.Sprintf("%d", count)),
-	)
+		if _, exists := rows[rowID]; !exists {
+			rowOrder = append(rowOrder, rowID)
+			rows[rowID] = make(map[string]string)
+		}
 
-	// Show query if provided
-	if query != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s  %s\n",
-			labelStyle.Render("Query:"),
-			query,
-		)
+		colName := ""
+		if v, ok := record["item_option_new"]; ok && v != nil {
+			switch val := v.(type) {
+			case string:
+				colName = val
+			case map[string]interface{}:
+				if dv, ok := val["display_value"].(string); ok {
+					colName = dv
+				}
+			}
+		}
+
+		value := getStringField(record, "value")
+
+		if colName != "" {
+			rows[rowID][colName] = value
+			if !columnSet[colName] {
+				columnSet[colName] = true
+				allColumns = append(allColumns, colName)
+			}
+		}
+	}
+
+	if len(rows) == 0 {
+		return nil
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
-
-	// Hints
-	fmt.Fprintln(cmd.OutOrStdout(), "─────")
+	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Multi-Row Variable Set Answers"))
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
-	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		fmt.Sprintf("jsn records list %s", table),
-		labelStyle.Render("List all records"),
-	)
-	if query != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-			fmt.Sprintf("jsn records query %s \"%s\"", table, query),
-			labelStyle.Render("Query with filter"),
-		)
+
+	// Calculate column widths
+	colWidths := make(map[string]int)
+	for _, col := range allColumns {
+		colWidths[col] = len(col)
+	}
+	for _, row := range rows {
+		for col, val := range row {
+			if len(val) > colWidths[col] {
+				colWidths[col] = len(val)
+			}
+		}
+	}
+	for col := range colWidths {
+		if colWidths[col] < 12 {
+			colWidths[col] = 12
+		}
+		if colWidths[col] > 40 {
+			colWidths[col] = 40
+		}
+	}
+
+	// Print header
+	fmt.Fprintf(cmd.OutOrStdout(), "│ Row │")
+	for _, col := range allColumns {
+		fmt.Fprintf(cmd.OutOrStdout(), " %-*s │", colWidths[col], col)
 	}
 	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Query operators: = != < > LIKE STARTSWITH ENDSWITH ISEMPTY ISNOTEMPTY IN ^(AND) ^OR"))
-	fmt.Fprintln(cmd.OutOrStdout(), labelStyle.Render("Full docs: jsn docs operators"))
+
+	// Print separator
+	fmt.Fprintf(cmd.OutOrStdout(), "│-----│")
+	for _, col := range allColumns {
+		fmt.Fprintf(cmd.OutOrStdout(), " %s │", strings.Repeat("-", colWidths[col]))
+	}
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	// Print rows
+	for i, rowID := range rowOrder {
+		row := rows[rowID]
+		fmt.Fprintf(cmd.OutOrStdout(), "│ %3d │", i+1)
+		for _, col := range allColumns {
+			val := row[col]
+			if len(val) > colWidths[col] {
+				val = val[:colWidths[col]-3] + "..."
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), " %-*s │", colWidths[col], val)
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
 
 	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", mutedStyle.Render(fmt.Sprintf("%d rows", len(rows))))
+
 	return nil
 }
 
-// printMarkdownCount outputs markdown count result.
-func printMarkdownCount(cmd *cobra.Command, table string, count int, query string) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "**Record Count: %s**\n\n", table)
-	fmt.Fprintf(cmd.OutOrStdout(), "- **Count:** %d\n", count)
-	if query != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "- **Query:** `%s`\n", query)
-	}
-	fmt.Fprintln(cmd.OutOrStdout())
-	return nil
-}
+// --- Helper functions ---
 
-// Helper functions
+// resolveFieldValue resolves a field value, reading from a file if it starts with @.
+func resolveFieldValue(value string) (string, error) {
+	if strings.HasPrefix(value, "@") {
+		filePath := value[1:]
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", fmt.Errorf("reading %s: %w", filePath, err)
+		}
+		return string(content), nil
+	}
+	return value, nil
+}
 
 // pickTable shows an interactive table picker and returns the selected table name.
 func pickTable(ctx context.Context, sdkClient *sdk.Client, title string) (string, error) {
@@ -1339,14 +1588,17 @@ func pickTable(ctx context.Context, sdkClient *sdk.Client, title string) (string
 	return selected.ID, nil
 }
 
-// pickRecord shows an interactive record picker for a table and returns the selected sys_id.
-func pickRecord(ctx context.Context, sdkClient *sdk.Client, table, title string) (string, error) {
+// pickRecordPaginated shows a paginated interactive picker for records.
+// Fetches pages on demand so the user can scroll through all records.
+func pickRecordPaginated(cmd *cobra.Command, sdkClient *sdk.Client, table, displayColumn, query, orderBy string, orderDesc bool) (string, error) {
 	fetcher := func(ctx context.Context, offset, limit int) (*tui.PageResult, error) {
 		opts := &sdk.ListRecordsOptions{
-			Limit:   limit,
-			Offset:  offset,
-			OrderBy: "sys_updated_on",
-			Fields:  []string{"sys_id", "number", "short_description", "name"},
+			Limit:     limit,
+			Offset:    offset,
+			Query:     query,
+			Fields:    []string{"sys_id", "number", displayColumn},
+			OrderBy:   orderBy,
+			OrderDesc: orderDesc,
 		}
 		records, err := sdkClient.ListRecords(ctx, table, opts)
 		if err != nil {
@@ -1357,33 +1609,39 @@ func pickRecord(ctx context.Context, sdkClient *sdk.Client, table, title string)
 		for _, r := range records {
 			sysID := getStringField(r, "sys_id")
 			number := getStringField(r, "number")
-			name := getStringField(r, "name")
-			desc := getStringField(r, "short_description")
+			display := getStringField(r, displayColumn)
 
-			// Use number if available, otherwise name
-			displayTitle := number
-			if displayTitle == "" {
-				displayTitle = name
+			title := number
+			if title == "" {
+				title = display
 			}
-			if displayTitle == "" {
-				displayTitle = sysID[:8] + "..."
+			if title == "" && len(sysID) > 8 {
+				title = sysID[:8] + "..."
+			}
+
+			desc := display
+			if desc == title {
+				desc = "" // avoid repeating
 			}
 
 			items = append(items, tui.PickerItem{
 				ID:          sysID,
-				Title:       displayTitle,
+				Title:       title,
 				Description: desc,
 			})
 		}
 
-		hasMore := len(records) >= limit
 		return &tui.PageResult{
 			Items:   items,
-			HasMore: hasMore,
+			HasMore: len(records) >= limit,
 		}, nil
 	}
 
-	selected, err := tui.PickWithPagination(title, fetcher, tui.WithMaxVisible(15))
+	selected, err := tui.PickWithPagination(
+		fmt.Sprintf("Select a record from %s:", table),
+		fetcher,
+		tui.WithMaxVisible(15),
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1416,6 +1674,7 @@ func getFieldValue(record map[string]interface{}, field string) interface{} {
 }
 
 // getStringField safely extracts a string value from a record map.
+// Prefers display_value for human-readable output.
 func getStringField(record map[string]interface{}, field string) string {
 	v := getFieldValue(record, field)
 	if v == nil {
@@ -1426,12 +1685,35 @@ func getStringField(record map[string]interface{}, field string) string {
 	case string:
 		return val
 	case map[string]interface{}:
-		// Handle reference field display value
 		if display, ok := val["display_value"].(string); ok {
 			return display
 		}
 		if value, ok := val["value"].(string); ok {
 			return value
+		}
+		return fmt.Sprintf("%v", val)
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
+
+// getRawField extracts the raw/internal value from a record map.
+// Prefers value over display_value — use for sys_class_name, sys_id, etc.
+func getRawField(record map[string]interface{}, field string) string {
+	v := getFieldValue(record, field)
+	if v == nil {
+		return ""
+	}
+
+	switch val := v.(type) {
+	case string:
+		return val
+	case map[string]interface{}:
+		if value, ok := val["value"].(string); ok {
+			return value
+		}
+		if display, ok := val["display_value"].(string); ok {
+			return display
 		}
 		return fmt.Sprintf("%v", val)
 	default:
@@ -1449,7 +1731,6 @@ func formatValue(v interface{}) string {
 	case string:
 		return val
 	case map[string]interface{}:
-		// Handle reference field display value
 		if display, ok := val["display_value"].(string); ok {
 			return display
 		}
@@ -1458,7 +1739,6 @@ func formatValue(v interface{}) string {
 		}
 		return fmt.Sprintf("%v", val)
 	case []interface{}:
-		// Handle array values
 		var parts []string
 		for _, item := range val {
 			parts = append(parts, formatValue(item))
@@ -1469,390 +1749,10 @@ func formatValue(v interface{}) string {
 	}
 }
 
-// strings.Title replacement for Go 1.18+
+// stringsTitle is a simple title case replacement for Go 1.18+
 func stringsTitle(s string) string {
 	if s == "" {
 		return ""
 	}
-	// Simple title case - capitalize first letter
 	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-// printMRVS displays multi-row variable set answers for a request item
-func printMRVS(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string, instanceURL string) error {
-	// Query MRVS data
-	query := url.Values{}
-	query.Set("sysparm_limit", "100")
-	query.Set("sysparm_query", fmt.Sprintf("parent_id=%s", ritmSysID))
-	query.Set("sysparm_fields", "row_index,item_option_new,value")
-	query.Set("sysparm_display_value", "true")
-
-	resp, err := sdkClient.Get(cmd.Context(), "sc_multi_row_question_answer", query)
-	if err != nil {
-		return err // Silently fail - MRVS is optional
-	}
-
-	if len(resp.Result) == 0 {
-		return nil // No MRVS data
-	}
-
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
-	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-
-	// Group by row_index
-	rows := make(map[string]map[string]string)
-	var rowOrder []string
-	var allColumns []string
-	columnSet := make(map[string]bool)
-
-	for _, record := range resp.Result {
-		rowID := getStringField(record, "row_index")
-		if rowID == "" {
-			continue
-		}
-
-		// Track row order
-		if _, exists := rows[rowID]; !exists {
-			rowOrder = append(rowOrder, rowID)
-			rows[rowID] = make(map[string]string)
-		}
-
-		// Get column name (handle display_value objects)
-		colName := ""
-		if v, ok := record["item_option_new"]; ok && v != nil {
-			switch val := v.(type) {
-			case string:
-				colName = val
-			case map[string]interface{}:
-				if dv, ok := val["display_value"].(string); ok {
-					colName = dv
-				}
-			}
-		}
-
-		value := getStringField(record, "value")
-
-		if colName != "" {
-			rows[rowID][colName] = value
-			if !columnSet[colName] {
-				columnSet[colName] = true
-				allColumns = append(allColumns, colName)
-			}
-		}
-	}
-
-	if len(rows) == 0 {
-		return nil
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Multi-Row Variable Set Answers"))
-	fmt.Fprintln(cmd.OutOrStdout())
-
-	// Calculate column widths
-	colWidths := make(map[string]int)
-	for _, col := range allColumns {
-		colWidths[col] = len(col)
-	}
-	for _, row := range rows {
-		for col, val := range row {
-			if len(val) > colWidths[col] {
-				colWidths[col] = len(val)
-			}
-		}
-	}
-	// Ensure minimum width and maximum width
-	for col := range colWidths {
-		if colWidths[col] < 12 {
-			colWidths[col] = 12
-		}
-		if colWidths[col] > 40 {
-			colWidths[col] = 40
-		}
-	}
-
-	// Print header
-	fmt.Print("│ Row │")
-	for _, col := range allColumns {
-		fmt.Printf(" %-*s │", colWidths[col], col)
-	}
-	fmt.Println()
-
-	// Print separator
-	fmt.Print("│-----│")
-	for _, col := range allColumns {
-		fmt.Printf(" %s │", strings.Repeat("-", colWidths[col]))
-	}
-	fmt.Println()
-
-	// Print rows
-	for i, rowID := range rowOrder {
-		row := rows[rowID]
-		fmt.Printf("│ %3d │", i+1)
-		for _, col := range allColumns {
-			val := row[col]
-			if len(val) > colWidths[col] {
-				val = val[:colWidths[col]-3] + "..."
-			}
-			fmt.Printf(" %-*s │", colWidths[col], val)
-		}
-		fmt.Println()
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintf(cmd.OutOrStdout(), "%s\n\n", mutedStyle.Render(fmt.Sprintf("%d rows", len(rows))))
-
-	return nil
-}
-
-// printSingleRowVariables displays single-row catalog variables for a request item
-func printSingleRowVariables(cmd *cobra.Command, sdkClient *sdk.Client, ritmSysID string) error {
-	query := url.Values{}
-	query.Set("sysparm_limit", "100")
-	query.Set("sysparm_query", fmt.Sprintf("request_item=%s", ritmSysID))
-	query.Set("sysparm_fields", "item_option_new,value")
-	query.Set("sysparm_display_value", "true")
-
-	resp, err := sdkClient.Get(cmd.Context(), "sc_item_option", query)
-	if err != nil {
-		return err
-	}
-
-	if len(resp.Result) == 0 {
-		return nil
-	}
-
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	valueStyle := lipgloss.NewStyle()
-
-	// Filter to only show variables with values
-	var variables []struct {
-		question string
-		value    string
-	}
-
-	for _, record := range resp.Result {
-		question := ""
-		if v, ok := record["item_option_new"]; ok && v != nil {
-			switch val := v.(type) {
-			case string:
-				question = val
-			case map[string]interface{}:
-				if dv, ok := val["display_value"].(string); ok {
-					question = dv
-				}
-			}
-		}
-
-		value := getStringField(record, "value")
-
-		if question != "" && value != "" {
-			variables = append(variables, struct {
-				question string
-				value    string
-			}{question, value})
-		}
-	}
-
-	if len(variables) == 0 {
-		return nil
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Catalog Variables ─"))
-	for _, v := range variables {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
-			labelStyle.Render(v.question+":"),
-			valueStyle.Render(v.value),
-		)
-	}
-
-	return nil
-}
-
-// newRecordsVariablesCmd creates the records variables command.
-func newRecordsVariablesCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "variables <ritm_sys_id>",
-		Short: "Show all variables (single-row and MRVS) for a request item",
-		Long: `Display all catalog variables for a request item including:
-- Single-row variables (from sc_item_option)
-- Multi-row variable sets (from sc_multi_row_question_answer)
-
-Examples:
-  jsn records variables 18c086abc32f36103c71770d0501312e`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRecordsVariables(cmd, args[0])
-		},
-	}
-}
-
-// runRecordsVariables executes the records variables command.
-func runRecordsVariables(cmd *cobra.Command, ritmSysID string) error {
-	appCtx := appctx.FromContext(cmd.Context())
-	if appCtx == nil {
-		return fmt.Errorf("app not initialized")
-	}
-
-	if appCtx.SDK == nil {
-		return output.ErrAuth("no instance configured. Run: jsn setup")
-	}
-
-	sdkClient := appCtx.SDK.(*sdk.Client)
-
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(output.BrandColor)
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#666666"))
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	valueStyle := lipgloss.NewStyle()
-
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Request Item Variables"))
-	fmt.Fprintln(cmd.OutOrStdout())
-	fmt.Fprintf(cmd.OutOrStdout(), "RITM: %s\n\n", ritmSysID)
-
-	// 1. Query single-row variables (sc_item_option)
-	query1 := url.Values{}
-	query1.Set("sysparm_limit", "100")
-	query1.Set("sysparm_query", fmt.Sprintf("request_item=%s", ritmSysID))
-	query1.Set("sysparm_fields", "item_option_new,value")
-	query1.Set("sysparm_display_value", "true")
-
-	resp1, err := sdkClient.Get(cmd.Context(), "sc_item_option", query1)
-	if err == nil && len(resp1.Result) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Single-Row Variables ─"))
-		for _, record := range resp1.Result {
-			question := ""
-			if v, ok := record["item_option_new"]; ok && v != nil {
-				switch val := v.(type) {
-				case string:
-					question = val
-				case map[string]interface{}:
-					if dv, ok := val["display_value"].(string); ok {
-						question = dv
-					}
-				}
-			}
-			value := getStringField(record, "value")
-			if question != "" && value != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %-25s  %s\n",
-					labelStyle.Render(question+":"),
-					valueStyle.Render(value),
-				)
-			}
-		}
-		fmt.Fprintln(cmd.OutOrStdout())
-	}
-
-	// 2. Query MRVS data (sc_multi_row_question_answer)
-	query2 := url.Values{}
-	query2.Set("sysparm_limit", "100")
-	query2.Set("sysparm_query", fmt.Sprintf("parent_id=%s", ritmSysID))
-	query2.Set("sysparm_fields", "row_index,item_option_new,value")
-	query2.Set("sysparm_display_value", "true")
-
-	resp2, err := sdkClient.Get(cmd.Context(), "sc_multi_row_question_answer", query2)
-	if err == nil && len(resp2.Result) > 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), sectionStyle.Render("─ Multi-Row Variable Sets ─"))
-
-		// Group by row_index
-		rows := make(map[string]map[string]string)
-		var rowOrder []string
-		columnSet := make(map[string]bool)
-		var allColumns []string
-
-		for _, record := range resp2.Result {
-			rowID := getStringField(record, "row_index")
-			if rowID == "" {
-				continue
-			}
-
-			if _, exists := rows[rowID]; !exists {
-				rowOrder = append(rowOrder, rowID)
-				rows[rowID] = make(map[string]string)
-			}
-
-			colName := ""
-			if v, ok := record["item_option_new"]; ok && v != nil {
-				switch val := v.(type) {
-				case string:
-					colName = val
-				case map[string]interface{}:
-					if dv, ok := val["display_value"].(string); ok {
-						colName = dv
-					}
-				}
-			}
-
-			value := getStringField(record, "value")
-
-			if colName != "" {
-				rows[rowID][colName] = value
-				if !columnSet[colName] {
-					columnSet[colName] = true
-					allColumns = append(allColumns, colName)
-				}
-			}
-		}
-
-		// Display as table
-		if len(rows) > 0 {
-			// Calculate column widths
-			colWidths := make(map[string]int)
-			for _, col := range allColumns {
-				colWidths[col] = len(col)
-			}
-			for _, row := range rows {
-				for col, val := range row {
-					if len(val) > colWidths[col] {
-						colWidths[col] = len(val)
-					}
-				}
-			}
-			for col := range colWidths {
-				if colWidths[col] < 12 {
-					colWidths[col] = 12
-				}
-				if colWidths[col] > 40 {
-					colWidths[col] = 40
-				}
-			}
-
-			// Print header
-			fmt.Print("│ Row │")
-			for _, col := range allColumns {
-				fmt.Printf(" %-*s │", colWidths[col], col)
-			}
-			fmt.Println()
-
-			// Print separator
-			fmt.Print("│-----│")
-			for _, col := range allColumns {
-				fmt.Printf(" %s │", strings.Repeat("-", colWidths[col]))
-			}
-			fmt.Println()
-
-			// Print rows
-			for i, rowID := range rowOrder {
-				row := rows[rowID]
-				fmt.Printf("│ %3d │", i+1)
-				for _, col := range allColumns {
-					val := row[col]
-					if len(val) > colWidths[col] {
-						val = val[:colWidths[col]-3] + "..."
-					}
-					fmt.Printf(" %-*s │", colWidths[col], val)
-				}
-				fmt.Println()
-			}
-			fmt.Fprintln(cmd.OutOrStdout())
-		}
-	}
-
-	if len(resp1.Result) == 0 && len(resp2.Result) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No variables found for this request item.")
-	}
-
-	return nil
 }

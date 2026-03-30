@@ -425,17 +425,12 @@ type FlowInspection struct {
 	Version            map[string]interface{}
 	Components         []map[string]interface{}
 	TriggerInstances   []map[string]interface{}
-	TimerTriggers      []map[string]interface{}
-	RecordTriggers     []map[string]interface{}
 	ActionInstances    []map[string]interface{}
 	ActionInstancesV2  []map[string]interface{}
 	FlowLogicInstances []map[string]interface{}
 	SubFlowInstances   []map[string]interface{}
-	StepInstances      []map[string]interface{}
 	FlowInputs         []map[string]interface{}
 	FlowOutputs        []map[string]interface{}
-	FlowDataVars       []map[string]interface{}
-	TriggerDefinitions []map[string]interface{}
 }
 
 // InspectFlow retrieves comprehensive information about a flow for debugging.
@@ -569,33 +564,7 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 		actionQuery.Set("sysparm_fields", "sys_id,action_type,order,active,comment,action_inputs,display_text,name")
 		if resp, err := c.Get(ctx, "sys_hub_action_instance", actionQuery); err == nil {
 			inspection.ActionInstances = resp.Result
-
-			// Look up action type names for V1 actions
-			actionTypeCache := make(map[string]string)
-			for _, action := range inspection.ActionInstances {
-				if at, ok := action["action_type"].(map[string]interface{}); ok {
-					actionID := getString(at, "value")
-					if actionID != "" {
-						// Check cache first
-						if name, found := actionTypeCache[actionID]; found {
-							at["display_value"] = name
-						} else {
-							// Fetch action type name
-							typeQuery := url.Values{}
-							typeQuery.Set("sysparm_query", fmt.Sprintf("sys_id=%s", actionID))
-							typeQuery.Set("sysparm_fields", "sys_id,name")
-							typeQuery.Set("sysparm_limit", "1")
-							if typeResp, err := c.Get(ctx, "sys_hub_action_type_base", typeQuery); err == nil && len(typeResp.Result) > 0 {
-								name := getString(typeResp.Result[0], "name")
-								if name != "" {
-									at["display_value"] = name
-									actionTypeCache[actionID] = name
-								}
-							}
-						}
-					}
-				}
-			}
+			c.resolveActionTypeNames(ctx, inspection.ActionInstances)
 		}
 	}
 
@@ -605,33 +574,7 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 	actionV2Query.Set("sysparm_fields", "sys_id,action_type,order,values,display_text")
 	if resp, err := c.Get(ctx, "sys_hub_action_instance_v2", actionV2Query); err == nil {
 		inspection.ActionInstancesV2 = resp.Result
-
-		// Look up action type names for V2 actions
-		actionTypeCache := make(map[string]string)
-		for _, action := range inspection.ActionInstancesV2 {
-			if at, ok := action["action_type"].(map[string]interface{}); ok {
-				actionID := getString(at, "value")
-				if actionID != "" {
-					// Check cache first
-					if name, found := actionTypeCache[actionID]; found {
-						at["display_value"] = name
-					} else {
-						// Fetch action type name
-						typeQuery := url.Values{}
-						typeQuery.Set("sysparm_query", fmt.Sprintf("sys_id=%s", actionID))
-						typeQuery.Set("sysparm_fields", "sys_id,name")
-						typeQuery.Set("sysparm_limit", "1")
-						if typeResp, err := c.Get(ctx, "sys_hub_action_type_base", typeQuery); err == nil && len(typeResp.Result) > 0 {
-							name := getString(typeResp.Result[0], "name")
-							if name != "" {
-								at["display_value"] = name
-								actionTypeCache[actionID] = name
-							}
-						}
-					}
-				}
-			}
-		}
+		c.resolveActionTypeNames(ctx, inspection.ActionInstancesV2)
 	}
 
 	// Get flow logic instances — skip if version payload already provided them
@@ -683,73 +626,35 @@ func (c *Client) InspectFlow(ctx context.Context, flowID string) (*FlowInspectio
 		}
 	}
 
-	// Get step instances (limit to 50, filter to only include ones with matching flow)
-	stepQuery := url.Values{}
-	stepQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	stepQuery.Set("sysparm_fields", "sys_id,action,step_type,order,label,inputs,flow")
-	stepQuery.Set("sysparm_limit", "50")
-	if resp, err := c.Get(ctx, "sys_hub_step_instance", stepQuery); err == nil {
-		// Filter to only include records where flow matches
-		for _, record := range resp.Result {
-			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
-				if getString(flowRef, "value") == flowID {
-					inspection.StepInstances = append(inspection.StepInstances, record)
-				}
-			}
-		}
-	}
-
-	// Get flow inputs — skip if version payload already provided them
-	if len(inspection.FlowInputs) == 0 {
-		inputQuery := url.Values{}
-		inputQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-		inputQuery.Set("sysparm_fields", "sys_id,name,label,type,mandatory,flow")
-		inputQuery.Set("sysparm_limit", "20")
-		if resp, err := c.Get(ctx, "sys_hub_flow_input", inputQuery); err == nil {
-			for _, record := range resp.Result {
-				if flowRef, ok := record["flow"].(map[string]interface{}); ok {
-					if getString(flowRef, "value") == flowID {
-						inspection.FlowInputs = append(inspection.FlowInputs, record)
-					}
-				}
-			}
-		}
-	}
-
-	// Get flow outputs — skip if version payload already provided them
-	if len(inspection.FlowOutputs) == 0 {
-		outputQuery := url.Values{}
-		outputQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-		outputQuery.Set("sysparm_fields", "sys_id,name,label,type,flow")
-		outputQuery.Set("sysparm_limit", "20")
-		if resp, err := c.Get(ctx, "sys_hub_flow_output", outputQuery); err == nil {
-			for _, record := range resp.Result {
-				if flowRef, ok := record["flow"].(map[string]interface{}); ok {
-					if getString(flowRef, "value") == flowID {
-						inspection.FlowOutputs = append(inspection.FlowOutputs, record)
-					}
-				}
-			}
-		}
-	}
-
-	// Get flow data vars (limit to 20, filter to only include ones with matching flow)
-	varQuery := url.Values{}
-	varQuery.Set("sysparm_query", fmt.Sprintf("flow=%s", flowID))
-	varQuery.Set("sysparm_fields", "sys_id,name,type,value,flow")
-	varQuery.Set("sysparm_limit", "20")
-	if resp, err := c.Get(ctx, "sys_flow_data_var", varQuery); err == nil {
-		// Filter to only include records where flow matches
-		for _, record := range resp.Result {
-			if flowRef, ok := record["flow"].(map[string]interface{}); ok {
-				if getString(flowRef, "value") == flowID {
-					inspection.FlowDataVars = append(inspection.FlowDataVars, record)
-				}
-			}
-		}
-	}
-
 	return inspection, nil
+}
+
+// resolveActionTypeNames looks up display names for action_type references
+// and sets the display_value on each action's action_type map.
+func (c *Client) resolveActionTypeNames(ctx context.Context, actions []map[string]interface{}) {
+	cache := make(map[string]string)
+	for _, action := range actions {
+		if at, ok := action["action_type"].(map[string]interface{}); ok {
+			actionID := getString(at, "value")
+			if actionID == "" {
+				continue
+			}
+			if name, found := cache[actionID]; found {
+				at["display_value"] = name
+				continue
+			}
+			typeQuery := url.Values{}
+			typeQuery.Set("sysparm_query", fmt.Sprintf("sys_id=%s", actionID))
+			typeQuery.Set("sysparm_fields", "sys_id,name")
+			typeQuery.Set("sysparm_limit", "1")
+			if typeResp, err := c.Get(ctx, "sys_hub_action_type_base", typeQuery); err == nil && len(typeResp.Result) > 0 {
+				if name := getString(typeResp.Result[0], "name"); name != "" {
+					at["display_value"] = name
+					cache[actionID] = name
+				}
+			}
+		}
+	}
 }
 
 // getDisplayOrValue extracts the value from a field that may be a display_value/value

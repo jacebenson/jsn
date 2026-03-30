@@ -16,8 +16,8 @@ curl -fsSL https://raw.githubusercontent.com/jacebenson/jsn/main/scripts/install
 jsn setup                           # Interactive first-time setup
 jsn tables list                     # List all tables
 jsn tables schema incident          # Show incident table schema
-jsn records list incident           # List incident records
-jsn rules list --table incident     # Show business rules
+jsn records --table incident                       # List incident records
+jsn rules --search incident                        # Show business rules
 ```
 
 ---
@@ -120,19 +120,19 @@ jsn tables schema incident                         # Show table inheritance
 jsn tables columns incident                        # Show all columns
 
 # Query records
-jsn records list incident                          # List records
-jsn records list incident --query "priority=1"     # Filter with encoded query
-jsn records show incident <sys_id>                 # Show specific record
+jsn records --table incident                          # List records
+jsn records --table incident --query "priority=1"     # Filter with encoded query
+jsn records --table incident <sys_id>                 # Show specific record
 
 # Manage data
-jsn records create incident --field short_description="Server down"
-jsn records update incident <sys_id> --field priority=1
-jsn records delete incident <sys_id> --force
+jsn records --table incident create -f short_description="Server down"
+jsn records --table incident update <sys_id> -f priority=1
+jsn records --table incident delete <sys_id> --force
 
 # Business logic
-jsn rules list --table incident                    # List business rules
-jsn flows list                                     # List flows
-jsn script-includes list                           # List script includes
+jsn rules --search incident                        # List business rules
+jsn flows --active                                 # List flows
+jsn script-includes                                # List script includes
 
 # Update sets
 jsn updateset list                                 # List update sets
@@ -212,7 +212,7 @@ Use `--help` to explore all commands and flags:
 ```bash
 jsn --help                    # List all top-level commands
 jsn tables --help             # Show tables subcommands
-jsn records list --help       # Show records list flags
+jsn records --table incident --help  # Show records flags
 ```
 
 Or use `jsn` with no arguments for an interactive command picker.

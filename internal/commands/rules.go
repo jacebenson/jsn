@@ -26,42 +26,41 @@ type rulesListFlags struct {
 	all    bool
 }
 
-// NewRulesCmd creates the rules command group.
+// NewRulesCmd creates the rules command.
 func NewRulesCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "rules",
-		Short: "Manage business rules",
-		Long:  "List and inspect ServiceNow business rules (sys_script).",
-	}
-
-	cmd.AddCommand(
-		newRulesListCmd(),
-		newRulesShowCmd(),
-		newRulesScriptCmd(),
-	)
-
-	return cmd
-}
-
-// newRulesListCmd creates the rules list command.
-func newRulesListCmd() *cobra.Command {
 	var flags rulesListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List business rules",
-		Long: `List business rules from sys_script.
+		Use:   "rules [<name_or_sys_id>]",
+		Short: "Manage business rules",
+		Long: `List and inspect ServiceNow business rules (sys_script).
+
+Usage:
+  jsn rules                                    Interactive picker (TTY) or usage info
+  jsn rules <name_or_sys_id>                   Show rule details
+  jsn rules --search <term>                    Fuzzy search on name (LIKE match)
+  jsn rules --query <encoded_query>            Raw ServiceNow encoded query
 
 Filtering:
   --search <term>   Fuzzy search on name (LIKE match)
   --query <query>   Raw ServiceNow encoded query for advanced filtering
+  --table <name>    Filter by table name
+  --active          Show only active rules
 
 Examples:
-  jsn rules list --table incident
-  jsn rules list --search approval
-  jsn rules list --active
-  jsn rules list --query "nameLIKEapproval^active=true" --limit 50`,
+  jsn rules "My Business Rule"
+  jsn rules --table incident
+  jsn rules --search approval
+  jsn rules --active --json
+  jsn rules --query "nameLIKEapproval^active=true" --limit 50`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by name or sys_id
+			if len(args) > 0 {
+				return runRulesShow(cmd, args[0])
+			}
+
+			// Mode 2 & 3: Search/list (handles interactive picker when no filters)
 			return runRulesList(cmd, flags)
 		},
 	}
@@ -75,6 +74,10 @@ Examples:
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all rules (no limit)")
+
+	cmd.AddCommand(
+		newRulesScriptCmd(),
+	)
 
 	return cmd
 }
@@ -184,7 +187,7 @@ func runRulesList(cmd *cobra.Command, flags rulesListFlags) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn rules show <sys_id>",
+				Cmd:         "jsn rules <name>",
 				Description: "Show rule details",
 			},
 			output.Breadcrumb{
@@ -260,7 +263,7 @@ func printStyledRulesList(cmd *cobra.Command, rules []sdk.BusinessRule, instance
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn rules show <sys_id>",
+		"jsn rules <name>",
 		mutedStyle.Render("Show rule details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -290,31 +293,7 @@ func printMarkdownRulesList(cmd *cobra.Command, rules []sdk.BusinessRule) error 
 	return nil
 }
 
-// newRulesShowCmd creates the rules show command.
-func newRulesShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show [<sys_id>]",
-		Aliases: []string{"get"},
-		Short:   "Show business rule details",
-		Long: `Display detailed information about a business rule.
-
-If no sys_id is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn rules show 0123456789abcdef0123456789abcdef
-  jsn rules show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var sysID string
-			if len(args) > 0 {
-				sysID = args[0]
-			}
-			return runRulesShow(cmd, sysID)
-		},
-	}
-}
-
-// runRulesShow executes the rules show command.
+// runRulesShow executes the rules show logic.
 func runRulesShow(cmd *cobra.Command, sysID string) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
@@ -393,8 +372,8 @@ func runRulesShow(cmd *cobra.Command, sysID string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn rules list",
-				Description: "List all rules",
+				Cmd:         "jsn rules --search <term>",
+				Description: "Search rules",
 			},
 			output.Breadcrumb{
 				Action:      "script",
@@ -475,8 +454,8 @@ func printStyledRule(cmd *cobra.Command, rule *sdk.BusinessRule, instanceURL str
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn rules list",
-		mutedStyle.Render("List all rules"),
+		"jsn rules --search <term>",
+		mutedStyle.Render("Search rules"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
 		fmt.Sprintf("jsn rules script %s", rule.SysID),

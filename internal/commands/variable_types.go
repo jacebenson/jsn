@@ -99,7 +99,7 @@ func runVariableTypes(cmd *cobra.Command) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "catalog-items",
-			Cmd:         "jsn catalog-item list",
+			Cmd:         "jsn catalog-item",
 			Description: "List catalog items",
 		},
 		{

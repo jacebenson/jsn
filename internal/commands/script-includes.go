@@ -26,43 +26,31 @@ type scriptIncludesListFlags struct {
 	all    bool
 }
 
-// NewScriptIncludesCmd creates the script-includes command group.
+// NewScriptIncludesCmd creates the script-includes command.
 func NewScriptIncludesCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "script-includes",
-		Aliases: []string{"scripts"},
-		Short:   "Manage script includes",
-		Long:    "List and inspect ServiceNow script includes (sys_script_include).",
-	}
-
-	cmd.AddCommand(
-		newScriptIncludesListCmd(),
-		newScriptIncludesShowCmd(),
-		newScriptIncludesScriptCmd(),
-	)
-
-	return cmd
-}
-
-// newScriptIncludesListCmd creates the script-includes list command.
-func newScriptIncludesListCmd() *cobra.Command {
 	var flags scriptIncludesListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List script includes",
-		Long: `List script includes from sys_script_include.
+		Use:     "script-includes [<name_or_sys_id>]",
+		Aliases: []string{"scripts"},
+		Short:   "Manage script includes",
+		Long: `List and inspect ServiceNow script includes (sys_script_include).
 
-Filtering:
-  --search <term>   Fuzzy search on name (LIKE match)
-  --query <query>   Raw ServiceNow encoded query for advanced filtering
+With no arguments, lists script includes (with optional filters).
+With a name or sys_id argument, shows details for that script include.
 
 Examples:
-  jsn script-includes list
-  jsn script-includes list --search Utils
-  jsn script-includes list --scope global
-  jsn script-includes list --active --limit 50`,
+  jsn script-includes                          # List script includes (interactive)
+  jsn script-includes --search Utils           # Search by name
+  jsn script-includes --scope global           # Filter by scope
+  jsn script-includes --active --limit 50      # Active only, limit 50
+  jsn script-includes MyScriptInclude          # Show details for a script include
+  jsn script-includes <sys_id>                 # Show by sys_id`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return runScriptIncludesShow(cmd, args[0])
+			}
 			return runScriptIncludesList(cmd, flags)
 		},
 	}
@@ -72,10 +60,13 @@ Examples:
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Show only active script includes")
 	cmd.Flags().StringVar(&flags.search, "search", "", "Fuzzy search on name")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
-	// Default order: "name" for alphabetical browsing - most intuitive for finding script includes
 	cmd.Flags().StringVar(&flags.order, "order", "name", "Order by field")
 	cmd.Flags().BoolVar(&flags.desc, "desc", false, "Sort in descending order")
 	cmd.Flags().BoolVar(&flags.all, "all", false, "Fetch all script includes (no limit)")
+
+	cmd.AddCommand(
+		newScriptIncludesScriptCmd(),
+	)
 
 	return cmd
 }
@@ -184,7 +175,7 @@ func runScriptIncludesList(cmd *cobra.Command, flags scriptIncludesListFlags) er
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         "jsn script-includes show <name>",
+				Cmd:         "jsn script-includes <name>",
 				Description: "Show script include details",
 			},
 			output.Breadcrumb{
@@ -262,7 +253,7 @@ func printStyledScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInclu
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn script-includes show <name>",
+		"jsn script-includes <name>",
 		mutedStyle.Render("Show script include details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -297,32 +288,6 @@ func printMarkdownScriptIncludesList(cmd *cobra.Command, scripts []sdk.ScriptInc
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newScriptIncludesShowCmd creates the script-includes show command.
-func newScriptIncludesShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show [<identifier>]",
-		Aliases: []string{"get"},
-		Short:   "Show script include details",
-		Long: `Display detailed information about a script include.
-
-The identifier can be a script include name or sys_id.
-If no identifier is provided, an interactive picker will help you select one.
-
-Examples:
-  jsn script-includes show "MyScriptInclude"
-  jsn script-includes show 0123456789abcdef0123456789abcdef
-  jsn script-includes show  # Interactive picker`,
-		Args: cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var name string
-			if len(args) > 0 {
-				name = args[0]
-			}
-			return runScriptIncludesShow(cmd, name)
-		},
-	}
 }
 
 // runScriptIncludesShow executes the script-includes show command.
@@ -401,7 +366,7 @@ func runScriptIncludesShow(cmd *cobra.Command, name string) error {
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn script-includes list",
+				Cmd:         "jsn script-includes --search <term>",
 				Description: "List all script includes",
 			},
 			output.Breadcrumb{
@@ -477,7 +442,7 @@ func printStyledScriptInclude(cmd *cobra.Command, script *sdk.ScriptInclude, ins
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn script-includes list",
+		"jsn script-includes --search <term>",
 		mutedStyle.Render("List all script includes"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",

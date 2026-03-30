@@ -13,16 +13,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// formsListFlags holds the flags for the forms list command.
+// formsListFlags holds the flags for the forms command.
 type formsListFlags struct {
 	table string
 	limit int
+	view  string
 }
 
 // NewFormsCmd creates the forms command group.
 func NewFormsCmd() *cobra.Command {
+	var flags formsListFlags
+
 	cmd := &cobra.Command{
-		Use:     "forms",
+		Use:     "forms [<table>]",
 		Aliases: []string{"form"},
 		Short:   "Manage UI Forms",
 		Long: `List and view ServiceNow UI Form layouts.
@@ -30,42 +33,33 @@ func NewFormsCmd() *cobra.Command {
 Forms are defined by sys_ui_section records for a specific table and view.
 Core UI uses views like "Default view", while Workspaces use views like "service operations workspace".
 
-Examples:
-  jsn forms list --table incident
-  jsn forms show incident --view "Default view"
-  jsn forms show incident --view "service operations workspace"`,
-	}
-
-	cmd.AddCommand(
-		newFormsListCmd(),
-		newFormsShowCmd(),
-	)
-
-	return cmd
-}
-
-// newFormsListCmd creates the forms list command.
-func newFormsListCmd() *cobra.Command {
-	var flags formsListFlags
-
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List form views for a table",
-		Long: `List all form views available for a table.
-
-If no table is specified, shows views across all tables.
+Usage:
+  jsn forms                                       List form views (requires --table)
+  jsn forms <table>                               Show form layout (Default view)
+  jsn forms <table> --view "service operations workspace"   Show specific view
+  jsn forms --table incident                      List all views for a table
 
 Examples:
-  jsn forms list
-  jsn forms list --table incident
-  jsn forms list --table incident --limit 50`,
+  jsn forms incident
+  jsn forms incident --view "Default view"
+  jsn forms incident --view "service operations workspace"
+  jsn forms --table incident`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct table lookup — show form layout
+			if len(args) > 0 {
+				showFlags := formsShowFlags{view: flags.view}
+				return runFormsShow(cmd, args[0], showFlags)
+			}
+
+			// Mode 2: List views (requires --table flag)
 			return runFormsList(cmd, flags)
 		},
 	}
 
 	cmd.Flags().StringVarP(&flags.table, "table", "t", "", "Table name to filter views")
 	cmd.Flags().IntVarP(&flags.limit, "limit", "n", 50, "Maximum number of views to fetch")
+	cmd.Flags().StringVar(&flags.view, "view", "Default view", "View name (default: \"Default view\")")
 
 	return cmd
 }
@@ -125,7 +119,7 @@ func runFormsList(cmd *cobra.Command, flags formsListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         fmt.Sprintf("jsn forms show %s --view <view>", flags.table),
+			Cmd:         fmt.Sprintf("jsn forms %s --view <view>", flags.table),
 			Description: "Show form layout",
 		},
 	}
@@ -194,7 +188,7 @@ func printStyledFormsList(cmd *cobra.Command, views []string, table string) erro
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	if table != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-			fmt.Sprintf("jsn forms show %s --view \"Default view\"", table),
+			fmt.Sprintf("jsn forms %s --view \"Default view\"", table),
 			labelStyle.Render("Show Default view layout"),
 		)
 	}
@@ -252,36 +246,9 @@ func printMarkdownFormsList(cmd *cobra.Command, views []string, table string) er
 	return nil
 }
 
-// formsShowFlags holds the flags for the forms show command.
+// formsShowFlags holds the flags for forms show mode.
 type formsShowFlags struct {
 	view string
-}
-
-// newFormsShowCmd creates the forms show command.
-func newFormsShowCmd() *cobra.Command {
-	var flags formsShowFlags
-
-	cmd := &cobra.Command{
-		Use:     "show <table>",
-		Aliases: []string{"get"},
-		Short:   "Show form layout for a table",
-		Long: `Display the form layout (sections and fields) for a table and view.
-
-If no view is specified, defaults to "Default view" for Core UI.
-
-Examples:
-  jsn forms show incident
-  jsn forms show incident --view "Default view"
-  jsn forms show incident --view "service operations workspace"`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runFormsShow(cmd, args[0], flags)
-		},
-	}
-
-	cmd.Flags().StringVar(&flags.view, "view", "Default view", "View name (default: \"Default view\")")
-
-	return cmd
 }
 
 // runFormsShow executes the forms show command.
@@ -405,12 +372,12 @@ func runFormsShow(cmd *cobra.Command, table string, flags formsShowFlags) error 
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         fmt.Sprintf("jsn forms list --table %s", table),
+			Cmd:         fmt.Sprintf("jsn forms --table %s", table),
 			Description: "List all views",
 		},
 		{
 			Action:      "list-layout",
-			Cmd:         fmt.Sprintf("jsn lists show %s --view \"%s\"", table, flags.view),
+			Cmd:         fmt.Sprintf("jsn lists %s --view \"%s\"", table, flags.view),
 			Description: "Show list columns",
 		},
 	}
@@ -527,11 +494,11 @@ func printStyledFormLayout(cmd *cobra.Command, table, view string, sections []sd
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, headerStyle.Render("Hints:"))
 	fmt.Fprintf(w, "  %-50s  %s\n",
-		fmt.Sprintf("jsn forms list --table %s", table),
+		fmt.Sprintf("jsn forms --table %s", table),
 		labelStyle.Render("List all views"),
 	)
 	fmt.Fprintf(w, "  %-50s  %s\n",
-		fmt.Sprintf("jsn lists show %s --view \"%s\"", table, view),
+		fmt.Sprintf("jsn lists %s --view \"%s\"", table, view),
 		labelStyle.Render("Show list columns"),
 	)
 

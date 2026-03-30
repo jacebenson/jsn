@@ -14,27 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCatalogItemCmd creates the catalog-item command group.
-func NewCatalogItemCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "catalog-item",
-		Aliases: []string{"cat-item", "ci"},
-		Short:   "Manage Service Catalog items",
-		Long:    "List, show, and manage Service Catalog items and their variables.",
-	}
-
-	cmd.AddCommand(
-		newCatalogItemListCmd(),
-		newCatalogItemShowCmd(),
-		newCatalogItemCreateCmd(),
-		newCatalogItemCreateVariableCmd(),
-		newCatalogItemVariablesCmd(),
-	)
-
-	return cmd
-}
-
-// catalogItemListFlags holds the flags for the catalog-item list command.
+// catalogItemListFlags holds the flags for the catalog-item command.
 type catalogItemListFlags struct {
 	limit   int
 	catalog string
@@ -42,21 +22,35 @@ type catalogItemListFlags struct {
 	query   string
 }
 
-// newCatalogItemListCmd creates the catalog-item list command.
-func newCatalogItemListCmd() *cobra.Command {
+// NewCatalogItemCmd creates the catalog-item command group.
+func NewCatalogItemCmd() *cobra.Command {
 	var flags catalogItemListFlags
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List catalog items",
-		Long: `List Service Catalog items with optional filtering.
+		Use:     "catalog-item [<sys_id_or_name>]",
+		Aliases: []string{"cat-item", "ci"},
+		Short:   "Manage Service Catalog items",
+		Long: `List, show, and manage Service Catalog items and their variables.
+
+Usage:
+  jsn catalog-item                               List catalog items (interactive picker in TTY)
+  jsn catalog-item <sys_id_or_name>              Show item details with variables
+  jsn catalog-item --query <encoded_query>       Raw ServiceNow encoded query
+  jsn catalog-item --active                      Only show active items
+  jsn catalog-item --catalog "Service Catalog"   Filter by catalog name
 
 Examples:
-  jsn catalog-item list
-  jsn catalog-item list --catalog "Service Catalog"
-  jsn catalog-item list --active --limit 50
-  jsn catalog-item list --query "nameLIKEphone"`,
+  jsn catalog-item "Order Nothing Phone"
+  jsn catalog-item --active --limit 50
+  jsn catalog-item --query "nameLIKEphone"`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mode 1: Direct lookup by identifier
+			if len(args) > 0 {
+				return runCatalogItemShow(cmd, args[0])
+			}
+
+			// Mode 2: List/search (handles interactive picker when no filters)
 			return runCatalogItemList(cmd, flags)
 		},
 	}
@@ -65,6 +59,12 @@ Examples:
 	cmd.Flags().StringVar(&flags.catalog, "catalog", "", "Filter by catalog name")
 	cmd.Flags().BoolVar(&flags.active, "active", false, "Only show active items")
 	cmd.Flags().StringVar(&flags.query, "query", "", "ServiceNow encoded query filter")
+
+	cmd.AddCommand(
+		newCatalogItemCreateCmd(),
+		newCatalogItemCreateVariableCmd(),
+		newCatalogItemVariablesCmd(),
+	)
 
 	return cmd
 }
@@ -131,7 +131,7 @@ func runCatalogItemList(cmd *cobra.Command, flags catalogItemListFlags) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn catalog-item show <sys_id>",
+			Cmd:         "jsn catalog-item <sys_id>",
 			Description: "Show item details",
 		},
 		{
@@ -208,7 +208,7 @@ func printStyledCatalogItemList(cmd *cobra.Command, items []map[string]interface
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn catalog-item show <sys_id>",
+		"jsn catalog-item <sys_id>",
 		labelStyle.Render("Show item details"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -243,27 +243,6 @@ func printMarkdownCatalogItemList(cmd *cobra.Command, items []map[string]interfa
 
 	fmt.Fprintln(cmd.OutOrStdout())
 	return nil
-}
-
-// newCatalogItemShowCmd creates the catalog-item show command.
-func newCatalogItemShowCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "show <sys_id_or_name>",
-		Aliases: []string{"get"},
-		Short:   "Show catalog item details",
-		Long: `Display detailed information about a catalog item including all variables.
-
-This command shows the catalog item's core fields and all associated variables
-(questions) configured on the item.
-
-Examples:
-  jsn catalog-item show cd21f895c3bbb2103c71770d050131a3
-  jsn catalog-item show "Order Nothing Phone"`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCatalogItemShow(cmd, args[0])
-		},
-	}
 }
 
 // runCatalogItemShow executes the catalog-item show command.
@@ -413,7 +392,7 @@ func runCatalogItemShow(cmd *cobra.Command, identifier string) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "list",
-			Cmd:         "jsn catalog-item list",
+			Cmd:         "jsn catalog-item",
 			Description: "List all catalog items",
 		},
 	}
@@ -514,11 +493,11 @@ func printStyledCatalogItem(cmd *cobra.Command, item map[string]interface{}, var
 	fmt.Fprintln(cmd.OutOrStdout())
 	fmt.Fprintln(cmd.OutOrStdout(), headerStyle.Render("Hints:"))
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn catalog-item list",
+		"jsn catalog-item",
 		labelStyle.Render("List all catalog items"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
-		"jsn catalog-item create-variable <sys_id> <name> --type 6 --question \"...\"",
+		fmt.Sprintf("jsn catalog-item create-variable %s <name> --type 6 --question \"...\"", sysID),
 		labelStyle.Render("Create a variable on this item"),
 	)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %-50s  %s\n",
@@ -790,7 +769,7 @@ func runCatalogItemCreate(cmd *cobra.Command, fields []string, jsonData string) 
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn catalog-item show %s", sysID),
+				Cmd:         fmt.Sprintf("jsn catalog-item %s", sysID),
 				Description: "View catalog item details",
 			},
 			output.Breadcrumb{
@@ -800,7 +779,7 @@ func runCatalogItemCreate(cmd *cobra.Command, fields []string, jsonData string) 
 			},
 			output.Breadcrumb{
 				Action:      "list",
-				Cmd:         "jsn catalog-item list",
+				Cmd:         "jsn catalog-item",
 				Description: "List all catalog items",
 			},
 		),
@@ -902,7 +881,7 @@ func runCatalogItemCreateVariable(cmd *cobra.Command, catItemSysID, varName, var
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "show",
-				Cmd:         fmt.Sprintf("jsn catalog-item show %s", catItemSysID),
+				Cmd:         fmt.Sprintf("jsn catalog-item %s", catItemSysID),
 				Description: "View catalog item with variables",
 			},
 			output.Breadcrumb{
@@ -987,7 +966,7 @@ func runCatalogItemVariables(cmd *cobra.Command, catItemSysID string) error {
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         fmt.Sprintf("jsn catalog-item show %s", catItemSysID),
+			Cmd:         fmt.Sprintf("jsn catalog-item %s", catItemSysID),
 			Description: "Show catalog item",
 		},
 		{
