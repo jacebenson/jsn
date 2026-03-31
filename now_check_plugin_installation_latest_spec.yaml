@@ -1,0 +1,26 @@
+---
+openapi: "3.0.1"
+info:
+  title: "Check Plugin Installation"
+  description: ""
+  version: "latest"
+externalDocs:
+  url: ""
+servers:
+- url: "https://dev207903.service-now.com/"
+paths:
+  /api/now/check_plugin_installation/is_plugin_installed/{pluginId}:
+    get:
+      description: ""
+      parameters:
+      - name: "pluginId"
+        in: "path"
+        required: true
+        schema: {}
+      responses:
+        "200":
+          description: "ok"
+          content:
+            application/json: {}
+            application/xml: {}
+            text/xml: {}

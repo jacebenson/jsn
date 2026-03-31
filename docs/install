@@ -176,8 +176,8 @@ setup_path() {
 
 verify_install() {
   local installed_version
-  if installed_version=$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null); then
-    info "${installed_version} installed"
+  if installed_version=$("$INSTALL_DIR/$BINARY_NAME" version 2>/dev/null | tail -1); then
+    info "${installed_version}"
     return 0
   fi
   error "Installation failed - JSN not working"
