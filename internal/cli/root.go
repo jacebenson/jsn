@@ -32,6 +32,7 @@ import (
 	"github.com/jacebenson/jsn/internal/config"
 	"github.com/jacebenson/jsn/internal/output"
 	"github.com/jacebenson/jsn/internal/sdk"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
@@ -140,6 +141,25 @@ func initializeApp(cmd *cobra.Command) error {
 	cfg, err := config.Load(cfgFile, profile)
 	if err != nil {
 		return err
+	}
+
+	// First-run auto-setup: if no profiles exist, run setup
+	if len(cfg.Profiles) == 0 && !noInteractive && !agentMode {
+		if isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd()) {
+			fmt.Fprintln(os.Stderr, "First run detected. Starting setup...")
+			setupCmd := commands.NewSetupCommand()
+			setupCmd.SetIn(cmd.InOrStdin())
+			setupCmd.SetOut(cmd.OutOrStdout())
+			setupCmd.SetErr(cmd.ErrOrStderr())
+			if err := setupCmd.Execute(); err != nil {
+				return fmt.Errorf("setup failed: %w", err)
+			}
+			// Reload config after setup
+			cfg, err = config.Load(cfgFile, profile)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	authManager := auth.NewManager(cfg)
