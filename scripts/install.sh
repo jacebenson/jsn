@@ -143,11 +143,6 @@ download_and_install() {
 }
 
 setup_path() {
-  # Skip on Windows - user needs to add to PATH manually
-  if [[ "$PLATFORM" == "windows" ]]; then
-    return 0
-  fi
-  
   # Check if already in PATH
   if [[ ":$PATH:" == *":$INSTALL_DIR:"* ]]; then
     return 0
@@ -155,11 +150,16 @@ setup_path() {
   
   # Determine shell config file
   local shell_rc=""
-  case "${SHELL:-}" in
-    */zsh) shell_rc="$HOME/.zshrc" ;;
-    */bash) shell_rc="$HOME/.bashrc" ;;
-    *) shell_rc="$HOME/.profile" ;;
-  esac
+  if [[ "$PLATFORM" == "windows" ]]; then
+    # On Windows, always use .bashrc for Git Bash
+    shell_rc="$HOME/.bashrc"
+  else
+    case "${SHELL:-}" in
+      */zsh) shell_rc="$HOME/.zshrc" ;;
+      */bash) shell_rc="$HOME/.bashrc" ;;
+      *) shell_rc="$HOME/.profile" ;;
+    esac
+  fi
   
   # Check if already in config
   if [[ -f "$shell_rc" ]] && grep -qF "$INSTALL_DIR" "$shell_rc" 2>/dev/null; then
@@ -172,6 +172,14 @@ setup_path() {
   echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$shell_rc"
   info "Added to $shell_rc"
   warn "Run: source $shell_rc"
+  
+  # On Windows, also warn about CMD/PowerShell
+  if [[ "$PLATFORM" == "windows" ]]; then
+    echo ""
+    warn "For Command Prompt or PowerShell, add this to your PATH manually:"
+    echo "  $INSTALL_DIR"
+    echo "  setx PATH \"%PATH%;$INSTALL_DIR\""
+  fi
 }
 
 verify_install() {
