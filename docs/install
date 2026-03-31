@@ -102,14 +102,20 @@ else
 fi
 
 # Find the binary (support both old format with versioned name and new format)
-BINARY_FILE=$(find . -maxdepth 1 -type f \( -name "jsn" -o -name "jsn.exe" -o -name "jsn_*" \) ! -name "*.tar.gz" ! -name "*.zip" | head -1)
+# Use shell globbing instead of find (Windows has a different find command)
+BINARY_FILE=""
+for f in jsn jsn.exe jsn_*; do
+  if [ -f "$f" ] && [ "$f" != "*.tar.gz" ] && [ "$f" != "*.zip" ]; then
+    BINARY_FILE="$f"
+    break
+  fi
+done
+
 if [ -z "$BINARY_FILE" ]; then
   echo -e "${RED}Could not find binary in archive${NC}"
   ls -la
   exit 1
 fi
-# Remove leading ./ if present
-BINARY_FILE=$(basename "$BINARY_FILE")
 echo "Found binary: $BINARY_FILE"
 
 # Install

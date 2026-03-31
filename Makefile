@@ -57,3 +57,8 @@ hooks:
 	@cp scripts/pre-commit .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
 	@echo "✓ Pre-commit hook installed. Run 'make hooks' again to update."
+
+# Sync install script to docs (for GitHub Pages)
+sync-install:
+	@cp scripts/install.sh docs/install
+	@echo "✓ docs/install synced with scripts/install.sh"
