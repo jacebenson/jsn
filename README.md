@@ -6,7 +6,7 @@ A CLI for exploring and managing ServiceNow instances. Works standalone or with 
 
 ```bash
 # Install in seconds
-curl -fsSL https://raw.githubusercontent.com/jacebenson/jsn/main/scripts/install.sh | bash
+curl -fsSL https://jsn.jace.pro/install | bash
 ```
 [View install script source →](scripts/install.sh)
 

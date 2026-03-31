@@ -24,7 +24,7 @@ func NewVersionCmd() *cobra.Command {
 				if result.Error == nil && result.UpdateAvailable {
 					fmt.Fprintln(cmd.OutOrStdout())
 					updateStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaa00"))
-					fmt.Fprintf(cmd.OutOrStdout(), "%s v%s is available. Run 'curl -fsSL https://raw.githubusercontent.com/jacebenson/jsn/main/scripts/install.sh | bash' to update.\n",
+					fmt.Fprintf(cmd.OutOrStdout(), "%s v%s is available. Run 'curl -fsSL https://jsn.jace.pro/install | bash' to update.\n",
 						updateStyle.Render("Note:"),
 						result.Latest)
 				}
