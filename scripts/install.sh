@@ -98,7 +98,7 @@ download_and_install() {
     ext="tar.gz"
   fi
   
-  local filename="jsn_${version}_${PLATFORM}_${ARCH}.${ext}"
+  local filename="jsn_v${version}_${PLATFORM}_${ARCH}.${ext}"
   local url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
   
   step "Downloading JSN v${version} for ${PLATFORM}/${ARCH}..."
