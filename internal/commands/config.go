@@ -317,6 +317,19 @@ func newConfigSetCommand() *cobra.Command {
 					return output.ErrNotFound(fmt.Sprintf("profile '%s' not found", value))
 				}
 				cfg.DefaultProfile = value
+			case "suppress-updateset-warning", "suppressupdatesetwarning":
+				activeProfile := cfg.GetActiveProfile()
+				if activeProfile == nil {
+					return output.ErrAuth("no active profile")
+				}
+				switch strings.ToLower(value) {
+				case "true", "1", "yes":
+					activeProfile.SuppressUpdateSetWarning = true
+				case "false", "0", "no":
+					activeProfile.SuppressUpdateSetWarning = false
+				default:
+					return output.ErrUsage("value must be 'true' or 'false'")
+				}
 			default:
 				return output.ErrUsage(fmt.Sprintf("unknown config key: %s", key))
 			}
@@ -349,6 +362,12 @@ func newConfigUnsetCommand() *cobra.Command {
 			switch strings.ToLower(key) {
 			case "default-profile", "defaultprofile":
 				cfg.DefaultProfile = ""
+			case "suppress-updateset-warning", "suppressupdatesetwarning":
+				activeProfile := cfg.GetActiveProfile()
+				if activeProfile == nil {
+					return output.ErrAuth("no active profile")
+				}
+				activeProfile.SuppressUpdateSetWarning = false
 			default:
 				return output.ErrUsage(fmt.Sprintf("unknown config key: %s", key))
 			}

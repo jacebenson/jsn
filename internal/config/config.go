@@ -22,10 +22,11 @@ type Config struct {
 }
 
 type Profile struct {
-	InstanceURL string `json:"instance_url"`
-	Username    string `json:"username,omitempty"`
-	AuthMethod  string `json:"auth_method,omitempty"`
-	Source      string `json:"-"` // "global" or "local" — not persisted
+	InstanceURL              string `json:"instance_url"`
+	Username                 string `json:"username,omitempty"`
+	AuthMethod               string `json:"auth_method,omitempty"`
+	SuppressUpdateSetWarning bool   `json:"suppress_updateset_warning,omitempty"`
+	Source                   string `json:"-"` // "global" or "local" — not persisted
 }
 
 type Source int

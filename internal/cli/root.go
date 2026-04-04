@@ -37,14 +37,15 @@ import (
 )
 
 var (
-	cfgFile       string
-	profile       string
-	jsonOutput    bool
-	agentMode     bool
-	quietMode     bool
-	mdOutput      bool
-	jqFilter      string
-	noInteractive bool
+	cfgFile            string
+	profile            string
+	jsonOutput         bool
+	agentMode          bool
+	quietMode          bool
+	mdOutput           bool
+	jqFilter           string
+	noInteractive      bool
+	noUpdateSetWarning bool
 )
 
 func NewRootCommand() *cobra.Command {
@@ -81,6 +82,7 @@ Hierarchy: Use specific commands (rules, flows, etc.) first. Fall back to
 	root.PersistentFlags().BoolVar(&mdOutput, "md", false, "Output as Markdown")
 	root.PersistentFlags().StringVar(&jqFilter, "jq", "", "Apply jq filter to JSON output")
 	root.PersistentFlags().BoolVar(&noInteractive, "no-interactive", false, "Disable interactive prompts (for scripts/CI)")
+	root.PersistentFlags().BoolVar(&noUpdateSetWarning, "no-updateset-warning", false, "Suppress the default update set warning")
 
 	// ─── Explore ─────────────────────────────────────────────────────────
 	root.AddCommand(commands.NewTablesCmd())
@@ -224,7 +226,7 @@ func initializeApp(cmd *cobra.Command) error {
 
 	// Check for default update set warning (only in interactive mode)
 	if sdkClient != nil && format != output.FormatQuiet && format != output.FormatJSON && !agentMode {
-		checkDefaultUpdateSet(cmd.Context(), sdkClient)
+		checkDefaultUpdateSet(cmd.Context(), sdkClient, cfg, noUpdateSetWarning)
 	}
 
 	return nil
@@ -232,7 +234,19 @@ func initializeApp(cmd *cobra.Command) error {
 
 // checkDefaultUpdateSet warns users if they're working in the default update set.
 // This helps prevent accidental changes to the default update set.
-func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client) {
+func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *config.Config, flagSuppressed bool) {
+	// Check if suppressed via flag
+	if flagSuppressed {
+		return
+	}
+
+	// Check if suppressed via config (active profile)
+	if activeProfile := cfg.GetActiveProfile(); activeProfile != nil {
+		if activeProfile.SuppressUpdateSetWarning {
+			return
+		}
+	}
+
 	currentUser, err := sdkClient.GetCurrentUser(ctx)
 	if err != nil {
 		return // Silently skip if we can't get the user
@@ -247,11 +261,14 @@ func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client) {
 	if strings.Contains(strings.ToLower(currentUpdateSet.Name), "default") {
 		warningStyle := lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#ffaa00"))
+			Foreground(lipgloss.Color("#ffaa217"))
 		hintStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#888888"))
-		scopeStyle := lipgloss.NewStyle().
+		nameStyle := lipgloss.NewStyle().
+			Bold(true).
 			Foreground(lipgloss.Color("#e8a217"))
+		cmdStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00afff"))
 
 		scope := currentUpdateSet.AppName
 		if scope == "" {
@@ -261,9 +278,19 @@ func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client) {
 			scope = "global"
 		}
 
-		fmt.Fprintln(os.Stderr, warningStyle.Render("⚠ You're in the 'default' update set"))
-		fmt.Fprintln(os.Stderr, scopeStyle.Render("  Scope: "+scope))
-		fmt.Fprintln(os.Stderr, hintStyle.Render("  Run 'jsn updateset use' to select or create an update set"))
+		fmt.Fprintln(os.Stderr, warningStyle.Render("⚠ Update set name contains 'default'"))
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  Current: ")+nameStyle.Render(currentUpdateSet.Name))
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  Scope:   ")+scope)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  This warning shows for any update set with 'default' in the name."))
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  Hiding it will suppress ALL such warnings."))
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  To use a different update set:"))
+		fmt.Fprintln(os.Stderr, cmdStyle.Render("    jsn updateset use"))
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, hintStyle.Render("  To hide this warning (all 'default' update sets):"))
+		fmt.Fprintln(os.Stderr, cmdStyle.Render("    jsn updateset hide-warning    # Permanent"))
+		fmt.Fprintln(os.Stderr, cmdStyle.Render("    --no-updateset-warning        # This session only"))
 		fmt.Fprintln(os.Stderr)
 	}
 }

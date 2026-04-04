@@ -44,6 +44,7 @@ func NewUpdateSetCmd() *cobra.Command {
 		newUpdateSetUseCmd(),
 		newUpdateSetCreateCmd(),
 		newUpdateSetParentCmd(),
+		newUpdateSetHideWarningCmd(),
 	)
 
 	return cmd
@@ -683,6 +684,65 @@ func newUpdateSetParentCmd() *cobra.Command {
 			return runUpdateSetParent(cmd, childName, parentName)
 		},
 	}
+}
+
+// newUpdateSetHideWarningCmd creates the updateset hide-warning command.
+func newUpdateSetHideWarningCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "hide-warning",
+		Short: "Hide the default update set warning",
+		Long: `Permanently hide the warning shown when using the default update set.
+
+This saves the preference to your config file. You can re-enable the warning with:
+  jsn config unset suppress-updateset-warning`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUpdateSetHideWarning(cmd)
+		},
+	}
+}
+
+// runUpdateSetHideWarning executes the hide-warning command.
+func runUpdateSetHideWarning(cmd *cobra.Command) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	cfg := appCtx.Config.(*config.Config)
+	activeProfile := cfg.GetActiveProfile()
+	if activeProfile == nil {
+		return output.ErrAuth("no active profile")
+	}
+
+	// Enable suppression
+	activeProfile.SuppressUpdateSetWarning = true
+
+	// Save config
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Show confirmation
+	warningStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#e8a217"))
+	successStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00ff00"))
+	hintStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#888888"))
+	cmdStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00afff"))
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), warningStyle.Render("⚠ Default update set warning is now hidden"))
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), successStyle.Render("✓ Preference saved to your profile"))
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), hintStyle.Render("To show the warning again:"))
+	fmt.Fprintln(cmd.OutOrStdout(), cmdStyle.Render("  jsn config unset suppress-updateset-warning"))
+	fmt.Fprintln(cmd.OutOrStdout())
+
+	return nil
 }
 
 // runUpdateSetParent executes the updateset parent command.
