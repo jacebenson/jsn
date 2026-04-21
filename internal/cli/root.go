@@ -36,15 +36,14 @@ import (
 )
 
 var (
-	cfgFile            string
-	profile            string
-	jsonOutput         bool
-	agentMode          bool
-	quietMode          bool
-	mdOutput           bool
-	jqFilter           string
-	noInteractive      bool
-	noUpdateSetWarning bool
+	cfgFile       string
+	profile       string
+	jsonOutput    bool
+	agentMode     bool
+	quietMode     bool
+	mdOutput      bool
+	jqFilter      string
+	noInteractive bool
 )
 
 func NewRootCommand() *cobra.Command {
@@ -86,7 +85,6 @@ Use 'rest' or 'eval' only as escape hatches.`,
 	root.PersistentFlags().BoolVar(&mdOutput, "md", false, "Output as Markdown")
 	root.PersistentFlags().StringVar(&jqFilter, "jq", "", "Apply jq filter to JSON output")
 	root.PersistentFlags().BoolVar(&noInteractive, "no-interactive", false, "Disable interactive prompts (for scripts/CI)")
-	root.PersistentFlags().BoolVar(&noUpdateSetWarning, "no-updateset-warning", false, "Suppress the default update set warning")
 
 	// ─── Explore ─────────────────────────────────────────────────────────
 	root.AddCommand(commands.NewTablesCmd())
@@ -244,7 +242,7 @@ func initializeApp(cmd *cobra.Command) error {
 
 	// Check for default update set warning (only in interactive mode)
 	if sdkClient != nil && format != output.FormatQuiet && format != output.FormatJSON && !agentMode {
-		checkDefaultUpdateSet(cmd.Context(), sdkClient, cfg, noUpdateSetWarning)
+		checkDefaultUpdateSet(cmd.Context(), sdkClient, cfg)
 	}
 
 	return nil
@@ -252,12 +250,7 @@ func initializeApp(cmd *cobra.Command) error {
 
 // checkDefaultUpdateSet prints the contextual header for all commands.
 // This replaces the old default update set warning with a more informative header.
-func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *config.Config, flagSuppressed bool) {
-	// Check if suppressed via flag
-	if flagSuppressed {
-		return
-	}
-
+func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *config.Config) {
 	// Check if suppressed via config (active profile)
 	if activeProfile := cfg.GetActiveProfile(); activeProfile != nil {
 		if activeProfile.SuppressUpdateSetWarning {
