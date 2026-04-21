@@ -130,6 +130,58 @@ func (c *Client) GetApplication(ctx context.Context, identifier string) (*Applic
 	return &app, nil
 }
 
+// CreateApplicationOptions holds options for creating a new scoped application.
+type CreateApplicationOptions struct {
+	Name        string
+	Scope       string
+	Description string
+	Version     string
+}
+
+// CreateApplication creates a new scoped application in sys_app.
+func (c *Client) CreateApplication(ctx context.Context, opts CreateApplicationOptions) (*Application, error) {
+	data := map[string]interface{}{
+		"name":  opts.Name,
+		"scope": opts.Scope,
+	}
+
+	if opts.Description != "" {
+		data["short_description"] = opts.Description
+	}
+	if opts.Version != "" {
+		data["version"] = opts.Version
+	}
+
+	resp, err := c.Post(ctx, "sys_app", data)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Result == nil {
+		return nil, fmt.Errorf("no response from create")
+	}
+
+	app := applicationFromRecord(resp.Result)
+	return &app, nil
+}
+
+// GetProperty retrieves a single system property by name from sys_properties.
+func (c *Client) GetProperty(ctx context.Context, name string) (string, error) {
+	query := url.Values{}
+	query.Set("sysparm_limit", "1")
+	query.Set("sysparm_fields", "value")
+	query.Set("sysparm_query", fmt.Sprintf("name=%s", name))
+
+	resp, err := c.Get(ctx, "sys_properties", query)
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Result) == 0 {
+		return "", fmt.Errorf("property not found: %s", name)
+	}
+	return getString(resp.Result[0], "value"), nil
+}
+
 func applicationFromRecord(record map[string]interface{}) Application {
 	return Application{
 		SysID:       getString(record, "sys_id"),

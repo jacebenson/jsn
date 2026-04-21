@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jacebenson/jsn/internal/appctx"
@@ -30,9 +32,156 @@ func NewScopeCmd() *cobra.Command {
 		newScopeShowCmd(),
 		newScopeListCmd(),
 		newScopeUseCmd(),
+		newScopeCreateCmd(),
 	)
 
 	return cmd
+}
+
+// scopeCreateFlags holds the flags for the scope create command.
+type scopeCreateFlags struct {
+	name        string
+	scope       string
+	description string
+	version     string
+	setCurrent  bool
+	global      bool
+}
+
+// newScopeCreateCmd creates the scope create command.
+func newScopeCreateCmd() *cobra.Command {
+	var flags scopeCreateFlags
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new scoped application",
+		Long: `Create a new ServiceNow scoped application.
+
+When --scope is omitted, the prefix is auto-generated from the instance's
+glide.appcreator.company.code property and the application name.
+
+Examples:
+  jsn scope create --name "My App"
+  jsn scope create --name "My App" --scope x_1234_myapp
+  jsn scope create --name "My App" --global`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runScopeCreate(cmd, flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.name, "name", "", "Application name (required)")
+	cmd.Flags().StringVar(&flags.scope, "scope", "", "Application scope prefix (auto-generated if omitted)")
+	cmd.Flags().StringVar(&flags.scope, "prefix", "", "Alias for --scope")
+	cmd.Flags().StringVar(&flags.description, "description", "", "Application description")
+	cmd.Flags().StringVar(&flags.version, "version", "1.0.0", "Application version")
+	cmd.Flags().BoolVar(&flags.setCurrent, "set-current", true, "Set as current scope after creation")
+	cmd.Flags().BoolVar(&flags.global, "global", false, "Create as a global application")
+
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// runScopeCreate executes the scope create command.
+func runScopeCreate(cmd *cobra.Command, flags scopeCreateFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	scope := flags.scope
+	if scope == "" {
+		if flags.global {
+			scope = "global"
+		} else {
+			vendorCode, err := sdkClient.GetProperty(cmd.Context(), "glide.appcreator.company.code")
+			if err != nil {
+				return fmt.Errorf("cannot auto-generate scope: failed to fetch glide.appcreator.company.code: %w. Provide --scope explicitly", err)
+			}
+			scope = generateScopePrefix(flags.name, vendorCode)
+		}
+	}
+
+	// Create the application
+	app, err := sdkClient.CreateApplication(cmd.Context(), sdk.CreateApplicationOptions{
+		Name:        flags.name,
+		Scope:       scope,
+		Description: flags.description,
+		Version:     flags.version,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create application: %w", err)
+	}
+
+	// Set as current if requested
+	if flags.setCurrent {
+		currentUser, userErr := sdkClient.GetCurrentUser(cmd.Context())
+		if userErr == nil && currentUser != nil {
+			_ = sdkClient.SetCurrentApplication(cmd.Context(), currentUser.SysID, app.SysID)
+		}
+	}
+
+	result := map[string]any{
+		"sys_id":      app.SysID,
+		"name":        app.Name,
+		"scope":       app.Scope,
+		"description": app.Description,
+	}
+
+	var breadcrumbs []output.Breadcrumb
+	breadcrumbs = append(breadcrumbs, output.Breadcrumb{
+		Action:      "use",
+		Cmd:         fmt.Sprintf("jsn scope use %s", app.Scope),
+		Description: "Switch to this scope",
+	})
+	breadcrumbs = append(breadcrumbs, output.Breadcrumb{
+		Action:      "list",
+		Cmd:         "jsn scope list",
+		Description: "List all scopes",
+	})
+
+	return outputWriter.OK(result,
+		output.WithSummary(fmt.Sprintf("Created application '%s' (%s)", app.Name, app.Scope)),
+		output.WithBreadcrumbs(breadcrumbs...),
+	)
+}
+
+// generateScopePrefix builds a scope prefix like x_1234_mynapp_0.
+// It sanitizes the name, truncates to fit ServiceNow limits, and appends _0.
+func generateScopePrefix(name, vendorCode string) string {
+	// Sanitize: lowercase, replace non-alphanumerics with underscores, collapse runs
+	var b strings.Builder
+	prevUnderscore := false
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevUnderscore = false
+		} else if !prevUnderscore {
+			b.WriteRune('_')
+			prevUnderscore = true
+		}
+	}
+	sanitized := strings.Trim(b.String(), "_")
+
+	// Truncate the name portion so the full scope stays under ~20 chars.
+	// Format: x_<vendor>_<name>_0
+	// Vendor is typically 3-5 chars. Reserve 2 (x_) + 1 (_) + 2 (_0) = 5 fixed,
+	// plus vendor len + 1 separator = ~6-8. That leaves ~10-12 for the name.
+	maxName := 10
+	if len(sanitized) > maxName {
+		sanitized = sanitized[:maxName]
+	}
+	// Trim trailing underscores after truncation
+	sanitized = strings.TrimRight(sanitized, "_")
+
+	return fmt.Sprintf("x_%s_%s_0", vendorCode, sanitized)
 }
 
 // newScopeShowCmd creates the scope show command.
