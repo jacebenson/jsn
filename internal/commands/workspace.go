@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
@@ -51,7 +53,17 @@ func newWorkspaceCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new workspace (sys_ux_app_config)",
-		Long: `Create a new Configurable Workspace by creating a sys_ux_app_config record.
+		Long: `Create a new Configurable Workspace with all required artifacts.
+
+This command creates:
+  - sys_ux_app_config (workspace configuration)
+  - sys_ux_page_registry (URL route and app shell)
+  - sys_ux_registry_m2m_category (registers in Workspaces menu)
+  - sys_ux_screen_type (Home screen collection)
+  - sys_ux_screen (Default Home screen)
+
+After creation, open the workspace from the Workspaces menu in the
+Unified Navigator, or visit: /now/<path>/home
 
 Examples:
   jsn workspace create --name "My Workspace"
@@ -83,34 +95,104 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 
 	outputWriter := appCtx.Output.(*output.Writer)
 	sdkClient := appCtx.SDK.(*sdk.Client)
+	ctx := cmd.Context()
 
-	data := map[string]interface{}{
+	// ─── Step 1: Create workspace config ────────────────────────────────
+	appConfigData := map[string]interface{}{
 		"name":   flags.name,
 		"active": flags.active,
 	}
 	if flags.description != "" {
-		data["description"] = flags.description
+		appConfigData["description"] = flags.description
 	}
 
-	record, err := sdkClient.CreateRecord(cmd.Context(), "sys_ux_app_config", data)
+	appConfig, err := sdkClient.CreateRecord(ctx, "sys_ux_app_config", appConfigData)
 	if err != nil {
-		return fmt.Errorf("failed to create workspace: %w", err)
+		return fmt.Errorf("failed to create workspace config: %w", err)
+	}
+	workspaceSysID := getString(appConfig, "sys_id")
+
+	// ─── Step 2: Look up default workspace references ───────────────────
+	appShellSysID, err := lookupRecordSysID(ctx, sdkClient, "sys_ux_macroponent", "name=Workspace App Shell")
+	if err != nil {
+		return fmt.Errorf("failed to find Workspace App Shell: %w", err)
 	}
 
-	sysID := getString(record, "sys_id")
+	parentAppSysID, err := lookupRecordSysID(ctx, sdkClient, "sys_ux_app", "name=Unified Navigation app shell")
+	if err != nil {
+		return fmt.Errorf("failed to find Unified Navigation app shell: %w", err)
+	}
+
+	workspaceCategorySysID, err := lookupRecordSysID(ctx, sdkClient, "sys_ux_experience_category", "name=Workspace")
+	if err != nil {
+		return fmt.Errorf("failed to find Workspace experience category: %w", err)
+	}
+
+	// ─── Step 3: Create page registry (URL route) ──────────────────────
+	path := slugify(flags.name)
+	registryData := map[string]interface{}{
+		"title":             flags.name,
+		"path":              path,
+		"active":            flags.active,
+		"admin_panel":       workspaceSysID,
+		"admin_panel_table": "sys_ux_app_config",
+		"parent_app":        parentAppSysID,
+		"root_macroponent":  appShellSysID,
+	}
+
+	registry, err := sdkClient.CreateRecord(ctx, "sys_ux_page_registry", registryData)
+	if err != nil {
+		return fmt.Errorf("failed to create page registry: %w", err)
+	}
+	registrySysID := getString(registry, "sys_id")
+
+	// ─── Step 4: Register in Workspaces menu ───────────────────────────
+	_, err = sdkClient.CreateRecord(ctx, "sys_ux_registry_m2m_category", map[string]interface{}{
+		"page_registry":       registrySysID,
+		"experience_category": workspaceCategorySysID,
+		"order":               100,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register workspace in menu: %w", err)
+	}
+
+	// ─── Step 5: Create Home screen type ───────────────────────────────
+	screenType, err := sdkClient.CreateRecord(ctx, "sys_ux_screen_type", map[string]interface{}{
+		"name": flags.name + " Home",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create screen type: %w", err)
+	}
+	screenTypeSysID := getString(screenType, "sys_id")
+
+	// ─── Step 6: Create default Home screen ────────────────────────────
+	_, err = sdkClient.CreateRecord(ctx, "sys_ux_screen", map[string]interface{}{
+		"name":               "Default Home",
+		"app_config":         workspaceSysID,
+		"screen_type":        screenTypeSysID,
+		"parent_macroponent": appShellSysID,
+		"active":             true,
+		"order":              0,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create default screen: %w", err)
+	}
 
 	result := map[string]any{
-		"sys_id":      sysID,
-		"name":        getString(record, "name"),
-		"description": getString(record, "description"),
-		"active":      getString(record, "active"),
+		"sys_id":      workspaceSysID,
+		"name":        flags.name,
+		"description": flags.description,
+		"path":        path,
+		"url":         fmt.Sprintf("/now/%s/home", path),
 	}
 
 	return outputWriter.OK(result,
 		output.WithSummary(fmt.Sprintf("Created workspace '%s'", flags.name)),
 		output.WithBreadcrumbs(
-			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn records --table sys_ux_app_config %s", sysID), Description: "View workspace"},
-			output.Breadcrumb{Action: "add-page", Cmd: fmt.Sprintf("jsn workspace add-page --workspace %s --name home", sysID), Description: "Add a page"},
+			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn records --table sys_ux_app_config %s", workspaceSysID), Description: "View workspace config"},
+			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn records --table sys_ux_page_registry %s", registrySysID), Description: "View page registry"},
+			output.Breadcrumb{Action: "add-page", Cmd: fmt.Sprintf("jsn workspace add-page --workspace %s --name home", workspaceSysID), Description: "Add a page"},
+			output.Breadcrumb{Action: "add-screen", Cmd: fmt.Sprintf("jsn workspace add-screen --workspace %s --name list", workspaceSysID), Description: "Add a screen"},
 		),
 	)
 }
@@ -364,4 +446,36 @@ func resolveWorkspace(ctx context.Context, sdkClient *sdk.Client, identifier str
 		return "", fmt.Errorf("workspace not found: %s", identifier)
 	}
 	return getString(records[0], "sys_id"), nil
+}
+
+// lookupRecordSysID finds the first record in a table matching a query and returns its sys_id.
+func lookupRecordSysID(ctx context.Context, c *sdk.Client, table, query string) (string, error) {
+	records, err := c.ListRecords(ctx, table, &sdk.ListRecordsOptions{
+		Limit:  1,
+		Query:  query,
+		Fields: []string{"sys_id"},
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(records) == 0 {
+		return "", fmt.Errorf("no record found in %s matching: %s", table, query)
+	}
+	return getString(records[0], "sys_id"), nil
+}
+
+// slugify converts a name to a URL-friendly path segment.
+func slugify(name string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevDash = false
+		} else if !prevDash {
+			b.WriteRune('-')
+			prevDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
