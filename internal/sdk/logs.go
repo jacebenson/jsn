@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // LogEntry represents a system log entry (syslog record).
@@ -110,16 +111,6 @@ func logEntryFromRecord(record map[string]interface{}) LogEntry {
 
 // GetInstanceInfo retrieves ServiceNow instance information.
 func (c *Client) GetInstanceInfo(ctx context.Context) (*InstanceInfo, error) {
-	// Get the user session info to extract instance details
-	query := url.Values{}
-	query.Set("sysparm_limit", "1")
-	query.Set("sysparm_fields", "sys_id,user_name,first_name,last_name")
-
-	resp, err := c.Get(ctx, "sys_user", query)
-	if err != nil {
-		return nil, err
-	}
-
 	info := &InstanceInfo{
 		Version:         "Unknown",
 		Build:           "Unknown",
@@ -130,18 +121,18 @@ func (c *Client) GetInstanceInfo(ctx context.Context) (*InstanceInfo, error) {
 		GlideProperties: make(map[string]string),
 	}
 
-	// Try to get user info from the first record
-	if len(resp.Result) > 0 {
-		info.UserSysID = getString(resp.Result[0], "sys_id")
-		info.UserName = getString(resp.Result[0], "user_name")
+	// Get the actual current user (not just the first sys_user record)
+	user, err := c.GetCurrentUser(ctx)
+	if err == nil && user != nil {
+		info.UserSysID = user.SysID
+		info.UserName = user.UserName
 	}
 
-	// Try to get instance info from stats.do or a known property
-	// For now, we'll use a simpler approach - query the system properties
+	// Query system properties for instance metadata
 	propQuery := url.Values{}
-	propQuery.Set("sysparm_limit", "10")
+	propQuery.Set("sysparm_limit", "20")
 	propQuery.Set("sysparm_fields", "name,value")
-	propQuery.Set("sysparm_query", "nameINinstance_name,mid.version,glide.build.tag")
+	propQuery.Set("sysparm_query", "nameINinstance_name,mid.version,glide.build.tag,glide.builddate,glide.patch,glide.sys.default.tz")
 
 	propResp, err := c.Get(ctx, "sys_properties", propQuery)
 	if err == nil {
@@ -153,8 +144,37 @@ func (c *Client) GetInstanceInfo(ctx context.Context) (*InstanceInfo, error) {
 				info.InstanceName = value
 			case "mid.version":
 				info.Version = value
+				// Parse patch from version string like "australia-02-11-2026__patch1-03-23-2026_03-31-2026_1137"
+				if idx := strings.Index(value, "__patch"); idx != -1 {
+					patchStart := idx + 7 // len("__patch")
+					patchEnd := strings.Index(value[patchStart:], "-")
+					if patchEnd != -1 {
+						info.Patch = value[patchStart : patchStart+patchEnd]
+					}
+				}
+				// Parse build date from version string
+				if info.BuildDate == "" {
+					parts := strings.Split(value, "_")
+					if len(parts) >= 2 {
+						// Look for date pattern in parts
+						for _, part := range parts {
+							if len(part) == 10 && part[2] == '-' && part[5] == '-' {
+								info.BuildDate = part
+								break
+							}
+						}
+					}
+				}
 			case "glide.build.tag":
 				info.Build = value
+			case "glide.builddate":
+				info.BuildDate = value
+			case "glide.patch":
+				if value != "" {
+					info.Patch = value
+				}
+			case "glide.sys.default.tz":
+				info.TimeZone = value
 			}
 			info.GlideProperties[name] = value
 		}
