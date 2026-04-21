@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
 	"github.com/spf13/cobra"
@@ -156,42 +155,116 @@ func NewCommandsCmd() *cobra.Command {
 	}
 }
 
+// workflowCategories maps commands to workflow-based groupings (git-style)
+type workflowCategory struct {
+	Name     string
+	SeeAlso  string
+	Commands []workflowCommand
+}
+
+type workflowCommand struct {
+	Name      string
+	ShortDesc string
+}
+
+// getWorkflowCategories returns commands organized by workflow (git-style)
+func getWorkflowCategories() []workflowCategory {
+	return []workflowCategory{
+		{
+			Name:    "discover the platform",
+			SeeAlso: "see also: jsn help tables",
+			Commands: []workflowCommand{
+				{Name: "tables", ShortDesc: "List and inspect table schemas"},
+				{Name: "records", ShortDesc: "Query and manage table data"},
+				{Name: "logs", ShortDesc: "View system logs and errors"},
+				{Name: "instance", ShortDesc: "Check instance status and version"},
+				{Name: "docs", ShortDesc: "Offline documentation and reference"},
+			},
+		},
+		{
+			Name:    "develop applications",
+			SeeAlso: "see also: jsn help dev",
+			Commands: []workflowCommand{
+				{Name: "scope", ShortDesc: "Switch application scope"},
+				{Name: "updateset", ShortDesc: "Manage update sets"},
+				{Name: "script-includes", ShortDesc: "Reusable server-side code"},
+				{Name: "rules", ShortDesc: "Business logic on table operations"},
+				{Name: "client-scripts", ShortDesc: "Browser-side form scripts"},
+				{Name: "workspace", ShortDesc: "Create configurable workspaces"},
+			},
+		},
+		{
+			Name:    "automate processes",
+			SeeAlso: "see also: jsn help automation",
+			Commands: []workflowCommand{
+				{Name: "flows", ShortDesc: "Design and execute workflows"},
+				{Name: "jobs", ShortDesc: "Schedule background tasks"},
+				{Name: "atf", ShortDesc: "Build automated tests"},
+			},
+		},
+		{
+			Name:    "configure security",
+			SeeAlso: "see also: jsn help security",
+			Commands: []workflowCommand{
+				{Name: "acls", ShortDesc: "Manage access controls"},
+				{Name: "data-policies", ShortDesc: "Define data validation rules"},
+				{Name: "ui-policies", ShortDesc: "Form field visibility rules"},
+			},
+		},
+		{
+			Name:    "build service experiences",
+			SeeAlso: "see also: jsn help service-catalog",
+			Commands: []workflowCommand{
+				{Name: "catalog-item", ShortDesc: "Create service catalog items"},
+				{Name: "variable", ShortDesc: "Design catalog questions"},
+				{Name: "sp", ShortDesc: "Manage service portals"},
+			},
+		},
+		{
+			Name:    "escape hatches",
+			SeeAlso: "use when specific commands don't work",
+			Commands: []workflowCommand{
+				{Name: "rest", ShortDesc: "Raw REST API calls"},
+				{Name: "eval", ShortDesc: "Execute background scripts"},
+			},
+		},
+	}
+}
+
 // renderCommandsStyled writes a grouped command listing with aligned columns.
 func renderCommandsStyled(w io.Writer, categories []CommandCategory) {
-	bold := lipgloss.NewStyle().Bold(true)
-	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#888"))
+	workflows := getWorkflowCategories()
 
-	// Find max widths across all categories for alignment
+	// Find max name width for alignment
 	maxName := 0
-	maxDesc := 0
-	for _, cat := range categories {
-		for _, cmd := range cat.Commands {
+	for _, wf := range workflows {
+		for _, cmd := range wf.Commands {
 			if len(cmd.Name) > maxName {
 				maxName = len(cmd.Name)
 			}
-			if len(cmd.Description) > maxDesc {
-				maxDesc = len(cmd.Description)
-			}
 		}
 	}
 
-	for i, cat := range categories {
-		if i > 0 {
-			fmt.Fprintln(w)
+	// Print header with context (similar to git)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Common jsn commands organized by workflow:")
+	fmt.Fprintln(w)
+
+	for _, wf := range workflows {
+		// Category header (lowercase like git)
+		fmt.Fprintf(w, "%s (%s)\n", wf.Name, wf.SeeAlso)
+		for _, cmd := range wf.Commands {
+			fmt.Fprintf(w, "   %-*s   %s\n", maxName, cmd.Name, cmd.ShortDesc)
 		}
-		fmt.Fprintln(w, bold.Render(cat.Name))
-		for _, cmd := range cat.Commands {
-			actions := ""
-			if len(cmd.Actions) > 0 {
-				actions = strings.Join(cmd.Actions, ", ")
-			}
-			line := fmt.Sprintf("  %-*s  %-*s", maxName, cmd.Name, maxDesc, cmd.Description)
-			if actions != "" {
-				line += "  " + muted.Render(actions)
-			}
-			fmt.Fprintln(w, line)
-		}
+		fmt.Fprintln(w)
 	}
+
+	// Print "see also" footer like git
+	fmt.Fprintln(w, "See also:")
+	fmt.Fprintln(w, "   jsn commands --md       Full catalog with all table names and actions")
+	fmt.Fprintln(w, "   jsn help <command>      Detailed help for any command")
+	fmt.Fprintln(w, "   jsn <command> --help    Same as above")
+	fmt.Fprintln(w)
 }
 
 // renderCommandsMarkdown writes a markdown formatted command listing.
