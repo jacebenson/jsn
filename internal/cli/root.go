@@ -145,6 +145,14 @@ Use 'rest' or 'eval' only as escape hatches.`,
 	root.AddCommand(commands.NewCommandsCmd())
 	root.AddCommand(commands.NewVersionCmd())
 
+	// Apply default template to all subcommands (not root)
+	// so they show standard "Available Commands" instead of root's category list
+	for _, cmd := range root.Commands() {
+		if cmd.Name() != "help" && cmd.Name() != "completion" {
+			cmd.SetUsageTemplate(defaultUsageTemplate)
+		}
+	}
+
 	return root
 }
 
@@ -264,6 +272,7 @@ func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *conf
 
 // customUsageTemplate is a discovery-focused help template that groups commands
 // by category instead of showing an alphabetical list.
+// This template is ONLY for the root command (jsn).
 const customUsageTemplate = `Usage:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
@@ -276,13 +285,40 @@ Examples:
 
 Common Commands (by category):
   Explore    tables, records, workspace, rules, flows, jobs, script-includes
-  Data       records (CRUD), choices  
+  Data       records (CRUD), choices
   Catalog    catalog-item, variable
   Dev        scope, updateset, eval, rest
   Debug      logs, instance
   Config     setup, auth, config
 
 Run "{{.CommandPath}} commands --md" for the full command catalog.{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`
+
+// defaultUsageTemplate is the standard cobra help template used by subcommands.
+// It does NOT include the root-specific category list.
+const defaultUsageTemplate = `Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
+
+Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
 Flags:
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
