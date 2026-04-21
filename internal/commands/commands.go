@@ -68,6 +68,7 @@ func CommandCategories() []CommandCategory {
 			Commands: []CommandInfo{
 				{Name: "updateset", Category: "dev", Description: "Update sets (sys_update_set) — track and transport changes", Actions: []string{"list", "show", "use", "create", "parent"}, Hint: "jsn updateset use <name> to set current. 'parent' sets hierarchy."},
 				{Name: "scope", Category: "dev", Description: "Application scopes (sys_scope) — namespace isolation for apps", Actions: []string{"show", "list", "use", "create"}, Hint: "jsn scope use <name> to switch. 'show' displays current scope. 'create' bootstraps a new app."},
+				{Name: "workspace", Category: "dev", Description: "Configurable Workspaces (sys_ux_app_config, sys_ux_page, sys_ux_screen, sys_ux_macroponent)", Actions: []string{"create", "add-page", "add-screen", "add-macroponent"}, Hint: "jsn workspace create --name <name>. Use add-* to build out pages, screens, and macroponents."},
 				{Name: "rest", Category: "dev", Description: "Raw REST API calls — escape hatch for any endpoint", Actions: []string{"get", "post", "patch", "delete"}, Hint: "jsn rest get /api/now/table/incident?sysparm_limit=5. Path appended to instance URL."},
 				{Name: "eval", Category: "dev", Description: "Run background scripts (Scripts - Background) — server-side JS execution", Hint: "jsn eval '<script>' | --file <path> | pipe via stdin. Uses gs.print() for output. Full GlideRecord/gs API."},
 			},
