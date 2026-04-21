@@ -25,6 +25,7 @@ func NewAuthCommand() *cobra.Command {
 		Use:   "auth",
 		Short: "Manage ServiceNow authentication",
 		Long: `Manage ServiceNow authentication including login, logout, and status.
+Run with no args to see authentication status (like git status).
 
 Authentication methods:
   - OAuth: Browser-based OAuth 2.0 with PKCE (recommended, most secure)
@@ -36,6 +37,10 @@ To get a g_ck token:
   2. Open DevTools console (F12)
   3. Type: g_ck
   4. Copy the token that appears`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// No subcommand given - show status (git-style behavior)
+			return runAuthStatus(cmd, false)
+		},
 	}
 
 	cmd.AddCommand(newAuthLoginCommand())
@@ -624,162 +629,168 @@ func newAuthStatusCommand() *cobra.Command {
 This command tests each profile by attempting to connect to its ServiceNow instance
 and displays the results in a simple table format.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			if app == nil {
-				return output.ErrAuth("app not initialized")
-			}
-
-			cfg := app.Config.(*config.Config)
-			authManager := app.Auth.(*auth.Manager)
-
-			if len(cfg.Profiles) == 0 {
-				if jsonOutput {
-					w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
-					return w.OK(map[string]interface{}{
-						"profiles": []map[string]interface{}{},
-					})
-				}
-				fmt.Println("No profiles configured. Run: jsn config add")
-				return nil
-			}
-
-			type profileStatus struct {
-				Profile    string `json:"profile"`
-				Instance   string `json:"instance"`
-				User       string `json:"user"`
-				AuthType   string `json:"auth_type"`
-				StatusCode int    `json:"status_code"`
-				Status     string `json:"status"`
-			}
-
-			var results []profileStatus
-
-			// Get the original active profile to restore later
-			originalProfile := cfg.DefaultProfile
-
-			for profileName, profile := range cfg.Profiles {
-				result := profileStatus{
-					Profile:  profileName,
-					Instance: profile.InstanceURL,
-				}
-
-				// Temporarily set this as the active profile to test it
-				cfg.DefaultProfile = profileName
-
-				// Check if we have credentials
-				creds, err := authManager.GetCredentialsForProfile(profileName)
-				if err != nil || creds == nil || (creds.Token == "" && creds.AccessToken == "") {
-					result.StatusCode = 0
-					result.Status = "no credentials"
-					result.AuthType = profile.AuthMethod
-					if result.AuthType == "" {
-						result.AuthType = "-"
-					}
-					results = append(results, result)
-					continue
-				}
-
-				// Determine auth method
-				authMethod := profile.AuthMethod
-				if creds.AuthMethod != "" {
-					authMethod = creds.AuthMethod
-				}
-				result.AuthType = authMethod
-				if result.AuthType == "" {
-					result.AuthType = "basic"
-				}
-
-				// Create a temporary SDK client for this profile
-				testClient := sdk.NewClient(profile.InstanceURL, func() (string, string, string) {
-					switch authMethod {
-					case "oauth":
-						return creds.AccessToken, "", "oauth"
-					case "gck":
-						return creds.Token, creds.Cookies, "gck"
-					default:
-						return creds.Token, creds.Username, "basic"
-					}
-				})
-
-				// Test the connection - try to get current user
-				user, err := testClient.GetCurrentUser(cmd.Context())
-				if err != nil {
-					// For OAuth, try a simpler API call as fallback
-					if authMethod == "oauth" {
-						_, _, apiErr := testClient.RawRequest(cmd.Context(), "GET", "/api/now/table/sys_user?sysparm_limit=1", nil, nil)
-						if apiErr == nil {
-							result.StatusCode = 200
-							result.Status = "ok"
-							result.User = "OAuth User"
-						} else {
-							result.StatusCode = 401
-							result.Status = "auth failed"
-						}
-					} else {
-						result.StatusCode = 401
-						result.Status = "auth failed"
-					}
-				} else {
-					result.StatusCode = 200
-					result.Status = "ok"
-					result.User = user.UserName
-
-					// Update last tested timestamp
-					creds.LastTested = time.Now().Unix()
-					_ = authManager.StoreCredentials(creds)
-				}
-
-				results = append(results, result)
-			}
-
-			// Restore the original active profile
-			cfg.DefaultProfile = originalProfile
-
-			if jsonOutput {
-				w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
-				return w.OK(map[string]interface{}{
-					"profiles": results,
-				})
-			}
-
-			// Print simple table output
-			fmt.Printf("%-20s %-35s %-10s %-20s %s\n", "PROFILE", "INSTANCE", "TYPE", "USER", "STATUS")
-			fmt.Println(strings.Repeat("-", 105))
-
-			for _, r := range results {
-				instance := r.Instance
-				if len(instance) > 33 {
-					instance = instance[:30] + "..."
-				}
-
-				user := r.User
-				if user == "" {
-					user = "-"
-				}
-				if len(user) > 18 {
-					user = user[:15] + "..."
-				}
-
-				authType := r.AuthType
-				if authType == "" {
-					authType = "-"
-				}
-
-				statusStr := fmt.Sprintf("%d %s", r.StatusCode, r.Status)
-				if r.StatusCode == 0 {
-					statusStr = r.Status
-				}
-
-				fmt.Printf("%-20s %-35s %-10s %-20s %s\n", r.Profile, instance, authType, user, statusStr)
-			}
-
-			return nil
+			return runAuthStatus(cmd, jsonOutput)
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 
 	return cmd
+}
+
+// runAuthStatus shows authentication status for all profiles.
+// Used by both the status subcommand and the parent auth command (git-style).
+func runAuthStatus(cmd *cobra.Command, jsonOutput bool) error {
+	app := appctx.FromContext(cmd.Context())
+	if app == nil {
+		return output.ErrAuth("app not initialized")
+	}
+
+	cfg := app.Config.(*config.Config)
+	authManager := app.Auth.(*auth.Manager)
+
+	if len(cfg.Profiles) == 0 {
+		if jsonOutput {
+			w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
+			return w.OK(map[string]interface{}{
+				"profiles": []map[string]interface{}{},
+			})
+		}
+		fmt.Println("No profiles configured. Run: jsn config add")
+		return nil
+	}
+
+	type profileStatus struct {
+		Profile    string `json:"profile"`
+		Instance   string `json:"instance"`
+		User       string `json:"user"`
+		AuthType   string `json:"auth_type"`
+		StatusCode int    `json:"status_code"`
+		Status     string `json:"status"`
+	}
+
+	var results []profileStatus
+
+	// Get the original active profile to restore later
+	originalProfile := cfg.DefaultProfile
+
+	for profileName, profile := range cfg.Profiles {
+		result := profileStatus{
+			Profile:  profileName,
+			Instance: profile.InstanceURL,
+		}
+
+		// Temporarily set this as the active profile to test it
+		cfg.DefaultProfile = profileName
+
+		// Check if we have credentials
+		creds, err := authManager.GetCredentialsForProfile(profileName)
+		if err != nil || creds == nil || (creds.Token == "" && creds.AccessToken == "") {
+			result.StatusCode = 0
+			result.Status = "no credentials"
+			result.AuthType = profile.AuthMethod
+			if result.AuthType == "" {
+				result.AuthType = "-"
+			}
+			results = append(results, result)
+			continue
+		}
+
+		// Determine auth method
+		authMethod := profile.AuthMethod
+		if creds.AuthMethod != "" {
+			authMethod = creds.AuthMethod
+		}
+		result.AuthType = authMethod
+		if result.AuthType == "" {
+			result.AuthType = "basic"
+		}
+
+		// Create a temporary SDK client for this profile
+		testClient := sdk.NewClient(profile.InstanceURL, func() (string, string, string) {
+			switch authMethod {
+			case "oauth":
+				return creds.AccessToken, "", "oauth"
+			case "gck":
+				return creds.Token, creds.Cookies, "gck"
+			default:
+				return creds.Token, creds.Username, "basic"
+			}
+		})
+
+		// Test the connection - try to get current user
+		user, err := testClient.GetCurrentUser(cmd.Context())
+		if err != nil {
+			// For OAuth, try a simpler API call as fallback
+			if authMethod == "oauth" {
+				_, _, apiErr := testClient.RawRequest(cmd.Context(), "GET", "/api/now/table/sys_user?sysparm_limit=1", nil, nil)
+				if apiErr == nil {
+					result.StatusCode = 200
+					result.Status = "ok"
+					result.User = "OAuth User"
+				} else {
+					result.StatusCode = 401
+					result.Status = "auth failed"
+				}
+			} else {
+				result.StatusCode = 401
+				result.Status = "auth failed"
+			}
+		} else {
+			result.StatusCode = 200
+			result.Status = "ok"
+			result.User = user.UserName
+
+			// Update last tested timestamp
+			creds.LastTested = time.Now().Unix()
+			_ = authManager.StoreCredentials(creds)
+		}
+
+		results = append(results, result)
+	}
+
+	// Restore the original active profile
+	cfg.DefaultProfile = originalProfile
+
+	if jsonOutput {
+		w := output.New(output.Options{Format: output.FormatJSON, Writer: os.Stdout})
+		return w.OK(map[string]interface{}{
+			"profiles": results,
+		})
+	}
+
+	// Print simple table output
+	fmt.Printf("%-20s %-35s %-10s %-20s %s\n", "PROFILE", "INSTANCE", "TYPE", "USER", "STATUS")
+	fmt.Println(strings.Repeat("-", 105))
+
+	for _, r := range results {
+		instance := r.Instance
+		if len(instance) > 33 {
+			instance = instance[:30] + "..."
+		}
+
+		user := r.User
+		if user == "" {
+			user = "-"
+		}
+		if len(user) > 18 {
+			user = user[:15] + "..."
+		}
+
+		authType := r.AuthType
+		if authType == "" {
+			authType = "-"
+		}
+
+		statusStr := fmt.Sprintf("%d %s", r.StatusCode, r.Status)
+		if r.StatusCode == 0 {
+			statusStr = r.Status
+		}
+
+		fmt.Printf("%-20s %-35s %-10s %-20s %s\n", r.Profile, instance, authType, user, statusStr)
+	}
+
+	return nil
 }
 
 func newAuthRefreshCommand() *cobra.Command {

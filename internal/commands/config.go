@@ -29,7 +29,7 @@ func NewConfigCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Configuration management",
-		Long: `Manage jsn configuration.
+		Long: `Manage jsn configuration. Run with no args to see current configuration (like git config).
 
 Configuration is loaded from multiple sources with the following precedence:
   flags > env > local > global
@@ -42,6 +42,10 @@ Config values can also be set via environment variables:
   SERVICENOW_TOKEN      Override authentication token
   SERVICENOW_INSTANCE  Override instance URL
   SERVICENOW_NO_KEYRING Use file storage instead of keyring`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// No subcommand given - show current config (git-style behavior)
+			return runConfigShow(cmd)
+		},
 	}
 
 	cmd.AddCommand(newConfigShowCommand())
@@ -61,52 +65,58 @@ func newConfigShowCommand() *cobra.Command {
 		Use:   "show",
 		Short: "Show effective configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			if app == nil {
-				return output.ErrAuth("app not initialized")
-			}
-
-			cfg := app.Config.(*config.Config)
-
-			// Determine sources
-			profileSource := "default"
-			profile := cfg.GetActiveProfile()
-
-			if os.Getenv("SERVICENOW_INSTANCE") != "" {
-				profileSource = "env"
-			} else if cfg.DefaultProfile != "" || len(cfg.Profiles) > 0 {
-				profileSource = "file"
-			}
-
-			fmt.Println("Effective configuration")
-			fmt.Println()
-			fmt.Printf("Profile    : map[source:%s value:%s]\n", profileSource, cfg.DefaultProfile)
-			if profile != nil {
-				fmt.Printf("Instance  : map[source:%s value:%s]\n", profileSource, profile.InstanceURL)
-				if profile.AuthMethod != "" {
-					fmt.Printf("Auth      : map[source:%s value:%s]\n", profileSource, profile.AuthMethod)
-				}
-			}
-
-			// Show config file locations
-			fmt.Println()
-			fmt.Println("Config files:")
-			fmt.Printf("  Global: %s\n", config.GlobalConfigPath())
-			fmt.Printf("  Local:  %s\n", config.LocalConfigPath())
-
-			// Show environment variables
-			fmt.Println()
-			fmt.Println("Environment variables:")
-			if os.Getenv("SERVICENOW_TOKEN") != "" {
-				fmt.Println("  SERVICENOW_TOKEN     : map[source:env value:***]")
-			}
-			if os.Getenv("SERVICENOW_INSTANCE") != "" {
-				fmt.Printf("  SERVICENOW_INSTANCE : map[source:env value:%s]\n", os.Getenv("SERVICENOW_INSTANCE"))
-			}
-
-			return nil
+			return runConfigShow(cmd)
 		},
 	}
+}
+
+// runConfigShow shows the effective configuration.
+// Used by both the show subcommand and the parent config command (git-style).
+func runConfigShow(cmd *cobra.Command) error {
+	app := appctx.FromContext(cmd.Context())
+	if app == nil {
+		return output.ErrAuth("app not initialized")
+	}
+
+	cfg := app.Config.(*config.Config)
+
+	// Determine sources
+	profileSource := "default"
+	profile := cfg.GetActiveProfile()
+
+	if os.Getenv("SERVICENOW_INSTANCE") != "" {
+		profileSource = "env"
+	} else if cfg.DefaultProfile != "" || len(cfg.Profiles) > 0 {
+		profileSource = "file"
+	}
+
+	fmt.Println("Effective configuration")
+	fmt.Println()
+	fmt.Printf("Profile    : map[source:%s value:%s]\n", profileSource, cfg.DefaultProfile)
+	if profile != nil {
+		fmt.Printf("Instance  : map[source:%s value:%s]\n", profileSource, profile.InstanceURL)
+		if profile.AuthMethod != "" {
+			fmt.Printf("Auth      : map[source:%s value:%s]\n", profileSource, profile.AuthMethod)
+		}
+	}
+
+	// Show config file locations
+	fmt.Println()
+	fmt.Println("Config files:")
+	fmt.Printf("  Global: %s\n", config.GlobalConfigPath())
+	fmt.Printf("  Local:  %s\n", config.LocalConfigPath())
+
+	// Show environment variables
+	fmt.Println()
+	fmt.Println("Environment variables:")
+	if os.Getenv("SERVICENOW_TOKEN") != "" {
+		fmt.Println("  SERVICENOW_TOKEN     : map[source:env value:***]")
+	}
+	if os.Getenv("SERVICENOW_INSTANCE") != "" {
+		fmt.Printf("  SERVICENOW_INSTANCE : map[source:env value:%s]\n", os.Getenv("SERVICENOW_INSTANCE"))
+	}
+
+	return nil
 }
 
 // newConfigInitCommand initializes a config file

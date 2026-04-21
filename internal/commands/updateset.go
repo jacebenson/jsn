@@ -31,11 +31,16 @@ type updateSetCreateFlags struct {
 }
 
 // NewUpdateSetCmd creates the updateset command group.
+// Running with no subcommand defaults to showing the current update set (like git branch).
 func NewUpdateSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "updateset",
 		Short: "Manage update sets",
-		Long:  "List, create, and manage ServiceNow update sets.",
+		Long:  "List, create, and manage ServiceNow update sets. Run with no args to see current update set.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// No subcommand given - show current update set (git-style behavior)
+			return runUpdateSetShowCurrent(cmd)
+		},
 	}
 
 	cmd.AddCommand(
@@ -1233,4 +1238,37 @@ func printMarkdownUpdateSetParent(cmd *cobra.Command, updateSet *sdk.UpdateSet, 
 	}
 
 	return nil
+}
+
+// runUpdateSetShowCurrent shows the current update set (git-style behavior when no args).
+func runUpdateSetShowCurrent(cmd *cobra.Command) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Get current user
+	currentUser, err := sdkClient.GetCurrentUser(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	// Get current update set
+	currentUpdateSet, err := sdkClient.GetCurrentUpdateSet(cmd.Context(), currentUser.SysID)
+	if err != nil {
+		return fmt.Errorf("failed to get current update set: %w", err)
+	}
+
+	if currentUpdateSet == nil {
+		return output.ErrUsage("No current update set configured. Run: jsn updateset list")
+	}
+
+	// Reuse the existing show function to display full details
+	return runUpdateSetShow(cmd, currentUpdateSet.Name)
 }

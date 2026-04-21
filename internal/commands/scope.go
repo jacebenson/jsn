@@ -21,11 +21,16 @@ type scopeListFlags struct {
 }
 
 // NewScopeCmd creates the scope command group.
+// Running with no subcommand defaults to showing the current scope (like git branch).
 func NewScopeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scope",
 		Short: "Manage application scopes",
-		Long:  "View and switch between ServiceNow application scopes.",
+		Long:  "View and switch between ServiceNow application scopes. Run with no args to see current scope.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// No subcommand given - show current scope (git-style behavior)
+			return runScopeShow(cmd)
+		},
 	}
 
 	cmd.AddCommand(
