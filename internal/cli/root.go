@@ -55,23 +55,28 @@ func NewRootCommand() *cobra.Command {
 
 Output modes (pick one):
   --json     JSON envelope {ok, data, summary, breadcrumbs} — use when parsing
-  --md       Markdown tables — use when showing results to humans
+  --md       Markdown tables — use when showing results to humans  
   --quiet    Raw JSON data only (no envelope)
   --agent    JSON + quiet + no interactive prompts (for automation)
   --jq <f>   Apply jq filter to JSON output
 
-Discovery:
-  jsn commands --md       Full command catalog with descriptions and hints
-  jsn <command> --help    Detailed usage for any command
+Quick start:
+  jsn setup                        First-time configuration
+  jsn commands --md                Browse all commands with descriptions
+  jsn <command> --help             Detailed help for any command
 
-Hierarchy: Use specific commands (rules, flows, etc.) first. Fall back to
-'records --table <name>' for generic CRUD. Use 'rest' as a raw escape hatch.`,
+Hierarchy: Use specific commands (tables, records, flows, etc.) first.
+Fallback to 'records --table <name>' for generic CRUD.
+Use 'rest' or 'eval' only as escape hatches.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initializeApp(cmd)
 		},
 	}
+
+	// Set custom help template that groups commands by category
+	root.SetUsageTemplate(customUsageTemplate)
 
 	root.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/servicenow/config.json)")
 	root.PersistentFlags().StringVarP(&profile, "profile", "p", "", "profile to use")
@@ -263,3 +268,37 @@ func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *conf
 	// Print contextual header using the shared package
 	_ = sncontext.PrintHeader(os.Stderr, cfg, sdkClient)
 }
+
+// customUsageTemplate is a discovery-focused help template that groups commands
+// by category instead of showing an alphabetical list.
+const customUsageTemplate = `Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
+
+Common Commands (by category):
+  Explore    tables, records, rules, flows, jobs, script-includes
+  Data       records (CRUD), choices  
+  Catalog    catalog-item, variable
+  Dev        scope, updateset, workspace, eval, rest
+  Debug      logs, instance
+  Config     setup, auth, config
+
+Run "{{.CommandPath}} commands --md" for the full command catalog.{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`
