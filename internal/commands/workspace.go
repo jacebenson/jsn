@@ -166,12 +166,47 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 	}
 	screenTypeSysID := getString(screenType, "sys_id")
 
-	// ─── Step 6: Create default Home screen ────────────────────────────
+	// ─── Step 6: Create custom Home macroponent ────────────────────────
+	// The screen needs a custom macroponent extending Page Template
+	pageTemplateSysID, err := lookupRecordSysID(ctx, sdkClient, "sys_ux_macroponent", "name=Page Template")
+	if err != nil {
+		return fmt.Errorf("failed to find Page Template: %w", err)
+	}
+
+	customMacroponent, err := sdkClient.CreateRecord(ctx, "sys_ux_macroponent", map[string]interface{}{
+		"name":                    "Home",
+		"extends":                 pageTemplateSysID,
+		"category":                "page",
+		"schema_version":          "1.0.0",
+		"layout":                  `{"default":{"children":null,"isInline":null,"items":[],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
+		"composition":             "[]",
+		"data":                    "[]",
+		"props":                   "[{\"description\":null,\"fieldType\":\"string\",\"label\":\"sysId\",\"mandatory\":false,\"name\":\"sysId\",\"readOnly\":true,\"selectable\":false,\"typeMetadata\":null,\"valueType\":\"string\"}]",
+		"internal_event_mappings": "{}",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create home macroponent: %w", err)
+	}
+	customMacroponentSysID := getString(customMacroponent, "sys_id")
+
+	macroponentConfig := `{
+		"bare": {"type": "JSON_LITERAL", "value": true},
+		"headerLevel": {"type": "JSON_LITERAL", "value": "1"},
+		"headingOnlyVisibleToScreenReaders": {"type": "JSON_LITERAL", "value": false},
+		"interceptNotifications": {"type": "JSON_LITERAL", "value": false},
+		"label": {"type": "TRANSLATION_LITERAL", "value": {"code": null, "comment": "", "message": ""}},
+		"propagateNotifications": {"type": "JSON_LITERAL", "value": false},
+		"scrollable": {"type": "JSON_LITERAL", "value": "y"},
+		"sysId": {"type": "JSON_LITERAL", "value": ""}
+	}`
+
 	_, err = sdkClient.CreateRecord(ctx, "sys_ux_screen", map[string]interface{}{
-		"name":               "Default Home",
+		"name":               "Home default",
 		"app_config":         workspaceSysID,
 		"screen_type":        screenTypeSysID,
 		"parent_macroponent": appShellSysID,
+		"macroponent":        customMacroponentSysID,
+		"macroponent_config": macroponentConfig,
 		"active":             true,
 		"order":              0,
 	})
