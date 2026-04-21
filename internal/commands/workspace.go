@@ -17,6 +17,7 @@ type workspaceCreateFlags struct {
 	name        string
 	description string
 	active      bool
+	homeType    string
 }
 
 // workspaceAddFlags holds shared flags for workspace add-* commands.
@@ -41,6 +42,8 @@ func NewWorkspaceCmd() *cobra.Command {
 		newWorkspaceAddPageCmd(),
 		newWorkspaceAddScreenCmd(),
 		newWorkspaceAddMacroponentCmd(),
+		newWorkspaceAddListCmd(),
+		newWorkspaceAddDashboardCmd(),
 	)
 
 	return cmd
@@ -80,6 +83,7 @@ Examples:
 	cmd.Flags().StringVar(&flags.name, "name", "", "Workspace name (required)")
 	cmd.Flags().StringVar(&flags.description, "description", "", "Workspace description")
 	cmd.Flags().BoolVar(&flags.active, "active", true, "Create as active")
+	cmd.Flags().StringVar(&flags.homeType, "home-type", "heading", "Home page type: heading, dashboard, or list")
 
 	_ = cmd.MarkFlagRequired("name")
 
@@ -176,39 +180,19 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 		return fmt.Errorf("failed to find Page Template: %w", err)
 	}
 
-	headingComponentSysID, err := lookupRecordSysID(ctx, sdkClient, "sys_ux_macroponent", "name=Heading")
-	if err != nil {
-		return fmt.Errorf("failed to find Heading component: %w", err)
+	// Create the home macroponent based on the selected home type
+	var customMacroponentSysID string
+	switch flags.homeType {
+	case "dashboard":
+		customMacroponentSysID, err = createHomeDashboardMacroponent(ctx, sdkClient, flags.name, pageTemplateSysID)
+	case "list":
+		customMacroponentSysID, err = createHomeListMacroponent(ctx, sdkClient, flags.name, pageTemplateSysID)
+	default: // "heading" or any other value defaults to heading
+		customMacroponentSysID, err = createHomeHeadingMacroponent(ctx, sdkClient, flags.name, pageTemplateSysID)
 	}
-
-	composition := fmt.Sprintf(`[{
-		"definition": {"id": "%s", "type": "MACROPONENT"},
-		"elementId": "heading_1",
-		"elementLabel": "Heading 1",
-		"propertyValues": {
-			"label": {"type": "JSON_LITERAL", "value": "Welcome to %s"},
-			"variant": {"type": "JSON_LITERAL", "value": "header-primary"},
-			"level": {"type": "JSON_LITERAL", "value": "1"}
-		},
-		"slot": null,
-		"styles": null
-	}]`, headingComponentSysID, flags.name)
-
-	customMacroponent, err := sdkClient.CreateRecord(ctx, "sys_ux_macroponent", map[string]interface{}{
-		"name":                    "Home",
-		"extends":                 pageTemplateSysID,
-		"category":                "page",
-		"schema_version":          "1.0.0",
-		"layout":                  `{"default":{"children":null,"isInline":null,"items":[{"element_id":"heading_1","styles":{}}],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
-		"composition":             composition,
-		"data":                    "[]",
-		"props":                   "[{\"description\":null,\"fieldType\":\"string\",\"label\":\"sysId\",\"mandatory\":false,\"name\":\"sysId\",\"readOnly\":true,\"selectable\":false,\"typeMetadata\":null,\"valueType\":\"string\"}]",
-		"internal_event_mappings": "{}",
-	})
 	if err != nil {
 		return fmt.Errorf("failed to create home macroponent: %w", err)
 	}
-	customMacroponentSysID := getString(customMacroponent, "sys_id")
 
 	macroponentConfig := `{
 		"bare": {"type": "JSON_LITERAL", "value": true},
@@ -233,6 +217,22 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create default screen: %w", err)
+	}
+
+	// Add additional pages based on home type
+	switch flags.homeType {
+	case "dashboard":
+		_, err = createDashboardPage(ctx, sdkClient, workspaceSysID, appShellSysID, screenTypeSysID, flags.name)
+		if err != nil {
+			// Non-fatal: just log the error
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to create dashboard page: %v\n", err)
+		}
+	case "list":
+		_, err = createListPage(ctx, sdkClient, workspaceSysID, appShellSysID, screenTypeSysID, flags.name)
+		if err != nil {
+			// Non-fatal: just log the error
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to create list page: %v\n", err)
+		}
 	}
 
 	// ─── Step 7: Create home route ─────────────────────────────────────
@@ -571,6 +571,221 @@ func runWorkspaceAddMacroponent(cmd *cobra.Command, flags workspaceAddFlags) err
 	)
 }
 
+// workspaceAddListFlags holds flags for add-list command.
+type workspaceAddListFlags struct {
+	workspace   string
+	name        string
+	table       string
+	description string
+	active      bool
+}
+
+// newWorkspaceAddListCmd creates the workspace add-list command.
+func newWorkspaceAddListCmd() *cobra.Command {
+	var flags workspaceAddListFlags
+
+	cmd := &cobra.Command{
+		Use:   "add-list",
+		Short: "Add a list page to a workspace",
+		Long: `Create a list page (sys_ux_list) for browsing table records within a workspace.
+
+This command creates:
+  - sys_ux_list configuration for the specified table
+  - Associated menu configuration for navigation
+
+Examples:
+  jsn workspace add-list --workspace <sys_id> --table incident --name "Incidents"
+  jsn workspace add-list --workspace "My Workspace" --table problem --name "Problems"`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceAddList(cmd, flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.workspace, "workspace", "", "Workspace sys_id or name (required)")
+	cmd.Flags().StringVar(&flags.name, "name", "", "List page name (required)")
+	cmd.Flags().StringVar(&flags.table, "table", "task", "Table to display in the list")
+	cmd.Flags().StringVar(&flags.description, "description", "", "List page description")
+	cmd.Flags().BoolVar(&flags.active, "active", true, "Create as active")
+
+	_ = cmd.MarkFlagRequired("workspace")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// runWorkspaceAddList executes the add-list command.
+func runWorkspaceAddList(cmd *cobra.Command, flags workspaceAddListFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Resolve workspace reference to sys_id
+	workspaceSysID, err := resolveWorkspace(cmd.Context(), sdkClient, flags.workspace)
+	if err != nil {
+		return err
+	}
+
+	// Create the list configuration
+	listConfig, err := sdkClient.CreateRecord(cmd.Context(), "sys_ux_list", map[string]interface{}{
+		"name":        flags.name,
+		"table":       flags.table,
+		"active":      flags.active,
+		"description": flags.description,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create list config: %w", err)
+	}
+	listConfigSysID := getString(listConfig, "sys_id")
+
+	// Create menu configuration for the list
+	_, err = sdkClient.CreateRecord(cmd.Context(), "sys_ux_list_menu_config", map[string]interface{}{
+		"list":   listConfigSysID,
+		"active": flags.active,
+	})
+	if err != nil {
+		// Non-fatal - the list is created even if menu config fails
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to create menu config: %v\n", err)
+	}
+
+	result := map[string]any{
+		"sys_id":    listConfigSysID,
+		"name":      getString(listConfig, "name"),
+		"table":     flags.table,
+		"workspace": workspaceSysID,
+		"active":    getString(listConfig, "active"),
+	}
+
+	return outputWriter.OK(result,
+		output.WithSummary(fmt.Sprintf("Created list page '%s' for table '%s'", flags.name, flags.table)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn records --table sys_ux_list %s", listConfigSysID), Description: "View list configuration"},
+			output.Breadcrumb{Action: "list", Cmd: "jsn records --table sys_ux_list", Description: "List all list configs"},
+		),
+	)
+}
+
+// workspaceAddDashboardFlags holds flags for add-dashboard command.
+type workspaceAddDashboardFlags struct {
+	workspace   string
+	name        string
+	description string
+	isDefault   bool
+	active      bool
+}
+
+// newWorkspaceAddDashboardCmd creates the workspace add-dashboard command.
+func newWorkspaceAddDashboardCmd() *cobra.Command {
+	var flags workspaceAddDashboardFlags
+
+	cmd := &cobra.Command{
+		Use:   "add-dashboard",
+		Short: "Add a dashboard page to a workspace",
+		Long: `Create a dashboard (par_dashboard) within a workspace.
+
+This command creates:
+  - par_dashboard configuration
+  - Optional dashboard canvas and widgets
+
+Examples:
+  jsn workspace add-dashboard --workspace <sys_id> --name "Overview"
+  jsn workspace add-dashboard --workspace "My Workspace" --name "Analytics" --default`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceAddDashboard(cmd, flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.workspace, "workspace", "", "Workspace sys_id or name (required)")
+	cmd.Flags().StringVar(&flags.name, "name", "", "Dashboard name (required)")
+	cmd.Flags().StringVar(&flags.description, "description", "", "Dashboard description")
+	cmd.Flags().BoolVar(&flags.isDefault, "default", false, "Set as default dashboard for the workspace")
+	cmd.Flags().BoolVar(&flags.active, "active", true, "Create as active")
+
+	_ = cmd.MarkFlagRequired("workspace")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// runWorkspaceAddDashboard executes the add-dashboard command.
+func runWorkspaceAddDashboard(cmd *cobra.Command, flags workspaceAddDashboardFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Resolve workspace reference to sys_id
+	workspaceSysID, err := resolveWorkspace(cmd.Context(), sdkClient, flags.workspace)
+	if err != nil {
+		return err
+	}
+
+	// Create the dashboard
+	dashboard, err := sdkClient.CreateRecord(cmd.Context(), "par_dashboard", map[string]interface{}{
+		"name":        flags.name,
+		"description": flags.description,
+		"is_default":  flags.isDefault,
+		"active":      flags.active,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create dashboard: %w", err)
+	}
+	dashboardSysID := getString(dashboard, "sys_id")
+
+	// Create a dashboard canvas
+	canvas, err := sdkClient.CreateRecord(cmd.Context(), "par_dashboard_canvas", map[string]interface{}{
+		"dashboard": dashboardSysID,
+		"name":      flags.name + " Canvas",
+		"active":    flags.active,
+	})
+	if err != nil {
+		// Non-fatal - the dashboard is created even if canvas creation fails
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to create dashboard canvas: %v\n", err)
+	} else {
+		// Create a placeholder widget on the canvas
+		canvasSysID := getString(canvas, "sys_id")
+		_, err = sdkClient.CreateRecord(cmd.Context(), "par_dashboard_widget", map[string]interface{}{
+			"canvas":      canvasSysID,
+			"name":        "Welcome Widget",
+			"widget_type": "text",
+			"position":    `{"x":0,"y":0,"w":4,"h":2}`,
+		})
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to create dashboard widget: %v\n", err)
+		}
+	}
+
+	result := map[string]any{
+		"sys_id":     dashboardSysID,
+		"name":       getString(dashboard, "name"),
+		"is_default": flags.isDefault,
+		"workspace":  workspaceSysID,
+		"active":     getString(dashboard, "active"),
+	}
+
+	return outputWriter.OK(result,
+		output.WithSummary(fmt.Sprintf("Created dashboard '%s'", flags.name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn records --table par_dashboard %s", dashboardSysID), Description: "View dashboard"},
+			output.Breadcrumb{Action: "list", Cmd: "jsn records --table par_dashboard", Description: "List all dashboards"},
+		),
+	)
+}
+
 // resolveWorkspace resolves a workspace identifier (sys_id or name) to a sys_id.
 func resolveWorkspace(ctx context.Context, sdkClient *sdk.Client, identifier string) (string, error) {
 	if len(identifier) == 32 {
@@ -638,4 +853,138 @@ func slugify(name string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// createHomeHeadingMacroponent creates a home page with a heading component.
+func createHomeHeadingMacroponent(ctx context.Context, c *sdk.Client, name, pageTemplateSysID string) (string, error) {
+	headingComponentSysID, err := lookupRecordSysID(ctx, c, "sys_ux_macroponent", "name=Heading")
+	if err != nil {
+		return "", fmt.Errorf("failed to find Heading component: %w", err)
+	}
+
+	composition := fmt.Sprintf(`[{
+		"definition": {"id": "%s", "type": "MACROPONENT"},
+		"elementId": "heading_1",
+		"elementLabel": "Heading 1",
+		"propertyValues": {
+			"label": {"type": "JSON_LITERAL", "value": "Welcome to %s"},
+			"variant": {"type": "JSON_LITERAL", "value": "header-primary"},
+			"level": {"type": "JSON_LITERAL", "value": "1"}
+		},
+		"slot": null,
+		"styles": null
+	}]`, headingComponentSysID, name)
+
+	macroponent, err := c.CreateRecord(ctx, "sys_ux_macroponent", map[string]interface{}{
+		"name":                    "Home",
+		"extends":                 pageTemplateSysID,
+		"category":                "page",
+		"schema_version":          "1.0.0",
+		"layout":                  `{"default":{"children":null,"isInline":null,"items":[{"element_id":"heading_1","styles":{}}],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
+		"composition":             composition,
+		"data":                    "[]",
+		"props":                   "[{\"description\":null,\"fieldType\":\"string\",\"label\":\"sysId\",\"mandatory\":false,\"name\":\"sysId\",\"readOnly\":true,\"selectable\":false,\"typeMetadata\":null,\"valueType\":\"string\"}]",
+		"internal_event_mappings": "{}",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return getString(macroponent, "sys_id"), nil
+}
+
+// createHomeDashboardMacroponent creates a home page with an embedded dashboard.
+func createHomeDashboardMacroponent(ctx context.Context, c *sdk.Client, name, pageTemplateSysID string) (string, error) {
+	// Create the dashboard first
+	dashboard, err := c.CreateRecord(ctx, "par_dashboard", map[string]interface{}{
+		"name":        name + " Home Dashboard",
+		"description": "Dashboard for " + name + " workspace",
+		"is_default":  false,
+		"is_template": false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create dashboard: %w", err)
+	}
+	dashboardSysID := getString(dashboard, "sys_id")
+
+	// Create a simple macroponent with dashboard reference
+	macroponent, err := c.CreateRecord(ctx, "sys_ux_macroponent", map[string]interface{}{
+		"name":                    "Home",
+		"extends":                 pageTemplateSysID,
+		"category":                "page",
+		"schema_version":          "1.0.0",
+		"layout":                  `{"default":{"children":null,"isInline":null,"items":[],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
+		"composition":             "[]",
+		"data":                    fmt.Sprintf(`[{"elementId":"dashboard_1","elementType":"dashboard","elementProps":{"dashboardId":"%s"}}]`, dashboardSysID),
+		"props":                   "[{\"description\":null,\"fieldType\":\"string\",\"label\":\"sysId\",\"mandatory\":false,\"name\":\"sysId\",\"readOnly\":true,\"selectable\":false,\"typeMetadata\":null,\"valueType\":\"string\"}]",
+		"internal_event_mappings": "{}",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return getString(macroponent, "sys_id"), nil
+}
+
+// createHomeListMacroponent creates a home page with a list component.
+func createHomeListMacroponent(ctx context.Context, c *sdk.Client, name, pageTemplateSysID string) (string, error) {
+	// Create the list configuration
+	listConfig, err := c.CreateRecord(ctx, "sys_ux_list", map[string]interface{}{
+		"name":   name + " List",
+		"table":  "task", // Default to task, user can customize
+		"active": true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create list config: %w", err)
+	}
+	listConfigSysID := getString(listConfig, "sys_id")
+
+	// Create a macroponent with list reference
+	macroponent, err := c.CreateRecord(ctx, "sys_ux_macroponent", map[string]interface{}{
+		"name":                    "Home",
+		"extends":                 pageTemplateSysID,
+		"category":                "page",
+		"schema_version":          "1.0.0",
+		"layout":                  `{"default":{"children":null,"isInline":null,"items":[],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
+		"composition":             "[]",
+		"data":                    fmt.Sprintf(`[{"elementId":"list_1","elementType":"list","elementProps":{"listId":"%s"}}]`, listConfigSysID),
+		"props":                   "[{\"description\":null,\"fieldType\":\"string\",\"label\":\"sysId\",\"mandatory\":false,\"name\":\"sysId\",\"readOnly\":true,\"selectable\":false,\"typeMetadata\":null,\"valueType\":\"string\"}]",
+		"internal_event_mappings": "{}",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return getString(macroponent, "sys_id"), nil
+}
+
+// createDashboardPage adds a dedicated dashboard page to a workspace.
+func createDashboardPage(ctx context.Context, c *sdk.Client, workspaceSysID, appShellSysID, screenTypeSysID, name string) (string, error) {
+	// Create the dashboard
+	dashboard, err := c.CreateRecord(ctx, "par_dashboard", map[string]interface{}{
+		"name":        name + " Dashboard",
+		"description": "Dashboard page for " + name + " workspace",
+		"is_default":  false,
+		"is_template": false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create dashboard: %w", err)
+	}
+
+	return getString(dashboard, "sys_id"), nil
+}
+
+// createListPage adds a dedicated list page to a workspace.
+func createListPage(ctx context.Context, c *sdk.Client, workspaceSysID, appShellSysID, screenTypeSysID, name string) (string, error) {
+	// Create the list configuration
+	listConfig, err := c.CreateRecord(ctx, "sys_ux_list", map[string]interface{}{
+		"name":   name + " List Page",
+		"table":  "task",
+		"active": true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create list config: %w", err)
+	}
+
+	return getString(listConfig, "sys_id"), nil
 }

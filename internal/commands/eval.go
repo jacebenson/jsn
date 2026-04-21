@@ -90,6 +90,9 @@ func runEval(cmd *cobra.Command, script string, flags evalFlags) error {
 		return output.ErrUsage("No script provided. Pass as argument, use --file, or pipe via stdin.")
 	}
 
+	// Warn about potential silent failures when using eval for record operations
+	warned := warnAboutRecordOperations(cmd, script)
+
 	// Build options
 	opts := sdk.DefaultEvalOptions()
 	opts.Scope = flags.scope
@@ -100,6 +103,11 @@ func runEval(cmd *cobra.Command, script string, flags evalFlags) error {
 	result, err := sdkClient.Eval(cmd.Context(), script, opts)
 	if err != nil {
 		return fmt.Errorf("script execution failed: %w", err)
+	}
+
+	// Additional warning after execution if record operations were detected
+	if warned && result.Error == "" {
+		printEvalVerificationWarning(cmd)
 	}
 
 	// Check for script errors
@@ -292,4 +300,78 @@ func printMarkdownEvalError(cmd *cobra.Command, result *sdk.EvalResult) error {
 	fmt.Fprintln(w, "```")
 
 	return nil
+}
+
+// warnAboutRecordOperations checks if the script contains GlideRecord operations
+// that could fail silently and prints a warning if so.
+// Returns true if a warning was printed.
+func warnAboutRecordOperations(cmd *cobra.Command, script string) bool {
+	// Patterns that indicate record operations
+	patterns := []string{
+		`.insert()`,
+		`.update()`,
+		`.deleteRecord()`,
+		`gr.insert()`,
+		`gr.update()`,
+		`gr.deleteRecord()`,
+		`.insert();`,
+		`.update();`,
+		`.deleteRecord();`,
+	}
+
+	scriptLower := strings.ToLower(script)
+	hasRecordOp := false
+	for _, pattern := range patterns {
+		if strings.Contains(scriptLower, strings.ToLower(pattern)) {
+			hasRecordOp = true
+			break
+		}
+	}
+
+	if !hasRecordOp {
+		return false
+	}
+
+	// Check if it's specifically about GlideRecord
+	if !strings.Contains(scriptLower, "gliderecord") && !strings.Contains(scriptLower, "new gliderecord") {
+		return false
+	}
+
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+	if !isTerminal {
+		return true // Still return true so post-execution warning can be shown
+	}
+
+	warningStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffaa00"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
+	fmt.Fprintln(cmd.ErrOrStderr())
+	fmt.Fprintln(cmd.ErrOrStderr(), warningStyle.Render("⚠️  Warning: Record operation detected via eval"))
+	fmt.Fprintln(cmd.ErrOrStderr())
+	fmt.Fprintln(cmd.ErrOrStderr(), mutedStyle.Render("This script appears to modify records via GlideRecord."))
+	fmt.Fprintln(cmd.ErrOrStderr(), mutedStyle.Render("Note: eval returns HTTP 200 even when inserts fail due to:"))
+	fmt.Fprintln(cmd.ErrOrStderr(), mutedStyle.Render("  • ACL violations"))
+	fmt.Fprintln(cmd.ErrOrStderr(), mutedStyle.Render("  • Mandatory field errors"))
+	fmt.Fprintln(cmd.ErrOrStderr(), mutedStyle.Render("  • Wrong scope"))
+	fmt.Fprintln(cmd.ErrOrStderr(), mutedStyle.Render("  • Logic errors preventing the insert"))
+	fmt.Fprintln(cmd.ErrOrStderr())
+
+	return true
+}
+
+// printEvalVerificationWarning prints a post-execution warning about verifying record operations.
+func printEvalVerificationWarning(cmd *cobra.Command) {
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+	if !isTerminal {
+		return
+	}
+
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaa00"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
+	fmt.Fprintln(cmd.OutOrStdout())
+	fmt.Fprintln(cmd.OutOrStdout(), warningStyle.Render("⚠️  Verify record changes independently"))
+	fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("Scripts can report success even when records aren't created/updated."))
+	fmt.Fprintln(cmd.OutOrStdout(), mutedStyle.Render("Use `jsn records --table <name> --query` to verify changes."))
+	fmt.Fprintln(cmd.OutOrStdout())
 }

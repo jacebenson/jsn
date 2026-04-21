@@ -126,6 +126,7 @@ Hierarchy: Use specific commands (rules, flows, etc.) first. Fall back to
 	root.AddCommand(commands.NewUpdateSetCmd())
 	root.AddCommand(commands.NewScopeCmd())
 	root.AddCommand(commands.NewWorkspaceCmd())
+	root.AddCommand(commands.NewATFCmd())
 
 	root.AddCommand(commands.NewRestCmd())
 	root.AddCommand(commands.NewEvalCmd())

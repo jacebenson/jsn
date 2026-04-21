@@ -84,6 +84,9 @@ Examples:
 	cmd.AddCommand(
 		newACLsScriptCmd(),
 		newACLsCheckCmd(),
+		newACLsCreateCmd(),
+		newACLsUpdateCmd(),
+		newACLsDeleteCmd(),
 	)
 
 	return cmd
@@ -904,4 +907,316 @@ func pickACL(ctx context.Context, sdkClient *sdk.Client, title, query, orderBy s
 	}
 
 	return selected.ID, nil
+}
+
+// newACLsCreateCmd creates the acls create command.
+func newACLsCreateCmd() *cobra.Command {
+	var flags aclsCreateFlags
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new ACL",
+		Long: `Create a new Access Control List (sys_security_acl).
+
+Required Fields:
+  --name: The ACL name in format "table.operation" (e.g., "incident.read")
+  --operation: The operation type (read, write, create, delete, execute)
+
+Optional Fields:
+  --table: The table this ACL applies to (optional for record-level ACLs)
+  --type: ACL type (record, field, processor, etc.)
+  --field: The field name (for field-level ACLs)
+  --script: Server-side script for the ACL (use @file or raw string)
+  --active: Whether the ACL is active (default: true)
+
+Examples:
+  jsn acls create --name "incident.read" --operation read --table incident
+  jsn acls create --name "incident.write" --operation write --table incident --script "gs.hasRole('admin')"
+  jsn acls create --name "incident.short_description.write" --operation write --table incident --field short_description`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runACLsCreate(cmd, flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.name, "name", "", "ACL name (required)")
+	cmd.Flags().StringVar(&flags.operation, "operation", "", "Operation: read, write, create, delete, execute (required)")
+	cmd.Flags().StringVar(&flags.table, "table", "", "Table name")
+	cmd.Flags().StringVar(&flags.aclType, "type", "record", "ACL type: record, field, processor")
+	cmd.Flags().StringVar(&flags.field, "field", "", "Field name (for field-level ACLs)")
+	cmd.Flags().StringVar(&flags.script, "script", "", "Server-side script (use @file to read from file)")
+	cmd.Flags().BoolVar(&flags.active, "active", true, "Create as active")
+
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("operation")
+
+	return cmd
+}
+
+// aclsCreateFlags holds the flags for the acls create command.
+type aclsCreateFlags struct {
+	name      string
+	operation string
+	table     string
+	aclType   string
+	field     string
+	script    string
+	active    bool
+}
+
+// runACLsCreate executes the acls create command.
+func runACLsCreate(cmd *cobra.Command, flags aclsCreateFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	// Resolve script if it's a file reference
+	script := flags.script
+	if strings.HasPrefix(script, "@") {
+		content, err := resolveFieldValue(script)
+		if err != nil {
+			return fmt.Errorf("failed to read script file: %w", err)
+		}
+		script = content
+	}
+
+	data := map[string]interface{}{
+		"name":      flags.name,
+		"operation": flags.operation,
+		"type":      flags.aclType,
+		"active":    flags.active,
+	}
+
+	if flags.table != "" {
+		data["table"] = flags.table
+	}
+	if flags.field != "" {
+		data["field"] = flags.field
+	}
+	if script != "" {
+		data["script"] = script
+		data["advanced"] = true
+	}
+
+	record, err := sdkClient.CreateRecord(cmd.Context(), "sys_security_acl", data)
+	if err != nil {
+		return fmt.Errorf("failed to create ACL: %w", err)
+	}
+
+	sysID := getString(record, "sys_id")
+
+	result := map[string]any{
+		"sys_id":    sysID,
+		"name":      getString(record, "name"),
+		"operation": getString(record, "operation"),
+		"type":      getString(record, "type"),
+		"active":    getString(record, "active"),
+	}
+
+	return outputWriter.OK(result,
+		output.WithSummary(fmt.Sprintf("Created ACL '%s'", flags.name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn acls %s", sysID), Description: "View ACL details"},
+			output.Breadcrumb{Action: "add-role", Cmd: fmt.Sprintf("jsn records --table sys_security_acl_role create -f sys_security_acl=%s -f role=<role_name>", sysID), Description: "Add role to ACL"},
+		),
+	)
+}
+
+// newACLsUpdateCmd creates the acls update command.
+func newACLsUpdateCmd() *cobra.Command {
+	var flags aclsUpdateFlags
+
+	cmd := &cobra.Command{
+		Use:   "update <sys_id>",
+		Short: "Update an existing ACL",
+		Long: `Update an Access Control List by sys_id.
+
+Updateable Fields:
+  --name: The ACL name
+  --operation: The operation type
+  --table: The table this ACL applies to
+  --type: ACL type
+  --field: The field name
+  --script: Server-side script
+  --active: Active/inactive state
+
+Examples:
+  jsn acls update <sys_id> --active=false
+  jsn acls update <sys_id> --script "gs.hasRole('admin')"
+  jsn acls update <sys_id> --name "incident.admin_write"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runACLsUpdate(cmd, args[0], flags)
+		},
+	}
+
+	cmd.Flags().StringVar(&flags.name, "name", "", "ACL name")
+	cmd.Flags().StringVar(&flags.operation, "operation", "", "Operation")
+	cmd.Flags().StringVar(&flags.table, "table", "", "Table name")
+	cmd.Flags().StringVar(&flags.aclType, "type", "", "ACL type")
+	cmd.Flags().StringVar(&flags.field, "field", "", "Field name")
+	cmd.Flags().StringVar(&flags.script, "script", "", "Server-side script")
+	cmd.Flags().BoolVar(&flags.active, "active", true, "Active state")
+
+	return cmd
+}
+
+// aclsUpdateFlags holds the flags for the acls update command.
+type aclsUpdateFlags struct {
+	name      string
+	operation string
+	table     string
+	aclType   string
+	field     string
+	script    string
+	active    bool
+}
+
+// runACLsUpdate executes the acls update command.
+func runACLsUpdate(cmd *cobra.Command, sysID string, flags aclsUpdateFlags) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+
+	data := make(map[string]interface{})
+
+	if flags.name != "" {
+		data["name"] = flags.name
+	}
+	if flags.operation != "" {
+		data["operation"] = flags.operation
+	}
+	if flags.table != "" {
+		data["table"] = flags.table
+	}
+	if flags.aclType != "" {
+		data["type"] = flags.aclType
+	}
+	if flags.field != "" {
+		data["field"] = flags.field
+	}
+	if cmd.Flags().Changed("active") {
+		data["active"] = flags.active
+	}
+	if flags.script != "" {
+		script := flags.script
+		if strings.HasPrefix(script, "@") {
+			content, err := resolveFieldValue(script)
+			if err != nil {
+				return fmt.Errorf("failed to read script file: %w", err)
+			}
+			script = content
+		}
+		data["script"] = script
+		data["advanced"] = true
+	}
+
+	if len(data) == 0 {
+		return fmt.Errorf("no fields to update. Specify at least one field flag")
+	}
+
+	record, err := sdkClient.UpdateRecord(cmd.Context(), "sys_security_acl", sysID, data)
+	if err != nil {
+		return fmt.Errorf("failed to update ACL: %w", err)
+	}
+
+	result := map[string]any{
+		"sys_id":    sysID,
+		"name":      getString(record, "name"),
+		"operation": getString(record, "operation"),
+		"type":      getString(record, "type"),
+		"active":    getString(record, "active"),
+	}
+
+	return outputWriter.OK(result,
+		output.WithSummary(fmt.Sprintf("Updated ACL '%s'", result["name"])),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{Action: "show", Cmd: fmt.Sprintf("jsn acls %s", sysID), Description: "View ACL details"},
+		),
+	)
+}
+
+// newACLsDeleteCmd creates the acls delete command.
+func newACLsDeleteCmd() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "delete <sys_id>",
+		Short: "Delete an ACL",
+		Long: `Delete an Access Control List by sys_id.
+
+Examples:
+  jsn acls delete <sys_id>
+  jsn acls delete <sys_id> --force`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runACLsDelete(cmd, args[0], force)
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
+
+	return cmd
+}
+
+// runACLsDelete executes the acls delete command.
+func runACLsDelete(cmd *cobra.Command, sysID string, force bool) error {
+	appCtx := appctx.FromContext(cmd.Context())
+	if appCtx == nil {
+		return fmt.Errorf("app not initialized")
+	}
+
+	if appCtx.SDK == nil {
+		return output.ErrAuth("no instance configured. Run: jsn setup")
+	}
+
+	outputWriter := appCtx.Output.(*output.Writer)
+	sdkClient := appCtx.SDK.(*sdk.Client)
+	isTerminal := output.IsTTY(cmd.OutOrStdout())
+
+	// Get ACL details for confirmation
+	record, err := sdkClient.GetRecord(cmd.Context(), "sys_security_acl", sysID)
+	if err != nil {
+		return fmt.Errorf("failed to find ACL: %w", err)
+	}
+
+	aclName := getString(record, "name")
+
+	// Confirm deletion unless --force
+	if !force && isTerminal {
+		fmt.Fprintf(cmd.OutOrStdout(), "Delete ACL '%s'? [y/N]: ", aclName)
+		var response string
+		_, _ = fmt.Scanln(&response)
+		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+			return fmt.Errorf("deletion cancelled")
+		}
+	}
+
+	if err := sdkClient.DeleteRecord(cmd.Context(), "sys_security_acl", sysID); err != nil {
+		return fmt.Errorf("failed to delete ACL: %w", err)
+	}
+
+	return outputWriter.OK(map[string]string{
+		"sys_id": sysID,
+		"name":   aclName,
+		"status": "deleted",
+	},
+		output.WithSummary(fmt.Sprintf("Deleted ACL '%s'", aclName)),
+	)
 }

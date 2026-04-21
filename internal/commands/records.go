@@ -933,6 +933,7 @@ func printMarkdownCount(cmd *cobra.Command, table string, count int, query strin
 func newRecordsCreateCmd() *cobra.Command {
 	var fields []string
 	var jsonData string
+	var scope string
 
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -944,24 +945,30 @@ Field Input:
   Use --data (or -d) to provide a JSON object: --data '{"short_description":"Server down"}'
   Use @file to read a value from a file: -f script=@/tmp/script.js
 
+Scope Control:
+  Use --scope to specify the application scope for the record.
+  This prevents records from landing in 'global' when the session scope drifts.
+
 Examples:
   jsn records --table incident create -f short_description="Server down" -f priority=1
   jsn records --table incident create -f script=@/tmp/my_script.js
-  jsn records --table incident create -d '{"short_description":"Server down","priority":"1"}'`,
+  jsn records --table incident create -d '{"short_description":"Server down","priority":"1"}'
+  jsn records --table sys_script_include create -f name="MyUtil" --scope x_my_app`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRecordsCreate(cmd, fields, jsonData)
+			return runRecordsCreate(cmd, fields, jsonData, scope)
 		},
 	}
 
 	cmd.Flags().StringArrayVarP(&fields, "field", "f", nil, "Set field value (name=value, use @file to read from file)")
 	cmd.Flags().StringVarP(&jsonData, "data", "d", "", "JSON object with field values")
+	cmd.Flags().StringVar(&scope, "scope", "", "Application scope (name or sys_id) for the record")
 
 	return cmd
 }
 
 // runRecordsCreate executes the records create command.
-func runRecordsCreate(cmd *cobra.Command, fields []string, jsonData string) error {
+func runRecordsCreate(cmd *cobra.Command, fields []string, jsonData string, scope string) error {
 	appCtx := appctx.FromContext(cmd.Context())
 	if appCtx == nil {
 		return fmt.Errorf("app not initialized")
@@ -1004,6 +1011,15 @@ func runRecordsCreate(cmd *cobra.Command, fields []string, jsonData string) erro
 
 	if len(data) == 0 {
 		return output.ErrUsage("No field values provided. Use --field or --data")
+	}
+
+	// Resolve scope if provided and inject into data
+	if scope != "" {
+		scopeSysID, err := resolveScope(cmd.Context(), sdkClient, scope)
+		if err != nil {
+			return fmt.Errorf("failed to resolve scope '%s': %w", scope, err)
+		}
+		data["sys_scope"] = scopeSysID
 	}
 
 	record, err := sdkClient.CreateRecord(cmd.Context(), table, data)
@@ -1864,4 +1880,65 @@ func stringsTitle(s string) string {
 		return ""
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// resolveScope resolves a scope identifier (name or sys_id) to a sys_id.
+func resolveScope(ctx context.Context, sdkClient *sdk.Client, identifier string) (string, error) {
+	// If it looks like a sys_id (32 chars, alphanumeric), return as-is
+	if len(identifier) == 32 {
+		// Validate it's only alphanumeric
+		isSysID := true
+		for _, r := range identifier {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				isSysID = false
+				break
+			}
+		}
+		if isSysID {
+			return identifier, nil
+		}
+	}
+
+	// Try to look up by scope name in sys_scope table
+	records, err := sdkClient.ListRecords(ctx, "sys_scope", &sdk.ListRecordsOptions{
+		Limit:  1,
+		Query:  fmt.Sprintf("scope=%s", identifier),
+		Fields: []string{"sys_id", "scope", "name"},
+	})
+	if err != nil {
+		// Try sys_app if sys_scope fails
+		records, err = sdkClient.ListRecords(ctx, "sys_app", &sdk.ListRecordsOptions{
+			Limit:  1,
+			Query:  fmt.Sprintf("scope=%s", identifier),
+			Fields: []string{"sys_id", "scope", "name"},
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to lookup scope: %w", err)
+		}
+	}
+
+	if len(records) == 0 {
+		// Try by name if scope didn't match
+		records, err = sdkClient.ListRecords(ctx, "sys_scope", &sdk.ListRecordsOptions{
+			Limit:  1,
+			Query:  fmt.Sprintf("name=%s", identifier),
+			Fields: []string{"sys_id", "scope", "name"},
+		})
+		if err != nil {
+			// Try sys_app
+			records, err = sdkClient.ListRecords(ctx, "sys_app", &sdk.ListRecordsOptions{
+				Limit:  1,
+				Query:  fmt.Sprintf("name=%s", identifier),
+				Fields: []string{"sys_id", "scope", "name"},
+			})
+			if err != nil {
+				return "", fmt.Errorf("scope not found: %s", identifier)
+			}
+		}
+		if len(records) == 0 {
+			return "", fmt.Errorf("scope not found: %s", identifier)
+		}
+	}
+
+	return getString(records[0], "sys_id"), nil
 }
