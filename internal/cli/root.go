@@ -271,7 +271,7 @@ func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *conf
 }
 
 // customUsageTemplate is a discovery-focused help template that groups commands
-// by category instead of showing an alphabetical list.
+// by workflow (like git) instead of object type.
 // This template is ONLY for the root command (jsn).
 const customUsageTemplate = `Usage:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
@@ -283,13 +283,46 @@ Aliases:
 Examples:
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}
 
-Common Commands (by category):
-  Explore    tables, records, workspace, rules, flows, jobs, script-includes
-  Data       records (CRUD), choices
-  Catalog    catalog-item, variable
-  Dev        scope, updateset, eval, rest
-  Debug      logs, instance
-  Config     setup, auth, config
+Common jsn workflows (run with no args to see current state):
+
+setup and config
+  setup         First-time configuration
+  auth          Login, logout, check status
+  config        Manage instance profiles
+
+understand your instance
+  tables        List and inspect table schemas
+  records       Query and inspect table data
+  logs          View system logs and errors
+  instance      Check instance info and version
+  docs          Browse offline documentation
+
+develop applications
+  scope         Switch application scope (shows current)
+  updateset     Manage update sets (shows current)
+  script-includes  Reusable server-side code
+  rules         Business logic on table operations
+  client-scripts Browser-side form scripts
+  workspace     Create configurable workspaces
+
+automate processes
+  flows         Design and execute workflows
+  jobs          Schedule background tasks
+  atf           Build and run automated tests
+
+build service experiences
+  catalog-item  Create service catalog items
+  variable      Design catalog questions
+  sp            Manage service portals
+
+security and policies
+  acls          Access controls (ACLs)
+  data-policies Data validation rules
+  ui-policies   Form field visibility rules
+
+advanced (use when specific commands don't work)
+  rest          Raw REST API calls
+  eval          Execute background scripts
 
 Run "{{.CommandPath}} commands --md" for the full command catalog.{{end}}{{if .HasAvailableLocalFlags}}
 
