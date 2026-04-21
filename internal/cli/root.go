@@ -282,10 +282,10 @@ Examples:
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}
 
 Common Commands (by category):
-  Explore    tables, records, rules, flows, jobs, script-includes
+  Explore    tables, records, workspace, rules, flows, jobs, script-includes
   Data       records (CRUD), choices  
   Catalog    catalog-item, variable
-  Dev        scope, updateset, workspace, eval, rest
+  Dev        scope, updateset, eval, rest
   Debug      logs, instance
   Config     setup, auth, config
 
