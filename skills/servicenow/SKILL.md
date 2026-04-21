@@ -42,15 +42,31 @@ jsn <command> --help      # Detailed usage, flags, and examples for any command
 3. **Check auth first** — Run `jsn auth status` before operations
 4. **NEVER logout** — Only run `jsn auth logout` if the user explicitly asks
 5. **Use `--profile <name>`** to target a specific instance, or `jsn config switch <name>` to change default
+6. **Before using `eval` or `rest`** — Ask yourself: *"Have I checked if there's a more specific jsn command?"* Verify `jsn records --table <name> create` won't work first. Prefer specific over generic over escape hatch over eval.
+
+## ⚠️ AVOID `jsn eval` for Record Creation
+
+**Why:** `jsn eval` runs server-side JavaScript in the global scope. It returns HTTP 200 even when:
+- The insert fails due to ACL violations
+- Mandatory fields are missing
+- The record lands in the wrong scope
+- Logic errors prevent the insert entirely
+
+**The AI trap:** Agents see "success" and assume the record was created. It wasn't.
+
+**Always use instead:** `jsn records --table <name> create` — it returns the created record with sys_id or an explicit validation error.
+
+**Only use `eval` when:** No specific command exists, `records` lacks required fields, and `rest` doesn't work. This is rare.
 
 ## Command Hierarchy
 
-Pick the most specific tool for the job:
+Pick the most specific tool for the job. **Never default to eval** — it's the last resort:
 
-1. **Specific commands** — `rules`, `flows`, `jobs`, etc. — curated views with domain-aware formatting
-2. **`records --table <name>`** — generic CRUD on any table (the workhorse)
-3. **`rest`** — raw escape hatch for any REST endpoint
-4. **Ask the human** — if none of the above work. Never generate scripts as a fallback.
+1. **Specific commands** — `jsn flows`, `jsn rules`, `jsn jobs`, etc. — curated views with domain-aware formatting and validation
+2. **`jsn records --table <name>`** — generic CRUD on any table (the workhorse, preferred for record creation)
+3. **`jsn rest`** — raw Table API escape hatch when records command lacks required fields
+4. **`jsn eval`** — ⚠️ **LAST RESORT ONLY** — server-side script execution when no other option exists
+5. **Ask the human** — if none of the above work. Never generate standalone GlideRecord scripts as a fallback.
 
 ## JSON Envelope
 
