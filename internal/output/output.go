@@ -346,6 +346,19 @@ func (w *Writer) writeStyled(resp *Response) error {
 		for _, item := range data {
 			fmt.Fprintf(w.opts.Writer, "%v\n", item)
 		}
+	case map[string]any:
+		if err := w.writeStyledMap(data); err != nil {
+			return err
+		}
+	case map[string]string:
+		// Convert to map[string]any for reuse
+		converted := make(map[string]any)
+		for k, v := range data {
+			converted[k] = v
+		}
+		if err := w.writeStyledMap(converted); err != nil {
+			return err
+		}
 	default:
 		fmt.Fprintf(w.opts.Writer, "%v\n", data)
 	}
@@ -561,6 +574,38 @@ func (w *Writer) writeStyledTable(data []map[string]any) error {
 		}
 
 		fmt.Fprintln(w.opts.Writer, strings.Join(parts, "  "))
+	}
+
+	return nil
+}
+
+// writeStyledMap outputs a single map as styled key-value pairs.
+func (w *Writer) writeStyledMap(data map[string]any) error {
+	// Find max key length for alignment
+	maxKeyLen := 0
+	for k := range data {
+		if len(k) > maxKeyLen {
+			maxKeyLen = len(k)
+		}
+	}
+
+	// Sort keys for consistent output
+	var keys []string
+	for k := range data {
+		keys = append(keys, k)
+	}
+	for i := 0; i < len(keys)-1; i++ {
+		for j := i + 1; j < len(keys); j++ {
+			if keys[i] > keys[j] {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+
+	// Print each key-value pair
+	for _, k := range keys {
+		v := data[k]
+		fmt.Fprintf(w.opts.Writer, "  %-*s : %v\n", maxKeyLen, k, v)
 	}
 
 	return nil
