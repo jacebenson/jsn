@@ -192,6 +192,60 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 		return fmt.Errorf("failed to create home route: %w", err)
 	}
 
+	// ─── Step 8: Create page properties ────────────────────────────────
+	scopeSysID := getString(appConfig, "sys_scope")
+	if scopeSysID == "" {
+		// sys_scope may be a reference object
+		if ref, ok := appConfig["sys_scope"].(map[string]interface{}); ok {
+			scopeSysID = getString(ref, "value")
+		}
+	}
+	scopePrefix, err := getScopePrefix(ctx, sdkClient, scopeSysID)
+	if err != nil {
+		return fmt.Errorf("failed to get scope prefix: %w", err)
+	}
+
+	pageProps := []struct {
+		name  string
+		typ   string
+		value string
+	}{
+		{
+			name:  "chrome_header",
+			typ:   "json",
+			value: `{"privatePage":{"userPrefsEnabled":false,"searchEnabled":false,"currentScreenLinkConfiguration":{},"globalTools":{"collapsingMenuId":0,"primaryItems":[],"secondaryItems":[]},"notificationsEnabled":false},"publicPage":{"searchEnabled":false,"logoRoute":{},"actionButtons":[]}}`,
+		},
+		{
+			name:  "chrome_footer",
+			typ:   "json",
+			value: `{"public_page":{"enable_footer_topbar":false,"footer_topbar_options":{},"enable_footer_bar":false,"footer_bar_options":{}}}`,
+		},
+		{
+			name:  "chrome_toolbar",
+			typ:   "json",
+			value: `[{"id":"home","label":{"translatable":true,"message":"Home"},"icon":"home-fill","routeInfo":{"route":"home"},"group":"top","order":100,"badge":{},"presence":{},"availability":{},"viewportInfo":{}}]`,
+		},
+		{
+			name:  "chrome_tab",
+			typ:   "json",
+			value: `{"contextual":["record"],"newTabMenu":[],"maxMainTabLimit":10,"maxTotalSubTabLimit":30}`,
+		},
+	}
+
+	for _, prop := range pageProps {
+		_, err = sdkClient.CreateRecord(ctx, "sys_ux_page_property", map[string]interface{}{
+			"name":        prop.name,
+			"suffix":      prop.name,
+			"page":        registrySysID,
+			"type":        prop.typ,
+			"value":       prop.value,
+			"unique_name": fmt.Sprintf("%s.%s.root.global.%s", scopePrefix, registrySysID, prop.name),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create page property %s: %w", prop.name, err)
+		}
+	}
+
 	result := map[string]any{
 		"sys_id":      workspaceSysID,
 		"name":        flags.name,
@@ -476,6 +530,22 @@ func lookupRecordSysID(ctx context.Context, c *sdk.Client, table, query string) 
 		return "", fmt.Errorf("no record found in %s matching: %s", table, query)
 	}
 	return getString(records[0], "sys_id"), nil
+}
+
+// getScopePrefix returns the application scope prefix for a given scope sys_id.
+func getScopePrefix(ctx context.Context, c *sdk.Client, scopeSysID string) (string, error) {
+	records, err := c.ListRecords(ctx, "sys_scope", &sdk.ListRecordsOptions{
+		Limit:  1,
+		Query:  fmt.Sprintf("sys_id=%s", scopeSysID),
+		Fields: []string{"scope"},
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(records) == 0 {
+		return "", fmt.Errorf("no scope found")
+	}
+	return getString(records[0], "scope"), nil
 }
 
 // slugify converts a name to a URL-friendly path segment.
