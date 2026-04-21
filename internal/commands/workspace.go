@@ -173,13 +173,31 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 		return fmt.Errorf("failed to find Page Template: %w", err)
 	}
 
+	headingComponentSysID, err := lookupRecordSysID(ctx, sdkClient, "sys_ux_macroponent", "name=Heading")
+	if err != nil {
+		return fmt.Errorf("failed to find Heading component: %w", err)
+	}
+
+	composition := fmt.Sprintf(`[{
+		"definition": {"id": "%s", "type": "MACROPONENT"},
+		"elementId": "heading_1",
+		"elementLabel": "Heading 1",
+		"propertyValues": {
+			"label": {"type": "JSON_LITERAL", "value": "Welcome to %s"},
+			"variant": {"type": "JSON_LITERAL", "value": "header-primary"},
+			"level": {"type": "JSON_LITERAL", "value": "1"}
+		},
+		"slot": null,
+		"styles": null
+	}]`, headingComponentSysID, flags.name)
+
 	customMacroponent, err := sdkClient.CreateRecord(ctx, "sys_ux_macroponent", map[string]interface{}{
 		"name":                    "Home",
 		"extends":                 pageTemplateSysID,
 		"category":                "page",
 		"schema_version":          "1.0.0",
-		"layout":                  `{"default":{"children":null,"isInline":null,"items":[],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
-		"composition":             "[]",
+		"layout":                  `{"default":{"children":null,"isInline":null,"items":[{"element_id":"heading_1","styles":{}}],"root":null,"rules":null,"styles":{"flex-direction":"column","height":"100%"},"templateId":"5832fd4d53c31010e6bcddeeff7b12db","type":"flex"},"version":"3.0.0"}`,
+		"composition":             composition,
 		"data":                    "[]",
 		"props":                   "[{\"description\":null,\"fieldType\":\"string\",\"label\":\"sysId\",\"mandatory\":false,\"name\":\"sysId\",\"readOnly\":true,\"selectable\":false,\"typeMetadata\":null,\"valueType\":\"string\"}]",
 		"internal_event_mappings": "{}",
