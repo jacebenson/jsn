@@ -61,6 +61,7 @@ This command creates:
   - sys_ux_registry_m2m_category (registers in Workspaces menu)
   - sys_ux_screen_type (Home screen collection)
   - sys_ux_screen (Default Home screen)
+  - sys_ux_app_route (maps /home to the Home screen)
 
 After creation, open the workspace from the Workspaces menu in the
 Unified Navigator, or visit: /now/<path>/home
@@ -158,7 +159,7 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 
 	// ─── Step 5: Create Home screen type ───────────────────────────────
 	screenType, err := sdkClient.CreateRecord(ctx, "sys_ux_screen_type", map[string]interface{}{
-		"name": flags.name + " Home",
+		"name": "Home",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create screen type: %w", err)
@@ -176,6 +177,19 @@ func runWorkspaceCreate(cmd *cobra.Command, flags workspaceCreateFlags) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create default screen: %w", err)
+	}
+
+	// ─── Step 7: Create home route ─────────────────────────────────────
+	_, err = sdkClient.CreateRecord(ctx, "sys_ux_app_route", map[string]interface{}{
+		"name":               "Home",
+		"route_type":         "home",
+		"app_config":         workspaceSysID,
+		"screen_type":        screenTypeSysID,
+		"parent_macroponent": appShellSysID,
+		"order":              0,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create home route: %w", err)
 	}
 
 	result := map[string]any{
