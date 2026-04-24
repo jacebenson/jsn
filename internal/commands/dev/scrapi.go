@@ -13,6 +13,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // scriptedRestAPI represents a Scripted REST API (sys_ws_definition record).
@@ -135,11 +136,21 @@ Examples:
 }
 
 // listScRAPIs lists all Scripted REST APIs
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listScRAPIs(ctx context.Context, app *appctx.App, limit int) error {
 	if limit <= 0 {
 		limit = 50
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listScRAPIsInteractive(ctx, app, limit)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", fmt.Sprintf("%d", limit))
 	params.Set("sysparm_fields", "sys_id,name,namespace,api_version,description,active,protected,sys_scope")
@@ -204,6 +215,54 @@ func listScRAPIs(ctx context.Context, app *appctx.App, limit int) error {
 			},
 		),
 	)
+}
+
+// listScRAPIsInteractive shows an interactive picker for Scripted REST APIs
+func listScRAPIsInteractive(ctx context.Context, app *appctx.App, pageSize int) error {
+	fetcher := tui.NewListFetcher("sys_ws_definition").
+		WithColumns("name", "namespace", "api_version", "description", "active", "protected", "sys_scope").
+		WithOrderBy("ORDERBYname").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringValue(record, "name")
+			namespace := getStringValue(record, "namespace")
+			version := getStringValue(record, "api_version")
+			active := getBoolValue(record, "active")
+			protected := getBoolValue(record, "protected")
+			sysID := getStringValue(record, "sys_id")
+
+			// Format: NAME | namespace [vX] [protected] [inactive]
+			display := name
+			extra := namespace
+			if version != "" {
+				extra += " [v" + version + "]"
+			}
+			if extra != "" {
+				display = fmt.Sprintf("%s  | %s", name, extra)
+			}
+			if protected {
+				display += " [protected]"
+			}
+			if !active {
+				display += " [inactive]"
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		// Use the sys_id to show details
+		return showScRAPI(ctx, app, selected.ID)
+	}
+
+	return nil
 }
 
 // showScRAPI displays API details and its resources

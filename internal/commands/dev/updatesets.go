@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 
@@ -34,37 +35,32 @@ ServiceNow instances. This command allows you to list, view, and set the current
 update set for your session.
 
 Examples:
-  # List all update sets with update counts
-  jsn dev updatesets
+  # List all update sets (interactive picker in TTY mode)
+  jsn dev updatesets list
 
   # Show a specific update set by name
-  jsn dev updatesets "My Update Set"
+  jsn dev updatesets show "My Update Set"
 
   # Show a specific update set by sys_id
-  jsn dev updatesets abc123def456
+  jsn dev updatesets show abc123def456
 
   # List with filter
   jsn dev updatesets list --query "state=in progress"
 
-  # Set the current update set
+  # Set the current update set (interactive picker in TTY mode)
+  jsn dev updatesets set
+
+  # Set a specific update set
   jsn dev updatesets set "My Update Set"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			// If no subcommand and no args, list all
-			if len(args) == 0 {
-				return listUpdateSets(ctx, app, "", 0)
-			}
-
-			// If one arg, treat as update set name or sys_id to show
-			return getUpdateSet(ctx, app, args[0])
+			// No args - show help
+			return cmd.Help()
 		},
 	}
 
 	cmd.AddCommand(
 		newUpdateSetsListCmd(),
-		newUpdateSetsGetCmd(),
+		newUpdateSetsShowCmd(),
 		newUpdateSetsSetCmd(),
 	)
 
@@ -108,20 +104,37 @@ Filtering:
 	return cmd
 }
 
-func newUpdateSetsGetCmd() *cobra.Command {
+func newUpdateSetsShowCmd() *cobra.Command {
+	var scope string
+
 	cmd := &cobra.Command{
-		Use:   "get [name|sys_id]",
-		Short: "Get an update set by name or sys_id",
-		Long:  "Retrieve a specific update set by its name or sys_id.",
-		Args:  cobra.ExactArgs(1),
+		Use:   "show [name|sys_id]",
+		Short: "Show an update set by name or sys_id",
+		Long: `Retrieve and display a specific update set by its name or sys_id.
+
+When update set names are ambiguous (e.g., "Default" exists in multiple apps),
+use the --scope flag to specify which application:
+
+Examples:
+  # Show update set by name
+  jsn dev updatesets show "My Update Set"
+
+  # Show "Default" update set in a specific scope
+  jsn dev updatesets show "Default" --scope "x_my_app"
+
+  # Show by sys_id (scope flag not needed)
+  jsn dev updatesets show abc123def456`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()
 			identifier := args[0]
 
-			return getUpdateSet(ctx, app, identifier)
+			return getUpdateSet(ctx, app, identifier, scope)
 		},
 	}
+
+	cmd.Flags().StringVarP(&scope, "scope", "s", "", "Filter by application scope (e.g., 'global', 'x_my_app')")
 
 	return cmd
 }
@@ -167,7 +180,7 @@ Examples:
 			}
 
 			// Find the update set
-			updateSet, err := findUpdateSet(ctx, app, identifier)
+			updateSet, err := findUpdateSet(ctx, app, identifier, "")
 			if err != nil {
 				return err
 			}
@@ -211,7 +224,7 @@ Examples:
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn dev updatesets get %s", sysID),
+						Cmd:         fmt.Sprintf("jsn dev updatesets show %s", sysID),
 						Description: "View update set details",
 					},
 					output.Breadcrumb{
@@ -332,7 +345,17 @@ func pickUpdateSet(ctx context.Context, app *appctx.App) (*tui.UpdateSetItem, er
 }
 
 // listUpdateSets lists update sets with update counts
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listUpdateSets(ctx context.Context, app *appctx.App, query string, offset int) error {
+	// Check if we're in an interactive terminal (and no query/offset filters set)
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive, no format forced, and no specific query/offset, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto && query == "" && offset == 0 {
+		return listUpdateSetsInteractive(ctx, app)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_offset", fmt.Sprintf("%d", offset))
@@ -475,6 +498,44 @@ func listUpdateSets(ctx context.Context, app *appctx.App, query string, offset i
 	)
 }
 
+// listUpdateSetsInteractive shows an interactive picker for update sets
+// When an update set is selected, it shows details (used by list subcommand)
+func listUpdateSetsInteractive(ctx context.Context, app *appctx.App) error {
+	fetcher := tui.NewListFetcher("sys_update_set").
+		WithColumns("name", "application", "state", "sys_scope").
+		WithOrderBy("ORDERBYDESCsys_created_on").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			state := getStringField(record, "state")
+			appName := getDisplayField(record, "application")
+			sysID := getStringField(record, "sys_id")
+
+			if appName == "" {
+				appName = "Global"
+			}
+
+			// Format: NAME | App | State
+			display := fmt.Sprintf("%s  | %s  | %s", name, appName, state)
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, 20)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		// Show the update set details (for list subcommand)
+		return getUpdateSet(ctx, app, selected.ID, "")
+	}
+
+	return nil
+}
+
 // getDisplayField extracts display value from a reference field
 func getDisplayField(record map[string]any, field string) string {
 	if val, ok := record[field]; ok && val != nil {
@@ -503,8 +564,8 @@ func buildQuerySuffix(query string) string {
 }
 
 // getUpdateSet retrieves an update set by name or sys_id
-func getUpdateSet(ctx context.Context, app *appctx.App, identifier string) error {
-	record, err := findUpdateSet(ctx, app, identifier)
+func getUpdateSet(ctx context.Context, app *appctx.App, identifier string, scope string) error {
+	record, err := findUpdateSet(ctx, app, identifier, scope)
 	if err != nil {
 		return err
 	}
@@ -544,13 +605,15 @@ func getUpdateSet(ctx context.Context, app *appctx.App, identifier string) error
 }
 
 // findUpdateSet finds an update set by name or sys_id
-func findUpdateSet(ctx context.Context, app *appctx.App, identifier string) (map[string]any, error) {
+// When scope is provided and searching by name, it filters to that application
+func findUpdateSet(ctx context.Context, app *appctx.App, identifier string, scope string) (map[string]any, error) {
 	params := url.Values{}
 	params.Set("sysparm_display_value", "all")
 	params.Set("sysparm_limit", "1")
 
 	// Try to find by sys_id first (32-character hex string)
-	if len(identifier) == 32 {
+	// sys_id is unique, so scope filter not needed
+	if len(identifier) == 32 && isHexString(identifier) {
 		params.Set("sysparm_query", "sys_id="+identifier)
 
 		records, err := app.SDK.List(ctx, "sys_update_set", params)
@@ -561,15 +624,15 @@ func findUpdateSet(ctx context.Context, app *appctx.App, identifier string) (map
 		if len(records) > 0 {
 			return records[0], nil
 		}
-
-		// Ensure SDK has the AggregateCount method
-		var _ interface {
-			AggregateCount(ctx context.Context, table string, query string) (int, error)
-		} = (*sdk.Client)(nil)
 	}
 
 	// Fall back to searching by name
-	params.Set("sysparm_query", "name="+identifier)
+	query := "name=" + identifier
+	if scope != "" {
+		// Filter by application scope when provided
+		query = query + "^application.scope=" + scope
+	}
+	params.Set("sysparm_query", query)
 
 	records, err := app.SDK.List(ctx, "sys_update_set", params)
 	if err != nil {
@@ -577,6 +640,9 @@ func findUpdateSet(ctx context.Context, app *appctx.App, identifier string) (map
 	}
 
 	if len(records) == 0 {
+		if scope != "" {
+			return nil, fmt.Errorf("update set not found: %s in scope %s", identifier, scope)
+		}
 		return nil, fmt.Errorf("update set not found: %s", identifier)
 	}
 
@@ -600,6 +666,16 @@ func getStringField(record map[string]any, field string) string {
 		}
 	}
 	return ""
+}
+
+// isHexString checks if a string contains only hexadecimal characters
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // getCurrentUser retrieves the current user's sys_user record using the same

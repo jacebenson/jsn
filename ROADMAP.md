@@ -24,7 +24,7 @@
 - [x] context header - Show current scope/updateset
 
 ### Deferred to 1.1+
-- [ ] Interactive pickers (lipgloss/charm) - Replace list+prompt with bubbletea
+- [x] Interactive pickers (lipgloss/charm) - incidents list now uses bubbletea picker in TTY mode
 - [ ] groups/users management - Full CRUD
 - [ ] tasks - Service catalog tasks
 

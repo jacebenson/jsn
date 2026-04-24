@@ -13,6 +13,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // userDefaultColumns are the default columns to show for users
@@ -165,6 +166,14 @@ Examples:
 func listUsers(ctx context.Context, app *appctx.App, query string, columns []string) error {
 	if len(columns) == 0 {
 		columns = userDefaultColumns
+	}
+
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listUsersInteractive(ctx, app, query)
 	}
 
 	params := url.Values{}
@@ -384,4 +393,148 @@ func newUsersDeleteCmd() *cobra.Command {
 			}, output.WithSummary(fmt.Sprintf("Deleted user %s", username)))
 		},
 	}
+}
+
+// listUsersInteractive shows an interactive picker for users
+func listUsersInteractive(ctx context.Context, app *appctx.App, baseQuery string) error {
+	// Create a reusable list fetcher configured for users
+	fetcher := tui.NewListFetcher("sys_user").
+		WithColumns("user_name", "name", "email", "active").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			userName := getStringField(record, "user_name")
+			name := getStringField(record, "name")
+			email := getStringField(record, "email")
+			active := getStringField(record, "active")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: ICON USERNAME - NAME (EMAIL)
+			activeIcon := getActiveIcon(active)
+
+			title := fmt.Sprintf("%s %s", activeIcon, userName)
+			if name != "" {
+				title += fmt.Sprintf(" - %s", name)
+			}
+			if email != "" {
+				title += fmt.Sprintf(" (%s)", email)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, 20)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a user, show its details
+	if selected != nil {
+		// Extract username from the title
+		// Title format: ICON USERNAME - NAME (EMAIL)
+		parts := strings.SplitN(selected.Title, " ", 3)
+		if len(parts) >= 2 {
+			// parts[0] is icon, parts[1] is username
+			return showUserByUsername(ctx, app, parts[1])
+		}
+		// Fallback: try to get by sys_id
+		return getUserBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getActiveIcon returns an icon for the active status
+func getActiveIcon(active string) string {
+	switch strings.ToLower(active) {
+	case "true", "yes", "1":
+		return "🟢"
+	case "false", "no", "0":
+		return "🔴"
+	default:
+		return "⚪"
+	}
+}
+
+// getUserBySysID retrieves a user by their sys_id
+func getUserBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_fields", strings.Join(userDefaultColumns, ","))
+
+	records, err := app.SDK.List(ctx, "sys_user", params)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+	if len(records) == 0 {
+		return fmt.Errorf("user not found: %s", sysID)
+	}
+
+	// Add context for formatted display
+	record := records[0]
+	record["_context"] = map[string]any{
+		"instance_url": app.Config.GetEffectiveInstance(),
+		"table":        "sys_user",
+	}
+
+	return app.OK(record,
+		output.WithSummary(fmt.Sprintf("User %s", getDisplayValue(record, "user_name"))),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn users list",
+				Description: "Back to all users",
+			},
+		),
+	)
+}
+
+// showUserByUsername retrieves a user by their username (used after picker selection)
+func showUserByUsername(ctx context.Context, app *appctx.App, username string) error {
+	params := url.Values{}
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_query", "user_name="+username)
+
+	records, err := app.SDK.List(ctx, "sys_user", params)
+	if err != nil {
+		return fmt.Errorf("failed to find user: %w", err)
+	}
+
+	// If not found by user_name, try searching by name
+	if len(records) == 0 {
+		params.Set("sysparm_query", "name="+username)
+		records, err = app.SDK.List(ctx, "sys_user", params)
+		if err != nil {
+			return fmt.Errorf("failed to find user: %w", err)
+		}
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("user not found: %s", username)
+	}
+
+	// Add context for formatted display
+	record := records[0]
+	record["_context"] = map[string]any{
+		"instance_url": app.Config.GetEffectiveInstance(),
+		"table":        "sys_user",
+	}
+
+	return app.OK(record,
+		output.WithSummary(fmt.Sprintf("User %s", username)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn users list",
+				Description: "Back to all users",
+			},
+		),
+	)
 }

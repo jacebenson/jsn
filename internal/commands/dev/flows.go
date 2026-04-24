@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // flowDefaultColumns are the default columns to show for flows
@@ -88,6 +90,14 @@ func listFlows(ctx context.Context, app *appctx.App, query string, columns []str
 		columns = flowDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listFlowsInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -131,6 +141,41 @@ func listFlows(ctx context.Context, app *appctx.App, query string, columns []str
 			},
 		),
 	)
+}
+
+// listFlowsInteractive shows an interactive picker for flows with pagination
+func listFlowsInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	fetcher := tui.NewListFetcher("sys_hub_flow").
+		WithColumns("name", "active", "description", "sys_created_by").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			active := getStringField(record, "active")
+			sysID := getStringField(record, "sys_id")
+
+			statusIcon := "🟢"
+			if active != "true" {
+				statusIcon = "⚪"
+			}
+
+			title := fmt.Sprintf("%s %s", statusIcon, name)
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		return getFlow(ctx, app, selected.ID)
+	}
+
+	return nil
 }
 
 // getFlow retrieves a flow by name or sys_id
@@ -225,16 +270,6 @@ func getFlowStringField(record map[string]any, field string) string {
 		return fmt.Sprintf("%v", val)
 	}
 	return ""
-}
-
-// isHexString checks if a string contains only hexadecimal characters
-func isHexString(s string) bool {
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
 }
 
 // --- Stub functions for future Flow Designer API integration ---

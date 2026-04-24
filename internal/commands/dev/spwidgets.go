@@ -14,6 +14,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // spWidget represents a Service Portal Widget (sp_widget record).
@@ -119,9 +120,18 @@ Examples:
 }
 
 // listSPWidgets lists all Service Portal widgets
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listSPWidgets(ctx context.Context, app *appctx.App, limit int) error {
 	if limit <= 0 {
 		limit = 50
+	}
+
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listSPWidgetsInteractive(ctx, app, limit)
 	}
 
 	params := url.Values{}
@@ -377,5 +387,52 @@ func printStyledSPWidget(widget spWidget) error {
 	)
 
 	fmt.Println()
+	return nil
+}
+
+// listSPWidgetsInteractive shows an interactive picker for Service Portal widgets
+func listSPWidgetsInteractive(ctx context.Context, app *appctx.App, pageSize int) error {
+	// Create a reusable list fetcher configured for SP widgets
+	fetcher := tui.NewListFetcher("sp_widget").
+		WithColumns("id", "name", "active").
+		WithOrderBy("ORDERBYname").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			id := getStringValue(record, "id")
+			name := getStringValue(record, "name")
+			sysID := getStringValue(record, "sys_id")
+
+			display := name
+			if id != "" {
+				display = fmt.Sprintf("[%s] %s", id, display)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a widget, show its details
+	if selected != nil {
+		// Extract the widget ID from the title format "[id] name"
+		title := selected.Title
+		if strings.HasPrefix(title, "[") {
+			// Extract ID from between brackets
+			end := strings.Index(title, "]")
+			if end > 0 {
+				return showSPWidget(ctx, app, title[1:end])
+			}
+		}
+		// Fallback: try to use sys_id
+		return showSPWidget(ctx, app, selected.ID)
+	}
+
+	// User cancelled
 	return nil
 }

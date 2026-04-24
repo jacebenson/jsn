@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // tableDefaultColumns are the default columns to show for tables
@@ -167,6 +169,15 @@ func listTables(ctx context.Context, app *appctx.App, query string, columns []st
 		columns = tableDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto && query == "" {
+		return listTablesInteractive(ctx, app, columns)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -201,6 +212,60 @@ func listTables(ctx context.Context, app *appctx.App, query string, columns []st
 	},
 		output.WithSummary(fmt.Sprintf("%d table(s)", len(records))),
 	)
+}
+
+// listTablesInteractive shows an interactive picker for tables
+func listTablesInteractive(ctx context.Context, app *appctx.App, columns []string) error {
+	fetcher := tui.NewListFetcher("sys_db_object").
+		WithColumns("name", "label", "super_class", "create_access_controls", "sys_id").
+		WithOrderBy("ORDERBYDESCsys_updated_on").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringValue(record, "name")
+			label := getStringValue(record, "label")
+			superClass := getDisplayValue(record, "super_class")
+			sysID := getStringValue(record, "sys_id")
+
+			// Format: name (Label) | extends: super_class
+			display := name
+			if label != "" && label != name {
+				display = fmt.Sprintf("%s (%s)", name, label)
+			}
+			if superClass != "" && superClass != "Global" {
+				display = fmt.Sprintf("%s  | extends: %s", display, superClass)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, 20)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		// Get the table name from the record
+		// We need to fetch the full record to get the name
+		params := url.Values{}
+		params.Set("sysparm_limit", "1")
+		params.Set("sysparm_display_value", "all")
+		params.Set("sysparm_fields", "name")
+		params.Set("sysparm_query", "sys_id="+selected.ID)
+
+		records, err := app.SDK.List(ctx, "sys_db_object", params)
+		if err == nil && len(records) > 0 {
+			tableName := getStringValue(records[0], "name")
+			if tableName != "" {
+				return getTable(ctx, app, tableName, columns)
+			}
+		}
+		// Fallback: use sys_id
+		return getTable(ctx, app, selected.ID, columns)
+	}
+
+	return nil
 }
 
 func getTable(ctx context.Context, app *appctx.App, tableName string, columns []string) error {

@@ -51,28 +51,36 @@ func getDefaultColumns(table string) []string {
 func FormatRecordForDisplay(record map[string]any, columns []string) map[string]string {
 	result := make(map[string]string)
 
+	// Helper to extract string value from various types
+	extractValue := func(val any) string {
+		if val == nil {
+			return ""
+		}
+		switch v := val.(type) {
+		case string:
+			return v
+		case map[string]any:
+			// Handle display value objects from sysparm_display_value=true
+			if display, ok := v["display_value"].(string); ok && display != "" {
+				return display
+			}
+			if value, ok := v["value"].(string); ok {
+				return value
+			}
+			return fmt.Sprintf("%v", v)
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
 	// Always include sys_id for hyperlinks
 	if sysID, ok := record["sys_id"]; ok && sysID != nil {
-		result["sys_id"] = fmt.Sprintf("%v", sysID)
+		result["sys_id"] = extractValue(sysID)
 	}
 
 	for _, col := range columns {
 		if val, ok := record[col]; ok && val != nil {
-			switch v := val.(type) {
-			case string:
-				result[col] = v
-			case map[string]any:
-				// Handle display value objects from sysparm_display_value=true
-				if display, ok := v["display_value"].(string); ok {
-					result[col] = display
-				} else if value, ok := v["value"].(string); ok {
-					result[col] = value
-				} else {
-					result[col] = fmt.Sprintf("%v", v)
-				}
-			default:
-				result[col] = fmt.Sprintf("%v", v)
-			}
+			result[col] = extractValue(val)
 		} else {
 			result[col] = ""
 		}

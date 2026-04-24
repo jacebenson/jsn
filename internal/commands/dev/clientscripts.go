@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // clientScriptDefaultColumns are the default columns for client scripts
@@ -87,6 +89,14 @@ func listClientScripts(ctx context.Context, app *appctx.App, query string, colum
 		columns = clientScriptDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listClientScriptsInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -123,9 +133,54 @@ func listClientScripts(ctx context.Context, app *appctx.App, query string, colum
 	)
 }
 
+// listClientScriptsInteractive shows an interactive picker for client scripts with pagination
+func listClientScriptsInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	fetcher := tui.NewListFetcher("sys_script_client").
+		WithColumns("name", "table", "active", "type").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			table := getStringField(record, "table")
+			active := getStringField(record, "active")
+			scriptType := getStringField(record, "type")
+			sysID := getStringField(record, "sys_id")
+
+			statusIcon := "🟢"
+			if active != "true" {
+				statusIcon = "⚪"
+			}
+
+			title := fmt.Sprintf("%s %s | %s | %s", statusIcon, name, table, scriptType)
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		return getClientScriptByName(ctx, app, selected.ID)
+	}
+
+	return nil
+}
+
 func getClientScriptByName(ctx context.Context, app *appctx.App, name string) error {
+	var query string
+	// Check if identifier looks like a sys_id (32 hex characters)
+	if len(name) == 32 && isHexString(name) {
+		query = "sys_id=" + name
+	} else {
+		query = "name=" + name
+	}
+
 	params := url.Values{}
-	params.Set("sysparm_query", "name="+name)
+	params.Set("sysparm_query", query)
 	params.Set("sysparm_display_value", "all")
 	params.Set("sysparm_limit", "1")
 

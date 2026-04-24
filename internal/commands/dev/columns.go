@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // columnDefaultColumns are the default columns for columns
@@ -87,6 +89,14 @@ func listColumns(ctx context.Context, app *appctx.App, query string, columns []s
 		columns = columnDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listColumnsInteractive(ctx, app, query, 50)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "50")
 	params.Set("sysparm_display_value", "all")
@@ -123,9 +133,48 @@ func listColumns(ctx context.Context, app *appctx.App, query string, columns []s
 	)
 }
 
+// listColumnsInteractive shows an interactive picker for columns with pagination
+func listColumnsInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	fetcher := tui.NewListFetcher("sys_dictionary").
+		WithColumns("element", "column_label", "internal_type", "mandatory", "max_length").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			element := getStringField(record, "element")
+			label := getStringField(record, "column_label")
+			fieldType := getStringField(record, "internal_type")
+			sysID := getStringField(record, "sys_id")
+
+			title := fmt.Sprintf("%s | %s (%s)", element, label, fieldType)
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		return getColumnBySysID(ctx, app, selected.ID)
+	}
+
+	return nil
+}
+
 func getColumnByElement(ctx context.Context, app *appctx.App, element string) error {
+	var query string
+	// Check if identifier looks like a sys_id (32 hex characters)
+	if len(element) == 32 && isHexString(element) {
+		query = "sys_id=" + element
+	} else {
+		query = "element=" + element
+	}
+
 	params := url.Values{}
-	params.Set("sysparm_query", "element="+element)
+	params.Set("sysparm_query", query)
 	params.Set("sysparm_display_value", "all")
 	params.Set("sysparm_limit", "1")
 
@@ -138,6 +187,27 @@ func getColumnByElement(ctx context.Context, app *appctx.App, element string) er
 		return fmt.Errorf("column not found: %s", element)
 	}
 
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Column: %s", element)),
+	)
+}
+
+func getColumnBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+
+	records, err := app.SDK.List(ctx, "sys_dictionary", params)
+	if err != nil {
+		return fmt.Errorf("failed to find column: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("column not found: %s", sysID)
+	}
+
+	element := getStringField(records[0], "element")
 	return app.OK(records[0],
 		output.WithSummary(fmt.Sprintf("Column: %s", element)),
 	)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // uiPage represents a Classic UI Page (sys_ui_page record).
@@ -119,9 +120,18 @@ Examples:
 }
 
 // listUIPages lists all Classic UI pages
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listUIPages(ctx context.Context, app *appctx.App, limit int) error {
 	if limit <= 0 {
 		limit = 50
+	}
+
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listUIPagesInteractive(ctx, app, limit)
 	}
 
 	params := url.Values{}
@@ -357,5 +367,48 @@ func printStyledUIPage(page uiPage) error {
 	)
 
 	fmt.Println()
+	return nil
+}
+
+// listUIPagesInteractive shows an interactive picker for Classic UI pages
+func listUIPagesInteractive(ctx context.Context, app *appctx.App, pageSize int) error {
+	// Create a reusable list fetcher configured for UI pages
+	fetcher := tui.NewListFetcher("sys_ui_page").
+		WithColumns("name", "category", "active").
+		WithOrderBy("ORDERBYname").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringValue(record, "name")
+			category := getStringValue(record, "category")
+			sysID := getStringValue(record, "sys_id")
+
+			display := name
+			if category != "" {
+				display = fmt.Sprintf("%s [%s]", name, category)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a page, show its details
+	if selected != nil {
+		// Extract the page name from the title format "name [category]"
+		title := selected.Title
+		if idx := strings.Index(title, " ["); idx > 0 {
+			return showUIPage(ctx, app, title[:idx])
+		}
+		// Fallback: use the full title
+		return showUIPage(ctx, app, title)
+	}
+
+	// User cancelled
 	return nil
 }

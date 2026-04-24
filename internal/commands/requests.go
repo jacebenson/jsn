@@ -134,6 +134,15 @@ func listRequests(ctx context.Context, app *appctx.App, query string, columns []
 		columns = requestDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listRequestsInteractive(ctx, app, query, limit)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", fmt.Sprintf("%d", limit))
 	params.Set("sysparm_offset", fmt.Sprintf("%d", offset))
@@ -204,6 +213,103 @@ func listRequests(ctx context.Context, app *appctx.App, query string, columns []
 	},
 		output.WithSummary(fmt.Sprintf("%d request(s)", len(records))),
 		output.WithBreadcrumbs(breadcrumbs...),
+	)
+}
+
+// listRequestsInteractive shows an interactive picker for requests with pagination
+func listRequestsInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	// Create a reusable list fetcher configured for requests
+	fetcher := tui.NewListFetcher("sc_req_item").
+		WithColumns("number", "short_description", "request_state", "requested_for").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			number := getStringField(record, "number")
+			desc := getStringField(record, "short_description")
+			state := getStringField(record, "request_state")
+			requestedFor := getStringField(record, "requested_for")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: NUMBER DESC | STATE → REQUESTED_FOR
+			stateStr := formatRequestState(state)
+			title := fmt.Sprintf("%s  %s  | %s", number, truncateString(desc, 35), stateStr)
+			if requestedFor != "" && requestedFor != "null" {
+				title += fmt.Sprintf(" → %s", requestedFor)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a request, show its details
+	if selected != nil {
+		// Find the request number from the title
+		// Title format: NUMBER DESC | STATE...
+		parts := strings.SplitN(selected.Title, " ", 2)
+		if len(parts) >= 1 {
+			return getRequestByNumber(ctx, app, parts[0])
+		}
+		// Fallback: try to get by sys_id
+		return getRequestBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// formatRequestState formats the request state for display.
+func formatRequestState(state string) string {
+	stateMap := map[string]string{
+		"1":  "Pending",
+		"2":  "Approved",
+		"3":  "Rejected",
+		"4":  "Closed Complete",
+		"5":  "Closed Incomplete",
+		"6":  "Closed Skipped",
+		"7":  "Closed Cancelled",
+		"8":  "Work in Progress",
+		"9":  "Closed",
+		"10": "Pending Approval",
+		"11": "Approved",
+		"12": "Not Approved",
+		"13": "Requested",
+		"14": "In Progress",
+		"15": "Closed Complete",
+		"16": "Closed Incomplete",
+		"17": "Closed Skipped",
+		"18": "Closed Cancelled",
+	}
+	if mapped, ok := stateMap[state]; ok {
+		return mapped
+	}
+	return state
+}
+
+// getRequestBySysID retrieves a request by its sys_id.
+func getRequestBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_fields", strings.Join(requestDefaultColumns, ","))
+
+	records, err := app.SDK.List(ctx, "sc_req_item", params)
+	if err != nil {
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+	if len(records) == 0 {
+		return fmt.Errorf("request not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Request %s", getStringField(records[0], "number"))),
 	)
 }
 

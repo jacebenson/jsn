@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // roleDefaultColumns are the default columns for roles
@@ -87,6 +89,14 @@ func listRoles(ctx context.Context, app *appctx.App, query string, columns []str
 		columns = roleDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listRolesInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -120,6 +130,78 @@ func listRoles(ctx context.Context, app *appctx.App, query string, columns []str
 		},
 	},
 		output.WithSummary(fmt.Sprintf("%d role(s)", len(records))),
+	)
+}
+
+// listRolesInteractive shows an interactive picker for roles with pagination
+func listRolesInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	// Create a reusable list fetcher configured for roles
+	fetcher := tui.NewListFetcher("sys_user_role").
+		WithColumns("name", "description", "elevated_privilege", "sys_scope").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			desc := getStringField(record, "description")
+			elevated := getStringField(record, "elevated_privilege")
+			scope := getStringField(record, "sys_scope")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: NAME | SCOPE | ELEVATED
+			icon := "◌"
+			if elevated == "true" {
+				icon = "⚡"
+			}
+
+			title := fmt.Sprintf("%s %-30s | %s", icon, name, scope)
+			if desc != "" {
+				title = fmt.Sprintf("%s %-30s | %s | %s", icon, name, truncateString(desc, 25), scope)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a role, show its details
+	if selected != nil {
+		// Extract name from title (format: ICON NAME ...)
+		parts := strings.SplitN(selected.Title, " ", 3)
+		if len(parts) >= 2 {
+			return getRoleByName(ctx, app, parts[1])
+		}
+		// Fallback: try to get by sys_id
+		return getRoleBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getRoleBySysID retrieves a role by its sys_id
+func getRoleBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+
+	records, err := app.SDK.List(ctx, "sys_user_role", params)
+	if err != nil {
+		return fmt.Errorf("failed to find role: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("role not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Role: %s", getStringField(records[0], "name"))),
 	)
 }
 

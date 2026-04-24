@@ -7,12 +7,14 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // spPage represents a Service Portal page (sp_page record).
@@ -128,9 +130,18 @@ Examples:
 }
 
 // listSPPages lists all Service Portal pages
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listSPPages(ctx context.Context, app *appctx.App, limit int) error {
 	if limit <= 0 {
 		limit = 50
+	}
+
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listSPPagesInteractive(ctx, app, limit)
 	}
 
 	params := url.Values{}
@@ -431,5 +442,56 @@ func printStyledSPPage(page spPage, instances []spWidgetInstance) error {
 	)
 
 	fmt.Println()
+	return nil
+}
+
+// listSPPagesInteractive shows an interactive picker for Service Portal pages
+func listSPPagesInteractive(ctx context.Context, app *appctx.App, pageSize int) error {
+	// Create a reusable list fetcher configured for SP pages
+	fetcher := tui.NewListFetcher("sp_page").
+		WithColumns("id", "name", "title", "active").
+		WithOrderBy("ORDERBYname").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			id := getStringValue(record, "id")
+			name := getStringValue(record, "name")
+			title := getStringValue(record, "title")
+			sysID := getStringValue(record, "sys_id")
+
+			display := name
+			if title != "" && title != name {
+				display = fmt.Sprintf("%s (%s)", name, title)
+			}
+			if id != "" {
+				display = fmt.Sprintf("[%s] %s", id, display)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a page, show its details
+	if selected != nil {
+		// Extract the page ID from the title format "[id] name (title)"
+		title := selected.Title
+		if strings.HasPrefix(title, "[") {
+			// Extract ID from between brackets
+			end := strings.Index(title, "]")
+			if end > 0 {
+				return showSPPage(ctx, app, title[1:end])
+			}
+		}
+		// Fallback: try to use sys_id
+		return showSPPage(ctx, app, selected.ID)
+	}
+
+	// User cancelled
 	return nil
 }

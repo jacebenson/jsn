@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // propertyDefaultColumns are the default columns for properties
@@ -87,6 +89,14 @@ func listProperties(ctx context.Context, app *appctx.App, query string, columns 
 		columns = propertyDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listPropertiesInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -120,6 +130,74 @@ func listProperties(ctx context.Context, app *appctx.App, query string, columns 
 		},
 	},
 		output.WithSummary(fmt.Sprintf("%d property(s)", len(records))),
+	)
+}
+
+// listPropertiesInteractive shows an interactive picker for properties with pagination
+func listPropertiesInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	// Create a reusable list fetcher configured for properties
+	fetcher := tui.NewListFetcher("sys_properties").
+		WithColumns("name", "value", "description", "sys_scope").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			value := getStringField(record, "value")
+			desc := getStringField(record, "description")
+			scope := getStringField(record, "sys_scope")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: NAME = VALUE | SCOPE
+			title := fmt.Sprintf("%-40s = %-20s | %s", name, truncateString(value, 20), scope)
+			if desc != "" {
+				title = fmt.Sprintf("%-40s = %-20s | %s | %s", name, truncateString(value, 20), truncateString(desc, 20), scope)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a property, show its details
+	if selected != nil {
+		// Extract name from title (format: NAME = ...)
+		parts := strings.SplitN(selected.Title, " =", 2)
+		if len(parts) >= 1 {
+			name := strings.TrimSpace(parts[0])
+			return getPropertyByName(ctx, app, name)
+		}
+		// Fallback: try to get by sys_id
+		return getPropertyBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getPropertyBySysID retrieves a property by its sys_id
+func getPropertyBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+
+	records, err := app.SDK.List(ctx, "sys_properties", params)
+	if err != nil {
+		return fmt.Errorf("failed to find property: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("property not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Property: %s", getStringField(records[0], "name"))),
 	)
 }
 

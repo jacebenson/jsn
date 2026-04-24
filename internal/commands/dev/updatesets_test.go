@@ -30,10 +30,10 @@ func TestUpdateSetsListCmd(t *testing.T) {
 	assert.NotNil(t, flags.Lookup("offset"))
 }
 
-func TestUpdateSetsGetCmd(t *testing.T) {
-	cmd := newUpdateSetsGetCmd()
+func TestUpdateSetsShowCmd(t *testing.T) {
+	cmd := newUpdateSetsShowCmd()
 	require.NotNil(t, cmd)
-	assert.Equal(t, "get [name|sys_id]", cmd.Use)
+	assert.Equal(t, "show [name|sys_id]", cmd.Use)
 	assert.NotEmpty(t, cmd.Short)
 }
 
@@ -84,7 +84,7 @@ func TestUpdateSetsListWithQuery(t *testing.T) {
 	assert.Contains(t, transport.capturedQuery, "state")
 }
 
-func TestUpdateSetsGetIntegration(t *testing.T) {
+func TestUpdateSetsShowIntegration(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
 		responseBodies: []string{
@@ -99,13 +99,13 @@ func TestUpdateSetsGetIntegration(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewUpdateSetsCmd()
-	err := executeCommand(cmd, app, "get", "My Update Set")
+	err := executeCommand(cmd, app, "show", "My Update Set")
 
 	assert.NoError(t, err)
 	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))
 }
 
-func TestUpdateSetsGetBySysIDIntegration(t *testing.T) {
+func TestUpdateSetsShowBySysIDIntegration(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
 		responseBodies: []string{
@@ -120,7 +120,7 @@ func TestUpdateSetsGetBySysIDIntegration(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewUpdateSetsCmd()
-	err := executeCommand(cmd, app, "get", "abc123def456abc123def456abc12345")
+	err := executeCommand(cmd, app, "show", "abc123def456abc123def456abc12345")
 
 	assert.NoError(t, err)
 	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))

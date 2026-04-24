@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // importDefaultColumns are the default columns for import sets
@@ -87,6 +89,14 @@ func listImportSets(ctx context.Context, app *appctx.App, query string, columns 
 		columns = importDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listImportSetsInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -120,6 +130,67 @@ func listImportSets(ctx context.Context, app *appctx.App, query string, columns 
 		},
 	},
 		output.WithSummary(fmt.Sprintf("%d import row(s)", len(records))),
+	)
+}
+
+// listImportSetsInteractive shows an interactive picker for import set rows with pagination
+func listImportSetsInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	// Create a reusable list fetcher configured for import set rows
+	fetcher := tui.NewListFetcher("sys_import_set_row").
+		WithColumns("sys_import_set", "sys_import_row", "sys_target_table", "sys_target_sys_id").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			importSet := getStringField(record, "sys_import_set")
+			row := getStringField(record, "sys_import_row")
+			targetTable := getStringField(record, "sys_target_table")
+			targetSysID := getStringField(record, "sys_target_sys_id")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: SET | ROW → TARGET_TABLE
+			title := fmt.Sprintf("%-15s | Row %-6s → %s", importSet, row, targetTable)
+			if targetSysID != "" {
+				title += fmt.Sprintf(" (%s)", truncateString(targetSysID, 8))
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a row, show its details
+	if selected != nil {
+		return getImportSetRowBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getImportSetRowBySysID retrieves an import set row by its sys_id
+func getImportSetRowBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+
+	records, err := app.SDK.List(ctx, "sys_import_set_row", params)
+	if err != nil {
+		return fmt.Errorf("failed to find import set row: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("import set row not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Import Set Row: %s", getStringField(records[0], "sys_import_set"))),
 	)
 }
 

@@ -29,10 +29,10 @@ func TestScopesListCmd(t *testing.T) {
 	assert.NotNil(t, flags.Lookup("limit"))
 }
 
-func TestScopesGetCmd(t *testing.T) {
-	cmd := newScopesGetCmd()
+func TestScopesShowCmd(t *testing.T) {
+	cmd := newScopesShowCmd()
 	require.NotNil(t, cmd)
-	assert.Equal(t, "get [scope-name-or-sys-id]", cmd.Use)
+	assert.Equal(t, "show [scope-name-or-sys-id]", cmd.Use)
 	assert.NotEmpty(t, cmd.Short)
 
 	// Check required args
@@ -60,7 +60,7 @@ func TestScopesListIntegration(t *testing.T) {
 	assert.Contains(t, transport.capturedPath, "/api/now/table/sys_scope")
 }
 
-func TestScopesListWithSearch(t *testing.T) {
+func TestScopesRootShowsHelp(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
 		responseBody:   `{"result": []}`,
@@ -68,10 +68,13 @@ func TestScopesListWithSearch(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewScopesCmd()
-	err := executeCommand(cmd, app, "global")
+	// Root command with no args should show help (not make API call)
+	err := executeCommand(cmd, app)
 
+	// Should not error, just shows help
 	assert.NoError(t, err)
-	assert.Contains(t, transport.capturedQuery, "global")
+	// No API call should be made
+	assert.Empty(t, transport.capturedPath)
 }
 
 func TestScopesListWithQuery(t *testing.T) {
@@ -88,7 +91,7 @@ func TestScopesListWithQuery(t *testing.T) {
 	assert.Contains(t, transport.capturedQuery, "active")
 }
 
-func TestScopesGetIntegration(t *testing.T) {
+func TestScopesShowIntegration(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
 		responseBody: `{"result": [
@@ -98,7 +101,7 @@ func TestScopesGetIntegration(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewScopesCmd()
-	err := executeCommand(cmd, app, "get", "global")
+	err := executeCommand(cmd, app, "show", "global")
 
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedPath, "/api/now/table/sys_scope")
@@ -112,7 +115,7 @@ func TestScopesGetNotFound(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewScopesCmd()
-	err := executeCommand(cmd, app, "get", "NonExistentScope")
+	err := executeCommand(cmd, app, "show", "NonExistentScope")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")

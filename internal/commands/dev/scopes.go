@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // formatRecordForDisplay formats a record for display, extracting display values
@@ -58,31 +60,26 @@ func NewScopesCmd() *cobra.Command {
 		Long: `List and search ServiceNow application scopes from the sys_scope table.
 
 Examples:
-  # List all scopes
-  jsn dev scopes
+  # List all scopes (interactive picker in TTY mode)
+  jsn dev scopes list
 
   # Search for scopes by name
-  jsn dev scopes "global"
+  jsn dev scopes list --query "nameLIKEglobal"
+
+  # Show a specific scope
+  jsn dev scopes show "Global"
 
   # List with custom columns
   jsn dev scopes list --columns "name,scope,sys_id"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			query := ""
-			if len(args) > 0 {
-				search := args[0]
-				query = fmt.Sprintf("nameLIKE%s^ORscopeLIKE%s", search, search)
-			}
-
-			return listScopes(ctx, app, query, nil)
+			// No args - show help
+			return cmd.Help()
 		},
 	}
 
 	cmd.AddCommand(
 		newScopesListCmd(),
-		newScopesGetCmd(),
+		newScopesShowCmd(),
 	)
 
 	return cmd
@@ -120,14 +117,14 @@ func newScopesListCmd() *cobra.Command {
 	return cmd
 }
 
-func newScopesGetCmd() *cobra.Command {
+func newScopesShowCmd() *cobra.Command {
 	var (
 		columns string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "get [scope-name-or-sys-id]",
-		Short: "Get a scope by name or sys_id",
+		Use:   "show [scope-name-or-sys-id]",
+		Short: "Show a scope by name or sys_id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
@@ -155,6 +152,15 @@ func listScopes(ctx context.Context, app *appctx.App, query string, columns []st
 		columns = scopeDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto && query == "" {
+		return listScopesInteractive(ctx, app, columns)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -188,6 +194,120 @@ func listScopes(ctx context.Context, app *appctx.App, query string, columns []st
 		},
 	},
 		output.WithSummary(fmt.Sprintf("%d scope(s)", len(records))),
+	)
+}
+
+// listScopesInteractive shows an interactive picker for scopes
+// When a scope is selected, it sets it as the current application scope
+func listScopesInteractive(ctx context.Context, app *appctx.App, columns []string) error {
+	fetcher := tui.NewListFetcher("sys_scope").
+		WithColumns("name", "scope", "short_description", "active", "sys_id").
+		WithOrderBy("ORDERBYDESCsys_updated_on").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringValue(record, "name")
+			scopeVal := getStringValue(record, "scope")
+			desc := getStringValue(record, "short_description")
+			active := getBoolValue(record, "active")
+			sysID := getStringValue(record, "sys_id")
+
+			// Format: NAME (scope) | description [inactive]
+			display := name
+			if scopeVal != "" {
+				display = fmt.Sprintf("%s (%s)", name, scopeVal)
+			}
+			if desc != "" {
+				display = fmt.Sprintf("%s  | %s", display, desc)
+			}
+			if !active {
+				display += " [inactive]"
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, 20)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		// Set the selected scope as current
+		return setScopeAsCurrent(ctx, app, selected.ID)
+	}
+
+	return nil
+}
+
+// setScopeAsCurrent sets an application scope as the current scope for the user
+func setScopeAsCurrent(ctx context.Context, app *appctx.App, identifier string) error {
+	// Find the scope
+	params := url.Values{}
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_fields", "sys_id,name,scope")
+
+	// Try to find by name or scope field first, then by sys_id
+	query := fmt.Sprintf("name=%s^ORscope=%s^ORsys_id=%s", identifier, identifier, identifier)
+	params.Set("sysparm_query", query)
+
+	records, err := app.SDK.List(ctx, "sys_scope", params)
+	if err != nil {
+		return fmt.Errorf("failed to find scope: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("scope not found: %s", identifier)
+	}
+
+	scope := records[0]
+	sysID := getStringValue(scope, "sys_id")
+	name := getStringValue(scope, "name")
+	scopeVal := getStringValue(scope, "scope")
+
+	// Get current user sys_id
+	currentUser, err := app.SDK.GetCurrentUser(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+	userSysID := currentUser.SysID
+	userName := currentUser.UserName
+
+	// Set the user preference for current application
+	// Use the scope value (e.g., "global", "x_my_app") for the preference
+	prefValue := scopeVal
+	if prefValue == "" {
+		prefValue = sysID
+	}
+
+	if err := setUserPreference(ctx, app, userSysID, "apps.current_app", prefValue); err != nil {
+		return fmt.Errorf("failed to set scope preference: %w", err)
+	}
+
+	return app.OK(map[string]any{
+		"action":       "set_current_scope",
+		"scope_sys_id": sysID,
+		"scope_name":   name,
+		"scope_value":  scopeVal,
+		"user":         userSysID,
+		"user_name":    userName,
+		"status":       "success",
+	},
+		output.WithSummary(fmt.Sprintf("Scope '%s' set as current", name)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "view",
+				Cmd:         fmt.Sprintf("jsn dev scopes get %s", sysID),
+				Description: "View scope details",
+			},
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn dev scopes list",
+				Description: "Back to scopes",
+			},
+		),
 	)
 }
 

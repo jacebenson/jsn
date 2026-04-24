@@ -13,6 +13,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // appMenu represents an Application Menu (sys_app_application record).
@@ -134,11 +135,21 @@ Examples:
 }
 
 // listAppMenus lists all application menus
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listAppMenus(ctx context.Context, app *appctx.App, limit int) error {
 	if limit <= 0 {
 		limit = 50
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listAppMenusInteractive(ctx, app, limit)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", fmt.Sprintf("%d", limit))
 	params.Set("sysparm_fields", "sys_id,name,title,description,category,active,order,sys_scope")
@@ -199,6 +210,61 @@ func listAppMenus(ctx context.Context, app *appctx.App, limit int) error {
 			},
 		),
 	)
+}
+
+// listAppMenusInteractive shows an interactive picker for application menus
+func listAppMenusInteractive(ctx context.Context, app *appctx.App, pageSize int) error {
+	fetcher := tui.NewListFetcher("sys_app_application").
+		WithColumns("name", "title", "description", "category", "active", "sys_scope").
+		WithOrderBy("ORDERBYtitle").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			title := getStringValue(record, "title")
+			name := getStringValue(record, "name")
+			category := getStringValue(record, "category")
+			active := getBoolValue(record, "active")
+			scope := getDisplayValue(record, "sys_scope")
+			sysID := getStringValue(record, "sys_id")
+
+			// Format: TITLE | Category | Scope [inactive]
+			display := title
+			if display == "" {
+				display = name
+			}
+
+			extra := category
+			if scope != "" && scope != "Global" {
+				if extra != "" {
+					extra += " | " + scope
+				} else {
+					extra = scope
+				}
+			}
+
+			titleStr := display
+			if extra != "" {
+				titleStr = fmt.Sprintf("%s  | %s", display, extra)
+			}
+			if !active {
+				titleStr += " [inactive]"
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: titleStr,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		// Use the sys_id to show details
+		return showAppMenu(ctx, app, selected.ID)
+	}
+
+	return nil
 }
 
 // showAppMenu displays menu details and its modules

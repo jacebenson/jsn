@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // actionDefaultColumns are the default columns for actions
@@ -87,6 +89,14 @@ func listActions(ctx context.Context, app *appctx.App, query string, columns []s
 		columns = actionDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listActionsInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -120,6 +130,77 @@ func listActions(ctx context.Context, app *appctx.App, query string, columns []s
 		},
 	},
 		output.WithSummary(fmt.Sprintf("%d action(s)", len(records))),
+	)
+}
+
+// listActionsInteractive shows an interactive picker for actions with pagination
+func listActionsInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	// Create a reusable list fetcher configured for actions
+	fetcher := tui.NewListFetcher("sys_cb_action").
+		WithColumns("name", "active", "sys_scope", "sys_updated_on").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			active := getStringField(record, "active")
+			scope := getStringField(record, "sys_scope")
+			updated := getStringField(record, "sys_updated_on")
+			sysID := getStringField(record, "sys_id")
+
+			// Format active icon
+			icon := "○"
+			if active == "true" {
+				icon = "●"
+			}
+
+			// Format title: ICON NAME | SCOPE | UPDATED
+			title := fmt.Sprintf("%s %-30s | %-15s | %s", icon, name, scope, updated)
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected an action, show its details
+	if selected != nil {
+		// Extract name from title (format: ICON NAME | ...)
+		parts := strings.SplitN(selected.Title, " ", 3)
+		if len(parts) >= 2 {
+			name := strings.TrimSpace(parts[1])
+			return getActionByName(ctx, app, name)
+		}
+		// Fallback: try to get by sys_id
+		return getActionBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getActionBySysID retrieves an action by its sys_id
+func getActionBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+
+	records, err := app.SDK.List(ctx, "sys_cb_action", params)
+	if err != nil {
+		return fmt.Errorf("failed to find action: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("action not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Action: %s", getStringField(records[0], "name"))),
 	)
 }
 

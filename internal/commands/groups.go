@@ -13,6 +13,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // groupDefaultColumns are the default columns to show for groups
@@ -116,124 +117,128 @@ Examples:
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()
 			groupName := args[0]
-
-			// Query by exact name match to get the group
-			params := url.Values{}
-			params.Set("sysparm_limit", "1")
-			params.Set("sysparm_display_value", "all")
-			params.Set("sysparm_fields", "sys_id,name,manager,group_email,parent,description,active")
-			params.Set("sysparm_query", "name="+groupName)
-
-			groups, err := app.SDK.List(ctx, "sys_user_group", params)
-			if err != nil {
-				return fmt.Errorf("failed to find group: %w", err)
-			}
-
-			if len(groups) == 0 {
-				return fmt.Errorf("group not found: %s", groupName)
-			}
-
-			group := groups[0]
-			groupSysID := getDisplayValue(group, "sys_id")
-
-			// Fetch related data concurrently
-			type queryResult struct {
-				data []map[string]any
-				err  error
-			}
-
-			rolesChan := make(chan queryResult, 1)
-			membersChan := make(chan queryResult, 1)
-			childrenChan := make(chan queryResult, 1)
-
-			// Fetch roles
-			go func() {
-				roleParams := url.Values{}
-				roleParams.Set("sysparm_display_value", "all")
-				roleParams.Set("sysparm_fields", "role")
-				roleParams.Set("sysparm_query", "group="+groupSysID)
-				data, err := app.SDK.List(ctx, "sys_group_has_role", roleParams)
-				rolesChan <- queryResult{formatRelatedRecords(data, "role"), err}
-			}()
-
-			// Fetch members
-			go func() {
-				memberParams := url.Values{}
-				memberParams.Set("sysparm_display_value", "all")
-				memberParams.Set("sysparm_fields", "user")
-				memberParams.Set("sysparm_query", "group="+groupSysID)
-				data, err := app.SDK.List(ctx, "sys_user_grmember", memberParams)
-				membersChan <- queryResult{formatMemberRecords(data), err}
-			}()
-
-			// Fetch child groups
-			go func() {
-				childParams := url.Values{}
-				childParams.Set("sysparm_display_value", "all")
-				childParams.Set("sysparm_fields", "name")
-				childParams.Set("sysparm_query", "parent="+groupSysID)
-				data, err := app.SDK.List(ctx, "sys_user_group", childParams)
-				childrenChan <- queryResult{formatRelatedRecords(data, "name"), err}
-			}()
-
-			// Collect results
-			rolesResult := <-rolesChan
-			membersResult := <-membersChan
-			childrenResult := <-childrenChan
-
-			if rolesResult.err != nil {
-				return fmt.Errorf("failed to fetch roles: %w", rolesResult.err)
-			}
-			if membersResult.err != nil {
-				return fmt.Errorf("failed to fetch members: %w", membersResult.err)
-			}
-			if childrenResult.err != nil {
-				return fmt.Errorf("failed to fetch child groups: %w", childrenResult.err)
-			}
-
-			// Format output
-			formatted := formatGroupDisplay(
-				group,
-				rolesResult.data,
-				membersResult.data,
-				childrenResult.data,
-				app.Config.GetEffectiveInstance(),
-			)
-
-			return app.OK(map[string]any{
-				"_formatted": formatted,
-				"_raw": map[string]any{
-					"group":   group,
-					"roles":   rolesResult.data,
-					"members": membersResult.data,
-					"groups":  childrenResult.data,
-				},
-				"_context": map[string]any{
-					"instance_url": app.Config.GetEffectiveInstance(),
-					"table":        "sys_user_group",
-				},
-			},
-				output.WithSummary(fmt.Sprintf("Group %s", groupName)),
-				output.WithBreadcrumbs(
-					output.Breadcrumb{
-						Action:      "list",
-						Cmd:         "jsn groups list",
-						Description: "Back to all groups",
-					},
-					output.Breadcrumb{
-						Action:      "add-user",
-						Cmd:         fmt.Sprintf("jsn groupmembers add --group \"%s\" --user <username>", groupName),
-						Description: "Add a user to this group",
-					},
-					output.Breadcrumb{
-						Action:      "add-role",
-						Cmd:         fmt.Sprintf("jsn grouproles add --group \"%s\" --role <role_name>", groupName),
-						Description: "Add a role to this group",
-					},
-				),
-			)
+			return showGroupByName(ctx, app, groupName)
 		},
 	}
+}
+
+// showGroupByName displays detailed information about a group.
+func showGroupByName(ctx context.Context, app *appctx.App, groupName string) error {
+	// Query by exact name match to get the group
+	params := url.Values{}
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_fields", "sys_id,name,manager,group_email,parent,description,active")
+	params.Set("sysparm_query", "name="+groupName)
+
+	groups, err := app.SDK.List(ctx, "sys_user_group", params)
+	if err != nil {
+		return fmt.Errorf("failed to find group: %w", err)
+	}
+
+	if len(groups) == 0 {
+		return fmt.Errorf("group not found: %s", groupName)
+	}
+
+	group := groups[0]
+	groupSysID := getDisplayValue(group, "sys_id")
+
+	// Fetch related data concurrently
+	type queryResult struct {
+		data []map[string]any
+		err  error
+	}
+
+	rolesChan := make(chan queryResult, 1)
+	membersChan := make(chan queryResult, 1)
+	childrenChan := make(chan queryResult, 1)
+
+	// Fetch roles
+	go func() {
+		roleParams := url.Values{}
+		roleParams.Set("sysparm_display_value", "all")
+		roleParams.Set("sysparm_fields", "role")
+		roleParams.Set("sysparm_query", "group="+groupSysID)
+		data, err := app.SDK.List(ctx, "sys_group_has_role", roleParams)
+		rolesChan <- queryResult{formatRelatedRecords(data, "role"), err}
+	}()
+
+	// Fetch members
+	go func() {
+		memberParams := url.Values{}
+		memberParams.Set("sysparm_display_value", "all")
+		memberParams.Set("sysparm_fields", "user")
+		memberParams.Set("sysparm_query", "group="+groupSysID)
+		data, err := app.SDK.List(ctx, "sys_user_grmember", memberParams)
+		membersChan <- queryResult{formatMemberRecords(data), err}
+	}()
+
+	// Fetch child groups
+	go func() {
+		childParams := url.Values{}
+		childParams.Set("sysparm_display_value", "all")
+		childParams.Set("sysparm_fields", "name")
+		childParams.Set("sysparm_query", "parent="+groupSysID)
+		data, err := app.SDK.List(ctx, "sys_user_group", childParams)
+		childrenChan <- queryResult{formatRelatedRecords(data, "name"), err}
+	}()
+
+	// Collect results
+	rolesResult := <-rolesChan
+	membersResult := <-membersChan
+	childrenResult := <-childrenChan
+
+	if rolesResult.err != nil {
+		return fmt.Errorf("failed to fetch roles: %w", rolesResult.err)
+	}
+	if membersResult.err != nil {
+		return fmt.Errorf("failed to fetch members: %w", membersResult.err)
+	}
+	if childrenResult.err != nil {
+		return fmt.Errorf("failed to fetch child groups: %w", childrenResult.err)
+	}
+
+	// Format output
+	formatted := formatGroupDisplay(
+		group,
+		rolesResult.data,
+		membersResult.data,
+		childrenResult.data,
+		app.Config.GetEffectiveInstance(),
+	)
+
+	return app.OK(map[string]any{
+		"_formatted": formatted,
+		"_raw": map[string]any{
+			"group":   group,
+			"roles":   rolesResult.data,
+			"members": membersResult.data,
+			"groups":  childrenResult.data,
+		},
+		"_context": map[string]any{
+			"instance_url": app.Config.GetEffectiveInstance(),
+			"table":        "sys_user_group",
+		},
+	},
+		output.WithSummary(fmt.Sprintf("Group %s", groupName)),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "list",
+				Cmd:         "jsn groups list",
+				Description: "Back to all groups",
+			},
+			output.Breadcrumb{
+				Action:      "add-user",
+				Cmd:         fmt.Sprintf("jsn groupmembers add --group \"%s\" --user <username>", groupName),
+				Description: "Add a user to this group",
+			},
+			output.Breadcrumb{
+				Action:      "add-role",
+				Cmd:         fmt.Sprintf("jsn grouproles add --group \"%s\" --role <role_name>", groupName),
+				Description: "Add a role to this group",
+			},
+		),
+	)
 }
 
 // formatGroupDisplay formats a group for terminal display.
@@ -374,6 +379,15 @@ func listGroups(ctx context.Context, app *appctx.App, query string, columns []st
 		columns = groupDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listGroupsInteractive(ctx, app, query)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -407,6 +421,76 @@ func listGroups(ctx context.Context, app *appctx.App, query string, columns []st
 		},
 	},
 		output.WithSummary(fmt.Sprintf("%d group(s)", len(records))),
+	)
+}
+
+// listGroupsInteractive shows an interactive picker for groups with pagination
+func listGroupsInteractive(ctx context.Context, app *appctx.App, baseQuery string) error {
+	// Create a reusable list fetcher configured for groups
+	fetcher := tui.NewListFetcher("sys_user_group").
+		WithColumns("name", "manager", "email").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringField(record, "name")
+			manager := getStringField(record, "manager")
+			email := getStringField(record, "email")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: NAME → MANAGER (EMAIL)
+			title := name
+			if manager != "" && manager != "null" {
+				title += fmt.Sprintf(" → %s", manager)
+			}
+			if email != "" {
+				title += fmt.Sprintf(" (%s)", email)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, 20)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a group, show its details
+	if selected != nil {
+		// Title format: NAME → MANAGER...
+		parts := strings.SplitN(selected.Title, " →", 2)
+		if len(parts) >= 1 {
+			groupName := parts[0]
+			return showGroupByName(ctx, app, groupName)
+		}
+		// Fallback: try to get by sys_id
+		return getGroupBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getGroupBySysID retrieves a group by its sys_id.
+func getGroupBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_fields", strings.Join(groupDefaultColumns, ","))
+
+	records, err := app.SDK.List(ctx, "sys_user_group", params)
+	if err != nil {
+		return fmt.Errorf("failed to get group: %w", err)
+	}
+	if len(records) == 0 {
+		return fmt.Errorf("group not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Group %s", getStringField(records[0], "name"))),
 	)
 }
 

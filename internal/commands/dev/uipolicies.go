@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // uiPolicyDefaultColumns are the default columns for UI policies
@@ -87,6 +89,14 @@ func listUIPolicies(ctx context.Context, app *appctx.App, query string, columns 
 		columns = uiPolicyDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listUIPoliciesInteractive(ctx, app, query, 20)
+	}
+
 	params := url.Values{}
 	params.Set("sysparm_limit", "20")
 	params.Set("sysparm_display_value", "all")
@@ -123,9 +133,53 @@ func listUIPolicies(ctx context.Context, app *appctx.App, query string, columns 
 	)
 }
 
+// listUIPoliciesInteractive shows an interactive picker for UI policies with pagination
+func listUIPoliciesInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	fetcher := tui.NewListFetcher("sys_ui_policy").
+		WithColumns("short_description", "table", "active", "order").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			desc := getStringField(record, "short_description")
+			table := getStringField(record, "table")
+			active := getStringField(record, "active")
+			sysID := getStringField(record, "sys_id")
+
+			statusIcon := "🟢"
+			if active != "true" {
+				statusIcon = "⚪"
+			}
+
+			title := fmt.Sprintf("%s %s | %s", statusIcon, desc, table)
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	if selected != nil {
+		return getUIPolicyBySysID(ctx, app, selected.ID)
+	}
+
+	return nil
+}
+
 func getUIPolicyByDescription(ctx context.Context, app *appctx.App, description string) error {
+	var query string
+	// Check if identifier looks like a sys_id (32 hex characters)
+	if len(description) == 32 && isHexString(description) {
+		query = "sys_id=" + description
+	} else {
+		query = "short_description=" + description
+	}
+
 	params := url.Values{}
-	params.Set("sysparm_query", "short_description="+description)
+	params.Set("sysparm_query", query)
 	params.Set("sysparm_display_value", "all")
 	params.Set("sysparm_limit", "1")
 
@@ -140,5 +194,26 @@ func getUIPolicyByDescription(ctx context.Context, app *appctx.App, description 
 
 	return app.OK(records[0],
 		output.WithSummary(fmt.Sprintf("UI policy: %s", description)),
+	)
+}
+
+func getUIPolicyBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", "1")
+
+	records, err := app.SDK.List(ctx, "sys_ui_policy", params)
+	if err != nil {
+		return fmt.Errorf("failed to find UI policy: %w", err)
+	}
+
+	if len(records) == 0 {
+		return fmt.Errorf("UI policy not found: %s", sysID)
+	}
+
+	desc := getStringField(records[0], "short_description")
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("UI policy: %s", desc)),
 	)
 }

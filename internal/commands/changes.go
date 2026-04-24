@@ -13,6 +13,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // changeDefaultColumns are the default columns to show for changes
@@ -282,6 +283,15 @@ func listChanges(ctx context.Context, app *appctx.App, query string, columns []s
 		columns = changeDefaultColumns
 	}
 
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listChangesInteractive(ctx, app, query, limit)
+	}
+
+	// Non-interactive: use normal list output
 	params := url.Values{}
 	params.Set("sysparm_limit", fmt.Sprintf("%d", limit))
 	params.Set("sysparm_offset", fmt.Sprintf("%d", offset))
@@ -357,6 +367,110 @@ func listChanges(ctx context.Context, app *appctx.App, query string, columns []s
 	},
 		output.WithSummary(fmt.Sprintf("%d change request(s)", len(records))),
 		output.WithBreadcrumbs(breadcrumbs...),
+	)
+}
+
+// listChangesInteractive shows an interactive picker for change requests with pagination
+func listChangesInteractive(ctx context.Context, app *appctx.App, baseQuery string, pageSize int) error {
+	// Create a reusable list fetcher configured for change requests
+	fetcher := tui.NewListFetcher("change_request").
+		WithColumns("number", "short_description", "risk", "state", "assigned_to").
+		WithBaseQuery(baseQuery).
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			number := getStringField(record, "number")
+			desc := getStringField(record, "short_description")
+			risk := getStringField(record, "risk")
+			state := getStringField(record, "state")
+			assigned := getStringField(record, "assigned_to")
+			sysID := getStringField(record, "sys_id")
+
+			// Format title: ICON NUMBER DESC | STATE → ASSIGNED
+			riskIcon := getRiskIcon(risk)
+			stateStr := formatChangeState(state)
+
+			title := fmt.Sprintf("%s %s  %s  | %s", riskIcon, number, truncateString(desc, 30), stateStr)
+			if assigned != "" && assigned != "null" {
+				title += fmt.Sprintf(" → %s", assigned)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: title,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a change, show its details
+	if selected != nil {
+		// Find the change number from the title
+		// Title format: ICON NUMBER DESC | STATE...
+		parts := strings.SplitN(selected.Title, " ", 3)
+		if len(parts) >= 2 {
+			return getChangeByNumber(ctx, app, parts[1])
+		}
+		// Fallback: try to get by sys_id
+		return getChangeBySysID(ctx, app, selected.ID)
+	}
+
+	// User cancelled
+	return nil
+}
+
+// getRiskIcon returns an icon for the risk level.
+func getRiskIcon(risk string) string {
+	switch risk {
+	case "1", "High":
+		return "🔴"
+	case "2", "Moderate":
+		return "🟠"
+	case "3", "Low":
+		return "🟢"
+	default:
+		return "⚪"
+	}
+}
+
+// formatChangeState formats the change state for display.
+func formatChangeState(state string) string {
+	stateMap := map[string]string{
+		"-5": "New",
+		"-4": "Assess",
+		"-3": "Authorize",
+		"-2": "Scheduled",
+		"-1": "Implement",
+		"0":  "Review",
+		"3":  "Closed",
+		"4":  "Canceled",
+	}
+	if mapped, ok := stateMap[state]; ok {
+		return mapped
+	}
+	return state
+}
+
+// getChangeBySysID retrieves a change request by its sys_id.
+func getChangeBySysID(ctx context.Context, app *appctx.App, sysID string) error {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+sysID)
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_fields", strings.Join(changeDefaultColumns, ","))
+
+	records, err := app.SDK.List(ctx, "change_request", params)
+	if err != nil {
+		return fmt.Errorf("failed to get change request: %w", err)
+	}
+	if len(records) == 0 {
+		return fmt.Errorf("change request not found: %s", sysID)
+	}
+
+	return app.OK(records[0],
+		output.WithSummary(fmt.Sprintf("Change request %s", getStringField(records[0], "number"))),
 	)
 }
 

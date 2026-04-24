@@ -14,6 +14,7 @@ import (
 
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
+	"github.com/jacebenson/jsn/internal/tui"
 )
 
 // listElement represents a List column (sys_ui_list_element record).
@@ -119,9 +120,18 @@ Examples:
 }
 
 // listListViews lists all views for a table
+// In interactive mode (TTY), shows a picker. Otherwise, returns JSON/list output.
 func listListViews(ctx context.Context, app *appctx.App, table string, limit int) error {
 	if limit <= 0 {
 		limit = 100
+	}
+
+	// Check if we're in an interactive terminal
+	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
+
+	// If interactive and no specific format is forced, use the picker
+	if isInteractive && app.Output.GetFormat() == output.FormatAuto {
+		return listListsInteractive(ctx, app, table, limit)
 	}
 
 	params := url.Values{}
@@ -375,5 +385,42 @@ func printStyledListLayout(table, view string, elements []listElement) error {
 	)
 
 	fmt.Println()
+	return nil
+}
+
+// listListsInteractive shows an interactive picker for list views
+func listListsInteractive(ctx context.Context, app *appctx.App, table string, pageSize int) error {
+	// Create a reusable list fetcher configured for list views
+	fetcher := tui.NewListFetcher("sys_ui_view").
+		WithColumns("name", "title").
+		WithOrderBy("ORDERBYname").
+		WithFormatItem(func(record map[string]any) tui.PickerItem {
+			name := getStringValue(record, "name")
+			title := getStringValue(record, "title")
+			sysID := getStringValue(record, "sys_id")
+
+			display := name
+			if title != "" && title != name {
+				display = fmt.Sprintf("%s (%s)", name, title)
+			}
+
+			return tui.PickerItem{
+				ID:    sysID,
+				Title: display,
+			}
+		})
+
+	// Show the interactive picker
+	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if err != nil {
+		return err
+	}
+
+	// If user selected a view, show its list layout
+	if selected != nil {
+		return showListLayout(ctx, app, table, selected.Title)
+	}
+
+	// User cancelled
 	return nil
 }

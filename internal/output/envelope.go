@@ -287,6 +287,43 @@ func (w *Writer) writeMarkdown(resp *Response) error {
 		if err := w.writeMarkdownTable(data); err != nil {
 			return err
 		}
+	case map[string]any:
+		// Check for "records" key (common wrapper format for list commands)
+		if records, ok := data["records"].([]map[string]string); ok && len(records) > 0 {
+			// Convert []map[string]string to []map[string]any for the table writer
+			converted := make([]map[string]any, len(records))
+			for i, r := range records {
+				converted[i] = make(map[string]any)
+				for k, v := range r {
+					converted[i][k] = v
+				}
+			}
+			if err := w.writeMarkdownTable(converted); err != nil {
+				return err
+			}
+		} else if records, ok := data["records"].([]any); ok && len(records) > 0 {
+			// Handle []any format
+			converted := make([]map[string]any, 0, len(records))
+			for _, r := range records {
+				if m, ok := r.(map[string]any); ok {
+					converted = append(converted, m)
+				}
+			}
+			if len(converted) > 0 {
+				if err := w.writeMarkdownTable(converted); err != nil {
+					return err
+				}
+			} else {
+				fmt.Fprintln(w.opts.Writer, "(no results)")
+			}
+		} else {
+			// For single records or other data, print as code block
+			enc := json.NewEncoder(w.opts.Writer)
+			enc.SetIndent("", "  ")
+			fmt.Fprintln(w.opts.Writer, "```json")
+			_ = enc.Encode(data)
+			fmt.Fprintln(w.opts.Writer, "```")
+		}
 	default:
 		fmt.Fprintf(w.opts.Writer, "%v\n", data)
 	}
@@ -339,16 +376,37 @@ func (w *Writer) writeMarkdownTable(data []map[string]any) error {
 	for _, row := range data {
 		fmt.Fprint(w.opts.Writer, "| ")
 		for _, col := range columns {
-			val := ""
-			if v, ok := row[col]; ok && v != nil {
-				val = fmt.Sprintf("%v", v)
-			}
+			val := formatMarkdownValue(row[col])
 			fmt.Fprintf(w.opts.Writer, "%s | ", val)
 		}
 		fmt.Fprintln(w.opts.Writer)
 	}
 
 	return nil
+}
+
+// formatMarkdownValue formats a value for markdown display.
+// Handles reference fields (maps with display_value/value) and other types.
+func formatMarkdownValue(v any) string {
+	if v == nil {
+		return ""
+	}
+
+	switch val := v.(type) {
+	case string:
+		return val
+	case map[string]any:
+		// Reference field - prefer display_value, fall back to value
+		if display, ok := val["display_value"].(string); ok && display != "" {
+			return display
+		}
+		if value, ok := val["value"].(string); ok {
+			return value
+		}
+		return fmt.Sprintf("%v", v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // writeMarkdownError outputs error as markdown.
