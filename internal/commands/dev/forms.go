@@ -515,8 +515,9 @@ func getIntValue(record map[string]any, key string) int {
 			return val
 		case string:
 			var i int
-			fmt.Sscanf(val, "%d", &i)
-			return i
+			if _, err := fmt.Sscanf(val, "%d", &i); err == nil {
+				return i
+			}
 		}
 	}
 	return 0
