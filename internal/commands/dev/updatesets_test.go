@@ -1,0 +1,183 @@
+// Package dev provides development-related commands for ServiceNow.
+package dev
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestUpdateSetsCmd(t *testing.T) {
+	cmd := NewUpdateSetsCmd()
+	require.NotNil(t, cmd)
+	assert.Contains(t, cmd.Use, "updatesets")
+	assert.Equal(t, []string{"updateset", "us"}, cmd.Aliases)
+	assert.NotEmpty(t, cmd.Short)
+	assert.NotEmpty(t, cmd.Long)
+}
+
+func TestUpdateSetsListCmd(t *testing.T) {
+	cmd := newUpdateSetsListCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "list", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+
+	// Check flags
+	flags := cmd.Flags()
+	assert.NotNil(t, flags.Lookup("query"))
+	assert.NotNil(t, flags.Lookup("limit"))
+	assert.NotNil(t, flags.Lookup("offset"))
+}
+
+func TestUpdateSetsGetCmd(t *testing.T) {
+	cmd := newUpdateSetsGetCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "get [name|sys_id]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+}
+
+func TestUpdateSetsSetCmd(t *testing.T) {
+	cmd := newUpdateSetsSetCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "set [name|sys_id]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+}
+
+func TestUpdateSetsListIntegration(t *testing.T) {
+	// Mock responses for update sets and aggregate counts
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// First call - list update sets
+			`{"result": [
+				{"sys_id": "abc123", "name": {"display_value": "Default Update Set", "value": "Default Update Set"}, "state": {"display_value": "In Progress", "value": "in progress"}, "application.name": {"display_value": "Global", "value": "global"}, "parent.name": {"display_value": "", "value": ""}, "sys_created_by": "admin", "sys_created_on": "2024-01-01 00:00:00"},
+				{"sys_id": "def456", "name": {"display_value": "My Update Set", "value": "My Update Set"}, "state": {"display_value": "Complete", "value": "complete"}, "application.name": {"display_value": "Test App", "value": "test_app"}, "parent.name": {"display_value": "Parent", "value": "parent123"}, "sys_created_by": "jsmith", "sys_created_on": "2024-01-02 00:00:00"}
+			]}`,
+			// Second call - aggregate count for abc123
+			`{"result": {"stats": {"*": {"count": 5}}}}`,
+			// Third call - aggregate count for def456
+			`{"result": {"stats": {"*": {"count": 10}}}}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "list")
+
+	assert.NoError(t, err)
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))
+}
+
+func TestUpdateSetsListWithQuery(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBody:   `{"result": []}`,
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "list", "--query", "state=in progress")
+
+	assert.NoError(t, err)
+	assert.Contains(t, transport.capturedQuery, "state")
+}
+
+func TestUpdateSetsGetIntegration(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// First call - find update set
+			`{"result": [
+				{"sys_id": "abc123", "name": {"display_value": "My Update Set", "value": "My Update Set"}, "state": {"display_value": "In Progress", "value": "in progress"}}
+			]}`,
+			// Second call - aggregate count
+			`{"result": {"stats": {"*": {"count": 5}}}}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "get", "My Update Set")
+
+	assert.NoError(t, err)
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))
+}
+
+func TestUpdateSetsGetBySysIDIntegration(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// First call - find update set by sys_id
+			`{"result": [
+				{"sys_id": "abc123def456abc123def456abc12345", "name": {"display_value": "My Update Set", "value": "My Update Set"}, "state": {"display_value": "In Progress", "value": "in progress"}}
+			]}`,
+			// Second call - aggregate count
+			`{"result": {"stats": {"*": {"count": 5}}}}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "get", "abc123def456abc123def456abc12345")
+
+	assert.NoError(t, err)
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))
+}
+
+func TestUpdateSetsSetIntegration(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// First call - find update set
+			`{"result": [
+				{"sys_id": "abc123", "name": {"display_value": "My Update Set", "value": "My Update Set"}, "state": {"display_value": "In Progress", "value": "in progress"}, "application": {"display_value": "Test App", "value": "app123"}}
+			]}`,
+			// Second call - get current user
+			`{"result": [
+				{"sys_id": "user456", "user_name": "admin", "name": "System Administrator"}
+			]}`,
+			// Third call - query existing preference (sys_update_set)
+			`{"result": []}`,
+			// Fourth call - create preference (sys_update_set)
+			`{"result": {"sys_id": "pref789"}}`,
+			// Fifth call - query existing preference (apps.current_app)
+			`{"result": []}`,
+			// Sixth call - create preference (apps.current_app)
+			`{"result": {"sys_id": "pref790"}}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "set", "My Update Set")
+
+	// Should successfully set the update set
+	assert.NoError(t, err)
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_user"))
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_user_preference"))
+}
+
+func TestUpdateSetsSetCmdWithoutArgs(t *testing.T) {
+	cmd := newUpdateSetsSetCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "set [name|sys_id]", cmd.Use)
+	// Command should exist and be configured
+	assert.NotNil(t, cmd.RunE)
+}
+
+func TestUpdateSetsSetNotFound(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBody:   `{"result": []}`,
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "set", "NonExistentUpdateSet")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}

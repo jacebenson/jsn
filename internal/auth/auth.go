@@ -1,241 +1,390 @@
-// Package auth provides authentication management for ServiceNow.
+// Package auth provides OAuth authentication for ServiceNow.
 package auth
 
 import (
+	"bufio"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"strings"
+	"syscall"
 	"time"
 
-	"github.com/jacebenson/jsn/internal/config"
+	"github.com/jacebenson/jsn/internal/sdk"
+	"golang.org/x/term"
 )
 
-const (
-	serviceName = "servicenow"
-)
+// DefaultOAuthClientID is the default ServiceNow OAuth client ID
+const DefaultOAuthClientID = "543e5655f77746a28228c6009a599dfb"
 
-// Manager handles authentication.
+// ServiceNowSDKRedirectURI is the redirect URI used by ServiceNow's SDK OAuth flow
+const ServiceNowSDKRedirectURI = "/sdk-oauth.do"
+
+// Manager handles OAuth authentication.
 type Manager struct {
-	cfg   *config.Config
-	store *Store
+	cfg        ConfigProvider
+	store      *Store
+	httpClient *http.Client
+}
+
+// ConfigProvider provides configuration.
+type ConfigProvider interface {
+	GetEffectiveInstance() string
+}
+
+// PKCEParams holds PKCE parameters
+type PKCEParams struct {
+	CodeVerifier  string
+	CodeChallenge string
+	State         string
 }
 
 // NewManager creates a new auth manager.
-func NewManager(cfg *config.Config) *Manager {
+func NewManager(cfg ConfigProvider) *Manager {
 	return &Manager{
 		cfg:   cfg,
-		store: NewStore(config.GlobalConfigDir()),
+		store: NewStore(),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
-// credentialKey returns the storage key for credentials.
-// Uses the profile name to ensure distinct profiles (even on the same instance) have separate credentials.
-func (m *Manager) credentialKey() string {
-	if m.cfg.DefaultProfile != "" {
-		return m.cfg.DefaultProfile
-	}
-	return ""
-}
-
-// GetCredentials retrieves credentials for the active profile.
-// Checks SERVICENOW_TOKEN and SERVICENOW_OAUTH_TOKEN env vars first, then stored credentials.
-func (m *Manager) GetCredentials() (*Credentials, error) {
-	// Check for SERVICENOW_OAUTH_TOKEN environment variable first (OAuth)
-	if token := os.Getenv("SERVICENOW_OAUTH_TOKEN"); token != "" {
-		creds := &Credentials{
-			AuthMethod:  "oauth",
-			AccessToken: token,
-			CreatedAt:   0,
-		}
-		// Optionally get refresh token from env
-		if refresh := os.Getenv("SERVICENOW_OAUTH_REFRESH_TOKEN"); refresh != "" {
-			creds.RefreshToken = refresh
-		}
-		return creds, nil
-	}
-
-	// Check for SERVICENOW_TOKEN environment variable (Basic Auth / g_ck)
-	if token := os.Getenv("SERVICENOW_TOKEN"); token != "" {
-		return &Credentials{
-			Token:     token,
-			CreatedAt: 0,
-		}, nil
-	}
-
-	credKey := m.credentialKey()
-	if credKey == "" {
-		return nil, fmt.Errorf("no active profile configured")
-	}
-
-	creds, err := m.store.Load(credKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Auto-refresh OAuth token if needed
-	if creds.IsOAuth() && creds.NeedsRefresh() && creds.RefreshToken != "" {
-		profile := m.cfg.GetActiveProfile()
-		if profile != nil {
-			refreshed, err := m.RefreshOAuthToken(profile.InstanceURL, creds)
-			if err == nil && refreshed != nil {
-				return refreshed, nil
-			}
-			// If refresh fails, return original credentials (will fail on API call)
-		}
-	}
-
-	return creds, nil
-}
-
-// StoreCredentials stores credentials for the active profile.
-func (m *Manager) StoreCredentials(creds *Credentials) error {
-	credKey := m.credentialKey()
-	if credKey == "" {
-		return fmt.Errorf("no active profile configured")
-	}
-
-	return m.store.Save(credKey, creds)
-}
-
-// DeleteCredentials removes credentials for the active profile.
-func (m *Manager) DeleteCredentials() error {
-	credKey := m.credentialKey()
-	if credKey == "" {
-		return fmt.Errorf("no active profile configured")
-	}
-
-	return m.store.Delete(credKey)
-}
-
-// DeleteCredentialsForProfile removes credentials for a specific profile by name.
-func (m *Manager) DeleteCredentialsForProfile(profileName string) error {
-	return m.store.Delete(profileName)
-}
-
-// IsAuthenticated checks if there are valid credentials for the active profile.
+// IsAuthenticated checks if we have valid OAuth credentials for the current instance.
+// This will also attempt to refresh the token if it's about to expire.
 func (m *Manager) IsAuthenticated() bool {
-	// Check for OAuth token in environment variable first
+	// Check environment variable first
 	if os.Getenv("SERVICENOW_OAUTH_TOKEN") != "" {
 		return true
 	}
 
-	// Check for SERVICENOW_TOKEN environment variable (Basic Auth / g_ck)
-	if os.Getenv("SERVICENOW_TOKEN") != "" {
-		return true
-	}
-
-	credKey := m.credentialKey()
-	if credKey == "" {
+	instance := m.cfg.GetEffectiveInstance()
+	if instance == "" {
 		return false
 	}
 
-	creds, err := m.store.Load(credKey)
+	// Try to get credentials - this includes refresh logic
+	_, err := m.GetCredentials()
+	return err == nil
+}
+
+// IsAuthenticatedFor checks if we have valid credentials for a specific instance.
+func (m *Manager) IsAuthenticatedFor(instance string) bool {
+	if instance == "" {
+		return false
+	}
+
+	creds, err := m.store.Load(instance)
 	if err != nil {
 		return false
 	}
-	// Check for OAuth or Basic Auth / g_ck tokens
-	return creds.AccessToken != "" || creds.Token != ""
-}
 
-// GetStore returns the credential store.
-func (m *Manager) GetStore() *Store {
-	return m.store
-}
-
-// Credentials holds authentication tokens.
-type Credentials struct {
-	Token      string `json:"token"`
-	Username   string `json:"username,omitempty"`
-	Cookies    string `json:"cookies,omitempty"`
-	ExpiresAt  int64  `json:"expires_at,omitempty"`
-	CreatedAt  int64  `json:"created_at"`
-	LastTested int64  `json:"last_tested,omitempty"`
-	// OAuth-specific fields
-	AuthMethod   string `json:"auth_method,omitempty"` // "basic", "gck", or "oauth"
-	AccessToken  string `json:"access_token,omitempty"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	TokenType    string `json:"token_type,omitempty"`
-}
-
-// IsOAuth returns true if these credentials use OAuth authentication
-func (c *Credentials) IsOAuth() bool {
-	return c.AuthMethod == "oauth" || c.AccessToken != ""
-}
-
-// IsExpired returns true if the OAuth token is expired or expires within the given buffer
-func (c *Credentials) IsExpired(bufferSeconds int64) bool {
-	if c.ExpiresAt == 0 {
+	// Check if token is expired
+	if creds.ExpiresAt > 0 && time.Now().Unix() >= creds.ExpiresAt {
 		return false
 	}
-	return time.Now().Unix()+bufferSeconds >= c.ExpiresAt
+
+	return creds.AccessToken != ""
 }
 
-// NeedsRefresh returns true if the OAuth token should be refreshed
-// (expires within 15 minutes)
-func (c *Credentials) NeedsRefresh() bool {
-	if c.RefreshToken == "" {
-		return false
+// GetCredentials retrieves OAuth credentials for the current instance.
+func (m *Manager) GetCredentials() (*sdk.Credentials, error) {
+	// Check environment variable first
+	if token := os.Getenv("SERVICENOW_OAUTH_TOKEN"); token != "" {
+		return &sdk.Credentials{
+			AuthMethod:  "oauth",
+			AccessToken: token,
+		}, nil
 	}
-	return c.IsExpired(15 * 60)
+
+	instance := m.cfg.GetEffectiveInstance()
+	if instance == "" {
+		return nil, fmt.Errorf("no instance configured")
+	}
+
+	return m.GetCredentialsFor(instance)
 }
 
-// GetCredentialsForProfile retrieves credentials for a specific profile by name.
-// Checks SERVICENOW_TOKEN env var first only if this is the active profile.
-func (m *Manager) GetCredentialsForProfile(profileName string) (*Credentials, error) {
-	// Only check env var if this is the active profile
-	if profileName == m.credentialKey() {
-		if token := os.Getenv("SERVICENOW_TOKEN"); token != "" {
-			return &Credentials{
-				Token:     token,
-				CreatedAt: 0,
-			}, nil
-		}
-	}
-
-	return m.store.Load(profileName)
-}
-
-// UpdateLastTested updates the last_tested timestamp for the active profile's credentials.
-func (m *Manager) UpdateLastTested() error {
-	credKey := m.credentialKey()
-	if credKey == "" {
-		return fmt.Errorf("no active profile configured")
-	}
-
-	creds, err := m.store.Load(credKey)
+// GetCredentialsFor retrieves credentials for a specific instance.
+func (m *Manager) GetCredentialsFor(instance string) (*sdk.Credentials, error) {
+	creds, err := m.store.Load(instance)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("not authenticated for %s: %w", instance, err)
 	}
 
-	creds.LastTested = time.Now().Unix()
-	return m.store.Save(credKey, creds)
-}
-
-// RefreshOAuthToken refreshes an OAuth access token using the refresh token
-func (m *Manager) RefreshOAuthToken(instanceURL string, creds *Credentials) (*Credentials, error) {
-	if creds.RefreshToken == "" {
-		return nil, fmt.Errorf("no refresh token available")
-	}
-
-	clientID := GetOAuthClientID()
-	tokenResp, err := RefreshAccessToken(instanceURL, clientID, creds.RefreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	// Update credentials with new tokens
-	creds.AccessToken = tokenResp.AccessToken
-	creds.RefreshToken = tokenResp.RefreshToken
-	creds.TokenType = tokenResp.TokenType
-	creds.ExpiresAt = time.Now().Unix() + int64(tokenResp.ExpiresIn)
-
-	// Store updated credentials
-	credKey := m.credentialKey()
-	if credKey != "" {
-		if err := m.store.Save(credKey, creds); err != nil {
-			// Log but don't fail - we still have valid credentials in memory
-			fmt.Fprintf(os.Stderr, "warning: failed to store refreshed credentials: %v\n", err)
+	// Check if token needs refresh
+	if creds.ExpiresAt > 0 && time.Now().Unix() >= creds.ExpiresAt-300 {
+		// Token expires in less than 5 minutes, try to refresh
+		if creds.RefreshToken != "" {
+			refreshed, err := m.refreshToken(instance, creds)
+			if err == nil {
+				return refreshed, nil
+			}
+			// Refresh failed, return error
+			return nil, fmt.Errorf("token expired, please login again")
 		}
 	}
 
 	return creds, nil
+}
+
+// generatePKCE generates PKCE parameters for OAuth flow
+func generatePKCE() (*PKCEParams, error) {
+	// Generate code verifier (random 32 bytes, base64url encoded = 43 chars)
+	verifierBytes := make([]byte, 32)
+	if _, err := rand.Read(verifierBytes); err != nil {
+		return nil, fmt.Errorf("generating code verifier: %w", err)
+	}
+	codeVerifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+
+	// Generate code challenge (SHA256 of verifier, base64url encoded)
+	hash := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
+
+	// Generate state parameter (random 16 bytes, base64url encoded)
+	stateBytes := make([]byte, 16)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return nil, fmt.Errorf("generating state: %w", err)
+	}
+	state := base64.RawURLEncoding.EncodeToString(stateBytes)
+
+	return &PKCEParams{
+		CodeVerifier:  codeVerifier,
+		CodeChallenge: codeChallenge,
+		State:         state,
+	}, nil
+}
+
+// getOAuthClientID returns the OAuth client ID to use
+func getOAuthClientID() string {
+	if id := os.Getenv("SERVICENOW_OAUTH_CLIENT_ID"); id != "" {
+		return id
+	}
+	return DefaultOAuthClientID
+}
+
+// Login initiates OAuth login flow for an instance using ServiceNow SDK style.
+func (m *Manager) Login(instanceURL string) error {
+	instanceURL = normalizeURL(instanceURL)
+	clientID := getOAuthClientID()
+
+	// Generate PKCE parameters
+	pkce, err := generatePKCE()
+	if err != nil {
+		return err
+	}
+
+	// Build authorization URL using SDK-style redirect
+	authURL := buildAuthURL(instanceURL, clientID, pkce)
+
+	// Print instructions and open browser
+	fmt.Println()
+	fmt.Println("Opening browser for OAuth authentication...")
+	fmt.Println("If the browser doesn't open automatically, visit:")
+	fmt.Println(authURL)
+	fmt.Println()
+
+	// Try to open browser (ignore errors)
+	_ = openBrowser(authURL)
+
+	// Prompt user for the authorization code
+	fmt.Println("After authenticating in the browser, copy the authorization code shown on the page.")
+	fmt.Println()
+
+	reader := bufio.NewReader(os.Stdin)
+	var authCode string
+	for {
+		fmt.Print("Authorization code: ")
+		if term.IsTerminal(int(syscall.Stdin)) {
+			byteCode, err := term.ReadPassword(int(syscall.Stdin))
+			if err != nil {
+				input, _ := reader.ReadString('\n')
+				authCode = strings.TrimSpace(input)
+			} else {
+				authCode = string(byteCode)
+				fmt.Println()
+			}
+		} else {
+			input, _ := reader.ReadString('\n')
+			authCode = strings.TrimSpace(input)
+		}
+		if authCode != "" {
+			break
+		}
+		fmt.Println("Authorization code is required.")
+	}
+
+	// Exchange code for tokens
+	fmt.Println("\nExchanging authorization code for tokens...")
+	creds, err := m.exchangeCode(instanceURL, clientID, authCode, pkce)
+	if err != nil {
+		return err
+	}
+
+	// Store credentials
+	return m.store.Save(instanceURL, creds)
+}
+
+// buildAuthURL builds the ServiceNow OAuth authorization URL
+func buildAuthURL(instanceURL, clientID string, pkce *PKCEParams) string {
+	u, _ := url.Parse(instanceURL)
+	u.Path = "/oauth_auth.do"
+
+	q := u.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", ServiceNowSDKRedirectURI)
+	q.Set("state", pkce.State)
+	q.Set("code_challenge", pkce.CodeChallenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("scope", "openid")
+	u.RawQuery = q.Encode()
+
+	return u.String()
+}
+
+// exchangeCode exchanges the authorization code for access/refresh tokens
+func (m *Manager) exchangeCode(instanceURL, clientID, code string, pkce *PKCEParams) (*sdk.Credentials, error) {
+	tokenURL := strings.TrimSuffix(instanceURL, "/") + "/oauth_token.do"
+
+	data := url.Values{}
+	data.Set("grant_type", "authorization_code")
+	data.Set("client_id", clientID)
+	data.Set("code", code)
+	data.Set("redirect_uri", ServiceNowSDKRedirectURI)
+	data.Set("code_verifier", pkce.CodeVerifier)
+
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("creating token request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("exchanging code for token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading token response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("token exchange failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Scope        string `json:"scope"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, fmt.Errorf("parsing token response: %w", err)
+	}
+
+	expiresAt := time.Now().Unix() + int64(tokenResp.ExpiresIn)
+	return &sdk.Credentials{
+		AuthMethod:   "oauth",
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		ExpiresAt:    expiresAt,
+		CreatedAt:    time.Now().Unix(),
+	}, nil
+}
+
+// RefreshToken explicitly refreshes the OAuth token for an instance.
+// This can be called manually to renew a token before it expires.
+func (m *Manager) RefreshToken(instance string) (*sdk.Credentials, error) {
+	instance = normalizeURL(instance)
+
+	// Load existing credentials
+	creds, err := m.store.Load(instance)
+	if err != nil {
+		return nil, fmt.Errorf("no credentials found for %s: %w", instance, err)
+	}
+
+	// Check if we have a refresh token
+	if creds.RefreshToken == "" {
+		return nil, fmt.Errorf("no refresh token available, please login again")
+	}
+
+	// Try to refresh
+	return m.refreshToken(instance, creds)
+}
+
+// refreshToken refreshes an expired OAuth token
+func (m *Manager) refreshToken(instance string, creds *sdk.Credentials) (*sdk.Credentials, error) {
+	tokenURL := strings.TrimSuffix(instance, "/") + "/oauth_token.do"
+	clientID := getOAuthClientID()
+
+	data := url.Values{}
+	data.Set("grant_type", "refresh_token")
+	data.Set("client_id", clientID)
+	data.Set("refresh_token", creds.RefreshToken)
+
+	resp, err := m.httpClient.PostForm(tokenURL, data)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token refresh failed: %s", string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, err
+	}
+
+	newCreds := &sdk.Credentials{
+		AuthMethod:   "oauth",
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		CreatedAt:    time.Now().Unix(),
+	}
+
+	if tokenResp.ExpiresIn > 0 {
+		newCreds.ExpiresAt = time.Now().Unix() + int64(tokenResp.ExpiresIn)
+	}
+
+	// Save refreshed credentials
+	if err := m.store.Save(instance, newCreds); err != nil {
+		return nil, err
+	}
+
+	return newCreds, nil
+}
+
+// Logout removes stored credentials for an instance.
+func (m *Manager) Logout(instance string) error {
+	if instance == "" {
+		return fmt.Errorf("no instance specified")
+	}
+	return m.store.Delete(instance)
+}
+
+// normalizeURL ensures consistent URL format.
+func normalizeURL(url string) string {
+	url = strings.TrimSuffix(url, "/")
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+	return url
 }

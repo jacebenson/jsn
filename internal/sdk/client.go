@@ -1,64 +1,92 @@
+// Package sdk provides a ServiceNow API client.
+//
+// ARCHITECTURE GUIDELINES:
+//
+// This SDK should remain lean - only core HTTP operations and shared utilities.
+// DO NOT add domain-specific helper methods here (e.g., ListFormViews, GetSPPage).
+//
+// Correct pattern:
+//   - Commands define local types and call app.SDK.List() directly
+//   - See internal/commands/dev/forms.go for the reference implementation
+//
+// Anti-pattern (don't do this):
+//   - Adding ListFormViews(), ListSPPages() to the Client
+//   - Creating SDK types like FormSection, SPPage that commands import
+//
+// Why? This keeps the SDK simple and puts query logic where it belongs - in the
+// commands that need it. Complex multi-table queries happen inline in command
+// files using goroutines, not in SDK wrappers.
+//
+// If you need to add a method here, ask: "Will more than 3 commands use this?"
+// If no, put it in the command file instead.
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
-	"strings"
 	"time"
 )
+
+// Credentials holds authentication credentials.
+type Credentials struct {
+	AuthMethod   string `json:"auth_method"`
+	Username     string `json:"username,omitempty"`
+	Password     string `json:"password,omitempty"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresAt    int64  `json:"expires_at,omitempty"`
+	CreatedAt    int64  `json:"created_at,omitempty"`
+}
+
+// AuthProvider provides authentication for API requests.
+type AuthProvider interface {
+	GetCredentials() (*Credentials, error)
+}
 
 // Client is a ServiceNow API client.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
-	// getAuth returns (token, cookiesOrUsername, authType)
-	// For g_ck: token = X-UserToken, cookiesOrUsername = Cookie header value, authType = "gck"
-	// For basic: token = password, cookiesOrUsername = username, authType = "basic"
-	// For oauth: token = access_token, cookiesOrUsername = "", authType = "oauth"
-	getAuth func() (token, cookiesOrUsername, authType string)
+	auth       AuthProvider
+}
+
+// ClientOption is a functional option for configuring the Client.
+type ClientOption func(*Client)
+
+// WithHTTPClient sets a custom HTTP client.
+func WithHTTPClient(httpClient *http.Client) ClientOption {
+	return func(c *Client) {
+		c.httpClient = httpClient
+	}
 }
 
 // NewClient creates a new ServiceNow API client.
-// The getAuth function returns (token, cookiesOrUsername, authType) where authType is one of:
-//   - "basic": uses HTTP Basic Auth with username/password
-//   - "gck": uses X-UserToken header with Cookie
-//   - "oauth": uses Bearer token Authorization header
-func NewClient(baseURL string, getAuth func() (token, cookiesOrUsername, authType string)) *Client {
-	return &Client{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
+func NewClient(baseURL string, auth AuthProvider, opts ...ClientOption) *Client {
+	client := &Client{
+		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		getAuth: getAuth,
+		auth: auth,
 	}
+
+	for _, opt := range opts {
+		opt(client)
+	}
+
+	return client
 }
 
-// setAuth applies authentication headers to a request.
-func (c *Client) setAuth(req *http.Request) {
-	token, cookiesOrUsername, authType := c.getAuth()
-	switch authType {
-	case "gck":
-		req.Header.Set("X-UserToken", token)
-		if cookiesOrUsername != "" {
-			req.Header.Set("Cookie", cookiesOrUsername)
-		}
-	case "oauth":
-		req.Header.Set("Authorization", "Bearer "+token)
-	default: // "basic" or empty
-		req.SetBasicAuth(cookiesOrUsername, token)
-	}
-}
-
-// Get performs a GET request to the Table API.
-func (c *Client) Get(ctx context.Context, table string, query url.Values) (*Response, error) {
+// List retrieves records from a table with optional query parameters.
+func (c *Client) List(ctx context.Context, table string, params url.Values) ([]map[string]any, error) {
 	endpoint := fmt.Sprintf("%s/api/now/table/%s", c.baseURL, table)
-	if query != nil {
-		endpoint = endpoint + "?" + query.Encode()
+	if params != nil {
+		endpoint = endpoint + "?" + params.Encode()
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
@@ -66,12 +94,11 @@ func (c *Client) Get(ctx context.Context, table string, query url.Values) (*Resp
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	// Set headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
 
-	// Set auth
-	c.setAuth(req)
+	if err := c.setAuth(req); err != nil {
+		return nil, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -81,23 +108,65 @@ func (c *Client) Get(ctx context.Context, table string, query url.Values) (*Resp
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
+		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var result Response
+	var result struct {
+		Result []map[string]any `json:"result"`
+	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parsing response: %w", err)
 	}
 
-	return &result, nil
+	return result.Result, nil
 }
 
-// Post performs a POST request to create a record.
-func (c *Client) Post(ctx context.Context, table string, data map[string]interface{}) (*SingleResponse, error) {
+// Get retrieves a single record by sys_id.
+func (c *Client) Get(ctx context.Context, table, sysID string) (map[string]any, error) {
+	endpoint := fmt.Sprintf("%s/api/now/table/%s/%s", c.baseURL, table, sysID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	if err := c.setAuth(req); err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	return result.Result, nil
+}
+
+// Create creates a new record in a table.
+func (c *Client) Create(ctx context.Context, table string, data map[string]any) (map[string]any, error) {
 	endpoint := fmt.Sprintf("%s/api/now/table/%s", c.baseURL, table)
 
 	bodyData, err := json.Marshal(data)
@@ -105,7 +174,7 @@ func (c *Client) Post(ctx context.Context, table string, data map[string]interfa
 		return nil, fmt.Errorf("marshaling request body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(string(bodyData)))
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(bodyData))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -113,177 +182,82 @@ func (c *Client) Post(ctx context.Context, table string, data map[string]interfa
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	c.setAuth(req)
+	if err := c.setAuth(req); err != nil {
+		return nil, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result SingleResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// Put performs a PUT request to update a record.
-func (c *Client) Put(ctx context.Context, table, sysID string, data map[string]interface{}) (*SingleResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/now/table/%s/%s", c.baseURL, table, sysID)
-
-	bodyData, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request body: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", endpoint, strings.NewReader(string(bodyData)))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	c.setAuth(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result SingleResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// Patch performs a PATCH request to update a record.
-func (c *Client) Patch(ctx context.Context, table, sysID string, data map[string]interface{}) (*SingleResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/now/table/%s/%s", c.baseURL, table, sysID)
-
-	bodyData, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling request body: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", endpoint, strings.NewReader(string(bodyData)))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	c.setAuth(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var result SingleResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parsing response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// RawRequest performs an arbitrary HTTP request to any endpoint on the instance.
-// The path should start with "/" (e.g., "/api/now/table/incident" or "/api/x_custom/myapi").
-// For GET/DELETE, body can be nil. For POST/PATCH/PUT, body is sent as JSON.
-// Returns the raw response body as parsed JSON (interface{}) along with the HTTP status code.
-func (c *Client) RawRequest(ctx context.Context, method, path string, body map[string]interface{}, headers map[string]string) (interface{}, int, error) {
-	endpoint := c.baseURL + path
-
-	var reqBody io.Reader
-	if body != nil && (method == "POST" || method == "PATCH" || method == "PUT") {
-		bodyData, err := json.Marshal(body)
-		if err != nil {
-			return nil, 0, fmt.Errorf("marshaling request body: %w", err)
-		}
-		reqBody = strings.NewReader(string(bodyData))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, reqBody)
-	if err != nil {
-		return nil, 0, fmt.Errorf("creating request: %w", err)
-	}
-
-	req.Header.Set("Accept", "application/json")
-	if body != nil && (method == "POST" || method == "PATCH" || method == "PUT") {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	// Apply custom headers
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	c.setAuth(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("executing request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("reading response body: %w", err)
+		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
-	// Try to parse as JSON; if it fails, return as string
-	var result interface{}
-	if len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, &result); err != nil {
-			// Not JSON, return as string
-			result = string(respBody)
-		}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	return result, resp.StatusCode, nil
+	var result struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	return result.Result, nil
 }
 
-// GetBaseURL returns the instance base URL.
-func (c *Client) GetBaseURL() string {
-	return c.baseURL
+// Update updates an existing record by sys_id.
+func (c *Client) Update(ctx context.Context, table, sysID string, data map[string]any) (map[string]any, error) {
+	endpoint := fmt.Sprintf("%s/api/now/table/%s/%s", c.baseURL, table, sysID)
+
+	bodyData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", endpoint, bytes.NewReader(bodyData))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	if err := c.setAuth(req); err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	return result.Result, nil
 }
 
-// Delete performs a DELETE request to delete a record.
+// Delete deletes a record by sys_id.
 func (c *Client) Delete(ctx context.Context, table, sysID string) error {
 	endpoint := fmt.Sprintf("%s/api/now/table/%s/%s", c.baseURL, table, sysID)
 
@@ -292,9 +266,9 @@ func (c *Client) Delete(ctx context.Context, table, sysID string) error {
 		return fmt.Errorf("creating request: %w", err)
 	}
 
-	req.Header.Set("Accept", "application/json")
-
-	c.setAuth(req)
+	if err := c.setAuth(req); err != nil {
+		return err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -310,27 +284,71 @@ func (c *Client) Delete(ctx context.Context, table, sysID string) error {
 	return nil
 }
 
-// CountRecordsOptions holds options for counting records.
-type CountRecordsOptions struct {
-	Query string
+// setAuth sets the Authorization header.
+func (c *Client) setAuth(req *http.Request) error {
+	if c.auth == nil {
+		return fmt.Errorf("no authentication configured")
+	}
+
+	creds, err := c.auth.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	switch creds.AuthMethod {
+	case "basic":
+		req.SetBasicAuth(creds.Username, creds.Password)
+	case "token", "oauth":
+		req.Header.Set("Authorization", "Bearer "+creds.AccessToken)
+	default:
+		// Try basic auth if we have username/password
+		if creds.Username != "" && creds.Password != "" {
+			req.SetBasicAuth(creds.Username, creds.Password)
+		} else if creds.AccessToken != "" {
+			req.Header.Set("Authorization", "Bearer "+creds.AccessToken)
+		} else {
+			return fmt.Errorf("no valid credentials")
+		}
+	}
+
+	return nil
 }
 
-// CountRecords returns the count of records in a table matching the query.
-// Uses the Aggregate API (/api/now/stats) for accurate counts without limit issues.
-func (c *Client) CountRecords(ctx context.Context, table string, opts *CountRecordsOptions) (int, error) {
-	if opts == nil {
-		opts = &CountRecordsOptions{}
+// User represents a ServiceNow user.
+
+// Helper functions used across SDK
+
+// getString extracts a string field from a record.
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key]; ok && v != nil {
+		switch val := v.(type) {
+		case string:
+			return val
+		case map[string]any:
+			// Handle display_value objects from sysparm_display_value=all
+			if value, ok := val["value"].(string); ok {
+				return value
+			}
+			if display, ok := val["display_value"].(string); ok {
+				return display
+			}
+		}
+	}
+	return ""
+}
+
+// AggregateCount retrieves the count of records matching the query using the aggregate API.
+func (c *Client) AggregateCount(ctx context.Context, table string, query string) (int, error) {
+	params := url.Values{}
+	params.Set("sysparm_count", "true")
+	if query != "" {
+		params.Set("sysparm_query", query)
 	}
 
-	query := url.Values{}
-	query.Set("sysparm_count", "true")
-
-	if opts.Query != "" {
-		query.Set("sysparm_query", opts.Query)
+	endpoint := fmt.Sprintf("%s/api/now/stats/%s", c.baseURL, table)
+	if len(params) > 0 {
+		endpoint = endpoint + "?" + params.Encode()
 	}
-
-	// Use Aggregate API for accurate counts
-	endpoint := fmt.Sprintf("%s/api/now/stats/%s?%s", c.baseURL, table, query.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
@@ -338,8 +356,10 @@ func (c *Client) CountRecords(ctx context.Context, table string, opts *CountReco
 	}
 
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	c.setAuth(req)
+
+	if err := c.setAuth(req); err != nil {
+		return 0, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -349,138 +369,72 @@ func (c *Client) CountRecords(ctx context.Context, table string, opts *CountReco
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, fmt.Errorf("reading response body: %w", err)
+		return 0, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	// Aggregate API returns: {"result": {"stats": {"count": "42"}}}
+	// Parse the aggregate response
 	var result struct {
 		Result struct {
-			Stats struct {
-				Count string `json:"count"`
-			} `json:"stats"`
+			Stats any `json:"stats"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return 0, fmt.Errorf("parsing response: %w", err)
 	}
 
-	count, err := strconv.Atoi(result.Result.Stats.Count)
-	if err != nil {
-		return 0, fmt.Errorf("parsing count: %w", err)
+	// Handle different stats formats
+	var statsMap map[string]any
+
+	switch v := result.Result.Stats.(type) {
+	case map[string]any:
+		statsMap = v
+	case string:
+		// Stats is a JSON string, unmarshal it
+		if err := json.Unmarshal([]byte(v), &statsMap); err != nil {
+			return 0, fmt.Errorf("parsing stats string: %w", err)
+		}
+	default:
+		return 0, fmt.Errorf("unexpected stats type: %T", v)
 	}
 
-	return count, nil
-}
-
-// getString extracts a string value from a record map, handling display_value objects.
-func getString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok && v != nil {
-		// Check if it's a display_value object (from sysparm_display_value=all)
-		if obj, ok := v.(map[string]interface{}); ok {
-			// Try display_value first, then value
-			if displayVal, ok := obj["display_value"]; ok && displayVal != nil {
-				if s, ok := displayVal.(string); ok {
-					return s
-				}
-			}
-			if val, ok := obj["value"]; ok && val != nil {
-				if s, ok := val.(string); ok {
-					return s
-				}
-			}
-			return ""
-		}
-		// Direct string value
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-// getInt extracts an int value from a record map, handling display_value objects.
-func getInt(m map[string]interface{}, key string) int {
-	if v, ok := m[key]; ok && v != nil {
-		// Check if it's a display_value object (from sysparm_display_value=all)
-		if obj, ok := v.(map[string]interface{}); ok {
-			// Try display_value first, then value
-			if displayVal, ok := obj["display_value"]; ok && displayVal != nil {
-				switch dv := displayVal.(type) {
-				case int:
-					return dv
-				case float64:
-					return int(dv)
-				case string:
-					if i, err := strconv.Atoi(dv); err == nil {
-						return i
-					}
-				}
-			}
-			// Fallback to value field
-			if val, ok := obj["value"]; ok && val != nil {
-				switch fv := val.(type) {
-				case int:
-					return fv
-				case float64:
-					return int(fv)
-				case string:
-					if i, err := strconv.Atoi(fv); err == nil {
-						return i
-					}
-				}
-			}
-			return 0
-		}
-		// Direct value
-		switch val := v.(type) {
-		case int:
-			return val
+	// Extract count from the stats structure
+	if count, ok := statsMap["count"]; ok {
+		switch v := count.(type) {
 		case float64:
-			return int(val)
+			return int(v), nil
+		case int:
+			return v, nil
 		case string:
-			if i, err := strconv.Atoi(val); err == nil {
-				return i
+			var countInt int
+			if _, err := fmt.Sscanf(v, "%d", &countInt); err == nil {
+				return countInt, nil
 			}
 		}
 	}
-	return 0
-}
 
-// getBool extracts a bool value from a record map, handling display_value objects.
-func getBool(m map[string]interface{}, key string) bool {
-	if v, ok := m[key]; ok && v != nil {
-		// Check if it's a display_value object (from sysparm_display_value=all)
-		if obj, ok := v.(map[string]interface{}); ok {
-			// Try display_value first, then value
-			if displayVal, ok := obj["display_value"]; ok && displayVal != nil {
-				switch dv := displayVal.(type) {
-				case bool:
-					return dv
+	// Check nested format: stats["*"]["count"]
+	for _, value := range statsMap {
+		switch nested := value.(type) {
+		case map[string]any:
+			if count, ok := nested["count"]; ok {
+				switch v := count.(type) {
+				case float64:
+					return int(v), nil
+				case int:
+					return v, nil
 				case string:
-					return dv == "true" || dv == "1"
+					var countInt int
+					if _, err := fmt.Sscanf(v, "%d", &countInt); err == nil {
+						return countInt, nil
+					}
 				}
 			}
-			if val, ok := obj["value"]; ok && val != nil {
-				switch fv := val.(type) {
-				case bool:
-					return fv
-				case string:
-					return fv == "true" || fv == "1"
-				}
-			}
-			return false
-		}
-		// Direct value
-		switch val := v.(type) {
-		case bool:
-			return val
-		case string:
-			return val == "true" || val == "1"
 		}
 	}
-	return false
+
+	return 0, nil
 }

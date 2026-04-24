@@ -1,278 +1,385 @@
 # JSN - ServiceNow CLI
 
-**Agent-first, agent-native** 
+A command-line interface for ServiceNow that follows the Unix philosophy: simple, composable, and scriptable.
 
-A CLI for exploring and managing ServiceNow instances. Works standalone or with any AI agent (Claude, Codex, Cursor, etc.).
-
-```bash
-# Install (or update) in seconds
-curl -fsSL https://jsn.jace.pro/install | bash
-```
-[View install script source →](scripts/install.sh)
-
-## Quick Start
+## Installation
 
 ```bash
-jsn setup                           # Interactive setup (OAuth by default)
-jsn tables list                     # List all tables
-jsn tables schema incident          # Show incident table schema
-jsn records --table incident        # List incident records
-jsn rules --table incident          # Show business rules
-```
+# Download the latest release
+curl -L https://github.com/jacebenson/jsn/releases/latest/download/jsn-linux-amd64 -o jsn
+chmod +x jsn
+sudo mv jsn /usr/local/bin/
 
----
-
-## Why This Exists (Or: The Graveyard of ServiceNow Dev Tools)
-
-I've been working with ServiceNow for years and trying to use tools that actually, you know, work. The Table API is "fine"—except these APIs were designed for systems integration, not for humans (or agents) trying to understand their instance.
-
-
-If we want real innovation in this space, we have to stop hiding tools behind enterprise licensing agreements and convoluted setup processes. This is my attempt to build the CLI I actually want to use — and that my AI agent can use to help me.
-
-### The Official Corpse
-
-**[ServiceNow's "Official" CLI](https://github.com/ServiceNow/servicenow-cli)** – Last meaningful update: 2 years ago. Requires you to install a server-side application on your instance just to use it. Abandoned before it ever really lived.
-
-### The Over-Engineered Monstrosity
-
-**[ServiceNow Fluent SDK](https://github.com/ServiceNow/sdk)** – Follow the link rabbit hole and you eventually hit the [docs](https://www.servicenow.com/docs/r/application-development/servicenow-sdk/servicenow-sdk-landing.html). I actually tried to use this. For YEARS this thing had dependency issues that made it break on different operating systems.
-
-Then I spent a day migrating a global scope app to a "proper" scoped app using Fluent, only to discover it made everything WORSE. Why? Because once you ship an import, you can only fix it through the SDK—not in the instance UI. Oh, and the auth configuration? Completely baffling.
-
-### The Syncer Cemetery
-
-Before the SDK killed them (for scoped apps only), we had file syncers. Mostly VS Code extensions that have all rotted away:
-
-- **[sn-filesync](https://github.com/dynamicdan/sn-filesync)** – Last updated 7 years ago
-- **[codesync](https://github.com/cern-snow/codesync)** – Last updated 9 years ago  
-- **[now-sync](https://github.com/Accruent/now-sync)** – Last updated 6 years ago
-
-Today there's basically one survivor: **[SNICH by Nate Anderson](https://marketplace.visualstudio.com/items?itemName=NateAnderson.snich)**—and it's VS Code only.
-
-### The Pattern Is Clear
-
-Every tool either:
-1. Requires proprietary server-side components
-2. Locks you into specific IDEs or workflows
-3. Dies from complexity and maintenance burden
-4. Forces you to abandon the ServiceNow UI entirely
-
-**I'm tired of it.**
-
----
-
-## How This Is Different
-
-### 1. Actually Useful
-
-Not "deploy a scoped app" useful—**"explore and understand your instance"** useful. The kind of tool that answers questions like:
-- "What business rules fire on the Incident table?"
-- "What flows are currently active?"
-- "Show me the schema of this table without clicking through 12 UI screens"
-
-### 2. Zero Bullshit Setup
-
-One binary. No server-side plugins. No dependency hell. No auth configuration that requires a PhD.
-
-### 3. Works With Reality
-
-Global scope? Scoped apps? Direct instance editing? **Yes.** I'm not forcing you to choose between the CLI and the ServiceNow UI. Use both. Fix things wherever it's faster.
-
----
-
-## For AI Agents
-
-This CLI is designed to be **agent-native**. Your AI assistant can:
-
-- **Explore**: List tables, schemas, business rules, flows — understand your instance structure
-- **Query**: Fetch records, analyze data patterns, check configurations  
-- **Verify**: Confirm changes, check dependencies, validate before deploying
-- **Document**: Generate reports on instance configuration, security policies, automation logic
-
-The command structure is predictable and machine-readable. JSON output available for everything.
-
-<details>
-<summary>Other installation methods</summary>
-
-**Go install:**
-```bash
+# Or install with go
 go install github.com/jacebenson/jsn/cmd/jsn@latest
 ```
 
-**GitHub Release:**
-Download from [Releases](https://github.com/jacebenson/jsn/releases).
+## Quick Start
 
-**From source:**
+### 1. Setup
+
+Run the interactive setup to configure your first ServiceNow instance:
+
 ```bash
-git clone https://github.com/jacebenson/jsn.git
-cd jsn
-go build -o jsn ./cmd/jsn/main.go
+jsn setup
 ```
 
-</details>
+This will:
+1. Ask for your ServiceNow instance URL
+2. Open a browser for OAuth authentication
+3. Set the instance as your default
 
-## Usage
+### 2. Verify Authentication
 
 ```bash
-# Explore your instance
-jsn tables list                                    # List all tables
-jsn tables schema incident                         # Show table structure
-jsn tables columns incident                        # Show all columns
-
-# Query records
-jsn records --table incident                       # List records
-jsn records --table incident --query "priority=1"  # Filter with encoded query
-jsn records --table incident <sys_id>              # Show specific record
-
-# Manage data
-jsn records --table incident create -f short_description="Server down"
-jsn records --table incident update <sys_id> -f priority=1
-jsn records --table incident delete <sys_id>
-
-# Business logic
-jsn rules --table incident                         # List business rules
-jsn rules --search approval                        # Search rules by name
-jsn flows --active                                 # List active flows
-jsn script-includes --search Utils                 # Search script includes
-
-# Update sets
-jsn updateset list                                 # List update sets
-jsn updateset use <name>                           # Set current update set
-
-# Configuration
-jsn config profile                                 # Show current profile
-jsn config profile <name>                          # Switch profile
-jsn auth status                                    # Check auth status
+jsn auth status
 ```
 
-## Updating
-
-Re-run the install script to update to the latest version:
+### 3. Start Using
 
 ```bash
-curl -fsSL https://jsn.jace.pro/install | bash
+# List all incidents
+jsn incidents
+
+# Show a specific incident
+jsn incidents INC0010001
+
+# Create a new incident
+jsn incidents create --description "Server down" --priority 1
+
+# List change requests
+jsn changes
+
+# Query any table
+jsn records list --table incident --query "priority=1^active=true"
+```
+
+## Configuration
+
+JSN uses a layered configuration system:
+
+| Source | Priority | Description |
+|--------|----------|-------------|
+| Flags | Highest | `--instance`, `--profile`, `--format` |
+| Environment | High | `SERVICENOW_INSTANCE_URL`, `SERVICENOW_FORMAT` |
+| Local config | Medium | `./.servicenow/config.json` |
+| Global config | Low | `~/.config/servicenow/config.json` |
+| Defaults | Lowest | Built-in defaults |
+
+### Profiles
+
+Work with multiple ServiceNow instances using profiles:
+
+```bash
+# Login to a new instance
+jsn auth login https://dev12345.service-now.com
+
+# List all profiles
+jsn profiles list
+
+# Switch to a different profile
+jsn profiles use dev12345
+
+# Show current profile
+jsn profiles show
+```
+
+## Commands
+
+### Work Commands (Day-to-day operations)
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `incidents` | `incident`, `inc` | Manage IT incidents |
+| `changes` | `change`, `chg` | Manage change requests |
+| `requests` | `request`, `req`, `ritm` | Manage service catalog requests |
+| `tasks` | `task`, `sctask` | Manage service catalog tasks |
+| `users` | `user` | Manage users |
+| `groups` | `group` | Manage user groups |
+| `records` | - | Generic Table API access |
+
+### Dev Commands (Development artifacts)
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Automations** | `dev flows` | Manage Flow Designer flows |
+| | `dev actions` | Manage action definitions |
+| **Scripts** | `dev includes` | Manage script includes |
+| | `dev rules` | Manage business rules |
+| | `dev clientscripts` | Manage client scripts |
+| | `dev uiactions` | Manage UI actions |
+| | `dev uipolicies` | Manage UI policies |
+| **Data** | `dev tables` | View table definitions |
+| | `dev columns` | Manage column definitions |
+| | `dev import` | Manage import sets |
+| **Security** | `dev acls` | Manage access controls |
+| | `dev roles` | Manage roles |
+| **Platform** | `dev updatesets` | Manage update sets |
+| | `dev scopes` | Manage application scopes |
+| | `dev properties` | Manage system properties |
+| | `dev logs` | Query system logs |
+| | `dev rest` | Raw REST API calls |
+| | `dev eval` | Execute background scripts |
+
+## Usage Examples
+
+### Incidents
+
+```bash
+# List all incidents
+jsn incidents
+
+# List critical incidents
+jsn incidents list --query "priority=1"
+
+# Show specific incident
+jsn incidents INC0010001
+
+# Create incident
+jsn incidents create --description "Server down" --priority 1
+
+# Update incident
+jsn incidents update INC0010001 --data '{"state": "6"}'
+
+# Delete incident
+jsn incidents delete INC0010001
+```
+
+### Changes
+
+```bash
+# List all change requests
+jsn changes
+
+# List high-risk changes
+jsn changes list --query "risk=high"
+
+# Create change request
+jsn changes create --description "Deploy feature" --risk medium
+
+# Update change
+jsn changes update CHG0010001 --data '{"state": "3"}'
+
+# Delete change
+jsn changes delete CHG0010001
+```
+
+### Development Artifacts
+
+```bash
+# AUTOMATIONS
+# List Flow Designer flows
+jsn dev flows
+
+# List action definitions
+jsn dev actions
+
+# SCRIPTS
+# List script includes
+jsn dev includes
+
+# Get a specific script include
+jsn dev includes MyScriptInclude
+
+# List business rules
+jsn dev rules
+
+# List client scripts
+jsn dev clientscripts
+
+# List UI actions
+jsn dev uiactions
+
+# List UI policies
+jsn dev uipolicies
+
+# DATA
+# View table definition
+jsn dev tables incident
+
+# List table columns
+jsn dev columns --table incident
+
+# SECURITY
+# List access controls (ACLs)
+jsn dev acls
+
+# List roles
+jsn dev roles
+
+# PLATFORM
+# List update sets
+jsn dev updatesets
+
+# Set current update set
+jsn dev updatesets set "My Update Set"
+
+# List application scopes
+jsn dev scopes
+
+# Query system properties
+jsn dev properties
+
+# Query system logs
+jsn dev logs --level error
+jsn dev logs --source "Business Rule" --level warn
+
+# Execute background script
+jsn dev eval "gs.info('Hello World')"
+```
+
+### Generic Table API
+
+```bash
+# List any table
+jsn records list --table incident --limit 10
+
+# Query with encoded query
+jsn records list --table incident --query "priority=1^active=true"
+
+# Show specific columns
+jsn records list --table incident --columns "number,short_description,priority"
+
+# Get a record by sys_id
+jsn records get --table incident --sys-id abc123
+
+# Create a record
+jsn records create --table incident --data '{"short_description": "Test"}'
+
+# Update a record
+jsn records update --table incident --sys-id abc123 --data '{"priority": "1"}'
+
+# Delete a record
+jsn records delete --table incident --sys-id abc123
 ```
 
 ## Output Formats
 
+JSN supports multiple output formats:
+
+| Format | Flag | Description |
+|--------|------|-------------|
+| Auto (default) | `--format=auto` | JSON for pipes, styled for TTY |
+| JSON | `--json` or `--format=json` | Machine-readable JSON |
+| Styled | `--styled` | ANSI-styled tables (for humans) |
+| Markdown | `--markdown` | Markdown tables |
+| Quiet | `--quiet` or `-q` | Data only, no envelope |
+
 ```bash
-jsn tables list                   # Styled output in terminal
-jsn tables list --json            # JSON with envelope and breadcrumbs
-jsn tables list --quiet           # Raw JSON data only
-jsn tables list --md              # Markdown format
+# JSON output
+jsn incidents --json
+
+# Styled table output
+jsn incidents --styled
+
+# Markdown output for documentation
+jsn incidents --markdown
+
+# Quiet mode for piping
+jsn incidents -q | jq '.[].number'
 ```
-
-### JSON Envelope
-
-Every command supports `--json` for structured output:
-
-```json
-{
-  "ok": true,
-  "data": [...],
-  "summary": "5 tables",
-  "breadcrumbs": [
-    {"action": "show", "cmd": "jsn tables show incident", "description": "View table details"}
-  ]
-}
-```
-
-Breadcrumbs suggest next commands, making it easy for humans and agents to navigate.
 
 ## Authentication
 
-Supports three authentication methods:
-
-**OAuth 2.0** (recommended - most secure):
-```bash
-jsn auth login                     # Default - opens browser for OAuth
-jsn setup                          # OAuth is the default setup method
-```
-Uses PKCE (Proof Key for Code Exchange) for secure token exchange. Tokens refresh automatically.
-
-**Basic Auth** (good for CI/CD):
-```bash
-jsn auth login --method basic      # Enter username/password
-```
-
-**g_ck Token** (browser session):
-```bash
-jsn auth login --method gck        # Paste curl command from browser
-```
-
-Credentials are stored securely using your system keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service). Falls back to file storage with restricted permissions if keyring is unavailable.
-
-### Contextual Header
-
-Every command shows your current working context:
-```
-# Use `jsn updateset use` or `jsn scope use` to change scope/updateset
-PROFILE USER   [SCOPE]  UPDATE SET
-pdi     System [global] Default
-```
-
-Each column is clickable in supporting terminals (iTerm2, Windows Terminal, GNOME Terminal 3.26+):
-- **PROFILE** → Instance URL
-- **USER** → Current user record
-- **[SCOPE]** → Application scope
-- **UPDATE SET** → Current update set
-
-### Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| `SERVICENOW_OAUTH_TOKEN` | OAuth access token (CI/CD) |
-| `SERVICENOW_OAUTH_REFRESH_TOKEN` | OAuth refresh token |
-| `SERVICENOW_TOKEN` | Override stored token/password |
-| `SERVICENOW_INSTANCE` | Override instance URL |
-| `XDG_CONFIG_HOME` | Custom config directory |
-
-## Configuration
-
-```
-~/.config/servicenow/         # Global configuration
-├── config.json               #   Profiles and settings
-└── credentials.json          #   Auth tokens (fallback when keyring unavailable)
-
-.servicenow/                  # Per-repo configuration (optional)
-└── config.json               #   Project-specific settings
-```
-
-## Discover Commands
-
-Use `--help` to explore all commands and flags:
+JSN uses OAuth 2.0 with PKCE for secure authentication:
 
 ```bash
-jsn --help                    # List all top-level commands
-jsn tables --help             # Show tables subcommands
-jsn records --table incident --help  # Show records flags
+# Login to an instance
+jsn auth login https://dev12345.service-now.com
+
+# Check authentication status
+jsn auth status
+
+# Logout
+jsn auth logout
 ```
 
-Or use `jsn` with no arguments for an interactive command picker.
+Credentials are securely stored in your OS keychain (or file fallback at `~/.config/servicenow/credentials/`).
 
-## Global Flags
+## Environment Variables
 
-These flags work with any command:
+| Variable | Description |
+|----------|-------------|
+| `SERVICENOW_INSTANCE_URL` | Default instance URL |
+| `SERVICENOW_FORMAT` | Default output format |
+| `SERVICENOW_OAUTH_TOKEN` | OAuth token (for CI/CD) |
 
-```
---config <path>       # Use specific config file
---profile <name>      # Use specific profile
---json                # Output as JSON
---quiet, -q           # Output data only (no envelope)
---md                  # Output as Markdown
---agent               # Agent mode (JSON + quiet + no interactive prompts)
-```
+## CI/CD Integration
 
-## Development
+For automated environments, use the OAuth token:
 
 ```bash
-make build            # Build binary
-make test             # Run Go tests
-make lint             # Run linter
+export SERVICENOW_INSTANCE_URL="https://dev12345.service-now.com"
+export SERVICENOW_OAUTH_TOKEN="your-oauth-token"
+
+# Now run commands without interactive auth
+jsn incidents list
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+## Shell Completion
+
+```bash
+# Bash
+source <(jsn completion bash)
+
+# Zsh
+source <(jsn completion zsh)
+
+# Fish
+jsn completion fish | source
+```
+
+## Getting Help
+
+```bash
+# General help
+jsn --help
+
+# Command help
+jsn incidents --help
+
+# Subcommand help
+jsn incidents create --help
+```
+
+## Troubleshooting
+
+### Not authenticated
+
+```bash
+⚠️  Not authenticated to https://dev12345.service-now.com
+
+To get started, run:
+  jsn setup           # Interactive setup
+  jsn auth login      # Login to instance
+```
+
+**Solution**: Run `jsn setup` or `jsn auth login <instance>`
+
+### Instance URL required
+
+```bash
+Error (usage): Instance URL required. Set via --instance flag, SERVICENOW_INSTANCE_URL env, or config file.
+```
+
+**Solution**: Set the instance with one of:
+- `jsn setup`
+- `jsn auth login <instance>`
+- `--instance` flag
+- `SERVICENOW_INSTANCE_URL` environment variable
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
 ## License
 
-[MIT](LICENSE)
+MIT License - see LICENSE file for details
+
+## Acknowledgments
+
+This project follows the architectural patterns from [basecamp-cli](https://github.com/basecamp/basecamp-cli).

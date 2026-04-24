@@ -1,366 +1,195 @@
+// Package cli provides the command-line interface.
 package cli
 
-// Reserved Short Flags
-//
-// These short flags have established meanings across multiple commands.
-// Avoid reusing them for different purposes to prevent conflicts.
-//
-//   -p  --profile       (global) Profile to use
-//   -q  --quiet         (global) Quiet output
-//   -n  --limit/count   Number of items to fetch
-//   -t  --table/type    Table name or type filter
-//   -f  --field/file    Field name or file path
-//   -i  --interactive   Enable interactive mode
-//   -o  --output        Output file or format
-//   -s  --scope         Application scope filter
-//   -l  --level/limit   Log level or limit
-//   -m  --minutes       Time range in minutes
-//
-// When adding new flags, prefer long-form only if the short form
-// would conflict or be ambiguous.
-
 import (
-	"context"
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/jacebenson/jsn/internal/appctx"
-	"github.com/jacebenson/jsn/internal/auth"
 	"github.com/jacebenson/jsn/internal/commands"
 	"github.com/jacebenson/jsn/internal/config"
-	sncontext "github.com/jacebenson/jsn/internal/context"
-	"github.com/jacebenson/jsn/internal/output"
-	"github.com/jacebenson/jsn/internal/sdk"
-	"github.com/mattn/go-isatty"
-	"github.com/spf13/cobra"
 )
 
 var (
-	cfgFile       string
-	profile       string
-	jsonOutput    bool
-	agentMode     bool
-	quietMode     bool
-	mdOutput      bool
-	jqFilter      string
-	noInteractive bool
+	// Global flags
+	instanceFlag string
+	profileFlag  string
+	formatFlag   string
+	jsonFlag     bool
+	quietFlag    bool
+	styledFlag   bool
+	markdownFlag bool
 )
 
-func NewRootCommand() *cobra.Command {
-	root := &cobra.Command{
-		Use:   "jsn",
-		Short: "ServiceNow CLI - agent-first, agent-native",
-		Long: `A CLI for exploring and managing ServiceNow instances.
-
-Output modes (pick one):
-  --json     JSON envelope {ok, data, summary, breadcrumbs} — use when parsing
-  --md       Markdown tables — use when showing results to humans  
-  --quiet    Raw JSON data only (no envelope)
-  --agent    JSON + quiet + no interactive prompts (for automation)
-  --jq <f>   Apply jq filter to JSON output
-
-Quick start:
-  jsn setup                        First-time configuration
-  jsn commands --md                Browse all commands with descriptions
-  jsn <command> --help             Detailed help for any command
-
-Hierarchy: Use specific commands (tables, records, flows, etc.) first.
-Fallback to 'records --table <name>' for generic CRUD.
-Use 'rest' or 'eval' only as escape hatches.`,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return initializeApp(cmd)
-		},
-	}
-
-	// Set custom help template that groups commands by category
-	root.SetUsageTemplate(customUsageTemplate)
-
-	root.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/servicenow/config.json)")
-	root.PersistentFlags().StringVarP(&profile, "profile", "p", "", "profile to use")
-	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
-	root.PersistentFlags().BoolVar(&agentMode, "agent", false, "Agent mode (JSON + quiet + no interactive prompts)")
-	root.PersistentFlags().BoolVarP(&quietMode, "quiet", "q", false, "Quiet output (data only, no envelope)")
-	root.PersistentFlags().BoolVar(&mdOutput, "md", false, "Output as Markdown")
-	root.PersistentFlags().StringVar(&jqFilter, "jq", "", "Apply jq filter to JSON output")
-	root.PersistentFlags().BoolVar(&noInteractive, "no-interactive", false, "Disable interactive prompts (for scripts/CI)")
-
-	// ─── Explore ─────────────────────────────────────────────────────────
-	root.AddCommand(commands.NewTablesCmd())
-	root.AddCommand(commands.NewRecordsCmd())
-	root.AddCommand(commands.NewRulesCmd())
-	root.AddCommand(commands.NewFlowsCmd())
-	root.AddCommand(commands.NewJobsCmd())
-	root.AddCommand(commands.NewLogsCmd())
-
-	// ─── Scripts ─────────────────────────────────────────────────────────
-	root.AddCommand(commands.NewScriptIncludesCmd())
-	root.AddCommand(commands.NewClientScriptsCmd())
-	root.AddCommand(commands.NewUIScriptsCmd())
-	root.AddCommand(commands.NewACLsCmd())
-
-	// ─── Automation ──────────────────────────────────────────────────────
-	root.AddCommand(commands.NewAssignmentRulesCmd())
-	root.AddCommand(commands.NewDecisionTablesCmd())
-	root.AddCommand(commands.NewEmailActionsCmd())
-	root.AddCommand(commands.NewScriptedRestCmd())
-	root.AddCommand(commands.NewImportSetsCmd())
-	root.AddCommand(commands.NewDataPoliciesCmd())
-	root.AddCommand(commands.NewCodeSearchCmd())
-
-	// ─── UI ──────────────────────────────────────────────────────────────
-	root.AddCommand(commands.NewUIPoliciesCmd())
-	root.AddCommand(commands.NewFormsCmd())
-	root.AddCommand(commands.NewListsCmd())
-	root.AddCommand(commands.NewChoicesCommand())
-
-	// ─── Service Catalog ─────────────────────────────────────────────────
-	root.AddCommand(commands.NewCatalogItemCmd())
-	root.AddCommand(commands.NewVariableCmd())
-	root.AddCommand(commands.NewVariableTypesCmd())
-
-	// ─── Service Portal ──────────────────────────────────────────────────
-	root.AddCommand(commands.NewPortalsCmd())
-	root.AddCommand(commands.NewWidgetsCmd())
-	root.AddCommand(commands.NewPagesCmd())
-
-	// ─── Dev Tools ───────────────────────────────────────────────────────
-	root.AddCommand(commands.NewUpdateSetCmd())
-	root.AddCommand(commands.NewScopeCmd())
-	root.AddCommand(commands.NewWorkspaceCmd())
-	root.AddCommand(commands.NewATFCmd())
-
-	root.AddCommand(commands.NewRestCmd())
-	root.AddCommand(commands.NewEvalCmd())
-
-	// ─── Config ──────────────────────────────────────────────────────────
-	root.AddCommand(commands.NewConfigCommand())
-	root.AddCommand(commands.NewAuthCommand())
-	root.AddCommand(commands.NewSetupCommand())
-	root.AddCommand(commands.NewInstanceCmd())
-
-	// ─── Help ────────────────────────────────────────────────────────────
-	root.AddCommand(commands.NewDocsCmd())
-	root.AddCommand(commands.NewCommandsCmd())
-	root.AddCommand(commands.NewVersionCmd())
-
-	// Apply default template to all subcommands (not root)
-	// so they show standard "Available Commands" instead of root's category list
-	for _, cmd := range root.Commands() {
-		if cmd.Name() != "help" && cmd.Name() != "completion" {
-			cmd.SetUsageTemplate(defaultUsageTemplate)
-		}
-	}
-
-	return root
-}
-
+// Execute runs the CLI.
 func Execute() error {
-	return NewRootCommand().Execute()
+	return NewRootCmd().Execute()
 }
 
-func initializeApp(cmd *cobra.Command) error {
-	cfg, err := config.Load(cfgFile, profile)
-	if err != nil {
-		return err
-	}
+// NewRootCmd creates the root command.
+func NewRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "jsn",
+		Short: "Command-line interface for ServiceNow",
+		Long: `Command-line interface for ServiceNow
 
-	// First-run auto-setup: if no profiles exist, prompt user to run setup
-	// Skip this check if the user is already running the setup command
-	if len(cfg.Profiles) == 0 && !noInteractive && !agentMode && cmd.Name() != "setup" {
-		if isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd()) {
-			fmt.Fprintln(os.Stderr, "First run detected. No profiles configured.")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "Please run: jsn setup")
-			fmt.Fprintln(os.Stderr, "")
-			return fmt.Errorf("no profiles configured - run 'jsn setup' to get started")
-		}
-	}
+Work with multiple ServiceNow instances (dev, test, prod, clients) from your terminal.
+Each instance is stored as a separate profile with its own OAuth credentials.`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Skip for help and version commands
+			if cmd.Name() == "help" || cmd.Name() == "version" || cmd.Name() == "setup" {
+				return nil
+			}
 
-	authManager := auth.NewManager(cfg)
+			// Determine format from flags
+			format := "auto"
+			if jsonFlag {
+				format = "json"
+			} else if quietFlag {
+				format = "quiet"
+			} else if styledFlag {
+				format = "styled"
+			} else if markdownFlag {
+				format = "markdown"
+			} else if formatFlag != "" {
+				format = formatFlag
+			}
 
-	// Determine output format from flags
-	var format output.Format
-	switch {
-	case agentMode, quietMode:
-		format = output.FormatQuiet
-	case jsonOutput:
-		format = output.FormatJSON
-	case mdOutput:
-		format = output.FormatMarkdown
-	default:
-		format = output.FormatAuto
-	}
-
-	// Create output writer
-	outputOpts := output.Options{
-		Format:   format,
-		Writer:   cmd.OutOrStdout(),
-		JQFilter: jqFilter,
-	}
-	outputWriter := output.New(outputOpts)
-
-	// Create SDK client
-	var sdkClient *sdk.Client
-	if activeProfile := cfg.GetActiveProfile(); activeProfile != nil {
-		sdkClient = sdk.NewClient(activeProfile.InstanceURL, func() (string, string, string) {
-			// Get credentials
-			creds, err := authManager.GetCredentials()
+			// Load configuration
+			cfg, err := config.Load(config.FlagOverrides{
+				Instance: instanceFlag,
+				Profile:  profileFlag,
+				Format:   format,
+			})
 			if err != nil {
-				return "", "", "basic"
+				return err
 			}
 
-			// Determine auth method from credentials or profile
-			authMethod := activeProfile.AuthMethod
-			if creds.AuthMethod != "" {
-				authMethod = creds.AuthMethod
+			// Create app context
+			app := appctx.NewApp(cfg)
+
+			// Store in command context
+			ctx := appctx.WithApp(cmd.Context(), app)
+			cmd.SetContext(ctx)
+
+			// Check if authenticated for non-auth commands
+			if !app.Auth.IsAuthenticated() && cfg.GetEffectiveInstance() != "" {
+				fmt.Fprintf(os.Stderr, "\n⚠️  Not authenticated to %s\n\n", cfg.GetEffectiveInstance())
+				fmt.Fprintln(os.Stderr, "To get started, run:")
+				fmt.Fprintln(os.Stderr, "  jsn setup           # Interactive setup")
+				fmt.Fprintf(os.Stderr, "  jsn auth login %s   # Login to instance\n\n", cfg.GetEffectiveInstance())
 			}
 
-			switch authMethod {
-			case "oauth":
-				// OAuth: use Bearer token
-				return creds.AccessToken, "", "oauth"
-			case "gck":
-				// g_ck tokens: use X-UserToken header + cookies
-				return creds.Token, creds.Cookies, "gck"
-			default:
-				// Basic auth: token is password, pass username via cookies slot
-				return creds.Token, creds.Username, "basic"
+			// Print context header for interactive terminals
+			if cmd.Name() != "help" && cmd.Name() != "version" && cmd.Name() != "completion" {
+				app.PrintContextHeader()
 			}
-		})
-	}
 
-	app := &appctx.App{
-		Config: cfg,
-		Auth:   authManager,
-		Output: outputWriter,
-		Flags: map[string]interface{}{
-			"no-interactive": noInteractive || agentMode,
+			return nil
 		},
 	}
 
-	// Only set SDK if we have a valid client
-	if sdkClient != nil {
-		app.SDK = sdkClient
+	// Global flags
+	cmd.PersistentFlags().StringVar(&instanceFlag, "instance", "", "ServiceNow instance URL (e.g., https://dev12345.service-now.com)")
+	cmd.PersistentFlags().StringVarP(&profileFlag, "profile", "p", "", "Configuration profile to use")
+	cmd.PersistentFlags().StringVar(&formatFlag, "format", "", "Output format: auto, json, markdown, styled, quiet")
+	cmd.PersistentFlags().BoolVar(&jsonFlag, "json", false, "Output in JSON format")
+	cmd.PersistentFlags().BoolVarP(&quietFlag, "quiet", "q", false, "Output only data, no envelope")
+	cmd.PersistentFlags().BoolVar(&styledFlag, "styled", false, "Force styled output")
+	cmd.PersistentFlags().BoolVar(&markdownFlag, "markdown", false, "Output in Markdown format")
+
+	// Add commands
+	cmd.AddCommand(commands.NewSetupCmd())
+	cmd.AddCommand(commands.NewAuthCmd())
+	cmd.AddCommand(commands.NewProfilesCmd())
+	cmd.AddCommand(commands.NewRecordsCmd())
+
+	// Phase 2: Work commands
+	cmd.AddCommand(commands.NewIncidentsCmd())
+	cmd.AddCommand(commands.NewChangesCmd())
+	cmd.AddCommand(commands.NewRequestsCmd())
+	cmd.AddCommand(commands.NewTasksCmd())
+	cmd.AddCommand(commands.NewUsersCmd())
+	cmd.AddCommand(commands.NewGroupsCmd())
+	cmd.AddCommand(commands.NewGroupMembersCmd())
+	cmd.AddCommand(commands.NewGroupRolesCmd())
+
+	// Phase 3: Dev commands
+	cmd.AddCommand(commands.NewDevCmd())
+
+	// Hide the auto-generated completion command from main help
+	// (Users can still use: jsn completion bash)
+	cmd.InitDefaultCompletionCmd()
+	if c := findSubcommand(cmd, "completion"); c != nil {
+		c.Hidden = true
 	}
 
-	ctx := appctx.WithContext(cmd.Context(), app)
-	cmd.SetContext(ctx)
+	// Set custom help template
+	cmd.SetUsageTemplate(customHelpTemplate)
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		return err
+	})
 
-	// Check for default update set warning (only in interactive mode)
-	if sdkClient != nil && format != output.FormatQuiet && format != output.FormatJSON && !agentMode {
-		checkDefaultUpdateSet(cmd.Context(), sdkClient, cfg)
+	return cmd
+}
+
+// customHelpTemplate is a cleaner, categorized help template inspired by basecamp-cli.
+// For root command, show categorized commands. For subcommands, show flat list.
+const customHelpTemplate = `Usage:
+  {{.UseLine}}{{if .HasAvailableSubCommands}} <command>{{end}}{{- if not .Parent}}
+
+CORE COMMANDS{{range .Commands}}{{if (and (eq .Name "incidents") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "changes") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "requests") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "tasks") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+
+DATA & ADMIN{{range .Commands}}{{if (and (eq .Name "records") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "users") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "groups") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "groupmembers") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "grouproles") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+
+DEVELOPMENT{{range .Commands}}{{if (and (eq .Name "dev") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+
+CONFIGURATION{{range .Commands}}{{if (and (eq .Name "auth") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "profiles") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "setup") (not .Hidden))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{- if .HasAvailableSubCommands}}
+
+Available Commands:{{- range .Commands}}{{if not .Hidden}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}
+{{- if .HasAvailableLocalFlags}}
+
+FLAGS
+{{.LocalFlags.FlagUsages}}
+{{- end}}
+{{- if .HasAvailableInheritedFlags}}
+
+GLOBAL FLAGS
+{{.InheritedFlags.FlagUsages}}
+{{- end}}{{if not .Parent}}
+
+EXAMPLES
+  $ jsn incidents              # List all incidents
+  $ jsn inc INC0010001       # Show incident details
+  $ jsn inc create           # Create a new incident
+  $ jsn records list --table task --query "active=true"
+
+LEARN MORE
+  Use "jsn <command> --help" for more information about a command.{{end}}
+`
+
+// findSubcommand finds a subcommand by name.
+func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, c := range cmd.Commands() {
+		if c.Name() == name {
+			return c
+		}
 	}
-
 	return nil
 }
-
-// checkDefaultUpdateSet prints the contextual header for all commands.
-// This replaces the old default update set warning with a more informative header.
-func checkDefaultUpdateSet(ctx context.Context, sdkClient *sdk.Client, cfg *config.Config) {
-	// Check if suppressed via config (active profile)
-	if activeProfile := cfg.GetActiveProfile(); activeProfile != nil {
-		if activeProfile.SuppressUpdateSetWarning {
-			return
-		}
-	}
-
-	// Print contextual header using the shared package
-	_ = sncontext.PrintHeader(os.Stderr, cfg, sdkClient)
-}
-
-// customUsageTemplate is a discovery-focused help template that groups commands
-// by workflow (like git) instead of object type.
-// This template is ONLY for the root command (jsn).
-const customUsageTemplate = `Usage:{{if .Runnable}}
-  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
-  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
-
-Aliases:
-  {{.NameAndAliases}}{{end}}{{if .HasExample}}
-
-Examples:
-{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
-
-Common jsn workflows (run with no args to see current state):
-
-setup and config
-  setup         First-time configuration
-  auth          Login, logout, check status
-  config        Manage instance profiles
-
-understand your instance
-  tables        List and inspect table schemas
-  records       Query and inspect table data
-  logs          View system logs and errors
-  instance      Check instance info and version
-  docs          Browse offline documentation
-
-develop applications
-  scope         Switch application scope (shows current)
-  updateset     Manage update sets (shows current)
-  script-includes  Reusable server-side code
-  rules         Business logic on table operations
-  client-scripts Browser-side form scripts
-  workspace     Create configurable workspaces
-
-automate processes
-  flows         Design and execute workflows
-  jobs          Schedule background tasks
-  atf           Build and run automated tests
-
-build service experiences
-  catalog-item  Create service catalog items
-  variable      Design catalog questions
-  sp            Manage service portals
-
-security and policies
-  acls          Access controls (ACLs)
-  data-policies Data validation rules
-  ui-policies   Form field visibility rules
-
-advanced (use when specific commands don't work)
-  rest          Raw REST API calls
-  eval          Execute background scripts
-
-Run "{{.CommandPath}} commands --md" for the full command catalog.{{end}}{{if .HasAvailableLocalFlags}}
-
-Flags:
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
-
-Global Flags:
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
-
-Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
-  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
-
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
-`
-
-// defaultUsageTemplate is the standard cobra help template used by subcommands.
-// It does NOT include the root-specific category list.
-const defaultUsageTemplate = `Usage:{{if .Runnable}}
-  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
-  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
-
-Aliases:
-  {{.NameAndAliases}}{{end}}{{if .HasExample}}
-
-Examples:
-{{.Example}}{{end}}{{if .HasAvailableSubCommands}}
-
-Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
-
-Flags:
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
-
-Global Flags:
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
-
-Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
-  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
-
-Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
-`

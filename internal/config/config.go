@@ -1,3 +1,4 @@
+// Package config provides layered configuration loading.
 package config
 
 import (
@@ -5,126 +6,169 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-const (
-	appName = "servicenow"
-)
+const appName = "servicenow"
 
+// Config holds the resolved configuration.
 type Config struct {
-	InstanceURL    string                 `json:"instance_url,omitempty"`
-	DefaultProfile string                 `json:"default_profile,omitempty"`
-	Profiles       map[string]*Profile    `json:"profiles,omitempty"`
-	Raw            map[string]interface{} `json:"-"`
-	Source         map[string]Source      `json:"-"`
-	GlobalPath     string                 `json:"-"`
-	LocalPath      string                 `json:"-"`
+	// Instance settings
+	InstanceURL string `json:"instance_url,omitempty"`
+
+	// Profile settings (named identity+environment bundles)
+	Profiles       map[string]*Profile `json:"profiles,omitempty"`
+	DefaultProfile string              `json:"default_profile,omitempty"`
+	ActiveProfile  string              `json:"-"` // Set at runtime, not persisted
+
+	// Output settings
+	Format string `json:"format,omitempty"`
+
+	// Sources tracks where each value came from (for debugging).
+	Sources map[string]string `json:"-"`
 }
 
+// Profile holds configuration for a named profile.
 type Profile struct {
-	InstanceURL              string `json:"instance_url"`
-	Username                 string `json:"username,omitempty"`
-	AuthMethod               string `json:"auth_method,omitempty"`
-	SuppressUpdateSetWarning bool   `json:"suppress_updateset_warning,omitempty"`
-	Source                   string `json:"-"` // "global" or "local" — not persisted
+	InstanceURL string `json:"instance_url"`
+	AuthMethod  string `json:"auth_method,omitempty"`
+	Username    string `json:"username,omitempty"`
 }
 
-type Source int
+// Source indicates where a config value came from.
+type Source string
 
 const (
-	SourceDefault Source = iota
-	SourceSystem
-	SourceGlobal
-	SourceRepo
-	SourceLocal
-	SourceEnv
-	SourceFlag
+	SourceDefault Source = "default"
+	SourceSystem  Source = "system"
+	SourceGlobal  Source = "global"
+	SourceLocal   Source = "local"
+	SourceEnv     Source = "env"
+	SourceFlag    Source = "flag"
 )
 
 func (s Source) String() string {
-	switch s {
-	case SourceDefault:
-		return "default"
-	case SourceSystem:
-		return "system"
-	case SourceGlobal:
-		return "global"
-	case SourceRepo:
-		return "repo"
-	case SourceLocal:
-		return "local"
-	case SourceEnv:
-		return "env"
-	case SourceFlag:
-		return "flag"
-	default:
-		return "unknown"
+	return string(s)
+}
+
+// FlagOverrides holds command-line flag values.
+type FlagOverrides struct {
+	Instance string
+	Profile  string
+	Format   string
+}
+
+// Default returns the default configuration.
+func Default() *Config {
+	return &Config{
+		Format:  "auto",
+		Sources: make(map[string]string),
 	}
 }
 
-func Load(cfgFile, profileName string) (*Config, error) {
-	cfg := &Config{
-		Profiles: make(map[string]*Profile),
-		Source:   make(map[string]Source),
-	}
+// Load loads configuration from all sources with proper precedence.
+// Precedence: flags > env > local > global > defaults
+func Load(overrides FlagOverrides) (*Config, error) {
+	cfg := Default()
 
-	// Load global config first (lowest precedence)
-	globalPath := GlobalConfigPath()
-	if _, err := os.Stat(globalPath); err == nil {
-		if err := loadFromFile(cfg, globalPath); err != nil {
-			return nil, fmt.Errorf("failed to load global config: %w", err)
-		}
-		cfg.GlobalPath = globalPath
-		for _, p := range cfg.Profiles {
-			p.Source = "global"
-		}
-	}
+	// Load from file layers (global -> local)
+	loadFromFile(cfg, GlobalConfigPath(), SourceGlobal)
+	loadFromFile(cfg, LocalConfigPath(), SourceLocal)
 
-	// Load local config (overrides global)
-	localPath := LocalConfigPath()
-	if _, err := os.Stat(localPath); err == nil {
-		if err := loadFromFile(cfg, localPath); err != nil {
-			return nil, fmt.Errorf("failed to load local config: %w", err)
-		}
-		cfg.LocalPath = localPath
+	// Load from environment
+	LoadFromEnv(cfg)
 
-		// Any profile without a source was created/overridden by local config
-		for _, p := range cfg.Profiles {
-			if p.Source == "" {
-				p.Source = "local"
-			}
-		}
-	}
-
-	if profileName != "" {
-		cfg.DefaultProfile = profileName
-	}
+	// Apply flag overrides
+	ApplyOverrides(cfg, overrides)
 
 	return cfg, nil
 }
 
-func loadFromFile(cfg *Config, path string) error {
-	data, err := os.ReadFile(path)
+func loadFromFile(cfg *Config, path string, source Source) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: Path is from trusted config locations
 	if err != nil {
-		return err
+		return // File doesn't exist, skip
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
+	var fileCfg Config
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skipping malformed config at %s: %v\n", path, err)
+		return
 	}
 
-	if err := json.Unmarshal(data, cfg); err != nil {
-		return err
+	if fileCfg.InstanceURL != "" {
+		cfg.InstanceURL = fileCfg.InstanceURL
+		cfg.Sources["instance_url"] = string(source)
 	}
-
-	cfg.Raw = raw
-	return nil
+	if fileCfg.Format != "" {
+		cfg.Format = fileCfg.Format
+		cfg.Sources["format"] = string(source)
+	}
+	if fileCfg.DefaultProfile != "" {
+		cfg.DefaultProfile = fileCfg.DefaultProfile
+		cfg.Sources["default_profile"] = string(source)
+	}
+	if len(fileCfg.Profiles) > 0 {
+		if cfg.Profiles == nil {
+			cfg.Profiles = make(map[string]*Profile)
+		}
+		for name, profile := range fileCfg.Profiles {
+			cfg.Profiles[name] = profile
+		}
+		cfg.Sources["profiles"] = string(source)
+	}
 }
 
+// LoadFromEnv loads configuration from environment variables.
+func LoadFromEnv(cfg *Config) {
+	if v := os.Getenv("SERVICENOW_INSTANCE_URL"); v != "" {
+		cfg.InstanceURL = v
+		cfg.Sources["instance_url"] = string(SourceEnv)
+	}
+	if v := os.Getenv("SERVICENOW_FORMAT"); v != "" {
+		cfg.Format = v
+		cfg.Sources["format"] = string(SourceEnv)
+	}
+}
+
+// ApplyOverrides applies non-empty flag overrides to cfg.
+func ApplyOverrides(cfg *Config, o FlagOverrides) {
+	if o.Instance != "" {
+		cfg.InstanceURL = o.Instance
+		cfg.Sources["instance_url"] = string(SourceFlag)
+	}
+	if o.Format != "" {
+		cfg.Format = o.Format
+		cfg.Sources["format"] = string(SourceFlag)
+	}
+	if o.Profile != "" {
+		cfg.ActiveProfile = o.Profile
+		// Apply profile values
+		if cfg.Profiles != nil {
+			if p, ok := cfg.Profiles[o.Profile]; ok {
+				if p.InstanceURL != "" {
+					cfg.InstanceURL = p.InstanceURL
+					cfg.Sources["instance_url"] = "profile"
+				}
+			}
+		}
+	}
+}
+
+// GetEffectiveInstance returns the instance URL to use.
+func (c *Config) GetEffectiveInstance() string {
+	if c.ActiveProfile != "" && c.Profiles != nil {
+		if p, ok := c.Profiles[c.ActiveProfile]; ok && p.InstanceURL != "" {
+			return p.InstanceURL
+		}
+	}
+	return c.InstanceURL
+}
+
+// Save saves the configuration to the global config file.
 func (c *Config) Save() error {
 	path := GlobalConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err
 	}
 
@@ -136,9 +180,10 @@ func (c *Config) Save() error {
 	return os.WriteFile(path, data, 0600)
 }
 
+// SaveLocal saves the configuration to the local config file.
 func (c *Config) SaveLocal() error {
 	path := LocalConfigPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err
 	}
 
@@ -150,61 +195,74 @@ func (c *Config) SaveLocal() error {
 	return os.WriteFile(path, data, 0600)
 }
 
-func (c *Config) AddProfile(name string, profile *Profile) error {
-	c.Profiles[name] = profile
-	return c.Save()
-}
+// Path helpers
 
-func (c *Config) GetProfile(name string) (*Profile, bool) {
-	if name == "" {
-		name = c.DefaultProfile
-	}
-	p, ok := c.Profiles[name]
-	return p, ok
-}
-
-func (c *Config) GetActiveProfile() *Profile {
-	if c.DefaultProfile == "" {
-		return nil
-	}
-	if p, ok := c.Profiles[c.DefaultProfile]; ok {
-		return p
-	}
-	return nil
-}
-
+// GlobalConfigPath returns the path to the global config file.
 func GlobalConfigPath() string {
 	return filepath.Join(GlobalConfigDir(), "config.json")
 }
 
-func GlobalConfigDir() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, appName)
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".config", appName)
-	}
-
-	return filepath.Join(home, ".config", appName)
-}
-
+// LocalConfigPath returns the path to the local config file.
 func LocalConfigPath() string {
 	return filepath.Join(".", "."+appName, "config.json")
 }
 
-func CacheDir() string {
-	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
-		return filepath.Join(xdg, appName)
+// GlobalConfigDir returns the global config directory path.
+func GlobalConfigDir() string {
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		if home, _ := os.UserHomeDir(); home != "" {
+			configDir = filepath.Join(filepath.Clean(home), ".config")
+		} else {
+			configDir = os.TempDir()
+		}
+	} else {
+		configDir = filepath.Clean(configDir)
 	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".cache", appName)
-	}
-
-	return filepath.Join(home, ".cache", appName)
+	return filepath.Join(configDir, appName)
 }
 
-// Test comment
+// CacheDir returns the cache directory path.
+func CacheDir() string {
+	cacheDir := os.Getenv("XDG_CACHE_HOME")
+	if cacheDir == "" {
+		if home, _ := os.UserHomeDir(); home != "" {
+			cacheDir = filepath.Join(filepath.Clean(home), ".cache")
+		} else {
+			cacheDir = os.TempDir()
+		}
+	} else {
+		cacheDir = filepath.Clean(cacheDir)
+	}
+	return filepath.Join(cacheDir, appName)
+}
+
+// NormalizeInstanceURL ensures consistent URL format (no trailing slash).
+func NormalizeInstanceURL(url string) string {
+	url = strings.TrimSuffix(url, "/")
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		url = "https://" + url
+	}
+	return url
+}
+
+// GetActiveProfile returns the active profile or nil if none.
+func (c *Config) GetActiveProfile() *Profile {
+	name := c.ActiveProfile
+	if name == "" {
+		name = c.DefaultProfile
+	}
+	if name == "" || c.Profiles == nil {
+		return nil
+	}
+	return c.Profiles[name]
+}
+
+// SetProfile sets a profile and saves the config.
+func (c *Config) SetProfile(name string, profile *Profile) error {
+	if c.Profiles == nil {
+		c.Profiles = make(map[string]*Profile)
+	}
+	c.Profiles[name] = profile
+	return c.Save()
+}

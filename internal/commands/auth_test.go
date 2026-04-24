@@ -6,46 +6,38 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAuthCmd tests the auth command
 func TestAuthCmd(t *testing.T) {
-	cmd := NewAuthCommand()
-	assert.NotNil(t, cmd, "Command should not be nil")
-	assert.Equal(t, "auth", cmd.Use, "Command use should match")
-	assert.NotEmpty(t, cmd.Short, "Command should have a short description")
-
-	// Check subcommands
-	subcommands := []string{"login", "logout", "status"}
-	for _, name := range subcommands {
-		t.Run(name, func(t *testing.T) {
-			sub := findSubcommand(cmd, name)
-			assert.NotNil(t, sub, "Subcommand %s should exist", name)
-		})
-	}
+	cmd := NewAuthCmd()
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "auth", cmd.Use)
+	assert.Contains(t, cmd.Long, "OAuth")
+	assert.Contains(t, cmd.Long, "SDK")
 }
 
-// TestAuthLoginSubcommand tests the auth login subcommand
-func TestAuthLoginSubcommand(t *testing.T) {
-	cmd := NewAuthCommand()
-	loginCmd := findSubcommand(cmd, "login")
-	assert.NotNil(t, loginCmd, "login subcommand should exist")
+func TestAuthLoginCmd(t *testing.T) {
+	authCmd := NewAuthCmd()
+	cmd, _, err := authCmd.Find([]string{"login"})
+	assert.NoError(t, err)
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "login", cmd.Name())
 
-	// Check flags that actually exist (based on auth.go implementation)
-	flags := []string{"method"}
-	for _, flag := range flags {
-		assert.NotNil(t, loginCmd.Flag(flag), "Flag --%s should exist", flag)
-	}
+	// Verify help mentions SDK-style OAuth
+	assert.Contains(t, cmd.Long, "SDK")
+	assert.Contains(t, cmd.Long, "PKCE")
 }
 
-// TestAuthLogoutSubcommand tests the auth logout subcommand
-func TestAuthLogoutSubcommand(t *testing.T) {
-	cmd := NewAuthCommand()
-	logoutCmd := findSubcommand(cmd, "logout")
-	assert.NotNil(t, logoutCmd, "logout subcommand should exist")
+func TestAuthLogoutCmd(t *testing.T) {
+	authCmd := NewAuthCmd()
+	cmd, _, err := authCmd.Find([]string{"logout"})
+	assert.NoError(t, err)
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "logout", cmd.Name())
 }
 
-// TestAuthStatusSubcommand tests the auth status subcommand
-func TestAuthStatusSubcommand(t *testing.T) {
-	cmd := NewAuthCommand()
-	statusCmd := findSubcommand(cmd, "status")
-	assert.NotNil(t, statusCmd, "status subcommand should exist")
+func TestAuthStatusCmd(t *testing.T) {
+	authCmd := NewAuthCmd()
+	cmd, _, err := authCmd.Find([]string{"status"})
+	assert.NoError(t, err)
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "status", cmd.Name())
 }
