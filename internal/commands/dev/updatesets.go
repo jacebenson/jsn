@@ -442,19 +442,24 @@ func listUpdateSets(ctx context.Context, app *appctx.App, query string, offset i
 	// Build breadcrumbs
 	breadcrumbs := []output.Breadcrumb{
 		{
+			Action:      "show",
+			Cmd:         "jsn dev updatesets show \"...\"",
+			Description: "Show details for a specific update set",
+		},
+		{
+			Action:      "show-scoped",
+			Cmd:         "jsn dev updatesets show \"Default\" --scope \"global\"",
+			Description: "Show scoped update set (useful for duplicate names)",
+		},
+		{
 			Action:      "set",
-			Cmd:         "jsn dev updatesets set \"...\"",
-			Description: "Set current update set",
+			Cmd:         "jsn dev updatesets set",
+			Description: "Select an update set to be your current one",
 		},
 		{
 			Action:      "filter",
 			Cmd:         "jsn dev updatesets list --query \"state=in progress\"",
 			Description: "Filter: in-progress update sets only",
-		},
-		{
-			Action:      "view-updates",
-			Cmd:         "jsn records list --table sys_update_xml --query \"update_set=<sys_id>\"",
-			Description: "View updates in a set",
 		},
 	}
 
