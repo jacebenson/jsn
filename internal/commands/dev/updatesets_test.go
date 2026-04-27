@@ -181,3 +181,117 @@ func TestUpdateSetsSetNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+func TestUpdateSetsShowEnhancedIntegration(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// 1. Find update set
+			`{"result": [
+				{"sys_id": "abc123def456abc123def456abc12345", "name": "My Update Set", "state": "in progress", "application": {"display_value": "Test App", "value": "app123"}, "parent": {"display_value": "Parent Set", "value": "parent456"}, "sys_created_on": "2024-01-01 00:00:00", "sys_updated_on": "2024-01-02 00:00:00", "sys_created_by": {"display_value": "admin", "value": "admin"}, "sys_updated_by": {"display_value": "jsmith", "value": "jsmith"}}
+			]}`,
+			// 2. Aggregate count for updates
+			`{"result": {"stats": {"*": {"count": 15}}}}`,
+			// 3. Fetch parent update set
+			`{"result": [
+				{"sys_id": "parent456", "name": "Parent Update Set"}
+			]}`,
+			// 4. Fetch child update sets
+			`{"result": [
+				{"sys_id": "child789", "name": "Child Update Set 1"},
+				{"sys_id": "child012", "name": "Child Update Set 2"}
+			]}`,
+			// 5. Fetch updates snapshot
+			`{"result": [
+				{"sys_id": "upd001", "type": "sys_script_include", "target_name": "MyScriptInclude", "action": "INSERT", "sys_updated_by": {"display_value": "jsmith", "value": "jsmith"}, "sys_updated_on": "2024-01-02 10:00:00"},
+				{"sys_id": "upd002", "type": "sys_script_include", "target_name": "AnotherScript", "action": "UPDATE", "sys_updated_by": {"display_value": "admin", "value": "admin"}, "sys_updated_on": "2024-01-02 09:00:00"}
+			]}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "show", "My Update Set")
+
+	assert.NoError(t, err)
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_set"))
+	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_update_xml"))
+	// Should have made 5 API calls
+	assert.Equal(t, 5, transport.requestCount)
+}
+
+func TestUpdateSetsShowEnhancedWithoutParent(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// 1. Find update set (no parent)
+			`{"result": [
+				{"sys_id": "abc123def456abc123def456abc12345", "name": "Standalone Update Set", "state": "in progress", "application": {"display_value": "Test App", "value": "app123"}, "parent": {"display_value": "", "value": ""}, "sys_created_on": "2024-01-01 00:00:00", "sys_updated_on": "2024-01-02 00:00:00", "sys_created_by": {"display_value": "admin", "value": "admin"}, "sys_updated_by": {"display_value": "jsmith", "value": "jsmith"}}
+			]}`,
+			// 2. Aggregate count for updates
+			`{"result": {"stats": {"*": {"count": 5}}}}`,
+			// 3. No parent lookup (parent is empty)
+			// 4. Fetch child update sets (none)
+			`{"result": []}`,
+			// 5. Fetch updates snapshot
+			`{"result": []}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "show", "Standalone Update Set")
+
+	assert.NoError(t, err)
+}
+
+func TestUpdateSetsShowSimpleFlag(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// Find update set
+			`{"result": [
+				{"sys_id": "abc123def456abc123def456abc12345", "name": "My Update Set", "state": {"display_value": "In Progress", "value": "in progress"}}
+			]}`,
+			// Aggregate count only (simple mode)
+			`{"result": {"stats": {"*": {"count": 5}}}}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "show", "My Update Set", "--simple")
+
+	assert.NoError(t, err)
+	// Simple mode should only make 2 API calls (find + count)
+	assert.Equal(t, 2, transport.requestCount)
+}
+
+func TestUpdateSetsShowEnhancedBySysID(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBodies: []string{
+			// 1. Find update set by sys_id (32 char hex)
+			`{"result": [
+				{"sys_id": "abc123def456abc123def456abc12345", "name": "Test Update Set", "state": "in progress", "application": {"display_value": "Global", "value": "global"}, "parent": {"display_value": "", "value": ""}, "sys_created_on": "2024-01-01 00:00:00", "sys_updated_on": "2024-01-02 00:00:00", "sys_created_by": {"display_value": "admin", "value": "admin"}, "sys_updated_by": {"display_value": "admin", "value": "admin"}}
+			]}`,
+			// 2. Aggregate count
+			`{"result": {"stats": {"*": {"count": 3}}}}`,
+			// 3. No parent lookup (parent is empty, so skipped)
+			// 3. Fetch children (concurrent with snapshot, but we count sequentially)
+			`{"result": []}`,
+			// 4. Fetch updates snapshot
+			`{"result": [
+				{"sys_id": "upd001", "type": "sys_script_include", "target_name": "TestScript", "action": "INSERT", "sys_updated_by": {"display_value": "admin", "value": "admin"}, "sys_updated_on": "2024-01-02 10:00:00"}
+			]}`,
+		},
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewUpdateSetsCmd()
+	err := executeCommand(cmd, app, "show", "abc123def456abc123def456abc12345")
+
+	assert.NoError(t, err)
+	// Without parent lookup (empty parent), we expect 4 calls: find, count, children, snapshot
+	assert.Equal(t, 4, transport.requestCount)
+}

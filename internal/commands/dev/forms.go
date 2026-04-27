@@ -546,29 +546,47 @@ func getBoolValue(record map[string]any, key string) bool {
 }
 
 // listFormsInteractive shows an interactive picker for form views
+// It queries sys_ui_section to find views that actually have sections for the specified table,
+// ensuring only relevant views are shown (not all views in the system).
 func listFormsInteractive(ctx context.Context, app *appctx.App, table string, pageSize int) error {
-	// Create a reusable list fetcher configured for form views
-	fetcher := tui.NewListFetcher("sys_ui_view").
-		WithColumns("name", "title").
-		WithOrderBy("ORDERBYname").
-		WithFormatItem(func(record map[string]any) tui.PickerItem {
-			name := getStringValue(record, "name")
-			title := getStringValue(record, "title")
-			sysID := getStringValue(record, "sys_id")
+	// Step 1: Query sys_ui_section to find views that have sections for this table
+	params := url.Values{}
+	params.Set("sysparm_query", "name="+table)
+	params.Set("sysparm_fields", "view")
+	params.Set("sysparm_group_by", "view")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", fmt.Sprintf("%d", pageSize))
 
-			display := name
-			if title != "" && title != name {
-				display = fmt.Sprintf("%s (%s)", name, title)
-			}
+	sections, err := app.SDK.List(ctx, "sys_ui_section", params)
+	if err != nil {
+		return fmt.Errorf("failed to fetch form sections: %w", err)
+	}
 
-			return tui.PickerItem{
-				ID:    sysID,
-				Title: display,
-			}
-		})
+	// Step 2: Extract unique view names from sections
+	viewMap := make(map[string]bool)
+	var items []tui.PickerItem
+	for _, section := range sections {
+		viewName := getDisplayValue(section, "view")
+		if viewName != "" && !viewMap[viewName] {
+			viewMap[viewName] = true
+			items = append(items, tui.PickerItem{
+				ID:    viewName,
+				Title: viewName,
+			})
+		}
+	}
 
-	// Show the interactive picker
-	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if len(items) == 0 {
+		return fmt.Errorf("no form views found for table: %s", table)
+	}
+
+	// Sort items by view name for consistent ordering
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Title < items[j].Title
+	})
+
+	// Step 3: Show the interactive picker with filtered views
+	selected, err := tui.Pick("Select a form view", items)
 	if err != nil {
 		return err
 	}

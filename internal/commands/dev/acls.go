@@ -47,6 +47,7 @@ Examples:
 
 	cmd.AddCommand(
 		newACLsListCmd(),
+		newACLsShowCmd(),
 	)
 
 	return cmd
@@ -82,6 +83,19 @@ func newACLsListCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&limit, "limit", "l", 20, "Maximum number of records to return")
 
 	return cmd
+}
+
+func newACLsShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show [name|sys_id]",
+		Short: "Show ACL details",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			ctx := cmd.Context()
+			return getACLByName(ctx, app, args[0])
+		},
+	}
 }
 
 func listACLs(ctx context.Context, app *appctx.App, query string, columns []string) error {

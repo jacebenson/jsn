@@ -389,29 +389,47 @@ func printStyledListLayout(table, view string, elements []listElement) error {
 }
 
 // listListsInteractive shows an interactive picker for list views
+// It queries sys_ui_list to find views that actually have list layouts for the specified table,
+// ensuring only relevant views are shown (not all views in the system).
 func listListsInteractive(ctx context.Context, app *appctx.App, table string, pageSize int) error {
-	// Create a reusable list fetcher configured for list views
-	fetcher := tui.NewListFetcher("sys_ui_view").
-		WithColumns("name", "title").
-		WithOrderBy("ORDERBYname").
-		WithFormatItem(func(record map[string]any) tui.PickerItem {
-			name := getStringValue(record, "name")
-			title := getStringValue(record, "title")
-			sysID := getStringValue(record, "sys_id")
+	// Step 1: Query sys_ui_list to find views that have list layouts for this table
+	params := url.Values{}
+	params.Set("sysparm_query", "name="+table)
+	params.Set("sysparm_fields", "view")
+	params.Set("sysparm_group_by", "view")
+	params.Set("sysparm_display_value", "all")
+	params.Set("sysparm_limit", fmt.Sprintf("%d", pageSize))
 
-			display := name
-			if title != "" && title != name {
-				display = fmt.Sprintf("%s (%s)", name, title)
-			}
+	lists, err := app.SDK.List(ctx, "sys_ui_list", params)
+	if err != nil {
+		return fmt.Errorf("failed to fetch list layouts: %w", err)
+	}
 
-			return tui.PickerItem{
-				ID:    sysID,
-				Title: display,
-			}
-		})
+	// Step 2: Extract unique view names from list layouts
+	viewMap := make(map[string]bool)
+	var items []tui.PickerItem
+	for _, list := range lists {
+		viewName := getDisplayValue(list, "view")
+		if viewName != "" && !viewMap[viewName] {
+			viewMap[viewName] = true
+			items = append(items, tui.PickerItem{
+				ID:    viewName,
+				Title: viewName,
+			})
+		}
+	}
 
-	// Show the interactive picker
-	selected, err := tui.ListInteractive(ctx, app, fetcher, pageSize)
+	if len(items) == 0 {
+		return fmt.Errorf("no list views found for table: %s", table)
+	}
+
+	// Sort items by view name for consistent ordering
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Title < items[j].Title
+	})
+
+	// Step 3: Show the interactive picker with filtered views
+	selected, err := tui.Pick("Select a list view", items)
 	if err != nil {
 		return err
 	}

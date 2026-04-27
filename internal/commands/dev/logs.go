@@ -67,6 +67,7 @@ Examples:
 
 	cmd.AddCommand(
 		newLogsListCmd(),
+		newLogsShowCmd(),
 	)
 
 	return cmd
@@ -112,6 +113,20 @@ func newLogsListCmd() *cobra.Command {
 	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Maximum number of logs to return")
 
 	return cmd
+}
+
+func newLogsShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show [sys_id]",
+		Short: "Show a specific log entry",
+		Long:  "Display detailed information about a specific system log entry by its sys_id.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			ctx := cmd.Context()
+			return getLogBySysID(ctx, app, args[0])
+		},
+	}
 }
 
 func buildLogQuery(level, source string) string {

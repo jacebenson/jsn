@@ -43,7 +43,8 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		body, _ := io.ReadAll(req.Body)
 		m.capturedBody = body
 		m.capturedBodies = append(m.capturedBodies, body)
-		req.Body.Close()
+		// Restore the body so the HTTP client can still use it
+		req.Body = io.NopCloser(bytes.NewReader(body))
 	}
 
 	m.requestCount++

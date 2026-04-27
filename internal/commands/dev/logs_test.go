@@ -121,3 +121,30 @@ func TestLogsListSubcommandWithQuery(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedQuery, "level")
 }
+
+func TestLogsShowCmd(t *testing.T) {
+	cmd := newLogsShowCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "show [sys_id]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+	assert.NotEmpty(t, cmd.Long)
+}
+
+func TestLogsShowSubcommandIntegration(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBody: `{"result": [
+			{"sys_id": "log1", "level": {"display_value": "Error", "value": "0"}, "message": {"display_value": "Test error message", "value": "Test error message"}, "source": {"display_value": "Script Include", "value": "Script Include"}}
+		]}`,
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewLogsCmd()
+	err := executeCommand(cmd, app, "show", "log1")
+
+	assert.NoError(t, err)
+	assert.Contains(t, transport.capturedPath, "/api/now/table/syslog")
+	// Query is URL-encoded: sys_id%3Dlog1 (colon becomes %3D)
+	assert.Contains(t, transport.capturedQuery, "sys_id")
+	assert.Contains(t, transport.capturedQuery, "log1")
+}

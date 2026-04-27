@@ -105,19 +105,31 @@ Filtering:
 }
 
 func newUpdateSetsShowCmd() *cobra.Command {
-	var scope string
+	var (
+		scope  string
+		simple bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "show [name|sys_id]",
 		Short: "Show an update set by name or sys_id",
 		Long: `Retrieve and display a specific update set by its name or sys_id.
 
+The enhanced show command displays:
+- Update set details (name, scope, state, timestamps)
+- Parent update set (if any)
+- Child update sets (up to 10)
+- Updates snapshot from sys_update_xml (up to 10, with total count)
+
 When update set names are ambiguous (e.g., "Default" exists in multiple apps),
 use the --scope flag to specify which application:
 
 Examples:
-  # Show update set by name
+  # Show update set by name (enhanced view)
   jsn dev updatesets show "My Update Set"
+
+  # Show simple view (for scripts/automation)
+  jsn dev updatesets show "My Update Set" --simple
 
   # Show "Default" update set in a specific scope
   jsn dev updatesets show "Default" --scope "x_my_app"
@@ -130,11 +142,16 @@ Examples:
 			ctx := cmd.Context()
 			identifier := args[0]
 
-			return getUpdateSet(ctx, app, identifier, scope)
+			// Use enhanced show by default, simple view with --simple flag
+			if simple {
+				return getUpdateSet(ctx, app, identifier, scope)
+			}
+			return getUpdateSetEnhanced(ctx, app, identifier, scope)
 		},
 	}
 
 	cmd.Flags().StringVarP(&scope, "scope", "s", "", "Filter by application scope (e.g., 'global', 'x_my_app')")
+	cmd.Flags().BoolVarP(&simple, "simple", "", false, "Show simple output (for scripts/automation)")
 
 	return cmd
 }
@@ -250,15 +267,36 @@ type UpdateSetListItem struct {
 	UpdateCount int    `json:"updates"`
 }
 
-// truncateString truncates a string to max length, adding "..." if truncated
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
+// UpdateSetDetail represents detailed update set information for the enhanced show command
+type UpdateSetDetail struct {
+	SysID       string            `json:"sys_id"`
+	Name        string            `json:"name"`
+	State       string            `json:"state"`
+	Application map[string]string `json:"application"` // name, scope, sys_id
+	Timestamps  map[string]string `json:"timestamps"`  // created_on, updated_on, created_by, updated_by
+	Parent      *UpdateSetRef     `json:"parent,omitempty"`
+	Children    []UpdateSetRef    `json:"children,omitempty"`
+	Updates     struct {
+		Count    int              `json:"count"`
+		Snapshot []UpdateSnapshot `json:"snapshot"`
+		HasMore  bool             `json:"has_more"`
+	} `json:"updates"`
+}
+
+// UpdateSetRef is a lightweight reference to another update set
+type UpdateSetRef struct {
+	SysID string `json:"sys_id"`
+	Name  string `json:"name"`
+}
+
+// UpdateSnapshot represents a single update record from sys_update_xml
+type UpdateSnapshot struct {
+	SysID      string `json:"sys_id"`
+	Type       string `json:"type"`        // table name like sys_script_include
+	TargetName string `json:"target_name"` // name of the record being updated
+	Action     string `json:"action"`      // INSERT, UPDATE, DELETE
+	UpdatedBy  string `json:"updated_by"`
+	UpdatedOn  string `json:"updated_on"`
 }
 
 // pickUpdateSet shows an interactive picker to select an update set.
@@ -541,25 +579,6 @@ func listUpdateSetsInteractive(ctx context.Context, app *appctx.App) error {
 	return nil
 }
 
-// getDisplayField extracts display value from a reference field
-func getDisplayField(record map[string]any, field string) string {
-	if val, ok := record[field]; ok && val != nil {
-		switch v := val.(type) {
-		case string:
-			return v
-		case map[string]any:
-			// Handle display value objects from sysparm_display_value=true
-			if display, ok := v["display_value"].(string); ok && display != "" {
-				return display
-			}
-			if value, ok := v["value"].(string); ok {
-				return value
-			}
-		}
-	}
-	return ""
-}
-
 // buildQuerySuffix returns query flag string if query is set
 func buildQuerySuffix(query string) string {
 	if query != "" {
@@ -654,35 +673,6 @@ func findUpdateSet(ctx context.Context, app *appctx.App, identifier string, scop
 	return records[0], nil
 }
 
-// getStringField extracts a string field from a record
-func getStringField(record map[string]any, field string) string {
-	if val, ok := record[field]; ok && val != nil {
-		switch v := val.(type) {
-		case string:
-			return v
-		case map[string]any:
-			// Handle display value objects
-			if value, ok := v["value"].(string); ok {
-				return value
-			}
-			if display, ok := v["display_value"].(string); ok {
-				return display
-			}
-		}
-	}
-	return ""
-}
-
-// isHexString checks if a string contains only hexadecimal characters
-func isHexString(s string) bool {
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
-}
-
 // getCurrentUser retrieves the current user's sys_user record using the same
 // method as the header display - uses javascript:gs.getUserID() to get the
 // currently authenticated user based on the session.
@@ -742,6 +732,205 @@ func setUserPreference(ctx context.Context, app *appctx.App, userSysID, name, va
 	}
 
 	return nil
+}
+
+// getUpdateSetEnhanced retrieves an update set by name or sys_id with detailed information
+// including parent, children, and updates snapshot. Used for the enhanced show command.
+func getUpdateSetEnhanced(ctx context.Context, app *appctx.App, identifier string, scope string) error {
+	record, err := findUpdateSet(ctx, app, identifier, scope)
+	if err != nil {
+		return err
+	}
+
+	sysID := getStringField(record, "sys_id")
+
+	// Build the detailed response
+	detail := &UpdateSetDetail{
+		SysID: sysID,
+		Name:  getStringField(record, "name"),
+		State: getStringField(record, "state"),
+		Application: map[string]string{
+			"sys_id": getStringField(record, "application"),
+			"name":   getDisplayField(record, "application"),
+			"scope":  getStringField(record, "application.scope"),
+		},
+		Timestamps: map[string]string{
+			"created_on": getStringField(record, "sys_created_on"),
+			"updated_on": getStringField(record, "sys_updated_on"),
+			"created_by": getDisplayField(record, "sys_created_by"),
+			"updated_by": getDisplayField(record, "sys_updated_by"),
+		},
+	}
+
+	// Fetch total update count
+	updateCount, _ := app.SDK.AggregateCount(ctx, "sys_update_xml", fmt.Sprintf("update_set=%s", sysID))
+	detail.Updates.Count = updateCount
+
+	// Fetch parent if exists
+	parentSysID := getStringField(record, "parent")
+	if parentSysID != "" {
+		parent, err := fetchUpdateSetParent(ctx, app, parentSysID)
+		if err == nil && parent != nil {
+			detail.Parent = parent
+		}
+	}
+
+	// Fetch children and updates concurrently
+	var wg sync.WaitGroup
+	var children []UpdateSetRef
+	var snapshot []UpdateSnapshot
+	var childrenErr, snapshotErr error
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		children, childrenErr = fetchUpdateSetChildren(ctx, app, sysID)
+	}()
+
+	go func() {
+		defer wg.Done()
+		snapshot, snapshotErr = fetchUpdatesSnapshot(ctx, app, sysID)
+	}()
+
+	wg.Wait()
+
+	if childrenErr == nil {
+		detail.Children = children
+	}
+	if snapshotErr == nil {
+		detail.Updates.Snapshot = snapshot
+		detail.Updates.HasMore = updateCount > len(snapshot)
+	}
+
+	// Build breadcrumbs
+	breadcrumbs := []output.Breadcrumb{
+		{
+			Action:      "set",
+			Cmd:         fmt.Sprintf("jsn dev updatesets set %s", sysID),
+			Description: "Set as current update set",
+		},
+		{
+			Action:      "view-updates",
+			Cmd:         fmt.Sprintf("jsn records list --table sys_update_xml --query \"update_set=%s\"", sysID),
+			Description: "View all updates in this set",
+		},
+	}
+
+	// Add parent breadcrumb if exists
+	if detail.Parent != nil {
+		breadcrumbs = append(breadcrumbs, output.Breadcrumb{
+			Action:      "view-parent",
+			Cmd:         fmt.Sprintf("jsn dev updatesets show %s", detail.Parent.SysID),
+			Description: fmt.Sprintf("View parent: %s", detail.Parent.Name),
+		})
+	}
+
+	// Add children breadcrumb if exists
+	if len(detail.Children) > 0 {
+		breadcrumbs = append(breadcrumbs, output.Breadcrumb{
+			Action:      "view-children",
+			Cmd:         fmt.Sprintf("jsn dev updatesets list --query \"parent=%s\"", sysID),
+			Description: fmt.Sprintf("View all %d child update sets", len(detail.Children)),
+		})
+	}
+
+	breadcrumbs = append(breadcrumbs, output.Breadcrumb{
+		Action:      "list",
+		Cmd:         "jsn dev updatesets list",
+		Description: "Back to all update sets",
+	})
+
+	// Add context and formatted data
+	result := map[string]any{
+		"detail": detail,
+		"_context": map[string]any{
+			"instance_url": app.Config.GetEffectiveInstance(),
+			"table":        "sys_update_set",
+		},
+	}
+
+	return app.OK(result,
+		output.WithSummary(fmt.Sprintf("Update set: %s (%d updates, %d children)", detail.Name, updateCount, len(detail.Children))),
+		output.WithBreadcrumbs(breadcrumbs...),
+	)
+}
+
+// fetchUpdateSetParent fetches a parent update set reference by sys_id
+func fetchUpdateSetParent(ctx context.Context, app *appctx.App, parentSysID string) (*UpdateSetRef, error) {
+	params := url.Values{}
+	params.Set("sysparm_query", "sys_id="+parentSysID)
+	params.Set("sysparm_limit", "1")
+	params.Set("sysparm_fields", "sys_id,name")
+	params.Set("sysparm_display_value", "all")
+
+	records, err := app.SDK.List(ctx, "sys_update_set", params)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	return &UpdateSetRef{
+		SysID: getStringField(records[0], "sys_id"),
+		Name:  getStringField(records[0], "name"),
+	}, nil
+}
+
+// fetchUpdateSetChildren fetches child update sets for a given parent sys_id
+// Returns up to 10 children
+func fetchUpdateSetChildren(ctx context.Context, app *appctx.App, parentSysID string) ([]UpdateSetRef, error) {
+	params := url.Values{}
+	params.Set("sysparm_query", "parent="+parentSysID+"^ORDERBYDESCsys_created_on")
+	params.Set("sysparm_limit", "10")
+	params.Set("sysparm_fields", "sys_id,name")
+	params.Set("sysparm_display_value", "all")
+
+	records, err := app.SDK.List(ctx, "sys_update_set", params)
+	if err != nil {
+		return nil, err
+	}
+
+	children := make([]UpdateSetRef, 0, len(records))
+	for _, record := range records {
+		children = append(children, UpdateSetRef{
+			SysID: getStringField(record, "sys_id"),
+			Name:  getStringField(record, "name"),
+		})
+	}
+
+	return children, nil
+}
+
+// fetchUpdatesSnapshot fetches a snapshot of updates from sys_update_xml
+// Returns up to 10 most recent updates
+func fetchUpdatesSnapshot(ctx context.Context, app *appctx.App, updateSetSysID string) ([]UpdateSnapshot, error) {
+	params := url.Values{}
+	params.Set("sysparm_query", "update_set="+updateSetSysID+"^ORDERBYDESCsys_updated_on")
+	params.Set("sysparm_limit", "10")
+	params.Set("sysparm_fields", "sys_id,type,target_name,action,sys_updated_by,sys_updated_on")
+	params.Set("sysparm_display_value", "all")
+
+	records, err := app.SDK.List(ctx, "sys_update_xml", params)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot := make([]UpdateSnapshot, 0, len(records))
+	for _, record := range records {
+		snapshot = append(snapshot, UpdateSnapshot{
+			SysID:      getStringField(record, "sys_id"),
+			Type:       getStringField(record, "type"),
+			TargetName: getStringField(record, "target_name"),
+			Action:     getStringField(record, "action"),
+			UpdatedBy:  getDisplayField(record, "sys_updated_by"),
+			UpdatedOn:  getStringField(record, "sys_updated_on"),
+		})
+	}
+
+	return snapshot, nil
 }
 
 // Ensure SDK has the AggregateCount method

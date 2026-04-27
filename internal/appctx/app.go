@@ -117,7 +117,7 @@ func (a *App) PrintContextHeader() {
 	}
 
 	// Check if suppressed
-	if os.Getenv("JSN_NO_HEADER") != "" {
+	if os.Getenv("JSN_NO_HEADER") != "" || a.Output.GetFormat() == output.FormatJSON || a.Output.GetFormat() == output.FormatQuiet {
 		return
 	}
 

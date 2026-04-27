@@ -106,3 +106,106 @@ func TestFlowsGetNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+func TestFlowsShowCmd(t *testing.T) {
+	cmd := newFlowsShowCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "show [name|sys_id]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+	assert.NotEmpty(t, cmd.Long)
+}
+
+func TestFlowsShowByName(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBody: `{"result": [
+			{"sys_id": "abc123", "name": {"display_value": "My Flow", "value": "My Flow"}, "active": "true", "description": "Test flow"}
+		]}`,
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := newFlowsShowCmd()
+	err := executeCommand(cmd, app, "My Flow")
+
+	assert.NoError(t, err)
+	assert.Contains(t, transport.capturedPath, "/api/now/table/sys_hub_flow")
+}
+
+func TestFlowsCreateCmd(t *testing.T) {
+	cmd := newFlowsCreateCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "create", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+	assert.Contains(t, cmd.Short, "not yet implemented")
+	assert.NotEmpty(t, cmd.Long)
+	assert.Contains(t, cmd.Long, "GraphQL")
+}
+
+func TestFlowsCreateReturnsError(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := newFlowsCreateCmd()
+	err := executeCommand(cmd, app)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet implemented")
+	assert.Contains(t, err.Error(), "GraphQL")
+}
+
+func TestFlowsUpdateCmd(t *testing.T) {
+	cmd := newFlowsUpdateCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "update [name|sys_id]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+	assert.Contains(t, cmd.Short, "not yet implemented")
+	assert.NotEmpty(t, cmd.Long)
+	assert.Contains(t, cmd.Long, "GraphQL")
+}
+
+func TestFlowsUpdateReturnsError(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := newFlowsUpdateCmd()
+	err := executeCommand(cmd, app, "My Flow")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet implemented")
+	assert.Contains(t, err.Error(), "GraphQL")
+}
+
+func TestFlowsDeleteCmd(t *testing.T) {
+	cmd := newFlowsDeleteCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "delete [name|sys_id]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+	assert.Contains(t, cmd.Short, "not yet implemented")
+	assert.NotEmpty(t, cmd.Long)
+	assert.Contains(t, cmd.Long, "GraphQL")
+}
+
+func TestFlowsDeleteReturnsError(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := newFlowsDeleteCmd()
+	err := executeCommand(cmd, app, "My Flow")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet implemented")
+	assert.Contains(t, err.Error(), "GraphQL")
+}
+
+func TestFlowsSubcommandsExist(t *testing.T) {
+	cmd := NewFlowsCmd()
+	require.NotNil(t, cmd)
+
+	subcommands := cmd.Commands()
+	require.Len(t, subcommands, 5)
+
+	names := make([]string, len(subcommands))
+	for i, sc := range subcommands {
+		names[i] = sc.Name()
+	}
+
+	assert.Contains(t, names, "list")
+	assert.Contains(t, names, "show")
+	assert.Contains(t, names, "create")
+	assert.Contains(t, names, "update")
+	assert.Contains(t, names, "delete")
+}
