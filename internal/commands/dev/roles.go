@@ -647,4 +647,3 @@ func findRoleByNameOrSysID(ctx context.Context, app *appctx.App, identifier stri
 
 	return records[0], nil
 }
-

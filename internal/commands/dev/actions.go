@@ -419,7 +419,6 @@ func showAction(ctx context.Context, app *appctx.App, identifier string) error {
 	)
 }
 
-
 // findActionByNameOrSysID finds an action by name or sys_id
 func findActionByNameOrSysID(ctx context.Context, app *appctx.App, identifier string) (map[string]any, error) {
 	var query string
@@ -477,4 +476,3 @@ func DeleteAction(ctx context.Context, app *appctx.App, actionSysID string) erro
 	// Placeholder for Flow Designer API integration
 	return fmt.Errorf("Flow Designer API integration not yet implemented")
 }
-

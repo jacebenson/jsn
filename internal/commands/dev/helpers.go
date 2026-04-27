@@ -58,7 +58,6 @@ func getDisplayField(record map[string]any, field string) string {
 	return ""
 }
 
-
 // isHexString checks if a string contains only hexadecimal characters (0-9, a-f, A-F).
 // Used to identify sys_id values which are 32-character hex strings.
 func isHexString(s string) bool {
