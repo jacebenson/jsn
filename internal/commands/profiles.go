@@ -425,17 +425,18 @@ Examples:
 				app.Config.DefaultProfile = ""
 			}
 
-			// Save config
+			// Save config (both global and local)
 			if err := app.Config.Save(); err != nil {
 				return fmt.Errorf("failed to save config: %w", err)
 			}
+			_ = app.Config.SaveLocal() // also update local config if it exists
 
 			// Remove stored credentials
 			_ = app.Auth.Logout(instanceURL)
 
 			return app.OK(map[string]any{
-				"removed":   true,
-				"instance":  instanceURL,
+				"removed":     true,
+				"instance":    instanceURL,
 				"was_default": wasDefault,
 			}, output.WithSummary(fmt.Sprintf("✓ Removed profile %s", instanceURL)))
 		},
