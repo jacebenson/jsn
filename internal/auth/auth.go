@@ -201,7 +201,7 @@ func (m *Manager) Login(instanceURL string) error {
 	reader := bufio.NewReader(os.Stdin)
 	var authCode string
 	for {
-		fmt.Print("Authorization code: ")
+		fmt.Print("Authorization code (hidden on paste for security): ")
 		if term.IsTerminal(int(syscall.Stdin)) {
 			byteCode, err := term.ReadPassword(int(syscall.Stdin))
 			if err != nil {
