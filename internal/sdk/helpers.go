@@ -247,10 +247,11 @@ func (c *Client) InspectFlow(ctx context.Context, identifier string) (*FlowInspe
 
 	// Inputs/Outputs are primarily in payload for subflows.
 	// Fallback to dedicated tables if available.
+	// Note: sys_hub_flow_input/output use "model" field to reference the flow.
 	if len(inspection.FlowInputs) == 0 {
 		inputsQuery := url.Values{}
 		inputsQuery.Set("sysparm_display_value", "all")
-		inputsQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+		inputsQuery.Set("sysparm_query", "model="+flowSysID+"^ORDERBYorder")
 		inputsQuery.Set("sysparm_fields", "sys_id,name,label,type,mandatory,order")
 		inputsQuery.Set("sysparm_limit", "200")
 		if records, err := c.List(ctx, "sys_hub_flow_input", inputsQuery); err == nil {
@@ -261,7 +262,7 @@ func (c *Client) InspectFlow(ctx context.Context, identifier string) (*FlowInspe
 	if len(inspection.FlowOutputs) == 0 {
 		outputsQuery := url.Values{}
 		outputsQuery.Set("sysparm_display_value", "all")
-		outputsQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+		outputsQuery.Set("sysparm_query", "model="+flowSysID+"^ORDERBYorder")
 		outputsQuery.Set("sysparm_fields", "sys_id,name,label,type,order")
 		outputsQuery.Set("sysparm_limit", "200")
 		if records, err := c.List(ctx, "sys_hub_flow_output", outputsQuery); err == nil {
