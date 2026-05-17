@@ -43,6 +43,41 @@ jsn <command> --help      # Detailed usage, flags, and examples for any command
 4. **NEVER logout** — Only run `jsn auth logout` if the user explicitly asks
 5. **Use `--profile <name>`** to target a specific instance, or `jsn config switch <name>` to change default
 6. **Before using `eval` or `rest`** — Ask yourself: *"Have I checked if there's a more specific jsn command?"* Verify `jsn records --table <name> create` won't work first. Prefer specific over generic over escape hatch over eval.
+7. **CONFIRM before destructive operations** — Always show the user exactly what will be created, updated, or deleted and ask for explicit confirmation before executing. Never run `create`, `update`, `delete`, `set`, or `remove` commands without user approval.
+
+## ⚠️ Destructive Operations Require Confirmation
+
+**jsn does not have a `--confirm` or `--dry-run` flag.** It assumes you mean what you type. This means **YOU** (the agent) are the safety layer.
+
+**Before any write operation, you MUST:**
+
+1. **Show the user what you found** — Run a `list` or `show` command first
+2. **Present the exact command you plan to run** — Include the sys_id, table name, and data
+3. **Wait for explicit approval** — "Proceed? [y/N]" or similar
+
+**Examples of destructive commands that require confirmation:**
+- `jsn records --table <name> create`
+- `jsn records --table <name> update <sys_id>`
+- `jsn records --table <name> delete <sys_id>`
+- `jsn dev updatesets set <name>`
+- `jsn profiles remove <name>`
+- Any `delete`, `update`, `create`, `set`, or `remove` subcommand
+
+**Good pattern:**
+```
+User: "Delete that incident"
+Agent: "Found: INC0010001 'Server down' (sys_id: abc123...)
+       Command: jsn records --table incident delete abc123...
+       Proceed? [y/N]"
+User: "y"
+Agent: [runs command]
+```
+
+**Bad pattern:**
+```
+User: "Delete that incident"
+Agent: [immediately runs jsn records --table incident delete ...]
+```
 
 ## ⚠️ AVOID `jsn eval` for Record Creation
 
