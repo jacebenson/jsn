@@ -774,7 +774,6 @@ func classifyPayloadItem(m map[string]any) string {
 	return "action"
 }
 
-
 func extractTriggerDetails(inspection *sdk.FlowInspection) (name, triggerType, table, timeValue, condition string) {
 	if inspection.Version != nil {
 		name = getStringField(inspection.Version, "trigger_name")
