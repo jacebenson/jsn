@@ -62,6 +62,13 @@ func TestTasksListWithQuery(t *testing.T) {
 	assert.Contains(t, transport.capturedQuery, "state")
 }
 
+func TestTasksShowCmd(t *testing.T) {
+	cmd := newTasksShowCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "show [number]", cmd.Use)
+	assert.NotEmpty(t, cmd.Short)
+}
+
 func TestTasksShowByNumber(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
@@ -77,4 +84,13 @@ func TestTasksShowByNumber(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedPath, "/api/now/table/sc_task")
+}
+
+func TestTasksRootDoesNotImplicitShow(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := NewTasksCmd()
+	err := executeCommand(cmd, app, "SCTASK0010001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown command")
 }

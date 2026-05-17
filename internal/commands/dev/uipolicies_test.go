@@ -341,8 +341,7 @@ func TestUIPoliciesGetByDescriptionIntegration(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewUIPoliciesCmd()
-	// Using bare command with description argument
-	err := executeCommand(cmd, app, "Specific Policy")
+	err := executeCommand(cmd, app, "show", "Specific Policy")
 
 	assert.NoError(t, err)
 	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_ui_policy"))

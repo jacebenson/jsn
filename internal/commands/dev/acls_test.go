@@ -137,8 +137,7 @@ func TestACLsGetByNameIntegration(t *testing.T) {
 	}
 
 	app, _ := setupTestAppWithTransport(t, transport)
-	cmd := NewACLsCmd()
-	// Using bare command with name argument (backward compatibility)
+	cmd := newACLsShowCmd()
 	err := executeCommand(cmd, app, "incident.read")
 
 	assert.NoError(t, err)

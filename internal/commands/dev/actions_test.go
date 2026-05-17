@@ -229,7 +229,7 @@ func TestActionsBareCommandShowsHelp(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestActionsBareCommandWithArgShowsAction(t *testing.T) {
+func TestActionsShowCommandWithArgShowsAction(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
 		responseBody: `{"result": [
@@ -239,8 +239,8 @@ func TestActionsBareCommandWithArgShowsAction(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 
-	// When called with an arg, it should show the action
-	cmd := NewActionsCmd()
+	// Show subcommand should show the action
+	cmd := newActionsShowCmd()
 	err := executeCommand(cmd, app, "My Action")
 
 	assert.NoError(t, err)

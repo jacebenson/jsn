@@ -355,8 +355,7 @@ func TestUIActionsGetByNameIntegration(t *testing.T) {
 	}
 
 	app, _ := setupTestAppWithTransport(t, transport)
-	cmd := NewUIActionsCmd()
-	// Using bare command with name argument
+	cmd := newUIActionsShowCmd()
 	err := executeCommand(cmd, app, "Specific Action")
 
 	assert.NoError(t, err)

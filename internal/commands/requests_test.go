@@ -78,3 +78,12 @@ func TestRequestsShowByNumber(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedPath, "/api/now/table/sc_req_item")
 }
+
+func TestRequestsRootDoesNotImplicitShow(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := NewRequestsCmd()
+	err := executeCommand(cmd, app, "RITM0010001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown command")
+}

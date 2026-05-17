@@ -21,27 +21,28 @@ var aclDefaultColumns = []string{"name", "operation", "type", "active", "sys_sco
 // NewACLsCmd creates the acls command.
 func NewACLsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "acls [name]",
+		Use:     "acls",
 		Aliases: []string{"acl"},
 		Short:   "Manage access controls",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage access controls (ACLs).
 
 ACLs control read, write, create, and delete permissions.
 
 Examples:
-  jsn dev acls                  # List all
-  jsn dev acls incident.read    # Get specific
-  jsn dev acls list -q "operation=read"`,
+  # Show this help
+  jsn dev acls
+
+  # List ACLs
+  jsn dev acls list
+
+  # Show an ACL
+  jsn dev acls show incident.read
+
+  # List with a filter
+  jsn dev acls list --query "operation=read"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				return listACLs(ctx, app, "", nil)
-			}
-
-			return getACLByName(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 
@@ -66,6 +67,11 @@ func newACLsListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()
+
+			// Interactive picker when in TTY and auto format
+			if output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin) && app.Output.GetFormat() == output.FormatAuto {
+				return listACLsInteractive(ctx, app, query, 20)
+			}
 
 			var cols []string
 			if columns != "" {
@@ -206,7 +212,27 @@ func getACLByName(ctx context.Context, app *appctx.App, name string) error {
 		return fmt.Errorf("ACL not found: %s", name)
 	}
 
-	return app.OK(records[0],
+	aclRecord := records[0]
+	aclSysID := getSysID(aclRecord)
+
+	// Fetch related ACL roles - role field references sys_user_role
+	roleParams := url.Values{}
+	roleParams.Set("sysparm_query", "sys_security_acl="+aclSysID)
+	roleParams.Set("sysparm_display_value", "all")
+	roleParams.Set("sysparm_fields", "sys_id,role,sys_user_role,read,write,create,delete,active")
+	roleParams.Set("sysparm_limit", "100")
+
+	roleRecords, err := app.SDK.List(ctx, "sys_security_acl_role", roleParams)
+	if err != nil {
+		// Don't fail if we can't fetch roles, just show the ACL
+		roleRecords = []map[string]any{}
+	}
+
+	// Enrich ACL record with related roles
+	enriched := wrapRecordWithContext(aclRecord, "sys_security_acl", app.Config.GetEffectiveInstance())
+	enriched["_related_roles"] = roleRecords
+
+	return app.OK(enriched,
 		output.WithSummary(fmt.Sprintf("ACL: %s", name)),
 	)
 }

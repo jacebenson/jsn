@@ -25,33 +25,34 @@ var roleDefaultColumns = []string{"name", "description", "elevated_privilege", "
 // NewRolesCmd creates the roles command.
 func NewRolesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "roles [name|sys_id]",
+		Use:     "roles",
 		Aliases: []string{"role"},
 		Short:   "Manage roles",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage user roles.
 
 Roles control access to application modules and functions.
 
 Examples:
-  jsn dev roles                  # List all roles
-  jsn dev roles admin            # Show specific role
-  jsn dev roles list             # List all roles with filtering
-  jsn dev roles show admin       # Show role details
+  # Show this help
+  jsn dev roles
+
+  # List roles
+  jsn dev roles list
+
+  # Show a role
+  jsn dev roles show admin
+
+  # Create a role
   jsn dev roles create --name "myapp.user" --description "My App User Role"
+
+  # Update a role
   jsn dev roles update admin --description "Updated description"
+
+  # Delete a role
   jsn dev roles delete myapp.test --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				// No args: show help
-				return cmd.Help()
-			}
-
-			// With arg: show role details
-			return showRole(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 

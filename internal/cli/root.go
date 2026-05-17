@@ -119,6 +119,9 @@ Each instance is stored as a separate profile with its own OAuth credentials.`,
 	// Phase 3: Dev commands
 	cmd.AddCommand(commands.NewDevCmd())
 
+	// Utility commands
+	cmd.AddCommand(commands.NewVersionCmd())
+
 	// Hide the auto-generated completion command from main help
 	// (Users can still use: jsn completion bash)
 	cmd.InitDefaultCompletionCmd()

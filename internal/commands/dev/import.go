@@ -21,33 +21,56 @@ var importDefaultColumns = []string{"sys_import_set", "sys_import_row", "sys_tar
 // NewImportCmd creates the import command.
 func NewImportCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "import [set]",
+		Use:     "import",
 		Aliases: []string{"imports", "imp"},
 		Short:   "Manage import sets",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage import sets.
 
 Import sets bring data into ServiceNow from external sources.
 
 Examples:
-  jsn dev import                # List all
-  jsn dev import SET0010001     # Get specific
-  jsn dev import list -q "sys_target_table=incident"`,
+  # Show this help
+  jsn dev import
+
+  # List import set rows
+  jsn dev import list
+
+  # Show an import set row
+  jsn dev import show SET0010001
+
+  # List with a filter
+  jsn dev import list --query "sys_target_table=incident"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				return listImportSets(ctx, app, "", nil)
-			}
-
-			return getImportSetByNumber(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 
 	cmd.AddCommand(
 		newImportListCmd(),
+		newImportShowCmd(),
 	)
+
+	return cmd
+}
+
+func newImportShowCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show [set|sys_id]",
+		Short: "Show import set row details",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			ctx := cmd.Context()
+			identifier := args[0]
+
+			if len(identifier) == 32 && isHexString(identifier) {
+				return getImportSetRowBySysID(ctx, app, identifier)
+			}
+
+			return getImportSetByNumber(ctx, app, identifier)
+		},
+	}
 
 	return cmd
 }
@@ -189,7 +212,7 @@ func getImportSetRowBySysID(ctx context.Context, app *appctx.App, sysID string) 
 		return fmt.Errorf("import set row not found: %s", sysID)
 	}
 
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "sys_import_set_row", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("Import Set Row: %s", getStringField(records[0], "sys_import_set"))),
 	)
 }
@@ -209,7 +232,7 @@ func getImportSetByNumber(ctx context.Context, app *appctx.App, number string) e
 		return fmt.Errorf("import set not found: %s", number)
 	}
 
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "sys_import_set_row", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("Import set: %s", number)),
 	)
 }

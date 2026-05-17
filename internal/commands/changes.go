@@ -22,19 +22,22 @@ var changeDefaultColumns = []string{"number", "short_description", "risk", "stat
 // NewChangesCmd creates the changes command group.
 func NewChangesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "changes [number]",
+		Use:     "changes",
 		Aliases: []string{"change", "chg"},
 		Short:   "Manage change requests",
 		Long: `Manage change requests in ServiceNow.
 
 Examples:
-  # List all change requests
+  # Show this help
   jsn changes
 
-  # Show a specific change by number
-  jsn changes CHG0010001
+  # List change requests
+  jsn changes list
 
-  # List with filter
+  # Show a change request
+  jsn changes show CHG0010001
+
+  # List with a filter
   jsn changes list --query "risk=high"
 
   # Create a new change request
@@ -45,23 +48,6 @@ Examples:
 
   # Delete a change request
   jsn changes delete CHG0010001`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			// If arg provided, treat as change number to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getChangeByNumber(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(
@@ -182,7 +168,7 @@ func newChangesCreateCmd() *cobra.Command {
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn changes %s", getStringField(record, "number")),
+						Cmd:         fmt.Sprintf("jsn changes show %s", getStringField(record, "number")),
 						Description: "View the new change request",
 					},
 				),
@@ -234,7 +220,7 @@ func newChangesUpdateCmd() *cobra.Command {
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn changes %s", number),
+						Cmd:         fmt.Sprintf("jsn changes show %s", number),
 						Description: "View the updated change request",
 					},
 				),

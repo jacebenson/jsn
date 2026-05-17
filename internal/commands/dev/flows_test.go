@@ -70,7 +70,7 @@ func TestFlowsGetByName(t *testing.T) {
 	}
 
 	app, _ := setupTestAppWithTransport(t, transport)
-	cmd := NewFlowsCmd()
+	cmd := newFlowsShowCmd()
 	err := executeCommand(cmd, app, "My Flow")
 
 	assert.NoError(t, err)
@@ -86,11 +86,11 @@ func TestFlowsGetBySysID(t *testing.T) {
 	}
 
 	app, _ := setupTestAppWithTransport(t, transport)
-	cmd := NewFlowsCmd()
+	cmd := newFlowsShowCmd()
 	err := executeCommand(cmd, app, "abc123def456abc123def456abc12345")
 
 	assert.NoError(t, err)
-	assert.Contains(t, transport.capturedQuery, "sys_id%3Dabc123def456abc123def456abc12345")
+	assert.True(t, transport.capturedAnyQuery("sys_id%3Dabc123def456abc123def456abc12345"))
 }
 
 func TestFlowsGetNotFound(t *testing.T) {
@@ -100,7 +100,7 @@ func TestFlowsGetNotFound(t *testing.T) {
 	}
 
 	app, _ := setupTestAppWithTransport(t, transport)
-	cmd := NewFlowsCmd()
+	cmd := newFlowsShowCmd()
 	err := executeCommand(cmd, app, "NonExistentFlow")
 
 	assert.Error(t, err)

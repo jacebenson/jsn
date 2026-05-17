@@ -23,9 +23,10 @@ var includeDefaultColumns = []string{"name", "api_name", "active", "sys_scope"}
 // NewIncludesCmd creates the includes command.
 func NewIncludesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "includes [name|sys_id]",
+		Use:     "includes",
 		Aliases: []string{"include", "si"},
 		Short:   "Manage script includes",
+		Args:    cobra.NoArgs,
 		Long: `Manage script includes.
 
 Script includes are server-side JavaScript classes and functions.
@@ -48,22 +49,8 @@ Examples:
 
   # Delete a script include
   jsn dev includes delete MyScript`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like incidents does)
-			// If arg provided, treat as script include name to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic (backward compatibility)
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getIncludeByName(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 	}
 
@@ -623,11 +610,6 @@ func showInclude(ctx context.Context, app *appctx.App, identifier string) error 
 		output.WithSummary(fmt.Sprintf("Script include: %s (%s)", name, apiName)),
 		output.WithBreadcrumbs(breadcrumbs...),
 	)
-}
-
-// getIncludeByName retrieves a script include by name (backward compatibility)
-func getIncludeByName(ctx context.Context, app *appctx.App, name string) error {
-	return showInclude(ctx, app, name)
 }
 
 // findIncludeByNameOrSysID finds a script include by name or sys_id

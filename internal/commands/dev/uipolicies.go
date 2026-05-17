@@ -22,27 +22,28 @@ var uiPolicyDefaultColumns = []string{"short_description", "table", "active", "o
 // NewUIPoliciesCmd creates the uipolicies command.
 func NewUIPoliciesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "uipolicies [name]",
+		Use:     "uipolicies",
 		Aliases: []string{"uipolicy", "up"},
 		Short:   "Manage UI policies",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage UI policies.
 
 UI policies dynamically change form behavior.
 
 Examples:
-  jsn dev uipolicies              # List all
-  jsn dev uipolicies "My Policy"  # Get specific
-  jsn dev uipolicies list -q "table=incident"`,
+  # Show this help
+  jsn dev uipolicies
+
+  # List UI policies
+  jsn dev uipolicies list
+
+  # Show a UI policy
+  jsn dev uipolicies show "My Policy"
+
+  # List with a filter
+  jsn dev uipolicies list --query "table=incident"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				return listUIPolicies(ctx, app, "", nil)
-			}
-
-			return getUIPolicyByDescription(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 
@@ -499,37 +500,6 @@ func listUIPoliciesInteractive(ctx context.Context, app *appctx.App, baseQuery s
 	return nil
 }
 
-func getUIPolicyByDescription(ctx context.Context, app *appctx.App, description string) error {
-	record, err := findUIPolicy(ctx, app, description)
-	if err != nil {
-		return err
-	}
-
-	// Build breadcrumbs for related actions
-	breadcrumbs := []output.Breadcrumb{
-		{
-			Action:      "update",
-			Cmd:         fmt.Sprintf("jsn dev uipolicies update %s --data '{...}'", description),
-			Description: "Update this policy",
-		},
-		{
-			Action:      "delete",
-			Cmd:         fmt.Sprintf("jsn dev uipolicies delete %s", description),
-			Description: "Delete this policy",
-		},
-		{
-			Action:      "list",
-			Cmd:         "jsn dev uipolicies list",
-			Description: "List all policies",
-		},
-	}
-
-	return app.OK(record,
-		output.WithSummary(fmt.Sprintf("UI policy: %s", getStringField(record, "short_description"))),
-		output.WithBreadcrumbs(breadcrumbs...),
-	)
-}
-
 func getUIPolicyBySysID(ctx context.Context, app *appctx.App, sysID string) error {
 	params := url.Values{}
 	params.Set("sysparm_query", "sys_id="+sysID)
@@ -546,7 +516,7 @@ func getUIPolicyBySysID(ctx context.Context, app *appctx.App, sysID string) erro
 	}
 
 	desc := getStringField(records[0], "short_description")
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "sys_ui_policy", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("UI policy: %s", desc)),
 	)
 }

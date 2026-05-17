@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -124,11 +125,9 @@ type pickerModel struct {
 	totalCount       int
 	ctx              context.Context
 
-	// Search/filter state
-	searchMode  bool   // true when in search mode (after pressing /)
-	searchQuery string // current search query
-	jumpMode    bool   // true when in jump-to-letter mode
-	jumpBuffer  string // buffer for jump letters
+	// Filter state
+	jumpMode   bool   // true when in type-to-filter mode
+	jumpBuffer string // buffer for typed filter text
 }
 
 type pickerStyles struct {
@@ -205,8 +204,6 @@ func (m *pickerModel) loadMoreItems() tea.Cmd {
 		query := ""
 		if m.jumpBuffer != "" {
 			query = m.jumpBuffer
-		} else if m.searchQuery != "" {
-			query = m.searchQuery
 		}
 		// Pass false for isReset because we're appending (pagination)
 		return m.loadWithQuery(query, m.offset, false)
@@ -280,9 +277,7 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Re-apply active filter to include new items, preserving cursor
 			savedCursor := m.cursor
 			savedScroll := m.scrollOffset
-			if m.searchMode && m.searchQuery != "" {
-				m.applySearchFilter()
-			} else if m.jumpMode && m.jumpBuffer != "" {
+			if m.jumpMode && m.jumpBuffer != "" {
 				m.jumpToLetter()
 			} else {
 				m.filtered = m.items
@@ -298,39 +293,6 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Handle search mode first
-		if m.searchMode {
-			switch msg.String() {
-			case "esc", "ctrl+c":
-				m.searchMode = false
-				m.searchQuery = ""
-				m.filtered = m.items
-				m.cursor = 0
-				m.scrollOffset = 0
-				return m, nil
-			case "enter":
-				m.searchMode = false
-				if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-					m.selected = &m.filtered[m.cursor]
-					return m, tea.Quit
-				}
-				return m, nil
-			case "backspace":
-				if len(m.searchQuery) > 0 {
-					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
-					m.applySearchFilter()
-				}
-				return m, nil
-			default:
-				// Add character to search query
-				if len(msg.String()) == 1 {
-					m.searchQuery += msg.String()
-					m.applySearchFilter()
-				}
-				return m, nil
-			}
-		}
-
 		// Handle jump mode
 		if m.jumpMode {
 			switch msg.String() {
@@ -384,8 +346,8 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			default:
-				// Allow letters, numbers, underscore, and dot in jump mode
-				if len(msg.String()) == 1 && isValidJumpChar(msg.String()[0]) {
+				// Allow any printable character in jump mode, including spaces/symbols.
+				if isValidJumpInput(msg.String()) {
 					m.jumpBuffer += msg.String()
 					// If we have a queryable fetcher and 2+ chars, do server-side query
 					// For 1 char, just do local filtering to avoid excessive API calls
@@ -405,9 +367,10 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		case "esc":
-			if m.searchQuery != "" || len(m.filtered) < len(m.items) {
+			if len(m.filtered) < len(m.items) || m.jumpBuffer != "" {
 				// Clear filter first
-				m.searchQuery = ""
+				m.jumpMode = false
+				m.jumpBuffer = ""
 				m.filtered = m.items
 				m.cursor = 0
 				m.scrollOffset = 0
@@ -415,12 +378,12 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.quitting = true
 			return m, tea.Quit
-		case "up", "k":
+		case "up":
 			if m.cursor > 0 {
 				m.cursor--
 				m.adjustScroll()
 			}
-		case "down", "j":
+		case "down":
 			// Move cursor down if possible
 			if m.cursor < len(m.filtered)-1 {
 				m.cursor++
@@ -441,14 +404,9 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = &m.filtered[m.cursor]
 				return m, tea.Quit
 			}
-		case "/":
-			// Enter search mode
-			m.searchMode = true
-			m.searchQuery = ""
-			return m, nil
 		default:
-			// Allow letters, numbers, underscore, and dot in jump mode
-			if len(msg.String()) == 1 && isValidJumpChar(msg.String()[0]) {
+			// Allow any printable character in jump mode, including spaces/symbols.
+			if isValidJumpInput(msg.String()) {
 				m.jumpMode = true
 				m.jumpBuffer = msg.String()
 				// If we have a queryable fetcher and 2+ chars, do server-side query
@@ -478,28 +436,6 @@ func (m *pickerModel) adjustScroll() {
 	}
 }
 
-// applySearchFilter filters items based on the current search query
-func (m *pickerModel) applySearchFilter() {
-	if m.searchQuery == "" {
-		m.filtered = m.items
-		m.cursor = 0
-		m.scrollOffset = 0
-		return
-	}
-
-	queryLower := strings.ToLower(m.searchQuery)
-	var filtered []PickerItem
-	for _, item := range m.items {
-		if strings.Contains(strings.ToLower(item.Title), queryLower) ||
-			strings.Contains(strings.ToLower(item.Description), queryLower) {
-			filtered = append(filtered, item)
-		}
-	}
-	m.filtered = filtered
-	m.cursor = 0
-	m.scrollOffset = 0
-}
-
 // jumpToLetter filters and jumps to items matching the jump buffer
 func (m *pickerModel) jumpToLetter() {
 	if m.jumpBuffer == "" {
@@ -524,14 +460,14 @@ func (m *pickerModel) jumpToLetter() {
 	m.scrollOffset = 0
 }
 
-// isValidJumpChar checks if a character is valid for jump mode
-// Allows: a-z, A-Z, 0-9, underscore, dot
-func isValidJumpChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '_' ||
-		c == '.'
+// isValidJumpInput checks if a key input can be used for jump filtering.
+// Allows any printable single rune (letters, numbers, spaces, symbols).
+func isValidJumpInput(s string) bool {
+	r := []rune(s)
+	if len(r) != 1 {
+		return false
+	}
+	return !unicode.IsControl(r[0])
 }
 
 func (m pickerModel) View() string {
@@ -543,9 +479,7 @@ func (m pickerModel) View() string {
 
 	// Title with mode indicators
 	title := m.title
-	if m.searchMode {
-		title = fmt.Sprintf("%s [search: %s]", m.title, m.searchQuery)
-	} else if m.jumpMode {
+	if m.jumpMode {
 		title = fmt.Sprintf("%s [jump: %s]", m.title, m.jumpBuffer)
 	}
 	b.WriteString(m.styles.Header.Render(title))
@@ -553,9 +487,7 @@ func (m pickerModel) View() string {
 
 	// Items
 	if len(m.filtered) == 0 && !m.loadingMore {
-		if m.searchMode && m.searchQuery != "" {
-			b.WriteString(m.styles.Muted.Render(fmt.Sprintf("No items match '%s'", m.searchQuery)))
-		} else if m.jumpMode && m.jumpBuffer != "" {
+		if m.jumpMode && m.jumpBuffer != "" {
 			b.WriteString(m.styles.Muted.Render(fmt.Sprintf("No items match '%s'", m.jumpBuffer)))
 		} else {
 			b.WriteString(m.styles.Muted.Render(m.emptyMessage))
@@ -620,12 +552,10 @@ func (m pickerModel) View() string {
 
 	// Help - context sensitive
 	var helpText string
-	if m.searchMode {
-		helpText = "type to search • enter select • esc cancel search"
-	} else if m.jumpMode {
-		helpText = "type letters to jump • backspace removes • esc/enter clear"
+	if m.jumpMode {
+		helpText = "type to jump/filter • backspace removes • esc/enter clear"
 	} else {
-		helpText = "↑/k up • ↓/j down • enter select • esc cancel • /search • a-z jump"
+		helpText = "↑ up • ↓ down • enter select • esc cancel • type to jump/filter"
 		hasFetcher := m.fetcher != nil || m.queryableFetcher != nil
 		if hasFetcher && m.hasMore {
 			helpText += " • scroll to load more"

@@ -22,39 +22,23 @@ var groupDefaultColumns = []string{"name", "manager", "email"}
 // NewGroupsCmd creates the groups command group.
 func NewGroupsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "groups [search]",
+		Use:     "groups",
 		Aliases: []string{"group"},
 		Short:   "Manage ServiceNow groups",
 		Long: `Manage ServiceNow user groups.
 
 Examples:
-  # List all groups
+  # Show this help
   jsn groups
 
-  # Search for groups by name
-  jsn groups "IT Support"
+  # List groups
+  jsn groups list
 
-  # List with filter
+  # List groups by name
+  jsn groups list --query "nameLIKEIT Support"
+
+  # List with a filter
   jsn groups list --query "active=true"`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, search by name
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			search := args[0]
-			query := fmt.Sprintf("nameLIKE%s", search)
-
-			if err := listGroups(ctx, app, query, nil); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(
@@ -111,7 +95,7 @@ Examples:
   jsn groups show "IT Support"
 
   # Show group by sys_id
-  jsn groups show --sys-id abc123`,
+  jsn groups show abc123def456abc123def456abc12345`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())

@@ -21,33 +21,50 @@ var propertyDefaultColumns = []string{"name", "value", "description", "sys_scope
 // NewPropertiesCmd creates the properties command.
 func NewPropertiesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "properties [name]",
+		Use:     "properties",
 		Aliases: []string{"property", "prop"},
 		Short:   "Manage system properties",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage system properties.
 
 Properties store instance-wide configuration values.
 
 Examples:
-  jsn dev properties                  # List all
-  jsn dev properties glide.foo.bar    # Get specific
-  jsn dev properties list -q "nameLIKEglide"`,
+  # Show this help
+  jsn dev properties
+
+  # List properties
+  jsn dev properties list
+
+  # Show a property
+  jsn dev properties show glide.foo.bar
+
+  # List with a filter
+  jsn dev properties list --query "nameLIKEglide"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				return listProperties(ctx, app, "", nil)
-			}
-
-			return getPropertyByName(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 
 	cmd.AddCommand(
 		newPropertiesListCmd(),
+		newPropertiesShowCmd(),
 	)
+
+	return cmd
+}
+
+func newPropertiesShowCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "show [name|sys_id]",
+		Short: "Show property details",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			ctx := cmd.Context()
+			return getPropertyByName(ctx, app, args[0])
+		},
+	}
 
 	return cmd
 }
@@ -196,7 +213,7 @@ func getPropertyBySysID(ctx context.Context, app *appctx.App, sysID string) erro
 		return fmt.Errorf("property not found: %s", sysID)
 	}
 
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "sys_properties", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("Property: %s", getStringField(records[0], "name"))),
 	)
 }
@@ -216,7 +233,7 @@ func getPropertyByName(ctx context.Context, app *appctx.App, name string) error 
 		return fmt.Errorf("property not found: %s", name)
 	}
 
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "sys_properties", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("Property: %s", name)),
 	)
 }

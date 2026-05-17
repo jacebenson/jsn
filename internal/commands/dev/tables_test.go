@@ -205,7 +205,20 @@ func TestTablesListIntegration(t *testing.T) {
 	assert.Contains(t, transport.capturedPath, "/api/now/table/sys_db_object")
 }
 
-func TestTablesBareCommandShowsTable(t *testing.T) {
+func TestTablesRootShowsHelp(t *testing.T) {
+	transport := &mockTransport{
+		responseStatus: 200,
+		responseBody:   `{"result": []}`,
+	}
+
+	app, _ := setupTestAppWithTransport(t, transport)
+	cmd := NewTablesCmd()
+	err := executeCommand(cmd, app)
+
+	assert.NoError(t, err)
+}
+
+func TestTablesShowIntegrationViaSubcommand(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 200,
 		responseBodies: []string{
@@ -220,9 +233,8 @@ func TestTablesBareCommandShowsTable(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewTablesCmd()
-	err := executeCommand(cmd, app, "incident")
+	err := executeCommand(cmd, app, "show", "incident")
 
-	// Bare command with arg now shows table details (like incidents pattern)
 	assert.NoError(t, err)
 	// Check any captured path contains the table API
 	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_db_object"))

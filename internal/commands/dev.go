@@ -56,10 +56,20 @@ PLATFORM
   eval          Execute background scripts
 
 Examples:
-  jsn dev includes              # List script includes
-  jsn dev rules                 # List business rules
-  jsn dev flows                 # List flows
-  jsn dev tables incident       # Search table definitions`,
+  # Show this help
+  jsn dev
+
+  # List script includes
+  jsn dev includes list
+
+  # List business rules
+  jsn dev rules list
+
+  # List flows
+  jsn dev flows list
+
+  # Show table details
+  jsn dev tables show incident`,
 		SilenceUsage: true,
 	}
 

@@ -81,6 +81,16 @@ func (m *mockTransport) capturedAnyPath(substring string) bool {
 	return false
 }
 
+// capturedAnyQuery checks if any captured query contains the substring.
+func (m *mockTransport) capturedAnyQuery(substring string) bool {
+	for _, q := range m.capturedQueries {
+		if strings.Contains(q, substring) {
+			return true
+		}
+	}
+	return false
+}
+
 // mockAuthProvider is a mock auth provider for testing
 type mockAuthProvider struct {
 	creds *sdk.Credentials

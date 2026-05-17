@@ -22,37 +22,23 @@ var requestDefaultColumns = []string{"number", "short_description", "request_sta
 // NewRequestsCmd creates the requests command group.
 func NewRequestsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "requests [number]",
+		Use:     "requests",
 		Aliases: []string{"request", "req", "ritm"},
 		Short:   "Manage service catalog requests",
 		Long: `Manage service catalog requests (RITM) in ServiceNow.
 
 Examples:
-  # List all requests
+  # Show this help
   jsn requests
 
-  # Show a specific request by number
-  jsn requests RITM0010001
+  # List requests
+  jsn requests list
 
-  # List with filter
+  # Show a request
+  jsn requests show RITM0010001
+
+  # List with a filter
   jsn requests list --query "request_state=1"`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			// If arg provided, treat as request number to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getRequestByNumber(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(

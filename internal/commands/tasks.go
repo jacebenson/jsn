@@ -21,44 +21,51 @@ var taskDefaultColumns = []string{"number", "short_description", "state", "assig
 // NewTasksCmd creates the tasks command group.
 func NewTasksCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "tasks [number]",
+		Use:     "tasks",
 		Aliases: []string{"task", "sctask"},
 		Short:   "Manage service catalog tasks",
 		Long: `Manage service catalog tasks (SCTASK) in ServiceNow.
 
 Examples:
-  # List all tasks
+  # Show this help
   jsn tasks
 
-  # Show a specific task by number
-  jsn tasks SCTASK0010001
+  # List tasks
+  jsn tasks list
 
-  # List with filter
+  # Show a task
+  jsn tasks show SCTASK0010001
+
+  # List with a filter
   jsn tasks list --query "state=1"`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			// If arg provided, treat as task number to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getTaskByNumber(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(
 		newTasksListCmd(),
+		newTasksShowCmd(),
 	)
 
 	return cmd
+}
+
+func newTasksShowCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "show [number]",
+		Short: "Show a specific task by number",
+		Long: `Display detailed information about a service catalog task by its number.
+
+Examples:
+  # Show task by number
+  jsn tasks show SCTASK0010001`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			ctx := cmd.Context()
+			number := args[0]
+
+			return getTaskByNumber(ctx, app, number)
+		},
+	}
 }
 
 func newTasksListCmd() *cobra.Command {

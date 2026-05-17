@@ -41,7 +41,11 @@ Thumbs.db
 
 # AI tools
 .opencode/
-
+.opencode
+opencode.json
+.agents/
+skills-lock.json
+test_modes.sh
 # Temporary files
 *.tmp
 *.bak

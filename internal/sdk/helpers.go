@@ -3,9 +3,35 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
+	"strings"
 )
+
+// FlowInfo holds high-level flow metadata.
+type FlowInfo struct {
+	Name    string `json:"name"`
+	Active  bool   `json:"active"`
+	Version string `json:"version"`
+	Type    string `json:"type"`
+	SysID   string `json:"sys_id"`
+}
+
+// FlowInspection holds comprehensive data about a flow for inspection output.
+type FlowInspection struct {
+	Flow               FlowInfo         `json:"flow"`
+	Version            map[string]any   `json:"version,omitempty"`
+	Payload            map[string]any   `json:"payload,omitempty"`
+	TriggerInstances   []map[string]any `json:"trigger_instances,omitempty"`
+	ActionInstances    []map[string]any `json:"action_instances,omitempty"`
+	FlowLogicInstances []map[string]any `json:"flow_logic_instances,omitempty"`
+	SubFlowInstances   []map[string]any `json:"subflow_instances,omitempty"`
+	FlowInputs         []map[string]any `json:"flow_inputs,omitempty"`
+	FlowOutputs        []map[string]any `json:"flow_outputs,omitempty"`
+}
 
 // RelatedQuery defines a related table to fetch
 // nolint:unused
@@ -112,6 +138,140 @@ func (c *Client) FetchCatalogVariables(ctx context.Context, ritmSysID string) ([
 	return variables, nil
 }
 
+// InspectFlow retrieves full flow inspection data for styled flow output.
+func (c *Client) InspectFlow(ctx context.Context, identifier string) (*FlowInspection, error) {
+	inspection := &FlowInspection{}
+
+	// 1) Resolve the flow from sys_hub_flow by sys_id or name.
+	flowQuery := url.Values{}
+	flowQuery.Set("sysparm_display_value", "all")
+	flowQuery.Set("sysparm_limit", "1")
+	if isSysID(identifier) {
+		flowQuery.Set("sysparm_query", "sys_id="+identifier)
+	} else {
+		flowQuery.Set("sysparm_query", "name="+identifier)
+	}
+	flowQuery.Set("sysparm_fields", "sys_id,name,active,version,type")
+
+	flowRecords, err := c.List(ctx, "sys_hub_flow", flowQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find flow: %w", err)
+	}
+	if len(flowRecords) == 0 {
+		return nil, fmt.Errorf("flow not found: %s", identifier)
+	}
+
+	flow := flowRecords[0]
+	flowSysID := getString(flow, "sys_id")
+	flowVersion := getString(flow, "version")
+
+	inspection.Flow = FlowInfo{
+		Name:    getString(flow, "name"),
+		Active:  getBoolField(flow, "active"),
+		Version: flowVersion,
+		Type:    getString(flow, "type"),
+		SysID:   flowSysID,
+	}
+
+	// 2) Fetch latest flow version (includes payload with full structure).
+	versionQuery := url.Values{}
+	versionQuery.Set("sysparm_display_value", "all")
+	versionQuery.Set("sysparm_limit", "1")
+	versionQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYDESCsys_updated_on")
+	versionQuery.Set("sysparm_fields", "sys_id,flow,version,payload,sys_updated_on")
+	if versionRecords, err := c.List(ctx, "sys_hub_flow_version", versionQuery); err == nil && len(versionRecords) > 0 {
+		inspection.Version = versionRecords[0]
+		if inspection.Flow.Version == "" {
+			inspection.Flow.Version = getString(versionRecords[0], "version")
+		}
+
+		payload := getString(versionRecords[0], "payload")
+		if payload != "" {
+			var payloadData map[string]any
+			if json.Unmarshal([]byte(payload), &payloadData) == nil {
+				inspection.Payload = payloadData
+				extractPayloadData(inspection, payloadData)
+			}
+		}
+	}
+
+	// 3) Fetch trigger instances table data (used directly + fallback).
+	triggerQuery := url.Values{}
+	triggerQuery.Set("sysparm_display_value", "all")
+	triggerQuery.Set("sysparm_query", "flow="+flowSysID)
+	triggerQuery.Set("sysparm_fields", "sys_id,name,trigger_type,display_text,active")
+	triggerQuery.Set("sysparm_limit", "20")
+	if triggerRecords, err := c.List(ctx, "sys_hub_trigger_instance", triggerQuery); err == nil {
+		inspection.TriggerInstances = triggerRecords
+	}
+
+	// 4) Fallbacks when payload did not provide structure arrays.
+	if len(inspection.ActionInstances) == 0 {
+		actionQuery := url.Values{}
+		actionQuery.Set("sysparm_display_value", "all")
+		actionQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+		actionQuery.Set("sysparm_fields", "sys_id,order,name,display_text,comment,action_type")
+		actionQuery.Set("sysparm_limit", "200")
+		if records, err := c.List(ctx, "sys_hub_action_instance", actionQuery); err == nil {
+			inspection.ActionInstances = records
+		}
+	}
+
+	if len(inspection.FlowLogicInstances) == 0 {
+		logicTables := []string{"sys_hub_flow_logic", "sys_hub_flow_logic_instance_v2"}
+		for _, table := range logicTables {
+			logicQuery := url.Values{}
+			logicQuery.Set("sysparm_display_value", "all")
+			logicQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+			logicQuery.Set("sysparm_fields", "sys_id,order,name,display_text,comment,parent_ui_id")
+			logicQuery.Set("sysparm_limit", "200")
+			if records, err := c.List(ctx, table, logicQuery); err == nil {
+				inspection.FlowLogicInstances = append(inspection.FlowLogicInstances, records...)
+			}
+		}
+		sort.Slice(inspection.FlowLogicInstances, func(i, j int) bool {
+			return parseOrder(inspection.FlowLogicInstances[i]) < parseOrder(inspection.FlowLogicInstances[j])
+		})
+	}
+
+	if len(inspection.SubFlowInstances) == 0 {
+		subflowQuery := url.Values{}
+		subflowQuery.Set("sysparm_display_value", "all")
+		subflowQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+		subflowQuery.Set("sysparm_fields", "sys_id,order,sub_flow,name,display_text,comment,parent_ui_id")
+		subflowQuery.Set("sysparm_limit", "200")
+		if records, err := c.List(ctx, "sys_hub_sub_flow_instance", subflowQuery); err == nil {
+			inspection.SubFlowInstances = records
+		}
+	}
+
+	// Inputs/Outputs are primarily in payload for subflows.
+	// Fallback to dedicated tables if available.
+	if len(inspection.FlowInputs) == 0 {
+		inputsQuery := url.Values{}
+		inputsQuery.Set("sysparm_display_value", "all")
+		inputsQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+		inputsQuery.Set("sysparm_fields", "sys_id,name,label,type,mandatory,order")
+		inputsQuery.Set("sysparm_limit", "200")
+		if records, err := c.List(ctx, "sys_hub_flow_input", inputsQuery); err == nil {
+			inspection.FlowInputs = records
+		}
+	}
+
+	if len(inspection.FlowOutputs) == 0 {
+		outputsQuery := url.Values{}
+		outputsQuery.Set("sysparm_display_value", "all")
+		outputsQuery.Set("sysparm_query", "flow="+flowSysID+"^ORDERBYorder")
+		outputsQuery.Set("sysparm_fields", "sys_id,name,label,type,order")
+		outputsQuery.Set("sysparm_limit", "200")
+		if records, err := c.List(ctx, "sys_hub_flow_output", outputsQuery); err == nil {
+			inspection.FlowOutputs = records
+		}
+	}
+
+	return inspection, nil
+}
+
 // Variable represents a catalog variable.
 type Variable struct {
 	Question string `json:"question"`
@@ -126,6 +286,116 @@ type Attachment struct {
 	CreatedBy  string `json:"sys_created_by"`
 	TableName  string `json:"table_name"`
 	TableSysID string `json:"table_sys_id"`
+}
+
+func extractPayloadData(inspection *FlowInspection, payload map[string]any) {
+	if actions, ok := toMapSlice(payload["actionInstances"]); ok {
+		inspection.ActionInstances = actions
+	}
+	if logic, ok := toMapSlice(payload["flowLogicInstances"]); ok {
+		inspection.FlowLogicInstances = logic
+	}
+	if subflows, ok := toMapSlice(payload["subFlowInstances"]); ok {
+		inspection.SubFlowInstances = subflows
+	}
+	if inputs, ok := toMapSlice(payload["inputs"]); ok {
+		inspection.FlowInputs = inputs
+	}
+	if outputs, ok := toMapSlice(payload["outputs"]); ok {
+		inspection.FlowOutputs = outputs
+	}
+
+	// Promote trigger details from payload triggerInstances for simpler rendering.
+	triggerInstances, ok := payload["triggerInstances"].([]any)
+	if !ok || len(triggerInstances) == 0 {
+		return
+	}
+	first, ok := triggerInstances[0].(map[string]any)
+	if !ok {
+		return
+	}
+
+	if inspection.Version == nil {
+		inspection.Version = map[string]any{}
+	}
+
+	if name := getString(first, "name"); name != "" {
+		inspection.Version["trigger_name"] = name
+	}
+	if t := getString(first, "type"); t != "" {
+		inspection.Version["trigger_type"] = t
+	}
+
+	if inputs, ok := first["inputs"].([]any); ok {
+		for _, raw := range inputs {
+			input, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			name := getString(input, "name")
+			value := getString(input, "value")
+			if name == "table" && value != "" {
+				inspection.Version["trigger_table"] = value
+			}
+			if name == "time" && value != "" {
+				inspection.Version["trigger_time"] = value
+			}
+		}
+	}
+}
+
+func toMapSlice(v any) ([]map[string]any, bool) {
+	raw, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out, true
+}
+
+func getBoolField(record map[string]any, field string) bool {
+	v, ok := record[field]
+	if !ok || v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return strings.EqualFold(val, "true") || val == "1"
+	case map[string]any:
+		if display, ok := val["display_value"].(string); ok {
+			return strings.EqualFold(display, "true") || display == "1"
+		}
+		if value, ok := val["value"].(string); ok {
+			return strings.EqualFold(value, "true") || value == "1"
+		}
+	}
+	return false
+}
+
+func parseOrder(record map[string]any) int {
+	order := getString(record, "order")
+	n, _ := strconv.Atoi(order)
+	return n
+}
+
+func isSysID(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, ch := range value {
+		if (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // joinFields joins field names with commas.

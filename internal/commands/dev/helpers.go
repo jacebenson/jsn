@@ -58,6 +58,40 @@ func getDisplayField(record map[string]any, field string) string {
 	return ""
 }
 
+// getSysID extracts the sys_id value from a record, handling both plain strings
+// and ServiceNow display value objects {display_value, value}.
+func getSysID(record map[string]any) string {
+	if sysID, ok := record["sys_id"]; ok && sysID != nil {
+		switch v := sysID.(type) {
+		case string:
+			return v
+		case map[string]any:
+			// Handle display value objects from sysparm_display_value=all
+			if value, ok := v["value"].(string); ok && value != "" {
+				return value
+			}
+			if display, ok := v["display_value"].(string); ok {
+				return display
+			}
+		}
+	}
+	return ""
+}
+
+// wrapRecordWithContext wraps a record with _context containing instance_url and table
+// for link generation in styled output.
+func wrapRecordWithContext(record map[string]any, table, instanceURL string) map[string]any {
+	wrapped := make(map[string]any, len(record)+1)
+	for k, v := range record {
+		wrapped[k] = v
+	}
+	wrapped["_context"] = map[string]any{
+		"instance_url": instanceURL,
+		"table":        table,
+	}
+	return wrapped
+}
+
 // isHexString checks if a string contains only hexadecimal characters (0-9, a-f, A-F).
 // Used to identify sys_id values which are 32-character hex strings.
 func isHexString(s string) bool {

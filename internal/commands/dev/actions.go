@@ -21,10 +21,10 @@ var actionDefaultColumns = []string{"name", "active", "sys_scope", "sys_updated_
 // NewActionsCmd creates the actions command.
 func NewActionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "actions [name|sys_id]",
+		Use:     "actions",
 		Aliases: []string{"action"},
 		Short:   "Manage action definitions",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage action definitions.
 
 Actions are reusable components in Flow Designer.
@@ -34,20 +34,19 @@ Create/update/delete operations require the Flow Designer GraphQL API
 which is not yet implemented.
 
 Examples:
-  jsn dev actions              # List all (interactive in TTY mode)
-  jsn dev actions MyAction     # Show specific action
-  jsn dev actions list --query "active=true"  # List with filter`,
+  # Show this help
+  jsn dev actions
+
+  # List actions
+  jsn dev actions list
+
+  # Show an action
+  jsn dev actions show MyAction
+
+  # List with a filter
+  jsn dev actions list --query "active=true"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// If no args, show help (consistent with other dev commands like includes)
-			if len(args) == 0 {
-				return cmd.Help()
-			}
-
-			// With arg, show the action details
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			return showAction(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 
@@ -89,6 +88,11 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()
+
+			// Interactive picker when in TTY and auto format
+			if output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin) && app.Output.GetFormat() == output.FormatAuto {
+				return listActionsInteractive(ctx, app, query, limit)
+			}
 
 			var cols []string
 			if columns != "" {

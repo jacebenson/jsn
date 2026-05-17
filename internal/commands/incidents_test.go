@@ -119,6 +119,15 @@ func TestIncidentsShowByNumber(t *testing.T) {
 	assert.Contains(t, transport.capturedPath, "/api/now/table/incident")
 }
 
+func TestIncidentsRootDoesNotImplicitShow(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := NewIncidentsCmd()
+	err := executeCommand(cmd, app, "INC0010001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown command")
+}
+
 func TestIncidentsCreateIntegration(t *testing.T) {
 	transport := &mockTransport{
 		responseStatus: 201,

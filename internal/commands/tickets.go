@@ -23,7 +23,7 @@ var TicketDefaultColumns = []string{"number", "short_description"}
 // This is a convenience wrapper around the generic records command for the ticket table.
 func NewTicketsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "tickets [number]",
+		Use:     "tickets",
 		Aliases: []string{"ticket", "tickets"},
 		Short:   "Tickets",
 		Long: `Manage tickets in ServiceNow.
@@ -32,13 +32,16 @@ This command provides convenient access to the ticket table with sensible defaul
 For more advanced queries, use the generic 'records' command.
 
 Examples:
-  # List all tickets
+  # Show this help
   jsn tickets
 
-  # Show a specific ticket by number
-  jsn tickets \${NUMBER_PREFIX}0010001
+  # List tickets
+  jsn tickets list
 
-  # List with filter
+  # Show a ticket
+  jsn tickets show \${NUMBER_PREFIX}0010001
+
+  # List with a filter
   jsn tickets list --query "active=true"
 
   # Create a new ticket
@@ -49,23 +52,6 @@ Examples:
 
   # Delete a ticket
   jsn tickets delete \${NUMBER_PREFIX}0010001`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			// If arg provided, treat as number to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getTicketByNumber(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(
@@ -139,6 +125,7 @@ func newTicketsCreateCmd() *cobra.Command {
 		Long: `Create a new ticket in ServiceNow.
 
 Examples:
+  # Create a ticket
   jsn tickets create --data '{"short_description": "New ticket"}'
   
   # Create with specific fields
@@ -162,7 +149,7 @@ Examples:
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn tickets %s", record["number"]),
+						Cmd:         fmt.Sprintf("jsn tickets show %s", record["number"]),
 						Description: "View the new ticket",
 					},
 					output.Breadcrumb{
@@ -229,7 +216,7 @@ Example:
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn tickets %s", number),
+						Cmd:         fmt.Sprintf("jsn tickets show %s", number),
 						Description: "View updated ticket",
 					},
 					output.Breadcrumb{
@@ -331,7 +318,7 @@ func listTickets(ctx context.Context, app *appctx.App, query string, offset int)
 	breadcrumbs := []output.Breadcrumb{
 		{
 			Action:      "show",
-			Cmd:         "jsn tickets <number>",
+			Cmd:         "jsn tickets show <number>",
 			Description: "Show ticket details",
 		},
 		{

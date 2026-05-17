@@ -86,9 +86,14 @@ Pagination:
 Filtering:
   Use --query with ServiceNow encoded query syntax.
   Examples:
-    jsn dev updatesets list --query "state=in progress"     # In progress only
-    jsn dev updatesets list --query "application=12345"      # Specific application
-    jsn dev updatesets list --query "completed_by=jsmith"   # By completed by user`,
+    # In-progress only
+    jsn dev updatesets list --query "state=in progress"
+
+    # Specific application
+    jsn dev updatesets list --query "application=12345"
+
+    # By completed-by user
+    jsn dev updatesets list --query "completed_by=jsmith"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()

@@ -62,21 +62,11 @@ func TestUsersListWithQuery(t *testing.T) {
 	assert.Contains(t, transport.capturedQuery, "active")
 }
 
-func TestUsersSearch(t *testing.T) {
-	transport := &mockTransport{
-		responseStatus: 200,
-		responseBody: `{"result": [
-			{"sys_id": "def456", "user_name": "jdoe", "name": "John Doe", "email": "jdoe@example.com", "active": "true"}
-		]}`,
-	}
-
-	app, _ := setupTestAppWithTransport(t, transport)
+func TestUsersRootDoesNotImplicitSearch(t *testing.T) {
+	app, _ := setupTestApp(t)
 	cmd := NewUsersCmd()
-	// Search by name - when command has subcommands, use list subcommand
-	err := executeCommand(cmd, app, "list", "--query", "nameLIKEJohn^ORuser_nameLIKEJohn")
+	err := executeCommand(cmd, app, "John Doe")
 
-	assert.NoError(t, err)
-	assert.Contains(t, transport.capturedPath, "/api/now/table/sys_user")
-	// The query should contain the search term
-	assert.Contains(t, transport.capturedQuery, "LIKE")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown command")
 }

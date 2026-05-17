@@ -23,47 +23,28 @@ func NewLogsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Query ServiceNow system logs",
+		Args:  cobra.NoArgs,
 		Long: `Query and filter ServiceNow system logs from the syslog table.
 
 Examples:
-  # List recent logs
+  # Show this help
   jsn dev logs
 
-  # Filter by log level
-  jsn dev logs --level error
+  # List recent logs
+  jsn dev logs list
 
-  # Filter by source
-  jsn dev logs --source "Script Include"
+  # List by log level
+  jsn dev logs list --level error
 
-  # Combine filters
-  jsn dev logs --level error --source "Business Rule"`,
+  # List by source
+  jsn dev logs list --source "Script Include"
+
+  # List with combined filters
+  jsn dev logs list --level error --source "Business Rule"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			// Get filter flags
-			level, _ := cmd.Flags().GetString("level")
-			source, _ := cmd.Flags().GetString("source")
-			limit, _ := cmd.Flags().GetInt("limit")
-
-			// Build query
-			query := buildLogQuery(level, source)
-
-			var columns []string
-			if cols, _ := cmd.Flags().GetString("columns"); cols != "" {
-				columns = strings.Split(cols, ",")
-			} else {
-				columns = logDefaultColumns
-			}
-
-			return listLogs(ctx, app, query, columns, limit)
+			return cmd.Help()
 		},
 	}
-
-	cmd.Flags().StringP("level", "l", "", "Filter by log level (error, warn, info, debug)")
-	cmd.Flags().StringP("source", "s", "", "Filter by log source")
-	cmd.Flags().StringP("columns", "c", "", "Comma-separated columns to display")
-	cmd.Flags().IntP("limit", "n", 50, "Maximum number of logs to return")
 
 	cmd.AddCommand(
 		newLogsListCmd(),
@@ -285,7 +266,7 @@ func getLogBySysID(ctx context.Context, app *appctx.App, sysID string) error {
 		return fmt.Errorf("log entry not found: %s", sysID)
 	}
 
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "syslog", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("Log Entry: %s", sysID)),
 	)
 }

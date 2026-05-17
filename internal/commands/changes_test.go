@@ -143,3 +143,12 @@ func TestChangesDeleteIntegration(t *testing.T) {
 	// Should make two requests: one to find, one to delete
 	assert.NoError(t, err)
 }
+
+func TestChangesRootDoesNotImplicitShow(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := NewChangesCmd()
+	err := executeCommand(cmd, app, "CHG0010001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown command")
+}

@@ -22,27 +22,28 @@ var uiActionDefaultColumns = []string{"name", "table", "active", "order", "sys_s
 // NewUIActionsCmd creates the uiactions command.
 func NewUIActionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "uiactions [name]",
+		Use:     "uiactions",
 		Aliases: []string{"uiaction", "ua"},
 		Short:   "Manage UI actions",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage UI actions.
 
 UI actions are buttons, links, and context menu items.
 
 Examples:
-  jsn dev uiactions              # List all
-  jsn dev uiactions MyAction     # Get specific
-  jsn dev uiactions list -q "table=incident"`,
+  # Show this help
+  jsn dev uiactions
+
+  # List UI actions
+  jsn dev uiactions list
+
+  # Show a UI action
+  jsn dev uiactions show MyAction
+
+  # List with a filter
+  jsn dev uiactions list --query "table=incident"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				return listUIActions(ctx, app, "", nil)
-			}
-
-			return getUIActionByName(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 
@@ -70,6 +71,11 @@ func newUIActionsListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()
+
+			// Interactive picker when in TTY and auto format
+			if output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin) && app.Output.GetFormat() == output.FormatAuto {
+				return listUIActionsInteractive(ctx, app, query, 20)
+			}
 
 			var cols []string
 			if columns != "" {

@@ -23,9 +23,10 @@ var clientScriptDefaultColumns = []string{"name", "table", "active", "type", "sy
 // NewClientScriptsCmd creates the clientscripts command.
 func NewClientScriptsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "clientscripts [name|sys_id]",
+		Use:     "clientscripts",
 		Aliases: []string{"clientscript", "cs"},
 		Short:   "Manage client scripts",
+		Args:    cobra.NoArgs,
 		Long: `Manage client scripts.
 
 Client scripts run in the browser on forms and lists.
@@ -45,22 +46,8 @@ Examples:
 
   # Delete a client script
   jsn dev clientscripts delete MyScript`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like includes does)
-			// If arg provided, treat as client script name to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic (backward compatibility)
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := showClientScript(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 	}
 

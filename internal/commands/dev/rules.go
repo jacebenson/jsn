@@ -22,27 +22,28 @@ var ruleDefaultColumns = []string{"name", "collection", "active", "order", "sys_
 // NewRulesCmd creates the rules command.
 func NewRulesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "rules [name]",
+		Use:     "rules",
 		Aliases: []string{"rule", "br"},
 		Short:   "Manage business rules",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage business rules.
 
 Business rules run when database operations occur.
 
 Examples:
-  jsn dev rules                 # List all
-  jsn dev rules "My Rule"       # Get specific
-  jsn dev rules list -q "collection=incident"`,
+  # Show this help
+  jsn dev rules
+
+  # List business rules
+  jsn dev rules list
+
+  # Show a business rule
+  jsn dev rules show "My Rule"
+
+  # List with a filter
+  jsn dev rules list --query "collection=incident"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if len(args) == 0 {
-				return listRules(ctx, app, "", nil)
-			}
-
-			return getRuleByName(ctx, app, args[0])
+			return cmd.Help()
 		},
 	}
 

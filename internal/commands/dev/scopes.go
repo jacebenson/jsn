@@ -20,9 +20,7 @@ func formatRecordForDisplay(record map[string]any, columns []string) map[string]
 	result := make(map[string]string)
 
 	// Always include sys_id for hyperlinks
-	if sysID, ok := record["sys_id"]; ok && sysID != nil {
-		result["sys_id"] = fmt.Sprintf("%v", sysID)
-	}
+	result["sys_id"] = getSysID(record)
 
 	for _, col := range columns {
 		if val, ok := record[col]; ok && val != nil {
@@ -54,9 +52,9 @@ var scopeDefaultColumns = []string{"name", "scope", "short_description", "active
 // NewScopesCmd creates the scopes command.
 func NewScopesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "scopes [search]",
+		Use:   "scopes",
 		Short: "List ServiceNow application scopes",
-		Args:  cobra.ArbitraryArgs,
+		Args:  cobra.NoArgs,
 		Long: `List and search ServiceNow application scopes from the sys_scope table.
 
 Examples:
@@ -299,7 +297,7 @@ func setScopeAsCurrent(ctx context.Context, app *appctx.App, identifier string) 
 		output.WithBreadcrumbs(
 			output.Breadcrumb{
 				Action:      "view",
-				Cmd:         fmt.Sprintf("jsn dev scopes get %s", sysID),
+				Cmd:         fmt.Sprintf("jsn dev scopes show %s", sysID),
 				Description: "View scope details",
 			},
 			output.Breadcrumb{
@@ -335,7 +333,7 @@ func getScope(ctx context.Context, app *appctx.App, identifier string, columns [
 		return fmt.Errorf("scope not found: %s", identifier)
 	}
 
-	return app.OK(records[0],
+	return app.OK(wrapRecordWithContext(records[0], "sys_scope", app.Config.GetEffectiveInstance()),
 		output.WithSummary(fmt.Sprintf("Scope: %s", identifier)),
 	)
 }

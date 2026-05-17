@@ -906,6 +906,54 @@ func (w *Writer) writeFormattedRecord(data map[string]any, table string) {
 			fmt.Fprintf(w.opts.Writer, "Link:  %s\n\n", recordURL)
 		}
 	}
+
+	// Display related ACL roles if present
+	if relatedRoles, ok := data["_related_roles"].([]map[string]any); ok && len(relatedRoles) > 0 {
+		fmt.Fprintln(w.opts.Writer, "─ Related Roles ─")
+		for _, role := range relatedRoles {
+			// ACL role references sys_user_role via sys_user_role field (not "role")
+			roleName := ""
+			// Try sys_user_role field first (this is the reference to the actual role)
+			if roleField, ok := role["sys_user_role"].(map[string]any); ok {
+				if dv, ok := roleField["display_value"].(string); ok && dv != "" {
+					roleName = dv
+				} else if v, ok := roleField["value"].(string); ok && v != "" {
+					roleName = v
+				}
+			}
+			// Fallback to old "role" field name if sys_user_role not found
+			if roleName == "" {
+				if roleField, ok := role["role"].(map[string]any); ok {
+					if dv, ok := roleField["display_value"].(string); ok && dv != "" {
+						roleName = dv
+					} else if v, ok := roleField["value"].(string); ok && v != "" {
+						roleName = v
+					}
+				}
+			}
+			if roleName == "" {
+				roleName = getDisplayValue(role["sys_user_role"])
+			}
+			if roleName == "" {
+				roleName = getDisplayValue(role["role"])
+			}
+			if roleName == "" {
+				if n, ok := role["name"].(string); ok && n != "" {
+					roleName = n
+				}
+			}
+			if roleName == "" {
+				roleName = "(unnamed)"
+			}
+			active := getDisplayValue(role["active"])
+			if active == "false" {
+				fmt.Fprintf(w.opts.Writer, "  • %s [inactive]\n", roleName)
+			} else {
+				fmt.Fprintf(w.opts.Writer, "  • %s\n", roleName)
+			}
+		}
+		fmt.Fprintln(w.opts.Writer)
+	}
 }
 
 // getDisplayValue extracts the display value from a ServiceNow field.

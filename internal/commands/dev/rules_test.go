@@ -370,8 +370,7 @@ func TestRulesGetByNameIntegration(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewRulesCmd()
-	// Using bare command with name argument
-	err := executeCommand(cmd, app, "Specific Rule")
+	err := executeCommand(cmd, app, "show", "Specific Rule")
 
 	assert.NoError(t, err)
 	assert.True(t, transport.capturedAnyPath("/api/now/table/sys_script"))

@@ -23,7 +23,7 @@ var incidentDefaultColumns = []string{"number", "short_description", "priority",
 // This is a convenience wrapper around the generic records command for the incident table.
 func NewIncidentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "incidents [number]",
+		Use:     "incidents",
 		Aliases: []string{"incident", "inc"},
 		Short:   "Manage IT incidents",
 		Long: `Manage IT incidents in ServiceNow.
@@ -32,13 +32,16 @@ This command provides convenient access to the incident table with sensible defa
 For more advanced queries, use the generic 'records' command.
 
 Examples:
-  # List all incidents
+  # Show this help
   jsn incidents
 
-  # Show a specific incident by number
-  jsn incidents INC0010001
+  # List incidents
+  jsn incidents list
 
-  # List with filter
+  # Show an incident
+  jsn incidents show INC0010001
+
+  # List with a filter
   jsn incidents list --query "priority=1^active=true"
 
   # Create a new incident
@@ -49,23 +52,6 @@ Examples:
 
   # Delete an incident
   jsn incidents delete INC0010001`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			// If arg provided, treat as incident number to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getIncidentByNumber(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(
@@ -195,7 +181,7 @@ If using --data, flag values will be merged (flags take precedence).`,
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn incidents %s", getStringField(record, "number")),
+						Cmd:         fmt.Sprintf("jsn incidents show %s", getStringField(record, "number")),
 						Description: "View the new incident",
 					},
 				),
@@ -250,7 +236,7 @@ func newIncidentsUpdateCmd() *cobra.Command {
 				output.WithBreadcrumbs(
 					output.Breadcrumb{
 						Action:      "view",
-						Cmd:         fmt.Sprintf("jsn incidents %s", number),
+						Cmd:         fmt.Sprintf("jsn incidents show %s", number),
 						Description: "View the updated incident",
 					},
 				),

@@ -23,9 +23,10 @@ var columnDefaultColumns = []string{"element", "column_label", "internal_type", 
 // NewColumnsCmd creates the columns command.
 func NewColumnsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "columns [element|sys_id]",
+		Use:     "columns",
 		Aliases: []string{"column", "col"},
 		Short:   "Manage column definitions",
+		Args:    cobra.NoArgs,
 		Long: `Manage column definitions in the system dictionary.
 
 Columns (fields) are defined in sys_dictionary and define the structure
@@ -49,22 +50,8 @@ Examples:
 
   # Delete a column
   jsn dev columns delete my_field --table incident`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help
-			// If arg provided, treat as column element name or sys_id to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := showColumn(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 	}
 

@@ -42,7 +42,7 @@ func TestLogsListIntegration(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewLogsCmd()
-	err := executeCommand(cmd, app)
+	err := executeCommand(cmd, app, "list")
 
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedPath, "/api/now/table/syslog")
@@ -56,7 +56,7 @@ func TestLogsListWithLevelFilter(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewLogsCmd()
-	err := executeCommand(cmd, app, "--level", "error")
+	err := executeCommand(cmd, app, "list", "--level", "error")
 
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedQuery, "level")
@@ -70,7 +70,7 @@ func TestLogsListWithSourceFilter(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewLogsCmd()
-	err := executeCommand(cmd, app, "--source", "Script Include")
+	err := executeCommand(cmd, app, "list", "--source", "Script Include")
 
 	assert.NoError(t, err)
 	assert.Contains(t, transport.capturedQuery, "source")
@@ -84,12 +84,20 @@ func TestLogsListWithCombinedFilters(t *testing.T) {
 
 	app, _ := setupTestAppWithTransport(t, transport)
 	cmd := NewLogsCmd()
-	err := executeCommand(cmd, app, "--level", "error", "--source", "Business Rule")
+	err := executeCommand(cmd, app, "list", "--level", "error", "--source", "Business Rule")
 
 	assert.NoError(t, err)
 	// Should contain both filters
 	assert.Contains(t, transport.capturedQuery, "level")
 	assert.Contains(t, transport.capturedQuery, "source")
+}
+
+func TestLogsRootShowsHelp(t *testing.T) {
+	app, _ := setupTestApp(t)
+	cmd := NewLogsCmd()
+	err := executeCommand(cmd, app)
+
+	assert.NoError(t, err)
 }
 
 func TestLogsListSubcommandIntegration(t *testing.T) {

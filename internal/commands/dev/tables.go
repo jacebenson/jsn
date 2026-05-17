@@ -26,18 +26,21 @@ var tableDetailColumns = []string{"name", "label", "super_class", "create_access
 // NewTablesCmd creates the tables command.
 func NewTablesCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "tables [name]",
+		Use:     "tables",
 		Aliases: []string{"table"},
 		Short:   "Manage ServiceNow table definitions",
-		Args:    cobra.ArbitraryArgs,
+		Args:    cobra.NoArgs,
 		Long: `Manage ServiceNow table definitions from the sys_db_object table.
 
 Examples:
-  # List all tables
+  # Show this help
   jsn dev tables
 
+  # List all tables
+  jsn dev tables list
+
   # Show specific table details
-  jsn dev tables incident
+  jsn dev tables show incident
 
   # List with filter
   jsn dev tables list --query "super_class=task"
@@ -50,22 +53,8 @@ Examples:
 
   # Delete a table
   jsn dev tables delete u_my_table`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like incidents pattern)
-			// If arg provided, treat as table name to show
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, run the show logic
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			if err := getTableByName(ctx, app, args[0]); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
 		},
 	}
 
@@ -132,10 +121,7 @@ func newTablesShowCmd() *cobra.Command {
 
 Examples:
   # Show table details
-  jsn dev tables show incident
-
-  # Show using bare command
-  jsn dev tables incident`,
+  jsn dev tables show incident`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())

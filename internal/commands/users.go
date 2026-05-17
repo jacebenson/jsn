@@ -22,39 +22,23 @@ var userDefaultColumns = []string{"user_name", "name", "email", "active"}
 // NewUsersCmd creates the users command group.
 func NewUsersCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "users [search]",
+		Use:     "users",
 		Aliases: []string{"user"},
 		Short:   "Manage ServiceNow users",
 		Long: `Manage ServiceNow users.
 
 Examples:
-  # List all users
+  # Show this help
   jsn users
 
-  # Search for users by name or username
-  jsn users "John Doe"
+  # List users
+  jsn users list
 
-  # List with filter
+  # List users by name or username
+  jsn users list --query "nameLIKEJohn Doe^ORuser_nameLIKEJohn Doe"
+
+  # List with a filter
   jsn users list --query "active=true"`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// If no args, show help (like basecamp)
-			if len(args) == 0 {
-				_ = cmd.Help()
-				return
-			}
-
-			// With args, search by name/username
-			app := appctx.FromContext(cmd.Context())
-			ctx := cmd.Context()
-
-			search := args[0]
-			query := fmt.Sprintf("nameLIKE%s^ORuser_nameLIKE%s", search, search)
-
-			if err := listUsers(ctx, app, query, nil); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	cmd.AddCommand(
