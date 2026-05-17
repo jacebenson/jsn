@@ -2,8 +2,10 @@
 package commands
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +43,7 @@ Examples:
 	cmd.AddCommand(newProfilesListCmd())
 	cmd.AddCommand(newProfilesUseCmd())
 	cmd.AddCommand(newProfilesShowCmd())
+	cmd.AddCommand(newProfilesRemoveCmd())
 
 	return cmd
 }
@@ -312,6 +315,135 @@ Examples:
 			return app.OK(profile, output.WithSummary(summary))
 		},
 	}
+}
+
+func newProfilesRemoveCmd() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:     "remove [instance-url|profile-name|number]",
+		Aliases: []string{"rm", "delete", "del"},
+		Short:   "Remove a profile",
+		Long: `Remove a ServiceNow instance profile and its stored credentials.
+
+Examples:
+  # Remove by instance URL
+  jsn profiles remove https://dev12345.service-now.com
+
+  # Remove by profile name
+  jsn profiles remove dev12345
+
+  # Remove by profile number from list
+  jsn profiles remove 2
+
+  # Skip confirmation prompt
+  jsn profiles remove dev12345 --force`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+
+			var instanceURL string
+
+			if len(args) == 0 {
+				// No argument - show interactive picker
+				profiles := getProfileItems(app)
+				if len(profiles) == 0 {
+					return output.ErrUsage("No profiles found.")
+				}
+
+				if !app.IsInteractive() {
+					return output.ErrUsage(`Instance URL, profile name, or number required.
+
+Examples:
+  jsn profiles remove https://dev12345.service-now.com
+  jsn profiles remove dev12345
+  jsn profiles remove 2`)
+				}
+
+				// Show interactive picker
+				picker := tui.NewProfilePicker(profiles)
+				selected, err := picker.Run()
+				if err != nil {
+					return fmt.Errorf("profile selection failed: %w", err)
+				}
+				if selected == nil {
+					return output.ErrUsage("No profile selected")
+				}
+				instanceURL = selected.Instance
+			} else {
+				// Parse the argument - could be URL, profile name, or number
+				arg := args[0]
+
+				// Check if it's a number first
+				if num := parseProfileNumber(arg); num > 0 {
+					profiles := getProfileItems(app)
+					if num <= len(profiles) {
+						instanceURL = profiles[num-1].Instance
+					} else {
+						return output.ErrUsage(fmt.Sprintf("Invalid profile number: %d (only %d profiles available)", num, len(profiles)))
+					}
+				} else if profile, ok := app.Config.Profiles[arg]; ok {
+					// It's a profile name
+					instanceURL = profile.InstanceURL
+				} else {
+					// Assume it's a URL
+					instanceURL = config.NormalizeInstanceURL(arg)
+				}
+			}
+
+			if instanceURL == "" {
+				return output.ErrUsage("No matching profile found.")
+			}
+
+			// Confirm deletion unless --force
+			if !force && app.IsInteractive() {
+				fmt.Fprintf(os.Stderr, "\nRemove profile %s? [y/N] ", instanceURL)
+				reader := bufio.NewReader(os.Stdin)
+				response, _ := reader.ReadString('\n')
+				response = strings.TrimSpace(strings.ToLower(response))
+				if response != "y" && response != "yes" {
+					return app.OK(map[string]any{
+						"removed": false,
+					}, output.WithSummary("Removal cancelled"))
+				}
+			}
+
+			// Remove from config profiles
+			if app.Config.Profiles != nil {
+				for name, p := range app.Config.Profiles {
+					if p.InstanceURL == instanceURL {
+						delete(app.Config.Profiles, name)
+						break
+					}
+				}
+			}
+
+			// If this was the default, clear it
+			wasDefault := instanceURL == app.Config.GetEffectiveInstance()
+			if wasDefault {
+				app.Config.InstanceURL = ""
+				app.Config.DefaultProfile = ""
+			}
+
+			// Save config
+			if err := app.Config.Save(); err != nil {
+				return fmt.Errorf("failed to save config: %w", err)
+			}
+
+			// Remove stored credentials
+			_ = app.Auth.Logout(instanceURL)
+
+			return app.OK(map[string]any{
+				"removed":   true,
+				"instance":  instanceURL,
+				"was_default": wasDefault,
+			}, output.WithSummary(fmt.Sprintf("✓ Removed profile %s", instanceURL)))
+		},
+	}
+
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
+
+	return cmd
 }
 
 // generateProfileName creates a profile name from an instance URL
