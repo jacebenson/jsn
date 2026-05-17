@@ -31,8 +31,9 @@ Explore and manage ServiceNow instances. Works standalone or with AI agents.
 Commands are self-documenting. Use these to learn what's available:
 
 ```bash
-jsn commands --md         # Full catalog with descriptions, actions, and hints
-jsn <command> --help      # Detailed usage, flags, and examples for any command
+jsn --help                # Root help with all top-level commands
+jsn <command> --help        # Detailed usage, flags, and examples for any command
+jsn dev                     # Shows categorized dev subcommands
 ```
 
 ## Agent Rules
@@ -41,7 +42,7 @@ jsn <command> --help      # Detailed usage, flags, and examples for any command
 2. **Use sys_id for updates** — All update/delete operations require sys_id
 3. **Check auth first** — Run `jsn auth status` before operations
 4. **NEVER logout** — Only run `jsn auth logout` if the user explicitly asks
-5. **Use `--profile <name>`** to target a specific instance, or `jsn config switch <name>` to change default
+5. **Use `--profile <name>`** to target a specific instance, or `jsn profiles use <name>` to change default
 6. **Before using `eval` or `rest`** — Ask yourself: *"Have I checked if there's a more specific jsn command?"* Verify `jsn records --table <name> create` won't work first. Prefer specific over generic over escape hatch over eval.
 7. **CONFIRM before destructive operations** — Always show the user exactly what will be created, updated, or deleted and ask for explicit confirmation before executing. Never run `create`, `update`, `delete`, `set`, or `remove` commands without user approval.
 
