@@ -195,6 +195,7 @@ func (m *Manager) Login(instanceURL string) error {
 
 	// Prompt user for the authorization code
 	fmt.Println("After authenticating in the browser, copy the authorization code shown on the page.")
+	fmt.Println("(input is hidden for security — just paste and press Enter)")
 	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)
