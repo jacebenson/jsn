@@ -3,6 +3,7 @@ package dev
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -55,7 +56,7 @@ func NewScopesCmd() *cobra.Command {
 		Use:   "scopes",
 		Short: "List ServiceNow application scopes",
 		Args:  cobra.NoArgs,
-		Long: `List and search ServiceNow application scopes from the sys_scope table.
+Long: `List and search ServiceNow application scopes from the sys_scope table.
 
 Examples:
   # List all scopes (interactive picker in TTY mode)
@@ -68,7 +69,11 @@ Examples:
   jsn dev scopes show "Global"
 
   # List with custom columns
-  jsn dev scopes list --columns "name,scope,sys_id"`,
+  jsn dev scopes list --columns "name,scope,sys_id"
+
+  # Create a new scope (also creates sys_app record)
+  jsn dev scopes create --name "My App"`,
+
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// No args - show help
 			return cmd.Help()
@@ -78,6 +83,7 @@ Examples:
 	cmd.AddCommand(
 		newScopesListCmd(),
 		newScopesShowCmd(),
+		newScopesCreateCmd(),
 	)
 
 	return cmd
@@ -141,6 +147,309 @@ func newScopesShowCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&columns, "columns", "c", "", "Comma-separated columns to display")
+
+	return cmd
+}
+
+func newScopesCreateCmd() *cobra.Command {
+	var (
+		name            string
+		scope           string
+		shortDescription string
+		version         string
+		active          bool
+		data            string
+	)
+
+	const maxScopeLength = 17
+
+	// sanitizeScopeName converts an app name to a valid scope name part:
+	// lowercase, non-alphanumeric replaced with underscores
+	sanitizeScopeName := func(appName string) string {
+		sanitized := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				return r
+			}
+			if r >= 'A' && r <= 'Z' {
+				return r + 32 // lowercase
+			}
+			return '_'
+		}, appName)
+
+		// Collapse multiple underscores
+		for strings.Contains(sanitized, "__") {
+			sanitized = strings.ReplaceAll(sanitized, "__", "_")
+		}
+		// Trim leading/trailing underscores
+		sanitized = strings.Trim(sanitized, "_")
+
+		return sanitized
+	}
+
+	// generateScope builds the scope value from the app name using vendor conventions.
+	// Returns the scope, the stem (scope without suffix), and whether it was truncated.
+	generateScope := func(vendorCode, appName string) (string, string, bool) {
+		sanitized := sanitizeScopeName(appName)
+		if sanitized == "" {
+			return "", "", false
+		}
+
+		// Determine prefix. If no vendor code, this is a non-vendor app.
+		prefix := ""
+		if vendorCode != "" {
+			prefix = fmt.Sprintf("x_%s_", vendorCode)
+		}
+		full := prefix + sanitized
+
+		if len(full) <= maxScopeLength {
+			return full, full, false
+		}
+
+		// Truncation needed: reserve 2 chars for "_N" suffix
+		available := maxScopeLength - len(prefix)
+		namePart := strings.TrimRight(sanitized[:available-2], "_")
+		scopeVal := prefix + namePart + "_0"
+		stem := prefix + namePart
+		return scopeVal, stem, true
+	}
+
+	// resolveScopeCollision checks if the generated scope already exists and
+	// finds the next available suffix (_0, _1, _2, ...).
+	resolveScopeCollision := func(ctx context.Context, app *appctx.App, scopeVal, stem string) (string, error) {
+		// Check if the scope already exists
+		checkParams := url.Values{}
+		checkParams.Set("sysparm_query", fmt.Sprintf("scope=%s", scopeVal))
+		checkParams.Set("sysparm_limit", "1")
+		checkParams.Set("sysparm_fields", "sys_id,scope")
+		existing, err := app.SDK.List(ctx, "sys_scope", checkParams)
+		if err != nil {
+			return scopeVal, err
+		}
+		if len(existing) == 0 {
+			return scopeVal, nil // No collision
+		}
+
+		// Collision — find all scopes matching the stem
+		listParams := url.Values{}
+		listParams.Set("sysparm_query", fmt.Sprintf("scopeSTARTSWITH%s", stem))
+		listParams.Set("sysparm_fields", "scope")
+		listParams.Set("sysparm_limit", "100")
+		allMatching, err := app.SDK.List(ctx, "sys_scope", listParams)
+		if err != nil {
+			return "", fmt.Errorf("failed to check existing scopes: %w", err)
+		}
+
+		maxSuffix := -1
+		stemLen := len(stem)
+		for _, rec := range allMatching {
+			s, _ := rec["scope"].(string)
+			if s == stem {
+				// The stem itself is a scope — counts as suffix -1, so next is 0
+				if maxSuffix < -1 {
+					maxSuffix = -1
+				}
+				continue
+			}
+			// Extract trailing _N suffix
+			if strings.HasPrefix(s, stem) && len(s) > stemLen {
+				suffix := s[stemLen:]
+				var n int
+				if _, err := fmt.Sscanf(suffix, "_%d", &n); err == nil && n > maxSuffix {
+					maxSuffix = n
+				}
+			}
+		}
+
+		nextSuffix := maxSuffix + 1
+		newScope := fmt.Sprintf("%s_%d", stem, nextSuffix)
+
+		if len(newScope) > maxScopeLength {
+			return "", fmt.Errorf("cannot generate unique scope — all suffixes exhausted for stem %q", stem)
+		}
+
+		return newScope, nil
+	}
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new application scope",
+		Long: `Create a new application scope in ServiceNow.
+
+The scope value is auto-generated from the app name when --scope is not provided.
+For vendor/custom scopes, the format is: x_<vendor>_<app> (max 17 characters).
+The vendor code comes from the glide.appcreator.company.code system property.
+
+If the generated scope exceeds 17 characters, it is truncated and suffixed with _0.
+
+A corresponding sys_app record is also created automatically.
+
+Examples:
+  jsn dev scopes create --name "My App"
+  jsn dev scopes create --name "My App" --short-description "My custom application"
+  jsn dev scopes create --name "My App" --scope "x_8821_my_app"
+  jsn dev scopes create --name "My App" --scope "x_8821_my_app" --active false
+  jsn dev scopes create --name "My App" --version "2.0.0"
+  jsn dev scopes create --data '{"name":"My App","scope":"x_8821_my_app"}'`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app := appctx.FromContext(cmd.Context())
+			ctx := cmd.Context()
+
+			recordData := make(map[string]any)
+
+			// Parse --data if provided
+			if data != "" {
+				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+					return fmt.Errorf("invalid JSON in --data: %w", err)
+				}
+			}
+
+			// Apply flag values (flags override --data)
+			if name != "" {
+				recordData["name"] = name
+			}
+			if shortDescription != "" {
+				recordData["short_description"] = shortDescription
+			}
+			if cmd.Flags().Changed("active") {
+				recordData["active"] = active
+			}
+
+			// Validate required fields
+			if recordData["name"] == nil || recordData["name"] == "" {
+				return fmt.Errorf("name is required (use --name or --data)")
+			}
+
+			// Auto-generate scope if not explicitly provided
+			if scope != "" {
+				recordData["scope"] = scope
+			} else if _, exists := recordData["scope"]; !exists || recordData["scope"] == "" {
+				// Fetch vendor code from system property
+				vendorCode := ""
+				propParams := url.Values{}
+				propParams.Set("sysparm_query", "name=glide.appcreator.company.code")
+				propParams.Set("sysparm_fields", "value")
+				propParams.Set("sysparm_limit", "1")
+				props, err := app.SDK.List(ctx, "sys_properties", propParams)
+				if err == nil && len(props) > 0 {
+					if v, ok := props[0]["value"].(string); ok && v != "" {
+						vendorCode = v
+					}
+				}
+
+				appName := fmt.Sprintf("%v", recordData["name"])
+				generated, stem, truncated := generateScope(vendorCode, appName)
+				if generated == "" {
+					return fmt.Errorf("could not generate scope from name %q", appName)
+				}
+
+				// Check for collisions with existing scopes
+				resolved, err := resolveScopeCollision(ctx, app, generated, stem)
+				if err != nil {
+					return fmt.Errorf("failed to check scope availability: %w", err)
+				}
+				recordData["scope"] = resolved
+				if truncated || resolved != generated {
+					fmt.Fprintf(os.Stderr, "# Scope truncated to 17 chars: %s\n", resolved)
+				}
+				fmt.Fprintf(os.Stderr, "# Using vendor code: %s\n", vendorCode)
+			}
+
+			// Validate the scope value
+			scopeVal := fmt.Sprintf("%v", recordData["scope"])
+			if scopeVal == "" {
+				return fmt.Errorf("scope value is required (use --scope, --data, or provide a --name to auto-generate)")
+			}
+			if len(scopeVal) > maxScopeLength {
+				return fmt.Errorf("scope value %q is %d characters (max %d). Use a shorter name or specify --scope manually", scopeVal, len(scopeVal), maxScopeLength)
+			}
+
+			// Check for collisions when --scope was explicitly provided
+			if scope != "" || (data != "") {
+				checkParams := url.Values{}
+				checkParams.Set("sysparm_query", fmt.Sprintf("scope=%s", scopeVal))
+				checkParams.Set("sysparm_limit", "1")
+				checkParams.Set("sysparm_fields", "sys_id")
+				existing, err := app.SDK.List(ctx, "sys_scope", checkParams)
+				if err == nil && len(existing) > 0 {
+					return fmt.Errorf("scope %q already exists. Use a different --scope value or omit --scope to auto-generate", scopeVal)
+				}
+			}
+
+			// Create the sys_scope record
+			scopeRecord, err := app.SDK.Create(ctx, "sys_scope", recordData)
+			if err != nil {
+				return fmt.Errorf("failed to create scope: %w", err)
+			}
+
+			createdName := getStringValue(scopeRecord, "name")
+			createdScope := getStringValue(scopeRecord, "scope")
+
+			// Also create the required sys_app record
+			appVersion := version
+			if appVersion == "" {
+				appVersion = "1.0.0"
+			}
+
+			appRecord := map[string]any{
+				"name":                     createdName,
+				"scope":                    createdScope,
+				"source":                   createdScope,
+				"active":                   true,
+				"can_edit_in_studio":       true,
+				"enforce_license":          "none",
+				"hide_on_ui":               false,
+				"ide_created":              "SNS",
+				"installed_as_dependency":  false,
+				"js_level":                 "es_latest",
+				"licensable":               true,
+				"license_category":         "none",
+				"license_model":            "none",
+				"private":                  false,
+				"restrict_table_access":    false,
+				"runtime_access_tracking":  "permissive",
+				"scoped_administration":    false,
+				"trackable":                true,
+				"uninstall_blocked":        false,
+				"version":                  appVersion,
+			}
+
+			createdApp, err := app.SDK.Create(ctx, "sys_app", appRecord)
+			if err != nil {
+				// Scope was created but app record failed — warn but don't fail
+				fmt.Fprintf(os.Stderr, "# Warning: sys_scope created but sys_app creation failed: %v\n", err)
+			}
+
+			result := map[string]any{
+				"sys_scope": scopeRecord,
+			}
+			if createdApp != nil {
+				result["sys_app"] = createdApp
+			}
+
+			return app.OK(result,
+				output.WithSummary(fmt.Sprintf("Created scope '%s' (%s)", createdName, createdScope)),
+				output.WithBreadcrumbs(
+					output.Breadcrumb{
+						Action:      "show",
+						Cmd:         fmt.Sprintf("jsn dev scopes show %s", createdName),
+						Description: "View the new scope",
+					},
+					output.Breadcrumb{
+						Action:      "list",
+						Cmd:         "jsn dev scopes list",
+						Description: "Back to all scopes",
+					},
+				),
+			)
+		},
+	}
+
+	cmd.Flags().StringVarP(&name, "name", "n", "", "Scope name (required — auto-generates scope value)")
+	cmd.Flags().StringVarP(&scope, "scope", "s", "", "Scope value, e.g. x_8821_my_app (optional — auto-generated from --name if omitted)")
+	cmd.Flags().StringVarP(&shortDescription, "short-description", "d", "", "Short description of the scope")
+	cmd.Flags().StringVar(&version, "version", "1.0.0", "Application version (default: 1.0.0)")
+	cmd.Flags().BoolVar(&active, "active", true, "Set active status (default: true)")
+	cmd.Flags().StringVar(&data, "data", "", "Raw JSON data for additional fields")
 
 	return cmd
 }

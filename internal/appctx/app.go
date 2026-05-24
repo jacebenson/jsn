@@ -185,7 +185,7 @@ func (a *App) PrintContextHeader() {
 	scopeFormatted := fmt.Sprintf("[%s]", scope)
 
 	// Print hint line
-	fmt.Fprintln(os.Stderr, "# Use `jsn updateset use` or `jsn scope use` to change scope/updateset")
+	fmt.Fprintln(os.Stderr, "# Use `jsn dev scopes` to change scope, `jsn dev updatesets set` to change updateset")
 
 	// Print header - PROFILE, USER, and SCOPE columns
 	// USER column width is 9 to accommodate "xxxxxx..." format
