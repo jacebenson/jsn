@@ -56,7 +56,7 @@ func NewScopesCmd() *cobra.Command {
 		Use:   "scopes",
 		Short: "List ServiceNow application scopes",
 		Args:  cobra.NoArgs,
-Long: `List and search ServiceNow application scopes from the sys_scope table.
+		Long: `List and search ServiceNow application scopes from the sys_scope table.
 
 Examples:
   # List all scopes (interactive picker in TTY mode)
@@ -153,12 +153,12 @@ func newScopesShowCmd() *cobra.Command {
 
 func newScopesCreateCmd() *cobra.Command {
 	var (
-		name            string
-		scope           string
+		name             string
+		scope            string
 		shortDescription string
-		version         string
-		active          bool
-		data            string
+		version          string
+		active           bool
+		data             string
 	)
 
 	const maxScopeLength = 17
@@ -391,26 +391,26 @@ Examples:
 			}
 
 			appRecord := map[string]any{
-				"name":                     createdName,
-				"scope":                    createdScope,
-				"source":                   createdScope,
-				"active":                   true,
-				"can_edit_in_studio":       true,
-				"enforce_license":          "none",
-				"hide_on_ui":               false,
-				"ide_created":              "SNS",
-				"installed_as_dependency":  false,
-				"js_level":                 "es_latest",
-				"licensable":               true,
-				"license_category":         "none",
-				"license_model":            "none",
-				"private":                  false,
-				"restrict_table_access":    false,
-				"runtime_access_tracking":  "permissive",
-				"scoped_administration":    false,
-				"trackable":                true,
-				"uninstall_blocked":        false,
-				"version":                  appVersion,
+				"name":                    createdName,
+				"scope":                   createdScope,
+				"source":                  createdScope,
+				"active":                  true,
+				"can_edit_in_studio":      true,
+				"enforce_license":         "none",
+				"hide_on_ui":              false,
+				"ide_created":             "SNS",
+				"installed_as_dependency": false,
+				"js_level":                "es_latest",
+				"licensable":              true,
+				"license_category":        "none",
+				"license_model":           "none",
+				"private":                 false,
+				"restrict_table_access":   false,
+				"runtime_access_tracking": "permissive",
+				"scoped_administration":   false,
+				"trackable":               true,
+				"uninstall_blocked":       false,
+				"version":                 appVersion,
 			}
 
 			createdApp, err := app.SDK.Create(ctx, "sys_app", appRecord)

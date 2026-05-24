@@ -64,3 +64,5 @@ build/
 /.old-*/
 /.backup*/
 /.local*/
+
+/node_modules
