@@ -4,9 +4,22 @@ package dev
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/jacebenson/jsn/internal/appctx"
 )
+
+// readDataInput reads JSON data from --data string or --data-file path.
+func readDataInput(data string, dataFile string) ([]byte, error) {
+	if dataFile != "" {
+		b, err := os.ReadFile(dataFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read data file: %w", err)
+		}
+		return b, nil
+	}
+	return []byte(data), nil
+}
 
 // Common status icons used across dev commands
 const (

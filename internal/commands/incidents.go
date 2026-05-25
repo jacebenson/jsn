@@ -136,6 +136,7 @@ func newIncidentsCreateCmd() *cobra.Command {
 		shortDesc string
 		priority  string
 		data      string
+		dataFile  string
 	)
 
 	cmd := &cobra.Command{
@@ -151,9 +152,13 @@ If using --data, flag values will be merged (flags take precedence).`,
 			// Build record data
 			recordData := make(map[string]any)
 
-			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			// Parse --data or --data-file if provided
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -192,12 +197,16 @@ If using --data, flag values will be merged (flags take precedence).`,
 	cmd.Flags().StringVarP(&shortDesc, "description", "d", "", "Short description (required if not in --data)")
 	cmd.Flags().StringVarP(&priority, "priority", "", "", "Priority (1-5, where 1 is critical)")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newIncidentsUpdateCmd() *cobra.Command {
-	var data string
+	var (
+		data     string
+		dataFile string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "update [number]",
@@ -208,13 +217,17 @@ func newIncidentsUpdateCmd() *cobra.Command {
 			app := appctx.FromContext(cmd.Context())
 			number := args[0]
 
-			if data == "" {
-				return fmt.Errorf("--data is required")
+			if data == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
 			}
 
 			// Parse JSON data
+			raw, err := readDataInput(data, dataFile)
+			if err != nil {
+				return err
+			}
 			var recordData map[string]any
-			if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if err := json.Unmarshal(raw, &recordData); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -244,8 +257,8 @@ func newIncidentsUpdateCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&data, "data", "", "JSON data to update (required)")
-	_ = cmd.MarkFlagRequired("data")
+	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }

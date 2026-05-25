@@ -346,7 +346,7 @@ Examples:
 					"name":          name,
 					"instance":      profile.InstanceURL,
 					"authenticated": isAuth,
-					"is_default":    profile.InstanceURL == defaultInstance,
+					"default":       profile.InstanceURL == defaultInstance,
 				})
 			}
 			status["profiles"] = profiles

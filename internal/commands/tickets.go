@@ -117,7 +117,7 @@ func newTicketsShowCmd() *cobra.Command {
 }
 
 func newTicketsCreateCmd() *cobra.Command {
-	var dataStr string
+	var dataStr, dataFile string
 
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -134,8 +134,16 @@ Examples:
 			app := appctx.FromContext(cmd.Context())
 			ctx := cmd.Context()
 
+			if dataStr == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
+			}
+
+			raw, err := readDataInput(dataStr, dataFile)
+			if err != nil {
+				return err
+			}
 			var data map[string]any
-			if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+			if err := json.Unmarshal(raw, &data); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -162,14 +170,14 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&dataStr, "data", "d", "", "JSON data for the new record (required)")
-	_ = cmd.MarkFlagRequired("data")
+	cmd.Flags().StringVarP(&dataStr, "data", "d", "", "JSON data for the new record")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newTicketsUpdateCmd() *cobra.Command {
-	var dataStr string
+	var dataStr, dataFile string
 
 	cmd := &cobra.Command{
 		Use:   "update [number]",
@@ -184,8 +192,16 @@ Example:
 			ctx := cmd.Context()
 			number := args[0]
 
+			if dataStr == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
+			}
+
+			raw, err := readDataInput(dataStr, dataFile)
+			if err != nil {
+				return err
+			}
 			var data map[string]any
-			if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+			if err := json.Unmarshal(raw, &data); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -229,8 +245,8 @@ Example:
 		},
 	}
 
-	cmd.Flags().StringVarP(&dataStr, "data", "d", "", "JSON data for updates (required)")
-	_ = cmd.MarkFlagRequired("data")
+	cmd.Flags().StringVarP(&dataStr, "data", "d", "", "JSON data for updates")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }

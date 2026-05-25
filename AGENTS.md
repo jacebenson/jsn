@@ -151,6 +151,10 @@ if [ $? -eq 0 ]; then
     SYS_ID=$(echo "$INCIDENT" | jq -r '.sys_id')
     jsn records update --table incident --sys-id "$SYS_ID" --data '{"state": "6"}'
 fi
+
+# Use --data-file to avoid shell quoting issues (especially on Windows PowerShell)
+echo '{"state": "6"}' > /tmp/payload.json
+jsn records update --table incident --sys-id "$SYS_ID" --data-file /tmp/payload.json
 ```
 
 ## Safety Guidelines

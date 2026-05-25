@@ -159,6 +159,7 @@ func newScopesCreateCmd() *cobra.Command {
 		version          string
 		active           bool
 		data             string
+		dataFile         string
 	)
 
 	const maxScopeLength = 17
@@ -297,8 +298,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON in --data: %w", err)
 				}
 			}
@@ -450,6 +455,7 @@ Examples:
 	cmd.Flags().StringVar(&version, "version", "1.0.0", "Application version (default: 1.0.0)")
 	cmd.Flags().BoolVar(&active, "active", true, "Set active status (default: true)")
 	cmd.Flags().StringVar(&data, "data", "", "Raw JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }

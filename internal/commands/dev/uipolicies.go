@@ -151,6 +151,7 @@ func newUIPoliciesCreateCmd() *cobra.Command {
 		runScripts  bool
 		scope       string
 		data        string
+		dataFile    string
 	)
 
 	cmd := &cobra.Command{
@@ -172,8 +173,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -239,6 +244,7 @@ Examples:
 	cmd.Flags().BoolVar(&runScripts, "run-scripts", false, "Run UI scripts when policy applies")
 	cmd.Flags().StringVar(&scope, "scope", "", "Target scope")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
@@ -246,6 +252,7 @@ Examples:
 func newUIPoliciesUpdateCmd() *cobra.Command {
 	var (
 		data      string
+		dataFile  string
 		condition string
 		active    bool
 		order     int
@@ -290,8 +297,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -335,6 +346,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().StringVarP(&condition, "condition", "c", "", "Update condition script")
 	cmd.Flags().BoolVarP(&active, "active", "a", true, "Set active status")
 	cmd.Flags().IntVarP(&order, "order", "o", 100, "Update execution order")

@@ -140,6 +140,7 @@ func newTablesCreateCmd() *cobra.Command {
 		createACLs   bool
 		scope        string
 		data         string
+		dataFile     string
 		isExtendable bool
 	)
 
@@ -176,8 +177,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -254,6 +259,7 @@ Examples:
 	cmd.Flags().BoolVar(&createACLs, "create-acls", true, "Create basic ACLs")
 	cmd.Flags().StringVar(&scope, "scope", "", "Target scope (default: current scope)")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().BoolVar(&isExtendable, "extendable", false, "Allow other tables to extend this table")
 
 	_ = cmd.MarkFlagRequired("name")
@@ -264,8 +270,9 @@ Examples:
 
 func newTablesUpdateCmd() *cobra.Command {
 	var (
-		label string
-		data  string
+		label    string
+		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -297,7 +304,10 @@ Examples:
 			}
 
 			sysID := getStringField(record, "sys_id")
-			recordScope := getStringField(record, "sys_scope")
+			recordScope := getStringField(record, "sys_scope.scope")
+			if recordScope == "" {
+				recordScope = getStringField(record, "sys_scope")
+			}
 
 			// Validate scope
 			validator := NewScopeValidator(app)
@@ -309,8 +319,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -353,6 +367,7 @@ Examples:
 
 	cmd.Flags().StringVar(&label, "label", "", "New display label")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for updates")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
@@ -390,7 +405,10 @@ Examples:
 			}
 
 			sysID := getStringField(record, "sys_id")
-			recordScope := getStringField(record, "sys_scope")
+			recordScope := getStringField(record, "sys_scope.scope")
+			if recordScope == "" {
+				recordScope = getStringField(record, "sys_scope")
+			}
 
 			// Validate scope
 			validator := NewScopeValidator(app)

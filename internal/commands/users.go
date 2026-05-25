@@ -202,6 +202,7 @@ func newUsersCreateCmd() *cobra.Command {
 		name     string
 		email    string
 		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -223,8 +224,12 @@ Examples:
 
 			recordData := make(map[string]any)
 
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -265,12 +270,13 @@ Examples:
 	cmd.Flags().StringVarP(&name, "name", "n", "", "Full name")
 	cmd.Flags().StringVarP(&email, "email", "e", "", "Email address")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newUsersUpdateCmd() *cobra.Command {
-	var data string
+	var data, dataFile string
 
 	cmd := &cobra.Command{
 		Use:   "update [username]",
@@ -288,12 +294,16 @@ Examples:
 			app := appctx.FromContext(cmd.Context())
 			username := args[0]
 
-			if data == "" {
-				return fmt.Errorf("--data is required")
+			if data == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
 			}
 
+			raw, err := readDataInput(data, dataFile)
+			if err != nil {
+				return err
+			}
 			var recordData map[string]any
-			if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if err := json.Unmarshal(raw, &recordData); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -333,8 +343,8 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&data, "data", "", "JSON data to update (required)")
-	_ = cmd.MarkFlagRequired("data")
+	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
