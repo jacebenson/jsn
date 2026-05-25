@@ -297,7 +297,10 @@ Examples:
 			}
 
 			sysID := getStringField(record, "sys_id")
-			recordScope := getStringField(record, "sys_scope")
+			recordScope := getStringField(record, "sys_scope.scope")
+			if recordScope == "" {
+				recordScope = getStringField(record, "sys_scope")
+			}
 
 			// Validate scope
 			validator := NewScopeValidator(app)
@@ -390,7 +393,10 @@ Examples:
 			}
 
 			sysID := getStringField(record, "sys_id")
-			recordScope := getStringField(record, "sys_scope")
+			recordScope := getStringField(record, "sys_scope.scope")
+			if recordScope == "" {
+				recordScope = getStringField(record, "sys_scope")
+			}
 
 			// Validate scope
 			validator := NewScopeValidator(app)
