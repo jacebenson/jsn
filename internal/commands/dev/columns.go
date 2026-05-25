@@ -164,6 +164,7 @@ func newColumnsCreateCmd() *cobra.Command {
 		active         bool
 		scope          string
 		data           string
+		dataFile       string
 	)
 
 	cmd := &cobra.Command{
@@ -200,8 +201,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -317,6 +322,7 @@ Examples:
 	cmd.Flags().BoolVar(&active, "active", true, "Set active status (default: true)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Target scope (defaults to current user scope)")
 	cmd.Flags().StringVar(&data, "data", "", "Raw JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
@@ -330,6 +336,7 @@ func newColumnsUpdateCmd() *cobra.Command {
 		active       bool
 		activeSet    bool
 		data         string
+		dataFile     string
 		table        string
 	)
 
@@ -385,8 +392,12 @@ Examples:
 
 			// Parse JSON data if provided
 			var recordData map[string]any
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			} else {
@@ -451,6 +462,7 @@ Examples:
 	cmd.Flags().IntVar(&maxLength, "max-length", 0, "Maximum length (for string types)")
 	cmd.Flags().BoolVar(&active, "active", true, "Set active status")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().StringVarP(&table, "table", "t", "", "Table name (required when using element name instead of sys_id)")
 
 	// These are needed to track if the flags were explicitly set (vs just default values)

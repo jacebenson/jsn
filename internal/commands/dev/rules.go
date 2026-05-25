@@ -155,6 +155,7 @@ func newRulesCreateCmd() *cobra.Command {
 		query        bool
 		businessRule bool
 		data         string
+		dataFile     string
 	)
 
 	cmd := &cobra.Command{
@@ -179,8 +180,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -267,16 +272,18 @@ Examples:
 	cmd.Flags().BoolVar(&query, "query", false, "Run on query")
 	cmd.Flags().BoolVar(&businessRule, "business-rule", false, "Is business rule")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newRulesUpdateCmd() *cobra.Command {
 	var (
-		data   string
-		script string
-		active bool
-		order  int
+		data     string
+		dataFile string
+		script   string
+		active   bool
+		order    int
 	)
 
 	cmd := &cobra.Command{
@@ -318,8 +325,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -363,6 +374,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().StringVarP(&script, "script", "s", "", "Update script content")
 	cmd.Flags().BoolVarP(&active, "active", "a", true, "Set active status")
 	cmd.Flags().IntVarP(&order, "order", "o", 100, "Update execution order")

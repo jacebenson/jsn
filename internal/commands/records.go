@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,18 @@ import (
 	"github.com/jacebenson/jsn/internal/appctx"
 	"github.com/jacebenson/jsn/internal/output"
 )
+
+// readDataInput reads JSON data from --data string or --data-file path.
+func readDataInput(data string, dataFile string) ([]byte, error) {
+	if dataFile != "" {
+		b, err := os.ReadFile(dataFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read data file: %w", err)
+		}
+		return b, nil
+	}
+	return []byte(data), nil
+}
 
 // RecordsFlags holds the flags for the records command.
 type recordsFlags struct {
@@ -321,8 +334,9 @@ func newRecordsGetCmd() *cobra.Command {
 
 func newRecordsCreateCmd() *cobra.Command {
 	var (
-		table string
-		data  string
+		table    string
+		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -335,13 +349,17 @@ func newRecordsCreateCmd() *cobra.Command {
 			if table == "" {
 				return fmt.Errorf("--table is required")
 			}
-			if data == "" {
-				return fmt.Errorf("--data is required")
+			if data == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
 			}
 
 			// Parse JSON data
+			raw, err := readDataInput(data, dataFile)
+			if err != nil {
+				return err
+			}
 			var recordData map[string]any
-			if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if err := json.Unmarshal(raw, &recordData); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -355,19 +373,20 @@ func newRecordsCreateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&table, "table", "", "Table name (required)")
-	cmd.Flags().StringVar(&data, "data", "", "JSON data for the record (required)")
+	cmd.Flags().StringVar(&data, "data", "", "JSON data for the record")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	_ = cmd.MarkFlagRequired("table")
-	_ = cmd.MarkFlagRequired("data")
 
 	return cmd
 }
 
 func newRecordsUpdateCmd() *cobra.Command {
 	var (
-		table string
-		sysID string
-		data  string
+		table    string
+		sysID    string
+		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -383,13 +402,17 @@ func newRecordsUpdateCmd() *cobra.Command {
 			if sysID == "" {
 				return fmt.Errorf("--sys-id is required")
 			}
-			if data == "" {
-				return fmt.Errorf("--data is required")
+			if data == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
 			}
 
 			// Parse JSON data
+			raw, err := readDataInput(data, dataFile)
+			if err != nil {
+				return err
+			}
 			var recordData map[string]any
-			if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if err := json.Unmarshal(raw, &recordData); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -404,11 +427,11 @@ func newRecordsUpdateCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&table, "table", "", "Table name (required)")
 	cmd.Flags().StringVar(&sysID, "sys-id", "", "Record sys_id (required)")
-	cmd.Flags().StringVar(&data, "data", "", "JSON data to update (required)")
+	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	_ = cmd.MarkFlagRequired("table")
 	_ = cmd.MarkFlagRequired("sys-id")
-	_ = cmd.MarkFlagRequired("data")
 
 	return cmd
 }

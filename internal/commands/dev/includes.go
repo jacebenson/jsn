@@ -135,12 +135,13 @@ Examples:
 
 func newIncludesCreateCmd() *cobra.Command {
 	var (
-		name    string
-		apiName string
-		script  string
-		active  bool
-		scope   string
-		data    string
+		name     string
+		apiName  string
+		script   string
+		active   bool
+		scope    string
+		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -171,8 +172,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -262,14 +267,16 @@ Examples:
 	cmd.Flags().BoolVar(&active, "active", true, "Set active status (default: true)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Target scope (defaults to current user scope)")
 	cmd.Flags().StringVar(&data, "data", "", "Raw JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newIncludesUpdateCmd() *cobra.Command {
 	var (
-		data   string
-		script string
+		data     string
+		dataFile string
+		script   string
 	)
 
 	cmd := &cobra.Command{
@@ -314,8 +321,12 @@ Examples:
 
 			// Parse JSON data if provided
 			var recordData map[string]any
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			} else {
@@ -367,6 +378,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update (required if no --script)")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().StringVarP(&script, "script", "s", "", "New script content (convenience flag)")
 
 	return cmd

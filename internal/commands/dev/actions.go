@@ -136,10 +136,11 @@ Examples:
 
 func newActionsCreateCmd() *cobra.Command {
 	var (
-		name   string
-		active bool
-		scope  string
-		data   string
+		name     string
+		active   bool
+		scope    string
+		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -173,14 +174,16 @@ Planned implementation: POST /api/sn_fnd/action/v1/actions with GraphQL mutation
 	cmd.Flags().BoolVar(&active, "active", true, "Set active status (default: true)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Target scope (defaults to current user scope)")
 	cmd.Flags().StringVar(&data, "data", "", "Raw JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newActionsUpdateCmd() *cobra.Command {
 	var (
-		data   string
-		active bool
+		data     string
+		dataFile string
+		active   bool
 	)
 
 	cmd := &cobra.Command{
@@ -207,6 +210,7 @@ Planned implementation: PUT /api/sn_fnd/action/v1/actions/{sys_id} with GraphQL 
 	}
 
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().BoolVar(&active, "active", true, "Update active status")
 
 	return cmd

@@ -145,6 +145,7 @@ func newRolesCreateCmd() *cobra.Command {
 		elevated    bool
 		scope       string
 		data        string
+		dataFile    string
 	)
 
 	cmd := &cobra.Command{
@@ -175,8 +176,12 @@ Examples:
 			recordData := make(map[string]any)
 
 			// Parse --data if provided
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -246,6 +251,7 @@ Examples:
 	cmd.Flags().BoolVar(&elevated, "elevated", false, "Elevated privilege (default: false)")
 	cmd.Flags().StringVar(&scope, "scope", "", "Target scope (defaults to current user scope)")
 	cmd.Flags().StringVar(&data, "data", "", "Raw JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
@@ -253,6 +259,7 @@ Examples:
 func newRolesUpdateCmd() *cobra.Command {
 	var (
 		data        string
+		dataFile    string
 		description string
 		elevated    bool
 	)
@@ -299,8 +306,12 @@ Examples:
 
 			// Parse JSON data if provided
 			var recordData map[string]any
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			} else {
@@ -356,6 +367,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 	cmd.Flags().StringVarP(&description, "description", "d", "", "New description")
 	cmd.Flags().BoolVar(&elevated, "elevated", false, "Set elevated privilege")
 

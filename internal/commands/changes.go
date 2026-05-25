@@ -131,6 +131,7 @@ func newChangesCreateCmd() *cobra.Command {
 		shortDesc string
 		risk      string
 		data      string
+		dataFile  string
 	)
 
 	cmd := &cobra.Command{
@@ -141,8 +142,12 @@ func newChangesCreateCmd() *cobra.Command {
 
 			recordData := make(map[string]any)
 
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -179,12 +184,13 @@ func newChangesCreateCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&shortDesc, "description", "d", "", "Short description")
 	cmd.Flags().StringVarP(&risk, "risk", "r", "", "Risk level (low, moderate, high)")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newChangesUpdateCmd() *cobra.Command {
-	var data string
+	var data, dataFile string
 
 	cmd := &cobra.Command{
 		Use:   "update [number]",
@@ -194,12 +200,16 @@ func newChangesUpdateCmd() *cobra.Command {
 			app := appctx.FromContext(cmd.Context())
 			number := args[0]
 
-			if data == "" {
-				return fmt.Errorf("--data is required")
+			if data == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
 			}
 
+			raw, err := readDataInput(data, dataFile)
+			if err != nil {
+				return err
+			}
 			var recordData map[string]any
-			if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if err := json.Unmarshal(raw, &recordData); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -229,7 +239,7 @@ func newChangesUpdateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
-	_ = cmd.MarkFlagRequired("data")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }

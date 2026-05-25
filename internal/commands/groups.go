@@ -480,9 +480,10 @@ func getGroupBySysID(ctx context.Context, app *appctx.App, sysID string) error {
 
 func newGroupsCreateCmd() *cobra.Command {
 	var (
-		name    string
-		manager string
-		data    string
+		name     string
+		manager  string
+		data     string
+		dataFile string
 	)
 
 	cmd := &cobra.Command{
@@ -504,8 +505,12 @@ Examples:
 
 			recordData := make(map[string]any)
 
-			if data != "" {
-				if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if data != "" || dataFile != "" {
+				raw, err := readDataInput(data, dataFile)
+				if err != nil {
+					return err
+				}
+				if err := json.Unmarshal(raw, &recordData); err != nil {
 					return fmt.Errorf("invalid JSON data: %w", err)
 				}
 			}
@@ -542,12 +547,13 @@ Examples:
 	cmd.Flags().StringVarP(&name, "name", "n", "", "Group name (required if not in --data)")
 	cmd.Flags().StringVarP(&manager, "manager", "m", "", "Manager username")
 	cmd.Flags().StringVar(&data, "data", "", "JSON data for additional fields")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
 
 func newGroupsUpdateCmd() *cobra.Command {
-	var data string
+	var data, dataFile string
 
 	cmd := &cobra.Command{
 		Use:   "update [name]",
@@ -562,12 +568,16 @@ Examples:
 			app := appctx.FromContext(cmd.Context())
 			groupName := args[0]
 
-			if data == "" {
-				return fmt.Errorf("--data is required")
+			if data == "" && dataFile == "" {
+				return fmt.Errorf("--data or --data-file is required")
 			}
 
+			raw, err := readDataInput(data, dataFile)
+			if err != nil {
+				return err
+			}
 			var recordData map[string]any
-			if err := json.Unmarshal([]byte(data), &recordData); err != nil {
+			if err := json.Unmarshal(raw, &recordData); err != nil {
 				return fmt.Errorf("invalid JSON data: %w", err)
 			}
 
@@ -607,8 +617,8 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&data, "data", "", "JSON data to update (required)")
-	_ = cmd.MarkFlagRequired("data")
+	cmd.Flags().StringVar(&data, "data", "", "JSON data to update")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Path to JSON file (alternative to --data)")
 
 	return cmd
 }
