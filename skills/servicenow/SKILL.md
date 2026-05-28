@@ -33,7 +33,7 @@ Commands are self-documenting. Use these to learn what's available:
 ```bash
 jsn --help                # Root help with all top-level commands
 jsn <command> --help        # Detailed usage, flags, and examples for any command
-jsn dev                     # Shows categorized dev subcommands
+jsn dev --help                   # Shows categorized dev subcommands
 ```
 
 ## Agent Rules
@@ -45,6 +45,7 @@ jsn dev                     # Shows categorized dev subcommands
 5. **Use `--profile <name>`** to target a specific instance, or `jsn profiles use <name>` to change default
 6. **Before using `eval` or `rest`** — Ask yourself: *"Have I checked if there's a more specific jsn command?"* Verify `jsn records --table <name> create` won't work first. Prefer specific over generic over escape hatch over eval.
 7. **CONFIRM before destructive operations** — Always show the user exactly what will be created, updated, or deleted and ask for explicit confirmation before executing. Never run `create`, `update`, `delete`, `set`, or `remove` commands without user approval.
+8.  **ALWAYS use the appropriate Update Set and Scope, to see those run `jsn dev updatesets list` and `jsn dev scopes list`**  If you're not sure, don't guess.  Ask the user which Update Set and Scope to use before making changes.  Never assume defaults.
 
 ## ⚠️ Destructive Operations Require Confirmation
 
