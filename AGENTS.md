@@ -157,6 +157,30 @@ echo '{"state": "6"}' > /tmp/payload.json
 jsn records update --table incident --sys-id "$SYS_ID" --data-file /tmp/payload.json
 ```
 
+### 6. Windows PowerShell Caveats
+
+When using jsn from **Windows PowerShell** (powershell.exe), be aware of these platform limitations:
+
+| Issue | Root Cause | Workaround |
+|-------|-----------|------------|
+| JSON parse errors with `--data` (e.g., `invalid character 'l' looking for beginning of object key string`) | PowerShell strips/mangles quotes in inline JSON | **Always use `--data-file`** instead of inline `--data` |
+| 8,192 character command-line limit | PowerShell truncates long commands | Use `--data-file` for large payloads; use Git Bash for long inline arguments |
+| Large `--data-file` payloads hang | PowerShell I/O buffering with large files | Run jsn via Git Bash: `& "C:\Program Files\Git\bin\bash.exe" -lc "jsn records update --table ... --data-file 'C:/path/to/payload.json'"` |
+
+**Rule of thumb on Windows**: Never use `--data` with inline JSON on PowerShell. Always write JSON payloads to a file and use `--data-file`. Both cmd.exe and PowerShell handle file-based payloads correctly.
+
+```powershell
+# ❌ BAD: PowerShell mangles quotes — JSON parse errors
+jsn records update --table incident --sys-id abc123 --data '{"state": "6", "assigned_to": "user_id"}'
+
+# ✅ GOOD: Write to file, use --data-file
+@'{"state": "6", "assigned_to": "user_id"}'@ | Out-File -Encoding utf8 payload.json
+jsn records update --table incident --sys-id abc123 --data-file payload.json
+
+# ✅ GOOD: Use Git Bash (no quote mangling, no character limit)
+& "C:\Program Files\Git\bin\bash.exe" -lc "jsn records update --table incident --sys-id abc123 --data '{\"state\": \"6\"}'"
+```
+
 ## Safety Guidelines
 
 ### Safe Operations (Read-Only)

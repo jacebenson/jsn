@@ -73,27 +73,6 @@ Examples:
 		SilenceUsage: true,
 	}
 
-	// Custom help to show categories but suppress auto-generated commands
-	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		c.Println(c.Long)
-		c.Println()
-		c.Printf(`Usage:
-  jsn %s [flags] <command>
-
-Flags:
-  -h, --help   help for %s
-
-Global Flags:
-      --format string     Output format: auto, json, markdown, styled, quiet
-      --instance string   ServiceNow instance URL
-      --json              Output in JSON format
-      --markdown          Output in Markdown format
-  -p, --profile string    Configuration profile to use
-  -q, --quiet             Output only data, no envelope
-      --styled            Force styled output
-`, c.Name(), c.Name())
-	})
-
 	cmd.AddCommand(
 		// Automations
 		dev.NewFlowsCmd(),

@@ -28,7 +28,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -67,10 +69,12 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 
 // NewClient creates a new ServiceNow API client.
 func NewClient(baseURL string, auth AuthProvider, opts ...ClientOption) *Client {
+	jar, _ := cookiejar.New(nil)
 	client := &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Jar:     jar,
 		},
 		auth: auth,
 	}
@@ -337,7 +341,251 @@ func getString(m map[string]any, key string) string {
 	return ""
 }
 
-// AggregateCount retrieves the count of records matching the query using the aggregate API.
+// ExecuteScript runs a background script on the ServiceNow instance via sys.scripts.do.
+// Returns the script output text.
+//
+// For OAuth auth, this follows the session-establishment pattern used by the official
+// ServiceNow VS Code extension:
+//  1. Make a REST API call with the Bearer token to get session cookies
+//  2. GET /sys.scripts.do with those cookies to extract the CSRF token
+//  3. POST /sys.scripts.do with the script, CSRF token, and cookies
+func (c *Client) ExecuteScript(ctx context.Context, script string) (string, error) {
+	// Create a dedicated HTTP client with its own cookie jar for this session.
+	jar, _ := cookiejar.New(nil)
+	scriptClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Jar:     jar,
+	}
+
+	// Step 1: Warm up session by hitting the REST API to get session cookies.
+	// The Bearer/Basic auth on the REST API causes ServiceNow to set session
+	// cookies that can be reused for UI pages like sys.scripts.do.
+	if err := c.warmSessionWithClient(ctx, scriptClient); err != nil {
+		// Non-fatal: we'll try without session cookies.
+		// This may work for basic auth; OAuth may get a clearer error later.
+		_ = err // intentionally ignored — proceed without session
+	}
+
+	// Step 2: GET /sys.scripts.do to extract the CSRF token (sysparm_ck).
+	csrfToken, err := c.getScriptsPageCSRF(ctx, scriptClient)
+	if err != nil {
+		return "", fmt.Errorf("fetching scripts page: %w\n\n"+
+			"Hints:\n"+
+			"  - OAuth tokens may not establish a UI session on this instance.\n"+
+			"  - Try using the browser: %s/sys.scripts.do\n"+
+			"  - You may need basic auth credentials for script execution.", err, c.baseURL)
+	}
+
+	// Step 3: POST the script with form data including CSRF token.
+	endpoint := fmt.Sprintf("%s/sys.scripts.do", c.baseURL)
+
+	formData := url.Values{}
+	formData.Set("script", script)
+	formData.Set("sysparm_ck", csrfToken)
+	formData.Set("runscript", "Run script")
+	formData.Set("sys_scope", "global")
+	formData.Set("record_for_rollback", "on")
+	formData.Set("quota_managed_transaction", "on")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := scriptClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("executing script: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("script execution failed (status %d): %s",
+			resp.StatusCode, string(body[:min(len(body), 500)]))
+	}
+
+	output := extractScriptOutput(string(body))
+	if output == "" || strings.TrimSpace(output) == "not authorized" {
+		return "", fmt.Errorf("script execution returned no output — session may not be established\n\n"+
+			"Hints:\n"+
+			"  - OAuth tokens may not work with sys.scripts.do.\n"+
+			"  - Run scripts in the browser: %s/sys.scripts.do",
+			c.baseURL)
+	}
+
+	return output, nil
+}
+
+// warmSessionWithClient makes a REST API call to establish session cookies.
+func (c *Client) warmSessionWithClient(ctx context.Context, client *http.Client) error {
+	endpoint := fmt.Sprintf("%s/api/now/table/sys_user?sysparm_limit=1", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	if err := c.setAuth(req); err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+// getScriptsPageCSRF fetches /sys.scripts.do and extracts the sysparm_ck token.
+func (c *Client) getScriptsPageCSRF(ctx context.Context, client *http.Client) (string, error) {
+	endpoint := fmt.Sprintf("%s/sys.scripts.do", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status %d: %s", resp.StatusCode, string(body[:min(len(body), 200)]))
+	}
+
+	// Extract sysparm_ck from the HTML form:
+	// <input name="sysparm_ck" type="hidden" value="TOKEN_VALUE">
+	bodyStr := string(body)
+	marker := `<input name="sysparm_ck" type="hidden" value="`
+	idx := strings.Index(bodyStr, marker)
+	if idx == -1 {
+		// Alternative: try without the type attribute
+		marker = `name="sysparm_ck" value="`
+		idx = strings.Index(bodyStr, marker)
+		if idx == -1 {
+			// Couldn't find the CSRF token. The page might be "not authorized".
+			if strings.Contains(bodyStr, "not authorized") || strings.Contains(bodyStr, "login.do") {
+				return "", fmt.Errorf("not authorized to access scripts page — session not established")
+			}
+			return "", fmt.Errorf("could not find CSRF token on scripts page (response: %s)",
+				bodyStr[:min(len(bodyStr), 200)])
+		}
+		// Find the value after `value="`
+		start := idx + len(marker)
+		end := strings.Index(bodyStr[start:], `"`)
+		if end == -1 {
+			return "", fmt.Errorf("malformed CSRF token HTML")
+		}
+		return bodyStr[start : start+end], nil
+	}
+
+	start := idx + len(marker)
+	end := strings.Index(bodyStr[start:], `">`)
+	if end == -1 {
+		end2 := strings.Index(bodyStr[start:], `"`)
+		if end2 == -1 {
+			return "", fmt.Errorf("malformed CSRF token HTML")
+		}
+		return bodyStr[start : start+end2], nil
+	}
+	return bodyStr[start : start+end], nil
+}
+
+// extractScriptOutput extracts the script output from a sys.scripts.do HTML response.
+func extractScriptOutput(html string) string {
+	// Try to find content between <PRE> tags (case-insensitive)
+	// The output typically appears after "*** Script:" markers within the <pre> block
+	htmlUpper := strings.ToUpper(html)
+
+	preStart := strings.Index(htmlUpper, "<PRE")
+	if preStart == -1 {
+		// No <pre> tags - try to find the output in other containers
+		// Look for content between <body> and </body> as fallback
+		bodyStart := strings.Index(htmlUpper, "<BODY")
+		if bodyStart == -1 {
+			return strings.TrimSpace(html)
+		}
+		bodyEnd := strings.Index(htmlUpper[bodyStart:], "</BODY>")
+		if bodyEnd == -1 {
+			return strings.TrimSpace(html[bodyStart:])
+		}
+		return strings.TrimSpace(html[bodyStart : bodyStart+bodyEnd])
+	}
+
+	// Find the end of the <pre> opening tag
+	preTagEnd := strings.Index(htmlUpper[preStart:], ">")
+	if preTagEnd == -1 {
+		return strings.TrimSpace(html[preStart:])
+	}
+	contentStart := preStart + preTagEnd + 1
+
+	preEnd := strings.Index(htmlUpper[contentStart:], "</PRE>")
+	if preEnd == -1 {
+		return strings.TrimSpace(html[contentStart:])
+	}
+
+	rawOutput := html[contentStart : contentStart+preEnd]
+
+	// Strip any remaining HTML tags
+	output := stripHTMLTags(rawOutput)
+
+	// Trim whitespace and common prefixes
+	output = strings.TrimSpace(output)
+
+	return output
+}
+
+// stripHTMLTags removes HTML tags from a string.
+// <BR> and <BR/> are converted to newlines.
+func stripHTMLTags(s string) string {
+	// First convert BR tags to newlines for readability.
+	replacer := strings.NewReplacer(
+		"<BR/>", "\n",
+		"<BR>", "\n",
+		"<br/>", "\n",
+		"<br>", "\n",
+	)
+	out := replacer.Replace(s)
+
+	// Then strip remaining HTML tags.
+	var result strings.Builder
+	inTag := false
+	for _, r := range out {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			result.WriteRune(r)
+		}
+	}
+
+	// Clean up: trim each line and collapse blank lines.
+	lines := strings.Split(result.String(), "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return strings.Join(cleaned, "\n")
+}
 func (c *Client) AggregateCount(ctx context.Context, table string, query string) (int, error) {
 	params := url.Values{}
 	params.Set("sysparm_count", "true")
