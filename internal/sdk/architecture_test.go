@@ -28,6 +28,9 @@ func TestNoSDKHelperMethods(t *testing.T) {
 		"Delete":         true,
 		"AggregateCount": true,
 
+		// Script execution
+		"ExecuteScript": true,
+
 		// Context methods (used by header)
 		"GetCurrentUser":        true,
 		"GetCurrentApplication": true,

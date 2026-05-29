@@ -2,7 +2,9 @@
 package dev
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -14,53 +16,60 @@ import (
 func NewEvalCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "eval",
-		Short: "Execute background scripts (eval)",
-		Long: `Execute ServiceNow background scripts (server-side JavaScript/GS.eval).
+		Short: "Execute background scripts on the instance",
+		Long: `Execute ServiceNow background scripts (server-side JavaScript).
 
-WARNING: This is a stub implementation. Background script execution requires
-careful handling as it runs with admin privileges on the ServiceNow instance.
+Scripts run via sys.scripts.do with the same privileges as the authenticated user.`,
+		Example: `  # Run a script inline
+  jsn dev eval --script 'gs.info("Hello");'
 
-Examples:
-  # Run a script from command line
-  jsn dev eval --script 'gs.info("Hello from background script");'
-
-  # Run a script from file (future)
-  jsn dev eval --file script.js
-
-  # Run with variables (future)
-  jsn dev eval --script 'gs.info(current.name);' --vars '{"current":"incident:abc123"}'`,
+  # Run a script from a file
+  jsn dev eval --file background.js`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app := appctx.FromContext(cmd.Context())
 
 			script, _ := cmd.Flags().GetString("script")
-			if script == "" {
-				return fmt.Errorf("--script is required")
+			file, _ := cmd.Flags().GetString("file")
+
+			switch {
+			case file != "":
+				data, err := os.ReadFile(file)
+				if err != nil {
+					return fmt.Errorf("reading script file: %w", err)
+				}
+				script = string(data)
+			case script == "":
+				return fmt.Errorf("--script or --file is required")
 			}
 
 			return runBackgroundScript(cmd.Context(), app, script)
 		},
 	}
 
-	cmd.Flags().StringP("script", "s", "", "JavaScript code to execute (required)")
+	cmd.Flags().StringP("script", "s", "", "JavaScript code to execute")
+	cmd.Flags().StringP("file", "f", "", "Read script from file")
 
 	return cmd
 }
 
-func runBackgroundScript(ctx interface{}, app *appctx.App, script string) error {
-	// STUB: Background script execution is a complex operation that requires:
-	// 1. Access to the /sys.scripts.do endpoint (or similar)
-	// 2. Proper CSRF token handling
-	// 3. Parsing the execution results from HTML response
-	// 4. Security considerations (admin-level access)
+func runBackgroundScript(ctx context.Context, app *appctx.App, script string) error {
+	outputText, err := app.SDK.ExecuteScript(ctx, script)
+	if err != nil {
+		return app.Err(fmt.Errorf("script execution failed: %w\n\nThis may be due to:\n- Auth method (OAuth tokens may not work with sys.scripts.do)\n- Instance configuration\n- Try using basic auth credentials or the browser-based Background Scripts page", err))
+	}
 
-	// For now, we just display what would be executed
 	return app.OK(map[string]interface{}{
-		"status":   "stub",
-		"message":  "Background script execution is not yet implemented",
 		"script":   script,
-		"note":     "This would execute the script on the ServiceNow instance with admin privileges",
+		"output":   outputText,
 		"instance": app.Config.GetEffectiveInstance(),
 	},
-		output.WithSummary("Background Script (Stub)"),
+		output.WithSummary("Script executed"),
+		output.WithBreadcrumbs(
+			output.Breadcrumb{
+				Action:      "eval",
+				Cmd:        "jsn dev eval --script '...'",
+				Description: "Execute a background script on the ServiceNow instance",
+			},
+		),
 	)
 }

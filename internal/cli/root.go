@@ -138,10 +138,15 @@ Each instance is stored as a separate profile with its own OAuth credentials.`,
 	return cmd
 }
 
-// customHelpTemplate is a cleaner, categorized help template inspired by basecamp-cli.
-// For root command, show categorized commands. For subcommands, show flat list.
+// customHelpTemplate provides progressive disclosure at three levels:
+//   - Root:    categorized commands + examples
+//   - Groups:  (dev, incidents, etc.) flat list of subcommands
+//   - Leaves:  (eval, includes list, etc.) description + flags + examples
+// Note: cobra automatically renders .Long before the template, so we don't
+// duplicate it here.
 const customHelpTemplate = `Usage:
-  {{.UseLine}}{{if .HasAvailableSubCommands}} <command>{{end}}{{- if not .Parent}}
+  {{.UseLine}}{{if .HasAvailableSubCommands}} <command>{{end}}
+{{- if not .Parent}}
 
 CORE COMMANDS{{range .Commands}}{{if (and (eq .Name "incidents") (not .Hidden))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "changes") (not .Hidden))}}
@@ -162,29 +167,37 @@ DEVELOPMENT{{range .Commands}}{{if (and (eq .Name "dev") (not .Hidden))}}
 CONFIGURATION{{range .Commands}}{{if (and (eq .Name "auth") (not .Hidden))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "profiles") (not .Hidden))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{if (and (eq .Name "setup") (not .Hidden))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{- if .HasAvailableSubCommands}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+{{- else if .HasAvailableSubCommands}}
 
-Available Commands:{{- range .Commands}}{{if not .Hidden}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}
+Available Commands:{{range .Commands}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}
+{{- end}}
 {{- if .HasAvailableLocalFlags}}
 
 FLAGS
-{{.LocalFlags.FlagUsages}}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
 {{- end}}
 {{- if .HasAvailableInheritedFlags}}
 
 GLOBAL FLAGS
-{{.InheritedFlags.FlagUsages}}
-{{- end}}{{if not .Parent}}
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}
+{{- end}}
+{{- if .HasExample}}
+
+EXAMPLES
+{{.Example}}
+{{- else if not .Parent}}
 
 EXAMPLES
   $ jsn incidents              # List all incidents
-  $ jsn inc INC0010001       # Show incident details
-  $ jsn inc create           # Create a new incident
+  $ jsn inc INC0010001         # Show incident details
+  $ jsn inc create             # Create a new incident
   $ jsn records list --table task --query "active=true"
 
 LEARN MORE
-  Use "jsn <command> --help" for more information about a command.{{end}}
+  Use "jsn <command> --help" for more information about a command.
+{{- end}}
 `
 
 // findSubcommand finds a subcommand by name.

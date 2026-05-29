@@ -46,6 +46,7 @@ jsn dev --help                   # Shows categorized dev subcommands
 6. **Before using `eval` or `rest`** — Ask yourself: *"Have I checked if there's a more specific jsn command?"* Verify `jsn records --table <name> create` won't work first. Prefer specific over generic over escape hatch over eval.
 7. **CONFIRM before destructive operations** — Always show the user exactly what will be created, updated, or deleted and ask for explicit confirmation before executing. Never run `create`, `update`, `delete`, `set`, or `remove` commands without user approval.
 8.  **ALWAYS use the appropriate Update Set and Scope, to see those run `jsn dev updatesets list` and `jsn dev scopes list`**  If you're not sure, don't guess.  Ask the user which Update Set and Scope to use before making changes.  Never assume defaults.
+9.  **Windows PowerShell users** — Never use `--data '...'` inline on PowerShell (it mangles quotes). Always use `--data-file` with a JSON file instead. See PowerShell Caveats below.
 
 ## ⚠️ Destructive Operations Require Confirmation
 
@@ -136,3 +137,25 @@ Breadcrumbs suggest next commands — follow them for navigation.
 **Environment variables:**
 - `SERVICENOW_TOKEN` — Override stored token
 - `SERVICENOW_INSTANCE` — Override instance URL
+
+## PowerShell Caveats
+
+When using jsn from **Windows PowerShell** (powershell.exe), inline `--data` JSON arguments are **unreliable** due to quote mangling and an 8,192-character command-line limit.
+
+| Issue | Workaround |
+|-------|------------|
+| `invalid character 'X' looking for beginning of object key string` | PowerShell strips quotes from JSON. **Use `--data-file` instead.** |
+| Command hangs with large payloads | PowerShell I/O buffering. Run via Git Bash. |
+| 8,192 character limit truncates arguments | Use `--data-file` or Git Bash. |
+
+```powershell
+# ❌ BROKEN on PowerShell:
+jsn records update --table incident --sys-id abc123 --data '{"state": "6"}'
+
+# ✅ USE THIS INSTEAD:
+@'{"state": "6"}'@ | Out-File -Encoding utf8 payload.json
+jsn records update --table incident --sys-id abc123 --data-file payload.json
+
+# ✅ Or use Git Bash:
+& "C:\Program Files\Git\bin\bash.exe" -lc "jsn records update --table incident --sys-id abc123 --data '{\"state\": \"6\"}'"
+```

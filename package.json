@@ -36,5 +36,8 @@
   "cpu": [
     "x64",
     "arm64"
-  ]
+  ],
+  "devDependencies": {
+    "@servicenow/sdk": "^4.7.0"
+  }
 }
