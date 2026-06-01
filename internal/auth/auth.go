@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/jacebenson/jsn/internal/config"
 	"github.com/jacebenson/jsn/internal/sdk"
 	"golang.org/x/term"
 )
@@ -245,9 +247,85 @@ func buildAuthURL(instanceURL, clientID string, pkce *PKCEParams) string {
 	q.Set("code_challenge", pkce.CodeChallenge)
 	q.Set("code_challenge_method", "S256")
 	q.Set("scope", "openid")
+	q.Set("approval_prompt", "force")
 	u.RawQuery = q.Encode()
 
 	return u.String()
+}
+
+// BuildAuthURL generates PKCE params and builds the OAuth authorization URL.
+// PKCE state is persisted so LoginWithCode can complete the flow later.
+// The caller should use LoginWithCode on the same instance URL to finish.
+func (m *Manager) BuildAuthURL(instanceURL string) (string, error) {
+	instanceURL = normalizeURL(instanceURL)
+	clientID := getOAuthClientID()
+
+	pkce, err := generatePKCE()
+	if err != nil {
+		return "", fmt.Errorf("generating PKCE params: %w", err)
+	}
+
+	// Persist PKCE state for the subsequent code exchange
+	if err := savePKCEState(instanceURL, pkce); err != nil {
+		return "", fmt.Errorf("persisting PKCE state: %w", err)
+	}
+
+	return buildAuthURL(instanceURL, clientID, pkce), nil
+}
+
+// LoginWithCode completes the OAuth login flow using an authorization code
+// obtained from a prior BuildAuthURL call. The PKCE state must match.
+func (m *Manager) LoginWithCode(instanceURL, code string) error {
+	instanceURL = normalizeURL(instanceURL)
+	clientID := getOAuthClientID()
+
+	// Load saved PKCE state from BuildAuthURL
+	pkce, err := loadPKCEState(instanceURL)
+	if err != nil {
+		return fmt.Errorf("no pending login session for %s; run without --code first to generate one: %w", instanceURL, err)
+	}
+	defer os.Remove(pkceStatePath(instanceURL))
+
+	creds, err := m.exchangeCode(instanceURL, clientID, code, pkce)
+	if err != nil {
+		return err
+	}
+
+	return m.store.Save(instanceURL, creds)
+}
+
+// pkceStatePath returns the path to the saved PKCE state file for an instance.
+func pkceStatePath(instance string) string {
+	filename := strings.ReplaceAll(instance, "://", "_")
+	filename = strings.ReplaceAll(filename, "/", "_")
+	filename = strings.ReplaceAll(filename, ":", "_")
+	return filepath.Join(config.GlobalConfigDir(), "pkce", filename+".json")
+}
+
+// savePKCEState persists PKCE params so the code exchange can use the same verifier.
+func savePKCEState(instance string, pkce *PKCEParams) error {
+	path := pkceStatePath(instance)
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(pkce, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// loadPKCEState loads previously saved PKCE params for the code exchange.
+func loadPKCEState(instance string) (*PKCEParams, error) {
+	data, err := os.ReadFile(pkceStatePath(instance))
+	if err != nil {
+		return nil, err
+	}
+	var pkce PKCEParams
+	if err := json.Unmarshal(data, &pkce); err != nil {
+		return nil, err
+	}
+	return &pkce, nil
 }
 
 // exchangeCode exchanges the authorization code for access/refresh tokens
