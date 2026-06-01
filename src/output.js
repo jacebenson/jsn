@@ -358,6 +358,36 @@ export class OutputWriter {
       this.writer.write('\n');
     }
 
+    // ── Attachments ──
+    if (data._attachments && Array.isArray(data._attachments) && data._attachments.length > 0) {
+      this.writer.write('─ Attachments ─\n');
+      for (const att of data._attachments) {
+        const fileName = getDisplayValue(att.file_name);
+        const createdBy = getDisplayValue(att.sys_created_by);
+        const createdOn = getDisplayValue(att.sys_created_on);
+        this.writer.write(`  ${fileName}  (by ${createdBy}, ${createdOn})\n`);
+      }
+      this.writer.write('\n');
+    }
+
+    // ── Catalog Variables ──
+    if (data._variables && Array.isArray(data._variables) && data._variables.length > 0) {
+      this.writer.write('─ Catalog Variables ─\n');
+      for (const v of data._variables) {
+        const q = v.question || '';
+        const val = v.value || '';
+        if (val.includes('\n')) {
+          this.writer.write(`  ${q}:\n`);
+          for (const line of val.split('\n')) {
+            this.writer.write(`    ${line}\n`);
+          }
+        } else {
+          this.writer.write(`  ${q}:  ${val}\n`);
+        }
+      }
+      this.writer.write('\n');
+    }
+
     if (instanceURL && table) {
       const sysID = getDisplayValue(data.sys_id);
       if (sysID) {

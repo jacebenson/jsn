@@ -324,6 +324,31 @@ jsn incidents list --limit 5 -q
 jsn incidents list --json | jq -r '.[].number' | head -5
 ```
 
+## AI Agent Integration
+
+JSN ships a built-in agent skill file. Use the `jsn skill` command to manage it:
+
+```bash
+# View the bundled skill content
+jsn skill show
+
+# Download the latest skill from GitHub (prints to stdout)
+jsn skill fetch | head -30
+
+# Install to Hermes skills directory
+jsn skill install
+
+# Install to a custom location
+jsn skill install /path/to/project/.hermes/skills/servicenow/
+```
+
+## Checking for Updates
+
+```bash
+jsn version                    # Show current version
+jsn version --check            # Check npm for newer versions
+```
+
 ## References
 
 - [ServiceNow Table API Docs](https://docs.servicenow.com/bundle/tokyo-application-development/page/integrate/inbound-rest/concept/c_TableAPI.html)

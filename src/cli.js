@@ -23,6 +23,7 @@ import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
 import { versionCmd } from './commands/version.js';
 import { devCmd } from './commands/dev.js';
+import { skillCmd } from './commands/skill.js';
 
 function wrap(handler) {
   return async (argv) => {
@@ -104,7 +105,7 @@ export const cli = yargs(hideBin(process.argv))
 
     // Check auth for non-auth commands
     const cmd = argv._[0];
-    const skipAuth = ['help', 'version', 'setup', 'auth', 'profiles', 'profile', undefined].includes(cmd);
+    const skipAuth = ['help', 'version', 'setup', 'auth', 'profiles', 'profile', 'skill', undefined].includes(cmd);
     if (!skipAuth) {
       const instance = getEffectiveInstance(cfg);
       if (!argv.app.auth.isAuthenticated() && instance) {
@@ -116,7 +117,7 @@ export const cli = yargs(hideBin(process.argv))
     }
 
     // Print context header for interactive terminals (at the TOP, before command output)
-    if (!['help', 'version', 'completion'].includes(cmd)) {
+    if (!['help', 'version', 'completion', 'skill'].includes(cmd)) {
       await argv.app.printContextHeader();
     }
   })
@@ -134,6 +135,7 @@ export const cli = yargs(hideBin(process.argv))
   .command(groupRolesCmd(wrap))
   .command(ticketsCmd(wrap))
   .command(devCmd(wrap))
+  .command(skillCmd(wrap))
   .command(versionCmd(wrap))
   .demandCommand(1, 'You must specify a command')
   .help('help', 'Show help')
