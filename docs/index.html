@@ -212,34 +212,50 @@
         <header class="hero">
             <h1>Agent-first, agent-native<span class="cursor"></span></h1>
             <p class="tagline">A CLI for exploring and managing ServiceNow instances.<br>Works standalone or with any AI agent.</p>
+            <p style="text-align: center; margin-top: 0.5rem;">
+                <a href="https://github.com/jacebenson/jsn" style="color: var(--muted); font-size: 0.85rem; text-decoration: none;">
+                    <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    github.com/jacebenson/jsn
+                </a>
+            </p>
             
             <div class="install">
-                <code>curl -fsSL https://jsn.jace.pro/install | bash</code>
-                <button class="copy-btn" onclick="copyInstall()">Copy</button>
-            </div>
-            <p style="text-align: center; font-size: 0.85rem; margin-top: -1rem;">
-                <a href="https://github.com/jacebenson/jsn/blob/main/scripts/install.sh" style="color: var(--muted); text-decoration: none;">View install script source →</a>
-                &nbsp;·&nbsp;
-                <span style="color: var(--muted);">Re-run to update</span>
-            </p>
-
-            <div class="install" style="margin-top: 0.75rem;">
                 <code>npm install -g @jacebenson/jsn</code>
                 <button class="copy-btn" onclick="copyNpmInstall()">Copy</button>
             </div>
             <p style="text-align: center; font-size: 0.85rem; margin-top: -1rem;">
-                <span style="color: var(--muted);">Cross-platform · No Bash required · Works on Windows natively</span>
+                <span style="color: var(--muted);">Cross-platform · Works on Windows, macOS, Linux · Requires Node.js</span>
             </p>
 
+
+
             <div style="background: rgba(255, 193, 7, 0.05); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-top: 1.5rem; font-size: 0.85rem; text-align: left;">
-                <strong style="color: var(--accent);">Requirements</strong>
-                <ul style="margin: 0.5rem 0 0 1.2rem; color: var(--muted); line-height: 1.8;">
-                    <li><strong>Windows:</strong> <code style="color: var(--accent);">npm install -g @jacebenson/jsn</code> (recommended) or Git Bash with <code style="color: var(--accent);">curl</code></li>
-                    <li><strong>macOS/Linux:</strong> Bash + curl or Node.js + npm</li>
-                    <li><strong>For AI Agent Skills:</strong> <a href="https://nodejs.org/" style="color: var(--accent);">Node.js</a> (for npx)</li>
-                </ul>
+            <strong style="color: var(--accent);">Requirements</strong>
+            <ul style="margin: 0.5rem 0 0 1.2rem; color: var(--muted); line-height: 1.8;">
+                <li><strong>Node.js</strong> required — that is the only runtime dependency</li>
+                <li><strong>Install:</strong> <code style="color: var(--accent);">npm install -g @jacebenson/jsn</code> — works on Windows, macOS, Linux</li>
+                <li><strong>AI Agents:</strong> <code style="color: var(--accent);">jsn skill install</code> after setup</li>
+            </ul>
             </div>
+
+            <details style="margin-top: 0.75rem; text-align: left; font-size: 0.85rem; color: var(--muted); cursor: pointer;">
+                <summary style="color: var(--muted); font-size: 0.85rem;">Don't have Node.js?</summary>
+                <p style="margin-top: 0.5rem; line-height: 1.6;">
+                    Install Node.js and npm from the official site:<br>
+                    <a href="https://nodejs.org" target="_blank" style="color: var(--accent);">nodejs.org</a>
+                </p>
+                <p style="margin-top: 0.5rem; line-height: 1.6;">
+                    Or use a version manager:<br>
+                    <code style="font-size: 0.8rem;">brew install node</code> (macOS) ·
+                    <code style="font-size: 0.8rem;">sudo apt install nodejs npm</code> (Ubuntu/Debian) ·
+                    <a href="https://github.com/nvm-sh/nvm" target="_blank" style="color: var(--accent);">nvm</a> (all platforms)
+                </p>
+            </details>
         </header>
+
+        <h2 style="color: var(--accent); font-size: 1.1rem; margin-bottom: 0.5rem; font-family: 'SF Mono', Monaco, monospace; text-align: center;">⏎  What it looks like</h2>
 
         <div class="demo" id="demo">
             <div class="heading">$ jsn setup</div>
@@ -257,11 +273,12 @@
 
         <section class="features">
             <div class="feature">
-                <h3>Zero Bullshit Setup</h3>
-                <p>One binary. No server-side plugins. No dependency hell. No auth configuration that requires a PhD.</p>
+                <h3>Quick Setup</h3>
+                <p>Requires Node.js and npm. One command, no ServiceNow plugins, no build step, no config file to wrestle.</p>
                 <div class="code-block">
+                    <span class="cmd">npm install -g @jacebenson/jsn</span><br>
                     <span class="cmd">jsn setup</span> <span class="comment"># Interactive first-time setup</span><br>
-                    <span class="cmd">jsn tables</span> <span class="comment"># Start exploring</span>
+                    <span class="cmd">jsn incidents</span> <span class="comment"># Start using</span>
                 </div>
             </div>
 
@@ -269,29 +286,27 @@
                 <h3>Agent-Native</h3>
                 <p>Designed for AI agents. JSON output, breadcrumbs, and machine-readable structure. Works with Claude, Codex, Cursor, and more.</p>
                 <div class="code-block">
-                    <span class="cmd">jsn tables --json</span> <span class="comment"># Structured output</span><br>
-                    <span class="cmd">jsn tables --agent</span> <span class="comment"># Agent mode (no prompts)</span>
+                    <span class="cmd">jsn dev tables --json</span> <span class="comment"># Structured JSON output</span><br>
+                    <span class="cmd">jsn incidents list -q</span> <span class="comment"># Quiet mode, no prompts</span>
                 </div>
             </div>
 
             <div class="feature">
                 <h3>Explore Your Instance</h3>
-                <p>Understand your ServiceNow instance without clicking through 12 UI screens. Tables, schemas, business rules, flows, and more.</p>
+                <p>Understand your ServiceNow instance without clicking through 12 UI screens. Incidents, changes, requests, tables, business rules, flows, and more.</p>
                 <div class="code-block">
-                    <span class="cmd">jsn tables schema incident</span> <span class="comment"># Table structure</span><br>
-                    <span class="cmd">jsn rules --table incident</span> <span class="comment"># Business rules</span><br>
-                    <span class="cmd">jsn flows --active</span> <span class="comment"># Active flows</span>
+                    <span class="cmd">jsn incidents list --query "priority=1"</span> <span class="comment"># Critical incidents</span><br>
+                    <span class="cmd">jsn dev rules --table incident</span> <span class="comment"># Business rules</span><br>
+                    <span class="cmd">jsn dev tables incident</span> <span class="comment"># Table schema</span>
                 </div>
             </div>
 
             <div class="feature">
                 <h3>AI Agent Skills</h3>
-                <p>Specialized capabilities for AI agents. Install the skill and your agent automatically gains expert-level ServiceNow knowledge.</p>
+                <p>Built-in skill file for AI agents. Run <code>jsn skill install</code> and your agent automatically gains expert-level ServiceNow knowledge.</p>
                 <div class="code-block">
-                    <span class="cmd">npx skills add jacebenson/jsn</span> <span class="comment"># Install once</span><br>
-                    <span class="comment"># Agent now automatically understands ServiceNow context</span><br>
-                    <span class="comment"># "What business rules run on incident?"</span><br>
-                    <span class="comment"># "Show me the script include for MyUtil"</span>
+                    <span class="cmd">jsn skill install</span> <span class="comment"># Install to Hermes skills</span><br>
+                    <span class="cmd">jsn skill show</span> <span class="comment"># Preview the skill content</span>
                 </div>
             </div>
         </section>
@@ -302,8 +317,8 @@
             <div class="feature" style="margin-bottom: 1.5rem;">
                 <h3>1. Install CLI</h3>
                 <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">curl -fsSL https://jsn.jace.pro/install | bash</span><br>
-                    <span class="cmd">jsn --version</span> <span class="comment"># Verify: jsn version X.Y.Z</span>
+                    <span class="cmd">npm install -g @jacebenson/jsn</span> <span class="comment"># Requires Node.js</span><br>
+                    <span class="cmd">jsn --version</span> <span class="comment"># Verify: jsn 0.1.0</span>
                 </div>
             </div>
 
@@ -318,8 +333,8 @@
             <div class="feature" style="margin-bottom: 1.5rem;">
                 <h3>3. Install Skill</h3>
                 <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">npx skills add jacebenson/jsn</span> <span class="comment"># One command, works with all agents</span><br>
-                    <span class="cmd">npx skills list</span> <span class="comment"># Verify servicenow skill is installed</span>
+                    <span class="cmd">jsn skill install</span> <span class="comment"># Installs to ~/.hermes/skills/servicenow/</span><br>
+                    <span class="cmd">jsn skill show</span> <span class="comment"># Verify: displays skill content</span>
                 </div>
             </div>
 
@@ -328,13 +343,13 @@
                 <div class="code-block" style="margin-top: 0.5rem;">
                     <span class="comment"># Restart your agent to load the skill</span><br>
                     <span class="comment"># Then just ask naturally about ServiceNow:</span><br>
-                    <span class="comment"># "What tables exist?" or "List business rules on incident"</span><br>
+                    <span class="comment"># "Show me my incidents" or "List business rules on incident"</span><br>
                     <span class="comment"># The agent automatically invokes jsn commands for you</span>
                 </div>
             </div>
 
             <p style="text-align: center; margin-top: 2rem; color: var(--muted);">
-                <a href="https://github.com/jacebenson/jsn/blob/main/skills/servicenow/SKILL.md" style="color: var(--accent); text-decoration: none;">View full skill documentation →</a>
+                <a href="https://github.com/jacebenson/jsn/blob/nodejs/skills/servicenow/SKILL.md" style="color: var(--accent); text-decoration: none;">View full skill documentation →</a>
             </p>
         </section>
 
@@ -345,27 +360,6 @@
     </div>
 
     <script>
-        // Copy install command
-        function copyInstall() {
-            const code = 'curl -fsSL https://jsn.jace.pro/install | bash';
-            navigator.clipboard.writeText(code).then(() => {
-                const btn = event.target;
-                btn.textContent = 'Copied!';
-                setTimeout(() => btn.textContent = 'Copy', 2000);
-            }).catch(() => {
-                // Fallback for browsers that don't support clipboard API
-                const textarea = document.createElement('textarea');
-                textarea.value = code;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
-                const btn = event.target;
-                btn.textContent = 'Copied!';
-                setTimeout(() => btn.textContent = 'Copy', 2000);
-            });
-        }
-
         // Copy npm install command
         function copyNpmInstall() {
             const code = 'npm install -g @jacebenson/jsn';

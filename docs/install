@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
-# JSN CLI Installer
-# Installs the latest JSN release from GitHub
+# JSN CLI Installer (Legacy — pre-built binary)
+#
+# ╔══════════════════════════════════════════════════╗
+# ║  NOTE: This installs the legacy binary release   ║
+# ║                                                 ║
+# ║  For the current Node.js version, use npm:       ║
+# ║  npm install -g @jacebenson/jsn                  ║
+# ║                                                 ║
+# ║  This script is for environments without         ║
+# ║  Node.js/npm. Requires Bash + curl.              ║
+# ╚══════════════════════════════════════════════════╝
+#
+# Downloads a pre-compiled binary from GitHub releases.
+# Binary releases may lag behind the npm version.
 #
 # Usage:
 #   curl -fsSL https://jsn.jace.pro/install | bash
