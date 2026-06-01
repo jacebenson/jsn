@@ -279,6 +279,17 @@ func (m *Manager) exchangeCode(instanceURL, clientID, code string, pkce *PKCEPar
 		return nil, fmt.Errorf("reading token response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf(
+			"token exchange failed: PKCE challenge mismatch.\n\n"+
+				"ServiceNow cached a previous authorization grant — the auth code no\n"+
+				"longer matches the current PKCE challenge. To fix this:\n\n"+
+				"  1. Log out of your ServiceNow browser session (or use incognito)\n"+
+				"  2. Run:  jsn auth logout %s && jsn auth login %s\n\n"+
+				"Still stuck? You can bypass the interactive flow by obtaining a token\n"+
+				"directly and setting the SERVICENOW_OAUTH_TOKEN environment variable.",
+			instanceURL, instanceURL)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token exchange failed (status %d): %s", resp.StatusCode, string(body))
 	}
