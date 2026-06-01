@@ -302,6 +302,11 @@ func listIncidents(ctx context.Context, app *appctx.App, query string, columns [
 		columns = incidentDefaultColumns
 	}
 
+	// Check if SDK is initialized (requires a configured instance)
+	if app.SDK == nil {
+		return output.ErrUsage("No instance configured. Run 'jsn setup' or 'jsn auth login <instance-url>' first.")
+	}
+
 	// Check if we're in an interactive terminal
 	isInteractive := output.IsTTY(os.Stdout) && output.IsTTY(os.Stdin)
 
