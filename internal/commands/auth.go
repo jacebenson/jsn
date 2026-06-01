@@ -52,7 +52,10 @@ INSTANCE URL FORMATS:
 }
 
 func newAuthLoginCmd() *cobra.Command {
-	return &cobra.Command{
+	var code string
+	printURL := false
+
+	cmd := &cobra.Command{
 		Use:   "login [instance-url|profile-name]",
 		Short: "Login to a ServiceNow instance via OAuth",
 		Long: `Authenticate with a ServiceNow instance using OAuth 2.0 + PKCE.
@@ -62,6 +65,10 @@ This uses ServiceNow's SDK-style OAuth flow:
 2. You complete authentication in browser
 3. ServiceNow shows authorization code on page
 4. Copy and paste that code back to CLI
+
+For non-interactive/bot use:
+  --print-url  Print the OAuth URL and exit (PKCE state is saved for --code)
+  --code       Provide the authorization code directly, skipping the interactive prompt
 
 You can specify either a full URL or a profile name (e.g., "dev373698").
 
@@ -75,6 +82,12 @@ EXAMPLES:
 
   # Login with profile name
   jsn auth login dev373698
+
+  # Non-interactive: print URL for a bot to capture
+  jsn auth login https://dev12345.service-now.com --print-url
+
+  # Non-interactive: provide code obtained from browser flow
+  jsn auth login https://dev12345.service-now.com --code CODE
 
   # From environment variable (automation/CI)
   export SERVICENOW_OAUTH_TOKEN=your-token
@@ -122,9 +135,26 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
 
 			instanceURL = config.NormalizeInstanceURL(instanceURL)
 
-			// Start OAuth flow
-			if err := app.Auth.Login(instanceURL); err != nil {
-				return err
+			// Non-interactive: --print-url just prints the URL and exits
+			if printURL {
+				authURL, err := app.Auth.BuildAuthURL(instanceURL)
+				if err != nil {
+					return err
+				}
+				fmt.Println(authURL)
+				return nil
+			}
+
+			// Non-interactive: --code exchanges the provided code directly
+			if code != "" {
+				if err := app.Auth.LoginWithCode(instanceURL, code); err != nil {
+					return err
+				}
+			} else {
+				// Interactive: full OAuth flow with browser + prompt
+				if err := app.Auth.Login(instanceURL); err != nil {
+					return err
+				}
 			}
 
 			// Create temporary auth provider for the new instance
@@ -184,6 +214,11 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
 			return app.OK(result, output.WithSummary(summary))
 		},
 	}
+
+	cmd.Flags().StringVar(&code, "code", "", "Authorization code from browser (bypasses interactive prompt)")
+	cmd.Flags().BoolVar(&printURL, "print-url", false, "Print the OAuth URL and exit (saves PKCE state for --code)")
+
+	return cmd
 }
 
 // instanceAuthProvider is a custom auth provider for a specific instance.

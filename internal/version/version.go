@@ -24,7 +24,7 @@ type GitHubRelease struct {
 var (
 	// Version is the semantic version (e.g., "1.0.0")
 	// This is the default; overridden by ldflags at build/release time.
-	Version = "1.0.5"
+	Version = "1.0.7"
 
 	// Commit is the git commit SHA
 	Commit = "none"
