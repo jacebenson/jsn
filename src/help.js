@@ -27,7 +27,8 @@ const COMMAND_GROUPS = {
 };
 
 const UTILITY_COMMANDS = [
-  { name: 'version', desc: 'Show version information' },
+  { name: 'skill', desc: 'Manage the jsn AI agent skill file (show, fetch, install)' },
+  { name: 'version', desc: 'Show version information (--check for npm updates)' },
 ];
 
 function renderGroup(name, commands) {

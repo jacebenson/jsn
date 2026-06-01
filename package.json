@@ -39,6 +39,7 @@
   "files": [
     "bin/jsn.js",
     "src/",
+    "skills/",
     "README.md",
     "LICENSE"
   ]
