@@ -30,6 +30,7 @@ export function recordsCmd(wrap) {
           describe: 'List records from a table',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('sys-id', { type: 'string', describe: 'Record sys_id (filters to a single record)' })
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: 'c', type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { type: 'number', default: 20, describe: 'Max records' })
@@ -37,28 +38,36 @@ export function recordsCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const table = argv.table;
             const columns = argv.columns ? argv.columns.split(',') : getDefaultColumns(table);
-            const query = argv.query || '';
+            let query = argv.query || '';
 
-            // Interactive picker
-            const picked = await interactiveList({
-              app, table, singular: 'record', columns, limit: argv.limit, query, labelField: 'sys_id',
-              formatLabel: r => {
-                const cols = getDefaultColumns(table);
-                return cols.map(c => `${c}: ${getStringField(r, c) || '-'}`).join(' | ');
-              },
-            });
-            if (picked) {
-              picked._context = { instance_url: app.getEffectiveInstance(), table };
-              return app.ok(picked, { summary: `Record from ${table}` });
+            // If --sys-id is provided, append it to the query
+            if (argv['sys-id']) {
+              if (query) query += '^';
+              query += `sys_id=${argv['sys-id']}`;
             }
 
-            // Text/table fallback
+            // Interactive picker (only when no --sys-id filter, otherwise go straight to results)
+            if (!argv['sys-id']) {
+              const picked = await interactiveList({
+                app, table, singular: 'record', columns, limit: argv.limit, query, labelField: 'sys_id',
+                formatLabel: r => {
+                  const cols = getDefaultColumns(table);
+                  return cols.map(c => `${c}: ${getStringField(r, c) || '-'}`).join(' | ');
+                },
+              });
+              if (picked) {
+                picked._context = { instance_url: app.getEffectiveInstance(), table };
+                return app.ok(picked, { summary: `Record from ${table}` });
+              }
+            }
+
+            // Text/table fallback (or sys-id direct lookup)
             const params = new URLSearchParams();
-            params.set('sysparm_limit', String(argv.limit));
+            params.set('sysparm_limit', argv['sys-id'] ? '1' : String(argv.limit));
             params.set('sysparm_offset', String(argv.offset));
             params.set('sysparm_display_value', 'all');
             params.set('sysparm_fields', ['sys_id', ...columns].join(','));
-            if (argv.query) params.set('sysparm_query', argv.query);
+            if (query) params.set('sysparm_query', query);
             const records = await app.sdk.list(table, params);
             const displayRecords = records.map(r => formatRecordForDisplay(r, columns));
             const breadcrumbs = [
@@ -66,6 +75,13 @@ export function recordsCmd(wrap) {
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
               { action: 'columns', cmd: `jsn dev columns --table ${table}`, description: 'View available columns' },
             ];
+            if (argv['sys-id']) {
+              breadcrumbs.unshift({
+                action: 'get',
+                cmd: `jsn records get --table ${table} --sys-id ${argv['sys-id']}`,
+                description: 'Get full record details',
+              });
+            }
             if (records.length === argv.limit) {
               breadcrumbs.push({
                 action: 'next',
