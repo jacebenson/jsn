@@ -121,17 +121,39 @@ export class App {
 
     // ⚠️  Warning if in the Default update set
     if (updateSet && updateSet.toLowerCase().includes('default')) {
-      process.stderr.write(
-        '\x1b[33m' + // yellow
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '  ⚠  You are in the Default update set!\n' +
-        '  Create a named update set to capture your changes:\n' +
-        '    jsn dev updatesets create --name "My Feature"\n' +
-        '    jsn dev updatesets set "My Feature"\n' +
-        '  (Run \x1b[1mjsn updatesets yolo\x1b[22m to silence this warning)\n' +
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-        '\x1b[0m' // reset
-      );
+      const isGlobal = scope === 'global';
+      if (isGlobal) {
+        // 🔴 HARD WARNING — Global + Default
+        process.stderr.write(
+          '\x1b[31m' + // red
+          '┏━ GLOBAL + DEFAULT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
+          '┃  You are in Global scope with the Default update set.  ┃\n' +
+          '┃  Changes ARE captured — in the Default update set.     ┃\n' +
+          '┃  Moving them to a named update set later requires      ┃\n' +
+          '┃  manual surgery, one change at a time. Avoid the mess. ┃\n' +
+          '┃                                                        ┃\n' +
+          '┃  Create a named update set now:                        ┃\n' +
+          '┃    jsn dev updatesets create --name "My Feature"       ┃\n' +
+          '┃                                                        ┃\n' +
+          '┃  Or switch to a scoped scope first:                    ┃\n' +
+          '┃    jsn dev scopes list                                 ┃\n' +
+          '┃                                                        ┃\n' +
+          '┃  (Run jsn updatesets yolo to silence this check)       ┃\n' +
+          '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\x1b[0m\n'
+        );
+      } else {
+        // 🟡 SOFT WARNING — Scope + Default
+        process.stderr.write(
+          '\x1b[33m' + // yellow
+          '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+          '  ⚠  Default update set in scope [' + scope + ']\n' +
+          '  Changes are contained to this scope, but a named\n' +
+          '  update set is still recommended for tracking.\n' +
+          '  (Run \x1b[1mjsn updatesets yolo\x1b[22m to silence this warning)\n' +
+          '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+          '\x1b[0m' // reset
+        );
+      }
     }
   }
 
