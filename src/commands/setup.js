@@ -1,6 +1,5 @@
 import readline from 'node:readline';
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setProfile } from '../config.js';
-import { saveCredentials, loadCredentials, askHidden } from '../auth.js';
 
 export function setupCmd(wrap) {
   return {

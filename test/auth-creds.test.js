@@ -1,8 +1,5 @@
-import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
+import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 
 /**
  * Each test gets its own instance URL so keyring entries never collide.
