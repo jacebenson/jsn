@@ -33,6 +33,14 @@ export class App {
   }
 
   loadContext() {
+    const activeName = this.config.activeProfile || this.config.defaultProfile;
+    if (activeName && this.config.profiles[activeName]) {
+      this.context.profileName = activeName;
+      this.context.username = this.config.profiles[activeName].username || '';
+      return;
+    }
+
+    // Fallback: no active profile name — find by instance URL (legacy config)
     const instance = getEffectiveInstance(this.config);
     if (!instance) return;
     this.context.profileName = extractProfileName(instance);

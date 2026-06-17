@@ -1,6 +1,8 @@
 // OAuth 2.0 with PKCE authentication
 // Credentials are stored in the OS keyring (shared with Go version via libsecret/secret-tool)
 // Falls back to file-based storage when keyring is unavailable.
+// Credentials are keyed by <username>@<instance> so different users on the
+// same instance have separate credential slots.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +11,18 @@ import readline from 'node:readline';
 import { execSync } from 'node:child_process';
 import { globalConfigDir, normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
+
+// ─── Credential key helpers ───
+
+/**
+ * Build a compound key for credential storage: <username>@<instance>
+ * When username is omitted (legacy), just the normalized instance URL is used.
+ */
+function credKey(instance, username) {
+  const normalized = instance.replace(/:\/\//g, '_').replace(/\//g, '_').replace(/:/g, '_');
+  if (!username) return normalized;
+  return `${username.replace(/[^a-zA-Z0-9._@-]/g, '_')}@${normalized}`;
+}
 
 // ─── PKCE state persistence (shared with Go version) ───
 
@@ -60,7 +74,7 @@ function getBasicAuthFromEnv(instance) {
     // Try global env vars
     const username = process.env.SN_USERNAME;
     const password = process.env.SN_PASSWORD;
-    if (username && password) return { auth_method: 'basic', username, password };
+    if (username && password) return { auth_method: 'basic', username, password, auth_source: 'env_basic' };
     return null;
   }
 
@@ -68,12 +82,12 @@ function getBasicAuthFromEnv(instance) {
   const host = envVarName(instance);
   const instanceUser = process.env[`SN_${host}_USERNAME`];
   const instancePass = process.env[`SN_${host}_PASSWORD`];
-  if (instanceUser && instancePass) return { auth_method: 'basic', username: instanceUser, password: instancePass };
+  if (instanceUser && instancePass) return { auth_method: 'basic', username: instanceUser, password: instancePass, auth_source: 'env_basic' };
 
   // Fall back to global env vars
   const globalUser = process.env.SN_USERNAME;
   const globalPass = process.env.SN_PASSWORD;
-  if (globalUser && globalPass) return { auth_method: 'basic', username: globalUser, password: globalPass };
+  if (globalUser && globalPass) return { auth_method: 'basic', username: globalUser, password: globalPass, auth_source: 'env_basic' };
 
   return null;
 }
@@ -83,11 +97,11 @@ const KEYRING_SERVICE = 'servicenow-cli';
 const KEYRING_ATTR_SERVICE = 'service';
 const KEYRING_ATTR_USERNAME = 'username';
 
-function credentialsPath(instance) {
+function credentialsPath(key) {
   const dir = path.join(globalConfigDir(), 'credentials');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Match Go's filename encoding: replace :// and / and : with _
-  const filename = instance.replace(/:\/\//g, '_').replace(/\//g, '_').replace(/:/g, '_') + '.json';
+  const filename = key + '.json';
   return path.join(dir, filename);
 }
 
@@ -117,17 +131,19 @@ function buildAuthURL(instanceURL, clientID, pkce) {
 
 // ─── Keyring via secret-tool (libsecret, same backend as Go's go-keyring) ───
 
-function keyringLookup(instance) {
+function keyringLookup(key) {
   try {
     const result = execSync(
-      `secret-tool lookup ${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${instance}"`,
+      `secret-tool lookup ${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${key}"`,
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
     );
     const trimmed = result.trim();
     if (!trimmed) return null;
     const parsed = JSON.parse(trimmed);
-    // Normalize field names from Go's format to Node.js format
+    // Spread all fields from keyring first, then normalize known fields
+    // so username, password, and other extras are preserved.
     return {
+      ...parsed,
       auth_method: parsed.auth_method || 'oauth',
       access_token: parsed.access_token || parsed.AccessToken || '',
       refresh_token: parsed.refresh_token || parsed.RefreshToken || '',
@@ -139,11 +155,11 @@ function keyringLookup(instance) {
   }
 }
 
-function keyringStore(instance, creds) {
+function keyringStore(key, creds) {
   try {
     execSync(
-      `secret-tool store --label="Password for '${instance}' on '${KEYRING_SERVICE}'" ` +
-      `${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${instance}"`,
+      `secret-tool store --label="Password for '${key}' on '${KEYRING_SERVICE}'" ` +
+      `${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${key}"`,
       { stdio: ['pipe', 'ignore', 'ignore'], input: JSON.stringify(creds) }
     );
     return true;
@@ -152,10 +168,10 @@ function keyringStore(instance, creds) {
   }
 }
 
-function keyringDelete(instance) {
+function keyringDelete(key) {
   try {
     execSync(
-      `secret-tool clear ${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${instance}"`,
+      `secret-tool clear ${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${key}"`,
       { stdio: 'ignore' }
     );
   } catch {
@@ -165,34 +181,45 @@ function keyringDelete(instance) {
 
 // ─── File-based storage (fallback) ───
 
-function loadCredentials(instance) {
-  // Try keyring first (shared with Go version)
-  const keyringCreds = keyringLookup(instance);
-  if (keyringCreds) return keyringCreds;
-
-  // Fall back to file-based storage
+/**
+ * Load credentials for an instance keyed by <username>@<instance>.
+ * When username is omitted (legacy configs without profile user), uses
+ * bare instance key for lookup.
+ */
+function loadCredentials(instance, username) {
+  const key = username ? credKey(instance, username) : credKey(instance);
+  const keyringCreds = keyringLookup(key);
+  if (keyringCreds) {
+    return { ...keyringCreds, auth_source: 'keyring' };
+  }
   try {
-    const data = fs.readFileSync(credentialsPath(instance), 'utf-8');
-    return JSON.parse(data);
+    const data = fs.readFileSync(credentialsPath(key), 'utf-8');
+    const creds = JSON.parse(data);
+    return { ...creds, auth_source: 'file' };
   } catch {
     return null;
   }
 }
 
-function saveCredentials(instance, creds) {
+/**
+ * Save credentials for an instance.
+ * Uses <username>@<instance> key when username is available.
+ */
+function saveCredentials(instance, creds, username) {
+  const key = username ? credKey(instance, username) : credKey(instance);
   // Stamp last_seen on every credential save
   creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
   // Try keyring first, fall back to file
-  if (!keyringStore(instance, creds)) {
-    fs.writeFileSync(credentialsPath(instance), JSON.stringify(creds, null, 2), { mode: 0o600 });
+  if (!keyringStore(key, creds)) {
+    fs.writeFileSync(credentialsPath(key), JSON.stringify(creds, null, 2), { mode: 0o600 });
   }
 }
 
 /**
  * Get the last_seen timestamp for an instance, if available.
  */
-function getLastSeen(instance) {
-  const creds = loadCredentials(instance);
+function getLastSeen(instance, username) {
+  const creds = loadCredentials(instance, username);
   if (!creds || !creds.last_seen) return null;
   return creds.last_seen;
 }
@@ -200,17 +227,21 @@ function getLastSeen(instance) {
 /**
  * Update the last_seen timestamp for an instance to now.
  */
-function touchLastSeen(instance) {
-  const creds = loadCredentials(instance);
+function touchLastSeen(instance, username) {
+  const creds = loadCredentials(instance, username);
   if (!creds) return;
   creds.last_seen = Math.floor(Date.now() / 1000);
-  saveCredentials(instance, creds);
+  saveCredentials(instance, creds, username);
 }
 
-function deleteCredentials(instance) {
-  keyringDelete(instance);
+/**
+ * Delete credentials for an instance keyed by <username>@<instance>.
+ */
+function deleteCredentials(instance, username) {
+  const key = username ? credKey(instance, username) : credKey(instance);
+  keyringDelete(key);
   try {
-    fs.unlinkSync(credentialsPath(instance));
+    fs.unlinkSync(credentialsPath(key));
   } catch {
     // ignore
   }
@@ -271,12 +302,58 @@ export class AuthManager {
     this.httpClient = { timeout: 30000 };
   }
 
+  /**
+   * Resolve the username for credential keying from the active profile.
+   * Returns null when no profile is configured — callers fall back to bare
+   * instance key for backward compatibility with legacy / no-profile usage.
+   */
+  _activeUsername() {
+    const cfg = this.configProvider.config;
+    const name = cfg.activeProfile || cfg.defaultProfile;
+    if (name && cfg.profiles[name] && cfg.profiles[name].username) {
+      return cfg.profiles[name].username;
+    }
+    return null;
+  }
+
   getLastSeen(instance) {
-    return getLastSeen(instance);
+    return getLastSeen(instance, this._activeUsername());
   }
 
   touchLastSeen(instance) {
-    return touchLastSeen(instance);
+    return touchLastSeen(instance, this._activeUsername());
+  }
+
+  /**
+   * Check if legacy bare-instance credentials exist (stored before
+   * user@instance keying). Returns true when old-style creds are found
+   * but wouldn't be picked up by the current username-scoped lookup.
+   */
+  hasLegacyCredentials(instance) {
+    if (!instance) return false;
+    const bareCreds = loadCredentials(instance);
+    if (!bareCreds) return false;
+    // If active profile has a username, the bare key won't be found
+    // by loadCredentials(instance, username). That's the legacy case.
+    const username = this._activeUsername();
+    if (!username) return false; // No username set — bare key IS the active path
+    const userCreds = loadCredentials(instance, username);
+    return !!bareCreds && !userCreds;
+  }
+
+  /**
+   * Return the auth source for an instance without throwing.
+   * Mirrors the auth resolution order in getCredentials().
+   * For older stored credentials without auth_source, falls back
+   * to the saved auth_method field.
+   */
+  getAuthSource(instance) {
+    if (process.env.SERVICENOW_OAUTH_TOKEN) return 'env_token';
+    if (getBasicAuthFromEnv(instance)) return 'env_basic';
+    const creds = loadCredentials(instance, this._activeUsername());
+    if (!creds) return null;
+    // New creds have auth_source; older ones only have auth_method
+    return creds.auth_source || creds.auth_method || 'stored';
   }
 
   isAuthenticated() {
@@ -295,7 +372,7 @@ export class AuthManager {
   isAuthenticatedFor(instance) {
     if (!instance) return false;
     if (getBasicAuthFromEnv(instance)) return true;
-    const creds = loadCredentials(instance);
+    const creds = loadCredentials(instance, this._activeUsername());
     if (!creds) return false;
     if (creds.expires_at && Date.now() >= creds.expires_at * 1000) return false;
     return !!creds.access_token;
@@ -303,7 +380,7 @@ export class AuthManager {
 
   async getCredentials() {
     if (process.env.SERVICENOW_OAUTH_TOKEN) {
-      return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN };
+      return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN, auth_source: 'env_token' };
     }
     const instance = this.configProvider.getEffectiveInstance();
     if (!instance) {
@@ -319,7 +396,7 @@ export class AuthManager {
     // Check basic auth from env vars first
     const basicCreds = getBasicAuthFromEnv(instance);
     if (basicCreds) return basicCreds;
-    const creds = loadCredentials(instance);
+    const creds = loadCredentials(instance, this._activeUsername());
     if (!creds) {
       throw errAuth(`Not authenticated for ${instance}`);
     }
@@ -377,7 +454,8 @@ export class AuthManager {
 
     console.log('\nExchanging authorization code for tokens...');
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-    saveCredentials(instanceURL, newCreds);
+    // Save with username for per-user credential keying
+    saveCredentials(instanceURL, newCreds, newCreds.username);
     return newCreds;
   }
 
@@ -414,7 +492,7 @@ export class AuthManager {
           console.log(`\nAuthorization code found in ${filePath}`);
           removePKCEState(instanceURL);
           const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-          saveCredentials(instanceURL, newCreds);
+          saveCredentials(instanceURL, newCreds, newCreds.username);
           console.log('Token exchange successful!\n');
           return newCreds;
         }
@@ -444,7 +522,7 @@ export class AuthManager {
         `  jsn auth login --password ${instanceURL}`
       );
     }
-    saveCredentials(instanceURL, creds);
+    saveCredentials(instanceURL, creds, creds.username);
     console.log(`✓ Basic auth credentials saved for ${instanceURL}`);
     return creds;
   }
@@ -469,7 +547,7 @@ export class AuthManager {
     removePKCEState(instanceURL);
 
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-    saveCredentials(instanceURL, newCreds);
+    saveCredentials(instanceURL, newCreds, newCreds.username);
     return newCreds;
   }
 
@@ -501,6 +579,8 @@ export class AuthManager {
       refresh_token: tokenResp.refresh_token,
       expires_at: expiresAt,
       created_at: Math.floor(Date.now() / 1000),
+      // The username will be set after post-login verification in the auth command
+      auth_source: 'oauth',
     };
   }
 
@@ -529,11 +609,12 @@ export class AuthManager {
       access_token: tokenResp.access_token,
       refresh_token: tokenResp.refresh_token,
       created_at: Math.floor(Date.now() / 1000),
+      auth_source: 'oauth',
     };
     if (tokenResp.expires_in) {
       newCreds.expires_at = Math.floor(Date.now() / 1000) + tokenResp.expires_in;
     }
-    saveCredentials(instance, newCreds);
+    saveCredentials(instance, newCreds, creds.username);
     return newCreds;
   }
 
@@ -541,6 +622,8 @@ export class AuthManager {
     if (!instance) {
       throw errAuth('No instance specified');
     }
-    deleteCredentials(instance);
+    deleteCredentials(instance, this._activeUsername());
   }
 }
+
+export { saveCredentials, loadCredentials, deleteCredentials, askHidden };

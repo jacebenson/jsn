@@ -56,7 +56,7 @@ export function profilesCmd(wrap) {
                 auth_method: 'basic',
                 username: argv.username,
                 password: argv.password,
-              });
+              }, argv.username);
               profile.auth_method = 'basic';
               profile.username = argv.username;
             }
@@ -147,6 +147,7 @@ export function profilesCmd(wrap) {
             if (!app.config.profiles[name]) {
               throw new Error(`Profile not found: ${name}`);
             }
+            const instance = app.config.profiles[name].instance_url;
             delete app.config.profiles[name];
             if (app.config.defaultProfile === name) {
               app.config.defaultProfile = '';
@@ -155,6 +156,14 @@ export function profilesCmd(wrap) {
               app.config.activeProfile = '';
             }
             saveConfig(app.config);
+
+            // Only clean up credentials if no other profile uses this instance URL
+            const stillInUse = instance && Object.values(app.config.profiles || {})
+              .some(p => p.instance_url === instance);
+            if (instance && !stillInUse) {
+              app.auth.logout(instance);
+            }
+
             app.ok({ removed: name }, { summary: `Removed profile: ${name}` });
           }),
         })

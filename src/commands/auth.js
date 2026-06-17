@@ -125,10 +125,24 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             }
 
             app.config.profiles[profileName] = {
+              ...(app.config.profiles[profileName] || {}),
               instance_url: instanceURL,
-              auth_method: 'oauth',
+              auth_method: argv.password ? 'basic' : 'oauth',
               username: username || undefined,
             };
+
+            // Re-save OAuth credentials with username now that we have it,
+            // so they're keyed by <user>@<instance> for per-user isolation.
+            // Also clean up the old bare-instance key so migration is clean.
+            if (!argv.password && username) {
+              const { saveCredentials, loadCredentials, deleteCredentials } = await import('../auth.js');
+              const stored = loadCredentials(instanceURL);
+              if (stored && stored.access_token) {
+                stored.username = username;
+                saveCredentials(instanceURL, stored, username);
+                deleteCredentials(instanceURL); // remove bare-instance legacy key
+              }
+            }
 
             // Set as default if this is the first one
             const setDefault = !app.config.instanceURL && !app.config.defaultProfile;
@@ -188,6 +202,8 @@ Examples:
               const instance = profile.instance_url;
               const isAuth = app.auth.isAuthenticatedFor(instance);
               const lastSeen = app.auth.getLastSeen(instance);
+              const authSource = isAuth ? app.auth.getAuthSource(instance) : null;
+              const legacy = !isAuth && app.auth.hasLegacyCredentials(instance) ? true : undefined;
 
               // Try live verification
               let verified = null;
@@ -216,6 +232,8 @@ Examples:
                 name,
                 instance,
                 authenticated: isAuth,
+                legacy,
+                auth_source: authSource || (legacy ? 'legacy' : undefined),
                 verified,
                 verified_as: verifiedAt || undefined,
                 last_seen: lastSeen || undefined,
@@ -233,6 +251,20 @@ Examples:
             };
 
             app.ok(result, { summary: `${profiles.length} profile(s)` });
+
+            // Warn about legacy credentials that need re-authentication
+            const legacyProfiles = profiles.filter(p => p.legacy);
+            if (legacyProfiles.length > 0) {
+              process.stderr.write(
+                '\n⚠️  This release changed how credentials are stored.\n' +
+                '   Some profiles still use the old format.\n' +
+                '   Run the following to re-authenticate:\n'
+              );
+              for (const p of legacyProfiles) {
+                process.stderr.write(`     jsn auth login ${p.name}\n`);
+              }
+              process.stderr.write('\n');
+            }
           }),
         })
         .command({

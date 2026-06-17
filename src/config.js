@@ -120,6 +120,22 @@ export function saveConfig(cfg) {
     format: cfg.format || undefined,
   };
   fs.writeFileSync(globalConfigPath(), JSON.stringify(payload, null, 2), { mode: 0o600 });
+
+  // Sync managed fields to local config if it exists, so profile operations
+  // (use, remove, create, auth login) aren't silently reverted on next load.
+  if (fs.existsSync(localConfigPath())) {
+    try {
+      const localData = JSON.parse(fs.readFileSync(localConfigPath(), 'utf-8'));
+      const merged = { ...localData };
+      if (payload.profiles !== undefined) merged.profiles = payload.profiles;
+      if (payload.default_profile !== undefined) merged.default_profile = payload.default_profile;
+      if (payload.instance_url !== undefined) merged.instance_url = payload.instance_url;
+      if (payload.format !== undefined) merged.format = payload.format;
+      fs.writeFileSync(localConfigPath(), JSON.stringify(merged, null, 2), { mode: 0o600 });
+    } catch {
+      // Local config unreadable — skip sync, global save already succeeded
+    }
+  }
 }
 
 export function saveLocalConfig(cfg) {
