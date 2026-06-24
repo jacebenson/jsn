@@ -35,10 +35,26 @@ async function fetchHistory(app, table, sysId, limit = 20) {
   }));
 }
 
+async function fetchBusinessRules(app, table) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `collection=${table}^active=true`);
+  params.set('sysparm_limit', '50');
+  params.set('sysparm_fields', 'name,collection,order,active,sys_scope');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_order_by', 'order');
+  const records = await app.sdk.list('sys_script', params);
+  return records.map(r => ({
+    name: r.name?.display_value || r.name,
+    order: r.order?.display_value || r.order,
+    scope: r.sys_scope?.display_value || r.sys_scope || 'global',
+  }));
+}
+
 export async function inspectRecord(app, table, identifier) {
   const sysId = await resolveIdentifier(app, table, identifier);
-  const [history] = await Promise.all([
+  const [history, businessRules] = await Promise.all([
     fetchHistory(app, table, sysId),
+    fetchBusinessRules(app, table),
   ]);
-  return { table, sys_id: sysId, history, businessRules: [], flows: [] };
+  return { table, sys_id: sysId, history, businessRules, flows: [] };
 }
