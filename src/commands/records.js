@@ -165,6 +165,19 @@ export function recordsCmd(wrap) {
             app.ok({ message: 'Record deleted', table: argv.table, sys_id: argv['sys-id'] }, { summary: `Deleted record from ${argv.table}` });
           }),
         })
+        .command({
+          command: 'inspect <table> <identifier>',
+          aliases: ['debug', 'diag'],
+          describe: 'Inspect a record: show audit history, business rules, and running flows',
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id or number', type: 'string' }),
+          handler: wrap(async (argv, app) => {
+            const { inspectRecord } = await import('../records/inspect.js');
+            const result = await inspectRecord(app, argv.table, argv.identifier);
+            app.ok(result, { summary: `Inspected ${argv.table} ${argv.identifier}` });
+          }),
+        })
 
     },
     handler: () => {},

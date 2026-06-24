@@ -26,6 +26,17 @@ describe('Records Command Structure', () => {
     assert.ok(names.includes('update'));
     assert.ok(names.includes('delete'));
   });
+
+  it('should define inspect subcommand', async () => {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const wrap = (fn) => fn;
+    const cmd = recordsCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c) => { subcommands.push(typeof c === 'string' ? c : c.command); return mockYargs; } };
+    cmd.builder(mockYargs);
+    const names = subcommands.map(s => s.split(' ')[0]);
+    assert.ok(names.includes('inspect'));
+  });
 });
 
 // ─── SDK Helper Function Tests ───
