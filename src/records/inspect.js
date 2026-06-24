@@ -28,8 +28,8 @@ async function fetchHistory(app, table, sysId, limit = 20) {
   const records = await app.sdk.list('sys_audit', params);
   return records.map(r => ({
     field: r.fieldname?.display_value || r.fieldname,
-    oldValue: r.oldvalue?.display_value || r.oldvalue,
-    newValue: r.newvalue?.display_value || r.newvalue,
+    oldValue: (r.oldvalue?.display_value ?? r.oldvalue?.value ?? r.oldvalue) || '',
+    newValue: (r.newvalue?.display_value ?? r.newvalue?.value ?? r.newvalue) || '',
     changedOn: r.sys_created_on?.display_value || r.sys_created_on,
     changedBy: r.sys_created_by?.display_value || r.sys_created_by,
   }));
