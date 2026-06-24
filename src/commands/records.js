@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList } from '../helpers.js';
+import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam } from '../helpers.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -66,10 +66,11 @@ export function recordsCmd(wrap) {
             params.set('sysparm_limit', argv['sys-id'] ? '1' : String(argv.limit));
             params.set('sysparm_offset', String(argv.offset));
             params.set('sysparm_display_value', 'all');
-            params.set('sysparm_fields', ['sys_id', ...columns].join(','));
+            const fields = resolveFieldsParam(columns);
+            if (fields) params.set('sysparm_fields', fields);
             if (query) params.set('sysparm_query', query);
             const records = await app.sdk.list(table, params);
-            const displayRecords = records.map(r => formatRecordForDisplay(r, columns));
+            const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
             const breadcrumbs = [
               { action: 'create', cmd: `jsn records create --table ${table} --data '{...}'`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
@@ -118,7 +119,7 @@ export function recordsCmd(wrap) {
             params.set('sysparm_query', `sys_id=${argv['sys-id']}`);
             params.set('sysparm_limit', '1');
             params.set('sysparm_display_value', 'true');
-            if (argv.columns) params.set('sysparm_fields', argv.columns);
+            if (argv.columns && argv.columns !== '*') params.set('sysparm_fields', argv.columns);
             const records = await app.sdk.list(argv.table, params);
             if (records.length === 0) {
               throw new Error(`Record not found: ${argv['sys-id']}`);

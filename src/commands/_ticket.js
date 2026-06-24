@@ -1,7 +1,7 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
 import search from '@inquirer/search';
 import { isTTY, FormatAuto } from '../output.js';
 
@@ -114,13 +114,13 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             params.set('sysparm_limit', String(limit));
             params.set('sysparm_offset', String(offset));
             params.set('sysparm_display_value', 'all');
-            const fetchColumns = ['sys_id', ...columns];
-            params.set('sysparm_fields', fetchColumns.join(','));
+            const fields = resolveFieldsParam(columns);
+            if (fields) params.set('sysparm_fields', fields);
             const q = query ? query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
             params.set('sysparm_query', q);
 
             const records = await app.sdk.list(table, params);
-            const displayRecords = records.map(r => formatRecordForDisplay(r, columns));
+            const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
 
             const breadcrumbs = [
               { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },

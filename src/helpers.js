@@ -64,6 +64,17 @@ export function buildQuerySuffix(query) {
 }
 
 /**
+ * Resolve sysparm_fields value from user-supplied columns.
+ * Returns null when columns includes '*' (signals "fetch all fields"),
+ * so callers should omit sysparm_fields and skip formatRecordForDisplay.
+ * Otherwise returns the fields string with sys_id prepended.
+ */
+export function resolveFieldsParam(columns) {
+  if (columns.includes('*')) return null;
+  return ['sys_id', ...columns].join(',');
+}
+
+/**
  * Shared interactive list helper with search-as-you-type.
  * All list commands that want an interactive TTY picker should use this.
  *
@@ -84,11 +95,12 @@ export async function interactiveList({ app, table, singular, columns, limit = 2
     return null; // not interactive — caller should fall back to text/table
   }
 
-  const pickerColumns = ['sys_id', labelField, ...columns.filter(c => c !== labelField && c !== 'sys_id')];
+  const pickerColumns = ['sys_id', labelField, ...columns.filter(c => c !== labelField && c !== 'sys_id' && c !== '*')];
   const params = new URLSearchParams();
   params.set('sysparm_limit', String(limit));
   params.set('sysparm_display_value', 'all');
-  params.set('sysparm_fields', pickerColumns.join(','));
+  const pickerFields = pickerColumns.join(',');
+  if (pickerFields) params.set('sysparm_fields', pickerFields);
   params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
 
   const records = await app.sdk.list(table, params);

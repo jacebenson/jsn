@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, resolveFieldsParam } from '../helpers.js';
 
 export function groupRolesCmd(wrap) {
   return {
@@ -20,14 +20,15 @@ export function groupRolesCmd(wrap) {
             const params = new URLSearchParams();
             params.set('sysparm_limit', String(argv.limit));
             params.set('sysparm_display_value', 'all');
-            params.set('sysparm_fields', ['sys_id', ...columns].join(','));
+            const fields = resolveFieldsParam(columns);
+            if (fields) params.set('sysparm_fields', fields);
             if (argv.query) params.set('sysparm_query', argv.query);
             const records = await app.sdk.list('sys_group_has_role', params);
             app.ok({
               table: 'sys_group_has_role',
               count: records.length,
               columns,
-              records: records.map(r => formatRecordForDisplay(r, columns)),
+              records: fields ? records.map(r => formatRecordForDisplay(r, columns)) : records,
               context: { instance_url: app.getEffectiveInstance() },
             }, { summary: `${records.length} group role(s)` });
           }),

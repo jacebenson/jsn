@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, buildQuerySuffix } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
 
 export function ticketsCmd(wrap) {
   return {
@@ -22,11 +22,12 @@ export function ticketsCmd(wrap) {
             params.set('sysparm_limit', String(argv.limit));
             params.set('sysparm_offset', String(argv.offset));
             params.set('sysparm_display_value', 'all');
-            params.set('sysparm_fields', ['sys_id', ...columns].join(','));
+            const fields = resolveFieldsParam(columns);
+            if (fields) params.set('sysparm_fields', fields);
             const q = argv.query ? argv.query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
             params.set('sysparm_query', q);
             const records = await app.sdk.list('ticket', params);
-            const displayRecords = records.map(r => formatRecordForDisplay(r, columns));
+            const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
             const breadcrumbs = [
               { action: 'create', cmd: 'jsn tickets create --data \'{...}\'', description: 'Create a new ticket' },
             ];
