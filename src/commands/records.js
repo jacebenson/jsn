@@ -175,11 +175,18 @@ export function recordsCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const { inspectRecord, formatInspectOutput } = await import('../records/inspect.js');
             const result = await inspectRecord(app, argv.table, argv.identifier);
-            const breadcrumbs = result.flows.map(f => ({
-              action: 'show',
-              cmd: `jsn dev flows show "${f.flow}"`,
-              description: `View flow details for ${f.flow}`,
-            }));
+            const breadcrumbs = [
+              ...result.flows.map(f => ({
+                action: 'show',
+                cmd: `jsn dev flows show "${f.flow}"`,
+                description: `View flow details for ${f.flow}`,
+              })),
+              ...result.businessRules.slice(0, 5).map(br => ({
+                action: 'show',
+                cmd: `jsn dev rules show "${br.name}"`,
+                description: `View business rule: ${br.name}`,
+              })),
+            ];
             app.ok({ ...result, _formatted: formatInspectOutput(result) }, {
               summary: `Inspected ${argv.table} ${argv.identifier}`,
               breadcrumbs,
