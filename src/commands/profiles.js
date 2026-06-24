@@ -181,6 +181,9 @@ export function profilesCmd(wrap) {
         console.log('  use  <name>    Switch to a different profile');
         console.log('  remove <name>  Remove a profile');
         console.log('\nRun "jsn profiles <command> --help" for more details.');
+        console.log('\nNote: You can also create a profile by authenticating:');
+        console.log('  jsn auth login --profile <name> <instance-url>');
+        console.log('  jsn auth login --profile staging --password https://dev12345.service-now.com');
       }
     },
   };

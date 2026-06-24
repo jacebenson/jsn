@@ -185,6 +185,25 @@ export const cli = yargs(hideBin(process.argv))
     if (err) throw err;
     // No command given → show custom grouped help instead of yargs error
     if (msg === 'You must specify a command') {
+      // Check if --profile/-p was used without a value — show profile info instead
+      const raw = process.argv.slice(2);
+      const hasLoneProfile = raw.some((a, i, arr) => {
+        if (a !== '--profile' && a !== '-p') return false;
+        const next = arr[i + 1];
+        return !next || next.startsWith('-');
+      });
+      if (hasLoneProfile) {
+        const cfg = loadConfig();
+        const activeName = cfg.activeProfile || cfg.defaultProfile;
+        process.stdout.write('Profiles:\n');
+        for (const [name, p] of Object.entries(cfg.profiles || {})) {
+          const marker = name === activeName ? ' *' : '  ';
+          process.stdout.write(`  ${marker} ${name.padEnd(20)} ${p.instance_url || ''}\n`);
+        }
+        process.stdout.write('\nUsage: jsn --profile <name> <command>\n');
+        process.stdout.write('       jsn profiles use <name>\n');
+        process.exit(0);
+      }
       process.stdout.write(renderHelp());
       process.exit(0);
     }
