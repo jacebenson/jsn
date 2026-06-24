@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
 
 export function updateSetsCmd(wrap) {
@@ -177,6 +178,40 @@ export function updateSetsCmd(wrap) {
             app.ok({ profile: name, yolo: true }, { summary: 'Default update set warning silenced for this profile' });
           }),
         })
+        .command({
+          command: 'export <name>',
+          describe: 'Export an update set to XML',
+          builder: (y) => y
+            .positional('name', {
+              describe: 'Update set name',
+              type: 'string',
+            })
+            .option('output', {
+              alias: 'o',
+              type: 'string',
+              describe: 'Output file path (default: stdout)',
+            }),
+          handler: wrap(async (argv, app) => {
+            const params = new URLSearchParams();
+            params.set('sysparm_query', `name=${argv.name}`);
+            params.set('sysparm_limit', '1');
+            params.set('sysparm_fields', 'sys_id,name');
+            const records = await app.sdk.list('sys_update_set', params);
+            if (records.length === 0) {
+              throw new Error(`Update set not found: ${argv.name}`);
+            }
+            const sysID = getStringField(records[0], 'sys_id');
+            const instance = app.getEffectiveInstance();
+            const url = `${instance}/sys_update_set.do?XML&sysparm_sys_id=${sysID}`;
+            const xml = await app.sdk.rawRequest(url, { method: 'GET' });
+            if (argv.output) {
+              fs.writeFileSync(argv.output, xml, 'utf-8');
+              app.ok({ name: argv.name, sys_id: sysID, output: argv.output }, { summary: `Exported update set to ${argv.output}` });
+            } else {
+              process.stdout.write(xml + '\n');
+            }
+          }),
+        })
 
     },
     handler: (argv) => {
@@ -187,6 +222,7 @@ export function updateSetsCmd(wrap) {
         console.log('  show <name>    Show an update set');
         console.log('  set  <name>    Set the current update set');
         console.log('  create         Create a new update set (auto-sets as current)');
+        console.log('  export <name>  Export an update set to XML');
         console.log('  complete <name>  Mark an update set as complete (coming soon)');
         console.log('  yolo           Silence the "Default update set" warning');
         console.log('\nRun "jsn dev updatesets <command> --help" for details.');
