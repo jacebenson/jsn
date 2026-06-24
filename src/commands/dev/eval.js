@@ -6,8 +6,8 @@ export function evalCmd(wrap) {
     describe: 'Execute background scripts on the instance',
     builder: (yargs) => {
       return yargs
-        .option('script', { alias: 's', type: 'string', describe: 'JavaScript code to execute' })
-        .option('file', { alias: 'f', type: 'string', describe: 'Read script from file' });
+        .option('script', { alias: 's', type: 'string', describe: "JavaScript code to execute (single-quote the script, double quotes inside: --script 'gs.log(\"Hello\")')" })
+        .option('file', { alias: 'f', type: 'string', describe: 'Read script from file (avoids shell quoting issues)' });
     },
     handler: wrap(async (argv, app) => {
       let script;
