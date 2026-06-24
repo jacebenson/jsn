@@ -173,9 +173,9 @@ export function recordsCmd(wrap) {
             .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
             .positional('identifier', { describe: 'Record sys_id or number', type: 'string' }),
           handler: wrap(async (argv, app) => {
-            const { inspectRecord } = await import('../records/inspect.js');
+            const { inspectRecord, formatInspectOutput } = await import('../records/inspect.js');
             const result = await inspectRecord(app, argv.table, argv.identifier);
-            app.ok(result, { summary: `Inspected ${argv.table} ${argv.identifier}` });
+            app.ok({ ...result, _formatted: formatInspectOutput(result) }, { summary: `Inspected ${argv.table} ${argv.identifier}` });
           }),
         })
 

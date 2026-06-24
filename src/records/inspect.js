@@ -70,6 +70,51 @@ async function fetchFlows(app, sysId) {
   }
 }
 
+export function formatInspectOutput(data) {
+  const lines = [];
+  lines.push('');
+  lines.push(`\u{1F4CB} ${data.table}  ${data.sys_id}`);
+  lines.push('');
+
+  // History section
+  lines.push('\u2500\u2500 History \u2500\u2500');
+  if (data.history.length === 0) {
+    lines.push('  (no audit history found)');
+  } else {
+    for (const h of data.history.slice(0, 10)) {
+      lines.push(`  ${h.changedOn}  ${h.changedBy}  ${h.field}: ${h.oldValue || '(empty)'} \u2192 ${h.newValue}`);
+    }
+    if (data.history.length > 10) {
+      lines.push(`  ... and ${data.history.length - 10} more`);
+    }
+  }
+  lines.push('');
+
+  // Business rules section
+  lines.push('\u2500\u2500 Business Rules \u2500\u2500');
+  if (data.businessRules.length === 0) {
+    lines.push('  (no active business rules on this table)');
+  } else {
+    for (const br of data.businessRules) {
+      lines.push(`  [${br.order}] ${br.name}${br.scope !== 'global' ? ` (${br.scope})` : ''}`);
+    }
+  }
+  lines.push('');
+
+  // Flows section
+  lines.push('\u2500\u2500 Running Flows \u2500\u2500');
+  if (data.flows.length === 0) {
+    lines.push('  (no running flows for this record)');
+  } else {
+    for (const f of data.flows) {
+      lines.push(`  ${f.flow}  [${f.state}]  v${f.version}`);
+    }
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
 export async function inspectRecord(app, table, identifier) {
   const sysId = await resolveIdentifier(app, table, identifier);
   const [history, businessRules, flows] = await Promise.all([

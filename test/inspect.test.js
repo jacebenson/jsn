@@ -22,4 +22,13 @@ describe('inspectRecord', () => {
     const { resolveIdentifier } = await import('../src/records/inspect.js');
     assert.strictEqual(typeof resolveIdentifier, 'function');
   });
+
+  it('should format inspect output for empty data', async () => {
+    const { formatInspectOutput } = await import('../src/records/inspect.js');
+    const result = formatInspectOutput({ table: 'incident', sys_id: 'abc123', history: [], businessRules: [], flows: [] });
+    assert.ok(result.includes('incident'));
+    assert.ok(result.includes('History'));
+    assert.ok(result.includes('Business Rules'));
+    assert.ok(result.includes('Running Flows'));
+  });
 });
