@@ -128,7 +128,9 @@ export class App {
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
     // ⚠️  Warning if in the Default update set
-    if (updateSet && updateSet.toLowerCase().includes('default')) {
+    const profile = this.context.profileName ? this.config.profiles[this.context.profileName] : null;
+    const isYolo = profile?.yolo === true;
+    if (!isYolo && updateSet && updateSet.toLowerCase().includes('default')) {
       const isGlobal = scope === 'global';
       if (isGlobal) {
         // 🔴 HARD WARNING — Global + Default
@@ -146,7 +148,7 @@ export class App {
           '┃  Or switch to a scoped scope first:                    ┃\n' +
           '┃    jsn dev scopes list                                 ┃\n' +
           '┃                                                        ┃\n' +
-          '┃  (Run jsn updatesets yolo to silence this check)       ┃\n' +
+          '┃  (Run jsn dev updatesets yolo to silence this check)    ┃\n' +
           '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\x1b[0m\n'
         );
       } else {
@@ -157,7 +159,7 @@ export class App {
           '  ⚠  Default update set in scope [' + scope + ']\n' +
           '  Changes are contained to this scope, but a named\n' +
           '  update set is still recommended for tracking.\n' +
-          '  (Run \x1b[1mjsn updatesets yolo\x1b[22m to silence this warning)\n' +
+          '  (Run \x1b[1mjsn dev updatesets yolo\x1b[22m to silence this warning)\n' +
           '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
           '\x1b[0m' // reset
         );

@@ -162,6 +162,21 @@ export function updateSetsCmd(wrap) {
             });
           }),
         })
+        .command({
+          command: 'yolo',
+          aliases: ['silence'],
+          describe: 'Silence the "Default update set" warning for this profile',
+          handler: wrap(async (argv, app) => {
+            const name = app.context.profileName;
+            if (!name) {
+              throw new Error('No active profile to mark as yolo. Run jsn setup first.');
+            }
+            app.config.profiles[name].yolo = true;
+            const { saveConfig } = await import('../../config.js');
+            saveConfig(app.config);
+            app.ok({ profile: name, yolo: true }, { summary: 'Default update set warning silenced for this profile' });
+          }),
+        })
 
     },
     handler: (argv) => {
