@@ -328,3 +328,52 @@ describe('Integration - Eval', { skip: !INTEGRATION_ENABLED }, () => {
     assert.ok(result.length > 0, 'Should contain log text');
   });
 });
+
+// ─── Scoped-App Dev Commands (PR #110) ───
+
+describe('Integration - Scoped App Commands', { skip: !INTEGRATION_ENABLED }, () => {
+  it('should list views', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,title');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_ui_view', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list aliases', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,table');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_alias', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list privileges', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,status');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_scope_privilege', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list application modules', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,active');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_app_module', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list catalog UI policies', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'short_description,table');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('catalog_ui_policy', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+});
