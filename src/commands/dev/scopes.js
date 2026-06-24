@@ -47,14 +47,24 @@ export function scopesCmd(wrap) {
         .command({
           command: 'show <scope>',
           aliases: ['get'],
-          describe: 'Show a scope',
+          describe: 'Show a scope by scope value or name',
+          builder: (y) => y
+            .positional('scope', {
+              describe: 'Scope value (e.g. x_417611_daves_o_0) or display name',
+              type: 'string',
+            }),
           handler: wrap(async (argv, app) => {
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `scope=${argv.scope}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('sys_scope', params);
-            if (records.length === 0) {
+            let records;
+            // Try by scope value first, then by name
+            for (const queryField of ['scope', 'name']) {
+              const params = new URLSearchParams();
+              params.set('sysparm_query', `${queryField}=${argv.scope}`);
+              params.set('sysparm_limit', '1');
+              params.set('sysparm_display_value', 'all');
+              records = await app.sdk.list('sys_scope', params);
+              if (records.length > 0) break;
+            }
+            if (!records || records.length === 0) {
               throw new Error(`Scope not found: ${argv.scope}`);
             }
             app.ok(records[0], { summary: `Scope ${argv.scope}` });
