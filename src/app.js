@@ -7,6 +7,7 @@ import { getEffectiveInstance } from './config.js';
 import { extractProfileName } from './helpers.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
+import { isMutationCommand } from './mutations.js';
 import process from 'node:process';
 
 
@@ -57,7 +58,7 @@ export class App {
     return getEffectiveInstance(this.config);
   }
 
-  async printContextHeader() {
+  async printContextHeader(argv = {}) {
     if (!this.getEffectiveInstance() || !this.sdk) return;
     if (process.env.JSN_NO_HEADER) return;
     if (this.output.getFormat() === FormatJSON || this.output.getFormat() === FormatQuiet) return;
@@ -127,10 +128,10 @@ export class App {
 
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
-    // ⚠️  Warning if in the Default update set
+    // ⚠️  Warning if in the Default update set (mutation commands only)
     const profile = this.context.profileName ? this.config.profiles[this.context.profileName] : null;
     const isYolo = profile?.yolo === true;
-    if (!isYolo && updateSet && updateSet.toLowerCase().includes('default')) {
+    if (!isYolo && isMutationCommand(argv) && updateSet && updateSet.toLowerCase().includes('default')) {
       const isGlobal = scope === 'global';
       if (isGlobal) {
         // 🔴 HARD WARNING — Global + Default

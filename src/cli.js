@@ -156,7 +156,7 @@ export const cli = yargs(hideBin(process.argv))
 
     // Print context header for interactive terminals (at the TOP, before command output)
     if (!['help', 'version', 'completion', 'skill'].includes(cmd)) {
-      await argv.app.printContextHeader();
+      await argv.app.printContextHeader(argv);
     }
   })
   .command(setupCmd(wrap))

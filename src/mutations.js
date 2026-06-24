@@ -23,11 +23,32 @@ export const MUTATION_COMMANDS = [
   ['tasks', 'create'],
   ['tasks', 'update'],
   ['tasks', 'delete'],
-  // Dev
+  // Tickets
+  ['tickets', 'create'],
+  ['tickets', 'update'],
+  ['tickets', 'delete'],
+  // Users
+  ['users', 'create'],
+  ['users', 'update'],
+  ['users', 'delete'],
+  // Groups
+  ['groups', 'create'],
+  ['groups', 'update'],
+  ['groups', 'delete'],
+  // Catalog
+  ['catalog', 'create-item'],
+  // Dev flows
+  ['dev', 'flows', 'create'],
+  ['dev', 'flows', 'update'],
+  ['dev', 'flows', 'delete'],
+  // Dev scopes
+  ['dev', 'scopes', 'create'],
+  ['dev', 'scopes', 'set'],
+  // Dev eval
   ['dev', 'eval'],
+  // Dev updatesets
   ['dev', 'updatesets', 'set'],
   ['dev', 'updatesets', 'create'],
-  ['dev', 'scopes', 'set'],
 ];
 
 /**
