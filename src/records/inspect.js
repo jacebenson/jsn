@@ -18,7 +18,27 @@ export async function resolveIdentifier(app, table, identifier) {
   return getStringField(records[0], 'sys_id');
 }
 
+async function fetchHistory(app, table, sysId, limit = 20) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `documentkey=${sysId}^tablename=${table}`);
+  params.set('sysparm_limit', String(limit));
+  params.set('sysparm_fields', 'fieldname,newvalue,oldvalue,sys_created_on,sys_created_by');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_order_by', 'sys_created_on');
+  const records = await app.sdk.list('sys_audit', params);
+  return records.map(r => ({
+    field: r.fieldname?.display_value || r.fieldname,
+    oldValue: r.oldvalue?.display_value || r.oldvalue,
+    newValue: r.newvalue?.display_value || r.newvalue,
+    changedOn: r.sys_created_on?.display_value || r.sys_created_on,
+    changedBy: r.sys_created_by?.display_value || r.sys_created_by,
+  }));
+}
+
 export async function inspectRecord(app, table, identifier) {
   const sysId = await resolveIdentifier(app, table, identifier);
-  return { table, sys_id: sysId, history: [], businessRules: [], flows: [] };
+  const [history] = await Promise.all([
+    fetchHistory(app, table, sysId),
+  ]);
+  return { table, sys_id: sysId, history, businessRules: [], flows: [] };
 }
