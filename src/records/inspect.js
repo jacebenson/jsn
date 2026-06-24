@@ -28,11 +28,115 @@ async function fetchHistory(app, table, sysId, limit = 20) {
   const records = await app.sdk.list('sys_audit', params);
   return records.map(r => ({
     field: r.fieldname?.display_value || r.fieldname,
-    oldValue: (r.oldvalue?.display_value ?? r.oldvalue?.value ?? r.oldvalue) || '',
-    newValue: (r.newvalue?.display_value ?? r.newvalue?.value ?? r.newvalue) || '',
+    oldValue: (r.oldvalue?.display_value ?? r.oldvalue?.value ?? '') || '',
+    newValue: (r.newvalue?.display_value ?? r.newvalue?.value ?? '') || '',
+    _oldRaw: r.oldvalue?.value ?? r.oldvalue ?? '',
+    _newRaw: r.newvalue?.value ?? r.newvalue ?? '',
     changedOn: r.sys_created_on?.display_value || r.sys_created_on,
     changedBy: r.sys_created_by?.display_value || r.sys_created_by,
   }));
+}
+
+// Known choice fields and their display labels from sys_choice
+const CHOICE_FIELDS = new Set(['state', 'incident_state', 'priority', 'impact', 'urgency', 'active', 'category', 'subcategory']);
+
+// Known sys_user reference fields
+const USER_REF_FIELDS = new Set(['closed_by', 'assigned_to', 'opened_by', 'resolved_by', 'called_by', 'caller_id']);
+
+// Boolean fields stored as 0/1 in sys_audit
+const BOOL_FIELDS = new Set(['active']);
+
+async function resolveHistoryDisplayValues(app, table, history) {
+  // Collect unique sys_ids for user reference resolution
+  const userSysIds = new Set();
+  for (const h of history) {
+    if (USER_REF_FIELDS.has(h.field)) {
+      if (isHexString(h.oldValue) && h.oldValue.length === 32) userSysIds.add(h.oldValue);
+      if (isHexString(h.newValue) && h.newValue.length === 32) userSysIds.add(h.newValue);
+    }
+  }
+
+  // Batch lookup user names
+  const userNameMap = new Map();
+  if (userSysIds.size > 0) {
+    const idList = [...userSysIds].join(',');
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `sys_idIN${idList}`);
+    params.set('sysparm_limit', '100');
+    params.set('sysparm_fields', 'sys_id,name');
+    params.set('sysparm_display_value', 'all');
+    try {
+      const users = await app.sdk.list('sys_user', params);
+      for (const u of users) {
+        const uid = getStringField(u, 'sys_id');
+        const name = u.name?.display_value || u.name;
+        if (uid && name) userNameMap.set(uid, name);
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // Collect unique (field, value) pairs for choice resolution
+  const choiceLookups = new Set();
+  for (const h of history) {
+    if (CHOICE_FIELDS.has(h.field)) {
+      if (h.oldValue && h.oldValue !== '_raw_old_') choiceLookups.add(`${h.field}|${h.oldValue}`);
+      if (h.newValue && h.newValue !== '_raw_new_') choiceLookups.add(`${h.field}|${h.newValue}`);
+    }
+  }
+
+  // Batch lookup choice labels
+  const choiceLabelMap = new Map();
+  if (choiceLookups.size > 0) {
+    for (const key of choiceLookups) {
+      const [field, val] = key.split('|');
+      const params = new URLSearchParams();
+      params.set('sysparm_query', `name=${table}^element=${field}^value=${val}^language=en`);
+      params.set('sysparm_limit', '1');
+      params.set('sysparm_fields', 'value,label');
+      params.set('sysparm_display_value', 'all');
+      try {
+        const choices = await app.sdk.list('sys_choice', params);
+        if (choices.length > 0) {
+          const label = choices[0].label?.display_value || choices[0].label;
+          if (label) choiceLabelMap.set(key, label);
+        }
+      } catch { /* non-fatal */ }
+    }
+  }
+
+  // Apply resolutions to history entries
+  return history.map(h => {
+    let oldDisplay = h.oldValue;
+    let newDisplay = h.newValue;
+
+    // Resolve user references
+    if (USER_REF_FIELDS.has(h.field)) {
+      if (isHexString(oldDisplay) && oldDisplay.length === 32) {
+        oldDisplay = userNameMap.get(oldDisplay) || oldDisplay || '(empty)';
+      }
+      if (isHexString(newDisplay) && newDisplay.length === 32) {
+        newDisplay = userNameMap.get(newDisplay) || newDisplay || '(empty)';
+      }
+    }
+
+    // Resolve choice labels
+    if (CHOICE_FIELDS.has(h.field)) {
+      const oldLabel = choiceLabelMap.get(`${h.field}|${h.oldValue}`);
+      const newLabel = choiceLabelMap.get(`${h.field}|${h.newValue}`);
+      if (oldLabel) oldDisplay = oldLabel;
+      if (newLabel) newDisplay = newLabel;
+    }
+
+    // Resolve boolean fields
+    if (BOOL_FIELDS.has(h.field)) {
+      if (oldDisplay === '1') oldDisplay = 'Yes';
+      else if (oldDisplay === '0') oldDisplay = 'No';
+      if (newDisplay === '1') newDisplay = 'Yes';
+      else if (newDisplay === '0') newDisplay = 'No';
+    }
+
+    return { ...h, oldValue: oldDisplay || '(empty)', newValue: newDisplay || '(empty)' };
+  });
 }
 
 async function fetchBusinessRules(app, table) {
@@ -129,10 +233,11 @@ export function formatInspectOutput(data) {
 
 export async function inspectRecord(app, table, identifier) {
   const sysId = await resolveIdentifier(app, table, identifier);
-  const [history, businessRules, flows] = await Promise.all([
+  const [rawHistory, businessRules, flows] = await Promise.all([
     fetchHistory(app, table, sysId),
     fetchBusinessRules(app, table),
     fetchFlows(app, sysId),
   ]);
+  const history = await resolveHistoryDisplayValues(app, table, rawHistory);
   return { table, sys_id: sysId, history, businessRules, flows };
 }
