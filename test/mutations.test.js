@@ -55,4 +55,53 @@ describe('mutations.js', () => {
   it('should handle empty argv', () => {
     assert.strictEqual(isMutationCommand({ _: [] }), false);
   });
+
+  // New commands from #97, #100, #102
+  it('should detect tickets create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['tickets', 'create'] }), true);
+  });
+
+  it('should detect tickets update as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['tickets', 'update'] }), true);
+  });
+
+  it('should detect tickets delete as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['tickets', 'delete'] }), true);
+  });
+
+  it('should not detect tickets list as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['tickets', 'list'] }), false);
+  });
+
+  it('should detect users create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['users', 'create'] }), true);
+  });
+
+  it('should not detect users list as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['users', 'list'] }), false);
+  });
+
+  it('should detect groups delete as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['groups', 'delete'] }), true);
+  });
+
+  it('should detect catalog create-item as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['catalog', 'create-item'] }), true);
+  });
+
+  it('should not detect catalog list-items as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['catalog', 'list-items'] }), false);
+  });
+
+  it('should detect dev flows create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'flows', 'create'] }), true);
+  });
+
+  it('should not detect dev flows list as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'flows', 'list'] }), false);
+  });
+
+  it('should detect dev scopes create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'scopes', 'create'] }), true);
+  });
 });
