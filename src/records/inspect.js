@@ -143,7 +143,7 @@ async function fetchBusinessRules(app, table) {
   const params = new URLSearchParams();
   params.set('sysparm_query', `collection=${table}^active=true`);
   params.set('sysparm_limit', '50');
-  params.set('sysparm_fields', 'name,collection,order,active,sys_scope');
+  params.set('sysparm_fields', 'name,collection,order,active,sys_scope,when,filter_condition');
   params.set('sysparm_display_value', 'all');
   params.set('sysparm_order_by', 'order');
   const records = await app.sdk.list('sys_script', params);
@@ -152,6 +152,8 @@ async function fetchBusinessRules(app, table) {
       name: r.name?.display_value || r.name,
       order: r.order?.display_value || r.order,
       scope: r.sys_scope?.display_value || r.sys_scope || 'global',
+      when: r.when?.display_value || r.when || '',
+      condition: r.filter_condition?.display_value || r.filter_condition?.value || '',
     }))
     .sort((a, b) => {
       const aOrder = parseInt(String(a.order).replace(/,/g, ''), 10) || 0;
@@ -208,7 +210,12 @@ export function formatInspectOutput(data) {
     lines.push('  (no active business rules on this table)');
   } else {
     for (const br of data.businessRules) {
-      lines.push(`  [${br.order}] ${br.name}${br.scope !== 'global' ? ` (${br.scope})` : ''}`);
+      const whenTag = br.when ? ` [${br.when}]` : '';
+      lines.push(`  [${br.order}]${whenTag} ${br.name}${br.scope !== 'global' ? ` (${br.scope})` : ''}`);
+      if (br.condition) {
+        const cond = br.condition.length > 80 ? br.condition.substring(0, 77) + '...' : br.condition;
+        lines.push(`       Condition: ${cond}`);
+      }
     }
   }
   lines.push('');
