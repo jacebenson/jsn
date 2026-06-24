@@ -54,6 +54,10 @@ export function formsCmd(wrap) {
           aliases: ['ls'],
           describe: 'List form views for a table',
           builder: (y) => y
+            .positional('table', {
+              describe: 'Table name (e.g. incident, change_request)',
+              type: 'string',
+            })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             const table = argv.table;
