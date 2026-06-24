@@ -79,11 +79,23 @@ export const columnsCmd = (wrap) => buildDevCmd('columns', 'sys_dictionary', ['c
 export const importCmd = (wrap) => buildDevCmd('import', 'sys_import_set', ['imports', 'imp'], ['sys_import_set', 'sys_import_row', 'sys_target_table', 'sys_target_sys_id'], wrap, { singular: 'import set', readOnly: true });
 export const spPagesCmd = (wrap) => buildDevCmd('sppages', 'sp_page', ['sp-pages', 'pages'], ['id', 'title', 'sys_scope'], wrap, { singular: 'Service Portal page', readOnly: true });
 export const spWidgetsCmd = (wrap) => buildDevCmd('spwidgets', 'sp_widget', ['sp-widget', 'widgets'], ['id', 'name', 'sys_scope'], wrap, { singular: 'Service Portal widget', readOnly: true });
-export const uiPagesCmd = (wrap) => buildDevCmd('uipages', 'sys_ui_page', ['ui-page', 'pages'], ['name', 'sys_scope'], wrap, { singular: 'UI page', readOnly: true });
-export const appMenuCmd = (wrap) => buildDevCmd('appmenu', 'sys_app_application', ['app-menu', 'menu'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application menu', readOnly: true });
+export const uiPagesCmd = (wrap) => buildDevCmd('uipages', 'sys_ui_page', ['ui-page', 'pages'], ['name', 'sys_scope'], wrap, { singular: 'UI page', scopeValidation: true });
+export const appMenuCmd = (wrap) => buildDevCmd('appmenu', 'sys_app_application', ['app-menu', 'menu'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application menu', scopeValidation: true });
 export const scRAPICmd = (wrap) => buildDevCmd('scrapi', 'sys_ws_operation', ['scripted-rest', 'rest-api'], ['name', 'sys_ws_definition', 'sys_scope'], wrap, { singular: 'scripted REST API', readOnly: true });
 
 // Commands with full CRUD
-export const aclsCmd = (wrap) => buildDevCmd('acls', 'sys_security_acl', ['acl'], ['name', 'operation', 'type', 'active', 'sys_scope'], wrap, { singular: 'ACL', readOnly: true });
+export const aclsCmd = (wrap) => buildDevCmd('acls', 'sys_security_acl', ['acl'], ['name', 'operation', 'type', 'active', 'sys_scope'], wrap, { singular: 'ACL', scopeValidation: true });
 export const rolesCmd = (wrap) => buildDevCmd('roles', 'sys_user_role', ['role', 'r'], ['name', 'description', 'elevated_privilege', 'sys_scope'], wrap, { singular: 'role', scopeValidation: true });
-export const propertiesCmd = (wrap) => buildDevCmd('properties', 'sys_properties', ['property', 'prop'], ['name', 'value', 'description', 'sys_scope'], wrap, { singular: 'property', readOnly: true });
+export const propertiesCmd = (wrap) => buildDevCmd('properties', 'sys_properties', ['property', 'prop'], ['name', 'value', 'description', 'sys_scope'], wrap, { singular: 'property', scopeValidation: true });
+
+// New commands for scoped-app tables
+export const relationshipsCmd = (wrap) => buildDevCmd('relationships', 'sys_relationship', ['relationship', 'rel'], ['name', 'sys_scope'], wrap, { singular: 'relationship', scopeValidation: true });
+export const appmodulesCmd = (wrap) => buildDevCmd('appmodules', 'sys_app_module', ['appmodule', 'am'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application module', scopeValidation: true });
+export const listcontrolsCmd = (wrap) => buildDevCmd('listcontrols', 'sys_ui_list_control', ['listcontrol', 'lc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'list control', scopeValidation: true });
+export const viewsCmd = (wrap) => buildDevCmd('views', 'sys_ui_view', ['view', 'vw'], ['name', 'title', 'sys_scope'], wrap, { singular: 'view', scopeValidation: true });
+export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['name', 'status', 'sys_scope'], wrap, { singular: 'privilege', scopeValidation: true });
+export const securitytypesCmd = (wrap) => buildDevCmd('securitytypes', 'sys_security_type', ['securitytype', 'st'], ['name', 'active', 'sys_scope'], wrap, { singular: 'security type', scopeValidation: true });
+export const uxscriptsCmd = (wrap) => buildDevCmd('uxscripts', 'sys_ux_lib_source_script', ['uxscript', 'ux'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UX script', scopeValidation: true });
+export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias', 'als'], ['name', 'table', 'sys_scope'], wrap, { singular: 'alias', scopeValidation: true });
+export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript', 'cs'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });
+export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });

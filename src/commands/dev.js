@@ -6,6 +6,9 @@ import {
   tablesCmd, columnsCmd, importCmd,
   spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd, scRAPICmd,
   aclsCmd, rolesCmd, propertiesCmd,
+  relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
+  privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
+  catalogscriptsCmd, cataloguipoliciesCmd,
 } from './dev/_simple.js';
 import { flowsCmd } from './dev/flows.js';
 import { formsCmd } from './dev/forms.js';
@@ -44,6 +47,16 @@ export function devCmd(wrap) {
         .command(updateSetsCmd(wrap))
         .command(scopesCmd(wrap))
         .command(propertiesCmd(wrap))
+        .command(relationshipsCmd(wrap))
+        .command(appmodulesCmd(wrap))
+        .command(listcontrolsCmd(wrap))
+        .command(viewsCmd(wrap))
+        .command(privilegesCmd(wrap))
+        .command(securitytypesCmd(wrap))
+        .command(uxscriptsCmd(wrap))
+        .command(aliasesCmd(wrap))
+        .command(catalogscriptsCmd(wrap))
+        .command(cataloguipoliciesCmd(wrap))
         .command(logsCmd(wrap))
         .command(evalCmd(wrap))
         .command(restCmd(wrap));
