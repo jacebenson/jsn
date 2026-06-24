@@ -50,11 +50,32 @@ async function fetchBusinessRules(app, table) {
   }));
 }
 
+async function fetchFlows(app, sysId) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `source_record=${sysId}`);
+  params.set('sysparm_limit', '20');
+  params.set('sysparm_fields', 'flow_catalog_model,execution_id,state,engine_major_version,sys_created_on,origins');
+  params.set('sysparm_display_value', 'all');
+  try {
+    const records = await app.sdk.list('sys_flow_context', params);
+    return records.map(r => ({
+      flow: r.flow_catalog_model?.display_value || r.flow_catalog_model,
+      executionId: r.execution_id?.display_value || r.execution_id,
+      state: r.state?.display_value || r.state,
+      version: r.engine_major_version?.display_value || r.engine_major_version,
+      started: r.sys_created_on?.display_value || r.sys_created_on,
+    }));
+  } catch {
+    return []; // Flow Designer might not be installed
+  }
+}
+
 export async function inspectRecord(app, table, identifier) {
   const sysId = await resolveIdentifier(app, table, identifier);
-  const [history, businessRules] = await Promise.all([
+  const [history, businessRules, flows] = await Promise.all([
     fetchHistory(app, table, sysId),
     fetchBusinessRules(app, table),
+    fetchFlows(app, sysId),
   ]);
-  return { table, sys_id: sysId, history, businessRules, flows: [] };
+  return { table, sys_id: sysId, history, businessRules, flows };
 }
