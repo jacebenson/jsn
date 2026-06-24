@@ -192,9 +192,36 @@ describe('Integration - Table Operations', { skip: !INTEGRATION_ENABLED }, () =>
   });
 });
 
-// ─── Dev Commands Tests ───
+// ─── Config Tests ───
 
-describe('Integration - Dev Commands', { skip: !INTEGRATION_ENABLED }, () => {
+describe('Integration - Config', { skip: !INTEGRATION_ENABLED }, () => {
+  it('should list profiles', () => {
+    const profiles = app.config.profiles || {};
+    assert.ok(typeof profiles === 'object', 'Profiles should be an object');
+  });
+
+  it('should list scopes', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,scope');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_scope', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list user roles', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_user_role', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+});
+
+// ─── Dev Commands Expanded ───
+
+describe('Integration - Dev Commands Expanded', { skip: !INTEGRATION_ENABLED }, () => {
   it('should list update sets', async () => {
     const params = new URLSearchParams();
     params.set('sysparm_limit', '3');
@@ -211,5 +238,93 @@ describe('Integration - Dev Commands', { skip: !INTEGRATION_ENABLED }, () => {
     params.set('sysparm_display_value', 'all');
     const records = await app.sdk.list('sys_hub_flow', params);
     assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list script includes', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,api_name');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_script_include', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list business rules', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,collection');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_script', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list ACLs', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,operation');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_security_acl', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list client scripts', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,table');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_script_client', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list UI policies', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'short_description,table');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_ui_policy', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list UI actions', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,table');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_ui_action', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list system properties', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,value');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_properties', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+
+  it('should list tables', async () => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', '3');
+    params.set('sysparm_fields', 'name,label');
+    params.set('sysparm_display_value', 'all');
+    const records = await app.sdk.list('sys_db_object', params);
+    assert.ok(Array.isArray(records), 'Should return an array');
+  });
+});
+
+// ─── Eval Tests ───
+
+describe('Integration - Eval', { skip: !INTEGRATION_ENABLED }, () => {
+  it('should execute a simple script', async () => {
+    const result = await app.sdk.executeScript('gs.log("jsn integration test");');
+    // Should not throw — actual output varies by instance config
+    assert.ok(typeof result === 'string', 'Should return a string result');
+  });
+
+  it('should return script output via gs.log', async () => {
+    const result = await app.sdk.executeScript('gs.log("jsn integration test date=" + gs.nowDateTime());');
+    assert.ok(result, 'Should return log output');
+    assert.ok(result.length > 0, 'Should contain log text');
   });
 });
