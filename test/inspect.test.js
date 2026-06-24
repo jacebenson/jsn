@@ -27,8 +27,8 @@ describe('inspectRecord', () => {
     const { formatInspectOutput } = await import('../src/records/inspect.js');
     const result = formatInspectOutput({ table: 'incident', sys_id: 'abc123', history: [], businessRules: [], flows: [] });
     assert.ok(result.includes('incident'));
-    assert.ok(result.includes('History'));
-    assert.ok(result.includes('Business Rules'));
-    assert.ok(result.includes('Running Flows'));
+    assert.ok(result.includes('HISTORY'));
+    assert.ok(result.includes('BUSINESS RULES'));
+    assert.ok(result.includes('RUNNING FLOWS'));
   });
 });

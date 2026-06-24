@@ -77,7 +77,8 @@ export function formatInspectOutput(data) {
   lines.push('');
 
   // History section
-  lines.push('\u2500\u2500 History \u2500\u2500');
+  lines.push('\u25B6 HISTORY');
+  lines.push('\u2500'.repeat(50));
   if (data.history.length === 0) {
     lines.push('  (no audit history found)');
   } else {
@@ -91,7 +92,8 @@ export function formatInspectOutput(data) {
   lines.push('');
 
   // Business rules section
-  lines.push('\u2500\u2500 Business Rules \u2500\u2500');
+  lines.push('\u25B6 BUSINESS RULES');
+  lines.push('\u2500'.repeat(50));
   if (data.businessRules.length === 0) {
     lines.push('  (no active business rules on this table)');
   } else {
@@ -102,12 +104,16 @@ export function formatInspectOutput(data) {
   lines.push('');
 
   // Flows section
-  lines.push('\u2500\u2500 Running Flows \u2500\u2500');
+  lines.push('\u25B6 RUNNING FLOWS');
+  lines.push('\u2500'.repeat(50));
   if (data.flows.length === 0) {
     lines.push('  (no running flows for this record)');
   } else {
     for (const f of data.flows) {
-      lines.push(`  ${f.flow}  [${f.state}]  v${f.version}`);
+      lines.push(`  Flow: ${f.flow}`);
+      lines.push(`  Status: ${f.state} | Version: ${f.version}`);
+      if (f.started) lines.push(`  Started: ${f.started}`);
+      lines.push('');
     }
   }
   lines.push('');
