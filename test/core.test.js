@@ -31,17 +31,22 @@ describe('Config - normalizeInstanceURL', () => {
 describe('Config - loadConfig', () => {
   let tmpDir;
   let configPath;
+  let originalCwd;
 
   before(() => {
     originalEnv = { ...process.env };
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-config-test-'));
     process.env.XDG_CONFIG_HOME = tmpDir;
+    // Isolate from local .servicenow/config.json
+    originalCwd = process.cwd();
+    process.chdir(tmpDir);
     configPath = path.join(tmpDir, 'servicenow', 'config.json');
     fs.mkdirSync(path.join(tmpDir, 'servicenow'), { recursive: true });
   });
 
   after(() => {
     Object.assign(process.env, originalEnv);
+    if (originalCwd) process.chdir(originalCwd);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -273,9 +278,21 @@ describe('SDKClient', () => {
 
 describe('Auth', () => {
   it('returns false when no instance configured', async () => {
-    const { AuthManager } = await import('../src/auth.js');
-    const auth = new AuthManager({ getEffectiveInstance: () => '' });
-    assert.strictEqual(auth.isAuthenticated(), false);
+    const origToken = process.env.SERVICENOW_OAUTH_TOKEN;
+    const origSnUser = process.env.SN_USERNAME;
+    const origSnPass = process.env.SN_PASSWORD;
+    delete process.env.SERVICENOW_OAUTH_TOKEN;
+    delete process.env.SN_USERNAME;
+    delete process.env.SN_PASSWORD;
+    try {
+      const { AuthManager } = await import('../src/auth.js');
+      const auth = new AuthManager({ getEffectiveInstance: () => '' });
+      assert.strictEqual(auth.isAuthenticated(), false);
+    } finally {
+      if (origToken !== undefined) process.env.SERVICENOW_OAUTH_TOKEN = origToken;
+      if (origSnUser !== undefined) process.env.SN_USERNAME = origSnUser;
+      if (origSnPass !== undefined) process.env.SN_PASSWORD = origSnPass;
+    }
   });
 
   it('isAuthenticatedFor returns false for empty instance', async () => {
@@ -336,10 +353,22 @@ describe('App context', () => {
   });
 
   it('requireAuth throws when not authenticated', async () => {
-    const { App } = await import('../src/app.js');
-    const cfg = { instanceURL: 'https://test.service-now.com', profiles: {}, activeProfile: '' };
-    const app = new App(cfg);
-    assert.throws(() => app.requireAuth(), /Not authenticated/);
+    const origToken = process.env.SERVICENOW_OAUTH_TOKEN;
+    const origSnUser = process.env.SN_USERNAME;
+    const origSnPass = process.env.SN_PASSWORD;
+    delete process.env.SERVICENOW_OAUTH_TOKEN;
+    delete process.env.SN_USERNAME;
+    delete process.env.SN_PASSWORD;
+    try {
+      const { App } = await import('../src/app.js');
+      const cfg = { instanceURL: 'https://test.service-now.com', profiles: {}, activeProfile: '' };
+      const app = new App(cfg);
+      assert.throws(() => app.requireAuth(), /Not authenticated/);
+    } finally {
+      if (origToken !== undefined) process.env.SERVICENOW_OAUTH_TOKEN = origToken;
+      if (origSnUser !== undefined) process.env.SN_USERNAME = origSnUser;
+      if (origSnPass !== undefined) process.env.SN_PASSWORD = origSnPass;
+    }
   });
 
   it('isInteractive returns false for non-TTY', async () => {
