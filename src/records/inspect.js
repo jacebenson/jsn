@@ -209,12 +209,28 @@ export function formatInspectOutput(data) {
   if (data.businessRules.length === 0) {
     lines.push('  (no active business rules on this table)');
   } else {
+    // Group by execution phase: before → display → after → async
+    const phases = ['before', 'display', 'after', 'async'];
+    const grouped = {};
     for (const br of data.businessRules) {
-      const whenTag = br.when ? ` [${br.when}]` : '';
-      lines.push(`  [${br.order}]${whenTag} ${br.name}${br.scope !== 'global' ? ` (${br.scope})` : ''}`);
-      if (br.condition) {
-        const cond = br.condition.length > 80 ? br.condition.substring(0, 77) + '...' : br.condition;
-        lines.push(`       Condition: ${cond}`);
+      const phase = br.when?.toLowerCase() || '';
+      if (!grouped[phase]) grouped[phase] = [];
+      grouped[phase].push(br);
+    }
+    for (const phase of phases) {
+      const rules = grouped[phase]?.sort((a, b) => {
+        const aOrder = parseInt(String(a.order).replace(/,/g, ''), 10) || 0;
+        const bOrder = parseInt(String(b.order).replace(/,/g, ''), 10) || 0;
+        return aOrder - bOrder;
+      });
+      if (!rules || rules.length === 0) continue;
+      lines.push(`  ${phase.charAt(0).toUpperCase() + phase.slice(1)}:`);
+      for (const br of rules) {
+        lines.push(`    [${br.order}] ${br.name}${br.scope !== 'global' ? ` (${br.scope})` : ''}`);
+        if (br.condition) {
+          const cond = br.condition.length > 80 ? br.condition.substring(0, 77) + '...' : br.condition;
+          lines.push(`       Condition: ${cond}`);
+        }
       }
     }
   }
