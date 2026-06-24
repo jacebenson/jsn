@@ -43,11 +43,17 @@ async function fetchBusinessRules(app, table) {
   params.set('sysparm_display_value', 'all');
   params.set('sysparm_order_by', 'order');
   const records = await app.sdk.list('sys_script', params);
-  return records.map(r => ({
-    name: r.name?.display_value || r.name,
-    order: r.order?.display_value || r.order,
-    scope: r.sys_scope?.display_value || r.sys_scope || 'global',
-  }));
+  return records
+    .map(r => ({
+      name: r.name?.display_value || r.name,
+      order: r.order?.display_value || r.order,
+      scope: r.sys_scope?.display_value || r.sys_scope || 'global',
+    }))
+    .sort((a, b) => {
+      const aOrder = parseInt(String(a.order).replace(/,/g, ''), 10) || 0;
+      const bOrder = parseInt(String(b.order).replace(/,/g, ''), 10) || 0;
+      return aOrder - bOrder;
+    });
 }
 
 async function fetchFlows(app, sysId) {
