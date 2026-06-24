@@ -65,7 +65,7 @@ async function fetchFlows(app, sysId) {
   try {
     const records = await app.sdk.list('sys_flow_context', params);
     return records.map(r => ({
-      flow: r.flow_catalog_model?.display_value || r.flow_catalog_model,
+      flow: r.flow_catalog_model?.display_value || r.flow_catalog_model?.value || '(deleted flow)',
       executionId: r.execution_id?.display_value || r.execution_id,
       state: r.state?.display_value || r.state,
       version: r.engine_major_version?.display_value || r.engine_major_version,
