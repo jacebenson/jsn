@@ -25,7 +25,7 @@ export function flowsCmd(wrap) {
               formatLabel: r => `${getStringField(r, 'name')} ${getStringField(r, 'active') === 'true' ? '' : '[inactive]'}`,
             });
             if (picked) {
-              const inspection = await app.sdk.inspectFlow(picked.sys_id);
+              const inspection = await app.sdk.inspectFlow(getStringField(picked, 'sys_id'));
               const formatted = formatFlowInspection(inspection, app.getEffectiveInstance());
               return app.ok({ ...inspection, _formatted: formatted }, {
                 summary: `Flow: ${inspection.flow.name}`,
