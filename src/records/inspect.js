@@ -60,12 +60,12 @@ async function fetchFlows(app, sysId) {
   const params = new URLSearchParams();
   params.set('sysparm_query', `source_record=${sysId}`);
   params.set('sysparm_limit', '20');
-  params.set('sysparm_fields', 'flow_catalog_model,execution_id,state,engine_major_version,sys_created_on,origins');
+  params.set('sysparm_fields', 'flow_catalog_model,name,execution_id,state,engine_major_version,sys_created_on,origins,calling_source');
   params.set('sysparm_display_value', 'all');
   try {
     const records = await app.sdk.list('sys_flow_context', params);
     return records.map(r => ({
-      flow: r.flow_catalog_model?.display_value || r.flow_catalog_model?.value || '(deleted flow)',
+      flow: r.name?.display_value || r.name || r.flow_catalog_model?.display_value || r.flow_catalog_model?.value || '(deleted flow)',
       executionId: r.execution_id?.display_value || r.execution_id,
       state: r.state?.display_value || r.state,
       version: r.engine_major_version?.display_value || r.engine_major_version,
