@@ -26,7 +26,7 @@ export function ticketsCmd(wrap) {
             if (fields) params.set('sysparm_fields', fields);
             const q = argv.query ? argv.query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
             params.set('sysparm_query', q);
-            const records = await app.sdk.list('ticket', params);
+            const records = await app.sdk.list('task', params);
             const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
             const breadcrumbs = [
               { action: 'create', cmd: 'jsn tickets create --data \'{...}\'', description: 'Create a new ticket' },
@@ -46,7 +46,7 @@ export function ticketsCmd(wrap) {
               });
             }
             app.ok({
-              table: 'ticket',
+              table: 'task',
               count: records.length,
               columns,
               records: displayRecords,
@@ -64,7 +64,7 @@ export function ticketsCmd(wrap) {
             params.set('sysparm_query', `number=${argv.number}`);
             params.set('sysparm_limit', '1');
             params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('ticket', params);
+            const records = await app.sdk.list('task', params);
             if (records.length === 0) {
               throw new Error(`Ticket not found: ${argv.number}`);
             }
@@ -77,7 +77,7 @@ export function ticketsCmd(wrap) {
           builder: (y) => y.option('data', { type: 'string', demandOption: true, describe: 'JSON fields (e.g. \'{"state":"2","priority":"1"}\')' }),
           handler: wrap(async (argv, app) => {
             const recordData = JSON.parse(argv.data);
-            const record = await app.sdk.create('ticket', recordData);
+            const record = await app.sdk.create('task', recordData);
             app.ok(record, { summary: `Created ticket ${getStringField(record, 'number')}` });
           }),
         })
@@ -90,12 +90,12 @@ export function ticketsCmd(wrap) {
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${argv.number}`);
             findParams.set('sysparm_limit', '1');
-            const records = await app.sdk.list('ticket', findParams);
+            const records = await app.sdk.list('task', findParams);
             if (records.length === 0) {
               throw new Error(`Ticket not found: ${argv.number}`);
             }
             const sysID = getStringField(records[0], 'sys_id');
-            const updated = await app.sdk.update('ticket', sysID, recordData);
+            const updated = await app.sdk.update('task', sysID, recordData);
             app.ok(updated, { summary: `Updated ticket ${argv.number}` });
           }),
         })
@@ -106,12 +106,12 @@ export function ticketsCmd(wrap) {
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${argv.number}`);
             findParams.set('sysparm_limit', '1');
-            const records = await app.sdk.list('ticket', findParams);
+            const records = await app.sdk.list('task', findParams);
             if (records.length === 0) {
               throw new Error(`Ticket not found: ${argv.number}`);
             }
             const sysID = getStringField(records[0], 'sys_id');
-            await app.sdk.delete('ticket', sysID);
+            await app.sdk.delete('task', sysID);
             app.ok({ number: argv.number, message: 'Ticket deleted' }, { summary: `Deleted ticket ${argv.number}` });
           }),
         })
