@@ -54,6 +54,28 @@ async function checkScope(sdk, recordScope) {
   return { currentScope, recordScope };
 }
 
+/**
+ * Resolve the API scope name from a record's sys_scope reference field.
+ * With sysparm_display_value=all, sys_scope is { display_value: "Name", value: "<sys_id>" }.
+ * getStringField returns the display_value (human-readable), but we need the API name
+ * (e.g. "x_example_app") to compare against getCurrentScope().
+ */
+async function resolveRecordScope(sdk, record) {
+  const sysScope = record['sys_scope'];
+  let scopeId;
+  if (sysScope && typeof sysScope === 'object' && sysScope.value) {
+    scopeId = sysScope.value;
+  } else {
+    return getStringField(record, 'sys_scope');
+  }
+  try {
+    const scopeRecord = await sdk.get('sys_scope', scopeId);
+    return scopeRecord?.scope || 'global';
+  } catch {
+    return getStringField(record, 'sys_scope');
+  }
+}
+
 export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {}) {
   const showFields = opts.showFields !== undefined ? opts.showFields : null;
   const singular = toSingular(name, opts.singular);
@@ -257,7 +279,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
               throw new Error(`${singular} not found: ${id}`);
             }
             const sysID = getStringField(records[0], 'sys_id');
-            const recordScope = getStringField(records[0], 'sys_scope');
+            const recordScope = await resolveRecordScope(app.sdk, records[0]);
 
             if (scopeValidation) {
               const scopeErr = await checkScope(app.sdk, recordScope);
@@ -288,7 +310,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             }
             const sysID = getStringField(records[0], 'sys_id');
             const recordName = getStringField(records[0], 'name') || id;
-            const recordScope = getStringField(records[0], 'sys_scope');
+            const recordScope = await resolveRecordScope(app.sdk, records[0]);
 
             if (scopeValidation) {
               const scopeErr = await checkScope(app.sdk, recordScope);

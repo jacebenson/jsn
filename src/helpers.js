@@ -143,6 +143,8 @@ export function parseDataArg(argv) {
   let raw;
   if (argv['data-file']) {
     raw = fs.readFileSync(argv['data-file'], 'utf-8');
+    // Strip UTF-8 BOM (\ufeff) which some editors (Windows/PowerShell) add
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
   } else if (argv.data) {
     raw = argv.data;
   } else {
