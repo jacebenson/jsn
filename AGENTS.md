@@ -1,16 +1,18 @@
 # Agent Documentation for JSN CLI
 
+> JSN v3.x — Node.js — branch: `nodejs`
+
 This document provides guidance for AI agents using the JSN CLI to interact with ServiceNow.
 
 ## Design Philosophy
 
 JSN is designed for **safe, composable automation**:
 
-1. **Read-only by default** - List and get operations are safe
-2. **Explicit mutations** - Create/update/delete require explicit flags
-3. **Idempotent operations** - Running the same command twice produces the same result
-4. **Structured output** - JSON output can be piped to other tools
-5. **Error handling** - Clear error messages with hints for resolution
+1. **Read-only by default** — List and get operations are safe
+2. **Explicit mutations** — Create/update/delete require explicit flags
+3. **Idempotent operations** — Running the same command twice produces the same result
+4. **Structured output** — JSON output can be piped to other tools
+5. **Error handling** — Clear error messages with hints for resolution
 
 ## Common Workflows
 
@@ -83,6 +85,14 @@ jsn dev updatesets list --query "state=in progress" --json
 # Set current update set
 jsn dev updatesets set "My Development" --json
 
+# Export an update set to XML
+jsn dev updatesets export --name "My Update Set" --json
+
+# Suppress Default update set warnings (yolo mode)
+jsn dev updatesets yolo --on
+jsn dev updatesets yolo --off
+jsn dev updatesets yolo --status
+
 # List access controls (ACLs) for a table
 jsn dev acls list --query "name=incident" --json
 
@@ -90,7 +100,43 @@ jsn dev acls list --query "name=incident" --json
 jsn dev properties list --query "nameLIKEglide.encryption" --json
 ```
 
-### Workflow 5: Data Queries
+### Workflow 5: Records Inspect (Audit & Diagnostics)
+
+```bash
+# Show audit history for a record
+jsn records inspect INC0010001 --audit
+
+# Show business rules that fire on a record's table
+jsn records inspect INC0010001 --rules
+
+# Show running flows for a record
+jsn records inspect INC0010001 --flows
+
+# Run all diagnostics at once
+jsn records inspect INC0010001 --all
+```
+
+### Workflow 6: Dev Commands with Full CRUD
+
+Several dev commands now support create, update, and delete in addition to list/show:
+
+```bash
+# Create a new business rule
+jsn dev rules create --data '{"name": "My Rule", "collection": "incident", "script": "gs.log(\"hello\");"}'
+
+# Update a script include
+jsn dev includes update <sys_id> --data '{"script": "// updated code"}'
+
+# Delete a UI action
+jsn dev uiactions delete <sys_id> --confirm
+
+# Create a new ACL
+jsn dev acls create --data '{"name": "incident", "operation": "read", "type": "record"}'
+```
+
+Supported dev CRUD tables: `sys_script_include`, `sys_script`, `sys_script_client`, `sys_ui_action`, `sys_ui_policy`, `sys_scope`, `sys_properties`, `sys_acl`, `sys_import_set`, `sys_ws_definition`, `sys_rest_message`, `sys_rest_message_fn`, `sys_roles`, `sys_user_role`, `sys_flow`, `sys_flow_trigger`, `sys_flow_action`, `sys_ui_page`, `sys_ui_module`, `sys_app`, `sys_application`, `sys_ui_section`, `sys_ui_related_list`, `sys_ui_list`, `sys_ui_view`, `sys_ui_form`, `sys_ui_script`, `sys_ui_message`, `sys_ui_policy_condition`, `sys_script_queue`, `sys_script_email_template`, `sys_script_rest_operation`, `sys_script_rest_message`, `sys_script_rest_operation_fn`, `sys_script_ws_definition`.
+
+### Workflow 7: Data Queries
 
 ```bash
 # Generic table query with jq processing
@@ -103,6 +149,9 @@ jsn records list --table incident --query "priority=1" --json | jq 'length'
 # Export to CSV (using jq)
 jsn records list --table incident --limit 100 --json | \
   jq -r '.[] | [.number, .short_description, .priority, .state] | @csv'
+
+# Fetch all fields from a record
+jsn records get --table incident --sys-id <sys_id> --columns '*' --json
 ```
 
 ## Best Practices for Agents
@@ -159,14 +208,17 @@ fi
 
 These operations are always safe:
 
-- `jsn incidents list`
-- `jsn incidents <number>`
-- `jsn changes list`
-- `jsn records list`
-- `jsn users list`
+- `jsn incidents list` / `jsn incidents <number>`
+- `jsn changes list` / `jsn changes <number>`
+- `jsn requests list` / `jsn requests <number>`
+- `jsn tasks list` / `jsn tasks <number>`
+- `jsn records list` / `jsn records get`
+- `jsn records inspect`
+- `jsn users list` / `jsn users <search>`
 - `jsn groups list`
+- `jsn tickets list`
 
-**Dev Commands:**
+**Dev Commands (read-only variants):**
 
 - `jsn dev flows list`
 - `jsn dev actions list`
@@ -184,21 +236,30 @@ These operations are always safe:
 - `jsn dev scopes list`
 - `jsn dev properties list`
 - `jsn dev logs list`
+- `jsn dev forms list`
+- `jsn dev lists list`
 
 ### Operations Requiring Confirmation
 
 These operations modify data:
 
-- `jsn incidents create`
-- `jsn incidents update`
-- `jsn incidents delete`
-- `jsn changes create`
-- `jsn changes update`
-- `jsn changes delete`
-- `jsn records create`
-- `jsn records update`
-- `jsn records delete`
+- `jsn incidents create` / `update` / `delete`
+- `jsn changes create` / `update` / `delete`
+- `jsn requests create` / `update` / `delete`
+- `jsn tasks create` / `update` / `delete`
+- `jsn tickets create` / `update` / `delete`
+- `jsn records create` / `update` / `delete`
+- `jsn records inspect` (read-only, but actively queries the instance)
+- `jsn dev includes create` / `update` / `delete`
+- `jsn dev rules create` / `update` / `delete`
+- `jsn dev clientscripts create` / `update` / `delete`
+- `jsn dev uiactions create` / `update` / `delete`
+- `jsn dev uipolicies create` / `update` / `delete`
+- `jsn dev acls create` / `update` / `delete`
+- `jsn dev roles create` / `update` / `delete`
 - `jsn dev updatesets set`
+- `jsn dev updatesets yolo --on` / `--off`
+- `jsn dev updatesets export`
 - `jsn dev eval`
 
 **Agent Rule**: Always verify with the user before running mutation commands.
@@ -322,6 +383,19 @@ jsn incidents list --limit 5 -q
 
 # Combine with head/tail
 jsn incidents list --json | jq -r '.[].number' | head -5
+```
+
+## Running Tests
+
+```bash
+# Run the full test suite
+npm test
+
+# Run tests matching a pattern
+node --test $(find test -name '*inspect*')
+
+# Run with lint check
+npm run lint && npm test
 ```
 
 ## AI Agent Integration
