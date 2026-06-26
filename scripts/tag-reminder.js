@@ -15,7 +15,7 @@ try {
 }
 
 const version = pkg.version;
-const prefix = branch === 'main' ? 'go' : branch === 'nodejs' ? 'node' : 'v';
+const prefix = 'v';
 
 console.log('');
 console.log('📦 Release Reminder');
@@ -25,6 +25,6 @@ console.log(`   Current branch:  ${branch}`);
 console.log('');
 console.log('   To create a release tag, run:');
 console.log('');
-console.log(`     git tag ${prefix}-v${version}`);
+console.log(`     git tag ${prefix}${version}`);
 console.log('     git push origin --tags');
 console.log('');
