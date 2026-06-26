@@ -10,12 +10,12 @@ description: |
 license: MIT
 compatibility: |
   Requires jsn CLI (github.com/jacebenson/jsn). Install via:
-  curl -fsSL https://jsn.jace.pro/install | bash
+  npm install -g @jacebenson/jsn
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
   
-  Windows users: Download from GitHub releases. If jsn is not in your PATH, the setup
-  command will automatically detect its location and show the correct command path
-  (e.g., `.\jsn.exe tables list` instead of `jsn tables list`).
+  Windows users: Install Node.js first, then the npm command above. If jsn is not
+  in your PATH, the setup command will automatically detect its location and show
+  the correct command path.
 metadata:
   author: jacebenson
   version: "1.0.0"
