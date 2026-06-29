@@ -51,3 +51,4 @@ build/
 /.old-*/
 /.backup*/
 /.local*/
+.hermes/

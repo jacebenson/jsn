@@ -8,6 +8,8 @@ const SKILL_REPO_PATH = path.join(
   '..', '..', 'skills', 'servicenow', 'SKILL.md'
 );
 
+const HERMES_SKILL_PATH = path.join(os.homedir(), '.hermes', 'skills', 'servicenow', 'SKILL.md');
+
 const SKILL_RAW_URL = 'https://raw.githubusercontent.com/jacebenson/jsn/nodejs/skills/servicenow/SKILL.md';
 
 function readBundledSkill() {
@@ -18,9 +20,23 @@ function readBundledSkill() {
   }
 }
 
+function readInstalledSkill() {
+  try {
+    return fs.readFileSync(HERMES_SKILL_PATH, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
 export async function checkSkill() {
-  const bundled = readBundledSkill();
-  if (!bundled) return { current: false, error: 'Skill file not found in package' };
+  // Compare the Hermes-installed copy's version against GitHub (not the npm-bundled copy).
+  // Uses the YAML frontmatter "version" field so publishing jsn doesn't flag it.
+  const installed = readInstalledSkill() || readBundledSkill();
+  if (!installed) return { current: false, error: 'Skill file not found' };
+
+  const installedVersion = extractVersion(installed);
+  if (!installedVersion) return { current: false, error: 'No version field in installed skill' };
+
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
@@ -28,16 +44,25 @@ export async function checkSkill() {
     clearTimeout(timer);
     if (!res.ok) return { current: false, error: `GitHub returned ${res.status}` };
     const upstream = await res.text();
-    const current = bundled === upstream;
+    const upstreamVersion = extractVersion(upstream);
+    if (!upstreamVersion) return { current: false, error: 'No version field in upstream skill' };
+
+    const current = installedVersion === upstreamVersion;
     return {
       current,
-      bundled_lines: bundled.split('\n').length,
-      upstream_lines: upstream.split('\n').length,
-      error: current ? null : 'Bundled skill is outdated — run "jsn skill install" to update',
+      installed_version: installedVersion,
+      upstream_version: upstreamVersion,
+      error: current ? null : `Skill version ${installedVersion} vs GitHub ${upstreamVersion} — run "jsn skill install" to update`,
     };
   } catch {
     return { current: false, error: 'Could not check — GitHub unreachable' };
   }
+}
+
+function extractVersion(content) {
+  // Matches version in YAML frontmatter (top-level or nested under metadata:)
+  const m = content.match(/^\s*version:\s*["']?(.+?)["']?\s*$/m);
+  return m ? m[1] : null;
 }
 
 export function skillCmd(wrap) {
@@ -70,9 +95,9 @@ export function skillCmd(wrap) {
             if (result.error && !result.current) {
               app.ok(result, { summary: result.error });
             } else if (result.current) {
-              app.ok(result, { summary: `✓ Skill is current (${result.bundled_lines} lines)` });
+              app.ok(result, { summary: `✓ Skill is current (v${result.installed_version})` });
             } else {
-              app.ok(result, { summary: `⚠ Skill is outdated (bundled ${result.bundled_lines} lines vs upstream ${result.upstream_lines} lines) — run "jsn skill install" to update` });
+              app.ok(result, { summary: `⚠ Skill outdated: installed v${result.installed_version} vs GitHub v${result.upstream_version} — run "jsn skill install" to update` });
             }
           }),
         })

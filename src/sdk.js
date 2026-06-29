@@ -188,6 +188,25 @@ export class SDKClient {
     };
   }
 
+  /**
+   * Resolve a scope name or sys_id to a sys_id.
+   * @param {string} scope - Scope name (e.g. "sn_notif_dashboard") or sys_id
+   * @returns {Promise<string|null>} The scope sys_id, or null if not found
+   */
+  async resolveScope(scope) {
+    if (!scope) return null;
+    // If it looks like a sys_id (32 hex chars), try it directly
+    if (/^[0-9a-fA-F]{32}$/.test(scope)) return scope;
+
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `scope=${scope}`);
+    params.set('sysparm_limit', '1');
+    params.set('sysparm_fields', 'sys_id,name');
+    const records = await this.list('sys_scope', params);
+    if (records.length === 0) return null;
+    return records[0].sys_id?.value || records[0].sys_id;
+  }
+
   async inspectFlow(identifier) {
     const isSysID = identifier.length === 32 && /^[0-9a-fA-F]+$/.test(identifier);
 
@@ -372,7 +391,7 @@ export class SDKClient {
    * @param {string} script - JavaScript code to execute
    * @returns {Promise<string>} The script's output text
    */
-  async executeScript(script) {
+  async executeScript(script, scope) {
     // Step 1: Warm up the session by hitting any REST API — this makes
     // ServiceNow issue session cookies for subsequent UI page requests.
     // We capture cookies to forward them (Node.js fetch() has no built-in cookie jar).
@@ -387,7 +406,7 @@ export class SDKClient {
     formBody.set('script', script);
     formBody.set('sysparm_ck', csrfToken);
     formBody.set('runscript', 'Run script');
-    formBody.set('sys_scope', 'global');
+    formBody.set('sys_scope', scope || 'global');
     formBody.set('record_for_rollback', 'on');
     formBody.set('quota_managed_transaction', 'on');
 
