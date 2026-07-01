@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields } from '../helpers.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -133,9 +133,14 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
-            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' }),
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' }),
           handler: wrap(async (argv, app) => {
             const recordData = parseDataArg(argv);
+            const warnings = checkDerivedFields(argv.table, recordData);
+            for (const w of warnings) {
+              process.stderr.write(`⚠ ${w.hint}\n`);
+            }
             const record = await app.sdk.create(argv.table, recordData);
             app.ok(record, { summary: `Created record in ${argv.table}` });
           }),
@@ -147,9 +152,14 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
             .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
-            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' }),
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' }),
           handler: wrap(async (argv, app) => {
             const recordData = parseDataArg(argv);
+            const warnings = checkDerivedFields(argv.table, recordData);
+            for (const w of warnings) {
+              process.stderr.write(`⚠ ${w.hint}\n`);
+            }
             const record = await app.sdk.update(argv.table, argv['sys-id'], recordData);
             app.ok(record, { summary: `Updated record in ${argv.table}` });
           }),

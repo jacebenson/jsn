@@ -135,25 +135,80 @@ function vowelArticle(word) {
 }
 
 /**
- * Parse --data or --data-file into a JSON object.
- * If --data-file is given, reads the file. Otherwise parses --data directly.
- * Throws if neither is provided or JSON is invalid.
+ * Known derived (read-only) ServiceNow fields that should not be set directly.
+ * Maps table name → array of field names that are computed by the platform.
+ * When a create/update payload contains these, a warning is emitted.
+ */
+export const DERIVED_FIELDS = {
+  sys_ws_operation: ['operation_uri'],
+  sys_ws_definition: ['base_uri'],
+  incident: ['sys_created_on', 'sys_updated_on', 'sys_created_by', 'sys_updated_by', 'sys_mod_count'],
+  change_request: ['sys_created_on', 'sys_updated_on', 'sys_created_by', 'sys_updated_by', 'sys_mod_count'],
+  // Generic — all sys_ fields are system-managed
+};
+
+/**
+ * Check a data payload for fields that appear to be derived/read-only.
+ * Returns an array of warning objects ({field, hint}) for any matches.
+ * @param {string} table - Table name (e.g. 'sys_ws_operation')
+ * @param {object} data - The JSON payload being sent
+ * @returns {Array<{field: string, hint: string}>}
+ */
+export function checkDerivedFields(table, data) {
+  if (!data || typeof data !== 'object') return [];
+  const warnings = [];
+
+  // Check explicitly known derived fields for this table
+  const knownFields = DERIVED_FIELDS[table] || [];
+  for (const field of knownFields) {
+    if (field in data && data[field] != null) {
+      warnings.push({
+        field,
+        hint: `${field} is a derived/read-only field. Setting it directly will be ignored.`,
+      });
+    }
+  }
+
+  // Warn about any sys_* fields that look like system-managed metadata
+  // (but be careful — not all sys_ fields are read-only)
+  if (data.sys_created_on) {
+    warnings.push({
+      field: 'sys_created_on',
+      hint: 'sys_created_on is a system-managed field. Setting it directly will be ignored.',
+    });
+  }
+  if (data.sys_updated_on) {
+    warnings.push({
+      field: 'sys_updated_on',
+      hint: 'sys_updated_on is a system-managed field. Setting it directly will be ignored.',
+    });
+  }
+
+  return warnings;
+}
+
+/**
+ * Parse --data, --data-file, or --data-stdin into a JSON object.
+ * Priority: --data-file > --data-stdin > --data
+ * Throws if none is provided or JSON is invalid.
  */
 export function parseDataArg(argv) {
   let raw;
   if (argv['data-file']) {
     raw = fs.readFileSync(argv['data-file'], 'utf-8');
-    // Strip UTF-8 BOM (\ufeff) which some editors (Windows/PowerShell) add
+    // Strip UTF-8 BOM (\\ufeff) which some editors (Windows/PowerShell) add
     if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+  } else if (argv['data-stdin']) {
+    raw = fs.readFileSync(process.stdin.fd, 'utf-8');
   } else if (argv.data) {
     raw = argv.data;
   } else {
-    throw new Error('--data or --data-file is required');
+    throw new Error('--data, --data-file, or --data-stdin is required');
   }
   try {
     return JSON.parse(raw);
   } catch (e) {
-    throw new Error(`Invalid JSON: ${e.message}\n\nHint: On Windows PowerShell, use --data-file instead of --data to avoid quote mangling.\nRaw value: ${raw.substring(0, 200)}`, { cause: e });
+    throw new Error(`Invalid JSON: ${e.message}\n\nHint: Use --data-file for multiline payloads to avoid shell escaping issues.\nRaw value: ${raw.substring(0, 200)}`, { cause: e });
   }
 }
 

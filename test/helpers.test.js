@@ -128,7 +128,7 @@ describe('parseDataArg', () => {
 
   it('throws when no data or data-file', async () => {
     const { parseDataArg } = await import('../src/helpers.js');
-    assert.throws(() => parseDataArg({}), /--data or --data-file is required/);
+    assert.throws(() => parseDataArg({}), /--data, --data-file, or --data-stdin is required/);
   });
 
   it('throws on invalid JSON', async () => {

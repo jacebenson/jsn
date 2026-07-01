@@ -79,7 +79,34 @@ export function errAPI(status, msg) {
   if (status >= 500) {
     hint = 'The ServiceNow instance may be experiencing issues. Try again later.';
   }
-  return new AppError(CodeAPI, `API error (status ${status}): ${msg}`, hint, status);
+
+  // Try to extract structured error detail from JSON API error bodies
+  let displayMsg = msg;
+  if (typeof msg === 'string' && (msg.startsWith('{') || msg.startsWith('['))) {
+    try {
+      const parsed = JSON.parse(msg);
+      const errObj = parsed.error || parsed;
+      const detail = errObj.detail || errObj.message || '';
+      const message = errObj.message || '';
+
+      if (detail && message) {
+        displayMsg = `${message}: ${detail}`;
+      } else if (detail) {
+        displayMsg = detail;
+      } else if (message) {
+        displayMsg = message;
+      }
+
+      // Detect business rule abortion and add a hint
+      if (detail && detail.includes('Business Rule')) {
+        hint = 'A Business Rule rejected this operation. Check for overlapping routes, validation rules, or ACLs on this table.';
+      }
+    } catch {
+      // Not valid JSON, use original message
+    }
+  }
+
+  return new AppError(CodeAPI, `API error (status ${status}): ${displayMsg}`, hint, status);
 }
 
 export function errAmbiguous(resource, matches) {

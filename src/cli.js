@@ -142,9 +142,12 @@ export const cli = yargs(hideBin(process.argv))
     }
 
     // Auto-check skill on every command (fire-and-forget, non-blocking)
+    // Skipped under --json, --quiet, --no-skill-check, or env var
     const skipSkillCheck = ['help', 'version', 'completion', 'skill'].includes(cmd)
       || process.env.JSN_NO_SKILL_CHECK === '1'
-      || argv['no-skill-check'];
+      || argv['no-skill-check']
+      || argv.json
+      || argv.quiet;
     if (!skipSkillCheck) {
       // Fire check but don't await — it runs in background
       checkSkill().then(result => {
