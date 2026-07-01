@@ -4,7 +4,7 @@ import {
   actionsCmd, includesCmd, rulesCmd,
   clientScriptsCmd, uiActionsCmd, uiPoliciesCmd,
   tablesCmd, columnsCmd, importCmd,
-  spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd, scRAPICmd,
+  spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
   aclsCmd, rolesCmd, propertiesCmd,
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
   privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
@@ -18,6 +18,7 @@ import { scopesCmd } from './dev/scopes.js';
 import { evalCmd } from './dev/eval.js';
 import { restCmd } from './dev/rest.js';
 import { logsCmd } from './dev/logs.js';
+import { scrapiCmd } from './dev/scrapi.js';
 
 export function devCmd(wrap) {
   return {
@@ -41,7 +42,7 @@ export function devCmd(wrap) {
         .command(spWidgetsCmd(wrap))
         .command(uiPagesCmd(wrap))
         .command(appMenuCmd(wrap))
-        .command(scRAPICmd(wrap))
+        .command(scrapiCmd(wrap))
         .command(aclsCmd(wrap))
         .command(rolesCmd(wrap))
         .command(updateSetsCmd(wrap))

@@ -81,7 +81,6 @@ export const spPagesCmd = (wrap) => buildDevCmd('sppages', 'sp_page', ['sp-pages
 export const spWidgetsCmd = (wrap) => buildDevCmd('spwidgets', 'sp_widget', ['sp-widget', 'widgets'], ['id', 'name', 'sys_scope'], wrap, { singular: 'Service Portal widget', readOnly: true });
 export const uiPagesCmd = (wrap) => buildDevCmd('uipages', 'sys_ui_page', ['ui-page', 'pages'], ['name', 'sys_scope'], wrap, { singular: 'UI page', scopeValidation: true });
 export const appMenuCmd = (wrap) => buildDevCmd('appmenu', 'sys_app_application', ['app-menu', 'menu'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application menu', scopeValidation: true });
-export const scRAPICmd = (wrap) => buildDevCmd('scrapi', 'sys_ws_operation', ['scripted-rest', 'rest-api'], ['name', 'sys_ws_definition', 'sys_scope'], wrap, { singular: 'scripted REST API', readOnly: true });
 
 // Commands with full CRUD
 export const aclsCmd = (wrap) => buildDevCmd('acls', 'sys_security_acl', ['acl'], ['name', 'operation', 'type', 'active', 'sys_scope'], wrap, { singular: 'ACL', scopeValidation: true });
