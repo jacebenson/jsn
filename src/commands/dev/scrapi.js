@@ -107,25 +107,107 @@ export function scrapiCmd(wrap) {
         .command({
           command: 'show <identifier>',
           aliases: ['get'],
-          describe: 'Show a scripted REST API operation by name or sys_id',
+          describe: 'Show an API definition or operation by service_id, name, or sys_id — includes child resources',
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `${queryField}=${id}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('sys_ws_operation', params);
-            if (records.length === 0) {
-              throw new Error(`Operation not found: ${id}`);
+            const isSysId = isHexString(id) && id.length === 32;
+
+            // 1. Try to find a sys_ws_operation by name or sys_id
+            const opParams = new URLSearchParams();
+            opParams.set('sysparm_query', `${isSysId ? 'sys_id' : 'name'}=${id}`);
+            opParams.set('sysparm_limit', '1');
+            opParams.set('sysparm_display_value', 'all');
+            let records = await app.sdk.list('sys_ws_operation', opParams);
+
+            if (records.length > 0) {
+              // Found an operation — show it directly
+              records[0]._context = {
+                instance_url: app.getEffectiveInstance(),
+                table: 'sys_ws_operation',
+              };
+              return app.ok(records[0], {
+                summary: `Operation: ${getStringField(records[0], 'name') || id}`,
+                breadcrumbs: [
+                  { action: 'list', cmd: 'jsn dev scrapi list', description: 'Back to all operations' },
+                ],
+              });
             }
-            records[0]._context = {
-              instance_url: app.getEffectiveInstance(),
-              table: 'sys_ws_operation',
-            };
-            app.ok(records[0], {
-              summary: `Operation: ${getStringField(records[0], 'name') || id}`,
+
+            // 2. Try to find a sys_ws_definition by service_id, name, or sys_id
+            const defQuery = isSysId
+              ? `sys_id=${id}`
+              : `service_id=${id}^ORname=${id}`;
+            const defParams = new URLSearchParams();
+            defParams.set('sysparm_query', defQuery);
+            defParams.set('sysparm_limit', '1');
+            defParams.set('sysparm_display_value', 'all');
+            const defRecords = await app.sdk.list('sys_ws_definition', defParams);
+
+            if (defRecords.length === 0) {
+              throw new Error(`No API or operation found matching: ${id}`);
+            }
+
+            const definition = defRecords[0];
+            const defName = getStringField(definition, 'name');
+            const defSysId = definition.sys_id?.value || definition.sys_id;
+
+            // 3. Fetch child operations for this definition
+            const childParams = new URLSearchParams();
+            childParams.set('sysparm_query', `web_service_definition=${defSysId}`);
+            childParams.set('sysparm_limit', '50');
+            childParams.set('sysparm_display_value', 'all');
+            childParams.set('sysparm_fields', 'sys_id,name,http_method,relative_path,active');
+            const childOps = await app.sdk.list('sys_ws_operation', childParams);
+
+            // Build a formatted display
+            const instanceURL = app.getEffectiveInstance();
+            const defLink = `${instanceURL}/sys_ws_definition.do?sys_id=${defSysId}`;
+
+            let formatted = `\n${defName} (Scripted REST API)\n`;
+            formatted += `${'─'.repeat(defName.length + 22)}\n\n`;
+            formatted += `  service_id:     ${getStringField(definition, 'service_id')}\n`;
+            formatted += `  namespace:      ${getStringField(definition, 'namespace')}\n`;
+            formatted += `  scope:          ${getStringField(definition, 'sys_scope')}\n`;
+            formatted += `  base_uri:       ${getStringField(definition, 'base_uri')}\n`;
+            formatted += `  description:    ${(getStringField(definition, 'description') || '(none)').slice(0, 60)}\n`;
+            formatted += `\n  Link: ${defLink}\n`;
+
+            if (childOps.length > 0) {
+              formatted += `\n  ── Resources (${childOps.length}) ──\n\n`;
+              for (const op of childOps) {
+                const opName = getStringField(op, 'name');
+                const method = getStringField(op, 'http_method');
+                const relPath = getStringField(op, 'relative_path');
+                const active = getStringField(op, 'active');
+                formatted += `    ${(method + '  ').slice(0, 7)} ${relPath.padEnd(30)} ${opName}${active !== 'true' ? ' (inactive)' : ''}\n`;
+              }
+            } else {
+              formatted += `\n  (no resources — run jsn dev scrapi create --resource ... to add some)\n`;
+            }
+
+            app.ok({
+              _formatted: formatted,
+              definition: {
+                sys_id: defSysId,
+                name: defName,
+                service_id: getStringField(definition, 'service_id'),
+                namespace: getStringField(definition, 'namespace'),
+                base_uri: getStringField(definition, 'base_uri'),
+                scope: getStringField(definition, 'sys_scope'),
+                description: getStringField(definition, 'description'),
+                link: defLink,
+              },
+              resources: childOps.map(op => ({
+                name: getStringField(op, 'name'),
+                method: getStringField(op, 'http_method'),
+                relative_path: getStringField(op, 'relative_path'),
+                active: getStringField(op, 'active'),
+              })),
+              _context: { instance_url: instanceURL, table: 'sys_ws_definition' },
+            }, {
+              summary: `API: ${defName} — ${childOps.length} resource(s)`,
               breadcrumbs: [
+                { action: 'create', cmd: 'jsn dev scrapi create --name "..." --service-id ... --namespace ... --resource ...', description: 'Create a new API' },
                 { action: 'list', cmd: 'jsn dev scrapi list', description: 'Back to all operations' },
               ],
             });
