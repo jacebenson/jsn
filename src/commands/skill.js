@@ -1,16 +1,36 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+const SKILL_NAME = 'servicenow';
 const SKILL_REPO_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..', '..', 'skills', 'servicenow', 'SKILL.md'
+  '..', '..', 'skills', SKILL_NAME, 'SKILL.md'
 );
 
-const HERMES_SKILL_PATH = path.join(os.homedir(), '.hermes', 'skills', 'servicenow', 'SKILL.md');
+const HERMES_SKILL_PATH = path.join(os.homedir(), '.hermes', 'skills', SKILL_NAME, 'SKILL.md');
 
 const SKILL_RAW_URL = 'https://raw.githubusercontent.com/jacebenson/jsn/nodejs/skills/servicenow/SKILL.md';
+
+// Known agent skill directories (personal/user-level)
+// Keyed by agent name for the --target flag
+const AGENT_SKILL_DIRS = {
+  hermes: path.join(os.homedir(), '.hermes', 'skills', SKILL_NAME),
+  copilot: path.join(os.homedir(), '.copilot', 'skills', SKILL_NAME),
+  claude: path.join(os.homedir(), '.claude', 'skills', SKILL_NAME),
+  cursor: path.join(os.homedir(), '.cursor', 'rules'),
+  agents: path.join(os.homedir(), '.agents', 'skills', SKILL_NAME),
+};
+
+const TARGET_NAMES = {
+  hermes: 'Hermes Agent',
+  copilot: 'GitHub Copilot',
+  claude: 'Claude Code',
+  cursor: 'Cursor',
+  agents: 'Agents (open standard)',
+};
 
 function readBundledSkill() {
   try {
@@ -115,18 +135,23 @@ export function skillCmd(wrap) {
           command: 'path',
           describe: 'Show skill file locations and install targets',
           handler: wrap(async (_argv, app) => {
-            const hermesDir = path.join(os.homedir(), '.hermes', 'skills', 'servicenow');
-            const hermesPath = path.join(hermesDir, 'SKILL.md');
+            const allPaths = {};
+            for (const [key, dir] of Object.entries(AGENT_SKILL_DIRS)) {
+              const file = key === 'cursor' ? path.join(dir, `${SKILL_NAME}.mdc`) : path.join(dir, 'SKILL.md');
+              allPaths[TARGET_NAMES[key]] = file;
+            }
+
             app.ok({
               bundled: SKILL_REPO_PATH,
-              hermes: hermesPath,
+              targets: allPaths,
               raw_url: SKILL_RAW_URL,
             }, {
-              summary: 'Skill file locations',
+              summary: 'Skill file locations and install targets',
               breadcrumbs: [
-                { action: 'view', cmd: 'jsn skill show', description: 'Show bundled skill content' },
-                { action: 'fetch', cmd: 'jsn skill fetch', description: 'Download latest from GitHub' },
-                { action: 'install', cmd: 'jsn skill install', description: 'Download + save to Hermes' },
+                { action: 'install', cmd: 'jsn skill install', description: 'Install to Hermes (default)' },
+                { action: 'install-all', cmd: 'jsn skill install --target all', description: 'Install to all supported agents' },
+                { action: 'install-copilot', cmd: 'jsn skill install --target copilot', description: 'Install for GitHub Copilot' },
+                { action: 'install-claude', cmd: 'jsn skill install --target claude', description: 'Install for Claude Code' },
               ],
             });
           }),
@@ -137,30 +162,71 @@ export function skillCmd(wrap) {
           builder: (y) => y
             .positional('dir', {
               type: 'string',
-              describe: 'Target directory (default: ~/.hermes/skills/servicenow/)',
+              describe: 'Target directory (overrides --target; installs only to this dir)',
+            })
+            .option('target', {
+              type: 'string',
+              describe: 'Target agent(s): hermes, copilot, claude, cursor, agents, or "all" (comma-separated)',
+              default: 'hermes',
             }),
           handler: wrap(async (argv, app) => {
-            const targetDir = argv.dir || path.join(os.homedir(), '.hermes', 'skills', 'servicenow');
-            const targetPath = path.join(targetDir, 'SKILL.md');
-
-            fs.mkdirSync(targetDir, { recursive: true });
-
             const res = await fetch(SKILL_RAW_URL);
             if (!res.ok) throw new Error(`Failed to fetch skill: ${res.status} ${res.statusText}`);
             const content = await res.text();
 
-            fs.writeFileSync(targetPath, content, 'utf-8');
+            // Resolve target directories
+            let targets = [];
 
-            app.ok({
-              installed: targetPath,
-              from: SKILL_RAW_URL,
-            }, {
-              summary: `Skill installed to ${targetPath}`,
+            if (argv.dir) {
+              // Explicit --dir overrides targets — single install
+              const p = path.resolve(argv.dir);
+              fs.mkdirSync(p, { recursive: true });
+              const targetPath = path.join(p, 'SKILL.md');
+              fs.writeFileSync(targetPath, content, 'utf-8');
+              targets.push({ name: path.basename(argv.dir), path: targetPath });
+            } else {
+              const rawTargets = argv.target.split(',').map(t => t.trim().toLowerCase());
+              const all = rawTargets.includes('all');
+
+              for (const [key, dir] of Object.entries(AGENT_SKILL_DIRS)) {
+                if (all || rawTargets.includes(key)) {
+                  // For cursor, the skill goes in a .mdc file, not a subfolder
+                  if (key === 'cursor') {
+                    fs.mkdirSync(dir, { recursive: true });
+                    const targetPath = path.join(dir, `${SKILL_NAME}.mdc`);
+                    fs.writeFileSync(targetPath, content, 'utf-8');
+                    targets.push({ name: TARGET_NAMES[key], path: targetPath });
+                  } else {
+                    fs.mkdirSync(dir, { recursive: true });
+                    const targetPath = path.join(dir, 'SKILL.md');
+                    fs.writeFileSync(targetPath, content, 'utf-8');
+                    targets.push({ name: TARGET_NAMES[key], path: targetPath });
+                  }
+                }
+              }
+            }
+
+            if (targets.length === 0) {
+              throw new Error(`No targets matched. Valid targets: ${Object.keys(AGENT_SKILL_DIRS).join(', ')}, or "all"`);
+            }
+
+            const installed = targets.reduce((acc, t) => { acc[t.name] = t.path; return acc; }, {});
+            const summary = targets.length === 1
+              ? `Skill installed to ${targets[0].path}`
+              : `Skill installed to ${targets.length} target(s)`;
+
+            const okOpts = {
+              summary,
               breadcrumbs: [
-                { action: 'verify', cmd: `head -30 ${targetPath}`, description: 'Verify the installed skill' },
-                { action: 'reinstall', cmd: 'jsn skill install', description: 'Re-download and reinstall' },
+                { action: 'reinstall', cmd: 'jsn skill install', description: 'Re-download and reinstall to default target' },
               ],
-            });
+            };
+
+            if (targets.length > 1) {
+              okOpts.notice = 'Installed to multiple agents. Restart or reload your agent to pick up the skill.';
+            }
+
+            app.ok({ installed, from: SKILL_RAW_URL }, okOpts);
           }),
         });
     },
