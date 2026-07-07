@@ -1,0 +1,9 @@
+node_modules
+.git
+.env
+bin/
+src/
+test/
+scripts/
+examples/
+skills/
