@@ -1,6 +1,8 @@
 services:
   app:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     expose:
       - "80"
