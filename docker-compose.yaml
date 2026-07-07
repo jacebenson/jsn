@@ -6,8 +6,6 @@ services:
     restart: unless-stopped
     expose:
       - "80"
-    volumes:
-      - ./docs:/usr/share/nginx/html:ro
     networks:
       - coolify
     healthcheck:
