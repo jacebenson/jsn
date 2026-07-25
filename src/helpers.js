@@ -1,7 +1,7 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
-import { search } from '@inquirer/prompts';
+import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 
 export function getStringField(record, field) {
@@ -113,47 +113,33 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   }
   if (totalCount === 0) return null;
 
-  // Load initial batch — @inquirer/search scrolls within this set
-  const batchSize = Math.min(totalCount, 200);
-  const params = new URLSearchParams();
-  params.set('sysparm_limit', String(batchSize));
-  params.set('sysparm_display_value', 'all');
-  if (pickerFields) params.set('sysparm_fields', pickerFields);
-  params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
-  const records = await app.sdk.list(table, params);
-  const choices = records.map(r => ({
-    name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-    value: r,
-  }));
-
-  const message = singular === 'flow'
-    ? `Select a flow (${choices.length} of ${totalCount} loaded)` 
-    : `Select ${vowelArticle(singular)} ${singular} (${choices.length} of ${totalCount} loaded)`;
-
-  try {
-    const selected = await search({
-      message,
-      pageSize: 10,
-      source: async (input) => {
-        if (!input) return choices;
-        // Server-side search for typed input
-        const searchParams = new URLSearchParams();
-        searchParams.set('sysparm_limit', String(limit));
-        searchParams.set('sysparm_display_value', 'all');
-        if (pickerFields) searchParams.set('sysparm_fields', pickerFields);
-        searchParams.set('sysparm_query', `${labelField}LIKE${input}^ORDERBYDESCsys_updated_on`);
-        const results = await app.sdk.list(table, searchParams);
-        return results.map(r => ({
-          name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-          value: r,
-        }));
-      },
-    });
-    return selected || undefined;
-  } catch (err) {
-    if (err.name === 'ExitPromptError') return undefined;
-    throw err;
+  // Paginated source adapter: (term, offset, { signal }) => choices[]
+  async function serverSource(term, offset, { signal } = {}) {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', String(limit));
+    params.set('sysparm_display_value', 'all');
+    if (pickerFields) params.set('sysparm_fields', pickerFields);
+    if (term) {
+      params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+    } else {
+      params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+      params.set('sysparm_offset', String(offset));
+    }
+    const records = await app.sdk.list(table, params);
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: r,
+    }));
   }
+
+  const selected = await paginatedSearch({
+    message: `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
+    pageSize: 10,
+    totalCount,
+    source: serverSource,
+  });
+
+  return selected?.value; // unwrap {name, value} → raw record, undefined on cancel
 }
 
 /**
