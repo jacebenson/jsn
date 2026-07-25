@@ -17,18 +17,16 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
   let cancelled = false;
   let selected = null;
   let currentTerm = '';
-  let lastRenderLines = 0;
+  let hasRendered = false;
 
-  // Render the picker to stdout
+  // Render the picker to stdout — uses ANSI save/restore to anchor in place
   function render(term) {
-    // Clear previous output — move up and clear below
-    if (lastRenderLines > 0) {
-      process.stdout.moveCursor(0, -lastRenderLines);
-      process.stdout.clearScreenDown();
-    }
-
-    // Build output
     const buf = [];
+
+    // ANSI: restore cursor to anchor point and clear below
+    if (hasRendered) {
+      buf.push('\x1b[u\x1b[J');
+    }
 
     // Header
     buf.push(message);
@@ -49,7 +47,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
 
     // Fill empty slots so the picker height stays constant
     const maxVisible = Math.min(pageSize, totalCount);
-    while (buf.length < maxVisible + 1) {
+    while (buf.length < maxVisible + 2) { // +1 for header, +1 more for spacing
       buf.push('');
     }
 
@@ -64,16 +62,20 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
     // Search bar
     buf.push(`> ${term}`);
 
+    // First render: save cursor position so re-renders anchor here
+    if (!hasRendered) {
+      process.stdout.write('\x1b[s');
+      hasRendered = true;
+    }
+
     process.stdout.write(buf.join('\n'));
-    lastRenderLines = buf.length;
   }
 
   function cleanup() {
-    // Clear the picker UI entirely
-    if (lastRenderLines > 0) {
-      process.stdout.moveCursor(0, -lastRenderLines);
-      process.stdout.clearScreenDown();
-      lastRenderLines = 0;
+    // Restore cursor to anchor and clear below
+    if (hasRendered) {
+      process.stdout.write('\x1b[u\x1b[J');
+      hasRendered = false;
     }
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
