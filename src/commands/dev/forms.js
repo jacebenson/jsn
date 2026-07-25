@@ -50,9 +50,9 @@ async function showForm(app, table, viewName) {
   secParams.set('sysparm_limit', '200');
   secParams.set('sysparm_fields', 'sys_id,name,caption,order,position,header');
   secParams.set('sysparm_display_value', 'all');
-  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYorder`);
+  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYposition`);
   if (viewSysID) {
-    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYorder`);
+    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYposition`);
   }
   const sections = await app.sdk.list('sys_ui_section', secParams);
 
@@ -65,9 +65,9 @@ async function showForm(app, table, viewName) {
     if (secSysID) {
       const elemParams = new URLSearchParams();
       elemParams.set('sysparm_limit', '500');
-      elemParams.set('sysparm_fields', 'element,type,label,order');
+      elemParams.set('sysparm_fields', 'element,type,label,order,position');
       elemParams.set('sysparm_display_value', 'all');
-      elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYorder`);
+      elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYposition`);
       try { elements = await app.sdk.list('sys_ui_element', elemParams); } catch { /* ignore */ }
     }
 
