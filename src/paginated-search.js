@@ -7,7 +7,7 @@
  */
 
 import { createPrompt, useState, useKeypress, usePagination, useEffect, useRef } from '@inquirer/core';
-import { isEnterKey, isUpKey, isDownKey, isBackspaceKey } from '@inquirer/core';
+import { isEnterKey, isUpKey, isDownKey } from '@inquirer/core';
 
 export const paginatedSearch = createPrompt((config, done) => {
   const { message, pageSize = 10, totalCount = 0, source } = config;
@@ -145,14 +145,10 @@ export const paginatedSearch = createPrompt((config, done) => {
       return;
     }
 
-    // Type to search
-    if (isBackspaceKey(key)) {
-      setSearchTerm(prev => prev.length > 0 ? prev.slice(0, -1) : '');
-    } else if (!key.ctrl && !key.meta) {
-      const char = key.sequence || key.name || '';
-      if (char.length === 1 && char >= ' ') {
-        setSearchTerm(prev => prev + char);
-      }
+    // Use readline's built-in line buffer for text input
+    const newTerm = rl.line;
+    if (newTerm !== searchTerm) {
+      setSearchTerm(newTerm);
     }
   });
 
