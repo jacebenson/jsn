@@ -50,10 +50,9 @@ async function showForm(app, table, viewName) {
   secParams.set('sysparm_limit', '200');
   secParams.set('sysparm_fields', 'sys_id,name,caption,order,position,header');
   secParams.set('sysparm_display_value', 'all');
-  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYorder`);
-  // If we have the view sys_id, use it for a more precise match
+  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYposition`);
   if (viewSysID) {
-    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYorder`);
+    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYposition`);
   }
   const sections = await app.sdk.list('sys_ui_section', secParams);
 
