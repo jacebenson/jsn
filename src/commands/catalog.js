@@ -87,11 +87,13 @@ export function catalogCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const query = argv.category ? `category.titleLIKE${argv.category}` : '';
             const picked = await interactiveList({
-              app, table: 'sc_cat_item', singular: 'catalog item', columns: ['name', 'short_description', 'category', 'active'], limit: argv.limit, query, labelField: 'name',
+              app, table: 'sc_cat_item', singular: 'catalog item', columns: ['name', 'short_description', 'category', 'active', 'sys_class_name'], limit: argv.limit, query, labelField: 'name',
               formatLabel: r => {
                 const n = getStringField(r, 'name') || '';
                 const c = getStringField(r, 'category') || '';
-                return c ? `${n} [${c}]` : n;
+                const cls = getStringField(r, 'sys_class_name') || '';
+                const tag = cls === 'sc_cat_item_producer' ? ' [Producer]' : cls && cls !== 'sc_cat_item' ? ` [${cls}]` : '';
+                return c ? `${n}${tag} [${c}]` : n + tag;
               },
             });
             if (picked === undefined) return;
@@ -177,6 +179,11 @@ async function showCatalogItem(app, sysID) {
   if (getStringField(item, 'short_description')) lines.push(`  ${getStringField(item, 'short_description')}`);
   lines.push(`  Category: ${getStringField(item, 'category') || '(none)'}`);
   lines.push(`  Active: ${getStringField(item, 'active') || 'false'}`);
+  const cls = getStringField(item, 'sys_class_name') || '';
+  if (cls && cls !== 'sc_cat_item') {
+    const label = cls === 'sc_cat_item_producer' ? 'Record Producer' : cls === 'sc_cat_item_guide' ? 'Order Guide' : cls;
+    lines.push(`  Class: ${label}`);
+  }
   if (app.getEffectiveInstance() && sysID) {
     lines.push(`  URL: ${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`);
   }
