@@ -43,10 +43,11 @@ export function catalogCmd(wrap) {
           describe: 'List catalog items',
           builder: (y) => y
             .option('limit', { alias: 'l', type: 'number', default: 50 })
-            .option('category', { type: 'string' }),
+            .option('category', { type: 'string' })
+            .option('query', { type: 'string', describe: 'Encoded query (e.g. active=true)' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const query = argv.category ? `category.titleLIKE${argv.category}` : '';
+            const query = argv.query || (argv.category ? `category.titleLIKE${argv.category}` : '');
 
             const picked = await interactiveList({
               app,
@@ -69,20 +70,27 @@ export function catalogCmd(wrap) {
               return;
             }
 
-            // Fallback — non-TTY
+            // Fallback — non-TTY / --json / --styled
             const p = new URLSearchParams();
             p.set('sysparm_query', query ? `${query}^ORDERBYname` : 'ORDERBYname');
             p.set('sysparm_limit', String(argv.limit));
             p.set('sysparm_display_value', 'all');
             p.set('sysparm_fields', 'name,short_description,category,active');
             const records = await app.sdk.list('sc_cat_item', p);
+            // Map reference fields to strings for styled/table renderer
+            const safe = records.map(r => ({
+              name: getStringField(r, 'name'),
+              short_description: getStringField(r, 'short_description'),
+              category: getStringField(r, 'category'),
+              active: getStringField(r, 'active'),
+            }));
             app.ok({
               table: 'sc_cat_item',
-              count: records.length,
+              count: safe.length,
               columns: ['name', 'short_description', 'category', 'active'],
-              records,
+              records: safe,
               context: { instance_url: app.getEffectiveInstance() },
-            }, { summary: `${records.length} catalog item(s)` });
+            }, { summary: `${safe.length} catalog item(s)` });
           }),
         })
         .command({
@@ -101,7 +109,6 @@ export function catalogCmd(wrap) {
               if (results.length === 0) throw new Error(`Not found: ${id}`);
               id = results[0].sys_id?.value || results[0].sys_id;
             }
-            const item = await app.sdk.get('sc_cat_item', id);
             await showItem(app, id);
           }),
         });
@@ -120,7 +127,6 @@ export function catalogCmd(wrap) {
 async function showItem(app, sysID) {
   const item = await app.sdk.get('sc_cat_item', sysID);
 
-  // Fetch variables
   const vp = new URLSearchParams();
   vp.set('sysparm_query', `cat_item=${sysID}^active=true`);
   vp.set('sysparm_limit', '100');
@@ -145,68 +151,40 @@ async function showItem(app, sysID) {
       standalone.push(entry);
     }
   }
-
   const totalVars = standalone.length + Array.from(setVars.values()).reduce((a, s) => a + s.variables.length, 0);
 
-  const lines = [];
-  lines.push(getStringField(item, 'name'));
-  if (getStringField(item, 'short_description')) lines.push(`  ${getStringField(item, 'short_description')}`);
-  lines.push(`  Category: ${getStringField(item, 'category') || '(none)'}`);
-  lines.push(`  Active: ${getStringField(item, 'active') || 'false'}`);
-  lines.push(`  URL: ${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`);
-
-  // Flow / Workflow / Execution Plan
-  const flowName = getStringField(item, 'flow_designer_flow');
-  const flowID = item.flow_designer_flow?.value || '';
-  const wfName = getStringField(item, 'workflow');
+  // Resolve flow name
+  let flowName = '', flowCmd = '';
+  const flowVal = item.flow_designer_flow;
+  if (flowVal?.value) {
+    const fn = getStringField(item, 'flow_designer_flow');
+    if (fn === flowVal.value) {
+      try { const fr = await app.sdk.get('sys_hub_flow', flowVal.value); flowName = getStringField(fr, 'name') || ''; } catch { flowName = fn; }
+    } else { flowName = fn; }
+    flowCmd = `jsn flows show ${flowVal.value}`;
+  }
+  const wfName = getStringField(item, 'workflow') || '';
   const wfID = item.workflow?.value || '';
-  const planName = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan');
+  const planName = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan') || '';
+  const planID = item.delivery_plan?.value || item.execution_plan?.value || '';
 
-  if (flowID) {
-    if (flowName === flowID) {
-      try {
-        const flowRec = await app.sdk.get('sys_hub_flow', flowID);
-        lines.push(`  Flow: ${getStringField(flowRec, 'name') || flowID}`);
-      } catch {
-        lines.push(`  Flow: ${flowName}`);
-      }
-    } else {
-      lines.push(`  Flow: ${flowName}`);
-    }
-    lines.push(`    → jsn flows show ${flowID}`);
-  } else if (wfName) {
-    lines.push(`  Workflow: ${wfName}`);
-    if (wfID) lines.push(`    → jsn workflows show ${wfID}`);
-  } else if (planName) {
-    const planID = item.delivery_plan?.value || item.execution_plan?.value || '';
-    if (planName === planID && planID) {
-      try {
-        const planRec = await app.sdk.get('delivery_plan', planID);
-        const realName = getStringField(planRec, 'name') || getStringField(planRec, 'short_description') || planID;
-        lines.push(`  Execution Plan: ${realName}`);
-        lines.push(`    → jsn records get --table delivery_plan --sys-id ${planID}`);
-      } catch {
-        lines.push(`  Execution Plan: ${planName}`);
-      }
-    } else {
-      lines.push(`  Execution Plan: ${planName}`);
-    }
-  }
-
-  if (totalVars > 0) {
-    lines.push(`  Variables (${totalVars}):`);
-    for (const v of standalone) {
-      const flags = String(v.mandatory) === 'true' ? ' [required]' : '';
-      lines.push(`    ${v.question_text || v.name}  ${v.type || ''}${flags}`);
-    }
-    for (const [_, sd] of setVars) {
-      lines.push(`    [${sd.name}]`);
-      for (const v of sd.variables) {
-        const flags = String(v.mandatory) === 'true' ? ' [required]' : '';
-        lines.push(`      ${v.question_text || v.name}  ${v.type || ''}${flags}`);
-      }
-    }
-  }
-
-  console.log(lines.join('\n'));
+  app.ok({
+    name: getStringField(item, 'name'),
+    short_description: getStringField(item, 'short_description'),
+    category: getStringField(item, 'category'),
+    active: getStringField(item, 'active'),
+    url: `${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`,
+    flow: flowName || undefined,
+    flow_cmd: flowCmd || undefined,
+    workflow: wfName || undefined,
+    workflow_cmd: (wfName && wfID) ? `jsn workflows show ${wfID}` : undefined,
+    execution_plan: planName || undefined,
+    variables: totalVars > 0 ? {
+      count: totalVars,
+      standalone: standalone.map(v => ({ label: v.question_text || v.name, type: v.type, mandatory: String(v.mandatory) === 'true' })),
+      sets: Array.from(setVars.values()).map(s => ({ name: s.name, variables: s.variables.map(v => ({ label: v.question_text || v.name, type: v.type, mandatory: String(v.mandatory) === 'true' })) })),
+    } : undefined,
+  }, {
+    summary: `${getStringField(item, 'name')} — ${totalVars} variable(s)`,
+  });
 }
