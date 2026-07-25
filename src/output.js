@@ -460,6 +460,8 @@ export function getTableURL(instance, table, sysID) {
     sysevent_email_action: `nav_to.do?uri=sysevent_email_action.do?sys_id=${sysID}`,
     sysevent_in_email_action: `nav_to.do?uri=sysevent_in_email_action.do?sys_id=${sysID}`,
     soap_message: `nav_to.do?uri=soap_message.do?sys_id=${sysID}`,
+    sys_security_acl: `nav_to.do?uri=sys_security_acl.do?sys_id=${sysID}`,
+    sys_user_role: `nav_to.do?uri=sys_user_role.do?sys_id=${sysID}`,
   };
   const path = mapped[table] || `${table}.do?sys_id=${sysID}`;
   return `${instance}/${path}`;

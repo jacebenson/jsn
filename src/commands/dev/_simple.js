@@ -92,8 +92,7 @@ export const relationshipsCmd = (wrap) => buildDevCmd('relationships', 'sys_rela
 export const appmodulesCmd = (wrap) => buildDevCmd('appmodules', 'sys_app_module', ['appmodule', 'am'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application module', scopeValidation: true });
 export const listcontrolsCmd = (wrap) => buildDevCmd('listcontrols', 'sys_ui_list_control', ['listcontrol', 'lc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'list control', scopeValidation: true });
 export const viewsCmd = (wrap) => buildDevCmd('views', 'sys_ui_view', ['view', 'vw'], ['name', 'title', 'sys_scope'], wrap, { singular: 'view', scopeValidation: true });
-export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['name', 'status', 'sys_scope'], wrap, { singular: 'privilege', scopeValidation: true });
-export const securitytypesCmd = (wrap) => buildDevCmd('securitytypes', 'sys_security_type', ['securitytype', 'st'], ['name', 'active', 'sys_scope'], wrap, { singular: 'security type', scopeValidation: true });
+export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['source_scope', 'target_scope', 'target_name', 'operation', 'status'], wrap, { singular: 'privilege', scopeValidation: true });
 export const uxscriptsCmd = (wrap) => buildDevCmd('uxscripts', 'sys_ux_lib_source_script', ['uxscript', 'ux'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UX script', scopeValidation: true });
 export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias', 'als'], ['name', 'table', 'sys_scope'], wrap, { singular: 'alias', scopeValidation: true });
 export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript', 'cs'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });

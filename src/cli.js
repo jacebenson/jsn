@@ -35,7 +35,7 @@ import {
   spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
   aclsCmd, rolesCmd, propertiesCmd,
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
-  privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
+  privilegesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   decisiontablesCmd, assignmentsCmd,
@@ -235,7 +235,6 @@ export function buildCLI() {
     .command(b4rulesCmd(wrap))
     .command(rolesCmd(wrap))
     .command(privilegesCmd(wrap))
-    .command(securitytypesCmd(wrap))
     .command(aliasesCmd(wrap))
     .command(groupsCmd(wrap))
     .command(groupMembersCmd(wrap))
