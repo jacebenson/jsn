@@ -35,8 +35,9 @@ import {
   spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
   aclsCmd, rolesCmd, propertiesCmd,
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
-  privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
+  privilegesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
+  uipoliciesCmd,
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   decisiontablesCmd, assignmentsCmd,
   emailCmd,
@@ -235,7 +236,6 @@ export function buildCLI() {
     .command(b4rulesCmd(wrap))
     .command(rolesCmd(wrap))
     .command(privilegesCmd(wrap))
-    .command(securitytypesCmd(wrap))
     .command(aliasesCmd(wrap))
     .command(groupsCmd(wrap))
     .command(groupMembersCmd(wrap))
@@ -249,6 +249,7 @@ export function buildCLI() {
     .command(uiActionsCmd(wrap))
     .command(viewsCmd(wrap))
     .command(catalogscriptsCmd(wrap))
+    .command(uipoliciesCmd(wrap))
     .command(cataloguipoliciesCmd(wrap))
     // USER EXPERIENCE — Core UI
     .command(uiPagesCmd(wrap))

@@ -24,8 +24,30 @@ export function groupsCmd(wrap) {
               formatLabel: r => `${getStringField(r, 'name')} ${getStringField(r, 'manager') ? '→ ' + getStringField(r, 'manager') : ''}`,
             });
             if (picked) {
+              const sysID = getStringField(picked, 'sys_id') || '';
+              // Fetch member + role counts for hints
+              let memberCount = 0, roleCount = 0;
+              try {
+                const cp = new URLSearchParams();
+                cp.set('sysparm_query', `group=${sysID}`); cp.set('sysparm_limit', '0'); cp.set('sysparm_fields', 'sys_id');
+                const members = await app.sdk.list('sys_user_grmember', cp);
+                memberCount = members.length;
+              } catch {}
+              try {
+                const rp = new URLSearchParams();
+                rp.set('sysparm_query', `group=${sysID}`); rp.set('sysparm_limit', '0'); rp.set('sysparm_fields', 'sys_id');
+                const roles = await app.sdk.list('sys_group_has_role', rp);
+                roleCount = roles.length;
+              } catch {}
+
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_user_group' };
-              return app.ok(picked, { summary: `Group: ${getStringField(picked, 'name')}` });
+              return app.ok(picked, {
+                summary: `Group: ${getStringField(picked, 'name')}`,
+                breadcrumbs: [
+                  memberCount > 0 ? { action: 'members', cmd: `jsn records list --table sys_user_grmember --query "group=${sysID}"`, description: `${memberCount} member(s)` } : null,
+                  roleCount > 0 ? { action: 'roles', cmd: `jsn records list --table sys_group_has_role --query "group=${sysID}"`, description: `${roleCount} role(s)` } : null,
+                ].filter(Boolean),
+              });
             }
 
             const params = new URLSearchParams();

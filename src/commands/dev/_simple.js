@@ -73,10 +73,10 @@ export const tablesCmd = (wrap) => buildDevCmd('tables', 'sys_db_object', ['tabl
   },
 });
 
-export const columnsCmd = (wrap) => buildDevCmd('columns', 'sys_dictionary', ['column', 'col'], ['element', 'column_label', 'internal_type', 'mandatory', 'max_length', 'active'], wrap, { singular: 'column', scopeValidation: true });
+export { columnsCmd } from './columns.js';
 
 // Read-only commands (Go only has list/show)
-export const importCmd = (wrap) => buildDevCmd('import', 'sys_import_set', ['imports', 'imp'], ['sys_import_set', 'sys_import_row', 'sys_target_table', 'sys_target_sys_id'], wrap, { singular: 'import set', readOnly: true });
+export { importCmd } from './import.js';
 export const spPagesCmd = (wrap) => buildDevCmd('sppages', 'sp_page', ['sp-pages', 'pages'], ['id', 'title', 'sys_scope'], wrap, { singular: 'Service Portal page', readOnly: true });
 export const spWidgetsCmd = (wrap) => buildDevCmd('spwidgets', 'sp_widget', ['sp-widget', 'widgets'], ['id', 'name', 'sys_scope'], wrap, { singular: 'Service Portal widget', readOnly: true });
 export const uiPagesCmd = (wrap) => buildDevCmd('uipages', 'sys_ui_page', ['ui-page', 'pages'], ['name', 'sys_scope'], wrap, { singular: 'UI page', scopeValidation: true });
@@ -92,10 +92,9 @@ export const relationshipsCmd = (wrap) => buildDevCmd('relationships', 'sys_rela
 export const appmodulesCmd = (wrap) => buildDevCmd('appmodules', 'sys_app_module', ['appmodule', 'am'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application module', scopeValidation: true });
 export const listcontrolsCmd = (wrap) => buildDevCmd('listcontrols', 'sys_ui_list_control', ['listcontrol', 'lc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'list control', scopeValidation: true });
 export const viewsCmd = (wrap) => buildDevCmd('views', 'sys_ui_view', ['view', 'vw'], ['name', 'title', 'sys_scope'], wrap, { singular: 'view', scopeValidation: true });
-export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['name', 'status', 'sys_scope'], wrap, { singular: 'privilege', scopeValidation: true });
-export const securitytypesCmd = (wrap) => buildDevCmd('securitytypes', 'sys_security_type', ['securitytype', 'st'], ['name', 'active', 'sys_scope'], wrap, { singular: 'security type', scopeValidation: true });
+export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['source_scope', 'target_scope', 'target_name', 'operation', 'status'], wrap, { singular: 'privilege', scopeValidation: true });
 export const uxscriptsCmd = (wrap) => buildDevCmd('uxscripts', 'sys_ux_lib_source_script', ['uxscript', 'ux'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UX script', scopeValidation: true });
-export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias', 'als'], ['name', 'table', 'sys_scope'], wrap, { singular: 'alias', scopeValidation: true });
+export { aliasesCmd } from './aliases.js';
 export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript', 'cs'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });
 
 // ── Automation: Async ──
@@ -122,4 +121,5 @@ export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['u
 // ── UX: Workspaces ──
 export const uxlistsCmd = (wrap) => buildDevCmd('uxlists', 'sys_ux_list', ['uxlist'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace list', scopeValidation: true, readOnly: true });
 export const uxapplicabilityCmd = (wrap) => buildDevCmd('uxapplicability', 'sys_ux_applicability_m2m', ['uxapp'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace applicability', scopeValidation: true, readOnly: true });
-export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });
+export { uipoliciesCmd } from './uipolicies.js';
+export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'catalog_item', 'variable_set', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });

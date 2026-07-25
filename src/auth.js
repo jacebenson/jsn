@@ -7,8 +7,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import readline from 'node:readline';
 import { execSync } from 'node:child_process';
+import { password as passwordPrompt } from '@inquirer/prompts';
 import { globalConfigDir, normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
 
@@ -248,52 +248,7 @@ function deleteCredentials(instance, username) {
 }
 
 function askHidden(promptText) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    const stdin = process.stdin;
-    const stdout = process.stdout;
-
-    if (!stdin.isTTY) {
-    rl.question(promptText, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-    return;
-  }
-
-    stdout.write(promptText);
-
-    stdin.setRawMode(true);
-    stdin.resume();
-    stdin.setEncoding('utf-8');
-
-    let input = '';
-    const onData = (key) => {
-      if (key === '\r' || key === '\n') {
-        stdin.removeListener('data', onData);
-        stdin.setRawMode(false);
-        stdin.pause();
-        stdout.write('\n');
-        rl.close();
-        resolve(input);
-      } else if (key === '\u0003') {
-        process.exit();
-      } else if (key === '\u007f') {
-        if (input.length > 0) {
-          input = input.slice(0, -1);
-          stdout.write('\b \b');
-        }
-      } else {
-        input += key;
-        stdout.write('*');
-      }
-    };
-    stdin.on('data', onData);
-  });
+  return passwordPrompt({ message: promptText });
 }
 
 export class AuthManager {
