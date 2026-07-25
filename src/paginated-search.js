@@ -70,8 +70,9 @@ export const paginatedSearch = createPrompt((config, done) => {
         return updated;
       });
       setLoaded(prev => Math.min(prev + newItems.length, totalCountRef.current));
-    } catch {
-      // API error during scroll — mark as fully loaded
+    } catch (err) {
+      // API error during scroll
+      console.error('Scroll load error:', err.message || err);
       loadedRef.current = totalCountRef.current;
       setLoaded(totalCountRef.current);
     }
