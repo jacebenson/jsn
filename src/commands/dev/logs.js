@@ -39,12 +39,14 @@ export function logsCmd(wrap) {
             });
             if (picked === undefined) return;
             if (picked) {
-              picked._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
-              const level = getStringField(picked, 'level') || '?';
               const sysID = getStringField(picked, 'sys_id') || '';
+              // Fetch full record for rich display (like jsn logs show)
+              const full = await app.sdk.get('syslog', sysID) || picked;
+              full._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
+              const level = getStringField(full, 'level') || '?';
               const instance = app.getEffectiveInstance();
-              return app.ok(picked, {
-                summary: `${logIcon(level)} ${level}: ${(getStringField(picked, 'message') || '').substring(0, 80)}`,
+              return app.ok(full, {
+                summary: `${logIcon(level)} ${level}: ${(getStringField(full, 'message') || '').substring(0, 80)}`,
                 breadcrumbs: [
                   { action: 'list', cmd: 'jsn logs list', description: 'Back to all logs' },
                   { action: 'view', cmd: `jsn logs show ${sysID}`, description: 'View full details' },
