@@ -17,19 +17,20 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
   let cancelled = false;
   let selected = null;
   let currentTerm = '';
-  let hasRendered = false;
+  let renderLineCount = 0;
 
-  // Render the picker to stdout — uses ANSI save/restore to anchor in place
+  // Render the picker — clears previous output using moveCursor + clearScreenDown
   function render(term) {
-    const buf = [];
-
-    // ANSI: restore cursor to anchor point and clear below
-    if (hasRendered) {
-      buf.push('\x1b8\x1b[J');
+    // Move cursor back to where the picker starts and clear
+    if (renderLineCount > 0) {
+      process.stdout.moveCursor(0, -renderLineCount);
+      process.stdout.clearScreenDown();
     }
 
+    const lines = [];
+
     // Header
-    buf.push(message);
+    lines.push(message);
 
     // Visible page
     const startIdx = Math.max(0, active - Math.floor(pageSize / 2));
@@ -42,40 +43,36 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
       const prefix = isActive ? '\x1b[7m' : '';
       const suffix = isActive ? '\x1b[0m' : '';
       const name = choice.name.length > 60 ? choice.name.slice(0, 57) + '...' : choice.name;
-      buf.push(`  ${prefix}${name}${suffix}`);
+      lines.push(`  ${prefix}${name}${suffix}`);
     }
 
-    // Fill empty slots so the picker height stays constant
+    // Pad to constant height
     const maxVisible = Math.min(pageSize, totalCount);
-    while (buf.length < maxVisible + 2) { // +1 for header, +1 more for spacing
-      buf.push('');
+    while (lines.length < maxVisible + 1) {
+      lines.push('');
     }
 
-    // Footer with progress
+    // Footer
     const moreAvailable = loaded < totalCount;
     const footer = moreAvailable
       ? `${loaded} of ${totalCount} loaded • ↓ for more • ↑↓ navigate • ⏎ select • esc cancel • type to filter`
       : `${loaded} of ${totalCount} • ↑↓ navigate • ⏎ select • esc cancel • type to filter`;
-    buf.push('');
-    buf.push(footer);
+    lines.push('');
+    lines.push(footer);
 
     // Search bar
-    buf.push(`> ${term}`);
+    lines.push(`> ${term}`);
 
-    // First render: save cursor position so re-renders anchor here
-    if (!hasRendered) {
-      process.stdout.write('\x1b7');
-      hasRendered = true;
-    }
-
-    process.stdout.write(buf.join('\n'));
+    // Write: lines are joined by \n, cursor advances lineCount-1 lines
+    process.stdout.write(lines.join('\n'));
+    renderLineCount = lines.length - 1;
   }
 
   function cleanup() {
-    // Restore cursor to anchor and clear below
-    if (hasRendered) {
-      process.stdout.write('\x1b8\x1b[J');
-      hasRendered = false;
+    if (renderLineCount > 0) {
+      process.stdout.moveCursor(0, -renderLineCount);
+      process.stdout.clearScreenDown();
+      renderLineCount = 0;
     }
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
