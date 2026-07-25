@@ -168,7 +168,19 @@ async function showItem(app, sysID) {
     lines.push(`  Workflow: ${wfName}`);
     if (wfID) lines.push(`    → jsn workflows show ${wfID}`);
   } else if (planName) {
-    lines.push(`  Execution Plan: ${planName}`);
+    const planID = item.delivery_plan?.value || item.execution_plan?.value || '';
+    if (planName === planID && planID) {
+      try {
+        const planRec = await app.sdk.get('delivery_plan', planID);
+        const realName = getStringField(planRec, 'name') || getStringField(planRec, 'short_description') || planID;
+        lines.push(`  Execution Plan: ${realName}`);
+        lines.push(`    → jsn records get --table delivery_plan --sys-id ${planID}`);
+      } catch {
+        lines.push(`  Execution Plan: ${planName}`);
+      }
+    } else {
+      lines.push(`  Execution Plan: ${planName}`);
+    }
   }
 
   if (totalVars > 0) {
