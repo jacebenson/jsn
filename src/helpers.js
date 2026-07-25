@@ -1,7 +1,7 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
-import { paginatedSearch } from './paginated-search.js';
+import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from './output.js';
 
 export function getStringField(record, field) {
@@ -106,44 +106,57 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   } catch {
     totalCount = 0;
   }
-
   if (totalCount === 0) return null;
 
-  // Server-side source for the paginated picker
-  const source = async (term, offset) => {
+  // Return formatted choices for a record page
+  function formatChoices(records) {
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: r,
+    }));
+  }
+
+  async function fetchPage(term, offset) {
     const params = new URLSearchParams();
     params.set('sysparm_limit', String(limit));
     params.set('sysparm_display_value', 'all');
     if (pickerFields) params.set('sysparm_fields', pickerFields);
     if (term) {
-      // Search: filter by name containing term
       params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
     } else {
-      // Browse: load page at offset
       params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
       params.set('sysparm_offset', String(offset));
     }
+    return await app.sdk.list(table, params);
+  }
 
-    const records = await app.sdk.list(table, params);
-    return records.map(r => ({
-      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-      value: r,
-    }));
-  };
+  // Stateful closure: accumulate loaded records across source calls
+  let allChoices = [];
+  let lastTerm = '';
 
   try {
-    const selected = await paginatedSearch({
+    const selected = await search({
       message: `${table} (${totalCount} total)`,
-      pageSize: Math.min(10, limit),
-      totalCount,
-      source,
+      pageSize: 10,
+      source: async (term) => {
+        const input = term || '';
+        if (input !== lastTerm) {
+          // Term changed: fresh server search
+          const records = await fetchPage(input, 0);
+          allChoices = formatChoices(records);
+          lastTerm = input;
+        } else if (!input && allChoices.length < totalCount) {
+          // Empty input, more to load: fetch next page
+          const records = await fetchPage('', allChoices.length);
+          allChoices.push(...formatChoices(records));
+        }
+        return allChoices;
+      },
     });
-    // null = cancelled, object = selected
-    if (selected === null) return undefined;
-    return selected?.value || null;
+    return selected;
   } catch (err) {
-    // Cancelled — return undefined so caller can exit silently
-    return undefined;
+    if (err.name === 'ExitPromptError') return undefined;
+    throw err;
   }
 }
 
