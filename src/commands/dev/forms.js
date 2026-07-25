@@ -58,6 +58,11 @@ async function showForm(app, table, viewName) {
     try { const fr = await app.sdk.list('sys_ui_form', formParams); if (fr.length > 0) formSysID = getStringField(fr[0], 'sys_id'); } catch { /* ignore */ }
   }
 
+  if (!formSysID) {
+    process.stdout.write(`No form found for ${table} → ${viewName}\n`);
+    return;
+  }
+
   // 3) Get form sections ordered by position (from sys_ui_form_section)
   const fsParams = new URLSearchParams();
   fsParams.set('sysparm_limit', '200');
