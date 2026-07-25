@@ -14,22 +14,24 @@ export function flowsCmd(wrap) {
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
-            .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'active', 'description', 'sys_created_by', 'sys_updated_on'];
             const query = argv.query || '';
 
             // Interactive picker
             const picked = await interactiveList({
               app, table: 'sys_hub_flow', singular: 'flow', columns, limit: argv.limit, query, labelField: 'name',
-              formatLabel: r => `${getStringField(r, 'name')} ${getStringField(r, 'active') === 'true' ? '' : '[inactive]'}`,
+              formatLabel: r => `${getStringField(r, 'active') === 'true' ? '🟢' : '🔴'} ${getStringField(r, 'name')}`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               const inspection = await app.sdk.inspectFlow(getStringField(picked, 'sys_id'));
               const formatted = formatFlowInspection(inspection, app.getEffectiveInstance());
               return app.ok({ ...inspection, _formatted: formatted }, {
                 summary: `Flow: ${inspection.flow.name}`,
-                breadcrumbs: [{ action: 'list', cmd: 'jsn dev flows list', description: 'Back to all flows' }],
+                breadcrumbs: [{ action: 'list', cmd: 'jsn flows list', description: 'Back to all flows' }],
               });
             }
 
@@ -61,7 +63,7 @@ export function flowsCmd(wrap) {
             app.ok(data, {
               summary: `Flow: ${inspection.flow.name}`,
               breadcrumbs: [
-                { action: 'list', cmd: 'jsn dev flows list', description: 'Back to all flows' },
+                { action: 'list', cmd: 'jsn flows list', description: 'Back to all flows' },
               ],
             });
           }),
@@ -73,7 +75,7 @@ export function flowsCmd(wrap) {
             .option('data', { type: 'string', describe: 'JSON data for the flow' }),
           handler: wrap(async (_argv, _app) => {
             throw new Error('Flow creation requires the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to create flows, then use "jsn dev flows list" to view them.');
+              + 'Use the ServiceNow web UI to create flows, then use "jsn flows list" to view them.');
           }),
         })
         .command({
@@ -83,7 +85,7 @@ export function flowsCmd(wrap) {
             .option('data', { type: 'string', describe: 'JSON data to update' }),
           handler: wrap(async (_argv, _app) => {
             throw new Error('Flow updates require the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to update flows, then use "jsn dev flows list" to view them.');
+              + 'Use the ServiceNow web UI to update flows, then use "jsn flows list" to view them.');
           }),
         })
         .command({
@@ -95,7 +97,22 @@ export function flowsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage Flow Designer flows from the sys_hub_flow table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List flows');
+      console.log('  show <identifier>     Show flow details by name or sys_id');
+      console.log('  create                Create a new flow (not yet implemented)');
+      console.log('  update <identifier>   Update a flow (not yet implemented)');
+      console.log('  delete <identifier>   Delete a flow (not yet implemented)');
+      console.log('');
+      console.log('Run "jsn flows <command> --help" for details.');
+      console.log('');
+      console.log('Note: Flow inspection detail varies. V2 flows (with payload)');
+      console.log('show full action inputs and conditions. Subflows and V1 flows');
+      console.log('show step names only.');
+    },
   };
 }
 
@@ -168,7 +185,13 @@ function formatFlowInspection(inspection, instanceURL) {
   lines.push('');
   lines.push('⚡ FLOW STRUCTURE');
   lines.push('─'.repeat(50));
-  lines.push(...formatFlowStructure(inspection));
+  const structureLines = formatFlowStructure(inspection);
+  lines.push(...structureLines);
+  // Note limitation for V1/subflows without payload detail
+  if (!inspection.payload || Object.keys(inspection.payload).length === 0) {
+    lines.push('');
+    lines.push('  (step detail limited — this flow lacks a V2 payload)');
+  }
 
   lines.push('');
   return lines.join('\n') + '\n';

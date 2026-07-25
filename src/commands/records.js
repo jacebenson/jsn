@@ -74,7 +74,7 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [
               { action: 'create', cmd: `jsn records create --table ${table} --data '{...}'`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
-              { action: 'columns', cmd: `jsn dev columns --table ${table}`, description: 'View available columns' },
+              { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View available columns' },
             ];
             if (argv['sys-id']) {
               breadcrumbs.unshift({
@@ -188,12 +188,12 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [
               ...result.flows.map(f => ({
                 action: 'show',
-                cmd: `jsn dev flows show "${f.flow}"`,
+                cmd: `jsn flows show "${f.flow}"`,
                 description: `View flow details for ${f.flow}`,
               })),
               ...result.businessRules.slice(0, 5).map(br => ({
                 action: 'show',
-                cmd: `jsn dev rules show "${br.name}"`,
+                cmd: `jsn rules show "${br.name}"`,
                 description: `View business rule: ${br.name}`,
               })),
             ];

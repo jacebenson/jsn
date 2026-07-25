@@ -51,6 +51,7 @@ export function listsCmd(wrap) {
             })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const table = argv.table;
             const limit = argv.limit || 50;
 
@@ -90,7 +91,7 @@ export function listsCmd(wrap) {
             }, {
               summary: `${views.length} list views for ${table}`,
               breadcrumbs: [
-                { action: 'show', cmd: `jsn dev lists show ${table} --view "Default view"`, description: 'Show Default view columns' },
+                { action: 'show', cmd: `jsn lists show ${table} --view "Default view"`, description: 'Show Default view columns' },
               ],
             });
           }),
@@ -102,6 +103,7 @@ export function listsCmd(wrap) {
           builder: (y) => y
             .option('view', { type: 'string', default: 'Default view', describe: 'View name' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const table = argv.table;
             const viewName = argv.view;
 
@@ -195,8 +197,8 @@ export function listsCmd(wrap) {
             lines.push('─────');
             lines.push('');
             lines.push(chalk.bold(chalk.hex('#e8a217')('Hints:')));
-            lines.push(`  ${`jsn dev lists list ${table}`.padEnd(50)}  ${chalk.hex('#888888')('List all views')}`);
-            lines.push(`  ${`jsn dev forms show ${table} --view "${viewName}"`.padEnd(50)}  ${chalk.hex('#888888')('Show form layout')}`);
+            lines.push(`  ${`jsn lists list ${table}`.padEnd(50)}  ${chalk.hex('#888888')('List all views')}`);
+            lines.push(`  ${`jsn forms show ${table} --view "${viewName}"`.padEnd(50)}  ${chalk.hex('#888888')('Show form layout')}`);
             lines.push('');
 
             const formatted = lines.join('\n');
@@ -225,13 +227,21 @@ export function listsCmd(wrap) {
             }, {
               summary: `List: ${table} (${viewName}) - ${elements.length} columns`,
               breadcrumbs: [
-                { action: 'list', cmd: `jsn dev lists list ${table}`, description: 'List all views' },
-                { action: 'form', cmd: `jsn dev forms show ${table} --view "${viewName}"`, description: 'Show form layout' },
+                { action: 'list', cmd: `jsn lists list ${table}`, description: 'List all views' },
+                { action: 'form', cmd: `jsn forms show ${table} --view "${viewName}"`, description: 'Show form layout' },
               ],
             });
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage list layouts from the sys_ui_list table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list <table>         List list views for a table');
+      console.log('  show <table>         Show list layout for a table');
+      console.log('');
+      console.log('Run "jsn lists <command> --help" for details.');
+    },
   };
 }

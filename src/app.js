@@ -118,7 +118,7 @@ export class App {
 
     const scopeFormatted = `[${scope}]`;
 
-    process.stderr.write('# Use `jsn dev scopes` to change scope, `jsn dev updatesets set` to change updateset\n');
+    process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
     process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
 
     const profileStr = `]8;;${instanceLink}\x07${String(this.context.profileName).padEnd(9)}]8;;\x07`;
@@ -144,12 +144,12 @@ export class App {
           '┃  manual surgery, one change at a time. Avoid the mess. ┃\n' +
           '┃                                                        ┃\n' +
           '┃  Create a named update set now:                        ┃\n' +
-          '┃    jsn dev updatesets create --name "My Feature"       ┃\n' +
+          '┃    jsn updatesets create --name "My Feature"       ┃\n' +
           '┃                                                        ┃\n' +
           '┃  Or switch to a scoped scope first:                    ┃\n' +
-          '┃    jsn dev scopes list                                 ┃\n' +
+          '┃    jsn scopes list                                 ┃\n' +
           '┃                                                        ┃\n' +
-          '┃  (Run jsn dev updatesets yolo to silence this check)    ┃\n' +
+          '┃  (Run jsn updatesets yolo to silence this check)    ┃\n' +
           '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\x1b[0m\n'
         );
       } else {
@@ -160,7 +160,7 @@ export class App {
           '  ⚠  Default update set in scope [' + scope + ']\n' +
           '  Changes are contained to this scope, but a named\n' +
           '  update set is still recommended for tracking.\n' +
-          '  (Run \x1b[1mjsn dev updatesets yolo\x1b[22m to silence this warning)\n' +
+          '  (Run \x1b[1mjsn updatesets yolo\x1b[22m to silence this warning)\n' +
           '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
           '\x1b[0m' // reset
         );

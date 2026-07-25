@@ -2,7 +2,7 @@
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
 import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
-import search from '@inquirer/search';
+import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from '../output.js';
 
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap) {

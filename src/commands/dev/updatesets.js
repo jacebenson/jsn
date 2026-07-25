@@ -15,7 +15,7 @@ export function updateSetsCmd(wrap) {
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
-            .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'state', 'application'];
             const query = argv.query || '';
@@ -24,6 +24,7 @@ export function updateSetsCmd(wrap) {
               app, table: 'sys_update_set', singular: 'update set', columns, limit: argv.limit, query, labelField: 'name',
               formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}]`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_update_set' };
               return app.ok(picked, { summary: `Update set: ${getStringField(picked, 'name')}` });
@@ -151,12 +152,12 @@ export function updateSetsCmd(wrap) {
               breadcrumbs: [
                 {
                   action: 'set',
-                  cmd: `jsn dev updatesets set "${argv.name}"`,
+                  cmd: `jsn updatesets set "${argv.name}"`,
                   description: 'Switch to this update set',
                 },
                 {
                   action: 'complete',
-                  cmd: `jsn dev updatesets complete "${argv.name}"`,
+                  cmd: `jsn updatesets complete "${argv.name}"`,
                   description: 'Mark as complete when done',
                 },
               ],
@@ -225,9 +226,9 @@ export function updateSetsCmd(wrap) {
         console.log('  export <name>  Export an update set to XML');
         console.log('  complete <name>  Mark an update set as complete (coming soon)');
         console.log('  yolo           Silence the "Default update set" warning');
-        console.log('\nRun "jsn dev updatesets <command> --help" for details.');
+        console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
-        console.log('  jsn dev updatesets create --name "My Feature"');
+        console.log('  jsn updatesets create --name "My Feature"');
         console.log('  # → Auto-set as current, then record changes are captured.');
       }
     },

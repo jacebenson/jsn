@@ -1,7 +1,7 @@
 // Custom scraPI command: list/show individual operations + one-shot API definition creation
 //
 // The 'create' subcommand lets you build a full Scripted REST API in one call:
-//   jsn dev scrapi create \
+//   jsn scrapi create \
 //     --name "SL Managed Services" --service-id managed_services --namespace slapi \
 //     --resource create=POST:/create:./create.js \
 //     --resource comment=POST:/comment:./comment.js
@@ -74,7 +74,7 @@ export function scrapiCmd(wrap) {
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns' })
-            .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'sys_ws_definition', 'http_method', 'relative_path', 'sys_scope'];
             const query = argv.query || '';
@@ -97,8 +97,8 @@ export function scrapiCmd(wrap) {
             }, {
               summary: `${records.length} operation(s)`,
               breadcrumbs: [
-                { action: 'create', cmd: 'jsn dev scrapi create --name "My API" --service-id my-api --namespace myapp --resource get=GET:/items:./script.js', description: 'Create a new REST API' },
-                { action: 'show', cmd: 'jsn dev scrapi show <name>', description: 'Show operation details' },
+                { action: 'create', cmd: 'jsn scrapi create --name "My API" --service-id my-api --namespace myapp --resource get=GET:/items:./script.js', description: 'Create a new REST API' },
+                { action: 'show', cmd: 'jsn scrapi show <name>', description: 'Show operation details' },
               ],
             });
           }),
@@ -128,7 +128,7 @@ export function scrapiCmd(wrap) {
               return app.ok(records[0], {
                 summary: `Operation: ${getStringField(records[0], 'name') || id}`,
                 breadcrumbs: [
-                  { action: 'list', cmd: 'jsn dev scrapi list', description: 'Back to all operations' },
+                  { action: 'list', cmd: 'jsn scrapi list', description: 'Back to all operations' },
                 ],
               });
             }
@@ -182,7 +182,7 @@ export function scrapiCmd(wrap) {
                 formatted += `    ${(method + '  ').slice(0, 7)} ${relPath.padEnd(30)} ${opName}${active !== 'true' ? ' (inactive)' : ''}\n`;
               }
             } else {
-              formatted += `\n  (no resources — run jsn dev scrapi create --resource ... to add some)\n`;
+              formatted += `\n  (no resources — run jsn scrapi create --resource ... to add some)\n`;
             }
 
             app.ok({
@@ -207,8 +207,8 @@ export function scrapiCmd(wrap) {
             }, {
               summary: `API: ${defName} — ${childOps.length} resource(s)`,
               breadcrumbs: [
-                { action: 'create', cmd: 'jsn dev scrapi create --name "..." --service-id ... --namespace ... --resource ...', description: 'Create a new API' },
-                { action: 'list', cmd: 'jsn dev scrapi list', description: 'Back to all operations' },
+                { action: 'create', cmd: 'jsn scrapi create --name "..." --service-id ... --namespace ... --resource ...', description: 'Create a new API' },
+                { action: 'list', cmd: 'jsn scrapi list', description: 'Back to all operations' },
               ],
             });
           }),
@@ -316,8 +316,8 @@ export function scrapiCmd(wrap) {
               summary: `Created API "${apiName}" with ${operations.length} operation(s)`,
               notice: `View API: ${apiURL}`,
               breadcrumbs: [
-                { action: 'show', cmd: `jsn dev scrapi list --query "web_service_definition=${defSysId}"`, description: 'List operations for this API' },
-                { action: 'add', cmd: `jsn dev scrapi add-resource --api "${serviceId}" --name <name>=METHOD:/path:./script.js`, description: 'Add another resource' },
+                { action: 'show', cmd: `jsn scrapi list --query "web_service_definition=${defSysId}"`, description: 'List operations for this API' },
+                { action: 'add', cmd: `jsn scrapi add-resource --api "${serviceId}" --name <name>=METHOD:/path:./script.js`, description: 'Add another resource' },
               ],
             });
           }),
@@ -333,9 +333,9 @@ export function scrapiCmd(wrap) {
       console.log('  create      Create a new API with operations (one-shot)');
       console.log('');
       console.log('Examples:');
-      console.log('  jsn dev scrapi list');
-      console.log('  jsn dev scrapi show my_operation');
-      console.log('  jsn dev scrapi create \\');
+      console.log('  jsn scrapi list');
+      console.log('  jsn scrapi show my_operation');
+      console.log('  jsn scrapi create \\');
       console.log('    --name "My API" --service-id my-api --namespace myapp \\');
       console.log('    --resource "create=POST:/create:./create.js" \\');
       console.log('    --resource "list=GET:/list:./list.js"');

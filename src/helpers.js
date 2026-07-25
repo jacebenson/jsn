@@ -1,7 +1,7 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
-import search from '@inquirer/search';
+import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 
 export function getStringField(record, field) {
@@ -89,53 +89,56 @@ export function resolveFieldsParam(columns) {
  * @param {string} opts.labelField — field used to match selection (default: 'name')
  * @returns {Promise<void>|null} null if no selection made or non-interactive
  */
-export async function interactiveList({ app, table, singular, columns, limit = 20, query = '', formatLabel, labelField = 'name' }) {
+export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name' }) {
+  app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
   if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin) || query) {
     return null; // not interactive — caller should fall back to text/table
   }
 
   const pickerColumns = ['sys_id', labelField, ...columns.filter(c => c !== labelField && c !== 'sys_id' && c !== '*')];
-  const params = new URLSearchParams();
-  params.set('sysparm_limit', String(limit));
-  params.set('sysparm_display_value', 'all');
   const pickerFields = pickerColumns.join(',');
-  if (pickerFields) params.set('sysparm_fields', pickerFields);
-  params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
 
-  const records = await app.sdk.list(table, params);
-  if (records.length === 0) return null;
-
-  const choices = records.map(r => ({
-    name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-    value: r,
-  }));
-
+  // Get total count
+  let totalCount = 0;
   try {
-    const selected = await search({
-      message: `Select ${vowelArticle(singular)} ${singular}:`,
-      source: async (input) => {
-        if (!input) return choices;
-        const term = input.toLowerCase();
-        return choices.filter(c => c.name.toLowerCase().includes(term));
-      },
-    });
-    return selected; // the record object
-  } catch (err) {
-    if (err.name === 'ExitPromptError' || (err.message && err.message.includes('force closed'))) {
-      return null;
-    }
-    throw err;
+    totalCount = await app.sdk.aggregateCount(table, '');
+  } catch {
+    totalCount = 0;
   }
-}
+  if (totalCount === 0) return null;
 
-function vowelArticle(word) {
-  const first = word.charAt(0).toLowerCase();
-  return first === 'a' || first === 'e' || first === 'i' || first === 'o' || first === 'u' ? 'an' : 'a';
+  // Server source adapter for paginatedSearch: (term, offset) => choices[]
+  async function serverSource(term, offset) {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', String(limit));
+    params.set('sysparm_display_value', 'all');
+    if (pickerFields) params.set('sysparm_fields', pickerFields);
+    if (term) {
+      params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+    } else {
+      params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+      params.set('sysparm_offset', String(offset));
+    }
+    const records = await app.sdk.list(table, params);
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: r,
+    }));
+  }
+
+  const selected = await paginatedSearch({
+    message: `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
+    pageSize: 10,
+    totalCount,
+    source: serverSource,
+  });
+  // null = cancelled → undefined so callers skip fallback table
+  if (selected === null) return undefined;
+  return selected?.value; // unwrap {name, value} → raw record
 }
 
 /**
- * Known derived (read-only) ServiceNow fields that should not be set directly.
  * Maps table name → array of field names that are computed by the platform.
  * When a create/update payload contains these, a warning is emitted.
  */

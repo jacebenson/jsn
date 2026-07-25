@@ -14,7 +14,7 @@ export function scopesCmd(wrap) {
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
-            .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'scope', 'short_description', 'active'];
             const query = argv.query || '';
@@ -23,6 +23,7 @@ export function scopesCmd(wrap) {
               app, table: 'sys_scope', singular: 'scope', columns, limit: argv.limit, query, labelField: 'name',
               formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'scope') || '?'}]`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_scope' };
               return app.ok(picked, { summary: `Scope: ${getStringField(picked, 'name')}` });
@@ -143,7 +144,7 @@ export function scopesCmd(wrap) {
               summary: `Created scope: ${scope}`,
               breadcrumbs: [{
                 action: 'show',
-                cmd: `jsn dev scopes show ${scope}`,
+                cmd: `jsn scopes show ${scope}`,
                 description: 'View the new scope',
               }],
             });
@@ -159,7 +160,7 @@ export function scopesCmd(wrap) {
         console.log('  show <scope>   Show a scope');
         console.log('  set  <scope>   Set the current application scope');
         console.log('  create         Create a new application scope');
-        console.log('\nRun "jsn dev scopes <command> --help" for details.');
+        console.log('\nRun "jsn scopes <command> --help" for details.');
       }
     },
   };

@@ -45,7 +45,7 @@ export function evalCmd(wrap) {
         summary: 'Script executed' + warning,
         breadcrumbs: [{
           action: 'eval',
-          cmd: 'jsn dev eval --script \'...\'',
+          cmd: 'jsn eval --script \'...\'',
           description: 'Execute a background script on the ServiceNow instance',
         }],
       });

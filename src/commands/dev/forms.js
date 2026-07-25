@@ -60,6 +60,7 @@ export function formsCmd(wrap) {
             })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const table = argv.table;
             const limit = argv.limit || 50;
 
@@ -99,7 +100,7 @@ export function formsCmd(wrap) {
             }, {
               summary: `${views.length} views for ${table}`,
               breadcrumbs: [
-                { action: 'show', cmd: `jsn dev forms show ${table} --view "Default view"`, description: 'Show Default view layout' },
+                { action: 'show', cmd: `jsn forms show ${table} --view "Default view"`, description: 'Show Default view layout' },
               ],
             });
           }),
@@ -111,6 +112,7 @@ export function formsCmd(wrap) {
           builder: (y) => y
             .option('view', { type: 'string', default: 'Default view', describe: 'View name' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const table = argv.table;
             const viewName = argv.view;
 
@@ -256,8 +258,8 @@ export function formsCmd(wrap) {
             lines.push('─────');
             lines.push('');
             lines.push(chalk.bold(chalk.hex('#e8a217')('Hints:')));
-            lines.push(`  ${`jsn dev forms list ${table}`.padEnd(50)}  ${chalk.hex('#888888')('List all views')}`);
-            lines.push(`  ${`jsn dev columns --table ${table}`.padEnd(50)}  ${chalk.hex('#888888')('View table columns')}`);
+            lines.push(`  ${`jsn forms list ${table}`.padEnd(50)}  ${chalk.hex('#888888')('List all views')}`);
+            lines.push(`  ${`jsn columns --table ${table}`.padEnd(50)}  ${chalk.hex('#888888')('View table columns')}`);
             lines.push('');
 
             const formatted = lines.join('\n');
@@ -305,13 +307,21 @@ export function formsCmd(wrap) {
             }, {
               summary: `Form: ${table} (${viewName}) - ${sections.length} sections`,
               breadcrumbs: [
-                { action: 'list', cmd: `jsn dev forms list ${table}`, description: 'List all views' },
-                { action: 'columns', cmd: `jsn dev columns --table ${table}`, description: 'View table columns' },
+                { action: 'list', cmd: `jsn forms list ${table}`, description: 'List all views' },
+                { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View table columns' },
               ],
             });
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage form layouts from the sys_ui_form_section table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list <table>         List form views for a table');
+      console.log('  show <table>         Show form layout for a table');
+      console.log('');
+      console.log('Run "jsn forms <command> --help" for details.');
+    },
   };
 }

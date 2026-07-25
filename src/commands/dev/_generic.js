@@ -3,7 +3,7 @@
 import { formatRecordForDisplay, getStringField, isHexString, parseDataArg } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import readline from 'node:readline';
-import search from '@inquirer/search';
+import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from '../../output.js';
 
 function vowelArticle(word) {
@@ -16,13 +16,13 @@ function buildHints(name, singular, readOnly) {
   if (!readOnly) {
     crumbs.push({
       action: 'create',
-      cmd: `jsn dev ${name} create --name ... --label "..."`,
+      cmd: `jsn ${name} create --name ... --label "..."`,
       description: `Create ${vowelArticle(singular)} ${singular}`,
     });
   }
   crumbs.push({
     action: 'show',
-    cmd: `jsn dev ${name} show <name_or_sys_id>`,
+    cmd: `jsn ${name} show <name_or_sys_id>`,
     description: `Show ${singular} details`,
   });
   return crumbs;
@@ -84,12 +84,12 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const showSummary = opts.showSummary || ((record, id) => `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${getStringField(record, 'name') || id}`);
   const showBreadcrumbs = opts.showBreadcrumbs || ((record, id) => {
     const crumbs = [
-      { action: 'list', cmd: `jsn dev ${name} list`, description: `Back to all ${name}` },
+      { action: 'list', cmd: `jsn ${name} list`, description: `Back to all ${name}` },
     ];
     if (!readOnly) {
       crumbs.unshift(
-        { action: 'delete', cmd: `jsn dev ${name} delete ${id}`, description: `Delete this ${singular}` },
-        { action: 'update', cmd: `jsn dev ${name} update ${id} --data '{...}'`, description: `Update this ${singular}` }
+        { action: 'delete', cmd: `jsn ${name} delete ${id}`, description: `Delete this ${singular}` },
+        { action: 'update', cmd: `jsn ${name} update ${id} --data '{...}'`, description: `Update this ${singular}` }
       );
     }
     return crumbs;
@@ -104,7 +104,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         builder: (y) => y
           .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true^priority=1")' })
           .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "name,label,super_class")' })
-          .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+          .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
@@ -178,8 +178,8 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
               app.ok(record, {
                 summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${selectedName}`,
                 breadcrumbs: [
-                  ...(readOnly ? [] : [{ action: 'update', cmd: `jsn dev ${name} update ${selectedName} --data '{...}'`, description: `Update this ${singular}` }]),
-                  { action: 'list', cmd: `jsn dev ${name} list`, description: `Back to all ${name}` },
+                  ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${selectedName} --data '{...}'`, description: `Update this ${singular}` }]),
+                  { action: 'list', cmd: `jsn ${name} list`, description: `Back to all ${name}` },
                 ],
               });
             }
@@ -256,7 +256,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             app.ok(record, {
               summary: `Created ${singular}`,
               breadcrumbs: [
-                { action: 'show', cmd: `jsn dev ${name} show ${getStringField(record, 'name') || getStringField(record, 'sys_id')}`, description: `View the new ${singular}` },
+                { action: 'show', cmd: `jsn ${name} show ${getStringField(record, 'name') || getStringField(record, 'sys_id')}`, description: `View the new ${singular}` },
               ],
             });
           }),
@@ -284,7 +284,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             if (scopeValidation) {
               const scopeErr = await checkScope(app.sdk, recordScope);
               if (scopeErr) {
-                throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn dev scopes set ${scopeErr.recordScope}`);
+                throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn scopes set ${scopeErr.recordScope}`);
               }
             }
 
@@ -315,7 +315,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             if (scopeValidation) {
               const scopeErr = await checkScope(app.sdk, recordScope);
               if (scopeErr) {
-                throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn dev scopes set ${scopeErr.recordScope}`);
+                throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn scopes set ${scopeErr.recordScope}`);
               }
             }
 
@@ -358,7 +358,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         console.log('  update      Update a record');
         console.log('  delete      Delete a record');
       }
-      console.log(`\nRun "jsn dev ${name} <command> --help" for details.`);
+      console.log(`\nRun "jsn ${name} <command> --help" for details.`);
     },
   };
 }

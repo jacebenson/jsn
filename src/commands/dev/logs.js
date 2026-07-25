@@ -16,6 +16,7 @@ export function logsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const columns = argv.columns ? argv.columns.split(',') : ['level', 'message', 'source', 'created'];
             const query = argv.query || '';
 
@@ -24,6 +25,7 @@ export function logsCmd(wrap) {
               app, table: 'syslog', singular: 'log entry', columns, limit: argv.limit, query, labelField: 'message',
               formatLabel: r => `[${getStringField(r, 'level') || '?'}] ${(getStringField(r, 'message') || '').substring(0, 80)}`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
               return app.ok(picked, { summary: `Log entry` });
@@ -59,6 +61,14 @@ export function logsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('View system logs from the syslog table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                List log entries');
+      console.log('  show <sys_id>       Show a log entry by sys_id');
+      console.log('');
+      console.log('Run "jsn logs <command> --help" for details.');
+    },
   };
 }
