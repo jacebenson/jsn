@@ -65,15 +65,7 @@ export function catalogCmd(wrap) {
 
             if (picked === undefined) return;
             if (picked) {
-              const sysID = getStringField(picked, 'sys_id') || '';
-              const item = await app.sdk.get('sc_cat_item', sysID);
-              console.log(`${getStringField(item, 'name')}`);
-              if (getStringField(item, 'short_description')) {
-                console.log(`  ${getStringField(item, 'short_description')}`);
-              }
-              console.log(`  Category: ${getStringField(item, 'category') || '(none)'}`);
-              console.log(`  Active: ${getStringField(item, 'active') || 'false'}`);
-              console.log(`  URL: ${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`);
+              await showItem(app, getStringField(picked, 'sys_id') || '');
               return;
             }
 
@@ -110,10 +102,7 @@ export function catalogCmd(wrap) {
               id = results[0].sys_id?.value || results[0].sys_id;
             }
             const item = await app.sdk.get('sc_cat_item', id);
-            app.ok(item, {
-              summary: getStringField(item, 'name'),
-              breadcrumbs: [{ action: 'list', cmd: 'catalogitems list', description: 'Back to list' }],
-            });
+            await showItem(app, id);
           }),
         });
     },
@@ -126,4 +115,68 @@ export function catalogCmd(wrap) {
       console.log('  show <id>  Show catalog item');
     },
   };
+}
+
+async function showItem(app, sysID) {
+  const item = await app.sdk.get('sc_cat_item', sysID);
+
+  // Fetch variables
+  const vp = new URLSearchParams();
+  vp.set('sysparm_query', `cat_item=${sysID}^active=true`);
+  vp.set('sysparm_limit', '100');
+  vp.set('sysparm_display_value', 'all');
+  vp.set('sysparm_fields', 'sys_id,name,question_text,type,order,mandatory,variable_set');
+  const variables = await app.sdk.list('item_option_new', vp);
+
+  const standalone = [];
+  const setVars = new Map();
+  for (const v of variables) {
+    const vs = getStringField(v, 'variable_set');
+    const entry = {
+      name: getStringField(v, 'name'),
+      question_text: getStringField(v, 'question_text'),
+      type: getStringField(v, 'type'),
+      mandatory: getStringField(v, 'mandatory'),
+    };
+    if (vs) {
+      if (!setVars.has(vs)) setVars.set(vs, { name: vs, variables: [] });
+      setVars.get(vs).variables.push(entry);
+    } else {
+      standalone.push(entry);
+    }
+  }
+
+  const totalVars = standalone.length + Array.from(setVars.values()).reduce((a, s) => a + s.variables.length, 0);
+
+  const lines = [];
+  lines.push(getStringField(item, 'name'));
+  if (getStringField(item, 'short_description')) lines.push(`  ${getStringField(item, 'short_description')}`);
+  lines.push(`  Category: ${getStringField(item, 'category') || '(none)'}`);
+  lines.push(`  Active: ${getStringField(item, 'active') || 'false'}`);
+  lines.push(`  URL: ${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`);
+
+  // Flow / Workflow
+  const flow = getStringField(item, 'flow_designer_flow');
+  const workflow = getStringField(item, 'workflow');
+  const plan = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan');
+  if (flow) lines.push(`  Flow: ${flow}`);
+  else if (workflow) lines.push(`  Workflow: ${workflow}`);
+  else if (plan) lines.push(`  Execution Plan: ${plan}`);
+
+  if (totalVars > 0) {
+    lines.push(`  Variables (${totalVars}):`);
+    for (const v of standalone) {
+      const flags = String(v.mandatory) === 'true' ? ' [required]' : '';
+      lines.push(`    ${v.question_text || v.name}  ${v.type || ''}${flags}`);
+    }
+    for (const [_, sd] of setVars) {
+      lines.push(`    [${sd.name}]`);
+      for (const v of sd.variables) {
+        const flags = String(v.mandatory) === 'true' ? ' [required]' : '';
+        lines.push(`      ${v.question_text || v.name}  ${v.type || ''}${flags}`);
+      }
+    }
+  }
+
+  console.log(lines.join('\n'));
 }
