@@ -185,7 +185,13 @@ function formatFlowInspection(inspection, instanceURL) {
   lines.push('');
   lines.push('⚡ FLOW STRUCTURE');
   lines.push('─'.repeat(50));
-  lines.push(...formatFlowStructure(inspection));
+  const structureLines = formatFlowStructure(inspection);
+  lines.push(...structureLines);
+  // Note limitation for V1/subflows without payload detail
+  if (!inspection.payload || Object.keys(inspection.payload).length === 0) {
+    lines.push('');
+    lines.push('  (step detail limited — this flow lacks a V2 payload)');
+  }
 
   lines.push('');
   return lines.join('\n') + '\n';
