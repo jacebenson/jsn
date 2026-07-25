@@ -130,20 +130,33 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     return await app.sdk.list(table, params);
   }
 
-  // Load initial batch — @inquirer/search handles scrolling within this set
-  const batchSize = Math.min(totalCount, 200);
-  const records = await fetchPage('', 0, batchSize);
-  const initialChoices = formatChoices(records);
+  // Accumulator: tracks all loaded choices, loads more on empty input
+  let allChoices = [];
+  let lastTerm = '';
 
   try {
     const selected = await search({
-      message: `${table} (${records.length} loaded, ${totalCount} total)`,
+      message: `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
       pageSize: 10,
       source: async (term) => {
-        if (!term) return initialChoices;
-        // Typed search: query the server
-        const results = await fetchPage(term, 0, batchSize);
-        return formatChoices(results);
+        const input = term || '';
+        if (input) {
+          // Typed search: query the server directly
+          const records = await fetchPage(input, 0, limit);
+          allChoices = formatChoices(records);
+          lastTerm = input;
+        } else if (input !== lastTerm || allChoices.length === 0) {
+          // Empty input, new call or first load: fetch initial page
+          const records = await fetchPage('', 0, limit);
+          allChoices = formatChoices(records);
+          lastTerm = input;
+        } else if (allChoices.length < totalCount) {
+          // Empty input, already loaded some: fetch next page
+          const records = await fetchPage('', allChoices.length, limit);
+          const more = formatChoices(records);
+          allChoices = allChoices.concat(more);
+        }
+        return allChoices;
       },
     });
     return selected;
