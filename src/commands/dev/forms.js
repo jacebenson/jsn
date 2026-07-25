@@ -97,15 +97,34 @@ async function showForm(app, table, viewName) {
   }
 
   const totalElements = sectionsOut.reduce((sum, s) => sum + s.elements.length, 0);
-  app.ok({
-    table, view: viewName, view_sys_id: viewSysID,
-    section_count: sectionsOut.length,
-    element_count: totalElements,
-    sections: sectionsOut,
-    context: { instance_url: app.getEffectiveInstance() },
-  }, {
-    summary: `${sectionsOut.length} section(s), ${totalElements} element(s) in ${table} → ${viewName}`,
-  });
+
+  // Build formatted output
+  const lines = [];
+  lines.push(`Form: ${table} → ${viewName}`);
+  if (viewSysID) {
+    lines.push(`  View URL: ${app.getEffectiveInstance()}/nav_to.do?uri=sys_ui_view.do?sys_id=${viewSysID}`);
+  }
+  lines.push('');
+
+  for (const sec of sectionsOut) {
+    const secLabel = sec.caption || sec.label || sec.name || '(unnamed)';
+    lines.push(`── ${secLabel} ──`);
+    if (sec.elements.length === 0) {
+      lines.push('  (no elements)');
+    }
+    for (const el of sec.elements) {
+      const flags = [];
+      if (el.mandatory) flags.push('required');
+      if (el.read_only) flags.push('read-only');
+      if (!el.visible) flags.push('hidden');
+      const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
+      const elLabel = el.label || el.element || '(unnamed)';
+      lines.push(`  ${elLabel}  ${el.type || ''}${flagStr}`);
+    }
+    lines.push('');
+  }
+
+  process.stdout.write(lines.join('\n') + '\n');
 }
 
 export function formsCmd(wrap) {
