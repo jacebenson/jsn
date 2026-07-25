@@ -21,11 +21,13 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
 
   // Render the picker to stdout
   function render(term) {
-    // Clear previous output
+    // Clear previous output — move up and clear below
     if (lastRenderLines > 0) {
-      process.stdout.write(`\x1b[${lastRenderLines}A\x1b[J`);
+      process.stdout.moveCursor(0, -lastRenderLines);
+      process.stdout.clearScreenDown();
     }
 
+    // Build output
     const buf = [];
 
     // Header
@@ -43,6 +45,12 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
       const suffix = isActive ? '\x1b[0m' : '';
       const name = choice.name.length > 60 ? choice.name.slice(0, 57) + '...' : choice.name;
       buf.push(`  ${prefix}${name}${suffix}`);
+    }
+
+    // Fill empty slots so the picker height stays constant
+    const maxVisible = Math.min(pageSize, totalCount);
+    while (buf.length < maxVisible + 1) {
+      buf.push('');
     }
 
     // Footer with progress
@@ -63,7 +71,8 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
   function cleanup() {
     // Clear the picker UI entirely
     if (lastRenderLines > 0) {
-      process.stdout.write(`\x1b[${lastRenderLines}A\x1b[J`);
+      process.stdout.moveCursor(0, -lastRenderLines);
+      process.stdout.clearScreenDown();
       lastRenderLines = 0;
     }
     if (process.stdin.isTTY) {
