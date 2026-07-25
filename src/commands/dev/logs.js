@@ -25,6 +25,7 @@ export function logsCmd(wrap) {
               app, table: 'syslog', singular: 'log entry', columns, limit: argv.limit, query, labelField: 'message',
               formatLabel: r => `[${getStringField(r, 'level') || '?'}] ${(getStringField(r, 'message') || '').substring(0, 80)}`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
               return app.ok(picked, { summary: `Log entry` });

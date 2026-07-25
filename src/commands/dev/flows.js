@@ -25,6 +25,7 @@ export function flowsCmd(wrap) {
               app, table: 'sys_hub_flow', singular: 'flow', columns, limit: argv.limit, query, labelField: 'name',
               formatLabel: r => `${getStringField(r, 'active') === 'true' ? '🟢' : '🔴'} ${getStringField(r, 'name')}`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               const inspection = await app.sdk.inspectFlow(getStringField(picked, 'sys_id'));
               const formatted = formatFlowInspection(inspection, app.getEffectiveInstance());

@@ -23,6 +23,7 @@ export function scopesCmd(wrap) {
               app, table: 'sys_scope', singular: 'scope', columns, limit: argv.limit, query, labelField: 'name',
               formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'scope') || '?'}]`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_scope' };
               return app.ok(picked, { summary: `Scope: ${getStringField(picked, 'name')}` });

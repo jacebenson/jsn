@@ -138,12 +138,12 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       totalCount,
       source,
     });
+    // null = cancelled, object = selected
+    if (selected === null) return undefined;
     return selected?.value || null;
   } catch (err) {
-    if (err.message?.includes('cancel') || err.message?.includes('abort')) {
-      return null;
-    }
-    throw err;
+    // Cancelled — return undefined so caller can exit silently
+    return undefined;
   }
 }
 

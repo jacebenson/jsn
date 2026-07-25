@@ -24,6 +24,7 @@ export function updateSetsCmd(wrap) {
               app, table: 'sys_update_set', singular: 'update set', columns, limit: argv.limit, query, labelField: 'name',
               formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}]`,
             });
+            if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_update_set' };
               return app.ok(picked, { summary: `Update set: ${getStringField(picked, 'name')}` });

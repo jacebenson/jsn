@@ -172,7 +172,11 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
 
     rl.on('close', () => {
       cleanup();
-      resolve(cancelled ? null : selected);
+      if (cancelled) {
+        resolve(null);
+      } else {
+        resolve(selected);
+      }
     });
   });
 }
