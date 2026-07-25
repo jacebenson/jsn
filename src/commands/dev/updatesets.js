@@ -151,12 +151,12 @@ export function updateSetsCmd(wrap) {
               breadcrumbs: [
                 {
                   action: 'set',
-                  cmd: `jsn dev updatesets set "${argv.name}"`,
+                  cmd: `jsn updatesets set "${argv.name}"`,
                   description: 'Switch to this update set',
                 },
                 {
                   action: 'complete',
-                  cmd: `jsn dev updatesets complete "${argv.name}"`,
+                  cmd: `jsn updatesets complete "${argv.name}"`,
                   description: 'Mark as complete when done',
                 },
               ],
@@ -225,9 +225,9 @@ export function updateSetsCmd(wrap) {
         console.log('  export <name>  Export an update set to XML');
         console.log('  complete <name>  Mark an update set as complete (coming soon)');
         console.log('  yolo           Silence the "Default update set" warning');
-        console.log('\nRun "jsn dev updatesets <command> --help" for details.');
+        console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
-        console.log('  jsn dev updatesets create --name "My Feature"');
+        console.log('  jsn updatesets create --name "My Feature"');
         console.log('  # → Auto-set as current, then record changes are captured.');
       }
     },

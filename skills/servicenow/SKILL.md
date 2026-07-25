@@ -31,9 +31,8 @@ Explore and manage ServiceNow instances. Works standalone or with AI agents.
 Commands are self-documenting. Use these to learn what's available:
 
 ```bash
-jsn --help                # Root help with all top-level commands
+jsn --help                # Root help with all top-level commands (grouped by category)
 jsn <command> --help        # Detailed usage, flags, and examples for any command
-jsn dev                     # Shows categorized dev subcommands
 ```
 
 ## Agent Rules
@@ -60,7 +59,7 @@ jsn dev                     # Shows categorized dev subcommands
 - `jsn records --table <name> create`
 - `jsn records --table <name> update <sys_id>`
 - `jsn records --table <name> delete <sys_id>`
-- `jsn dev updatesets set <name>`
+- `jsn updatesets set <name>`
 - `jsn profiles remove <name>`
 - Any `delete`, `update`, `create`, `set`, or `remove` subcommand
 
@@ -135,7 +134,7 @@ When a user asks about field behavior (why a picker won't show inactive users, w
 
 2. **ACLs** — `sys_security_acl` — read/write/delete permissions on tables and fields
    ```bash
-   jsn dev acls list --query "name=incident" --json
+   jsn acls list --query "name=incident" --json
    ```
 
 3. **Dictionary overrides** — `sys_dictionary` — reference qualifiers, field attributes, default values

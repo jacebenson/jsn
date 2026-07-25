@@ -27,6 +27,27 @@ import { versionCmd } from './commands/version.js';
 import { devCmd } from './commands/dev.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
 
+// Dev subcommands promoted to root level for progressive disclosure
+import {
+  actionsCmd, includesCmd, rulesCmd,
+  clientScriptsCmd, uiActionsCmd, uiPoliciesCmd,
+  tablesCmd, columnsCmd, importCmd,
+  spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
+  aclsCmd, rolesCmd, propertiesCmd,
+  relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
+  privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
+  catalogscriptsCmd, cataloguipoliciesCmd,
+} from './commands/dev/_simple.js';
+import { flowsCmd } from './commands/dev/flows.js';
+import { formsCmd } from './commands/dev/forms.js';
+import { listsCmd } from './commands/dev/lists.js';
+import { updateSetsCmd } from './commands/dev/updatesets.js';
+import { scopesCmd } from './commands/dev/scopes.js';
+import { evalCmd } from './commands/dev/eval.js';
+import { restCmd } from './commands/dev/rest.js';
+import { logsCmd } from './commands/dev/logs.js';
+import { scrapiCmd } from './commands/dev/scrapi.js';
+
 function wrap(handler) {
   return async (argv) => {
     try {
@@ -177,6 +198,45 @@ export const cli = yargs(hideBin(process.argv))
   .command(groupRolesCmd(wrap))
   .command(ticketsCmd(wrap))
   .command(devCmd(wrap))
+  // AUTOMATION — things that react, run, or transform
+  .command(flowsCmd(wrap))
+  .command(actionsCmd(wrap))
+  .command(rulesCmd(wrap))
+  .command(scrapiCmd(wrap))
+  .command(updateSetsCmd(wrap))
+  .command(evalCmd(wrap))
+  .command(restCmd(wrap))
+  // ACCESS — who can see/do what
+  .command(aclsCmd(wrap))
+  .command(rolesCmd(wrap))
+  .command(propertiesCmd(wrap))
+  .command(scopesCmd(wrap))
+  .command(privilegesCmd(wrap))
+  .command(securitytypesCmd(wrap))
+  .command(aliasesCmd(wrap))
+  // UX — what users see/interact with
+  .command(formsCmd(wrap))
+  .command(listsCmd(wrap))
+  .command(clientScriptsCmd(wrap))
+  .command(uiActionsCmd(wrap))
+  .command(uiPoliciesCmd(wrap))
+  .command(spPagesCmd(wrap))
+  .command(spWidgetsCmd(wrap))
+  .command(uiPagesCmd(wrap))
+  .command(appMenuCmd(wrap))
+  .command(listcontrolsCmd(wrap))
+  .command(viewsCmd(wrap))
+  .command(uxscriptsCmd(wrap))
+  .command(catalogscriptsCmd(wrap))
+  .command(cataloguipoliciesCmd(wrap))
+  // DATA — where data lives
+  .command(tablesCmd(wrap))
+  .command(columnsCmd(wrap))
+  .command(includesCmd(wrap))
+  .command(importCmd(wrap))
+  .command(logsCmd(wrap))
+  .command(relationshipsCmd(wrap))
+  .command(appmodulesCmd(wrap))
   .command(skillCmd(wrap))
   .command(versionCmd(wrap))
   .demandCommand(1, 'You must specify a command')

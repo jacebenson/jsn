@@ -29,7 +29,7 @@ export function flowsCmd(wrap) {
               const formatted = formatFlowInspection(inspection, app.getEffectiveInstance());
               return app.ok({ ...inspection, _formatted: formatted }, {
                 summary: `Flow: ${inspection.flow.name}`,
-                breadcrumbs: [{ action: 'list', cmd: 'jsn dev flows list', description: 'Back to all flows' }],
+                breadcrumbs: [{ action: 'list', cmd: 'jsn flows list', description: 'Back to all flows' }],
               });
             }
 
@@ -61,7 +61,7 @@ export function flowsCmd(wrap) {
             app.ok(data, {
               summary: `Flow: ${inspection.flow.name}`,
               breadcrumbs: [
-                { action: 'list', cmd: 'jsn dev flows list', description: 'Back to all flows' },
+                { action: 'list', cmd: 'jsn flows list', description: 'Back to all flows' },
               ],
             });
           }),
@@ -73,7 +73,7 @@ export function flowsCmd(wrap) {
             .option('data', { type: 'string', describe: 'JSON data for the flow' }),
           handler: wrap(async (_argv, _app) => {
             throw new Error('Flow creation requires the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to create flows, then use "jsn dev flows list" to view them.');
+              + 'Use the ServiceNow web UI to create flows, then use "jsn flows list" to view them.');
           }),
         })
         .command({
@@ -83,7 +83,7 @@ export function flowsCmd(wrap) {
             .option('data', { type: 'string', describe: 'JSON data to update' }),
           handler: wrap(async (_argv, _app) => {
             throw new Error('Flow updates require the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to update flows, then use "jsn dev flows list" to view them.');
+              + 'Use the ServiceNow web UI to update flows, then use "jsn flows list" to view them.');
           }),
         })
         .command({

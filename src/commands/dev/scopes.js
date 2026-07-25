@@ -143,7 +143,7 @@ export function scopesCmd(wrap) {
               summary: `Created scope: ${scope}`,
               breadcrumbs: [{
                 action: 'show',
-                cmd: `jsn dev scopes show ${scope}`,
+                cmd: `jsn scopes show ${scope}`,
                 description: 'View the new scope',
               }],
             });
@@ -159,7 +159,7 @@ export function scopesCmd(wrap) {
         console.log('  show <scope>   Show a scope');
         console.log('  set  <scope>   Set the current application scope');
         console.log('  create         Create a new application scope');
-        console.log('\nRun "jsn dev scopes <command> --help" for details.');
+        console.log('\nRun "jsn scopes <command> --help" for details.');
       }
     },
   };
