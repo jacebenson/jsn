@@ -135,7 +135,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   });
   // null = cancelled → undefined so callers skip fallback table
   if (selected === null) return undefined;
-  return selected;
+  return selected?.value; // unwrap {name, value} → raw record
 }
 
 /**

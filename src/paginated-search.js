@@ -26,8 +26,11 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
   }
 
   function render() {
-    // First re-render: go back to anchor and clear
-    if (outputLines > 0) {
+    // First render: start on a fresh line
+    if (outputLines === 0) {
+      process.stdout.write('\n');
+    } else {
+      // Re-render: go back to anchor and clear
       process.stdout.moveCursor(0, -outputLines);
       process.stdout.clearScreenDown();
     }
