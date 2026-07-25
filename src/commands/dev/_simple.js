@@ -94,7 +94,7 @@ export const listcontrolsCmd = (wrap) => buildDevCmd('listcontrols', 'sys_ui_lis
 export const viewsCmd = (wrap) => buildDevCmd('views', 'sys_ui_view', ['view', 'vw'], ['name', 'title', 'sys_scope'], wrap, { singular: 'view', scopeValidation: true });
 export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['source_scope', 'target_scope', 'target_name', 'operation', 'status'], wrap, { singular: 'privilege', scopeValidation: true });
 export const uxscriptsCmd = (wrap) => buildDevCmd('uxscripts', 'sys_ux_lib_source_script', ['uxscript', 'ux'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UX script', scopeValidation: true });
-export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias', 'als'], ['name', 'table', 'sys_scope'], wrap, { singular: 'alias', scopeValidation: true });
+export { aliasesCmd } from './aliases.js';
 export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript', 'cs'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });
 
 // ── Automation: Async ──

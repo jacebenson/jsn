@@ -24,8 +24,15 @@ export function usersCmd(wrap) {
               formatLabel: r => `${getStringField(r, 'user_name')} (${getStringField(r, 'name') || '-'})`,
             });
             if (picked) {
+              const sysID = getStringField(picked, 'sys_id') || '';
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_user' };
-              return app.ok(picked, { summary: `User: ${getStringField(picked, 'user_name')}` });
+              return app.ok(picked, {
+                summary: `User: ${getStringField(picked, 'user_name')}`,
+                breadcrumbs: [
+                  { action: 'preferences', cmd: `jsn records list --table sys_user_preference --query "user=${sysID}"`, description: 'User preferences' },
+                  { action: 'groups', cmd: `jsn records list --table sys_user_grmember --query "user=${sysID}"`, description: 'Group memberships' },
+                ],
+              });
             }
 
             const params = new URLSearchParams();
