@@ -150,7 +150,7 @@ export function buildCLI() {
         if (argv.styled) argv.format = 'styled';
         if (argv.markdown) argv.format = 'markdown';
         if (argv.format) {
-          app.output.setFormatByName(argv.format);
+          app.output.setFormat(argv.format);
         }
         if (argv.instance) {
           app._overrideInstance = argv.instance;

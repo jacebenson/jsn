@@ -39,6 +39,11 @@ export class OutputWriter {
     return this.format;
   }
 
+  setFormat(name) {
+    this.format = name;
+    return this;
+  }
+
   effectiveFormat() {
     if (this.format === FormatAuto) {
       return isTTY(this.writer) ? FormatStyled : FormatJSON;
