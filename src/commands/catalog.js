@@ -8,6 +8,36 @@ export function catalogCmd(wrap) {
     builder: (yargs) => {
       return yargs
         .command({
+          command: 'create',
+          aliases: ['new'],
+          describe: 'Create a catalog item',
+          builder: (y) => y
+            .option('name', { alias: 'n', type: 'string', demandOption: true })
+            .option('short-description', { alias: 'd', type: 'string' })
+            .option('category', { alias: 'c', type: 'string' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            let categoryID = '';
+            if (argv.category) {
+              const cp = new URLSearchParams();
+              cp.set('sysparm_query', `title=${argv.category}`);
+              cp.set('sysparm_limit', '1');
+              cp.set('sysparm_fields', 'sys_id');
+              const cats = await app.sdk.list('sc_category', cp);
+              if (cats.length > 0) categoryID = cats[0].sys_id?.value || cats[0].sys_id;
+              else { const nc = await app.sdk.create('sc_category', { title: argv.category }); categoryID = nc.sys_id?.value || nc.sys_id; }
+            }
+            const item = await app.sdk.create('sc_cat_item', {
+              name: argv.name,
+              short_description: argv['short-description'] || '',
+              category: categoryID || undefined,
+              active: true,
+              type: 'item',
+            });
+            app.ok(item, { summary: `Created: ${argv.name}` });
+          }),
+        })
+        .command({
           command: 'list',
           aliases: ['ls'],
           describe: 'List catalog items',
@@ -91,6 +121,7 @@ export function catalogCmd(wrap) {
       console.log('Service Catalog management.');
       console.log('');
       console.log('Commands:');
+      console.log('  create     Create a catalog item');
       console.log('  list       Browse catalog items');
       console.log('  show <id>  Show catalog item');
     },
