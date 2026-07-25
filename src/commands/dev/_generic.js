@@ -148,13 +148,14 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             });
 
             if (selectedName) {
+              const recordName = typeof selectedName === 'object' ? selectedName.value : selectedName;
               const showParams = new URLSearchParams();
-              showParams.set('sysparm_query', `name=${selectedName}`);
+              showParams.set('sysparm_query', `name=${recordName}`);
               showParams.set('sysparm_display_value', 'all');
               showParams.set('sysparm_limit', '1');
               const showRecords = await app.sdk.list(table, showParams);
               if (showRecords.length === 0) {
-                throw new Error(`${singular} not found: ${selectedName}`);
+                throw new Error(`${singular} not found: ${recordName}`);
               }
               const record = showRecords[0];
               record._context = { instance_url: app.getEffectiveInstance(), table };
@@ -162,9 +163,9 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
                 await opts.onShow(record, app);
               }
               app.ok(record, {
-                summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${selectedName}`,
+                summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${recordName}`,
                 breadcrumbs: [
-                  ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${selectedName} --data '{...}'`, description: `Update this ${singular}` }]),
+                  ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${recordName} --data '{...}'`, description: `Update this ${singular}` }]),
                   { action: 'list', cmd: `jsn ${name} list`, description: `Back to all ${name}` },
                 ],
               });
