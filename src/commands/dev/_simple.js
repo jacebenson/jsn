@@ -106,7 +106,7 @@ export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register'
 
 // ── Automation: In Memory ──
 export const workflowsCmd = (wrap) => buildDevCmd('workflows', 'wf_workflow', ['workflow'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'workflow', scopeValidation: true, readOnly: true });
-export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_decision', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true });
+export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_ws_definition', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true });
 export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assignment', ['assignment'], ['name', 'active', 'sys_scope'], wrap, { singular: 'assignment rule', scopeValidation: true, readOnly: true });
 
 // ── Automation: Inbound ──
