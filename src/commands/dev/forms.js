@@ -107,7 +107,7 @@ async function showForm(app, table, viewName) {
       const flags = [];
       if (el.mandatory) flags.push('required');
       if (el.read_only) flags.push('read-only');
-      if (!el.visible) flags.push('hidden');
+      if (el.visible === false) flags.push('hidden');
       const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
       const elLabel = el.label || el.element || '(unnamed)';
       lines.push(`  ${elLabel}  ${el.type || ''}${flagStr}`);
