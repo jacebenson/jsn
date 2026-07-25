@@ -149,6 +149,7 @@ export function catalogCmd(wrap) {
 
 async function showCatalogItem(app, sysID) {
   const item = await app.sdk.get('sc_cat_item', sysID);
+  // Fetch execution plan / workflow info
   const varParams = new URLSearchParams();
   varParams.set('sysparm_query', `cat_item=${sysID}^active=true`);
   varParams.set('sysparm_limit', '100'); varParams.set('sysparm_display_value', 'all');
@@ -176,6 +177,26 @@ async function showCatalogItem(app, sysID) {
   if (getStringField(item, 'short_description')) lines.push(`  ${getStringField(item, 'short_description')}`);
   lines.push(`  Category: ${getStringField(item, 'category') || '(none)'}`);
   lines.push(`  Active: ${getStringField(item, 'active') || 'false'}`);
+  if (app.getEffectiveInstance() && sysID) {
+    lines.push(`  URL: ${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`);
+  }
+
+  // Execution plan / workflow — query related tables
+  const planParams = new URLSearchParams();
+  planParams.set('sysparm_limit', '1');
+  planParams.set('sysparm_fields', 'execution_plan,workflow');
+  planParams.set('sysparm_display_value', 'all');
+  planParams.set('sysparm_query', `sys_id=${sysID}`);
+  try {
+    const planRec = await app.sdk.list('sc_cat_item_producer', planParams);
+    if (planRec.length > 0) {
+      const ep = getStringField(planRec[0], 'execution_plan');
+      const wf = getStringField(planRec[0], 'workflow');
+      if (ep) lines.push(`  Execution Plan: ${ep}`);
+      if (wf) lines.push(`  Workflow: ${wf}`);
+    }
+  } catch { /* table might not exist */ }
+
   lines.push(`  Variables (${totalVars}):`);
   for (const v of standaloneVars) {
     const flags = String(v.mandatory) === 'true' ? ' [required]' : '';
