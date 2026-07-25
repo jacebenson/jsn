@@ -115,25 +115,30 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
   async function serverSource(term, offset, { signal } = {}) {
-    const params = new URLSearchParams();
-    params.set('sysparm_limit', String(limit));
-    params.set('sysparm_display_value', 'all');
-    if (pickerFields) params.set('sysparm_fields', pickerFields);
-    if (term) {
-      params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
-    } else {
-      params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
-      params.set('sysparm_offset', String(offset));
-    }
-    const records = await app.sdk.list(table, params);
-    if (!Array.isArray(records)) {
-      console.error('SDK returned non-array:', typeof records, JSON.stringify(records).substring(0, 200));
+    try {
+      const params = new URLSearchParams();
+      params.set('sysparm_limit', String(limit));
+      params.set('sysparm_display_value', 'all');
+      if (pickerFields) params.set('sysparm_fields', pickerFields);
+      if (term) {
+        params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+      } else {
+        params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+        params.set('sysparm_offset', String(offset));
+      }
+      const records = await app.sdk.list(table, params);
+      if (!Array.isArray(records)) {
+        console.error('SDK non-array:', typeof records);
+        return [];
+      }
+      return records.map(r => ({
+        name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+        value: r,
+      }));
+    } catch (err) {
+      console.error('serverSource error:', err.message || err);
       return [];
     }
-    return records.map(r => ({
-      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-      value: r,
-    }));
   }
 
   const selected = await paginatedSearch({

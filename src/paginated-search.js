@@ -163,7 +163,7 @@ export const paginatedSearch = createPrompt((config, done) => {
 
   // Paginated rendering
   const page = usePagination({
-    items: choices,
+    items: Array.isArray(choices) ? choices : [],
     active,
     pageSize,
     renderItem: ({ item, isActive }) => {
