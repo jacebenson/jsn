@@ -20,12 +20,9 @@ export const paginatedSearch = createPrompt((config, done) => {
   const [searchMode, setSearchMode] = useState(false);
 
   // Refs to avoid stale closures in async callbacks
-  const loadedRef = useRef(loaded);
-  loadedRef.current = loaded;
+  const loadedRef = useRef(0);
   const totalCountRef = useRef(totalCount);
-  totalCountRef.current = totalCount;
-  const searchModeRef = useRef(searchMode);
-  searchModeRef.current = searchMode;
+  const searchModeRef = useRef(false);
 
   const fullMessage = totalCount > 0
     ? `${message} (${loaded} of ${totalCount} loaded)`
@@ -42,6 +39,7 @@ export const paginatedSearch = createPrompt((config, done) => {
         if (!controller.signal.aborted) {
           setChoices(items);
           setLoaded(items.length);
+          loadedRef.current = items.length;
           setActive(0);
           setStatus('done');
         }
@@ -83,6 +81,7 @@ export const paginatedSearch = createPrompt((config, done) => {
   useEffect(() => {
     if (!searchTerm) {
       setSearchMode(false);
+      searchModeRef.current = false;
       // Reset to browse mode: reload first page
       const controller = new AbortController();
       setStatus('loading');
@@ -90,6 +89,7 @@ export const paginatedSearch = createPrompt((config, done) => {
         if (!controller.signal.aborted) {
           setChoices(items);
           setLoaded(Math.min(items.length, totalCount || Infinity));
+          loadedRef.current = Math.min(items.length, totalCount || Infinity);
           setActive(0);
           setStatus('done');
         }
@@ -104,11 +104,13 @@ export const paginatedSearch = createPrompt((config, done) => {
     const controller = new AbortController();
     setStatus('loading');
     setSearchMode(true);
+    searchModeRef.current = true;
 
     source(searchTerm, undefined, { signal: controller.signal }).then(items => {
       if (!controller.signal.aborted) {
         setChoices(items);
         setLoaded(items.length);
+        loadedRef.current = items.length;
         setActive(0);
         setStatus('done');
       }
