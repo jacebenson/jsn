@@ -99,7 +99,7 @@ export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias'
 export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript', 'cs'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });
 
 // ── Automation: Async ──
-export const scriptactionsCmd = (wrap) => buildDevCmd('scriptactions', 'sys_script_action', ['scriptaction'], ['name', 'active', 'sys_scope'], wrap, { singular: 'script action', scopeValidation: true });
+export const scriptactionsCmd = (wrap) => buildDevCmd('scriptactions', 'sysevent_script_action', ['scriptaction'], ['name', 'active', 'sys_scope'], wrap, { singular: 'script action', scopeValidation: true });
 export const scheduledjobsCmd = (wrap) => buildDevCmd('scheduledjobs', 'sysauto_script', ['scheduledjob'], ['name', 'active', 'run_type', 'sys_scope'], wrap, { singular: 'scheduled job', scopeValidation: true });
 export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', ['asyncrule'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'async business rule', scopeValidation: true, extraQuery: 'order>=1000' });
 export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register', ['trigger'], ['name', 'event_name', 'active', 'sys_scope'], wrap, { singular: 'event trigger', scopeValidation: true });
