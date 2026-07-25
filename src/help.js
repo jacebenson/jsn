@@ -43,8 +43,6 @@ const AUTOMATION_COMMANDS = [
   { divider: '── Inbound ──' },
   { name: 'scrapi', desc: 'Scripted REST APIs' },
   { name: 'email', desc: 'Inbound email actions' },
-  { name: 'soap', desc: 'SOAP message definitions', status: '[not implemented]' },
-  { name: 'graphql', desc: 'GraphQL definitions', status: '[not implemented]' },
 
   { divider: '── Outbound ──' },
   { name: 'restmessage', alias: 'rm', desc: 'REST Messages (sys_rest_message)' },
@@ -74,7 +72,7 @@ const UX_COMMANDS = [
   { name: 'uipolicies', alias: 'up', desc: 'UI policies' },
   { name: 'uiactions', alias: 'ua', desc: 'UI actions (buttons, links, context menus)' },
   { name: 'views', alias: 'vw', desc: 'Views' },
-  { name: 'catalog', desc: 'Service Catalog items + variables' },
+  { name: 'catalogitems', alias: 'ci', desc: 'Service Catalog items + variables' },
   { name: 'catalogscripts', desc: 'Catalog client scripts' },
   { name: 'cataloguipolicies', alias: 'cup', desc: 'Catalog UI policies' },
 
