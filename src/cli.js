@@ -37,7 +37,7 @@ import {
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
   privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
-  playbooksCmd, scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
+  scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   workflowsCmd, decisiontablesCmd, assignmentsCmd,
   emailCmd,
   restmessageCmd, restmethodsCmd, soapmessagesCmd, soapfunctionsCmd,
@@ -216,7 +216,6 @@ export function buildCLI() {
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(actionsCmd(wrap))
-    .command(playbooksCmd(wrap))
     .command(scriptactionsCmd(wrap))
     .command(scheduledjobsCmd(wrap))
     .command(asyncrulesCmd(wrap))

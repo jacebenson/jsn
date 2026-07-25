@@ -29,7 +29,6 @@ const AUTOMATION_COMMANDS = [
   { divider: '── Async ──' },
   { name: 'flows', alias: 'flow', desc: 'Flow Designer flows' },
   { name: 'actions', alias: 'action', desc: 'Flow action definitions' },
-  { name: 'playbooks', desc: 'Playbook definitions' },
   { name: 'scriptactions', desc: 'Script actions' },
   { name: 'scheduledjobs', desc: 'Scheduled jobs' },
   { name: 'triggers', desc: 'Event triggers' },
