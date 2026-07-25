@@ -45,35 +45,62 @@ async function showForm(app, table, viewName) {
     try { const vr = await app.sdk.list('sys_ui_view', viewParams); if (vr.length > 0) viewSysID = getStringField(vr[0], 'sys_id'); } catch { /* ignore */ }
   }
 
-  // 2) Get sections for this table + view
-  const secParams = new URLSearchParams();
-  secParams.set('sysparm_limit', '200');
-  secParams.set('sysparm_fields', 'sys_id,name,caption,order,position,header');
-  secParams.set('sysparm_display_value', 'all');
-  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYposition`);
-  if (viewSysID) {
-    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYposition`);
+  // 2) Find the form
+  const formParams = new URLSearchParams();
+  formParams.set('sysparm_limit', '1');
+  formParams.set('sysparm_fields', 'sys_id');
+  formParams.set('sysparm_display_value', 'all');
+  formParams.set('sysparm_query', `name=${table}^view=${viewName}`);
+  let formSysID = '';
+  try { const fr = await app.sdk.list('sys_ui_form', formParams); if (fr.length > 0) formSysID = getStringField(fr[0], 'sys_id'); } catch { /* ignore */ }
+  if (!formSysID && viewSysID) {
+    formParams.set('sysparm_query', `name=${table}^view=${viewSysID}`);
+    try { const fr = await app.sdk.list('sys_ui_form', formParams); if (fr.length > 0) formSysID = getStringField(fr[0], 'sys_id'); } catch { /* ignore */ }
   }
-  const sections = await app.sdk.list('sys_ui_section', secParams);
 
-  // 3) Get elements for each section
+  // 3) Get form sections ordered by position (from sys_ui_form_section)
+  const fsParams = new URLSearchParams();
+  fsParams.set('sysparm_limit', '200');
+  fsParams.set('sysparm_fields', 'sys_id,sys_ui_section,position,caption');
+  fsParams.set('sysparm_display_value', 'all');
+  fsParams.set('sysparm_query', `form=${formSysID}^ORDERBYposition`);
+  const formSections = await app.sdk.list('sys_ui_form_section', fsParams);
+
+  // 4) For each form section, look up the section + elements
   const sectionsOut = [];
-  for (const sec of sections) {
-    const secSysID = getStringField(sec, 'sys_id');
+  for (const fs of formSections) {
+    const secRef = fs.sys_ui_section;
+    const secSysID = (typeof secRef === 'object' && secRef !== null) ? (secRef.value || '') : String(secRef || '');
 
+    let sectionCaption = getDisplayValue(fs, 'caption') || '(unnamed)';
     let elements = [];
+
     if (secSysID) {
+      // Fetch section details
+      const secParams = new URLSearchParams();
+      secParams.set('sysparm_limit', '1');
+      secParams.set('sysparm_fields', 'caption');
+      secParams.set('sysparm_display_value', 'all');
+      secParams.set('sysparm_query', `sys_id=${secSysID}`);
+      try {
+        const sr = await app.sdk.list('sys_ui_section', secParams);
+        if (sr.length > 0 && getDisplayValue(sr[0], 'caption')) {
+          sectionCaption = getDisplayValue(sr[0], 'caption');
+        }
+      } catch { /* ignore */ }
+
+      // Fetch elements
       const elemParams = new URLSearchParams();
       elemParams.set('sysparm_limit', '500');
-      elemParams.set('sysparm_fields', 'element,type,label,order,position');
+      elemParams.set('sysparm_fields', 'element,type,label,position');
       elemParams.set('sysparm_display_value', 'all');
       elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYposition`);
       try { elements = await app.sdk.list('sys_ui_element', elemParams); } catch { /* ignore */ }
     }
 
     sectionsOut.push({
-      caption: getDisplayValue(sec, 'caption') || '(unnamed)',
-      position: getIntValue(sec, 'position'),
+      caption: sectionCaption,
+      position: getIntValue(fs, 'position'),
       elements: elements
         .map(e => ({
           type: getDisplayValue(e, 'type'),
