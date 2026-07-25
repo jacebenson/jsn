@@ -212,7 +212,7 @@ export function buildCLI() {
     .command(changesCmd(wrap))
     .command(requestsCmd(wrap))
     .command(tasksCmd(wrap))
-    .command(catalogCmd(wrap))
+    .command('catalogitems [subcommand]', 'Manage Service Catalog items and variables', (y) => catalogCmd(wrap)(y))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(actionsCmd(wrap))
