@@ -139,10 +139,6 @@ export class SDKClient {
   async list(table, params = {}) {
     const query = new URLSearchParams(params).toString();
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
-    // Debug: log paginated queries
-    if (params.sysparm_offset) {
-      process.stderr.write(`[SDK list] offset=${params.sysparm_offset} limit=${params.sysparm_limit} table=${table}\n`);
-    }
     const result = await this.request(endpoint, { method: 'GET' });
     return result?.result || [];
   }
