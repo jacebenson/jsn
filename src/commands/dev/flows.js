@@ -108,6 +108,10 @@ export function flowsCmd(wrap) {
       console.log('  delete <identifier>   Delete a flow (not yet implemented)');
       console.log('');
       console.log('Run "jsn flows <command> --help" for details.');
+      console.log('');
+      console.log('Note: Flow inspection detail varies. V2 flows (with payload)');
+      console.log('show full action inputs and conditions. Subflows and V1 flows');
+      console.log('show step names only.');
     },
   };
 }
