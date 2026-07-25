@@ -25,7 +25,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
 
     // ANSI: restore cursor to anchor point and clear below
     if (hasRendered) {
-      buf.push('\x1b[u\x1b[J');
+      buf.push('\x1b8\x1b[J');
     }
 
     // Header
@@ -64,7 +64,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
 
     // First render: save cursor position so re-renders anchor here
     if (!hasRendered) {
-      process.stdout.write('\x1b[s');
+      process.stdout.write('\x1b7');
       hasRendered = true;
     }
 
@@ -74,7 +74,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
   function cleanup() {
     // Restore cursor to anchor and clear below
     if (hasRendered) {
-      process.stdout.write('\x1b[u\x1b[J');
+      process.stdout.write('\x1b8\x1b[J');
       hasRendered = false;
     }
     if (process.stdin.isTTY) {
@@ -96,11 +96,11 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
     let inputBuffer = '';
 
     async function loadMore() {
-      if (loaded >= totalCount) return;
+      if (loaded >= totalCount || totalCount === 0) return;
       const newChoices = await source(currentTerm, loaded);
       if (newChoices.length > 0) {
         choices.push(...newChoices);
-        loaded = choices.length;
+        loaded = Math.min(choices.length, totalCount);
       }
     }
 
@@ -109,7 +109,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
       const initialChoices = await source(currentTerm, 0);
       if (cancelled) return;
       choices = initialChoices;
-      loaded = choices.length;
+      loaded = Math.min(choices.length, totalCount);
       active = 0;
       render(currentTerm);
     })();
@@ -165,7 +165,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
       currentTerm = inputBuffer;
       const results = await source(currentTerm, 0);
       choices = results;
-      loaded = results.length;
+      loaded = Math.min(results.length, totalCount);
       active = 0;
       render(currentTerm);
     });
