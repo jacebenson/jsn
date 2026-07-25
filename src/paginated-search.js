@@ -6,7 +6,7 @@
  * last loaded item, it fetches the next page from the server.
  */
 
-import { createPrompt, useState, useKeypress, usePagination, useEffect } from '@inquirer/core';
+import { createPrompt, useState, useKeypress, usePagination, useEffect, useRef } from '@inquirer/core';
 import { isEnterKey, isUpKey, isDownKey, isBackspaceKey } from '@inquirer/core';
 
 export const paginatedSearch = createPrompt((config, done) => {
@@ -19,7 +19,14 @@ export const paginatedSearch = createPrompt((config, done) => {
   const [loaded, setLoaded] = useState(0);
   const [searchMode, setSearchMode] = useState(false);
 
-  // Build the message with loading progress
+  // Refs to avoid stale closures in async callbacks
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
+  const totalCountRef = useRef(totalCount);
+  totalCountRef.current = totalCount;
+  const searchModeRef = useRef(searchMode);
+  searchModeRef.current = searchMode;
+
   const fullMessage = totalCount > 0
     ? `${message} (${loaded} of ${totalCount} loaded)`
     : message;
@@ -52,32 +59,37 @@ export const paginatedSearch = createPrompt((config, done) => {
 
   // Load more when scrolling past end
   async function loadMore() {
-    if (loaded >= totalCount || searchMode) return;
+    if (loadedRef.current >= totalCountRef.current || searchModeRef.current) return;
     setStatus('loading');
-    const newItems = await source('', loaded, { signal: new AbortController().signal });
-    const updated = choices.concat(newItems);
-    setChoices(updated);
-    setLoaded(Math.min(updated.length, totalCount));
+    const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
+    setChoices(prev => {
+      const updated = prev.concat(newItems);
+      setLoaded(Math.min(updated.length, totalCountRef.current));
+      return updated;
+    });
     setStatus('done');
   }
 
   // Search when term changes
   useEffect(() => {
     if (!searchTerm) {
-      // Reset to browse mode
       setSearchMode(false);
-      if (choices.length === 0 || loaded < Math.min(choices.length, 50)) {
-        // Reload first page
-        const controller = new AbortController();
-        setStatus('loading');
-        source('', 0, { signal: controller.signal }).then(items => {
+      // Reset to browse mode: reload first page
+      const controller = new AbortController();
+      setStatus('loading');
+      source('', 0, { signal: controller.signal }).then(items => {
+        if (!controller.signal.aborted) {
           setChoices(items);
           setLoaded(Math.min(items.length, totalCount || Infinity));
           setActive(0);
           setStatus('done');
-        });
-      }
-      return;
+        }
+      }).catch(() => {
+        if (!controller.signal.aborted) {
+          setStatus('done');
+        }
+      });
+      return () => controller.abort();
     }
 
     const controller = new AbortController();
@@ -127,24 +139,19 @@ export const paginatedSearch = createPrompt((config, done) => {
     if (isDownKey(key)) {
       if (active < choices.length - 1) {
         setActive(active + 1);
-      } else if (!searchMode && loaded < totalCount) {
-        loadMore().then(() => {
-          if (active < choices.length - 1) setActive(active + 1);
-        });
+      } else if (!searchModeRef.current && loadedRef.current < totalCountRef.current) {
+        loadMore().then(() => setActive(prev => prev + 1));
       }
       return;
     }
 
     // Type to search
     if (isBackspaceKey(key)) {
-      if (searchTerm.length > 0) {
-        setSearchTerm(searchTerm.slice(0, -1));
-      }
+      setSearchTerm(prev => prev.length > 0 ? prev.slice(0, -1) : '');
     } else if (!key.ctrl && !key.meta) {
-      // Accept any single printable character (handles _, -, etc.)
       const char = key.sequence || key.name || '';
       if (char.length === 1 && char >= ' ') {
-        setSearchTerm(searchTerm + char);
+        setSearchTerm(prev => prev + char);
       }
     }
   });
