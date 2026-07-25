@@ -5,7 +5,6 @@
  * supports true server-side pagination — when the user arrows down past
  * the last loaded item, the next page is fetched from the source callback.
  *
- * API matches @inquirer/search: { message, pageSize, source(term) => Promise<array> }
  * Returns the selected choice (with .value and .name), or null on cancel.
  */
 
@@ -18,16 +17,19 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
   let cancelled = false;
   let selected = null;
   let currentTerm = '';
+  let lastRenderLines = 0;
 
   // Render the picker to stdout
   function render(term) {
-    // Clear previous output (move cursor up, clear lines)
-    if (loaded > 0) {
-      process.stdout.write(`\x1b[${Math.min(loaded, pageSize) + 3}A\x1b[J`);
+    // Clear previous output
+    if (lastRenderLines > 0) {
+      process.stdout.write(`\x1b[${lastRenderLines}A\x1b[J`);
     }
 
+    const buf = [];
+
     // Header
-    process.stdout.write(`${message}\n`);
+    buf.push(message);
 
     // Visible page
     const startIdx = Math.max(0, active - Math.floor(pageSize / 2));
@@ -40,7 +42,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
       const prefix = isActive ? '\x1b[7m' : '';
       const suffix = isActive ? '\x1b[0m' : '';
       const name = choice.name.length > 60 ? choice.name.slice(0, 57) + '...' : choice.name;
-      process.stdout.write(`  ${prefix}${name}${suffix}\n`);
+      buf.push(`  ${prefix}${name}${suffix}`);
     }
 
     // Footer with progress
@@ -48,10 +50,25 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
     const footer = moreAvailable
       ? `${loaded} of ${totalCount} loaded • ↓ for more • ↑↓ navigate • ⏎ select • esc cancel • type to filter`
       : `${loaded} of ${totalCount} • ↑↓ navigate • ⏎ select • esc cancel • type to filter`;
-    process.stdout.write(`\n${footer}\n`);
+    buf.push('');
+    buf.push(footer);
 
     // Search bar
-    process.stdout.write(`> ${term}`);
+    buf.push(`> ${term}`);
+
+    process.stdout.write(buf.join('\n'));
+    lastRenderLines = buf.length;
+  }
+
+  function cleanup() {
+    // Clear the picker UI entirely
+    if (lastRenderLines > 0) {
+      process.stdout.write(`\x1b[${lastRenderLines}A\x1b[J`);
+      lastRenderLines = 0;
+    }
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
   }
 
   return new Promise((resolve) => {
@@ -61,7 +78,6 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
       terminal: true,
     });
 
-    // Disable raw mode typing echo — we render ourselves
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
     }
@@ -80,6 +96,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
     // Initial load
     (async () => {
       const initialChoices = await source(currentTerm, 0);
+      if (cancelled) return;
       choices = initialChoices;
       loaded = choices.length;
       active = 0;
@@ -114,9 +131,10 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
           active++;
           render(currentTerm);
         } else if (loaded < totalCount) {
-          // Load more on down at end
           await loadMore();
-          active++;
+          if (active < choices.length - 1) {
+            active++;
+          }
           render(currentTerm);
         }
         return;
@@ -127,14 +145,12 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
           inputBuffer = inputBuffer.slice(0, -1);
         }
       } else if (key.sequence && key.sequence.length === 1 && !key.meta && !key.ctrl) {
-        // Regular printable character
         inputBuffer += key.sequence;
       } else {
-        // Ignore other keys (tab, function keys, etc.)
         return;
       }
 
-      // Search/filter
+      // Search/filter — re-fetch from server
       currentTerm = inputBuffer;
       const results = await source(currentTerm, 0);
       choices = results;
@@ -144,9 +160,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, source })
     });
 
     rl.on('close', () => {
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
+      cleanup();
       resolve(cancelled ? null : selected);
     });
   });
