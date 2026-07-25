@@ -21,8 +21,8 @@ try {
   process.exit(1);
 }
 
-if (branch !== 'nodejs') {
-  console.error(`Error: Releases can only be made from 'nodejs' branch (currently on '${branch}')`);
+if (branch !== 'main') {
+  console.error(`Error: Releases can only be made from 'main' branch (currently on '${branch}')`);
   process.exit(1);
 }
 

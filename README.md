@@ -12,7 +12,7 @@ npm install -g @jacebenson/jsn
 
 No compilation needed. Works on macOS, Linux, and Windows with Node.js 18+.
 
-> **Note:** As of v0.1.0, the `latest` dist-tag points to the Node.js implementation. This is the version you get with `npm install -g @jacebenson/jsn`.
+The install also copies the ServiceNow AI agent skill file to `~/.agents/skills/servicenow/SKILL.md` automatically.
 
 ### Quick Start
 
@@ -30,37 +30,27 @@ jsn incidents
 jsn version --check
 ```
 
-## What's New in v0.1.0
+## What's New in v3.1.0
 
-Full feature parity — 128 tests, lint clean:
+Command hierarchy restructured by ServiceNow domain model, postinstall skill auto-install, paginated interactive picker.
 
 | Feature | Status |
 |---------|--------|
+| Top-level commands grouped by domain (Automation, Access, UX, Data) | ✅ |
+| `jsn flows` not `jsn dev flows` — direct mapping to ServiceNow concepts | ✅ |
+| Postinstall auto-installs SKILL.md to `~/.agents/skills/` | ✅ |
+| Paginated interactive picker with server-side scroll loading | ✅ |
+| Flow inspection with V2/V1 version awareness | ✅ |
+| SKILL.md field-behavior troubleshooting guide | ✅ |
 | Incident management (CRUD) | ✅ |
 | Change request management (CRUD) | ✅ |
 | Service catalog requests (with attachments + variables) | ✅ |
 | Catalog tasks, generic tickets | ✅ |
 | User management (CRUD) | ✅ |
 | Group management (CRUD) | ✅ |
-| Group memberships and roles | ✅ |
 | Generic Table API (`jsn records`) | ✅ |
 | OAuth PKCE with keychain (shared auth store) | ✅ |
-| Bot/CI/CD auth flags (`--code`, `--print-url`) | ✅ |
-| Dev commands: flows, actions, includes, rules, ACLs, etc. | ✅ |
-| Script execution (`jsn dev eval`) via OAuth session flow | ✅ |
-| Interactive search-as-you-type pickers | ✅ |
 | Output formats: JSON, styled, markdown, quiet | ✅ |
-| Enriched `requests show` with attachments + variables | ✅ |
-| Categorized help system (CORE, DATA, DEV, CONFIG) | ✅ |
-
-### New Commands
-
-- **`jsn version --check`** — Check npm registry for newer versions
-- **`jsn skill`** — Manage the jsn AI agent skill file (for Hermes, Claude Code, etc.)
-  - `jsn skill show` — Display the bundled skill
-  - `jsn skill fetch` — Download latest skill from GitHub
-  - `jsn skill path` — Show skill file locations
-  - `jsn skill install` — Download + save to Hermes skills directory
 
 ## Configuration
 
@@ -102,38 +92,58 @@ jsn profiles show
 | `tasks` | `task`, `sctask` | Manage service catalog tasks |
 | `tickets` | `ticket` | Query generic tickets |
 
-### DATA & ADMIN
+### AUTOMATION — things that react, run, or transform
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `records` | - | Generic Table API for any table |
+| `flows` | `flow` | Manage Flow Designer flows |
+| `actions` | `action` | Manage flow action definitions |
+| `rules` | `br` | Manage business rules |
+| `scrapi` | — | Manage Scripted REST APIs |
+| `updatesets` | — | Manage update sets |
+| `eval` | — | Run server-side JavaScript |
+| `rest` | — | Raw REST API calls |
+
+### ACCESS — who can see/do what
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `acls` | `acl` | Manage access controls |
+| `roles` | `role` | Manage roles |
+| `scopes` | — | Manage application scopes |
+| `properties` | `prop` | Manage system properties |
+| `privileges` | `priv` | Manage scope privileges |
+| `securitytypes` | `st` | Manage security types |
+
+### USER EXPERIENCE — what users see/interact with
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `forms` | — | Manage form layouts |
+| `lists` | — | Manage list layouts |
+| `clientscripts` | `cs` | Manage client scripts |
+| `uipolicies` | `up` | Manage UI policies |
+| `uiactions` | `ua` | Manage UI actions |
+| `sppages` | — | Manage Service Portal pages |
+| `spwidgets` | — | Manage Service Portal widgets |
+| `uipages` | — | Manage UI pages |
+| `catalogscripts` | — | Manage catalog client scripts |
+| `cataloguipolicies` | `cup` | Manage catalog UI policies |
+
+### DATA — where data lives
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `records` | — | Generic Table API for any table |
+| `tables` | `t` | Manage table definitions |
+| `columns` | `col` | Manage column definitions |
+| `includes` | `si` | Manage script includes |
+| `import` | — | Manage import sets |
+| `logs` | — | View system logs |
 | `users` | `user` | Manage users |
 | `groups` | `group` | Manage user groups |
 | `groupmembers` | `gm` | Manage group memberships |
 | `grouproles` | `gr` | Manage group roles |
-
-### DEVELOPMENT
-
-| Command | Description |
-|---------|-------------|
-| `dev flows` | Manage Flow Designer flows |
-| `dev actions` | Manage action definitions |
-| `dev includes` | Manage script includes |
-| `dev rules` | Manage business rules |
-| `dev clientscripts` | Manage client scripts |
-| `dev uiactions` | Manage UI actions |
-| `dev uipolicies` | Manage UI policies |
-| `dev tables` | View table definitions |
-| `dev columns` | Manage column definitions |
-| `dev import` | Manage import sets |
-| `dev acls` | Manage access controls |
-| `dev roles` | Manage roles |
-| `dev updatesets` | Manage update sets |
-| `dev scopes` | Manage application scopes |
-| `dev properties` | Manage system properties |
-| `dev logs` | Query system logs |
-| `dev rest` | Raw REST API calls |
-| `dev eval` | Execute background scripts |
 
 ### CONFIGURATION
 
@@ -174,14 +184,14 @@ jsn requests show RITM0010001
 #   Urgency:  High
 ```
 
-### Development
+### Automation
 
 ```bash
-jsn dev flows                              # List flows
-jsn dev includes MyScriptInclude           # Show a script include
-jsn dev rules                              # List business rules
-jsn dev updatesets set "My Update Set"     # Set current updateset
-jsn dev eval "gs.info('Hello World')"      # Run background script
+jsn flows list                              # Interactive picker with pagination
+jsn flows show "Assign Task"                # Show flow details
+jsn rules list --query "collection=incident" # Business rules on incident
+jsn updatesets set "My Update Set"           # Set current updateset
+jsn eval "gs.info('Hello World')"            # Run background script
 ```
 
 ### Generic Table API
@@ -233,7 +243,7 @@ jsn incidents list   # No interactive auth needed
 
 ## AI Agent Integration
 
-JSN includes a built-in skill file for AI agents:
+JSN includes a built-in skill file for AI agents, auto-installed on `npm install -g` to `~/.agents/skills/servicenow/SKILL.md`.
 
 ```bash
 # View the skill file
@@ -245,8 +255,8 @@ jsn skill fetch | head -30
 # Install to Hermes skills directory
 jsn skill install
 
-# Install to a custom location
-jsn skill install /path/to/skills/
+# Install to all supported agents (Hermes, Claude Code, Cursor, Copilot)
+jsn skill install --target all
 ```
 
 ## Environment Variables
@@ -272,7 +282,6 @@ jsn version --check          # Check for npm updates
 ```bash
 git clone https://github.com/jacebenson/jsn.git
 cd jsn
-git checkout nodejs
 npm install
 npm test           # 128+ tests
 npm run lint       # ESLint
@@ -293,6 +302,7 @@ npm run start      # Run CLI locally
 │   ├── errors.js           # Structured error types
 │   ├── helpers.js          # Shared utilities
 │   ├── help.js             # Custom grouped help renderer
+│   ├── paginated-search.js # Interactive paginated picker
 │   └── commands/           # CLI command modules
 ├── skills/
 │   └── servicenow/
@@ -304,8 +314,9 @@ npm run start      # Run CLI locally
 ### Releasing
 
 ```bash
+# On the main branch:
 npm run release -- patch    # or minor, major
-# Creates node-v* tag, pushes to GitHub, publishes to npm
+# Creates v* tag, pushes to GitHub, publishes to npm via Actions
 ```
 
 ## Troubleshooting
@@ -331,7 +342,7 @@ Error (usage): Instance URL required. Set via --instance flag,
 
 ```bash
 jsn version --check
-# → jsn 0.0.10 — newer version 0.1.0 available
+# → jsn 3.0.6 — newer version 3.1.0 available
 npm install -g @jacebenson/jsn
 ```
 
