@@ -19,6 +19,7 @@ function makeApp(mockSdk = {}) {
     },
     ok: (data, opts = {}) => ({ data, opts }),
     err: (error) => { throw error; },
+    requireInstance: () => {},  // no-op for tests
   };
 }
 

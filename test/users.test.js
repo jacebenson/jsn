@@ -59,8 +59,9 @@ describe('Users Command Handlers', () => {
         delete: async () => {},
         ...mockSdk,
       },
-      ok: () => {},
+      ok: (data, opts = {}) => ({ data, opts }),
       err: (error) => { throw error; },
+      requireInstance: () => {},  // no-op for tests
     };
   }
 
