@@ -67,9 +67,9 @@ export const paginatedSearch = createPrompt((config, done) => {
         const updated = prev.concat(newItems);
         const newLoaded = Math.min(updated.length, totalCountRef.current);
         loadedRef.current = newLoaded;
+        setLoaded(newLoaded);
         return updated;
       });
-      setLoaded(prev => Math.min(prev + newItems.length, totalCountRef.current));
     } catch (err) {
       // API error during scroll
       console.error('Scroll load error:', err.message || err);
