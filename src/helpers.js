@@ -107,9 +107,11 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     totalCount = 0;
   }
 
-  // Fetch records
+  // Fetch records — load all (up to cap) for full scrolling
+  const FETCH_CAP = 1000;
+  const fetchLimit = Math.min(totalCount || limit, FETCH_CAP);
   const params = new URLSearchParams();
-  params.set('sysparm_limit', String(limit));
+  params.set('sysparm_limit', String(fetchLimit));
   params.set('sysparm_display_value', 'all');
   if (pickerFields) params.set('sysparm_fields', pickerFields);
   params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
@@ -125,8 +127,8 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
 
   try {
     const selected = await search({
-      message: `${table} (${records.length} of ${totalCount} loaded, type to search)`,
-      pageSize: Math.min(10, limit),
+      message: `${table} (${records.length} of ${totalCount || records.length}, type to search)`,
+      pageSize: Math.min(10, fetchLimit),
       source: async (input) => {
         if (!input) return loadedChoices;
         const term = input.toLowerCase();
