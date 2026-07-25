@@ -223,7 +223,7 @@ export function catalogCmd(wrap) {
                       lines.push(`      ${v.question_text || v.name}  ${v.type || ''}${flags.length ? ' [' + flags.join(',') + ']' : ''}`);
                     }
                   }
-                  process.stdout.write(lines.join('\n') + '\n');
+                  console.log(lines.join('\n'));
                   return;
                 }
 
