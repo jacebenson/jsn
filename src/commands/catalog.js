@@ -1,7 +1,7 @@
 // Catalog item management commands
 // NOTE: This is an AI-friendly high-level command that wraps sc_cat_item + item_option_new
 
-import { resolveItemOptionType } from '../helpers.js';
+import { resolveItemOptionType, getStringField } from '../helpers.js';
 
 export function catalogCmd(wrap) {
   return {
@@ -174,11 +174,11 @@ export function catalogCmd(wrap) {
                   count: items.length,
                   columns: ['name', 'short_description', 'category', 'active'],
                   records: items.map(r => ({
-                    sys_id: r.sys_id?.value || r.sys_id,
-                    name: r.name?.display_value || r.name,
-                    short_description: r.short_description?.display_value || r.short_description || '',
-                    category: r.category?.display_value || '',
-                    active: r.active?.display_value || r.active,
+                    sys_id: getStringField(r, 'sys_id'),
+                    name: getStringField(r, 'name'),
+                    short_description: getStringField(r, 'short_description'),
+                    category: getStringField(r, 'category'),
+                    active: getStringField(r, 'active'),
                   })),
                   context: { instance_url: app.getEffectiveInstance() },
                 }, { summary: `${items.length} catalog item(s)` });
@@ -288,11 +288,11 @@ export function catalogCmd(wrap) {
               count: items.length,
               columns: ['name', 'short_description', 'category', 'active'],
               records: items.map(r => ({
-                sys_id: r.sys_id?.value || r.sys_id,
-                name: r.name?.display_value || r.name,
-                short_description: r.short_description?.display_value || r.short_description || '',
-                category: r.category?.display_value || '',
-                active: r.active?.display_value || r.active,
+                sys_id: getStringField(r, 'sys_id'),
+                name: getStringField(r, 'name'),
+                short_description: getStringField(r, 'short_description'),
+                category: getStringField(r, 'category'),
+                active: getStringField(r, 'active'),
               })),
               context: { instance_url: app.getEffectiveInstance() },
             }, { summary: `${items.length} catalog item(s)` });
