@@ -45,9 +45,7 @@ const AUTOMATION_COMMANDS = [
 
   { divider: '── Outbound ──' },
   { name: 'restmessage', alias: 'rm', desc: 'REST Messages (sys_rest_message)' },
-  { name: 'restmethods', desc: 'REST Message methods (sys_rest_message_fn)' },
   { name: 'soapmessages', desc: 'SOAP Messages' },
-  { name: 'soapfunctions', desc: 'SOAP Message functions' },
 ];
 
 const ACCESS_COMMANDS = [

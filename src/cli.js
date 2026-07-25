@@ -40,7 +40,7 @@ import {
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   decisiontablesCmd, assignmentsCmd,
   emailCmd,
-  restmessageCmd, restmethodsCmd, soapmessagesCmd, soapfunctionsCmd,
+  restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/dev/_simple.js';
 import { flowsCmd } from './commands/dev/flows.js';
@@ -229,9 +229,7 @@ export function buildCLI() {
     .command(emailCmd(wrap))
     // AUTOMATION — Outbound
     .command(restmessageCmd(wrap))
-    .command(restmethodsCmd(wrap))
     .command(soapmessagesCmd(wrap))
-    .command(soapfunctionsCmd(wrap))
     // ACCESS
     .command(aclsCmd(wrap))
     .command(b4rulesCmd(wrap))

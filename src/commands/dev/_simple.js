@@ -115,7 +115,6 @@ export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_in_email_action
 export { restmessageCmd } from './restmessage.js';
 export const restmethodsCmd = (wrap) => buildDevCmd('restmethods', 'sys_rest_message_fn', ['restmethod'], ['name', 'http_method', 'active', 'sys_scope'], wrap, { singular: 'REST method', scopeValidation: true });
 export { soapmessagesCmd } from './soapmessages.js';
-export const soapfunctionsCmd = (wrap) => buildDevCmd('soapfunctions', 'sys_soap_message_function', ['soapfunc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'SOAP function', scopeValidation: true });
 
 // ── UX: Core UI ──
 export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['uimacro'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UI macro', scopeValidation: true });

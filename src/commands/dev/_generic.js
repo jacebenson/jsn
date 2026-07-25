@@ -81,6 +81,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const readOnly = opts.readOnly || false;
   const scopeValidation = opts.scopeValidation || false;
   const extraQuery = opts.extraQuery || '';
+  const formatLabel = opts.formatLabel || null;
   const showSummary = opts.showSummary || ((record, id) => `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${getStringField(record, 'name') || id}`);
   const showBreadcrumbs = opts.showBreadcrumbs || ((record, id) => {
     const crumbs = [
