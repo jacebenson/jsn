@@ -26,11 +26,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
   }
 
   function render() {
-    // First render: start on a fresh line
-    if (outputLines === 0) {
-      process.stdout.write('\n');
-    } else {
-      // Re-render: go back to anchor and clear
+    if (outputLines > 0) {
       process.stdout.moveCursor(0, -outputLines);
       process.stdout.clearScreenDown();
     }
@@ -88,7 +84,7 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      terminal: true,
+      terminal: false,   // Don't let readline touch stdout — we render ourselves
     });
     try { process.stdin.setRawMode(true); } catch { /* non-TTY */ }
 
