@@ -138,12 +138,11 @@ export function formsCmd(wrap) {
             const query = table ? `name=${table}` : '';
 
             const picked = await interactiveList({
-              app, table: 'sys_ui_section', singular: 'form view', columns: ['name', 'view', 'caption', 'order'], limit: argv.limit, query, labelField: 'view',
+              app, table: 'sys_ui_form', singular: 'form', columns: ['name', 'view'], limit: argv.limit, query, labelField: 'name',
               formatLabel: r => {
                 const t = getStringField(r, 'name') || '';
                 const v = getStringField(r, 'view') || '';
-                const cap = getStringField(r, 'caption') || '';
-                return cap ? `${t} — ${v} (${cap})` : `${t} — ${v}`;
+                return `${t} — ${v}`;
               },
             });
             if (picked === undefined) return;
@@ -158,20 +157,20 @@ export function formsCmd(wrap) {
             // Fallback
             const params = new URLSearchParams();
             params.set('sysparm_limit', String(argv.limit));
-            params.set('sysparm_fields', 'name,view,caption,order,sys_id');
+            params.set('sysparm_fields', 'name,view,sys_id');
             params.set('sysparm_display_value', 'all');
-            params.set('sysparm_query', (query || '') + '^ORDERBYname,view');
-            const records = await app.sdk.list('sys_ui_section', params);
+            params.set('sysparm_query', (query || '') + '^ORDERBYname');
+            const records = await app.sdk.list('sys_ui_form', params);
 
             const desc = table ? `for ${table}` : 'across all tables';
             app.ok({
-              table: table || 'sys_ui_section',
+              table: table || 'sys_ui_form',
               count: records.length,
-              columns: ['name', 'view', 'caption', 'order'],
+              columns: ['name', 'view'],
               records,
               context: { instance_url: app.getEffectiveInstance() },
             }, {
-              summary: `${records.length} form section(s) ${desc}`,
+              summary: `${records.length} form(s) ${desc}`,
               ...(table ? { breadcrumbs: [{ action: 'show', cmd: `jsn forms show ${table} --view "Default view"`, description: 'Show Default view layout' }] } : {}),
             });
           }),
