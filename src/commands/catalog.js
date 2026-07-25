@@ -102,25 +102,17 @@ export function catalogCmd(wrap) {
               return;
             }
             // Fallback
-            try {
-              const p = new URLSearchParams();
-              p.set('sysparm_query', query ? `${query}^ORDERBYname` : 'ORDERBYname');
-              p.set('sysparm_limit', String(argv.limit)); p.set('sysparm_display_value', 'all');
-              p.set('sysparm_fields', 'sys_id,name,short_description,category,active');
-              const items = await app.sdk.list('sc_cat_item', p);
-              if (!Array.isArray(items)) {
-                console.error('Fallback SDK returned non-array:', typeof items, items);
-                return;
-              }
-              app.ok({ table: 'sc_cat_item', count: items.length, columns: ['name', 'short_description', 'category', 'active'],
-                records: items.map(r => ({ sys_id: getStringField(r, 'sys_id'), name: getStringField(r, 'name'),
-                  short_description: getStringField(r, 'short_description'), category: getStringField(r, 'category'),
-                  active: getStringField(r, 'active') })),
-                context: { instance_url: app.getEffectiveInstance() },
-              }, { summary: `${items.length} catalog item(s)` });
-            } catch (err) {
-              console.error('Fallback error:', err.message || err);
+            const p = new URLSearchParams();
+            p.set('sysparm_query', query ? `${query}^ORDERBYname` : 'ORDERBYname');
+            p.set('sysparm_limit', String(argv.limit)); p.set('sysparm_display_value', 'all');
+            p.set('sysparm_fields', 'sys_id,name,short_description,category,active');
+            const items = await app.sdk.list('sc_cat_item', p);
+            if (!Array.isArray(items)) {
+              console.error('SDK non-array:', typeof items);
+              return;
             }
+            app.ok({ table: 'sc_cat_item', count: items.length, columns: ['name', 'short_description', 'category', 'active'], records: items, context: { instance_url: app.getEffectiveInstance() } },
+              { summary: `${items.length} catalog item(s)` });
           }),
         })
         .command({
