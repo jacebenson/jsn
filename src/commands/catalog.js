@@ -155,13 +155,21 @@ async function showItem(app, sysID) {
   lines.push(`  Active: ${getStringField(item, 'active') || 'false'}`);
   lines.push(`  URL: ${app.getEffectiveInstance()}/sc_cat_item.do?sys_id=${sysID}`);
 
-  // Flow / Workflow
-  const flow = getStringField(item, 'flow_designer_flow');
-  const workflow = getStringField(item, 'workflow');
-  const plan = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan');
-  if (flow) lines.push(`  Flow: ${flow}`);
-  else if (workflow) lines.push(`  Workflow: ${workflow}`);
-  else if (plan) lines.push(`  Execution Plan: ${plan}`);
+  // Flow / Workflow / Execution Plan
+  const flowName = getStringField(item, 'flow_designer_flow');
+  const flowID = item.flow_designer_flow?.value || '';
+  const wfName = getStringField(item, 'workflow');
+  const wfID = item.workflow?.value || '';
+  const planName = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan');
+  if (flowName) {
+    lines.push(`  Flow: ${flowName}`);
+    if (flowID) lines.push(`    → jsn flows show ${flowID}`);
+  } else if (wfName) {
+    lines.push(`  Workflow: ${wfName}`);
+    if (wfID) lines.push(`    → jsn workflows show ${wfID}`);
+  } else if (planName) {
+    lines.push(`  Execution Plan: ${planName}`);
+  }
 
   if (totalVars > 0) {
     lines.push(`  Variables (${totalVars}):`);
