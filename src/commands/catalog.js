@@ -173,12 +173,48 @@ export function catalogCmd(wrap) {
                 });
                 if (picked === undefined) return;
                 if (picked) {
-                  return app.ok(picked, {
-                    summary: `Catalog item: ${getStringField(picked, 'name')}`,
-                    breadcrumbs: [
-                      { action: 'show', cmd: `jsn catalog items show ${getStringField(picked, 'sys_id')}`, description: 'Show details & variables' },
-                    ],
+                  const sysID = getStringField(picked, 'sys_id') || '';
+                  // Run show logic inline
+                  const item = await app.sdk.get('sc_cat_item', sysID);
+                  const varParams = new URLSearchParams();
+                  varParams.set('sysparm_query', `cat_item=${sysID}^active=true`);
+                  varParams.set('sysparm_limit', '100');
+                  varParams.set('sysparm_display_value', 'all');
+                  varParams.set('sysparm_fields', 'sys_id,name,question_text,type,order,mandatory,variable_set');
+                  const variables = await app.sdk.list('item_option_new', varParams);
+
+                  const standaloneVars = [];
+                  const setVars = new Map();
+                  for (const v of variables) {
+                    const vs = getStringField(v, 'variable_set');
+                    const entry = {
+                      sys_id: getStringField(v, 'sys_id'),
+                      name: getStringField(v, 'name'),
+                      question_text: getStringField(v, 'question_text'),
+                      type: getStringField(v, 'type'),
+                      order: getStringField(v, 'order'),
+                      mandatory: getStringField(v, 'mandatory'),
+                    };
+                    if (vs) {
+                      if (!setVars.has(vs)) setVars.set(vs, { name: vs, label: vs, variables: [] });
+                      setVars.get(vs).variables.push(entry);
+                    } else {
+                      standaloneVars.push(entry);
+                    }
+                  }
+
+                  app.ok({
+                    sys_id: sysID,
+                    name: getStringField(item, 'name'),
+                    short_description: getStringField(item, 'short_description'),
+                    category: getStringField(item, 'category'),
+                    active: getStringField(item, 'active'),
+                    variables: { standalone: standaloneVars, variable_sets: Array.from(setVars.values()) },
+                    context: { instance_url: app.getEffectiveInstance() },
+                  }, {
+                    summary: `${getStringField(item, 'name')} — ${standaloneVars.length + Array.from(setVars.values()).reduce((a, s) => a + s.variables.length, 0)} variable(s)`,
                   });
+                  return;
                 }
 
                 // Fallback
