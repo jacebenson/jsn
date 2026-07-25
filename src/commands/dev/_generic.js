@@ -2,7 +2,6 @@
 
 import { formatRecordForDisplay, getStringField, isHexString, parseDataArg } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
-import readline from 'node:readline';
 import { paginatedSearch } from '../../paginated-search.js';
 import { isTTY, FormatAuto } from '../../output.js';
 

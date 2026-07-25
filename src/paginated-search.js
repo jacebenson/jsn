@@ -1,13 +1,10 @@
 /**
  * Paginated interactive search prompt with server-side pagination.
  *
- * Uses raw readline for terminal control — @inquirer/search doesn't support
- * scroll-based pagination (source only fires on keystrokes, not on scroll).
+ * Uses raw stdin for terminal control — no readline interference.
  *
  * Returns the selected choice ({name, value}), or null on cancel.
  */
-
-import readline from 'node:readline';
 
 export async function paginatedSearch({ message, pageSize, totalCount, pageSize: pgSize, source }) {
   const PAGE = pageSize || pgSize || 10;
@@ -30,7 +27,6 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
     if (outputLines > 0) {
       process.stdout.moveCursor(0, -outputLines);
     }
-    // Clear from cursor to end of screen (covers first render too)
     process.stdout.write('\x1b[0J');
 
     const buf = [];
@@ -38,7 +34,6 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
     const countInfo = totalCount > 0 ? ` (${loaded} of ${totalCount} loaded)` : '';
     buf.push(`${message}${countInfo}`);
 
-    // Visible window: center active item
     const start = Math.max(0, active - Math.floor(PAGE / 2));
     const end = Math.min(choices.length, start + PAGE);
     const visible = choices.slice(start, end);
@@ -49,24 +44,18 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
       const prefix = isActive ? '\x1b[7m' : '';
       const suffix = isActive ? '\x1b[0m' : '';
       const display = choice.name.length > 70 ? choice.name.slice(0, 67) + '...' : choice.name;
-      const line = `  ${prefix}${display}${suffix}`;
-      // Clear to end of line to prevent residual characters
-      buf.push(line + '\x1b[0K');
+      buf.push(`  ${prefix}${display}${suffix}\x1b[0K`);
     }
 
-    // Pad to constant height
     while (buf.length < PAGE + 2) {
       buf.push('\x1b[0K');
     }
 
-    // Footer
     const more = loaded < totalCount;
     const footer = more
       ? `↑↓ navigate • ⏎ select • esc cancel • type to filter • ↓ at end loads more`
       : `↑↓ navigate • ⏎ select • esc cancel • type to filter`;
     buf.push(footer + '\x1b[0K');
-
-    // Search bar
     buf.push(`> ${term}\x1b[0K`);
 
     outputLines = writeLines(buf);
@@ -79,17 +68,16 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
       outputLines = 0;
     }
     try { process.stdin.setRawMode(false); } catch { /* ok */ }
+    process.stdin.removeAllListeners('data');
+    process.stdin.pause();
   }
 
   return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: false,  // Prevents readline from echoing/positioning cursor
-    });
-    try { process.stdin.setRawMode(true); } catch { /* non-TTY */ }
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
 
     let inputBuf = '';
+    let escapeSeq = '';
 
     async function loadPage() {
       if (loaded >= totalCount) return;
@@ -99,9 +87,8 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
         choices = choices.concat(newItems);
         loaded = Math.min(choices.length, totalCount);
       }
-      // If source returned fewer items than expected or nothing, we're done
       if (choices.length === startLen) {
-        loaded = totalCount;  // prevent infinite retries
+        loaded = totalCount;
       }
     }
 
@@ -115,48 +102,60 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
       render();
     })();
 
-    rl.input.on('keypress', async (_str, key) => {
-      if (key.name === 'escape' || key.name === 'q' || (key.ctrl && key.name === 'c')) {
+    function handleKey(keyName, char) {
+      if (keyName === 'escape' || keyName === 'q' || (keyName === 'c' && escapeSeq.startsWith('\x1b'))) {
         cancelled = true;
-        rl.close();
+        cleanup();
+        resolve(null);
         return;
       }
 
-      if (key.name === 'return' || key.name === 'enter') {
+      if (keyName === 'return' || char === '\r') {
         if (choices.length > 0 && active >= 0 && active < choices.length) {
-          rl.close();
+          cleanup();
+          resolve(choices[active]);
           return;
         }
       }
 
-      if (key.name === 'up' && active > 0) {
+      if (keyName === 'up' && active > 0) {
         active--;
         render();
         return;
       }
 
-      if (key.name === 'down') {
+      if (keyName === 'down') {
         if (active < choices.length - 1) {
           active++;
           render();
         } else if (loaded < totalCount) {
-          await loadPage();
-          if (active < choices.length - 1) active++;
-          render();
+          loadPage().then(() => {
+            if (active < choices.length - 1) active++;
+            render();
+          });
         }
         return;
       }
 
-      if (key.name === 'backspace') {
-        if (inputBuf.length > 0) inputBuf = inputBuf.slice(0, -1);
-      } else if (key.sequence && key.sequence.length === 1 && !key.meta && !key.ctrl) {
-        inputBuf += key.sequence;
-      } else {
+      if (keyName === 'backspace') {
+        if (inputBuf.length > 0) {
+          inputBuf = inputBuf.slice(0, -1);
+          term = inputBuf;
+          doSearch();
+        }
         return;
       }
 
-      // Search
-      term = inputBuf;
+      // Printable character
+      if (char && char.length === 1 && char >= ' ' && char <= '~') {
+        inputBuf += char;
+        term = inputBuf;
+        doSearch();
+        return;
+      }
+    }
+
+    async function doSearch() {
       if (term) {
         const results = await source(term, 0);
         choices = results;
@@ -168,12 +167,61 @@ export async function paginatedSearch({ message, pageSize, totalCount, pageSize:
       }
       active = 0;
       render();
-    });
+    }
 
-    rl.on('close', () => {
-      cleanup();
-      const choice = (!cancelled && active >= 0 && active < choices.length) ? choices[active] : null;
-      resolve(cancelled ? null : choice);
+    process.stdin.on('data', (data) => {
+      const str = data.toString();
+
+      // Handle escape sequences (arrow keys, etc.)
+      if (str === '\x1b') {
+        escapeSeq = '\x1b';
+        return;
+      }
+
+      if (escapeSeq) {
+        escapeSeq += str;
+        // Full escape sequence received
+        if (escapeSeq === '\x1b[A') { handleKey('up'); }
+        else if (escapeSeq === '\x1b[B') { handleKey('down'); }
+        else if (escapeSeq === '\x1b[C') { handleKey('right'); }
+        else if (escapeSeq === '\x1b[D') { handleKey('left'); }
+        else if (escapeSeq === '\x1b[3~') { handleKey('delete', '\x7f'); }
+        else if (escapeSeq === '\x1b[Z') { handleKey('tab', '\t'); }
+        else if (escapeSeq === '\x1b[H') { handleKey('home'); }
+        else if (escapeSeq === '\x1b[F') { handleKey('end'); }
+        else { handleKey('escape'); }
+        escapeSeq = '';
+        return;
+      }
+
+      // Ctrl+C
+      if (str === '\x03') {
+        cancelled = true;
+        cleanup();
+        resolve(null);
+        return;
+      }
+
+      // Enter
+      if (str === '\r' || str === '\n') {
+        handleKey('return', '\r');
+        return;
+      }
+
+      // Backspace (Ctrl+H or DEL)
+      if (str === '\x7f' || str === '\x08') {
+        handleKey('backspace');
+        return;
+      }
+
+      // Tab
+      if (str === '\t') {
+        handleKey('tab', '\t');
+        return;
+      }
+
+      // Regular character
+      handleKey(null, str);
     });
   });
 }
