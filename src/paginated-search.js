@@ -8,13 +8,14 @@
 
 import { createPrompt, useState, useKeypress, usePagination, useEffect, useRef } from '@inquirer/core';
 import { isEnterKey, isUpKey, isDownKey } from '@inquirer/core';
+import { appendFileSync } from 'fs';
 
 export const paginatedSearch = createPrompt((config, done) => {
   const { message, pageSize = 10, totalCount = 0, source } = config;
 
   // ── DEBUG ──
   const DBG = '/home/jace/workspace/holly/sn-jsn-fork/debug.log';
-  const log = (msg) => require('fs').appendFileSync(DBG, `${new Date().toISOString()} ${msg}\n`);
+  const log = (msg) => appendFileSync(DBG, `${new Date().toISOString()} ${msg}\n`);
   log(`START totalCount=${totalCount}`);
 
   const [status, setStatus] = useState('loading');
