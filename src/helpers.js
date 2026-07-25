@@ -1,7 +1,7 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
-import { search } from '@inquirer/prompts';
+import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 
 export function getStringField(record, field) {
@@ -107,50 +107,47 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     totalCount = 0;
   }
 
-  // Fetch records — load all (up to cap) for full scrolling
-  const FETCH_CAP = 1000;
-  const fetchLimit = Math.min(totalCount || limit, FETCH_CAP);
-  const params = new URLSearchParams();
-  params.set('sysparm_limit', String(fetchLimit));
-  params.set('sysparm_display_value', 'all');
-  if (pickerFields) params.set('sysparm_fields', pickerFields);
-  params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+  if (totalCount === 0) return null;
 
-  const records = await app.sdk.list(table, params);
-  if (records.length === 0) return null;
+  // Server-side source for the paginated picker
+  const source = async (term, offset) => {
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', String(limit));
+    params.set('sysparm_display_value', 'all');
+    if (pickerFields) params.set('sysparm_fields', pickerFields);
+    if (term) {
+      // Search: filter by name containing term
+      params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+    } else {
+      // Browse: load page at offset
+      params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+      params.set('sysparm_offset', String(offset));
+    }
 
-  // Format choices once — stored for the source callback
-  const loadedChoices = records.map(r => ({
-    name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-    value: r,
-  }));
+    const records = await app.sdk.list(table, params);
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: r,
+    }));
+  };
 
   try {
-    const selected = await search({
-      message: `${table} (${records.length} of ${totalCount || records.length}, type to search)`,
-      pageSize: Math.min(10, fetchLimit),
-      source: async (input) => {
-        if (!input) return loadedChoices;
-        const term = input.toLowerCase();
-        return loadedChoices.filter(c => c.name.toLowerCase().includes(term));
-      },
+    const selected = await paginatedSearch({
+      message: `${table} (${totalCount} total)`,
+      pageSize: Math.min(10, limit),
+      totalCount,
+      source,
     });
-    return selected; // the record object
+    return selected?.value || null;
   } catch (err) {
-    if (err.name === 'ExitPromptError' || (err.message && err.message.includes('force closed'))) {
+    if (err.message?.includes('cancel') || err.message?.includes('abort')) {
       return null;
     }
     throw err;
   }
 }
 
-function vowelArticle(word) {
-  const first = word.charAt(0).toLowerCase();
-  return first === 'a' || first === 'e' || first === 'i' || first === 'o' || first === 'u' ? 'an' : 'a';
-}
-
 /**
- * Known derived (read-only) ServiceNow fields that should not be set directly.
  * Maps table name → array of field names that are computed by the platform.
  * When a create/update payload contains these, a warning is emitted.
  */
