@@ -2,7 +2,7 @@
 
 import { formatRecordForDisplay, getStringField, isHexString, parseDataArg } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
-import { paginatedSearch } from '../../paginated-search.js';
+import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from '../../output.js';
 
 function vowelArticle(word) {
@@ -110,42 +110,46 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
           const limit = argv.limit;
 
-          // Paginated interactive picker
+          // Interactive picker with @inquirer/search
           const interactive = isTTY(process.stdout) && isTTY(process.stdin);
           if (interactive && app.output.getFormat() === FormatAuto && !query) {
-            // Get total count for the picker
-            let totalCount = 0;
-            try {
-              totalCount = await app.sdk.aggregateCount(table, extraQuery || '');
-            } catch { /* non-critical */ }
+            const params = new URLSearchParams();
+            params.set('sysparm_limit', String(Math.min(limit, 200)));
+            params.set('sysparm_display_value', 'all');
+            params.set('sysparm_fields', ['sys_id', 'name', 'sys_scope'].join(','));
+            params.set('sysparm_query', (extraQuery ? extraQuery + '^' : '') + 'ORDERBYDESCsys_updated_on');
 
-            const source = async (term, offset) => {
-              const params = new URLSearchParams();
-              params.set('sysparm_limit', String(limit));
-              params.set('sysparm_display_value', 'all');
-              params.set('sysparm_fields', ['sys_id', 'name', 'sys_scope'].join(','));
-              if (term) {
-                params.set('sysparm_query', `nameLIKE${term}^ORDERBYDESCsys_updated_on`);
-              } else {
-                params.set('sysparm_query', (extraQuery ? extraQuery + '^' : '') + 'ORDERBYDESCsys_updated_on');
-                params.set('sysparm_offset', String(offset));
-              }
-              const records = await app.sdk.list(table, params);
-              return records.map(r => {
-                const recordName = getStringField(r, 'name') || getStringField(r, 'sys_id');
-                const scope = getStringField(r, 'sys_scope') || '';
-                let label = recordName;
-                if (scope && scope !== 'global') label += ` [${scope}]`;
-                return { name: label, value: recordName };
-              });
-            };
+            const pickerRecords = await app.sdk.list(table, params);
+            if (pickerRecords.length === 0) {
+              app.ok({ table, count: 0, columns, records: [], context: { instance_url: app.getEffectiveInstance() } },
+                { summary: `0 ${name}(s)`, breadcrumbs: buildHints(name, singular, readOnly) });
+              return;
+            }
 
-            const selectedName = await paginatedSearch({
-              message: `Select ${vowelArticle(singular)} ${singular}`,
-              pageSize: 10,
-              totalCount,
-              source,
+            const choices = pickerRecords.map(r => {
+              const recordName = getStringField(r, 'name') || getStringField(r, 'sys_id');
+              const scope = getStringField(r, 'sys_scope') || '';
+              let label = recordName;
+              if (scope && scope !== 'global') label += ` [${scope}]`;
+              return { name: label, value: recordName };
             });
+
+            let selectedName;
+            try {
+              selectedName = await search({
+                message: `Select ${vowelArticle(singular)} ${singular}:`,
+                source: async (input) => {
+                  if (!input) return choices;
+                  const term = input.toLowerCase();
+                  return choices.filter(c => c.name.toLowerCase().includes(term));
+                },
+              });
+            } catch (err) {
+              if (err.name === 'ExitPromptError' || (err.message && err.message.includes('force closed'))) {
+                return;
+              }
+              throw err;
+            }
 
             if (selectedName) {
               const showParams = new URLSearchParams();
