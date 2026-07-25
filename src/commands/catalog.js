@@ -264,40 +264,8 @@ export function catalogCmd(wrap) {
               }),
             })
             .demandCommand(1, 'Specify a subcommand: list or show'),
-          handler: () => {},
-        })
-        // ── list-items: Legacy alias ──
-        .command({
-          command: 'list-items',
-          aliases: ['ls'],
-          describe: 'List catalog items (use "catalog items list" instead)',
-          builder: (y) => y
-            .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' })
-            .option('category', { type: 'string', describe: 'Filter by category' }),
-          handler: wrap(async (argv, app) => {
-            let query = 'ORDERBYname';
-            if (argv.category) query = `category.titleLIKE${argv.category}^${query}`;
-            const params = new URLSearchParams();
-            params.set('sysparm_query', query);
-            params.set('sysparm_limit', String(argv.limit));
-            params.set('sysparm_display_value', 'all');
-            params.set('sysparm_fields', 'sys_id,name,short_description,category,active');
-            const items = await app.sdk.list('sc_cat_item', params);
-            app.ok({
-              table: 'sc_cat_item',
-              count: items.length,
-              columns: ['name', 'short_description', 'category', 'active'],
-              records: items.map(r => ({
-                sys_id: getStringField(r, 'sys_id'),
-                name: getStringField(r, 'name'),
-                short_description: getStringField(r, 'short_description'),
-                category: getStringField(r, 'category'),
-                active: getStringField(r, 'active'),
-              })),
-              context: { instance_url: app.getEffectiveInstance() },
-            }, { summary: `${items.length} catalog item(s)` });
-          }),
-        });
+              handler: () => {},
+            });
     },
     handler: (argv) => {
       if (!argv._[1]) {
