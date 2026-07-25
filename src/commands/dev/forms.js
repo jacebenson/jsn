@@ -31,6 +31,70 @@ function getBoolValue(record, key) {
   return false;
 }
 
+async function showForm(app, table, viewName) {
+  // Look up view sys_id
+  let viewSysID = '';
+  const viewParams = new URLSearchParams();
+  viewParams.set('sysparm_limit', '1');
+  viewParams.set('sysparm_fields', 'sys_id');
+  viewParams.set('sysparm_query', `name=${viewName}`);
+  try {
+    const viewRecords = await app.sdk.list('sys_ui_view', viewParams);
+    if (viewRecords.length > 0) viewSysID = getStringField(viewRecords[0], 'sys_id');
+  } catch { /* ignore */ }
+
+  if (!viewSysID) {
+    viewParams.set('sysparm_query', `title=${viewName}`);
+    try {
+      const viewRecords = await app.sdk.list('sys_ui_view', viewParams);
+      if (viewRecords.length > 0) viewSysID = getStringField(viewRecords[0], 'sys_id');
+    } catch { /* ignore */ }
+  }
+
+  const params = new URLSearchParams();
+  params.set('sysparm_limit', '200');
+  params.set('sysparm_fields', 'caption,label,mandatory,name,read_only,type,visible,field,order');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYorder`);
+  const sections = await app.sdk.list('sys_ui_section', params);
+
+  if (viewSysID) {
+    const sectionParams = new URLSearchParams();
+    sectionParams.set('sysparm_limit', '200');
+    sectionParams.set('sysparm_fields', 'caption,label,mandatory,name,read_only,type,visible,field,order,position,header,split');
+    sectionParams.set('sysparm_display_value', 'all');
+    sectionParams.set('sysparm_query', `form_section.view=${viewSysID}^ORDERBYorder`);
+    const formRecords = await app.sdk.list('sys_ui_form_section', sectionParams);
+    const fields = formRecords.map(r => ({
+      name: getStringField(r, 'name'),
+      caption: getStringField(r, 'caption'),
+      label: getStringField(r, 'label'),
+      mandatory: getBoolValue(r, 'mandatory'),
+      read_only: getBoolValue(r, 'read_only'),
+      visible: getBoolValue(r, 'visible'),
+      type: getStringField(r, 'type'),
+      order: getIntValue(r, 'order'),
+      split: getBoolValue(r, 'split'),
+      header: getBoolValue(r, 'header'),
+      position: getIntValue(r, 'position'),
+    }));
+    app.ok({ table, view: viewName, count: fields.length, fields, context: { instance_url: app.getEffectiveInstance() } },
+      { summary: `${fields.length} field(s) in ${table} → ${viewName}` });
+    return;
+  }
+
+  const fields = sections.map(r => ({
+    label: getDisplayValue(r, 'label'),
+    type: getDisplayValue(r, 'type'),
+    mandatory: getBoolValue(r, 'mandatory'),
+    read_only: getBoolValue(r, 'read_only'),
+    visible: getBoolValue(r, 'visible'),
+    order: getIntValue(r, 'order'),
+  }));
+  app.ok({ table, view: viewName, count: fields.length, fields, context: { instance_url: app.getEffectiveInstance() } },
+    { summary: `${fields.length} section(s) in ${table} → ${viewName}` });
+}
+
 export function formsCmd(wrap) {
   return {
     command: 'forms [subcommand]',
@@ -62,14 +126,10 @@ export function formsCmd(wrap) {
             if (picked === undefined) return;
             if (picked) {
               const t = getStringField(picked, 'name') || '';
-              const v = getStringField(picked, 'view') || '';
-              return app.ok(picked, {
-                summary: `Form view: ${v} (${t})`,
-                breadcrumbs: [
-                  { action: 'show', cmd: `jsn forms show ${t} --view "${v}"`, description: 'Show full layout' },
-                  { action: 'list', cmd: `jsn forms list ${t || ''}`, description: t ? `Back to ${t} forms` : 'Back to all forms' },
-                ],
-              });
+              const v = getStringField(picked, 'view') || 'Default view';
+              // Show full form layout using the show logic
+              await showForm(app, t, v);
+              return;
             }
 
             // Fallback
@@ -101,69 +161,7 @@ export function formsCmd(wrap) {
             .option('view', { type: 'string', default: 'Default view', describe: 'View name' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const table = argv.table;
-            const viewName = argv.view;
-
-            let viewSysID = '';
-            const viewParams = new URLSearchParams();
-            viewParams.set('sysparm_limit', '1');
-            viewParams.set('sysparm_fields', 'sys_id');
-            viewParams.set('sysparm_query', `name=${viewName}`);
-            try {
-              const viewRecords = await app.sdk.list('sys_ui_view', viewParams);
-              if (viewRecords.length > 0) viewSysID = getStringField(viewRecords[0], 'sys_id');
-            } catch { /* ignore */ }
-
-            if (!viewSysID) {
-              viewParams.set('sysparm_query', `title=${viewName}`);
-              try {
-                const viewRecords = await app.sdk.list('sys_ui_view', viewParams);
-                if (viewRecords.length > 0) viewSysID = getStringField(viewRecords[0], 'sys_id');
-              } catch { /* ignore */ }
-            }
-
-            const params = new URLSearchParams();
-            params.set('sysparm_limit', '200');
-            params.set('sysparm_fields', 'caption,label,mandatory,name,read_only,type,visible,field,order');
-            params.set('sysparm_display_value', 'all');
-            params.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYorder`);
-            const sections = await app.sdk.list('sys_ui_section', params);
-
-            if (viewSysID) {
-              const sectionParams = new URLSearchParams();
-              sectionParams.set('sysparm_limit', '200');
-              sectionParams.set('sysparm_fields', 'caption,label,mandatory,name,read_only,type,visible,field,order,position,header,split');
-              sectionParams.set('sysparm_display_value', 'all');
-              sectionParams.set('sysparm_query', `form_section.view=${viewSysID}^ORDERBYorder`);
-              const formRecords = await app.sdk.list('sys_ui_form_section', sectionParams);
-              const fields = formRecords.map(r => ({
-                name: getStringField(r, 'name'),
-                caption: getStringField(r, 'caption'),
-                label: getStringField(r, 'label'),
-                mandatory: getBoolValue(r, 'mandatory'),
-                read_only: getBoolValue(r, 'read_only'),
-                visible: getBoolValue(r, 'visible'),
-                type: getStringField(r, 'type'),
-                order: getIntValue(r, 'order'),
-                split: getBoolValue(r, 'split'),
-                header: getBoolValue(r, 'header'),
-                position: getIntValue(r, 'position'),
-              }));
-              app.ok({ table, view: viewName, count: fields.length, fields, context: { instance_url: app.getEffectiveInstance() } },
-                { summary: `${fields.length} field(s) in ${table} → ${viewName}` });
-              return;
-            }
-
-            const fields = sections.map(r => ({
-              label: getDisplayValue(r, 'label'),
-              type: getDisplayValue(r, 'type'),
-              mandatory: getBoolValue(r, 'mandatory'),
-              read_only: getBoolValue(r, 'read_only'),
-              visible: getBoolValue(r, 'visible'),
-              order: getIntValue(r, 'order'),
-            }));
-            app.ok({ table, view: viewName, count: fields.length, fields, context: { instance_url: app.getEffectiveInstance() } },
-              { summary: `${fields.length} section(s) in ${table} → ${viewName}` });
+            await showForm(app, argv.table, argv.view);
           }),
         });
     },
