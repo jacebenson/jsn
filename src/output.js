@@ -462,6 +462,7 @@ export function getTableURL(instance, table, sysID) {
     soap_message: `nav_to.do?uri=soap_message.do?sys_id=${sysID}`,
     sys_security_acl: `nav_to.do?uri=sys_security_acl.do?sys_id=${sysID}`,
     sys_user_role: `nav_to.do?uri=sys_user_role.do?sys_id=${sysID}`,
+    sys_db_object: `nav_to.do?uri=sys_db_object.do?sys_id=${sysID}`,
   };
   const path = mapped[table] || `${table}.do?sys_id=${sysID}`;
   return `${instance}/${path}`;

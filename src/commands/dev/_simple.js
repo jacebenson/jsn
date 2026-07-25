@@ -73,10 +73,10 @@ export const tablesCmd = (wrap) => buildDevCmd('tables', 'sys_db_object', ['tabl
   },
 });
 
-export const columnsCmd = (wrap) => buildDevCmd('columns', 'sys_dictionary', ['column', 'col'], ['element', 'column_label', 'internal_type', 'mandatory', 'max_length', 'active'], wrap, { singular: 'column', scopeValidation: true });
+export { columnsCmd } from './columns.js';
 
 // Read-only commands (Go only has list/show)
-export const importCmd = (wrap) => buildDevCmd('import', 'sys_import_set', ['imports', 'imp'], ['sys_import_set', 'sys_import_row', 'sys_target_table', 'sys_target_sys_id'], wrap, { singular: 'import set', readOnly: true });
+export { importCmd } from './import.js';
 export const spPagesCmd = (wrap) => buildDevCmd('sppages', 'sp_page', ['sp-pages', 'pages'], ['id', 'title', 'sys_scope'], wrap, { singular: 'Service Portal page', readOnly: true });
 export const spWidgetsCmd = (wrap) => buildDevCmd('spwidgets', 'sp_widget', ['sp-widget', 'widgets'], ['id', 'name', 'sys_scope'], wrap, { singular: 'Service Portal widget', readOnly: true });
 export const uiPagesCmd = (wrap) => buildDevCmd('uipages', 'sys_ui_page', ['ui-page', 'pages'], ['name', 'sys_scope'], wrap, { singular: 'UI page', scopeValidation: true });
