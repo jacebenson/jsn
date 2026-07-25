@@ -67,7 +67,7 @@ async function showForm(app, table, viewName) {
       elemParams.set('sysparm_limit', '500');
       elemParams.set('sysparm_fields', 'element,type,label,order,position');
       elemParams.set('sysparm_display_value', 'all');
-      elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^position=0^ORposition=NULL^ORDERBYposition`);
+      elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYposition`);
       try { elements = await app.sdk.list('sys_ui_element', elemParams); } catch { /* ignore */ }
     }
 
