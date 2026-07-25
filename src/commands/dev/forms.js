@@ -1,4 +1,5 @@
 import { getStringField, interactiveList } from '../../helpers.js';
+import { paginatedSearch } from '../../paginated-search.js';
 
 function getDisplayValue(record, key) {
   if (!record || typeof record !== 'object') return '';
@@ -47,8 +48,45 @@ export function formsCmd(wrap) {
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const table = argv.table || '';
-            const query = table ? `name=${table}` : '';
+            let table = argv.table || '';
+
+            // No table specified — first pick a table that has forms
+            if (!table) {
+              // Query distinct table names from sys_ui_section
+              const tp = new URLSearchParams();
+              tp.set('sysparm_limit', '200');
+              tp.set('sysparm_fields', 'name');
+              tp.set('sysparm_group_by', 'name');
+              tp.set('sysparm_display_value', 'all');
+              tp.set('sysparm_query', 'ORDERBYname');
+              const tableRecords = await app.sdk.list('sys_ui_section', tp);
+              const tables = [...new Set(tableRecords.map(r => getStringField(r, 'name')).filter(Boolean))].sort();
+
+              // Use a simple choice list via the paginated picker
+              const choices = tables.map(t => ({ name: t, value: t }));
+              const totalCount = choices.length;
+
+              const source = async (term, offset) => {
+                if (term) {
+                  const filtered = choices.filter(c => c.name.toLowerCase().includes(term.toLowerCase()));
+                  return filtered.slice(offset, offset + argv.limit);
+                }
+                return choices.slice(offset, offset + argv.limit);
+              };
+
+              const tableName = await paginatedSearch({
+                message: 'Select a table',
+                pageSize: 10,
+                totalCount,
+                source,
+              });
+              if (tableName) {
+                table = tableName.value || tableName;
+              }
+              if (!table) return;
+            }
+
+            const query = `name=${table}`;
 
             const picked = await interactiveList({
               app, table: 'sys_ui_section', singular: 'form view', columns: ['view', 'caption', 'order'], limit: argv.limit, query, labelField: 'view',
@@ -168,7 +206,7 @@ export function formsCmd(wrap) {
       console.log('Manage UI form layouts.');
       console.log('');
       console.log('Available subcommands:');
-      console.log('  list [table]         List form views (optional: filter by table)');
+      console.log('  list [table]         List form views (interactive: pick table, then view)');
       console.log('  show <table>          Show form layout for a table');
       console.log('');
       console.log('Run "jsn forms <command> --help" for details.');
