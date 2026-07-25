@@ -1,86 +1,139 @@
 // Custom grouped help renderer
-// Mirrors the Go version's custom Cobra help template
-
-const COMMAND_GROUPS = {
-  'CORE COMMANDS': [
-    { name: 'incidents', alias: 'inc', desc: 'Manage incidents' },
-    { name: 'changes', alias: 'chg', desc: 'Manage change requests' },
-    { name: 'requests', alias: 'req', desc: 'Manage service catalog requests' },
-    { name: 'tasks', alias: 'task', desc: 'Manage catalog tasks' },
-    { name: 'tickets', alias: 'ticket', desc: 'Query generic tickets' },
-  ],
-  'AUTOMATION': [
-    { name: 'flows', desc: 'Manage Flow Designer flows' },
-    { name: 'actions', alias: 'action', desc: 'Manage flow actions (sys_hub_action_type_definition)' },
-    { name: 'rules', alias: 'br', desc: 'Manage business rules' },
-    { name: 'scrapi', desc: 'Manage Scripted REST APIs' },
-    { name: 'updatesets', desc: 'Manage update sets (set, yolo, export, import)' },
-    { name: 'eval', desc: 'Run server-side JavaScript' },
-    { name: 'rest', desc: 'Make raw REST API calls' },
-  ],
-  'ACCESS': [
-    { name: 'acls', alias: 'acl', desc: 'Manage access controls' },
-    { name: 'roles', alias: 'role', desc: 'Manage roles' },
-    { name: 'scopes', desc: 'Manage application scopes' },
-    { name: 'properties', alias: 'prop', desc: 'Manage system properties' },
-    { name: 'privileges', alias: 'priv', desc: 'Manage scope privileges' },
-    { name: 'securitytypes', alias: 'st', desc: 'Manage security types' },
-    { name: 'aliases', alias: 'als', desc: 'Manage table aliases' },
-  ],
-  'USER EXPERIENCE': [
-    { name: 'forms', desc: 'Manage form layouts' },
-    { name: 'lists', desc: 'Manage list layouts' },
-    { name: 'clientscripts', alias: 'cs', desc: 'Manage client scripts' },
-    { name: 'uipolicies', alias: 'up', desc: 'Manage UI policies' },
-    { name: 'uiactions', alias: 'ua', desc: 'Manage UI actions' },
-    { name: 'sppages', desc: 'Manage Service Portal pages' },
-    { name: 'spwidgets', desc: 'Manage Service Portal widgets' },
-    { name: 'uipages', desc: 'Manage UI pages' },
-    { name: 'appmenu', desc: 'Manage application menus' },
-    { name: 'listcontrols', alias: 'lc', desc: 'Manage list controls' },
-    { name: 'views', alias: 'vw', desc: 'Manage views' },
-    { name: 'uxscripts', alias: 'ux', desc: 'Manage UX source scripts' },
-    { name: 'catalogscripts', desc: 'Manage catalog client scripts' },
-    { name: 'cataloguipolicies', alias: 'cup', desc: 'Manage catalog UI policies' },
-  ],
-  'DATA': [
-    { name: 'records', desc: 'Generic Table API for any table' },
-    { name: 'tables', alias: 't', desc: 'Manage table definitions (sys_db_object)' },
-    { name: 'columns', alias: 'col', desc: 'Manage column definitions (sys_dictionary)' },
-    { name: 'includes', alias: 'si', desc: 'Manage script includes' },
-    { name: 'import', desc: 'Manage import sets' },
-    { name: 'logs', desc: 'View system logs' },
-    { name: 'users', alias: 'user', desc: 'Manage ServiceNow users' },
-    { name: 'groups', alias: 'group', desc: 'Manage groups' },
-    { name: 'groupmembers', alias: 'gm', desc: 'Manage group memberships' },
-    { name: 'grouproles', alias: 'gr', desc: 'Manage group roles' },
-    { name: 'relationships', alias: 'rel', desc: 'Manage table relationships' },
-    { name: 'appmodules', alias: 'am', desc: 'Manage application modules' },
-  ],
-};
-
-const CONFIGURATION_COMMANDS = [
-  { name: 'setup', desc: 'Interactive first-time setup' },
-  { name: 'auth', desc: 'Manage OAuth authentication' },
-  { name: 'profiles', alias: 'profile', desc: 'Manage instance profiles' },
-  { name: 'dev', desc: '[DEPRECATED] All dev subcommands are now top-level — use jsn flows, jsn acls, etc.' },
-];
-
-const UTILITY_COMMANDS = [
-  { name: 'skill', desc: 'Manage the jsn AI agent skill file (show, fetch, install)' },
-  { name: 'version', desc: 'Show version information (--check for npm updates)' },
-];
+// Organized by ServiceNow domain model with subgroup dividers
 
 function renderGroup(name, commands) {
   const lines = [`\n${name}`];
   lines.push('─'.repeat(50));
   for (const cmd of commands) {
+    if (cmd.divider) {
+      lines.push('');
+      lines.push(`  ${cmd.divider}`);
+      continue;
+    }
     const aliasPart = cmd.alias ? ` (${cmd.alias})` : '';
     const padded = `  jsn ${cmd.name}`.padEnd(22);
-    lines.push(`${padded}${cmd.desc}${aliasPart}`);
+    const status = cmd.status ? ` ${cmd.status}` : '';
+    lines.push(`${padded}${cmd.desc}${aliasPart}${status}`);
   }
   return lines.join('\n');
 }
+
+const CORE_COMMANDS = [
+  { name: 'incidents', alias: 'inc', desc: 'Manage incidents' },
+  { name: 'changes', alias: 'chg', desc: 'Manage change requests' },
+  { name: 'requests', alias: 'req', desc: 'Manage service catalog requests' },
+  { name: 'tasks', alias: 'task', desc: 'Manage catalog tasks' },
+];
+
+const AUTOMATION_COMMANDS = [
+  { divider: '── Async ──' },
+  { name: 'flows', alias: 'flow', desc: 'Flow Designer flows' },
+  { name: 'actions', alias: 'action', desc: 'Flow action definitions' },
+  { name: 'scriptactions', desc: 'Script actions' },
+  { name: 'scheduledjobs', desc: 'Scheduled jobs' },
+  { name: 'triggers', desc: 'Event triggers' },
+  { name: 'asyncrules', desc: 'Asynchronous business rules' },
+
+  { divider: '── In Memory ──' },
+  { name: 'rules', alias: 'br', desc: 'Business rules (create, update, delete)' },
+  { name: 'workflows', desc: 'Workflow definitions' },
+  { name: 'decisiontables', desc: 'Decision tables' },
+  { name: 'assignments', desc: 'Assignment rules' },
+
+  { divider: '── Inbound ──' },
+  { name: 'scrapi', desc: 'Scripted REST APIs' },
+  { name: 'email', desc: 'Inbound email actions' },
+
+  { divider: '── Outbound ──' },
+  { name: 'restmessage', alias: 'rm', desc: 'REST Messages (sys_rest_message)' },
+  { name: 'restmethods', desc: 'REST Message methods (sys_rest_message_fn)' },
+  { name: 'soapmessages', desc: 'SOAP Messages' },
+  { name: 'soapfunctions', desc: 'SOAP Message functions' },
+];
+
+const ACCESS_COMMANDS = [
+  { name: 'acls', alias: 'acl', desc: 'Access controls' },
+  { name: 'b4rules', alias: 'b4r', desc: 'Before-query business rules (see also Automation)' },
+  { name: 'roles', alias: 'role', desc: 'Roles' },
+  { name: 'privileges', alias: 'priv', desc: 'Scope privileges' },
+  { name: 'securitytypes', alias: 'st', desc: 'Custom security types' },
+  { name: 'aliases', alias: 'als', desc: 'Connection & credential aliases' },
+  { name: 'groups', alias: 'group', desc: 'Manage groups' },
+  { name: 'groupmembers', alias: 'gm', desc: 'Group memberships' },
+  { name: 'grouproles', alias: 'gr', desc: 'Group roles' },
+  { name: 'users', alias: 'user', desc: 'Manage users' },
+];
+
+const UX_COMMANDS = [
+  { divider: '── Shared (across all experiences) ──' },
+  { name: 'forms', desc: 'Form layouts' },
+  { name: 'lists', desc: 'List layouts' },
+  { name: 'clientscripts', alias: 'cs', desc: 'Client scripts' },
+  { name: 'uipolicies', alias: 'up', desc: 'UI policies' },
+  { name: 'uiactions', alias: 'ua', desc: 'UI actions (buttons, links, context menus)' },
+  { name: 'views', alias: 'vw', desc: 'Views' },
+  { name: 'catalogitems', alias: 'ci', desc: 'Service Catalog items + variables' },
+  { name: 'catalogscripts', desc: 'Catalog client scripts' },
+  { name: 'cataloguipolicies', alias: 'cup', desc: 'Catalog UI policies' },
+
+  { divider: '── Core UI ──' },
+  { name: 'uipages', desc: 'UI pages' },
+  { name: 'uimacros', desc: 'UI macros' },
+  { name: 'listcontrols', alias: 'lc', desc: 'List controls' },
+
+  { divider: '── Service Portal ──' },
+  { name: 'sppages', desc: 'Service Portal pages' },
+  { name: 'spwidgets', desc: 'Service Portal widgets' },
+
+  { divider: '── Next Experience (Workspaces) ──' },
+  { name: 'uxscripts', alias: 'ux', desc: 'UX source scripts' },
+  { name: 'uxlists', desc: 'Workspace lists (sys_ux_list)' },
+  { name: 'uxapplicability', desc: 'Workspace applicability (m2m)' },
+
+  { divider: '── Navigation ──' },
+  { name: 'appmenu', desc: 'Application menus' },
+  { name: 'appmodules', alias: 'am', desc: 'Application modules' },
+];
+
+const DATA_COMMANDS = [
+  { divider: '── DB Schema ──' },
+  { name: 'tables', alias: 't', desc: 'Table definitions' },
+  { name: 'columns', alias: 'col', desc: 'Column definitions' },
+  { name: 'relationships', alias: 'rel', desc: 'Table relationships' },
+
+  { divider: '── Shared Code, Transforms, Logs ──' },
+  { name: 'includes', alias: 'si', desc: 'Script includes' },
+  { name: 'import', desc: 'Import sets' },
+  { name: 'logs', desc: 'System logs' },
+  { name: 'properties', alias: 'prop', desc: 'System properties' },
+
+  { name: 'records', desc: 'Generic Table API (any table)' },
+];
+
+const CONFIG_COMMANDS = [
+  { name: 'setup', desc: 'Interactive first-time setup' },
+  { name: 'auth', desc: 'OAuth authentication' },
+  { name: 'profiles', alias: 'profile', desc: 'Instance profiles' },
+  { name: 'updatesets', desc: 'Update sets (set, yolo, export, import)' },
+  { name: 'scopes', desc: 'Application scopes' },
+];
+
+const DEVELOPER_COMMANDS = [
+  { name: 'eval', desc: 'Run server-side JavaScript' },
+  { name: 'rest', desc: 'Raw REST API calls' },
+  { name: 'skill', desc: 'AI agent skill file (show, fetch, install)' },
+  { name: 'version', desc: 'Version info (--check for npm updates)' },
+];
+
+const COMMAND_GROUPS = {
+  'CORE': CORE_COMMANDS,
+  'AUTOMATION': AUTOMATION_COMMANDS,
+  'ACCESS': ACCESS_COMMANDS,
+  'USER EXPERIENCE': UX_COMMANDS,
+  'DATA': DATA_COMMANDS,
+  'CONFIGURATION': CONFIG_COMMANDS,
+  'DEVELOPER': DEVELOPER_COMMANDS,
+};
 
 function renderFlags() {
   return `
@@ -107,8 +160,6 @@ LEARN MORE
 
 export function renderHelp() {
   const sections = Object.entries(COMMAND_GROUPS).map(([name, cmds]) => renderGroup(name, cmds));
-  const configSection = renderGroup('CONFIGURATION', CONFIGURATION_COMMANDS);
-  const utilitySection = renderGroup('UTILITY', UTILITY_COMMANDS);
 
   return [
     'Usage: jsn <command> [options]',
@@ -116,10 +167,6 @@ export function renderHelp() {
     `Command-line interface for ServiceNow`,
     '',
     ...sections,
-    '',
-    configSection,
-    '',
-    utilitySection,
     '',
     renderFlags(),
     renderTips(),

@@ -140,6 +140,17 @@ export function usersCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage ServiceNow users from the sys_user table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List users');
+      console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
+      console.log('  create                Create a new user');
+      console.log('  update <identifier>   Update a user');
+      console.log('  delete <identifier>   Delete a user');
+      console.log('');
+      console.log('Run "jsn users <command> --help" for details.');
+    },
   };
 }

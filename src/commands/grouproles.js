@@ -148,6 +148,15 @@ export function groupRolesCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage group roles in sys_user_has_role.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List group roles');
+      console.log('  add                   Add a role to a group');
+      console.log('  remove                Remove a role from a group');
+      console.log('');
+      console.log('Run "jsn grouproles <command> --help" for details.');
+    },
   };
 }

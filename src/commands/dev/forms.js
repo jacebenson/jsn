@@ -1,7 +1,4 @@
-import chalk from 'chalk';
-import { getStringField } from '../../helpers.js';
-
-// ─── Helpers ───
+import { getStringField, interactiveList } from '../../helpers.js';
 
 function getDisplayValue(record, key) {
   if (!record || typeof record !== 'object') return '';
@@ -20,14 +17,8 @@ function getIntValue(record, key) {
   const val = record[key];
   if (val == null) return 0;
   if (typeof val === 'number') return Math.floor(val);
-  if (typeof val === 'string') {
-    const n = parseInt(val, 10);
-    return isNaN(n) ? 0 : n;
-  }
-  if (typeof val === 'object' && val.value != null) {
-    const n = parseInt(val.value, 10);
-    return isNaN(n) ? 0 : n;
-  }
+  if (typeof val === 'string') { const n = parseInt(val, 10); return isNaN(n) ? 0 : n; }
+  if (typeof val === 'object' && val.value != null) { const n = parseInt(val.value, 10); return isNaN(n) ? 0 : n; }
   return 0;
 }
 
@@ -40,7 +31,87 @@ function getBoolValue(record, key) {
   return false;
 }
 
-// ─── Commands ───
+async function showForm(app, table, viewName) {
+  // 1) Look up the view
+  const viewParams = new URLSearchParams();
+  viewParams.set('sysparm_limit', '1');
+  viewParams.set('sysparm_fields', 'sys_id');
+  viewParams.set('sysparm_display_value', 'all');
+  viewParams.set('sysparm_query', `name=${viewName}`);
+  let viewSysID = '';
+  try { const vr = await app.sdk.list('sys_ui_view', viewParams); if (vr.length > 0) viewSysID = getStringField(vr[0], 'sys_id'); } catch { /* ignore */ }
+  if (!viewSysID) {
+    viewParams.set('sysparm_query', `title=${viewName}`);
+    try { const vr = await app.sdk.list('sys_ui_view', viewParams); if (vr.length > 0) viewSysID = getStringField(vr[0], 'sys_id'); } catch { /* ignore */ }
+  }
+
+  // 2) Get sections for this table + view
+  const secParams = new URLSearchParams();
+  secParams.set('sysparm_limit', '200');
+  secParams.set('sysparm_fields', 'sys_id,caption');
+  secParams.set('sysparm_display_value', 'all');
+  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYposition`);
+  if (viewSysID) {
+    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYposition`);
+  }
+  const sections = await app.sdk.list('sys_ui_section', secParams);
+
+  // 3) Get elements for each section
+  const sectionsOut = [];
+  for (const sec of sections) {
+    const secSysID = getStringField(sec, 'sys_id');
+    const sectionCaption = getDisplayValue(sec, 'caption') || '(unnamed)';
+
+    let elements = [];
+    if (secSysID) {
+      const elemParams = new URLSearchParams();
+      elemParams.set('sysparm_limit', '500');
+      elemParams.set('sysparm_fields', 'element,type,label,position');
+      elemParams.set('sysparm_display_value', 'all');
+      elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYposition`);
+      try { elements = await app.sdk.list('sys_ui_element', elemParams); } catch { /* ignore */ }
+    }
+
+    sectionsOut.push({
+      caption: sectionCaption,
+      position: getIntValue(sec, 'position'),
+      elements: elements
+        .map(e => ({
+          type: getDisplayValue(e, 'type'),
+          label: getDisplayValue(e, 'label'),
+          element: getDisplayValue(e, 'element'),
+          position: getIntValue(e, 'position'),
+        }))
+        .sort((a, b) => a.position - b.position),
+    });
+  }
+
+  sectionsOut.sort((a, b) => a.position - b.position);
+
+  const totalElements = sectionsOut.reduce((sum, s) => sum + s.elements.length, 0);
+
+  // Build formatted output
+  const lines = [];
+  lines.push(`Form: ${table} → ${viewName}`);
+  if (viewSysID) lines.push(`  View: ${app.getEffectiveInstance()}/nav_to.do?uri=sys_ui_view.do?sys_id=${viewSysID}`);
+  lines.push('');
+
+  for (const sec of sectionsOut) {
+    const secLabel = sec.caption || '(unnamed)';
+    lines.push(`── ${secLabel} ──`);
+    if (sec.elements.length === 0) {
+      lines.push('  (no elements)');
+    }
+    for (const el of sec.elements) {
+      const elLabel = el.label || el.element || '(unnamed)';
+      const typeStr = el.type ? ` (${el.type})` : '';
+      lines.push(`  ${elLabel}${typeStr}`);
+    }
+    lines.push('');
+  }
+
+  process.stdout.write(lines.join('\n') + '\n');
+}
 
 export function formsCmd(wrap) {
   return {
@@ -50,58 +121,52 @@ export function formsCmd(wrap) {
     builder: (yargs) => {
       return yargs
         .command({
-          command: 'list <table>',
+          command: 'list [table]',
           aliases: ['ls'],
-          describe: 'List form views for a table',
+          describe: 'List form views',
           builder: (y) => y
-            .positional('table', {
-              describe: 'Table name (e.g. incident, change_request)',
-              type: 'string',
-            })
+            .positional('table', { describe: 'Table name (e.g. incident, change_request)', type: 'string' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const table = argv.table;
-            const limit = argv.limit || 50;
+            const table = argv.table || '';
+            const query = table ? `name=${table}` : '';
 
-            const params = new URLSearchParams();
-            params.set('sysparm_limit', String(limit));
-            params.set('sysparm_fields', 'view');
-            params.set('sysparm_group_by', 'view');
-            params.set('sysparm_display_value', 'all');
-            const sysparmQuery = table ? `name=${table}^ORDERBYview` : 'ORDERBYview';
-            params.set('sysparm_query', sysparmQuery);
-
-            const records = await app.sdk.list('sys_ui_section', params);
-
-            const viewMap = new Map();
-            for (const record of records) {
-              const view = getDisplayValue(record, 'view');
-              if (view && !viewMap.has(view)) {
-                viewMap.set(view, true);
-              }
+            const picked = await interactiveList({
+              app, table: 'sys_ui_form', singular: 'form', columns: ['name', 'view'], limit: argv.limit, query, labelField: 'name',
+              formatLabel: r => {
+                const t = getStringField(r, 'name') || '';
+                const v = getStringField(r, 'view') || '';
+                return `${t} — ${v}`;
+              },
+            });
+            if (picked === undefined) return;
+            if (picked) {
+              const t = getStringField(picked, 'name') || '';
+              const v = getStringField(picked, 'view') || 'Default view';
+              // Show full form layout using the show logic
+              await showForm(app, t, v);
+              return;
             }
 
-            const views = Array.from(viewMap.keys()).sort();
-            const defaultViews = views.filter(v => v === 'Default view');
-            const workspaceViews = views.filter(v => v.toLowerCase().includes('workspace'));
-            const otherViews = views.filter(v => !defaultViews.includes(v) && !workspaceViews.includes(v));
+            // Fallback
+            const params = new URLSearchParams();
+            params.set('sysparm_limit', String(argv.limit));
+            params.set('sysparm_fields', 'name,view,sys_id');
+            params.set('sysparm_display_value', 'all');
+            params.set('sysparm_query', (query || '') + '^ORDERBYname');
+            const records = await app.sdk.list('sys_ui_form', params);
 
-            const recordsOut = views.map(v => ({ view: v, table }));
-
+            const desc = table ? `for ${table}` : 'across all tables';
             app.ok({
-              table,
-              count: views.length,
-              default: defaultViews,
-              workspaces: workspaceViews,
-              other: otherViews,
-              records: recordsOut,
-              instance_url: app.getEffectiveInstance(),
+              table: table || 'sys_ui_form',
+              count: records.length,
+              columns: ['name', 'view'],
+              records,
+              context: { instance_url: app.getEffectiveInstance() },
             }, {
-              summary: `${views.length} views for ${table}`,
-              breadcrumbs: [
-                { action: 'show', cmd: `jsn forms show ${table} --view "Default view"`, description: 'Show Default view layout' },
-              ],
+              summary: `${records.length} form(s) ${desc}`,
+              ...(table ? { breadcrumbs: [{ action: 'show', cmd: `jsn forms show ${table} --view "Default view"`, description: 'Show Default view layout' }] } : {}),
             });
           }),
         })
@@ -113,213 +178,16 @@ export function formsCmd(wrap) {
             .option('view', { type: 'string', default: 'Default view', describe: 'View name' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const table = argv.table;
-            const viewName = argv.view;
-
-            // Look up view sys_id
-            let viewSysID = '';
-            const viewParams = new URLSearchParams();
-            viewParams.set('sysparm_limit', '1');
-            viewParams.set('sysparm_fields', 'sys_id');
-            viewParams.set('sysparm_query', `name=${viewName}`);
-            try {
-              const viewRecords = await app.sdk.list('sys_ui_view', viewParams);
-              if (viewRecords.length > 0) {
-                viewSysID = getStringField(viewRecords[0], 'sys_id');
-              }
-            } catch {
-              // ignore
-            }
-
-            if (!viewSysID) {
-              viewParams.set('sysparm_query', `title=${viewName}`);
-              try {
-                const viewRecords = await app.sdk.list('sys_ui_view', viewParams);
-                if (viewRecords.length > 0) {
-                  viewSysID = getStringField(viewRecords[0], 'sys_id');
-                }
-              } catch {
-                // ignore
-              }
-            }
-
-            if (!viewSysID) {
-              viewSysID = viewName;
-            }
-
-            // Fetch sections
-            const params = new URLSearchParams();
-            params.set('sysparm_limit', '100');
-            params.set('sysparm_fields', 'sys_id,name,view,caption,header,order,active,sys_created_on,sys_updated_on');
-            params.set('sysparm_display_value', 'all');
-
-            const parts = [];
-            if (table) parts.push(`name=${table}`);
-            if (viewSysID) parts.push(`view=${viewSysID}`);
-            const sysparmQuery = parts.length > 0 ? `${parts.join('^')}^ORDERBYorder` : 'ORDERBYorder';
-            params.set('sysparm_query', sysparmQuery);
-
-            const records = await app.sdk.list('sys_ui_section', params);
-            if (records.length === 0) {
-              throw new Error(`no form sections found for ${table} with view "${viewName}"`);
-            }
-
-            // Parse sections
-            const sections = records.map(record => ({
-              sys_id: getStringField(record, 'sys_id'),
-              name: getDisplayValue(record, 'name'),
-              view: getDisplayValue(record, 'view'),
-              caption: getDisplayValue(record, 'caption'),
-              header: getDisplayValue(record, 'header'),
-              order: getIntValue(record, 'order'),
-              active: getBoolValue(record, 'active'),
-              createdOn: getDisplayValue(record, 'sys_created_on'),
-              updatedOn: getDisplayValue(record, 'sys_updated_on'),
-            }));
-
-            // Fetch elements for each section
-            const sectionElements = new Map();
-            for (const section of sections) {
-              const elemParams = new URLSearchParams();
-              elemParams.set('sysparm_limit', '100');
-              elemParams.set('sysparm_fields', 'sys_id,sys_ui_section,element,label,type,position,row,col,mandatory,read_only,visible');
-              elemParams.set('sysparm_display_value', 'all');
-              elemParams.set('sysparm_query', `sys_ui_section=${section.sys_id}^ORDERBYposition`);
-
-              try {
-                const elemRecords = await app.sdk.list('sys_ui_element', elemParams);
-                const elements = elemRecords.map(record => ({
-                  sys_id: getStringField(record, 'sys_id'),
-                  section: getStringField(record, 'sys_ui_section'),
-                  name: getDisplayValue(record, 'element'),
-                  label: getDisplayValue(record, 'label'),
-                  elementType: getDisplayValue(record, 'type'),
-                  position: getIntValue(record, 'position'),
-                  row: getIntValue(record, 'row'),
-                  column: getIntValue(record, 'col'),
-                  mandatory: getBoolValue(record, 'mandatory'),
-                  readOnly: getBoolValue(record, 'read_only'),
-                  visible: getBoolValue(record, 'visible'),
-                }));
-                sectionElements.set(section.sys_id, elements);
-              } catch {
-                sectionElements.set(section.sys_id, []);
-              }
-            }
-
-            // Build formatted output
-            const lines = [];
-            lines.push('');
-            lines.push(chalk.bold(chalk.hex('#e8a217')(`${table} (${viewName})`)));
-            lines.push('');
-
-            for (let i = 0; i < sections.length; i++) {
-              const section = sections[i];
-              const elements = sectionElements.get(section.sys_id) || [];
-
-              let sectionTitle = section.caption;
-              if (!sectionTitle && section.header && section.header !== 'false') {
-                sectionTitle = section.header;
-              }
-              if (!sectionTitle) {
-                sectionTitle = `Section ${i + 1}`;
-              }
-
-              lines.push(chalk.bold(chalk.hex('#666666')(`─ ${sectionTitle} ─`)));
-
-              if (elements.length === 0) {
-                lines.push(chalk.hex('#888888')('  (no fields)'));
-                lines.push('');
-                continue;
-              }
-
-              elements.sort((a, b) => a.position - b.position);
-
-              for (const elem of elements) {
-                if (elem.elementType && elem.elementType !== 'field') {
-                  continue;
-                }
-
-                let displayName = elem.name;
-                if (!displayName) displayName = elem.label;
-                if (!displayName) displayName = elem.elementType;
-
-                const indicators = [];
-                if (elem.mandatory) indicators.push('*');
-                if (elem.readOnly) indicators.push('(RO)');
-                const indicatorStr = indicators.length > 0 ? ` ${indicators.join(' ')}` : '';
-
-                lines.push(`  ${chalk.hex('#cccccc')(displayName)}${indicatorStr ? chalk.hex('#888888')(indicatorStr) : ''}`);
-              }
-
-              lines.push('');
-            }
-
-            lines.push('─────');
-            lines.push('');
-            lines.push(chalk.bold(chalk.hex('#e8a217')('Hints:')));
-            lines.push(`  ${`jsn forms list ${table}`.padEnd(50)}  ${chalk.hex('#888888')('List all views')}`);
-            lines.push(`  ${`jsn columns --table ${table}`.padEnd(50)}  ${chalk.hex('#888888')('View table columns')}`);
-            lines.push('');
-
-            const formatted = lines.join('\n');
-
-            // Build structured data for JSON/quiet mode
-            const sectionsData = sections.map(section => {
-              const elements = (sectionElements.get(section.sys_id) || [])
-                .filter(elem => !elem.elementType || elem.elementType === 'field')
-                .sort((a, b) => a.position - b.position)
-                .map(elem => ({
-                  sys_id: elem.sys_id,
-                  name: elem.name,
-                  label: elem.label,
-                  type: elem.elementType,
-                  position: elem.position,
-                  mandatory: elem.mandatory,
-                  read_only: elem.readOnly,
-                }));
-
-              let sectionTitle = section.caption;
-              if (!sectionTitle && section.header && section.header !== 'false') {
-                sectionTitle = section.header;
-              }
-              if (!sectionTitle) {
-                sectionTitle = 'Section';
-              }
-
-              return {
-                sys_id: section.sys_id,
-                caption: sectionTitle,
-                order: section.order,
-                elements,
-              };
-            });
-
-            app.ok({
-              table,
-              view: viewName,
-              sections: sectionsData,
-              _formatted: formatted,
-              _context: {
-                instance_url: app.getEffectiveInstance(),
-                table: 'sys_ui_section',
-              },
-            }, {
-              summary: `Form: ${table} (${viewName}) - ${sections.length} sections`,
-              breadcrumbs: [
-                { action: 'list', cmd: `jsn forms list ${table}`, description: 'List all views' },
-                { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View table columns' },
-              ],
-            });
+            await showForm(app, argv.table, argv.view);
           }),
         });
     },
     handler: () => {
-      console.log('Manage form layouts from the sys_ui_form_section table.');
+      console.log('Manage UI form layouts.');
       console.log('');
       console.log('Available subcommands:');
-      console.log('  list <table>         List form views for a table');
-      console.log('  show <table>         Show form layout for a table');
+      console.log('  list [table]         List form views (shows table — view name)');
+      console.log('  show <table>          Show form layout for a table');
       console.log('');
       console.log('Run "jsn forms <command> --help" for details.');
     },

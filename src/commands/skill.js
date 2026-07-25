@@ -230,6 +230,16 @@ export function skillCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage the jsn AI agent skill file.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  show       Show the bundled skill file');
+      console.log('  fetch      Download the latest skill from GitHub');
+      console.log('  path       Show skill file locations');
+      console.log('  install    Install skill file to agents directory');
+      console.log('');
+      console.log('Run "jsn skill <command> --help" for details.');
+    },
   };
 }

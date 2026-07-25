@@ -89,10 +89,15 @@ export function resolveFieldsParam(columns) {
  * @param {string} opts.labelField — field used to match selection (default: 'name')
  * @returns {Promise<void>|null} null if no selection made or non-interactive
  */
+function vowelArticle(word) {
+  const first = word.charAt(0).toLowerCase();
+  return first === 'a' || first === 'e' || first === 'i' || first === 'o' || first === 'u' ? 'an' : 'a';
+}
+
 export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name' }) {
   app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
-  if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin) || query) {
+  if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin)) {
     return null; // not interactive — caller should fall back to text/table
   }
 
@@ -108,23 +113,32 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   }
   if (totalCount === 0) return null;
 
-  // Server source adapter for paginatedSearch: (term, offset) => choices[]
-  async function serverSource(term, offset) {
-    const params = new URLSearchParams();
-    params.set('sysparm_limit', String(limit));
-    params.set('sysparm_display_value', 'all');
-    if (pickerFields) params.set('sysparm_fields', pickerFields);
-    if (term) {
-      params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
-    } else {
-      params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
-      params.set('sysparm_offset', String(offset));
+  // Paginated source adapter: (term, offset, { signal }) => choices[]
+  async function serverSource(term, offset, { signal } = {}) {
+    try {
+      const params = new URLSearchParams();
+      params.set('sysparm_limit', String(limit));
+      params.set('sysparm_display_value', 'all');
+      if (pickerFields) params.set('sysparm_fields', pickerFields);
+      if (term) {
+        params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+      } else {
+        params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+        params.set('sysparm_offset', String(offset));
+      }
+      const records = await app.sdk.list(table, params);
+      if (!Array.isArray(records)) {
+        console.error('SDK non-array:', typeof records);
+        return [];
+      }
+      return records.map(r => ({
+        name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+        value: r,
+      }));
+    } catch (err) {
+      console.error('serverSource error:', err.message || err);
+      return [];
     }
-    const records = await app.sdk.list(table, params);
-    return records.map(r => ({
-      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-      value: r,
-    }));
   }
 
   const selected = await paginatedSearch({
@@ -133,9 +147,8 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     totalCount,
     source: serverSource,
   });
-  // null = cancelled → undefined so callers skip fallback table
-  if (selected === null) return undefined;
-  return selected?.value; // unwrap {name, value} → raw record
+
+  return selected?.value; // unwrap {name, value} → raw record, undefined on cancel
 }
 
 /**

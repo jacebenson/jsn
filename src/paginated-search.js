@@ -1,178 +1,210 @@
 /**
- * Paginated interactive search prompt with server-side pagination.
- *
- * Uses raw readline for terminal control — @inquirer/search doesn't support
- * scroll-based pagination (source only fires on keystrokes, not on scroll).
- *
- * Returns the selected choice ({name, value}), or null on cancel.
+ * Paginated search prompt built with @inquirer/core hooks.
  */
 
-import readline from 'node:readline';
+import { createPrompt, useState, useKeypress, usePagination, useEffect, useRef } from '@inquirer/core';
+import { isEnterKey, isUpKey, isDownKey } from '@inquirer/core';
+import { appendFileSync } from 'fs';
 
-export async function paginatedSearch({ message, pageSize, totalCount, pageSize: pgSize, source }) {
-  const PAGE = pageSize || pgSize || 10;
-  let choices = [];
-  let active = 0;
-  let loaded = 0;
-  let cancelled = false;
-  let term = '';
-  let outputLines = 0; // number of lines currently on screen
+export const paginatedSearch = createPrompt((config, done) => {
+  const { message, pageSize = 10, totalCount = 0, source } = config;
 
-  // Write + track: returns number of newlines written (cursor advance)
-  function writeLines(lines) {
-    const out = lines.join('\n');
-    process.stdout.write(out);
-    return lines.length - 1; // N elements = N-1 newlines = cursor advances this many
-  }
+  // ── DEBUG ──
+  const DBG = '/home/jace/workspace/holly/sn-jsn-fork/debug.log';
+  const log = (msg) => appendFileSync(DBG, `${new Date().toISOString()} ${msg}\n`);
+  log(`START totalCount=${totalCount}`);
 
-  function render() {
-    if (outputLines > 0) {
-      process.stdout.moveCursor(0, -outputLines);
-      process.stdout.clearScreenDown();
-    } else {
-      // First render: ensure we start on a fresh line
-      process.stdout.cursorTo(0);
-      process.stdout.clearLine(0);
-    }
+  const [status, setStatus] = useState('loading');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [choices, setChoices] = useState([]);
+  const [active, setActive] = useState(0);
+  const [loaded, setLoaded] = useState(0);
+  const [searchMode, setSearchMode] = useState(false);
 
-    const buf = [];
+  // Refs for mutable state (no functional updaters — @inquirer/core doesn't support them)
+  const choicesRef = useRef([]);
+  const loadedRef = useRef(0);
+  const activeRef = useRef(0);
+  const totalCountRef = useRef(totalCount);
+  const searchModeRef = useRef(false);
 
-    // Header: show message + count
-    const countInfo = totalCount > 0 ? ` (${loaded} of ${totalCount} loaded)` : '';
-    buf.push(`${message}${countInfo}`);
+  const fullMessage = totalCount > 0
+    ? `${message} (${loaded} of ${totalCount} loaded)`
+    : message;
 
-    // Visible window: center active item
-    const start = Math.max(0, active - Math.floor(PAGE / 2));
-    const end = Math.min(choices.length, start + PAGE);
-    const visible = choices.slice(start, end);
+  // Load initial page
+  useEffect(() => {
+    const controller = new AbortController();
+    setStatus('loading');
+    log(`EFFECT-INIT searchTerm="${searchTerm}"`);
 
-    for (let i = 0; i < visible.length; i++) {
-      const choice = visible[i];
-      const isActive = (start + i) === active;
-      const prefix = isActive ? '\x1b[7m' : '';
-      const suffix = isActive ? '\x1b[0m' : '';
-      const display = choice.name.length > 70 ? choice.name.slice(0, 67) + '...' : choice.name;
-      buf.push(`  ${prefix}${display}${suffix}`);
-    }
-
-    // Pad to constant height
-    while (buf.length < PAGE + 2) {
-      buf.push('');
-    }
-
-    // Footer
-    const more = loaded < totalCount;
-    const footer = more
-      ? `↑↓ navigate • ⏎ select • esc cancel • type to filter • ↓ at end loads more`
-      : `↑↓ navigate • ⏎ select • esc cancel • type to filter`;
-    buf.push('');
-    buf.push(footer);
-
-    // Search bar
-    buf.push(`> ${term}`);
-
-    outputLines = writeLines(buf);
-  }
-
-  function cleanup() {
-    if (outputLines > 0) {
-      process.stdout.moveCursor(0, -outputLines);
-      process.stdout.clearScreenDown();
-      outputLines = 0;
-    }
-    // Ensure raw mode is off
-    try { process.stdin.setRawMode(false); } catch { /* ok */ }
-  }
-
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: true,
-    });
-    try { process.stdin.setRawMode(true); } catch { /* non-TTY */ }
-
-    let inputBuf = '';
-
-    async function loadPage() {
-      if (loaded >= totalCount) return;
-      const newItems = await source('', loaded);
-      if (newItems.length > 0) {
-        choices = choices.concat(newItems);
-        loaded = Math.min(choices.length, totalCount);
-      }
-    }
-
-    // Initial load
-    (async () => {
-      const initial = await source('', 0);
-      if (cancelled) return;
-      choices = initial;
-      loaded = Math.min(choices.length, totalCount || Infinity);
-      active = 0;
-      render();
-    })();
-
-    rl.input.on('keypress', async (_str, key) => {
-      if (key.name === 'escape' || key.name === 'q' || (key.ctrl && key.name === 'c')) {
-        cancelled = true;
-        rl.close();
-        return;
-      }
-
-      if (key.name === 'return' || key.name === 'enter') {
-        if (choices.length > 0 && active >= 0 && active < choices.length) {
-          rl.close();
-          return;
+    const load = async () => {
+      try {
+        const items = await source(searchTerm || undefined, 0, { signal: controller.signal });
+        log(`INIT-LOAD got ${items.length} items`);
+        if (!controller.signal.aborted) {
+          choicesRef.current = items;
+          loadedRef.current = items.length;
+          activeRef.current = 0;
+          setChoices(items);
+          setLoaded(items.length);
+          setActive(0);
+          setStatus('done');
+        }
+      } catch (err) {
+        log(`INIT-LOAD error: ${err.message}`);
+        if (!controller.signal.aborted) {
+          setStatus('done');
+          setChoices([]);
+          setLoaded(0);
         }
       }
+    };
+    load();
+    return () => controller.abort();
+  }, []);
 
-      if (key.name === 'up' && active > 0) {
-        active--;
-        render();
-        return;
-      }
+  // Load more when scrolling past end
+  async function loadMore() {
+    log(`loadMore check: loaded=${loadedRef.current} total=${totalCountRef.current} searchMode=${searchModeRef.current}`);
+    if (loadedRef.current >= totalCountRef.current || searchModeRef.current) {
+      log(`loadMore SKIPPED`);
+      return;
+    }
+    setStatus('loading');
+    log(`loadMore calling source offset=${loadedRef.current}`);
+    try {
+      const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
+      log(`loadMore got ${newItems.length} items`);
+      const updated = choicesRef.current.concat(newItems);
+      choicesRef.current = updated;
+      loadedRef.current = updated.length;
+      setChoices([...updated]);
+      setLoaded(updated.length);
+    } catch (err) {
+      console.error('Scroll load error:', err.message || err);
+      loadedRef.current = totalCountRef.current;
+      setLoaded(totalCountRef.current);
+    }
+    setStatus('done');
+  }
 
-      if (key.name === 'down') {
-        if (active < choices.length - 1) {
-          active++;
-          render();
-        } else if (loaded < totalCount) {
-          await loadPage();
-          if (active < choices.length - 1) active++;
-          render();
+  // Search when term changes
+  useEffect(() => {
+    if (!searchTerm) {
+      setSearchMode(false);
+      searchModeRef.current = false;
+      const controller = new AbortController();
+      setStatus('loading');
+      source('', 0, { signal: controller.signal }).then(items => {
+        if (!controller.signal.aborted) {
+          choicesRef.current = items;
+          loadedRef.current = Math.min(items.length, totalCount || Infinity);
+          activeRef.current = 0;
+          setChoices(items);
+          setLoaded(items.length);
+          setActive(0);
+          setStatus('done');
         }
-        return;
-      }
+      }).catch(() => {
+        if (!controller.signal.aborted) setStatus('done');
+      });
+      return () => controller.abort();
+    }
 
-      if (key.name === 'backspace') {
-        if (inputBuf.length > 0) inputBuf = inputBuf.slice(0, -1);
-      } else if (key.sequence && key.sequence.length === 1 && !key.meta && !key.ctrl) {
-        inputBuf += key.sequence;
-      } else {
-        return;
-      }
+    const controller = new AbortController();
+    setStatus('loading');
+    setSearchMode(true);
+    searchModeRef.current = true;
 
-      // Search
-      term = inputBuf;
-      if (term) {
-        const results = await source(term, 0);
-        choices = results;
-        loaded = results.length;
-      } else {
-        // Reset to browse mode — reload first page
-        const results = await source('', 0);
-        choices = results;
-        loaded = Math.min(results.length, totalCount || Infinity);
+    source(searchTerm, undefined, { signal: controller.signal }).then(items => {
+      if (!controller.signal.aborted) {
+        choicesRef.current = items;
+        loadedRef.current = items.length;
+        activeRef.current = 0;
+        setChoices(items);
+        setLoaded(items.length);
+        setActive(0);
+        setStatus('done');
       }
-      active = 0;
-      render();
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setStatus('done');
+        setChoices([]);
+      }
     });
 
-    rl.on('close', () => {
-      cleanup();
-      const choice = (!cancelled && active >= 0 && active < choices.length) ? choices[active] : null;
-      resolve(cancelled ? null : choice);
-    });
+    return () => controller.abort();
+  }, [searchTerm]);
+
+  // Key handling
+  useKeypress((key, rl) => {
+    if (status === 'loading') return;
+
+    if (isEnterKey(key)) {
+      if (choicesRef.current.length > 0 && activeRef.current >= 0 && activeRef.current < choicesRef.current.length) {
+        done(choicesRef.current[activeRef.current]);
+      }
+      return;
+    }
+
+    if (key.name === 'escape') {
+      done(undefined);
+      return;
+    }
+
+    if (isUpKey(key)) {
+      if (activeRef.current > 0) {
+        activeRef.current--;
+        setActive(activeRef.current);
+      }
+      return;
+    }
+
+    if (isDownKey(key)) {
+      if (activeRef.current < choicesRef.current.length - 1) {
+        activeRef.current++;
+        setActive(activeRef.current);
+      } else if (!searchModeRef.current && loadedRef.current < totalCountRef.current) {
+        log(`DOWN at end: active=${activeRef.current} len=${choicesRef.current.length} loaded=${loadedRef.current} total=${totalCountRef.current}`);
+        loadMore().then(() => {
+          activeRef.current++;
+          setActive(activeRef.current);
+        });
+      }
+      return;
+    }
+
+    // Use readline's built-in line buffer for text input
+    const newTerm = rl.line;
+    if (newTerm !== searchTerm) {
+      setSearchTerm(newTerm);
+    }
   });
-}
+
+  // Paginated rendering
+  const page = usePagination({
+    items: Array.isArray(choices) ? choices : [],
+    active,
+    pageSize,
+    renderItem: ({ item, isActive }) => {
+      const prefix = isActive ? '\x1b[7m' : ' ';
+      const suffix = isActive ? '\x1b[0m' : '';
+      const name = item.name || String(item.value || item);
+      const display = name.length > 70 ? name.slice(0, 67) + '...' : name;
+      return ` ${prefix}${display}${suffix}`;
+    },
+    loop: false,
+  });
+
+  const helpText = loaded < totalCount && !searchMode
+    ? '(scroll to load more, type to search)'
+    : '(type to search)';
+
+  return [
+    `${fullMessage} Search: ${searchTerm}${status === 'loading' ? ' ...' : ''}`,
+    `${page}\n\n${helpText}`,
+  ];
+});
+
+export default paginatedSearch;

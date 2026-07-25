@@ -27,6 +27,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@inquirer/core": "^10.1.0",
     "@inquirer/prompts": "^7.5.1",
     "chalk": "^5.4.1",
     "cli-table3": "^0.6.5",
@@ -34,7 +35,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@inquirer/search": "^4.2.0",
+    "@inquirer/search": "^4.2.1",
     "globals": "^17.6.0"
   },
   "files": [

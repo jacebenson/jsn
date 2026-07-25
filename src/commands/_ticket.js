@@ -255,6 +255,19 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
         })
 
     },
-    handler: () => {}, // Handled by subcommands
+    handler: () => {
+      const singular = displayName.endsWith('s') ? displayName.slice(0, -1) : displayName;
+      const article = singular.startsWith('a') || singular.startsWith('e') || singular.startsWith('i') || singular.startsWith('o') || singular.startsWith('u') ? 'an' : 'a';
+      console.log(`Manage ${displayName} from the ${table} table.`);
+      console.log('');
+      console.log('Available subcommands:');
+      console.log(`  list                  List ${displayName}`);
+      console.log(`  show <number or sys_id>  Show ${article} ${singular} by number or sys_id`);
+      console.log(`  create                Create ${article} ${singular}`);
+      console.log(`  update <identifier>   Update ${article} ${singular}`);
+      console.log(`  delete <identifier>   Delete ${article} ${singular}`);
+      console.log('');
+      console.log(`Run "jsn ${displayName} <command> --help" for details.`);
+    }, // Default handler
   };
 }
