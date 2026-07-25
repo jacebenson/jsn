@@ -3,7 +3,7 @@
 import { formatRecordForDisplay, getStringField, isHexString, parseDataArg } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import readline from 'node:readline';
-import search from '@inquirer/search';
+import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from '../../output.js';
 
 function vowelArticle(word) {

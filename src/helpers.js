@@ -1,7 +1,7 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
-import search from '@inquirer/search';
+import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from './output.js';
 
 export function getStringField(record, field) {
@@ -115,6 +115,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 2
   try {
     const selected = await search({
       message: `Select ${vowelArticle(singular)} ${singular}:`,
+      pageSize: Math.min(limit, 20),
       source: async (input) => {
         if (!input) return choices;
         const term = input.toLowerCase();
