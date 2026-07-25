@@ -312,6 +312,14 @@ export function formsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage form layouts from the sys_ui_form_section table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list <table>         List form views for a table');
+      console.log('  show <table>         Show form layout for a table');
+      console.log('');
+      console.log('Run "jsn forms <command> --help" for details.');
+    },
   };
 }

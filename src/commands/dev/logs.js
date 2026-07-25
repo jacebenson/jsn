@@ -59,6 +59,14 @@ export function logsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('View system logs from the syslog table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                List log entries');
+      console.log('  show <sys_id>       Show a log entry by sys_id');
+      console.log('');
+      console.log('Run "jsn logs <command> --help" for details.');
+    },
   };
 }

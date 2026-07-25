@@ -232,6 +232,14 @@ export function listsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage list layouts from the sys_ui_list table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list <table>         List list views for a table');
+      console.log('  show <table>         Show list layout for a table');
+      console.log('');
+      console.log('Run "jsn lists <command> --help" for details.');
+    },
   };
 }

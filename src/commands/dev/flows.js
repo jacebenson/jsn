@@ -95,7 +95,18 @@ export function flowsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage Flow Designer flows from the sys_hub_flow table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List flows');
+      console.log('  show <identifier>     Show flow details by name or sys_id');
+      console.log('  create                Create a new flow (not yet implemented)');
+      console.log('  update <identifier>   Update a flow (not yet implemented)');
+      console.log('  delete <identifier>   Delete a flow (not yet implemented)');
+      console.log('');
+      console.log('Run "jsn flows <command> --help" for details.');
+    },
   };
 }
 
