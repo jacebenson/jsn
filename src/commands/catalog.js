@@ -161,9 +161,19 @@ async function showItem(app, sysID) {
   const wfName = getStringField(item, 'workflow');
   const wfID = item.workflow?.value || '';
   const planName = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan');
-  if (flowName) {
-    lines.push(`  Flow: ${flowName}`);
-    if (flowID) lines.push(`    → jsn flows show ${flowID}`);
+
+  if (flowID) {
+    if (flowName === flowID) {
+      try {
+        const flowRec = await app.sdk.get('sys_hub_flow', flowID);
+        lines.push(`  Flow: ${getStringField(flowRec, 'name') || flowID}`);
+      } catch {
+        lines.push(`  Flow: ${flowName}`);
+      }
+    } else {
+      lines.push(`  Flow: ${flowName}`);
+    }
+    lines.push(`    → jsn flows show ${flowID}`);
   } else if (wfName) {
     lines.push(`  Workflow: ${wfName}`);
     if (wfID) lines.push(`    → jsn workflows show ${wfID}`);
