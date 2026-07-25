@@ -71,6 +71,19 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 | **Config** | `setup`, `auth`, `profiles`, `updatesets`, `scopes` |
 | **Developer** | `eval`, `rest`, `skill`, `version` |
 
+### `jsn rest` examples
+
+```bash
+# Query any table by name
+jsn rest --table incident --query "active=true" --limit 5 --json
+
+# GET a single record
+jsn rest --table incident --sys-id abc123... --json
+
+# Raw endpoint access
+jsn rest "/api/now/table/incident?sysparm_limit=3" --json
+```
+
 ## Troubleshooting Field Behavior
 
 Check order (priority):
