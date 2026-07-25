@@ -125,15 +125,12 @@ export async function interactiveList({ app, table, singular, columns, limit = 2
 
   try {
     const selected = await search({
-      message: `${table} (type to search, scroll to load more)`,
+      message: `${table} (${records.length} of ${totalCount} loaded, type to search)`,
       pageSize: Math.min(limit, 20),
       source: async (input) => {
-        if (!input) {
-          return { results: loadedChoices, total: totalCount };
-        }
+        if (!input) return loadedChoices;
         const term = input.toLowerCase();
-        const filtered = loadedChoices.filter(c => c.name.toLowerCase().includes(term));
-        return { results: filtered, total: filtered.length };
+        return loadedChoices.filter(c => c.name.toLowerCase().includes(term));
       },
     });
     return selected; // the record object
