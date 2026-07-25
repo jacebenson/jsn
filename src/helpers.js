@@ -126,6 +126,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       params.set('sysparm_offset', String(offset));
     }
     const records = await app.sdk.list(table, params);
+    if (!Array.isArray(records)) return [];
     return records.map(r => ({
       name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
       value: r,
