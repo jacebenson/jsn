@@ -97,7 +97,7 @@ function vowelArticle(word) {
 export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name' }) {
   app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
-  if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin) || query) {
+  if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin)) {
     return null; // not interactive — caller should fall back to text/table
   }
 
