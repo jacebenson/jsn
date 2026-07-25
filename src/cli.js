@@ -38,7 +38,7 @@ import {
   privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
-  workflowsCmd, decisiontablesCmd, assignmentsCmd,
+  decisiontablesCmd, assignmentsCmd,
   emailCmd,
   restmessageCmd, restmethodsCmd, soapmessagesCmd, soapfunctionsCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
@@ -222,7 +222,6 @@ export function buildCLI() {
     .command(triggersCmd(wrap))
     // AUTOMATION — In Memory
     .command(rulesCmd(wrap))
-    .command(workflowsCmd(wrap))
     .command(decisiontablesCmd(wrap))
     .command(assignmentsCmd(wrap))
     // AUTOMATION — Inbound

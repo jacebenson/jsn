@@ -36,7 +36,6 @@ const AUTOMATION_COMMANDS = [
 
   { divider: '── In Memory ──' },
   { name: 'rules', alias: 'br', desc: 'Business rules (create, update, delete)' },
-  { name: 'workflows', desc: 'Workflow definitions' },
   { name: 'decisiontables', desc: 'Decision tables' },
   { name: 'assignments', desc: 'Assignment rules' },
 
