@@ -172,8 +172,8 @@ export const paginatedSearch = createPrompt((config, done) => {
     : '(type to search)';
 
   return [
-    `${fullMessage}\n${page}`,
-    status === 'loading' ? '  Loading...' : `  > ${searchTerm}  ${helpText}`,
+    `${fullMessage} Search: ${searchTerm}${status === 'loading' ? ' ...' : ''}\n${page}`,
+    helpText,
   ];
 });
 
