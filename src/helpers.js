@@ -97,29 +97,43 @@ export async function interactiveList({ app, table, singular, columns, limit = 2
   }
 
   const pickerColumns = ['sys_id', labelField, ...columns.filter(c => c !== labelField && c !== 'sys_id' && c !== '*')];
+  const pickerFields = pickerColumns.join(',');
+
+  // Get total count
+  let totalCount = 0;
+  try {
+    totalCount = await app.sdk.aggregateCount(table, '');
+  } catch {
+    totalCount = 0;
+  }
+
+  // Fetch records
   const params = new URLSearchParams();
   params.set('sysparm_limit', String(limit));
   params.set('sysparm_display_value', 'all');
-  const pickerFields = pickerColumns.join(',');
   if (pickerFields) params.set('sysparm_fields', pickerFields);
   params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
 
   const records = await app.sdk.list(table, params);
   if (records.length === 0) return null;
 
-  const choices = records.map(r => ({
+  // Format choices once — stored for the source callback
+  const loadedChoices = records.map(r => ({
     name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
     value: r,
   }));
 
   try {
     const selected = await search({
-      message: `Select ${vowelArticle(singular)} ${singular}:`,
+      message: `${table} (type to search, scroll to load more)`,
       pageSize: Math.min(limit, 20),
       source: async (input) => {
-        if (!input) return choices;
+        if (!input) {
+          return { results: loadedChoices, total: totalCount };
+        }
         const term = input.toLowerCase();
-        return choices.filter(c => c.name.toLowerCase().includes(term));
+        const filtered = loadedChoices.filter(c => c.name.toLowerCase().includes(term));
+        return { results: filtered, total: filtered.length };
       },
     });
     return selected; // the record object
