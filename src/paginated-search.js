@@ -140,8 +140,12 @@ export const paginatedSearch = createPrompt((config, done) => {
       if (searchTerm.length > 0) {
         setSearchTerm(searchTerm.slice(0, -1));
       }
-    } else if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-      setSearchTerm(searchTerm + key.sequence);
+    } else if (!key.ctrl && !key.meta) {
+      // Accept any single printable character (handles _, -, etc.)
+      const char = key.sequence || key.name || '';
+      if (char.length === 1 && char >= ' ') {
+        setSearchTerm(searchTerm + char);
+      }
     }
   });
 
