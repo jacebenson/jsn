@@ -43,6 +43,14 @@ export function logsCmd(wrap) {
               // Fetch full record for rich display (like jsn logs show)
               const full = await app.sdk.get('syslog', sysID) || picked;
               full._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
+              // Parse and pretty-print context_map JSON (SN API may return as string or object)
+              const cm = full.context_map;
+              if (cm) {
+                try {
+                  const parsed = typeof cm === 'string' ? JSON.parse(cm) : cm;
+                  full.context_map = Object.entries(parsed).map(([k, v]) => `${k}: ${v}`).join('\n');
+                } catch { /* leave as-is */ }
+              }
               const level = getStringField(full, 'level') || '?';
               const instance = app.getEffectiveInstance();
               return app.ok(full, {
