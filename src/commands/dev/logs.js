@@ -1,5 +1,13 @@
 import { formatRecordForDisplay, interactiveList, getStringField } from '../../helpers.js';
 
+function logIcon(level) {
+  level = (level || '').toLowerCase();
+  if (level === 'error') return '❌';
+  if (level === 'warning') return '⚠️';
+  if (level === 'information' || level === 'info') return 'ℹ️';
+  return '📝';
+}
+
 export function logsCmd(wrap) {
   return {
     command: 'logs [subcommand]',
@@ -12,31 +20,30 @@ export function logsCmd(wrap) {
           aliases: ['ls'],
           describe: 'List system logs',
           builder: (y) => y
-            .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
-            .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
+            .option('query', { type: 'string', describe: 'Encoded query (e.g. "level=error" or "sourceLIKEscript")' })
+            .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const columns = argv.columns ? argv.columns.split(',') : ['level', 'message', 'source', 'created'];
+            const columns = argv.columns ? argv.columns.split(',') : ['level', 'message', 'source', 'sys_created_on'];
             const query = argv.query || '';
 
-            // Try interactive picker first
             const picked = await interactiveList({
               app, table: 'syslog', singular: 'log entry', columns, limit: argv.limit, query, labelField: 'message',
               formatLabel: r => {
                 const level = getStringField(r, 'level') || '';
-                const icon = level === 'Error' || level === 'error' ? '❌'
-                  : level === 'Warning' || level === 'warning' ? '⚠️'
-                  : level === 'Information' || level === 'information' || level === 'Info' || level === 'info' ? 'ℹ️'
-                  : '📝';
                 const msg = (getStringField(r, 'message') || '').substring(0, 80);
-                return `${icon} ${msg}`;
+                const src = getStringField(r, 'source') || '';
+                return `${logIcon(level)} ${msg}${src ? `  [${src}]` : ''}`;
               },
             });
-            if (picked === undefined) return; // user cancelled
+            if (picked === undefined) return;
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
-              return app.ok(picked, { summary: `Log entry: ${getStringField(picked, 'level') || '?'} — ${(getStringField(picked, 'message') || '').substring(0, 60)}` });
+              const level = getStringField(picked, 'level') || '?';
+              return app.ok(picked, {
+                summary: `${logIcon(level)} ${level}: ${(getStringField(picked, 'message') || '').substring(0, 80)}`,
+              });
             }
 
             // Fall back to text/table
@@ -65,7 +72,8 @@ export function logsCmd(wrap) {
             if (!record) {
               throw new Error(`Log entry not found: ${argv.sys_id}`);
             }
-            app.ok(record, { summary: `Log entry ${argv.sys_id}` });
+            const level = getStringField(record, 'level') || '?';
+            app.ok(record, { summary: `${logIcon(level)} ${level}: ${(getStringField(record, 'message') || '').substring(0, 80)}` });
           }),
         });
     },
