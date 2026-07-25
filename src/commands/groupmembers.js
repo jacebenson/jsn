@@ -148,6 +148,15 @@ export function groupMembersCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage group memberships in sys_user_grmember.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List group members');
+      console.log('  add                   Add a user to a group');
+      console.log('  remove                Remove a user from a group');
+      console.log('');
+      console.log('Run "jsn groupmembers <command> --help" for details.');
+    },
   };
 }

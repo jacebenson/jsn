@@ -205,6 +205,18 @@ export function recordsCmd(wrap) {
         })
 
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Query and manage records in any ServiceNow table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List records from a table');
+      console.log('  get                   Get a single record by sys_id');
+      console.log('  create                Create a record');
+      console.log('  update                Update a record');
+      console.log('  delete                Delete a record');
+      console.log('  inspect               Inspect table schema and statistics');
+      console.log('');
+      console.log('Run "jsn records <command> --help" for details.');
+    },
   };
 }

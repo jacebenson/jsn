@@ -137,6 +137,17 @@ export function groupsCmd(wrap) {
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage ServiceNow groups from the sys_user_group table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List groups');
+      console.log('  show <name or sys_id>  Show a group');
+      console.log('  create                Create a new group');
+      console.log('  update <identifier>   Update a group');
+      console.log('  delete <identifier>   Delete a group');
+      console.log('');
+      console.log('Run "jsn groups <command> --help" for details.');
+    },
   };
 }

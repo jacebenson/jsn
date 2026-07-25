@@ -302,6 +302,15 @@ Examples:
           }),
         });
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Manage OAuth authentication for ServiceNow instances.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  login <url>    Login with OAuth (supports --print-url, --code for CI/CD)');
+      console.log('  status         Show auth status for the active profile');
+      console.log('  refresh        Refresh the access token');
+      console.log('');
+      console.log('Run "jsn auth <command> --help" for details.');
+    },
   };
 }

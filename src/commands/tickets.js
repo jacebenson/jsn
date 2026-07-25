@@ -117,6 +117,17 @@ export function ticketsCmd(wrap) {
         })
 
     },
-    handler: () => {},
+    handler: () => {
+      console.log('Query generic tickets from the ticket table.');
+      console.log('');
+      console.log('Available subcommands:');
+      console.log('  list                  List tickets');
+      console.log('  show <number or sys_id>  Show a ticket');
+      console.log('  create                Create a new ticket');
+      console.log('  update <identifier>   Update a ticket');
+      console.log('  delete <identifier>   Delete a ticket');
+      console.log('');
+      console.log('Run "jsn tickets <command> --help" for details.');
+    },
   };
 }
