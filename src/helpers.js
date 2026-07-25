@@ -1,7 +1,7 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
-import { search } from '@inquirer/prompts';
+import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 
 export function getStringField(record, field) {
@@ -108,17 +108,10 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   }
   if (totalCount === 0) return null;
 
-  // Return formatted choices for a record page
-  function formatChoices(records) {
-    return records.map(r => ({
-      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-      value: r,
-    }));
-  }
-
-  async function fetchPage(term, offset, customLimit) {
+  // Server source adapter for paginatedSearch: (term, offset) => choices[]
+  async function serverSource(term, offset) {
     const params = new URLSearchParams();
-    params.set('sysparm_limit', String(customLimit || limit));
+    params.set('sysparm_limit', String(limit));
     params.set('sysparm_display_value', 'all');
     if (pickerFields) params.set('sysparm_fields', pickerFields);
     if (term) {
@@ -127,43 +120,22 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
       params.set('sysparm_offset', String(offset));
     }
-    return await app.sdk.list(table, params);
+    const records = await app.sdk.list(table, params);
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: r,
+    }));
   }
 
-  // Accumulator: tracks all loaded choices, loads more on empty input
-  let allChoices = [];
-  let lastTerm = '';
-
-  try {
-    const selected = await search({
-      message: `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
-      pageSize: 10,
-      source: async (term) => {
-        const input = term || '';
-        if (input) {
-          // Typed search: query the server directly
-          const records = await fetchPage(input, 0, limit);
-          allChoices = formatChoices(records);
-          lastTerm = input;
-        } else if (input !== lastTerm || allChoices.length === 0) {
-          // Empty input, new call or first load: fetch initial page
-          const records = await fetchPage('', 0, limit);
-          allChoices = formatChoices(records);
-          lastTerm = input;
-        } else if (allChoices.length < totalCount) {
-          // Empty input, already loaded some: fetch next page
-          const records = await fetchPage('', allChoices.length, limit);
-          const more = formatChoices(records);
-          allChoices = allChoices.concat(more);
-        }
-        return allChoices;
-      },
-    });
-    return selected;
-  } catch (err) {
-    if (err.name === 'ExitPromptError') return undefined;
-    throw err;
-  }
+  const selected = await paginatedSearch({
+    message: `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
+    pageSize: 10,
+    totalCount,
+    source: serverSource,
+  });
+  // null = cancelled → undefined so callers skip fallback table
+  if (selected === null) return undefined;
+  return selected;
 }
 
 /**
