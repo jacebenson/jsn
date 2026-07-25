@@ -41,8 +41,15 @@ export function logsCmd(wrap) {
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
               const level = getStringField(picked, 'level') || '?';
+              const sysID = getStringField(picked, 'sys_id') || '';
+              const instance = app.getEffectiveInstance();
               return app.ok(picked, {
                 summary: `${logIcon(level)} ${level}: ${(getStringField(picked, 'message') || '').substring(0, 80)}`,
+                breadcrumbs: [
+                  { action: 'list', cmd: 'jsn logs list', description: 'Back to all logs' },
+                  { action: 'view', cmd: `jsn logs show ${sysID}`, description: 'View full details' },
+                  ...(instance && sysID ? [{ action: 'open', label: `${instance}/syslog_list.do?sysparm_query=sys_id=${sysID}`, description: 'Open in ServiceNow' }] : []),
+                ],
               });
             }
 
