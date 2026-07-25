@@ -203,17 +203,27 @@ export function catalogCmd(wrap) {
                     }
                   }
 
-                  app.ok({
-                    sys_id: sysID,
-                    name: getStringField(item, 'name'),
-                    short_description: getStringField(item, 'short_description'),
-                    category: getStringField(item, 'category'),
-                    active: getStringField(item, 'active'),
-                    variables: { standalone: standaloneVars, variable_sets: Array.from(setVars.values()) },
-                    context: { instance_url: app.getEffectiveInstance() },
-                  }, {
-                    summary: `${getStringField(item, 'name')} — ${standaloneVars.length + Array.from(setVars.values()).reduce((a, s) => a + s.variables.length, 0)} variable(s)`,
-                  });
+                  const totalVars = standaloneVars.length + Array.from(setVars.values()).reduce((a, s) => a + s.variables.length, 0);
+
+                  const lines = [];
+                  lines.push(`${getStringField(item, 'name')}`);
+                  lines.push(`  Category: ${getStringField(item, 'category') || '(none)'}`);
+                  lines.push(`  Active: ${getStringField(item, 'active') || 'false'}`);
+                  lines.push(`  Variables (${totalVars}):`);
+                  for (const v of standaloneVars) {
+                    const flags = [];
+                    if (String(v.mandatory) === 'true') flags.push('required');
+                    lines.push(`    ${v.question_text || v.name}  ${v.type || ''}${flags.length ? ' [' + flags.join(',') + ']' : ''}`);
+                  }
+                  for (const [_, setData] of setVars) {
+                    lines.push(`    [${setData.label || setData.name}]`);
+                    for (const v of setData.variables) {
+                      const flags = [];
+                      if (String(v.mandatory) === 'true') flags.push('required');
+                      lines.push(`      ${v.question_text || v.name}  ${v.type || ''}${flags.length ? ' [' + flags.join(',') + ']' : ''}`);
+                    }
+                  }
+                  process.stdout.write(lines.join('\n') + '\n');
                   return;
                 }
 
