@@ -14,9 +14,34 @@ export function catalogCmd(wrap) {
           builder: (y) => y
             .option('name', { alias: 'n', type: 'string', demandOption: true })
             .option('short-description', { alias: 'd', type: 'string' })
-            .option('category', { alias: 'c', type: 'string' }),
+            .option('category', { alias: 'c', type: 'string' })
+            .option('variable', { alias: 'v', type: 'array', describe: 'Variable: "name:type:label"' })
+            .option('variables', { type: 'string', describe: 'JSON for submit_produce: {\"key\":\"value\"}' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
+
+            // submit_produce path
+            if (argv.variables) {
+              let varsObj;
+              try { varsObj = JSON.parse(argv.variables); } catch { throw new Error('--variables must be valid JSON'); }
+              let itemSysID = argv.name;
+              if (!/^[a-f0-9]{32}$/i.test(itemSysID)) {
+                const sp = new URLSearchParams();
+                sp.set('sysparm_query', `name=${itemSysID}`);
+                sp.set('sysparm_limit', '1');
+                sp.set('sysparm_fields', 'sys_id');
+                const items = await app.sdk.list('sc_cat_item', sp);
+                if (items.length === 0) throw new Error(`Not found: ${itemSysID}`);
+                itemSysID = items[0].sys_id?.value || items[0].sys_id;
+              }
+              const endpoint = `${app.sdk.baseURL}/api/sn_sc/servicecatalog/items/${itemSysID}/submit_produce`;
+              const result = await app.sdk.request(endpoint, { method: 'POST', body: JSON.stringify({ variables: varsObj }) });
+              const reqID = result?.result?.sys_id || result?.result?.number || '';
+              app.ok({ requested_item: reqID, item_id: itemSysID, variables: varsObj },
+                { summary: `Request: ${result?.result?.number || reqID}` });
+              return;
+            }
+
             let categoryID = '';
             if (argv.category) {
               const cp = new URLSearchParams();
@@ -34,7 +59,31 @@ export function catalogCmd(wrap) {
               active: true,
               type: 'item',
             });
-            app.ok(item, { summary: `Created: ${argv.name}` });
+            const itemID = item.sys_id?.value || item.sys_id;
+
+            // Create variables if --variable flag(s) provided
+            let varCount = 0;
+            if (argv.variable) {
+              for (const v of argv.variable) {
+                const parts = String(v).split(':');
+                if (parts.length >= 2) {
+                  const typeName = parts.length >= 2 ? parts[parts.length - 1] : '';
+                  const label = parts.length >= 3 ? parts[parts.length - 1] : parts[0];
+                  const sysName = parts[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+                  try {
+                    const typeMap = { string: '6', multilinetext: '2', select: '3', date: '4', datetime: '5', reference: '8', checkbox: '12', email: '11' };
+                    await app.sdk.create('item_option_new', {
+                      name: sysName, question_text: label, type: typeMap[typeName] || '6',
+                      order: (varCount + 1) * 100, cat_item: itemID, mandatory: true, active: true,
+                    });
+                    varCount++;
+                  } catch { /* non-fatal */ }
+                }
+              }
+            }
+
+            app.ok({ sys_id: itemID, name: argv.name, variables_created: varCount },
+              { summary: `Created: ${argv.name}${varCount ? ` (${varCount} variable(s))` : ''}` });
           }),
         })
         .command({
