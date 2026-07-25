@@ -1,9 +1,5 @@
 /**
  * Paginated search prompt built with @inquirer/core hooks.
- *
- * Uses the same rendering engine as @inquirer/search but adds
- * scroll-based server pagination: when the user arrows past the
- * last loaded item, it fetches the next page from the server.
  */
 
 import { createPrompt, useState, useKeypress, usePagination, useEffect, useRef } from '@inquirer/core';
@@ -25,8 +21,10 @@ export const paginatedSearch = createPrompt((config, done) => {
   const [loaded, setLoaded] = useState(0);
   const [searchMode, setSearchMode] = useState(false);
 
-  // Refs to avoid stale closures in async callbacks
+  // Refs for mutable state (no functional updaters — @inquirer/core doesn't support them)
+  const choicesRef = useRef([]);
   const loadedRef = useRef(0);
+  const activeRef = useRef(0);
   const totalCountRef = useRef(totalCount);
   const searchModeRef = useRef(false);
 
@@ -45,9 +43,11 @@ export const paginatedSearch = createPrompt((config, done) => {
         const items = await source(searchTerm || undefined, 0, { signal: controller.signal });
         log(`INIT-LOAD got ${items.length} items`);
         if (!controller.signal.aborted) {
+          choicesRef.current = items;
+          loadedRef.current = items.length;
+          activeRef.current = 0;
           setChoices(items);
           setLoaded(items.length);
-          loadedRef.current = items.length;
           setActive(0);
           setStatus('done');
         }
@@ -76,15 +76,12 @@ export const paginatedSearch = createPrompt((config, done) => {
     try {
       const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
       log(`loadMore got ${newItems.length} items`);
-      setChoices(prev => {
-        const updated = prev.concat(newItems);
-        const newLoaded = Math.min(updated.length, totalCountRef.current);
-        loadedRef.current = newLoaded;
-        setLoaded(newLoaded);
-        return updated;
-      });
+      const updated = choicesRef.current.concat(newItems);
+      choicesRef.current = updated;
+      loadedRef.current = updated.length;
+      setChoices([...updated]);
+      setLoaded(updated.length);
     } catch (err) {
-      // API error during scroll
       console.error('Scroll load error:', err.message || err);
       loadedRef.current = totalCountRef.current;
       setLoaded(totalCountRef.current);
@@ -97,21 +94,20 @@ export const paginatedSearch = createPrompt((config, done) => {
     if (!searchTerm) {
       setSearchMode(false);
       searchModeRef.current = false;
-      // Reset to browse mode: reload first page
       const controller = new AbortController();
       setStatus('loading');
       source('', 0, { signal: controller.signal }).then(items => {
         if (!controller.signal.aborted) {
-          setChoices(items);
-          setLoaded(Math.min(items.length, totalCount || Infinity));
+          choicesRef.current = items;
           loadedRef.current = Math.min(items.length, totalCount || Infinity);
+          activeRef.current = 0;
+          setChoices(items);
+          setLoaded(items.length);
           setActive(0);
           setStatus('done');
         }
       }).catch(() => {
-        if (!controller.signal.aborted) {
-          setStatus('done');
-        }
+        if (!controller.signal.aborted) setStatus('done');
       });
       return () => controller.abort();
     }
@@ -123,9 +119,11 @@ export const paginatedSearch = createPrompt((config, done) => {
 
     source(searchTerm, undefined, { signal: controller.signal }).then(items => {
       if (!controller.signal.aborted) {
+        choicesRef.current = items;
+        loadedRef.current = items.length;
+        activeRef.current = 0;
         setChoices(items);
         setLoaded(items.length);
-        loadedRef.current = items.length;
         setActive(0);
         setStatus('done');
       }
@@ -144,8 +142,8 @@ export const paginatedSearch = createPrompt((config, done) => {
     if (status === 'loading') return;
 
     if (isEnterKey(key)) {
-      if (choices.length > 0 && active >= 0 && active < choices.length) {
-        done(choices[active]);
+      if (choicesRef.current.length > 0 && activeRef.current >= 0 && activeRef.current < choicesRef.current.length) {
+        done(choicesRef.current[activeRef.current]);
       }
       return;
     }
@@ -156,18 +154,23 @@ export const paginatedSearch = createPrompt((config, done) => {
     }
 
     if (isUpKey(key)) {
-      if (active > 0) {
-        setActive(active - 1);
+      if (activeRef.current > 0) {
+        activeRef.current--;
+        setActive(activeRef.current);
       }
       return;
     }
 
     if (isDownKey(key)) {
-      if (active < choices.length - 1) {
-        setActive(active + 1);
+      if (activeRef.current < choicesRef.current.length - 1) {
+        activeRef.current++;
+        setActive(activeRef.current);
       } else if (!searchModeRef.current && loadedRef.current < totalCountRef.current) {
-        log(`DOWN at end: active=${active} len=${choices.length} loaded=${loadedRef.current} total=${totalCountRef.current}`);
-        loadMore().then(() => setActive(prev => prev + 1));
+        log(`DOWN at end: active=${activeRef.current} len=${choicesRef.current.length} loaded=${loadedRef.current} total=${totalCountRef.current}`);
+        loadMore().then(() => {
+          activeRef.current++;
+          setActive(activeRef.current);
+        });
       }
       return;
     }
