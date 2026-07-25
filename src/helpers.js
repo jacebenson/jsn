@@ -116,9 +116,9 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     }));
   }
 
-  async function fetchPage(term, offset) {
+  async function fetchPage(term, offset, customLimit) {
     const params = new URLSearchParams();
-    params.set('sysparm_limit', String(limit));
+    params.set('sysparm_limit', String(customLimit || limit));
     params.set('sysparm_display_value', 'all');
     if (pickerFields) params.set('sysparm_fields', pickerFields);
     if (term) {
@@ -130,27 +130,20 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     return await app.sdk.list(table, params);
   }
 
-  // Stateful closure: accumulate loaded records across source calls
-  let allChoices = [];
-  let lastTerm = '';
+  // Load initial batch — @inquirer/search handles scrolling within this set
+  const batchSize = Math.min(totalCount, 200);
+  const records = await fetchPage('', 0, batchSize);
+  const initialChoices = formatChoices(records);
 
   try {
     const selected = await search({
-      message: `${table} (${totalCount} total)`,
+      message: `${table} (${records.length} loaded, ${totalCount} total)`,
       pageSize: 10,
       source: async (term) => {
-        const input = term || '';
-        if (input !== lastTerm) {
-          // Term changed: fresh server search
-          const records = await fetchPage(input, 0);
-          allChoices = formatChoices(records);
-          lastTerm = input;
-        } else if (!input && allChoices.length < totalCount) {
-          // Empty input, more to load: fetch next page
-          const records = await fetchPage('', allChoices.length);
-          allChoices.push(...formatChoices(records));
-        }
-        return allChoices;
+        if (!term) return initialChoices;
+        // Typed search: query the server
+        const results = await fetchPage(term, 0, batchSize);
+        return formatChoices(results);
       },
     });
     return selected;
