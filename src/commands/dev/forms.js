@@ -73,20 +73,19 @@ async function showForm(app, table, viewName) {
 
     sectionsOut.push({
       caption: getDisplayValue(sec, 'caption') || '(unnamed)',
-      order: getIntValue(sec, 'order'),
       position: getIntValue(sec, 'position'),
-      header: getBoolValue(sec, 'header'),
-      elements: elements.map(e => ({
-        type: getDisplayValue(e, 'type'),
-        label: getDisplayValue(e, 'label'),
-        element: getDisplayValue(e, 'element'),
-        mandatory: getBoolValue(e, 'mandatory'),
-        visible: getBoolValue(e, 'visible'),
-        read_only: getBoolValue(e, 'read_only'),
-        order: getIntValue(e, 'order'),
-      })),
+      elements: elements
+        .map(e => ({
+          type: getDisplayValue(e, 'type'),
+          label: getDisplayValue(e, 'label'),
+          element: getDisplayValue(e, 'element'),
+          position: getIntValue(e, 'position'),
+        }))
+        .sort((a, b) => a.position - b.position),
     });
   }
+
+  sectionsOut.sort((a, b) => a.position - b.position);
 
   const totalElements = sectionsOut.reduce((sum, s) => sum + s.elements.length, 0);
 
