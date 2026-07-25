@@ -18,7 +18,7 @@ compatibility: |
   the correct command path.
 metadata:
   author: jacebenson
-  version: "1.0.0"
+  version: "1.1.0"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -120,6 +120,44 @@ All commands support `--json`. The envelope structure:
 ```
 
 Breadcrumbs suggest next commands — follow them for navigation.
+
+## Troubleshooting Field Behavior
+
+When a user asks about field behavior (why a picker won't show inactive users, why a field is read-only, why a reference qualifier behaves unexpectedly), do NOT just check dictionary records or ACLs. Field behavior is often controlled by **before-query business rules**.
+
+**Check order (priority):**
+
+1. **Before-query business rules** — `sys_script` with `when=before`, `action=query`, matching `collection` (table)
+   ```bash
+   jsn records list --table sys_script --query "collection=sys_user^when=before^action=query^active=true" --json
+   ```
+   A common case: inactive user filters on `sys_user` are implemented as a before-query BR that adds `active=true` to the query condition.
+
+2. **ACLs** — `sys_security_acl` — read/write/delete permissions on tables and fields
+   ```bash
+   jsn dev acls list --query "name=incident" --json
+   ```
+
+3. **Dictionary overrides** — `sys_dictionary` — reference qualifiers, field attributes, default values
+   ```bash
+   jsn records list --table sys_dictionary --query "name=incident^element=caller_id" --json
+   ```
+
+4. **Client scripts** — `sys_script_client` — UI-side visibility, read-only, or value-change logic
+   ```bash
+   jsn records list --table sys_script_client --query "table=incident^active=true" --json
+   ```
+
+5. **UI policies** — `sys_ui_policy` — form-level field behavior (mandatory, read-only, visible)
+   ```bash
+   jsn records list --table sys_ui_policy --query "table=incident^active=true" --json
+   ```
+
+**Example:** "Why can't I pick an inactive user on the incident form?"
+- First guess: Dictionary reference qualifier on `caller_id`? → Check `sys_dictionary`
+- Most likely: Before-query BR on `sys_user` that filters `active=true` → Check `sys_script` first
+
+**Rule of thumb:** If a picker is silently filtering results (no error, just fewer options), it's a before-query BR. If it shows an error, it's an ACL or dictionary constraint.
 
 ## Configuration
 

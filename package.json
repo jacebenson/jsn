@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node --test $(find test -name '*.test.js')",
     "lint": "npx eslint src/ bin/ test/",
+    "postinstall": "node scripts/postinstall.mjs",
     "start": "node bin/jsn.js",
     "tag-reminder": "node scripts/tag-reminder.js",
     "release": "node scripts/release.js"
@@ -40,6 +41,7 @@
     "bin/jsn.js",
     "src/",
     "skills/",
+    "scripts/",
     "README.md",
     "LICENSE"
   ]
