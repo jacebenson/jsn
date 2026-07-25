@@ -4,15 +4,9 @@
 
 import { createPrompt, useState, useKeypress, usePagination, useEffect, useRef } from '@inquirer/core';
 import { isEnterKey, isUpKey, isDownKey } from '@inquirer/core';
-import { appendFileSync } from 'fs';
 
 export const paginatedSearch = createPrompt((config, done) => {
   const { message, pageSize = 10, totalCount = 0, source } = config;
-
-  // ── DEBUG ──
-  const DBG = '/home/jace/workspace/holly/sn-jsn-fork/debug.log';
-  const log = (msg) => appendFileSync(DBG, `${new Date().toISOString()} ${msg}\n`);
-  log(`START totalCount=${totalCount}`);
 
   const [status, setStatus] = useState('loading');
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,12 +30,10 @@ export const paginatedSearch = createPrompt((config, done) => {
   useEffect(() => {
     const controller = new AbortController();
     setStatus('loading');
-    log(`EFFECT-INIT searchTerm="${searchTerm}"`);
 
     const load = async () => {
       try {
         const items = await source(searchTerm || undefined, 0, { signal: controller.signal });
-        log(`INIT-LOAD got ${items.length} items`);
         if (!controller.signal.aborted) {
           choicesRef.current = items;
           loadedRef.current = items.length;
@@ -52,7 +44,6 @@ export const paginatedSearch = createPrompt((config, done) => {
           setStatus('done');
         }
       } catch (err) {
-        log(`INIT-LOAD error: ${err.message}`);
         if (!controller.signal.aborted) {
           setStatus('done');
           setChoices([]);
@@ -66,16 +57,10 @@ export const paginatedSearch = createPrompt((config, done) => {
 
   // Load more when scrolling past end
   async function loadMore() {
-    log(`loadMore check: loaded=${loadedRef.current} total=${totalCountRef.current} searchMode=${searchModeRef.current}`);
-    if (loadedRef.current >= totalCountRef.current || searchModeRef.current) {
-      log(`loadMore SKIPPED`);
-      return;
-    }
+    if (loadedRef.current >= totalCountRef.current || searchModeRef.current) return;
     setStatus('loading');
-    log(`loadMore calling source offset=${loadedRef.current}`);
     try {
       const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
-      log(`loadMore got ${newItems.length} items`);
       const updated = choicesRef.current.concat(newItems);
       choicesRef.current = updated;
       loadedRef.current = updated.length;
@@ -166,7 +151,6 @@ export const paginatedSearch = createPrompt((config, done) => {
         activeRef.current++;
         setActive(activeRef.current);
       } else if (!searchModeRef.current && loadedRef.current < totalCountRef.current) {
-        log(`DOWN at end: active=${activeRef.current} len=${choicesRef.current.length} loaded=${loadedRef.current} total=${totalCountRef.current}`);
         loadMore().then(() => {
           activeRef.current++;
           setActive(activeRef.current);

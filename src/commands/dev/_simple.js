@@ -101,22 +101,20 @@ export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalo
 // ── Automation: Async ──
 export const scriptactionsCmd = (wrap) => buildDevCmd('scriptactions', 'sysevent_script_action', ['scriptaction'], ['name', 'active', 'sys_scope'], wrap, { singular: 'script action', scopeValidation: true });
 export const scheduledjobsCmd = (wrap) => buildDevCmd('scheduledjobs', 'sysauto_script', ['scheduledjob'], ['name', 'active', 'run_type', 'sys_scope'], wrap, { singular: 'scheduled job', scopeValidation: true });
-export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', ['asyncrule'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'async business rule', scopeValidation: true, extraQuery: 'order>=1000' });
+export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', ['asyncrule'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'async business rule', scopeValidation: true, extraQuery: 'when=async' });
 export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register', ['trigger'], ['name', 'event_name', 'active', 'sys_scope'], wrap, { singular: 'event trigger', scopeValidation: true });
 
 // ── Automation: In Memory ──
-export const workflowsCmd = (wrap) => buildDevCmd('workflows', 'wf_workflow', ['workflow'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'workflow', scopeValidation: true, readOnly: true });
-export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_decision', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true });
+export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_ws_definition', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true });
 export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assignment', ['assignment'], ['name', 'active', 'sys_scope'], wrap, { singular: 'assignment rule', scopeValidation: true, readOnly: true });
 
 // ── Automation: Inbound ──
-export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_email_action', ['emails'], ['name', 'active', 'event_name', 'sys_scope'], wrap, { singular: 'inbound email action', scopeValidation: true });
+export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_in_email_action', ['emails'], ['name', 'active', 'type', 'sys_scope'], wrap, { singular: 'inbound email action', scopeValidation: true });
 
 // ── Automation: Outbound ──
-export const restmessageCmd = (wrap) => buildDevCmd('restmessage', 'sys_rest_message', ['rm', 'restmsg'], ['name', 'endpoint', 'active', 'sys_scope'], wrap, { singular: 'REST message', scopeValidation: true });
+export { restmessageCmd } from './restmessage.js';
 export const restmethodsCmd = (wrap) => buildDevCmd('restmethods', 'sys_rest_message_fn', ['restmethod'], ['name', 'http_method', 'active', 'sys_scope'], wrap, { singular: 'REST method', scopeValidation: true });
-export const soapmessagesCmd = (wrap) => buildDevCmd('soapmessages', 'sys_soap_message', ['soapmsg'], ['name', 'active', 'sys_scope'], wrap, { singular: 'SOAP message', scopeValidation: true });
-export const soapfunctionsCmd = (wrap) => buildDevCmd('soapfunctions', 'sys_soap_message_function', ['soapfunc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'SOAP function', scopeValidation: true });
+export { soapmessagesCmd } from './soapmessages.js';
 
 // ── UX: Core UI ──
 export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['uimacro'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UI macro', scopeValidation: true });

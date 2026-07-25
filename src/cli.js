@@ -38,9 +38,9 @@ import {
   privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
-  workflowsCmd, decisiontablesCmd, assignmentsCmd,
+  decisiontablesCmd, assignmentsCmd,
   emailCmd,
-  restmessageCmd, restmethodsCmd, soapmessagesCmd, soapfunctionsCmd,
+  restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/dev/_simple.js';
 import { flowsCmd } from './commands/dev/flows.js';
@@ -222,7 +222,6 @@ export function buildCLI() {
     .command(triggersCmd(wrap))
     // AUTOMATION — In Memory
     .command(rulesCmd(wrap))
-    .command(workflowsCmd(wrap))
     .command(decisiontablesCmd(wrap))
     .command(assignmentsCmd(wrap))
     // AUTOMATION — Inbound
@@ -230,9 +229,7 @@ export function buildCLI() {
     .command(emailCmd(wrap))
     // AUTOMATION — Outbound
     .command(restmessageCmd(wrap))
-    .command(restmethodsCmd(wrap))
     .command(soapmessagesCmd(wrap))
-    .command(soapfunctionsCmd(wrap))
     // ACCESS
     .command(aclsCmd(wrap))
     .command(b4rulesCmd(wrap))

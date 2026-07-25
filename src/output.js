@@ -281,7 +281,7 @@ export class OutputWriter {
         const width = colWidths[col] || 20;
 
         if (j === 0 && instanceURL && table && row.sys_id) {
-          const url = `${instanceURL}/${table}.do?sys_id=${row.sys_id}`;
+          const url = getTableURL(instanceURL, table, row.sys_id);
           val = hyperlink(val, url);
         }
 
@@ -291,7 +291,7 @@ export class OutputWriter {
           display = visible.slice(0, width - 3) + '...';
           if (val !== visible) {
             if (j === 0 && instanceURL && table && row.sys_id) {
-              const url = `${instanceURL}/${table}.do?sys_id=${row.sys_id}`;
+              const url = getTableURL(instanceURL, table, row.sys_id);
               display = hyperlink(display, url);
             }
           }
@@ -417,7 +417,7 @@ export class OutputWriter {
       const sysID = getDisplayValue(data.sys_id);
       if (sysID) {
         const urlTable = table.toLowerCase().replace(/\s+/g, '_');
-        const recordURL = `${instanceURL}/${urlTable}.do?sys_id=${sysID}`;
+        const recordURL = getTableURL(instanceURL, urlTable, sysID);
         this.writer.write(`Link:  ${recordURL}\n\n`);
       }
     }
@@ -451,6 +451,18 @@ function detectRecord(data) {
   }
 
   return { isRecord: hasSysID && (hasSysClass || tableName), tableName };
+}
+
+export function getTableURL(instance, table, sysID) {
+  const mapped = {
+    sys_decision: `now/workflow-studio/builder?table=sys_decision&sysId=${sysID}`,
+    sys_rest_message: `nav_to.do?uri=sys_rest_message.do?sys_id=${sysID}`,
+    sysevent_email_action: `nav_to.do?uri=sysevent_email_action.do?sys_id=${sysID}`,
+    sysevent_in_email_action: `nav_to.do?uri=sysevent_in_email_action.do?sys_id=${sysID}`,
+    soap_message: `nav_to.do?uri=soap_message.do?sys_id=${sysID}`,
+  };
+  const path = mapped[table] || `${table}.do?sys_id=${sysID}`;
+  return `${instance}/${path}`;
 }
 
 export function getDisplayValue(val) {
