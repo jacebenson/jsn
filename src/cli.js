@@ -37,6 +37,11 @@ import {
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
   privilegesCmd, securitytypesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
+  playbooksCmd, scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
+  workflowsCmd, decisiontablesCmd, assignmentsCmd,
+  emailCmd,
+  restmessageCmd, restmethodsCmd, soapmessagesCmd, soapfunctionsCmd,
+  uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/dev/_simple.js';
 import { flowsCmd } from './commands/dev/flows.js';
 import { formsCmd } from './commands/dev/forms.js';
@@ -47,6 +52,7 @@ import { evalCmd } from './commands/dev/eval.js';
 import { restCmd } from './commands/dev/rest.js';
 import { logsCmd } from './commands/dev/logs.js';
 import { scrapiCmd } from './commands/dev/scrapi.js';
+import { b4rulesCmd } from './commands/dev/b4rules.js';
 
 function wrap(handler) {
   return async (argv) => {
@@ -58,218 +64,260 @@ function wrap(handler) {
       }
       await handler(argv, app);
     } catch (err) {
-      const app = argv.app;
-      if (app) {
-        app.err(err);
-      } else {
-        process.stderr.write(`Error: ${err.message || err}\n`);
+      if (err.code === 'not_found') {
+        const id = argv._.slice(1).join(' ') || argv.id || argv.name || argv.sysID || '';
+        process.stderr.write(`Error (${err.code}): ${err.message}\n`);
+        if (id) {
+          process.stderr.write(`\nHint: The identifier "${id}" was not found. Check the name or sys_id.\n`);
+        }
+        process.exit(1);
       }
+      if (err.code === 'usage') {
+        process.stderr.write(`Error (usage): ${err.message}\n`);
+        process.exit(2);
+      }
+      if (err.code === 'system_error') {
+        process.stderr.write(`Error (system): ${err.message}\n`);
+        process.exit(3);
+      }
+      process.stderr.write(`Error: ${err.message}\n`);
       process.exit(1);
     }
   };
 }
 
-export const cli = yargs(hideBin(process.argv))
-  .scriptName('jsn')
-  .usage('Usage: $0 <command> [options]')
-  .option('instance', {
-    describe: 'ServiceNow instance URL (e.g., https://dev12345.service-now.com)',
-    type: 'string',
-    global: true,
-  })
-  .option('profile', {
-    alias: 'p',
-    describe: 'Configuration profile to use',
-    type: 'string',
-    global: true,
-  })
-  .option('format', {
-    describe: 'Output format: auto, json, markdown, styled, quiet',
-    type: 'string',
-    global: true,
-  })
-  .option('json', {
-    describe: 'Output in JSON format',
-    type: 'boolean',
-    global: true,
-  })
-  .option('quiet', {
-    alias: 'q',
-    describe: 'Output only data, no envelope',
-    type: 'boolean',
-    global: true,
-  })
-  .option('styled', {
-    describe: 'Force styled output',
-    type: 'boolean',
-    global: true,
-  })
-  .option('markdown', {
-    describe: 'Output in Markdown format',
-    type: 'boolean',
-    global: true,
-  })
-  .option('no-skill-check', {
-    describe: 'Skip the automatic skill version check',
-    type: 'boolean',
-    global: true,
-  })
-  .middleware(async (argv) => {
-    // Determine format from flags
-    let format = 'auto';
-    if (argv.json) format = 'json';
-    else if (argv.quiet) format = 'quiet';
-    else if (argv.styled) format = 'styled';
-    else if (argv.markdown) format = 'markdown';
-    else if (argv.format) format = argv.format;
+export function buildCLI() {
+  const cfg = loadConfig();
+  const app = new App(cfg);
 
-    const cfg = loadConfig({
-      instance: argv.instance,
-      profile: argv.profile,
-      format,
-    });
+  // Resolve instance once
+  let effectiveInstance;
+  try {
+    effectiveInstance = getEffectiveInstance(cfg);
+  } catch {
+    effectiveInstance = null;
+  }
 
-    argv.app = new App(cfg);
-
-    // Check auth for non-auth commands
-    const cmd = argv._[0];
-    const skipAuth = ['help', 'version', 'setup', 'auth', 'profiles', 'profile', 'skill', undefined].includes(cmd);
-    if (!skipAuth) {
-      const instance = getEffectiveInstance(cfg);
-      if (!argv.app.auth.isAuthenticated() && instance) {
-        process.stderr.write(`\n⚠️  Not authenticated to ${instance}\n\n`);
-        process.stderr.write('To get started, run:\n');
-        process.stderr.write('  jsn setup           # Interactive setup\n');
-        process.stderr.write(`  jsn auth login ${instance}   # Login to instance\n\n`);
+  return yargs(hideBin(process.argv))
+    .scriptName('jsn')
+    .usage('Usage: jsn <command> [options]')
+    .middleware([
+      // Attach App instance to every command
+      (argv) => {
+        argv.app = app;
+        argv._profile = cfg.profiles || {};
+      },
+    ])
+    .options({
+      instance: {
+        type: 'string',
+        description: 'ServiceNow instance URL',
+        alias: 'i',
+      },
+      profile: {
+        type: 'string',
+        description: 'Configuration profile to use',
+        alias: 'p',
+      },
+      format: {
+        type: 'string',
+        description: 'Output format: auto, json, markdown, styled, quiet',
+        choices: ['auto', 'json', 'markdown', 'styled', 'quiet'],
+      },
+      json: {
+        type: 'boolean',
+        description: 'Output in JSON format (shortcut for --format=json)',
+      },
+      quiet: {
+        type: 'boolean',
+        description: 'Output only data, no envelope (shortcut for --format=quiet)',
+        alias: 'q',
+      },
+      styled: {
+        type: 'boolean',
+        description: 'Force styled output even when piped',
+      },
+      markdown: {
+        type: 'boolean',
+        description: 'Output in Markdown table format',
+      },
+    })
+    .middleware([
+      // Apply format option overrides
+      (argv) => {
+        if (argv.json) argv.format = 'json';
+        if (argv.quiet) argv.format = 'quiet';
+        if (argv.styled) argv.format = 'styled';
+        if (argv.markdown) argv.format = 'markdown';
+        if (argv.format) {
+          app.output.setFormatByName(argv.format);
+        }
+        if (argv.instance) {
+          app._overrideInstance = argv.instance;
+        }
+      },
+      // Guard mutation commands when no instance configured
+      (argv) => {
+        const cmd = (argv._[0] || '').toString();
+        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'profiles', 'skill'].includes(cmd)) {
+          return;
+        }
+        // Check for --instance override
+        if (argv.instance) {
+          app._overrideInstance = argv.instance;
+        }
+        // Determine if this is a mutation
+        const subcommand = (argv._[1] || '').toString();
+        const isMutation = isMutationCommand(cmd, subcommand);
+        if (isMutation) {
+          app.requireInstance();
+        }
+      },
+    ])
+    .middleware(async (argv) => {
+      // Override instance for this command run
+      if (argv._overrideInstance) {
+        app.setEffectiveInstance(argv._overrideInstance);
       }
-    }
 
-    // Read-only profile check — block mutation commands on read-only profiles
-    const activeProfileName = cfg.activeProfile || cfg.defaultProfile;
-    if (activeProfileName && cfg.profiles[activeProfileName] && cfg.profiles[activeProfileName].read_only) {
-      const skipReadOnlyCheck = ['help', 'version', 'setup', 'auth', 'profiles', 'profile', 'skill', undefined].includes(cmd);
-      if (!skipReadOnlyCheck && isMutationCommand(argv)) {
-        process.stderr.write(`\n🔒 Profile "${activeProfileName}" is read-only.\n`);
-        process.stderr.write(`  Mutation commands are disabled on this profile.\n`);
-        const nonReadOnlyProfiles = Object.entries(cfg.profiles || {})
-          .filter(([n, p]) => n !== activeProfileName && !p.read_only)
-          .map(([n]) => n);
-        if (nonReadOnlyProfiles.length > 0) {
-          process.stderr.write(`  Switch to a writable profile:  jsn profiles use ${nonReadOnlyProfiles[0]}\n`);
-        }
-        process.stderr.write('\n');
-        process.exit(1);
+      const cmd = (argv._[0] || '').toString();
+
+      // Auto-check skill on every command (fire-and-forget, non-blocking)
+      const skipSkillCheck = ['help', 'version', 'completion', 'skill'].includes(cmd)
+        || process.env.JSN_NO_SKILL_CHECK === '1'
+        || argv['no-skill-check']
+        || argv.json
+        || argv.quiet;
+      if (!skipSkillCheck) {
+        checkSkill().then(result => {
+          if (result && !result.current && result.error) {
+            process.stderr.write(`\n⚠ ${result.error}\n\n`);
+          }
+        }).catch(() => {});
       }
-    }
 
-    // Auto-check skill on every command (fire-and-forget, non-blocking)
-    // Skipped under --json, --quiet, --no-skill-check, or env var
-    const skipSkillCheck = ['help', 'version', 'completion', 'skill'].includes(cmd)
-      || process.env.JSN_NO_SKILL_CHECK === '1'
-      || argv['no-skill-check']
-      || argv.json
-      || argv.quiet;
-    if (!skipSkillCheck) {
-      // Fire check but don't await — it runs in background
-      checkSkill().then(result => {
-        if (result && !result.current && result.error) {
-          process.stderr.write(`\n⚠ ${result.error}\n\n`);
+      // Print context header for interactive terminals
+      if (!['help', 'version', 'completion', 'skill'].includes(cmd)) {
+        await argv.app.printContextHeader(argv);
+      }
+    })
+    // CONFIGURATION
+    .command(setupCmd(wrap))
+    .command(authCmd(wrap))
+    .command(profilesCmd(wrap))
+    .command(updateSetsCmd(wrap))
+    .command(scopesCmd(wrap))
+    // CORE
+    .command(incidentsCmd(wrap))
+    .command(changesCmd(wrap))
+    .command(requestsCmd(wrap))
+    .command(tasksCmd(wrap))
+    .command(catalogCmd(wrap))
+    // AUTOMATION — Async
+    .command(flowsCmd(wrap))
+    .command(actionsCmd(wrap))
+    .command(playbooksCmd(wrap))
+    .command(scriptactionsCmd(wrap))
+    .command(scheduledjobsCmd(wrap))
+    .command(asyncrulesCmd(wrap))
+    .command(triggersCmd(wrap))
+    // AUTOMATION — In Memory
+    .command(rulesCmd(wrap))
+    .command(workflowsCmd(wrap))
+    .command(decisiontablesCmd(wrap))
+    .command(assignmentsCmd(wrap))
+    // AUTOMATION — Inbound
+    .command(scrapiCmd(wrap))
+    .command(emailCmd(wrap))
+    // AUTOMATION — Outbound
+    .command(restmessageCmd(wrap))
+    .command(restmethodsCmd(wrap))
+    .command(soapmessagesCmd(wrap))
+    .command(soapfunctionsCmd(wrap))
+    // ACCESS
+    .command(aclsCmd(wrap))
+    .command(b4rulesCmd(wrap))
+    .command(rolesCmd(wrap))
+    .command(privilegesCmd(wrap))
+    .command(securitytypesCmd(wrap))
+    .command(aliasesCmd(wrap))
+    .command(groupsCmd(wrap))
+    .command(groupMembersCmd(wrap))
+    .command(groupRolesCmd(wrap))
+    .command(usersCmd(wrap))
+    // USER EXPERIENCE — Shared
+    .command(formsCmd(wrap))
+    .command(listsCmd(wrap))
+    .command(clientScriptsCmd(wrap))
+    .command(uiPoliciesCmd(wrap))
+    .command(uiActionsCmd(wrap))
+    .command(viewsCmd(wrap))
+    .command(catalogscriptsCmd(wrap))
+    .command(cataloguipoliciesCmd(wrap))
+    // USER EXPERIENCE — Core UI
+    .command(uiPagesCmd(wrap))
+    .command(uimacrosCmd(wrap))
+    .command(listcontrolsCmd(wrap))
+    // USER EXPERIENCE — Service Portal
+    .command(spPagesCmd(wrap))
+    .command(spWidgetsCmd(wrap))
+    // USER EXPERIENCE — Next Experience
+    .command(uxscriptsCmd(wrap))
+    .command(uxlistsCmd(wrap))
+    .command(uxapplicabilityCmd(wrap))
+    // USER EXPERIENCE — Navigation
+    .command(appMenuCmd(wrap))
+    .command(appmodulesCmd(wrap))
+    // DATA — DB Schema
+    .command(tablesCmd(wrap))
+    .command(columnsCmd(wrap))
+    .command(relationshipsCmd(wrap))
+    // DATA — Shared Code, Transforms, Logs
+    .command(includesCmd(wrap))
+    .command(importCmd(wrap))
+    .command(logsCmd(wrap))
+    .command(propertiesCmd(wrap))
+    // DATA
+    .command(recordsCmd(wrap))
+    .command(ticketsCmd(wrap))
+    // DEVELOPER
+    .command(evalCmd(wrap))
+    .command(restCmd(wrap))
+    .command(skillCmd(wrap))
+    .command(versionCmd(wrap))
+    // Legacy
+    .command(devCmd(wrap))
+    .demandCommand(1, 'You must specify a command')
+    .help('help', 'Show help')
+    .version(false)
+    .strictCommands()
+    .strictOptions(false)
+    .fail((msg, err) => {
+      if (err) throw err;
+      if (msg === 'You must specify a command') {
+        const raw = process.argv.slice(2);
+        const hasLoneProfile = raw.some((a, i, arr) => {
+          if (a !== '--profile' && a !== '-p') return false;
+          const next = arr[i + 1];
+          return !next || next.startsWith('-');
+        });
+        if (hasLoneProfile) {
+          const cfg = loadConfig();
+          const activeName = cfg.activeProfile || cfg.defaultProfile;
+          process.stdout.write('Profiles:\n');
+          for (const [name, p] of Object.entries(cfg.profiles || {})) {
+            const isActive = name === activeName;
+            process.stdout.write(`  ${isActive ? '*' : ' '} ${name}  → ${p.instance_url || '(no url)'}\n`);
+          }
+          process.exit(0);
         }
-      }).catch(() => {});
-    }
-
-    // Print context header for interactive terminals (at the TOP, before command output)
-    if (!['help', 'version', 'completion', 'skill'].includes(cmd)) {
-      await argv.app.printContextHeader(argv);
-    }
-  })
-  .command(setupCmd(wrap))
-  .command(authCmd(wrap))
-  .command(profilesCmd(wrap))
-  .command(recordsCmd(wrap))
-  .command(catalogCmd(wrap))
-  .command(incidentsCmd(wrap))
-  .command(changesCmd(wrap))
-  .command(requestsCmd(wrap))
-  .command(tasksCmd(wrap))
-  .command(usersCmd(wrap))
-  .command(groupsCmd(wrap))
-  .command(groupMembersCmd(wrap))
-  .command(groupRolesCmd(wrap))
-  .command(ticketsCmd(wrap))
-  .command(devCmd(wrap))
-  // AUTOMATION — things that react, run, or transform
-  .command(flowsCmd(wrap))
-  .command(actionsCmd(wrap))
-  .command(rulesCmd(wrap))
-  .command(scrapiCmd(wrap))
-  .command(updateSetsCmd(wrap))
-  .command(evalCmd(wrap))
-  .command(restCmd(wrap))
-  // ACCESS — who can see/do what
-  .command(aclsCmd(wrap))
-  .command(rolesCmd(wrap))
-  .command(propertiesCmd(wrap))
-  .command(scopesCmd(wrap))
-  .command(privilegesCmd(wrap))
-  .command(securitytypesCmd(wrap))
-  .command(aliasesCmd(wrap))
-  // UX — what users see/interact with
-  .command(formsCmd(wrap))
-  .command(listsCmd(wrap))
-  .command(clientScriptsCmd(wrap))
-  .command(uiActionsCmd(wrap))
-  .command(uiPoliciesCmd(wrap))
-  .command(spPagesCmd(wrap))
-  .command(spWidgetsCmd(wrap))
-  .command(uiPagesCmd(wrap))
-  .command(appMenuCmd(wrap))
-  .command(listcontrolsCmd(wrap))
-  .command(viewsCmd(wrap))
-  .command(uxscriptsCmd(wrap))
-  .command(catalogscriptsCmd(wrap))
-  .command(cataloguipoliciesCmd(wrap))
-  // DATA — where data lives
-  .command(tablesCmd(wrap))
-  .command(columnsCmd(wrap))
-  .command(includesCmd(wrap))
-  .command(importCmd(wrap))
-  .command(logsCmd(wrap))
-  .command(relationshipsCmd(wrap))
-  .command(appmodulesCmd(wrap))
-  .command(skillCmd(wrap))
-  .command(versionCmd(wrap))
-  .demandCommand(1, 'You must specify a command')
-  .help('help', 'Show help')
-  .version(false)
-  .strictCommands()
-  .strictOptions(false)
-  .fail((msg, err) => {
-    if (err) throw err;
-    // No command given → show custom grouped help instead of yargs error
-    if (msg === 'You must specify a command') {
-      // Check if --profile/-p was used without a value — show profile info instead
-      const raw = process.argv.slice(2);
-      const hasLoneProfile = raw.some((a, i, arr) => {
-        if (a !== '--profile' && a !== '-p') return false;
-        const next = arr[i + 1];
-        return !next || next.startsWith('-');
-      });
-      if (hasLoneProfile) {
-        const cfg = loadConfig();
-        const activeName = cfg.activeProfile || cfg.defaultProfile;
-        process.stdout.write('Profiles:\n');
-        for (const [name, p] of Object.entries(cfg.profiles || {})) {
-          const marker = name === activeName ? ' *' : '  ';
-          process.stdout.write(`  ${marker} ${name.padEnd(20)} ${p.instance_url || ''}\n`);
-        }
-        process.stdout.write('\nUsage: jsn --profile <name> <command>\n');
-        process.stdout.write('       jsn profiles use <name>\n');
+        process.stdout.write(renderHelp() + '\n');
         process.exit(0);
       }
-      process.stdout.write(renderHelp());
-      process.exit(0);
-    }
-    process.stderr.write(`Error: ${msg}\n`);
-    process.exit(1);
-  });
+      process.stderr.write(msg + '\n');
+      process.exit(1);
+    });
+}
+
+// Run if invoked directly (bin/jsn.js calls cli.parse())
+export const cli = buildCLI();

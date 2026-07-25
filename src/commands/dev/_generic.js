@@ -81,6 +81,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const singular = toSingular(name, opts.singular);
   const readOnly = opts.readOnly || false;
   const scopeValidation = opts.scopeValidation || false;
+  const extraQuery = opts.extraQuery || '';
   const showSummary = opts.showSummary || ((record, id) => `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${getStringField(record, 'name') || id}`);
   const showBreadcrumbs = opts.showBreadcrumbs || ((record, id) => {
     const crumbs = [
@@ -118,7 +119,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             pickerParams.set('sysparm_limit', String(limit));
             pickerParams.set('sysparm_display_value', 'all');
             pickerParams.set('sysparm_fields', pickerColumns.join(','));
-            pickerParams.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+            pickerParams.set('sysparm_query', (extraQuery ? extraQuery + '^' : '') + 'ORDERBYDESCsys_updated_on');
 
             const pickerRecords = await app.sdk.list(table, pickerParams);
             if (pickerRecords.length === 0) {
@@ -191,7 +192,8 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           params.set('sysparm_limit', String(limit));
           params.set('sysparm_display_value', 'all');
           params.set('sysparm_fields', ['sys_id', ...columns].join(','));
-          const q = query ? query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
+          const baseQ = extraQuery ? extraQuery + '^' : '';
+          const q = query ? query + '^ORDERBYDESCsys_updated_on' : (baseQ + 'ORDERBYDESCsys_updated_on');
           params.set('sysparm_query', q);
           const records = await app.sdk.list(table, params);
           app.ok({
