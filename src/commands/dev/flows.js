@@ -16,6 +16,7 @@ export function flowsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'active', 'description', 'sys_created_by', 'sys_updated_on'];
             const query = argv.query || '';
 

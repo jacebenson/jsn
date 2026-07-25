@@ -16,6 +16,7 @@ export function logsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const columns = argv.columns ? argv.columns.split(',') : ['level', 'message', 'source', 'created'];
             const query = argv.query || '';
 

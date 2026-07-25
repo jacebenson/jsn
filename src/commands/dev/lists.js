@@ -51,6 +51,7 @@ export function listsCmd(wrap) {
             })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const table = argv.table;
             const limit = argv.limit || 50;
 
@@ -102,6 +103,7 @@ export function listsCmd(wrap) {
           builder: (y) => y
             .option('view', { type: 'string', default: 'Default view', describe: 'View name' }),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const table = argv.table;
             const viewName = argv.view;
 

@@ -90,6 +90,7 @@ export function resolveFieldsParam(columns) {
  * @returns {Promise<void>|null} null if no selection made or non-interactive
  */
 export async function interactiveList({ app, table, singular, columns, limit = 20, query = '', formatLabel, labelField = 'name' }) {
+  app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
   if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin) || query) {
     return null; // not interactive — caller should fall back to text/table
