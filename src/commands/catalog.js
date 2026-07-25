@@ -1,7 +1,7 @@
 // Catalog item management commands
 // NOTE: This is an AI-friendly high-level command that wraps sc_cat_item + item_option_new
 
-import { resolveItemOptionType, getStringField } from '../helpers.js';
+import { resolveItemOptionType, getStringField, interactiveList } from '../helpers.js';
 
 export function catalogCmd(wrap) {
   return {
@@ -161,10 +161,29 @@ export function catalogCmd(wrap) {
                 .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' })
                 .option('category', { type: 'string', describe: 'Filter by category' }),
               handler: wrap(async (argv, app) => {
-                let query = 'ORDERBYname';
-                if (argv.category) query = `category.titleLIKE${argv.category}^${query}`;
+                const query = argv.category ? `category.titleLIKE${argv.category}` : '';
+
+                const picked = await interactiveList({
+                  app, table: 'sc_cat_item', singular: 'catalog item', columns: ['name', 'short_description', 'category', 'active'], limit: argv.limit, query, labelField: 'name',
+                  formatLabel: r => {
+                    const name = getStringField(r, 'name') || '';
+                    const cat = getStringField(r, 'category') || '';
+                    return cat ? `${name} [${cat}]` : name;
+                  },
+                });
+                if (picked === undefined) return;
+                if (picked) {
+                  return app.ok(picked, {
+                    summary: `Catalog item: ${getStringField(picked, 'name')}`,
+                    breadcrumbs: [
+                      { action: 'show', cmd: `jsn catalog items show ${getStringField(picked, 'sys_id')}`, description: 'Show details & variables' },
+                    ],
+                  });
+                }
+
+                // Fallback
                 const params = new URLSearchParams();
-                params.set('sysparm_query', query);
+                params.set('sysparm_query', query ? `${query}^ORDERBYname` : 'ORDERBYname');
                 params.set('sysparm_limit', String(argv.limit));
                 params.set('sysparm_display_value', 'all');
                 params.set('sysparm_fields', 'sys_id,name,short_description,category,active');
