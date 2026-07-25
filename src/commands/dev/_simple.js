@@ -121,4 +121,4 @@ export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['u
 // ── UX: Workspaces ──
 export const uxlistsCmd = (wrap) => buildDevCmd('uxlists', 'sys_ux_list', ['uxlist'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace list', scopeValidation: true, readOnly: true });
 export const uxapplicabilityCmd = (wrap) => buildDevCmd('uxapplicability', 'sys_ux_applicability_m2m', ['uxapp'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace applicability', scopeValidation: true, readOnly: true });
-export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });
+export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'catalog_item', 'variable_set', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });

@@ -37,6 +37,7 @@ import {
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
   privilegesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
+  uipoliciesCmd,
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   decisiontablesCmd, assignmentsCmd,
   emailCmd,
@@ -248,6 +249,7 @@ export function buildCLI() {
     .command(uiActionsCmd(wrap))
     .command(viewsCmd(wrap))
     .command(catalogscriptsCmd(wrap))
+    .command(uipoliciesCmd(wrap))
     .command(cataloguipoliciesCmd(wrap))
     // USER EXPERIENCE — Core UI
     .command(uiPagesCmd(wrap))
