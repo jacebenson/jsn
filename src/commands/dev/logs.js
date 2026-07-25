@@ -23,12 +23,20 @@ export function logsCmd(wrap) {
             // Try interactive picker first
             const picked = await interactiveList({
               app, table: 'syslog', singular: 'log entry', columns, limit: argv.limit, query, labelField: 'message',
-              formatLabel: r => `[${getStringField(r, 'level') || '?'}] ${(getStringField(r, 'message') || '').substring(0, 80)}`,
+              formatLabel: r => {
+                const level = getStringField(r, 'level') || '';
+                const icon = level === 'Error' || level === 'error' ? '❌'
+                  : level === 'Warning' || level === 'warning' ? '⚠️'
+                  : level === 'Information' || level === 'information' || level === 'Info' || level === 'info' ? 'ℹ️'
+                  : '📝';
+                const msg = (getStringField(r, 'message') || '').substring(0, 80);
+                return `${icon} ${msg}`;
+              },
             });
             if (picked === undefined) return; // user cancelled
             if (picked) {
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'syslog' };
-              return app.ok(picked, { summary: `Log entry` });
+              return app.ok(picked, { summary: `Log entry: ${getStringField(picked, 'level') || '?'} — ${(getStringField(picked, 'message') || '').substring(0, 60)}` });
             }
 
             // Fall back to text/table
