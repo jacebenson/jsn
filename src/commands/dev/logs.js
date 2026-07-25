@@ -25,7 +25,7 @@ export function logsCmd(wrap) {
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const columns = argv.columns ? argv.columns.split(',') : ['level', 'message', 'source', 'sys_created_on'];
+            const columns = argv.columns ? argv.columns.split(',') : ['level', 'message', 'source', 'sys_created_on', 'sys_id', 'context_map'];
             const query = argv.query || '';
 
             const picked = await interactiveList({
