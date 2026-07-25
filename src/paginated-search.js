@@ -61,12 +61,20 @@ export const paginatedSearch = createPrompt((config, done) => {
   async function loadMore() {
     if (loadedRef.current >= totalCountRef.current || searchModeRef.current) return;
     setStatus('loading');
-    const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
-    setChoices(prev => {
-      const updated = prev.concat(newItems);
-      setLoaded(Math.min(updated.length, totalCountRef.current));
-      return updated;
-    });
+    try {
+      const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
+      setChoices(prev => {
+        const updated = prev.concat(newItems);
+        const newLoaded = Math.min(updated.length, totalCountRef.current);
+        loadedRef.current = newLoaded;
+        return updated;
+      });
+      setLoaded(prev => Math.min(prev + newItems.length, totalCountRef.current));
+    } catch {
+      // API error during scroll — mark as fully loaded
+      loadedRef.current = totalCountRef.current;
+      setLoaded(totalCountRef.current);
+    }
     setStatus('done');
   }
 

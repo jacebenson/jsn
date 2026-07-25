@@ -107,6 +107,10 @@ export function catalogCmd(wrap) {
             p.set('sysparm_limit', String(argv.limit)); p.set('sysparm_display_value', 'all');
             p.set('sysparm_fields', 'sys_id,name,short_description,category,active');
             const items = await app.sdk.list('sc_cat_item', p);
+            if (!Array.isArray(items)) {
+              console.log('No items found or API error');
+              return;
+            }
             app.ok({ table: 'sc_cat_item', count: items.length, columns: ['name', 'short_description', 'category', 'active'],
               records: items.map(r => ({ sys_id: getStringField(r, 'sys_id'), name: getStringField(r, 'name'),
                 short_description: getStringField(r, 'short_description'), category: getStringField(r, 'category'),
