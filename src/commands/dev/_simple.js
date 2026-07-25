@@ -113,7 +113,7 @@ export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assi
 export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_email_action', ['emails'], ['name', 'active', 'event_name', 'sys_scope'], wrap, { singular: 'inbound email action', scopeValidation: true });
 
 // ── Automation: Outbound ──
-export const restmessageCmd = (wrap) => buildDevCmd('restmessage', 'sys_rest_message', ['rm', 'restmsg'], ['name', 'endpoint', 'active', 'sys_scope'], wrap, { singular: 'REST message', scopeValidation: true });
+export { restmessageCmd } from './restmessage.js';
 export const restmethodsCmd = (wrap) => buildDevCmd('restmethods', 'sys_rest_message_fn', ['restmethod'], ['name', 'http_method', 'active', 'sys_scope'], wrap, { singular: 'REST method', scopeValidation: true });
 export const soapmessagesCmd = (wrap) => buildDevCmd('soapmessages', 'sys_soap_message', ['soapmsg'], ['name', 'active', 'sys_scope'], wrap, { singular: 'SOAP message', scopeValidation: true });
 export const soapfunctionsCmd = (wrap) => buildDevCmd('soapfunctions', 'sys_soap_message_function', ['soapfunc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'SOAP function', scopeValidation: true });
