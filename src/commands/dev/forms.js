@@ -66,7 +66,7 @@ async function showForm(app, table, viewName) {
     if (secSysID) {
       const elemParams = new URLSearchParams();
       elemParams.set('sysparm_limit', '500');
-      elemParams.set('sysparm_fields', 'element,type,label,mandatory,visible,read_only,order,default_value,help_tag,choice_table,reference');
+      elemParams.set('sysparm_fields', 'element,type,label,order');
       elemParams.set('sysparm_display_value', 'all');
       elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYorder`);
       try { elements = await app.sdk.list('sys_ui_element', elemParams); } catch { /* ignore */ }
@@ -104,13 +104,9 @@ async function showForm(app, table, viewName) {
       lines.push('  (no elements)');
     }
     for (const el of sec.elements) {
-      const flags = [];
-      if (el.mandatory) flags.push('required');
-      if (el.read_only) flags.push('read-only');
-      if (el.visible === false) flags.push('hidden');
-      const flagStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
       const elLabel = el.label || el.element || '(unnamed)';
-      lines.push(`  ${elLabel}  ${el.type || ''}${flagStr}`);
+      const typeStr = el.type ? ` (${el.type})` : '';
+      lines.push(`  ${elLabel}${typeStr}`);
     }
     lines.push('');
   }
