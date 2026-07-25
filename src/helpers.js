@@ -89,7 +89,7 @@ export function resolveFieldsParam(columns) {
  * @param {string} opts.labelField — field used to match selection (default: 'name')
  * @returns {Promise<void>|null} null if no selection made or non-interactive
  */
-export async function interactiveList({ app, table, singular, columns, limit = 20, query = '', formatLabel, labelField = 'name' }) {
+export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name' }) {
   app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
   if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin) || query) {
@@ -126,7 +126,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 2
   try {
     const selected = await search({
       message: `${table} (${records.length} of ${totalCount} loaded, type to search)`,
-      pageSize: Math.min(limit, 20),
+      pageSize: Math.min(10, limit),
       source: async (input) => {
         if (!input) return loadedChoices;
         const term = input.toLowerCase();

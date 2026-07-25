@@ -104,7 +104,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         builder: (y) => y
           .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true^priority=1")' })
           .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "name,label,super_class")' })
-          .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+          .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;

@@ -74,7 +74,7 @@ export function scrapiCmd(wrap) {
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns' })
-            .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' }),
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'sys_ws_definition', 'http_method', 'relative_path', 'sys_scope'];
             const query = argv.query || '';
