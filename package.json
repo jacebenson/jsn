@@ -10,7 +10,6 @@
   "scripts": {
     "test": "NODE_OPTIONS=--require=./suppress-warnings.cjs node --test $(find test -name '*.test.js')",
     "lint": "npx eslint src/ bin/ test/",
-    "postinstall": "node scripts/postinstall.mjs",
     "start": "NODE_OPTIONS=--require=./suppress-warnings.cjs node bin/jsn.js",
     "tag-reminder": "node scripts/tag-reminder.js",
     "release": "node scripts/release.js"
