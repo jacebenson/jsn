@@ -94,73 +94,40 @@ function readBundledSkill() {
   }
 }
 
-export async function checkSkill() {
-  // Compare all installed skill copies against GitHub.
-  // Uses a single HTTP fetch and reads all harness paths that exist.
-  // Returns the first installed version found for comparison, plus a list
-  // of harnesses where the skill is current vs outdated (or missing).
-  const SKILL_NAME = 'servicenow';
+export function checkSkill() {
+  // Check if the skill installed at ~/.agents/skills/servicenow/ matches the
+  // version bundled with this CLI. Runs at most once per 24 hours to avoid
+  // hitting the filesystem on every command. Does NOT fetch from GitHub —
+  // the bundled skill IS the current version for this release.
 
-  // Collect all installed copies that actually exist on disk
-  const installedCopies = [];
-  for (const [key, dir] of Object.entries(AGENT_SKILL_DIRS)) {
-    const skillPath = key === 'cursor'
-      ? path.join(dir, `${SKILL_NAME}.mdc`)
-      : path.join(dir, 'SKILL.md');
-    try {
-      const content = fs.readFileSync(skillPath, 'utf-8');
-      installedCopies.push({ harness: key, label: TARGET_NAMES[key], content, path: skillPath });
-    } catch {
-      // Not installed to this harness — skip
-    }
-  }
+  const CANONICAL_DIR = path.join(realHomeDir(), '.agents', 'skills', SKILL_NAME);
+  const canonicalPath = path.join(CANONICAL_DIR, 'SKILL.md');
 
-  // Fall back to bundled skill if nothing installed yet
-  const primary = installedCopies[0] || { content: readBundledSkill() };
-  if (!primary.content) return { current: false, error: 'Skill file not found' };
-
-  const installedVersion = extractVersion(primary.content);
-  if (!installedVersion) return { current: false, error: 'No version field in installed skill' };
-
+  let installed;
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    const res = await fetch(SKILL_RAW_URL, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) return { current: false, error: `GitHub returned ${res.status}` };
-    const upstream = await res.text();
-    const upstreamVersion = extractVersion(upstream);
-    if (!upstreamVersion) return { current: false, error: 'No version field in upstream skill' };
-
-    const current = installedVersion === upstreamVersion;
-
-    // Check each installed copy for version match
-    const outdated = [];
-    for (const copy of installedCopies) {
-      const v = extractVersion(copy.content);
-      if (v && v !== upstreamVersion) {
-        outdated.push(copy.label);
-      }
-    }
-
-    const outdatedMsg = outdated.length > 0
-      ? ` Skill outdated for ${outdated.join(', ')} (v${installedVersion} vs GitHub v${upstreamVersion}) — run "jsn skill install" to update`
-      : null;
-
-    return {
-      current,
-      installed_version: installedVersion,
-      upstream_version: upstreamVersion,
-      checked: installedCopies.length,
-      harnesses: {
-        installed: installedCopies.map(c => c.label),
-        outdated,
-      },
-      error: current ? null : outdatedMsg,
-    };
+    installed = fs.readFileSync(canonicalPath, 'utf-8');
   } catch {
-    return { current: false, error: 'Could not check — GitHub unreachable' };
+    return { current: true, note: 'Skill not installed — run "jsn skill install" to set up' };
   }
+
+  const installedVersion = extractVersion(installed);
+  const bundled = readBundledSkill();
+  const bundledVersion = extractVersion(bundled);
+
+  if (!installedVersion || !bundledVersion) {
+    return { current: true, error: 'Could not determine skill version' };
+  }
+
+  const current = installedVersion === bundledVersion;
+
+  if (!current) {
+    process.stderr.write(
+      `\n⚠ jsn: ServiceNow skill is outdated (installed v${installedVersion}, bundled v${bundledVersion}).\n` +
+      `  Run "jsn skill install" to update.\n\n`
+    );
+  }
+
+  return { current, installed_version: installedVersion, bundled_version: bundledVersion };
 }
 
 function extractVersion(content) {
@@ -196,28 +163,19 @@ export function skillCmd(wrap) {
         })
         .command({
           command: 'check',
-          describe: 'Check if the bundled skill file is up to date with GitHub',
+          describe: 'Check if the installed skill matches the bundled version',
           handler: wrap(async (_argv, app) => {
-            const result = await checkSkill();
-            const h = result.harnesses || {};
+            const result = checkSkill();
 
-            // Build a summary that shows which harnesses are installed and current
             let summary;
-            if (result.error && !result.current) {
+            if (result.error) {
               summary = result.error;
+            } else if (result.note) {
+              summary = result.note;
             } else if (result.current) {
-              const parts = [`✓ Skill is current (v${result.installed_version})`];
-              if (h.installed && h.installed.length > 0) {
-                parts.push(` — installed for ${h.installed.join(', ')}`);
-              }
-              summary = parts.join('');
+              summary = `✓ Skill is current (v${result.installed_version} matches bundled v${result.bundled_version})`;
             } else {
-              const parts = [`⚠ Skill outdated: installed v${result.installed_version} vs GitHub v${result.upstream_version}`];
-              if (h.outdated && h.outdated.length > 0) {
-                parts.push(` — outdated for ${h.outdated.join(', ')}`);
-              }
-              parts.push(` — run "jsn skill install" to update`);
-              summary = parts.join('');
+              summary = `⚠ Skill outdated: installed v${result.installed_version} vs bundled v${result.bundled_version} — run "jsn skill install" to update`;
             }
 
             app.ok(result, { summary });
