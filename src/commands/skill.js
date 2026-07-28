@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import { execSync } from 'node:child_process';
 
+import { globalConfigPath } from '../config.js';
+
 const SKILL_NAME = 'servicenow';
 const SKILL_REPO_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -94,20 +96,52 @@ function readBundledSkill() {
   }
 }
 
-export function checkSkill() {
-  // Check if the skill installed at ~/.agents/skills/servicenow/ matches the
-  // version bundled with this CLI. Runs at most once per 24 hours to avoid
-  // hitting the filesystem on every command. Does NOT fetch from GitHub —
-  // the bundled skill IS the current version for this release.
+// ── Skill config helpers — read/write skillLocation / skillVersion / skillLastChecked ──
 
-  const CANONICAL_DIR = path.join(realHomeDir(), '.agents', 'skills', SKILL_NAME);
-  const canonicalPath = path.join(CANONICAL_DIR, 'SKILL.md');
+function loadSkillConfig() {
+  try {
+    const raw = fs.readFileSync(globalConfigPath(), 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function saveSkillConfig(updates) {
+  const cfg = loadSkillConfig();
+  Object.assign(cfg, updates);
+  fs.mkdirSync(path.dirname(globalConfigPath()), { recursive: true });
+  fs.writeFileSync(globalConfigPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
+}
+
+function recordSkillInstall(targetPath) {
+  const bundled = readBundledSkill();
+  const version = extractVersion(bundled) || 'unknown';
+  saveSkillConfig({
+    skillLocation: targetPath,
+    skillVersion: version,
+    skillLastChecked: new Date().toISOString(),
+  });
+}
+
+// ── Skill version check (once per day, uses recorded location) ──
+
+export function checkSkill() {
+  const cfg = loadSkillConfig();
+  const location = cfg.skillLocation;
+  if (!location) return { current: true, note: 'Skill not installed — run "jsn skill install"' };
+
+  // Throttle: skip if checked within last 24 hours
+  if (cfg.skillLastChecked) {
+    const elapsed = Date.now() - new Date(cfg.skillLastChecked).getTime();
+    if (elapsed < 86400000) return { current: true, note: 'Checked within 24h — skipping' };
+  }
 
   let installed;
   try {
-    installed = fs.readFileSync(canonicalPath, 'utf-8');
+    installed = fs.readFileSync(location, 'utf-8');
   } catch {
-    return { current: true, note: 'Skill not installed — run "jsn skill install" to set up' };
+    return { current: true, note: `Skill file not found at ${location} — run "jsn skill install"` };
   }
 
   const installedVersion = extractVersion(installed);
@@ -126,6 +160,9 @@ export function checkSkill() {
       `  Run "jsn skill install" to update.\n\n`
     );
   }
+
+  // Update last-checked timestamp
+  saveSkillConfig({ skillLastChecked: new Date().toISOString() });
 
   return { current, installed_version: installedVersion, bundled_version: bundledVersion };
 }
@@ -343,6 +380,9 @@ export function skillCmd(wrap) {
             if (targets.length === 0) {
               throw new Error(`No targets matched. Valid targets: ${Object.keys(AGENT_SKILL_DIRS).join(', ')}, or "all"`);
             }
+
+            // Record install location so checkSkill knows where to look
+            recordSkillInstall(targets[0].path);
 
             const installed = targets.reduce((acc, t) => { acc[t.name] = t.path; return acc; }, {});
             const summary = targets.length === 1
