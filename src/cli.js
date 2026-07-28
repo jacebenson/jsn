@@ -225,7 +225,11 @@ export function buildCLI() {
         }
 
         if (shouldCheckSkill) {
-          checkSkill().catch(() => {});
+          try {
+            checkSkill();
+          } catch {
+            // Non-fatal — don't crash the CLI if skill check fails
+          }
 
           try {
             fs.mkdirSync(globalConfigDir(), { recursive: true });
