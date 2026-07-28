@@ -124,7 +124,7 @@ export function docsCmd(wrap) {
                 .replace(/\s+/g, ' ')
                 .trim()
                 .substring(0, 200);
-              lines.push(title);
+              lines.push(`[${r.id}] ${title}`);
               if (snippet) lines.push(`  ${snippet}`);
               lines.push('');
             }
