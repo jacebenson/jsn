@@ -129,13 +129,20 @@ export function docsCmd(wrap) {
               lines.push('');
             }
 
+            const hasMore = result.total > result.count;
+            if (hasMore) {
+              const nextOffset = (result.count + (argv.offset || 0));
+              lines.push(`… ${result.total - result.count} more results (use --offset ${nextOffset} for next page)`);
+            }
+
             app.ok({
               _formatted: lines.join('\n'),
               query: result.query,
               mode: result.mode,
+              total: result.total,
               count: result.count,
               results: result.results,
-            }, { summary: `${result.count} result(s) for "${result.query}" (${result.mode})` });
+            }, { summary: `${result.count} of ${result.total} result(s) for "${result.query}" (${result.mode})` });
           }),
         })
         .command({
