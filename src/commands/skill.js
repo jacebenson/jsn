@@ -20,6 +20,9 @@ const SKILL_RAW_URL = 'https://raw.githubusercontent.com/jacebenson/jsn/nodejs/s
  * Resolve the user's real home directory, even when Hermes overrides $HOME.
  */
 function realHomeDir() {
+  // getent doesn't exist on Windows; os.homedir() is reliable there.
+  if (process.platform === 'win32') return os.homedir();
+
   try {
     const result = execSync('getent passwd ' + process.env.USER + ' 2>/dev/null', { encoding: 'utf-8', timeout: 3000 });
     const home = result.trim().split(':')[5];
