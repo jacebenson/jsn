@@ -3,7 +3,7 @@
 import { AuthManager } from './auth.js';
 import { SDKClient } from './sdk.js';
 import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
-import { getEffectiveInstance } from './config.js';
+import { getEffectiveInstance, normalizeInstanceURL } from './config.js';
 import { extractProfileName } from './helpers.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
@@ -55,6 +55,8 @@ export class App {
   }
 
   getEffectiveInstance() {
+    // Command-line override (--instance, --profile) takes precedence
+    if (this._overrideInstance) return this._overrideInstance;
     return getEffectiveInstance(this.config);
   }
 
@@ -189,6 +191,18 @@ export class App {
   requireAuth() {
     if (!this.auth.isAuthenticated()) {
       throw errAuth('Not authenticated');
+    }
+  }
+
+  /**
+   * Override the effective instance for this command run.
+   * Rebuilds the SDK client for the new instance.
+   */
+  setEffectiveInstance(url) {
+    const normalizedUrl = normalizeInstanceURL(url);
+    if (normalizedUrl) {
+      this._overrideInstance = normalizedUrl;
+      this.sdk = new SDKClient(normalizedUrl, this.auth);
     }
   }
 }

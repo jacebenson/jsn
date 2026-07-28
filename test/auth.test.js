@@ -153,3 +153,51 @@ describe('Auth Command Handlers', () => {
     assert.ok(logoutCalled, 'logout should have been called');
   });
 });
+
+// ─── OAuth URL construction (Issue #124) ───
+
+describe('OAuth URL', () => {
+  it('should build a complete OAuth authorization URL', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ config: {} });
+    const url = auth.buildAuthURL('https://dev12345.service-now.com');
+
+    assert.ok(url.startsWith('https://dev12345.service-now.com/oauth_auth.do?'));
+    assert.ok(url.includes('response_type=code'));
+    assert.ok(url.includes('client_id='));
+    assert.ok(url.includes('redirect_uri='));
+    // redirect_uri is a path (not a full URL), so it's URL-encoded as %2Fsdk-oauth.do
+    assert.ok(url.includes('redirect_uri='));
+    assert.ok(url.includes('state='));
+    assert.ok(url.includes('code_challenge='));
+    assert.ok(url.includes('code_challenge_method=S256'));
+    assert.ok(url.includes('scope=openid'));
+    assert.ok(url.includes('approval_prompt=force'));
+
+    // Verify it's a valid URL by parsing it
+    const parsed = new URL(url);
+    assert.strictEqual(parsed.searchParams.get('response_type'), 'code');
+    assert.strictEqual(parsed.searchParams.get('code_challenge_method'), 'S256');
+    assert.strictEqual(parsed.searchParams.get('scope'), 'openid');
+    assert.ok(parsed.searchParams.get('client_id'));
+    assert.ok(parsed.searchParams.get('state'));
+    assert.ok(parsed.searchParams.get('code_challenge'));
+  });
+
+  it('should build auth URL without waitFile', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ config: {} });
+    const url = auth.buildAuthURL('https://dev12345.service-now.com');
+
+    assert.strictEqual(typeof url, 'string');
+    assert.ok(url.length > 80); // Should have many query params
+  });
+
+  it('should normalize instance URL before building', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ config: {} });
+    const url = auth.buildAuthURL('dev12345.service-now.com');
+
+    assert.ok(url.startsWith('https://dev12345.service-now.com/'));
+  });
+});

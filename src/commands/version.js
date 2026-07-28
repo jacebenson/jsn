@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const NPM_PKG = '@jacebenson/jsn';
 const NPM_REGISTRY = `https://registry.npmjs.org/${NPM_PKG}/latest`;
 
-function getVersion() {
+export function getVersion() {
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.join(__dirname, '..', '..', 'package.json');
@@ -16,7 +16,7 @@ function getVersion() {
   }
 }
 
-async function checkLatest() {
+export async function checkLatest() {
   try {
     const res = await fetch(NPM_REGISTRY);
     if (!res.ok) return null;
