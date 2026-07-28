@@ -12,6 +12,9 @@ const BRANCH = 'australia';
 
 function git(args, cwd, stdio = 'inherit') {
   const r = spawnSync('git', args, { cwd, stdio });
+  if (r.error && r.error.code === 'ENOENT') {
+    throw new Error('git is not installed. Install git to sync docs, or download the docs repo manually.');
+  }
   if (r.status !== 0) {
     throw new Error(`git ${args[0]} failed (exit ${r.status}).`);
   }

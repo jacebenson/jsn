@@ -25,7 +25,7 @@ export function searchDocs(opts = {}) {
   }
 
   const db = new DatabaseSync(dbPath, { readOnly: true });
-  const limit = Math.min(parseInt(opts.limit, 10) || 20, 100);
+  const limit = Math.min(parseInt(opts.limit, 10) || 20, 1000);
   const offset = parseInt(opts.offset, 10) || 0;
   const bundle = opts.bundle ? String(opts.bundle) : null;
   const docType = opts.docType ? String(opts.docType) : null;
@@ -43,6 +43,11 @@ export function searchDocs(opts = {}) {
     params.docType = docType;
   }
   const where = filters.length ? ' AND ' + filters.join(' AND ') : '';
+
+  // Total matching docs (for pagination)
+  const total = db
+    .prepare(`SELECT COUNT(*) AS n FROM docs_fts WHERE docs_fts MATCH @q${where}`)
+    .get({ q, ...(bundle && { bundle }), ...(docType && { docType }) }).n;
 
   let rows;
   if (!useHybrid) {
@@ -133,6 +138,7 @@ export function searchDocs(opts = {}) {
   return {
     query: q,
     mode: useHybrid ? 'hybrid' : 'keyword',
+    total,
     count: rows.length,
     results: rows,
   };
