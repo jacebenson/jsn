@@ -55,6 +55,10 @@ function installSkill() {
     return;
   }
 
+  // Symlinks require admin on Windows and are pointless outside Unix/Mac.
+  // Skip on win32 to avoid "system cannot find the path" errors.
+  if (process.platform === 'win32') return;
+
   // Create symlink at ~/.claude/skills/servicenow → ../../.agents/skills/servicenow
   // This is the same pattern basecamp's installer uses: ~/.claude/skills/basecamp → ../../.agents/skills/basecamp
   try {

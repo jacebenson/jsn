@@ -210,10 +210,31 @@ export function buildCLI() {
         || argv.json
         || argv.quiet;
 
-      // Auto-check skill on every command (fire-and-forget, non-blocking)
+      // Auto-check skill on every command (once per 24h, non-blocking)
       const skipSkillCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
         || process.env.JSN_NO_SKILL_CHECK === '1'
-        || argv['no-skill-check']
+        || argv['no-skill-check'];
+      if (!skipSkillCheck) {
+        const skillCacheFile = path.join(globalConfigDir(), '.last-skill-check');
+        let shouldCheckSkill = true;
+        try {
+          const mtime = fs.statSync(skillCacheFile).mtimeMs;
+          if (Date.now() - mtime < 86400000) shouldCheckSkill = false;
+        } catch {
+          // File doesn't exist — check
+        }
+
+        if (shouldCheckSkill) {
+          checkSkill().catch(() => {});
+
+          try {
+            fs.mkdirSync(globalConfigDir(), { recursive: true });
+            fs.writeFileSync(skillCacheFile, String(Date.now()), 'utf-8');
+          } catch {
+            // Non-fatal
+          }
+        }
+      }
       if (!skipNpmCheck) {
         const cacheFile = path.join(globalConfigDir(), '.last-npm-check');
         let shouldCheck = true;
