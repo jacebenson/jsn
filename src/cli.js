@@ -3,7 +3,9 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import process from 'node:process';
-import { loadConfig, getEffectiveInstance } from './config.js';
+import path from 'node:path';
+import fs from 'node:fs';
+import { loadConfig, getEffectiveInstance, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand } from './mutations.js';
@@ -25,7 +27,8 @@ import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
 import { versionCmd } from './commands/version.js';
 import { devCmd } from './commands/dev.js';
-import { skillCmd, checkSkill } from './commands/skill.js';
+import { skillCmd } from './commands/skill.js';
+import { getVersion, checkLatest } from './commands/version.js';
 
 // Dev subcommands promoted to root level for progressive disclosure
 import {
@@ -153,8 +156,23 @@ export function buildCLI() {
         if (argv.format) {
           app.output.setFormat(argv.format);
         }
+        // --profile: resolve profile name to its instance URL
+        // --instance wins if both are specified (explicit URL > profile reference)
+        if (argv.profile) {
+          const profile = (cfg.profiles || {})[argv.profile];
+          if (!profile) {
+            process.stderr.write(`Error: Unknown profile "${argv.profile}"\n`);
+            process.exit(1);
+          }
+          const url = profile.instance_url;
+          app._overrideInstance = url;
+          argv._overrideInstance = url;
+          // Temporarily switch active profile so auth picks up the right user
+          cfg.activeProfile = argv.profile;
+        }
         if (argv.instance) {
           app._overrideInstance = argv.instance;
+          argv._overrideInstance = argv.instance;
         }
       },
       // Guard mutation commands when no instance configured
@@ -166,6 +184,7 @@ export function buildCLI() {
         // Check for --instance override
         if (argv.instance) {
           app._overrideInstance = argv.instance;
+          argv._overrideInstance = argv.instance;
         }
         // Determine if this is a mutation
         const subcommand = (argv._[1] || '').toString();
@@ -183,18 +202,40 @@ export function buildCLI() {
 
       const cmd = (argv._[0] || '').toString();
 
-      // Auto-check skill on every command (fire-and-forget, non-blocking)
-      const skipSkillCheck = ['help', 'version', 'completion', 'skill'].includes(cmd)
-        || process.env.JSN_NO_SKILL_CHECK === '1'
-        || argv['no-skill-check']
+      // Daily npm version check (fire-and-forget, non-blocking)
+      // Checks npm for newer jsn releases, at most once per 24 hours.
+      const skipNpmCheck = ['help', 'version', 'completion', 'skill'].includes(cmd)
+        || process.env.JSN_NO_VERSION_CHECK === '1'
         || argv.json
         || argv.quiet;
-      if (!skipSkillCheck) {
-        checkSkill().then(result => {
-          if (result && !result.current && result.error) {
-            process.stderr.write(`\n⚠ ${result.error}\n\n`);
+      if (!skipNpmCheck) {
+        const cacheFile = path.join(globalConfigDir(), '.last-npm-check');
+        let shouldCheck = true;
+        try {
+          const mtime = fs.statSync(cacheFile).mtimeMs;
+          const elapsed = Date.now() - mtime;
+          // Only check if >= 24 hours since last check
+          if (elapsed < 86400000) shouldCheck = false;
+        } catch {
+          // File doesn't exist — check
+        }
+
+        if (shouldCheck) {
+          const version = getVersion();
+          checkLatest().then(latest => {
+            if (latest && version !== latest) {
+              process.stderr.write(`\n⚠ jsn ${latest} available (you have ${version}) — run "npm install -g @jacebenson/jsn" to update\n\n`);
+            }
+          }).catch(() => {});
+
+          // Stamp the cache file (write async, don't block)
+          try {
+            fs.mkdirSync(globalConfigDir(), { recursive: true });
+            fs.writeFileSync(cacheFile, String(Date.now()), 'utf-8');
+          } catch {
+            // Non-fatal
           }
-        }).catch(() => {});
+        }
       }
 
       // Print context header for interactive terminals

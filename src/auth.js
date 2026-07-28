@@ -58,6 +58,24 @@ function removePKCEState(instance) {
 const DEFAULT_OAUTH_CLIENT_ID = '543e5655f77746a28228c6009a599dfb';
 const REDIRECT_URI = '/sdk-oauth.do';
 
+// ─── WSL detection ───
+
+/**
+ * Detect if running under Windows Subsystem for Linux.
+ * Reads /proc/version which contains "Microsoft" or "WSL" on WSL.
+ */
+let _cachedIsWSL = null;
+async function isWSLEnv() {
+  if (_cachedIsWSL !== null) return _cachedIsWSL;
+  try {
+    const data = fs.readFileSync('/proc/version', 'utf-8');
+    _cachedIsWSL = /microsoft|wsl/i.test(data);
+  } catch {
+    _cachedIsWSL = false;
+  }
+  return _cachedIsWSL;
+}
+
 // ─── Basic auth from environment variables ───
 // SN_USERNAME / SN_PASSWORD — global credentials
 // SN_<INSTANCE>_USERNAME / SN_<INSTANCE>_PASSWORD — instance-specific (e.g. SN_DEV328604_USERNAME)
@@ -386,10 +404,23 @@ export class AuthManager {
       args = [authURL];
     } else if (platform === 'win32') {
       cmd = 'cmd';
-      args = ['/c', 'start', authURL];
+      // Windows: cmd.exe interprets & as a command separator, which truncates
+      // the URL after the first parameter. Passing an empty string as the first
+      // arg to `start` serves as the window title, and spawn auto-quotes the
+      // URL arg, protecting & and other special chars from cmd.exe's parser.
+      args = ['/c', 'start', '', authURL];
     } else {
-      cmd = 'xdg-open';
-      args = [authURL];
+      // WSL detection: check if we're running under Windows Subsystem for Linux
+      // On WSL, xdg-open delegates to cmd.exe /C start <url>, which truncates
+      // on &. We call cmd.exe directly with proper quoting instead.
+      const isWSL = platform === 'linux' && (await isWSLEnv());
+      if (isWSL) {
+        cmd = 'cmd.exe';
+        args = ['/c', 'start', '', authURL];
+      } else {
+        cmd = 'xdg-open';
+        args = [authURL];
+      }
     }
     const child = open(cmd, args, { detached: true, stdio: 'ignore' });
     child.on('error', () => {
