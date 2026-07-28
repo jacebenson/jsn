@@ -140,9 +140,10 @@ export function docsCmd(wrap) {
         })
         .command({
           command: 'show <id-or-path>',
-          describe: 'Show a full documentation page by id or path',
+          describe: 'Show a documentation page by id or path',
           builder: (y) => y
-            .positional('id-or-path', { type: 'string', describe: 'Document id (number) or file path' }),
+            .positional('id-or-path', { type: 'string', describe: 'Document id (number) or file path' })
+            .option('lines', { type: 'number', default: 80, describe: 'Lines of body to show in terminal (use --json for full content)' }),
           handler: wrap(async (argv, app) => {
             const idOrPath = argv['id-or-path'];
             const db = openDocsDb();
@@ -169,6 +170,10 @@ export function docsCmd(wrap) {
             const title = row.title || fm.title || row.path || '(untitled)';
             const header = `${title}\n${'─'.repeat(Math.min(title.length, 80))}`;
             const body = row.body || '';
+            const bodyLines = body.split('\n');
+            const truncated = bodyLines.length > argv.lines;
+            const preview = bodyLines.slice(0, argv.lines).join('\n');
+            const hint = truncated ? `\n\n… ${bodyLines.length - argv.lines} more lines (use --lines ${bodyLines.length} or --json for full content)` : '';
 
             app.ok({
               id: row.id,
@@ -178,7 +183,7 @@ export function docsCmd(wrap) {
               release: row.release,
               canonical_url: fm.canonical_url || null,
               body,
-              _formatted: `${header}\n\n${body}`,
+              _formatted: `${header}\n\n${preview}${hint}`,
             }, { summary: `Doc ${row.id}: ${title}` });
           }),
         })
