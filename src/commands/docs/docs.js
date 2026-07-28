@@ -114,13 +114,72 @@ export function docsCmd(wrap) {
               docType: argv['doc-type'],
               mode: argv.mode,
             });
+
+            // Build a readable text blob for styled TTY output.
+            const lines = [];
+            for (const r of result.results) {
+              const title = r.title || r.path || '(untitled)';
+              const snippet = (r.snippet || r.body || '')
+                .replace(/\\n/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .substring(0, 200);
+              lines.push(title);
+              if (snippet) lines.push(`  ${snippet}`);
+              lines.push('');
+            }
+
             app.ok({
+              _formatted: lines.join('\n'),
               query: result.query,
               mode: result.mode,
               count: result.count,
-              records: result.results,
-              columns: ['title', 'bundle', 'score', 'path'],
+              results: result.results,
             }, { summary: `${result.count} result(s) for "${result.query}" (${result.mode})` });
+          }),
+        })
+        .command({
+          command: 'show <id-or-path>',
+          describe: 'Show a full documentation page by id or path',
+          builder: (y) => y
+            .positional('id-or-path', { type: 'string', describe: 'Document id (number) or file path' }),
+          handler: wrap(async (argv, app) => {
+            const idOrPath = argv['id-or-path'];
+            const db = openDocsDb();
+            let row;
+            if (/^\d+$/.test(idOrPath)) {
+              row = db.prepare('SELECT * FROM docs WHERE id = ?').get(parseInt(idOrPath, 10));
+            } else {
+              row = db.prepare('SELECT * FROM docs WHERE path LIKE ?').get(`%${idOrPath}%`);
+              if (!row) {
+                row = db.prepare(
+                  `SELECT d.* FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ? LIMIT 1`
+                ).get(idOrPath);
+              }
+            }
+            closeDocsDb(db);
+
+            if (!row) {
+              throw Object.assign(new Error(`No doc found for "${idOrPath}"`), { code: 'not_found' });
+            }
+
+            let fm = {};
+            try { fm = JSON.parse(row.frontmatter || '{}'); } catch { /* ignore */ }
+
+            const title = row.title || fm.title || row.path || '(untitled)';
+            const header = `${title}\n${'─'.repeat(Math.min(title.length, 80))}`;
+            const body = row.body || '';
+
+            app.ok({
+              id: row.id,
+              path: row.path,
+              title: row.title,
+              bundle: row.bundle,
+              release: row.release,
+              canonical_url: fm.canonical_url || null,
+              body,
+              _formatted: `${header}\n\n${body}`,
+            }, { summary: `Doc ${row.id}: ${title}` });
           }),
         })
         .command({
@@ -163,6 +222,7 @@ export function docsCmd(wrap) {
       process.stdout.write('  sync      Download docs and build a searchable index (handles updates too)\n');
       process.stdout.write('  status    Show whether docs are downloaded, indexed, embedded, or served\n');
       process.stdout.write('  search    Full-text + semantic search across the local docs index\n');
+      process.stdout.write('  show      Display a full documentation page by id or path\n');
       process.stdout.write('  serve     Start a local web UI for browsing and searching docs\n');
       process.stdout.write('\n');
       process.stdout.write('Tip: use "jsn docs serve --expose" to bind to 0.0.0.0 and share on your network.\n');
