@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ServiceNow Docs Search</title>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<style>
+  :root { --bg:#0f1420; --panel:#171e2e; --border:#2a3448; --text:#e6ebf5; --muted:#9aa7bd; --accent:#4f8cff; --tag:#243049; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 24px; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:5; }
+  h1 { margin:0 0 12px; font-size:19px; }
+  .searchbar { display:flex; gap:8px; flex-wrap:wrap; }
+  input, select { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font-size:14px; }
+  input[type=text] { flex:1; min-width:220px; }
+  button { background:var(--accent); border:none; color:#fff; border-radius:8px; padding:10px 18px; font-size:14px; cursor:pointer; }
+  button:hover { opacity:.9; }
+  .modewrap { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; white-space:nowrap; }
+  main { max-width:900px; margin:0 auto; padding:20px 24px 60px; }
+  .meta { color:var(--muted); font-size:13px; margin-bottom:14px; }
+  .result { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:12px; }
+  .result h3 { margin:0 0 6px; font-size:16px; }
+  .result h3 a { color:var(--accent); text-decoration:none; cursor:pointer; }
+  .result h3 a:hover { text-decoration:underline; }
+  .path { color:var(--muted); font-size:12px; word-break:break-all; margin-bottom:8px; }
+  .source { font-size:12.5px; margin-bottom:6px; }
+  .source a { color:var(--accent); text-decoration:none; }
+  .source a:hover { text-decoration:underline; }
+  .snippet { font-size:13.5px; color:#cdd6e6; white-space:pre-wrap; }
+  .snippet mark { background:#3a4a2a; color:#e9ffd0; border-radius:3px; padding:0 2px; }
+  .tags { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { background:var(--tag); color:var(--muted); font-size:11px; padding:2px 8px; border-radius:20px; }
+  .empty { color:var(--muted); text-align:center; padding:40px; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:12px; max-width:800px; width:92%; max-height:86vh; padding:0; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .doc-head { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:12px; position:sticky; top:0; background:var(--panel); }
+  .doc-head h2 { margin:0; font-size:17px; }
+  .doc-head .source { margin:6px 0 0; }
+  .doc-body { padding:16px 20px; overflow:auto; max-height:70vh; }
+  .doc-body pre { white-space:pre-wrap; word-break:break-word; font:13px/1.6 ui-monospace, Menlo, Consolas, monospace; margin:0; }
+  .markdown { font-size:14px; line-height:1.6; }
+  .markdown h1,.markdown h2,.markdown h3 { border-bottom:1px solid var(--border); padding-bottom:4px; }
+  .markdown a { color:var(--accent); }
+  .markdown code { background:var(--bg); padding:1px 5px; border-radius:4px; font-family:ui-monospace,Consolas,monospace; font-size:.9em; }
+  .markdown pre { background:var(--bg); padding:12px; border-radius:8px; overflow:auto; }
+  .markdown pre code { background:none; padding:0; }
+  .markdown table { border-collapse:collapse; width:100%; }
+  .markdown th,.markdown td { border:1px solid var(--border); padding:6px 10px; text-align:left; }
+  .markdown img { max-width:100%; }
+  .markdown blockquote { border-left:3px solid var(--border); margin:0; padding-left:12px; color:var(--muted); }
+  .close-x { background:none; border:1px solid var(--border); color:var(--muted); padding:4px 10px; border-radius:6px; }
+  .spinner { color:var(--muted); text-align:center; padding:30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ServiceNow Docs Search</h1>
+  <form class="searchbar" id="form">
+    <input type="text" id="q" placeholder="Search docs… (e.g. incident management, &quot;major incident&quot;, cmdb AND reconciliation)" autofocus />
+    <select id="bundle"><option value="">All bundles</option></select>
+    <label class="modewrap" title="Rerank FTS results with holographic (HRR) semantic similarity">
+      <input type="checkbox" id="semantic" /> Semantic
+    </label>
+    <button type="submit">Search</button>
+  </form>
+</header>
+<main>
+  <div class="meta" id="meta"></div>
+  <div id="results"></div>
+</main>
+
+<dialog id="docDialog">
+  <div class="doc-head">
+    <div>
+      <h2 id="docTitle"></h2>
+      <div class="source" id="docSource"></div>
+    </div>
+    <button class="close-x" onclick="document.getElementById('docDialog').close()">Close</button>
+  </div>
+  <div class="doc-body"><div class="markdown" id="docBody"></div></div>
+</dialog>
+
+<script>
+const form = document.getElementById('form');
+const qEl = document.getElementById('q');
+const bundleEl = document.getElementById('bundle');
+const semanticEl = document.getElementById('semantic');
+const resultsEl = document.getElementById('results');
+const metaEl = document.getElementById('meta');
+
+fetch('/stats').then(r => r.json()).then(s => {
+  if (s.embeddings) { semanticEl.checked = true; }
+  else { semanticEl.checked = false; semanticEl.disabled = true; semanticEl.parentElement.title = 'Run "jsn docs embed" to enable semantic search'; }
+}).catch(() => {});
+
+fetch('/bundles').then(r => r.json()).then(rows => {
+  for (const row of rows) {
+    if (!row.bundle) continue;
+    const opt = document.createElement('option');
+    opt.value = row.bundle;
+    opt.textContent = `${row.bundle} (${row.count})`;
+    bundleEl.appendChild(opt);
+  }
+}).catch(() => {});
+
+function esc(s) {
+  return (s || '').replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[c]));
+}
+
+function cleanUrl(u) {
+  return (u || '').replace(/\\/g, '');
+}
+
+function renderSnippet(s) {
+  return esc(s).replace(/\[/g, '<mark>').replace(/\]/g, '</mark>');
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = qEl.value.trim();
+  if (!q) return;
+  resultsEl.innerHTML = '<div class="spinner">Searching…</div>';
+  metaEl.textContent = '';
+  const params = new URLSearchParams({ q, limit: '30' });
+  if (bundleEl.value) params.set('bundle', bundleEl.value);
+  params.set('mode', semanticEl.checked ? 'hybrid' : 'keyword');
+  try {
+    const res = await fetch('/search?' + params);
+    const data = await res.json();
+    if (!res.ok) { resultsEl.innerHTML = `<div class="empty">${esc(data.error || 'Error')}</div>`; return; }
+    if (!data.results.length) { resultsEl.innerHTML = '<div class="empty">No results.</div>'; metaEl.textContent=''; return; }
+    metaEl.textContent = `${data.count} result${data.count === 1 ? '' : 's'} for "${q}"`;
+    resultsEl.innerHTML = data.results.map(r => `
+      <div class="result">
+        ${r.canonical_url ? `<div class="source"><a href="${esc(cleanUrl(r.canonical_url))}" target="_blank" rel="noopener">Docs | ServiceNow ↗</a></div>` : ''}
+        <h3><a data-id="${r.id}">${esc(r.title) || esc(r.path)}</a></h3>
+        <div class="path">${esc(r.path)}</div>
+        <div class="snippet">${renderSnippet(r.snippet)}</div>
+        <div class="tags">
+          ${r.bundle ? `<span class="tag">bundle: ${esc(r.bundle)}</span>` : ''}
+          ${r.doc_type ? `<span class="tag">${esc(r.doc_type)}</span>` : ''}
+          ${r.release ? `<span class="tag">${esc(r.release)}</span>` : ''}
+        </div>
+      </div>`).join('');
+  } catch (err) {
+    resultsEl.innerHTML = `<div class="empty">Request failed: ${esc(err.message)}</div>`;
+  }
+});
+
+resultsEl.addEventListener('click', async (e) => {
+  const a = e.target.closest('a[data-id]');
+  if (!a) return;
+  e.preventDefault();
+  const dlg = document.getElementById('docDialog');
+  const titleEl = document.getElementById('docTitle');
+  const sourceEl = document.getElementById('docSource');
+  const bodyEl = document.getElementById('docBody');
+  titleEl.textContent = 'Loading…';
+  sourceEl.innerHTML = '';
+  bodyEl.innerHTML = '';
+  dlg.showModal();
+  try {
+    const res = await fetch('/doc/' + a.dataset.id);
+    const doc = await res.json();
+    titleEl.textContent = doc.title || doc.path;
+    const url = doc.frontmatter && doc.frontmatter.canonical_url;
+    sourceEl.innerHTML = url ? `<a href="${esc(cleanUrl(url))}" target="_blank" rel="noopener">Docs | ServiceNow ↗</a>` : '';
+    const html = marked.parse(doc.body || '(empty)');
+    bodyEl.innerHTML = DOMPurify.sanitize(html);
+  } catch (err) {
+    bodyEl.textContent = 'Failed to load: ' + err.message;
+  }
+});
+</script>
+</body>
+</html>

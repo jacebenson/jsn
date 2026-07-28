@@ -54,9 +54,10 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 
 1. **Specific commands** — `jsn flows`, `jsn rules`, `jsn catalogitems`, etc.
 2. **`jsn records --table <name>`** — generic CRUD on any table
-3. **`jsn rest`** — raw Table API escape hatch
-4. **`jsn eval`** — ⚠️ **LAST RESORT ONLY**
-5. **Ask the human** — if none of the above work
+3. **`jsn docs search <query>`** — offline ServiceNow documentation search (no instance needed)
+4. **`jsn rest`** — raw Table API escape hatch
+5. **`jsn eval`** — ⚠️ **LAST RESORT ONLY**
+6. **Ask the human** — if none of the above work
 
 ## Key Commands
 
@@ -69,6 +70,7 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 | **UX** | `forms` (section/element layout), `lists`, `clientscripts`, `uipolicies` |
 | **Data** | `tables`, `columns`, `includes`, `logs`, `properties`, `records` |
 | **Config** | `setup`, `auth`, `profiles`, `updatesets`, `scopes` |
+| **Docs** | `docs sync`, `docs status`, `docs search`, `docs serve` |
 | **Developer** | `eval`, `rest`, `skill`, `version` |
 
 ### `jsn rest` examples
@@ -83,6 +85,32 @@ jsn rest --table incident --sys-id abc123... --json
 # Raw endpoint access
 jsn rest "/api/now/table/incident?sysparm_limit=3" --json
 ```
+
+### `jsn docs` — offline documentation search
+
+No ServiceNow instance required. Searches the full ServiceNow docs locally with FTS5 + semantic hybrid search.
+
+```bash
+# First run: download docs and build the index (~45k files, ~3-5 min)
+jsn docs sync
+
+# Check state
+jsn docs status
+
+# Search (keyword + semantic hybrid)
+jsn docs search "GlideRecord query" --limit 5 --json
+
+# Filter by bundle
+jsn docs search "REST API" --bundle it-service-management --json
+
+# Start the web UI
+jsn docs serve
+
+# Share on your network
+jsn docs serve --expose
+```
+
+**Re-running `jsn docs sync`** does a smart incremental refresh — pulls latest docs and only rebuilds changed files (seconds, not minutes).
 
 ## Troubleshooting Field Behavior
 

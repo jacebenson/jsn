@@ -27,8 +27,9 @@ import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
 import { versionCmd } from './commands/version.js';
 import { devCmd } from './commands/dev.js';
-import { skillCmd } from './commands/skill.js';
+import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest } from './commands/version.js';
+import { docsCmd } from './commands/docs/docs.js';
 
 // Dev subcommands promoted to root level for progressive disclosure
 import {
@@ -178,7 +179,7 @@ export function buildCLI() {
       // Guard mutation commands when no instance configured
       (argv) => {
         const cmd = (argv._[0] || '').toString();
-        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'profiles', 'skill'].includes(cmd)) {
+        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'profiles', 'skill', 'docs'].includes(cmd)) {
           return;
         }
         // Check for --instance override
@@ -204,10 +205,15 @@ export function buildCLI() {
 
       // Daily npm version check (fire-and-forget, non-blocking)
       // Checks npm for newer jsn releases, at most once per 24 hours.
-      const skipNpmCheck = ['help', 'version', 'completion', 'skill'].includes(cmd)
+      const skipNpmCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
         || process.env.JSN_NO_VERSION_CHECK === '1'
         || argv.json
         || argv.quiet;
+
+      // Auto-check skill on every command (fire-and-forget, non-blocking)
+      const skipSkillCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
+        || process.env.JSN_NO_SKILL_CHECK === '1'
+        || argv['no-skill-check']
       if (!skipNpmCheck) {
         const cacheFile = path.join(globalConfigDir(), '.last-npm-check');
         let shouldCheck = true;
@@ -239,7 +245,7 @@ export function buildCLI() {
       }
 
       // Print context header for interactive terminals
-      if (!['help', 'version', 'completion', 'skill'].includes(cmd)) {
+      if (!['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)) {
         await argv.app.printContextHeader(argv);
       }
     })
@@ -322,6 +328,7 @@ export function buildCLI() {
     .command(evalCmd(wrap))
     .command(restCmd(wrap))
     .command(skillCmd(wrap))
+    .command(docsCmd(wrap))
     .command(versionCmd(wrap))
     // Legacy
     .command(devCmd(wrap))
