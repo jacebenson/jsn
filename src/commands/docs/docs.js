@@ -114,7 +114,13 @@ export function docsCmd(wrap) {
               docType: argv['doc-type'],
               mode: argv.mode,
             });
-            app.ok(result, { summary: `${result.count} result(s) for "${result.query}" (${result.mode})` });
+            app.ok({
+              query: result.query,
+              mode: result.mode,
+              count: result.count,
+              records: result.results,
+              columns: ['title', 'bundle', 'score', 'path'],
+            }, { summary: `${result.count} result(s) for "${result.query}" (${result.mode})` });
           }),
         })
         .command({
