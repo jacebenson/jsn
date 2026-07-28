@@ -8,10 +8,10 @@
   },
   "main": "src/cli.js",
   "scripts": {
-    "test": "node --test $(find test -name '*.test.js')",
+    "test": "NODE_OPTIONS=--require=./suppress-warnings.cjs node --test $(find test -name '*.test.js')",
     "lint": "npx eslint src/ bin/ test/",
     "postinstall": "node scripts/postinstall.mjs",
-    "start": "node bin/jsn.js",
+    "start": "NODE_OPTIONS=--require=./suppress-warnings.cjs node bin/jsn.js",
     "tag-reminder": "node scripts/tag-reminder.js",
     "release": "node scripts/release.js"
   },
@@ -24,13 +24,14 @@
   "author": "Jace Benson",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.5.0"
   },
   "dependencies": {
     "@inquirer/core": "^10.1.0",
     "@inquirer/prompts": "^7.5.1",
     "chalk": "^5.4.1",
     "cli-table3": "^0.6.5",
+    "gray-matter": "^4.0.3",
     "yargs": "^17.7.2"
   },
   "devDependencies": {
@@ -40,6 +41,7 @@
   },
   "files": [
     "bin/jsn.js",
+    "suppress-warnings.cjs",
     "src/",
     "skills/",
     "scripts/",
