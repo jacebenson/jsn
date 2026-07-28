@@ -240,14 +240,18 @@ export function serveDocs(opts = {}) {
     let currentPort = parseInt(port, 10);
     const maxAttempts = 10;
     let attempts = 0;
+    let resolved = false;
 
     function onListening() {
+      if (resolved) return;
+      resolved = true;
       server.removeListener('error', onError);
       process.stderr.write(`ServiceNow docs search listening on http://${host}:${currentPort}\n`);
       resolve({ server, port: currentPort, host, dbPath });
     }
 
     function onError(err) {
+      if (resolved) return;
       server.removeListener('listening', onListening);
       if (err.code === 'EADDRINUSE' && attempts < maxAttempts) {
         process.stderr.write(`Port ${currentPort} in use, trying ${currentPort + 1}...\n`);
@@ -258,6 +262,7 @@ export function serveDocs(opts = {}) {
       if (err.code === 'EADDRINUSE') {
         err.message = `Could not find an open port between ${port} and ${currentPort}. Try specifying one with --port.`;
       }
+      resolved = true;
       reject(err);
     }
 

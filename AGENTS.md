@@ -239,6 +239,11 @@ These operations are always safe:
 - `jsn dev forms list`
 - `jsn dev lists list`
 
+**Docs Commands (no instance required, always read-only):**
+
+- `jsn docs sync` / `jsn docs status` / `jsn docs search`
+- `jsn docs serve` / `jsn docs refresh` / `jsn docs embed`
+
 ### Operations Requiring Confirmation
 
 These operations modify data:
@@ -422,6 +427,34 @@ jsn skill install /path/to/project/.hermes/skills/servicenow/
 jsn version                    # Show current version
 jsn version --check            # Check npm for newer versions
 ```
+
+## Workflow 8: Documentation Search
+
+`jsn docs` provides local offline search of ServiceNow documentation — no instance required.
+
+```bash
+# One-time setup: download docs and build the search index (~45k files, ~3-5 min)
+jsn docs sync
+
+# Check what state things are in
+jsn docs status
+
+# Full-text + semantic hybrid search
+jsn docs search "incident management" --limit 5 --json
+
+# Filter by bundle
+jsn docs search "REST API" --bundle it-service-management --json
+
+# Start the web UI for browsing
+jsn docs serve
+
+# Share on your network
+jsn docs serve --expose
+```
+
+**State flow:** `not downloaded` → `not indexed` → `indexed (not embedded)` → `ready`
+
+**Re-running `jsn docs sync`** on an existing DB does a smart incremental refresh (seconds, not minutes). It pulls the latest docs and only rebuilds changed files.
 
 ## References
 

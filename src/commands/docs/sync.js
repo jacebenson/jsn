@@ -3,8 +3,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { getDocsSourceDir, getDocsSourceMarkdownDir, getDocsDbPath } from './db.js';
+import { getDocsSourceDir, getDocsSourceMarkdownDir, getDocsDbPath, docsDbExists } from './db.js';
 import { ingestDocs } from './ingest.js';
+import { refreshDocs } from './refresh.js';
 
 const REPO_URL = 'https://github.com/ServiceNow/ServiceNowDocs';
 const BRANCH = 'australia';
@@ -23,7 +24,21 @@ export function syncDocs(opts = {}) {
   const embed = opts.embed !== false;
   const noIngest = opts.noIngest === true;
 
-  if (fs.existsSync(path.join(repoDir, '.git'))) {
+  const initialStatus = {
+    clone: !fs.existsSync(path.join(repoDir, '.git')),
+    docsApprox: 45000,
+    willEmbed: embed && noIngest === false,
+    minutesHint: embed ? 3 : 1,
+  };
+
+  process.stderr.write('Note: docs sync downloads ~45k markdown files and builds an FTS5 + HRR index. ');
+  process.stderr.write(`This normally takes ${initialStatus.minutesHint}-${initialStatus.minutesHint + 2} minutes.\n`);
+  if (initialStatus.willEmbed) {
+    process.stderr.write('Pass --no-embed to skip semantic embeddings and finish faster.\n');
+  }
+  process.stderr.write('\n');
+
+  if (!initialStatus.clone) {
     process.stderr.write(`Updating existing clone at ${repoDir} ...\n`);
     git(['-C', repoDir, 'pull', '--ff-only'], repoDir, 'inherit');
   } else {
@@ -44,10 +59,17 @@ export function syncDocs(opts = {}) {
   }
 
   if (noIngest) {
-    return { repoDir, markdownDir, dbPath, ingested: false };
+    return { repoDir, markdownDir, dbPath, ingested: false, note: 'Run without --no-ingest to build the index.' };
   }
 
-  process.stderr.write('Ingesting markdown into docs.db...\n');
+  // If the DB already exists, use incremental refresh. Otherwise, full ingest.
+  if (docsDbExists()) {
+    process.stderr.write(`Docs DB found — running incremental refresh...\n`);
+    const result = refreshDocs({ docsDir: markdownDir, dbPath });
+    return { repoDir, markdownDir, dbPath, ingested: true, incremental: true, ...result };
+  }
+
+  process.stderr.write('No existing DB — running full ingest...\n');
   const result = ingestDocs({ docsDir: markdownDir, dbPath, embed });
-  return { repoDir, markdownDir, dbPath, ingested: true, ...result };
+  return { repoDir, markdownDir, dbPath, ingested: true, incremental: false, ...result };
 }
