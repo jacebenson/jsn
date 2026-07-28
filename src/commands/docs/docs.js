@@ -231,6 +231,9 @@ export function docsCmd(wrap) {
       process.stdout.write('  serve     Start a local web UI for browsing and searching docs\n');
       process.stdout.write('\n');
       process.stdout.write('Tip: use "jsn docs serve --expose" to bind to 0.0.0.0 and share on your network.\n');
+      process.stdout.write('\n');
+      const dbPath = getDocsDbPath();
+      process.stdout.write(`Docs DB: ${dbPath} (run "jsn docs status" for details, or query directly with sqlite3)\n`);
       process.stdout.write('\nRun "jsn docs <command> --help" for details.\n');
     },
   };
