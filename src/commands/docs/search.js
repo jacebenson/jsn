@@ -1,7 +1,7 @@
 // CLI search against the docs SQLite database.
 
 import fs from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 import { getDocsDbPath, hasEmbeddings } from './db.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
@@ -24,7 +24,7 @@ export function searchDocs(opts = {}) {
     throw new Error(`Database not found: ${dbPath}. Run "jsn docs sync" first.`);
   }
 
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = new Database(dbPath, { readonly: true });
   const limit = Math.min(parseInt(opts.limit, 10) || 20, 1000);
   const offset = parseInt(opts.offset, 10) || 0;
   const bundle = opts.bundle ? String(opts.bundle) : null;

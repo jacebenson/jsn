@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 
 const DOCS_DIR_NAME = 'servicenow-cli/docs';
 
@@ -37,7 +37,7 @@ export function ensureDocsCacheDir() {
 export function openDocsDb(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
   ensureDocsCacheDir();
-  const db = new DatabaseSync(dbPath);
+  const db = new Database(dbPath);
   db.exec('PRAGMA journal_mode = WAL');
   return db;
 }

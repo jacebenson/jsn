@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { URL } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 import { getDocsDbPath, hasEmbeddings } from './db.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
@@ -72,7 +72,7 @@ export function serveDocs(opts = {}) {
     throw new Error(`Database not found: ${dbPath}. Run "jsn docs sync" first.`);
   }
 
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = new Database(dbPath, { readonly: true });
   const hasEmb = hasEmbeddings(db);
   const hrrDim = (() => {
     try {
