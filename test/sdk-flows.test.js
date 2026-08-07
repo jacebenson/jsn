@@ -129,3 +129,35 @@ test('formatSubFlowStep guards against cycles via visited set', async () => {
   await formatSubFlowStep(1, '', subFlow, ctx);
   assert.equal(called, false, 'should not re-fetch an already-visited subflow');
 });
+
+test('formatActionStep keeps long single-line values untruncated', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const longValue = 'x'.repeat(200);
+  const action = {
+    actionType: { fName: 'Create Record' },
+    inputs: [
+      { name: 'short_description', displayValue: longValue, value: longValue },
+    ],
+  };
+  const lines = formatActionStep(1, '', action);
+  const line = lines.find(l => l.includes('short_description'));
+  assert.ok(line.includes(longValue), 'long value should appear in full, not truncated');
+  assert.ok(!line.includes('...'), 'no ellipsis truncation');
+  assert.equal(lines.length, 2, 'name line + one value line');
+});
+
+test('formatActionStep splits carrot-separated fields onto separate lines', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Update Record' },
+    inputs: [
+      { name: 'fields', displayValue: 'state=7^work_notes=Auto-closing: No application found^priority=1', value: 'state=7^work_notes=Auto-closing: No application found^priority=1' },
+    ],
+  };
+  const lines = formatActionStep(1, '', action);
+  const fieldLines = lines.filter(l => l.includes('fields:'));
+  assert.equal(fieldLines.length, 3, 'each carrot field gets its own line');
+  assert.ok(fieldLines.some(l => l.includes('state=7')), 'first field present');
+  assert.ok(fieldLines.some(l => l.includes('work_notes=Auto-closing: No application found')), 'second field present, untruncated');
+  assert.ok(fieldLines.some(l => l.includes('priority=1')), 'third field present');
+});
