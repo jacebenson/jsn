@@ -109,9 +109,9 @@ export function flowsCmd(wrap) {
       console.log('');
       console.log('Run "jsn flows <command> --help" for details.');
       console.log('');
-      console.log('Note: Flow inspection detail varies. V2 flows (with payload)');
-      console.log('show full action inputs and conditions. Subflows and V1 flows');
-      console.log('show step names only.');
+      console.log('Note: Flow structure comes from the ProcessFlow API (the Flow');
+      console.log('Designer UI source), so V1, V2, and subflow definitions all');
+      console.log('render with full action inputs and conditions.');
     },
   };
 }
@@ -187,10 +187,12 @@ function formatFlowInspection(inspection, instanceURL) {
   lines.push('─'.repeat(50));
   const structureLines = formatFlowStructure(inspection);
   lines.push(...structureLines);
-  // Note limitation for V1/subflows without payload detail
-  if (!inspection.payload || Object.keys(inspection.payload).length === 0) {
+  // Note limitation only when we couldn't reconstruct detail from the payload OR the gzip fallback
+  const hasPayload = inspection.payload && Object.keys(inspection.payload).length > 0;
+  const hasDecodedLogic = (inspection.flowLogicInstances || []).some(l => l._decodedValues);
+  if (!hasPayload && !hasDecodedLogic) {
     lines.push('');
-    lines.push('  (step detail limited — this flow lacks a V2 payload)');
+    lines.push('  (step detail limited — no flow definition data available)');
   }
 
   lines.push('');
@@ -351,7 +353,7 @@ function formatFlowStructureFallback(inspection) {
         getStringField(action, 'display_text'),
         'Action',
       );
-      steps.push({ order: parseOrderField(action), text: name });
+      steps.push({ order: parseOrderField(action), text: name, comment: getStringField(action, 'comment') });
     }
   }
 
@@ -363,7 +365,12 @@ function formatFlowStructureFallback(inspection) {
         getStringField(logic, 'display_text'),
         'Logic',
       );
-      steps.push({ order: parseOrderField(logic), text: name });
+      steps.push({
+        order: parseOrderField(logic),
+        text: name,
+        comment: getStringField(logic, 'comment'),
+        decoded: logic._decodedValues || null,
+      });
     }
   }
 
@@ -385,7 +392,57 @@ function formatFlowStructureFallback(inspection) {
     return ['  (no steps found)'];
   }
 
-  return steps.map((step, i) => `${i + 1}. ${step.text}`);
+  const lines = [];
+  steps.forEach((step, i) => {
+    const num = `${i + 1}.`;
+    // Decoded gzip values carry the same input detail as a V2 payload
+    if (step.decoded && (step.text === 'If' || step.text === 'Else If')) {
+      let condition = '';
+      let conditionLabel = '';
+      if (Array.isArray(step.decoded.inputs)) {
+        for (const raw of step.decoded.inputs) {
+          if (!raw || typeof raw !== 'object') continue;
+          const inputName = getStringField(raw, 'name');
+          if (inputName === 'condition') {
+            condition = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
+          }
+          if (inputName === 'condition_name') {
+            conditionLabel = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
+          }
+        }
+      }
+      let displayText = step.text;
+      if (conditionLabel) {
+        displayText = `${step.text}: ${conditionLabel}`;
+      } else if (condition && condition.length < 60) {
+        displayText = `${step.text}: ${condition}`;
+      }
+      lines.push(`  ${num} ${displayText}`);
+      if (condition && condition.length >= 60 && !conditionLabel) {
+        lines.push(`     Condition: ${condition}`);
+      }
+    } else if (step.decoded && step.text === 'Set Flow Variables') {
+      lines.push(`  ${num} ${step.text}`);
+      const vars = step.decoded.variables || step.decoded.flowVariables;
+      if (Array.isArray(vars) && vars.length > 0) {
+        lines.push(`     Variables Set:`);
+        for (const raw of vars) {
+          if (!raw || typeof raw !== 'object') continue;
+          const varName = getStringField(raw, 'name');
+          const varValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
+          if (!varName) continue;
+          lines.push(varValue ? `       • ${varName} = ${varValue}` : `       • ${varName}`);
+        }
+      }
+    } else {
+      lines.push(`  ${num} ${step.text}`);
+    }
+    if (step.comment) {
+      lines.push(`     Annotation: ${step.comment}`);
+    }
+  });
+
+  return lines;
 }
 
 function formatStepLine(stepNum, pad, step) {
@@ -425,8 +482,9 @@ function formatActionStep(stepNum, pad, action) {
     }
   }
 
+  const showsTableSuffix = tableName && (actionName === 'Update Record' || actionName === 'Create or Update Record');
   let actionDisplay = actionName;
-  if (tableName && actionName === 'Update Record') {
+  if (showsTableSuffix) {
     actionDisplay = actionName + ' - ' + tableName;
   }
 
@@ -441,7 +499,7 @@ function formatActionStep(stepNum, pad, action) {
     for (const raw of action.inputs) {
       if (!raw || typeof raw !== 'object') continue;
       const inputName = getStringField(raw, 'name');
-      if (inputName === 'table_name') continue;
+      if (inputName === 'table_name' && showsTableSuffix) continue;
 
       let inputValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
       if (!inputValue) continue;
@@ -479,7 +537,7 @@ function formatSubFlowStep(stepNum, pad, subFlow) {
     lines.push(`${pad}${stepNum}. ↪ ${subFlowName}`);
   }
 
-  lines.push(`${pad}   jsn flows "${subFlowName}"`);
+  lines.push(`${pad}   jsn flows show "${subFlowName}"`);
   return lines;
 }
 
