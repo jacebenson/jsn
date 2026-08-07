@@ -245,6 +245,7 @@ export class SDKClient {
       subFlowInstances: [],
       flowInputs: [],
       flowOutputs: [],
+      flowVariables: [],
     };
 
     // 2) Prefer the ProcessFlow API — the Flow Designer UI's own source.
@@ -370,6 +371,20 @@ export class SDKClient {
       outputsQuery.set('sysparm_limit', '200');
       const records = await this.list('sys_hub_flow_output', outputsQuery);
       if (records) inspection.flowOutputs = records;
+    }
+
+    // Flow variables fallback (payload.flowVariables may be empty on legacy
+    // payload shapes, but sys_hub_flow_variable rows exist for every flow).
+    // Note: the table only carries name/label/order — type is empty there, so
+    // prefer payload.flowVariables when available.
+    if (!inspection.flowVariables || inspection.flowVariables.length === 0) {
+      const varsQuery = new URLSearchParams();
+      varsQuery.set('sysparm_display_value', 'all');
+      varsQuery.set('sysparm_query', `model=${flowSysID}^ORDERBYorder`);
+      varsQuery.set('sysparm_fields', 'sys_id,name,label,type,order');
+      varsQuery.set('sysparm_limit', '200');
+      const records = await this.list('sys_hub_flow_variable', varsQuery);
+      if (records) inspection.flowVariables = records;
     }
 
     return inspection;
@@ -634,6 +649,9 @@ function extractPayloadData(inspection, payload) {
 
   const outputs = toMapSlice(payload.outputs);
   if (outputs) inspection.flowOutputs = outputs;
+
+  const flowVariables = toMapSlice(payload.flowVariables);
+  if (flowVariables) inspection.flowVariables = flowVariables;
 
   const triggerInstances = payload.triggerInstances;
   if (!Array.isArray(triggerInstances) || triggerInstances.length === 0) return;
