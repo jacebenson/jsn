@@ -73,3 +73,59 @@ test('hydrateFlowBlocks handles empty input', () => {
   hydrateFlowBlocks(payload);
   assert.deepEqual(payload, {});
 });
+
+test('formatSubFlowStep resolves parentFlow (real flow id) over subflowSysId (snapshot id)', async () => {
+  const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
+  const subFlow = {
+    subflowSysId: 'snapshot-123', // snapshot id — should NOT be used
+    subFlow: { parentFlow: 'flow-456', name: 'My Subflow' },
+    name: 'My Subflow',
+  };
+  let resolvedId = null;
+  const ctx = {
+    sdk: { inspectFlow: async (id) => { resolvedId = id; return { flow: { sysID: id }, payload: {} }; } },
+    instanceURL: 'https://x.service-now.com',
+    depth: 2,
+    visited: new Set(['parent-flow']),
+  };
+  const lines = await formatSubFlowStep(1, '', subFlow, ctx);
+  assert.equal(resolvedId, 'flow-456', 'should recurse into subFlow.parentFlow, not subflowSysId');
+  assert.ok(lines[0].includes('My Subflow'), 'first line names the subflow');
+});
+
+test('formatSubFlowStep shows hint at depth 1 instead of recursing', async () => {
+  const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
+  const subFlow = {
+    subflowSysId: 'snapshot-123',
+    subFlow: { parentFlow: 'flow-456', name: 'My Subflow' },
+    name: 'My Subflow',
+  };
+  let called = false;
+  const ctx = {
+    sdk: { inspectFlow: async () => { called = true; return {}; } },
+    instanceURL: 'https://x.service-now.com',
+    depth: 1,
+    visited: new Set(['parent-flow']),
+  };
+  const lines = await formatSubFlowStep(1, '', subFlow, ctx);
+  assert.equal(called, false, 'should not fetch at depth 1');
+  assert.ok(lines.some(l => l.includes('jsn flows show')), 'should show drill hint');
+});
+
+test('formatSubFlowStep guards against cycles via visited set', async () => {
+  const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
+  const subFlow = {
+    subflowSysId: 'snapshot-123',
+    subFlow: { parentFlow: 'flow-456', name: 'Loop Subflow' },
+    name: 'Loop Subflow',
+  };
+  let called = false;
+  const ctx = {
+    sdk: { inspectFlow: async () => { called = true; return {}; } },
+    instanceURL: 'https://x.service-now.com',
+    depth: 3,
+    visited: new Set(['flow-456']), // already visited → cycle
+  };
+  await formatSubFlowStep(1, '', subFlow, ctx);
+  assert.equal(called, false, 'should not re-fetch an already-visited subflow');
+});
