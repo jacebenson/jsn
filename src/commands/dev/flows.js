@@ -480,7 +480,7 @@ async function formatStepLine(stepNum, pad, step, ctx) {
   }
 }
 
-function formatActionStep(stepNum, pad, action) {
+export function formatActionStep(stepNum, pad, action) {
   const lines = [];
   let actionName = firstNonEmpty(
     getNestedString(action, 'actionType', 'fName'),
@@ -527,16 +527,22 @@ function formatActionStep(stepNum, pad, action) {
 
       let inputValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
       if (!inputValue) continue;
-      if (inputValue.length > 50) {
-        inputValue = inputValue.slice(0, 47) + '...';
-      }
 
       let label = inputName;
       if (raw.parameter && typeof raw.parameter === 'object') {
         label = firstNonEmpty(getStringField(raw.parameter, 'label'), label);
       }
 
-      lines.push(`${pad}    ${label}: ${inputValue}`);
+      // ServiceNow writes multi-field payloads (encoded-query style) as
+      // "field=value^field2=value2". Split those onto one line per field;
+      // plain long strings stay on a single line, untruncated.
+      if (inputValue.includes('^')) {
+        for (const field of inputValue.split('^')) {
+          if (field) lines.push(`${pad}    ${label}: ${field}`);
+        }
+      } else {
+        lines.push(`${pad}    ${label}: ${inputValue}`);
+      }
     }
   }
 
