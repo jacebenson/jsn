@@ -139,7 +139,7 @@ export function flowsCmd(wrap) {
   };
 }
 
-async function formatFlowInspection(inspection, ctx) {
+export async function formatFlowInspection(inspection, ctx) {
   const lines = [];
   const instanceURL = ctx?.instanceURL || '';
   const flow = inspection.flow;
@@ -154,6 +154,27 @@ async function formatFlowInspection(inspection, ctx) {
   lines.push(`  Sys ID: ${flow.sysID}`);
   if (instanceURL && flow.sysID) {
     lines.push(`  Link: ${instanceURL}/sys_hub_flow.do?sys_id=${flow.sysID}`);
+  }
+
+  // Flow variables section
+  if (inspection.flowVariables && inspection.flowVariables.length > 0) {
+    const vars = [...inspection.flowVariables].sort((a, b) => {
+      const ao = parseInt(getStringField(a, 'order'), 10) || 0;
+      const bo = parseInt(getStringField(b, 'order'), 10) || 0;
+      return ao - bo;
+    });
+    lines.push('');
+    lines.push('▶ FLOW VARIABLES');
+    lines.push('─'.repeat(50));
+    for (const v of vars) {
+      const name = firstNonEmpty(getStringField(v, 'label'), getStringField(v, 'name'), 'Variable');
+      const typeName = firstNonEmpty(getStringField(v, 'type_label'), getStringField(v, 'type'), '');
+      if (typeName) {
+        lines.push(`  • ${name}: ${typeName}`);
+      } else {
+        lines.push(`  • ${name}`);
+      }
+    }
   }
 
   // Subflow I/O section

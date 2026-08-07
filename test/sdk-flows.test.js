@@ -74,6 +74,49 @@ test('hydrateFlowBlocks handles empty input', () => {
   assert.deepEqual(payload, {});
 });
 
+test('formatFlowInspection renders flow variables with labels and types', async () => {
+  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
+  const inspection = {
+    flow: { name: 'jace flow', active: true, version: '2', type: 'Flow', sysID: 'abc123' },
+    version: {},
+    payload: {},
+    triggerInstances: [],
+    actionInstances: [],
+    flowLogicInstances: [],
+    subFlowInstances: [],
+    flowInputs: [],
+    flowOutputs: [],
+    flowVariables: [
+      { name: 'food', label: 'food', type: 'string', type_label: 'String', order: 1 },
+      { name: 'quantity', label: 'quantity', type: 'integer', type_label: 'Integer', order: 2 },
+      { name: 'ordering_person', label: 'ordering person', type: 'reference', type_label: 'Reference', order: 3 },
+    ],
+  };
+  const output = await formatFlowInspection(inspection, { instanceURL: '', depth: 1, visited: new Set() });
+  assert.ok(output.includes('▶ FLOW VARIABLES'), 'section header present');
+  assert.ok(output.includes('• food: String'), 'food variable with type');
+  assert.ok(output.includes('• quantity: Integer'), 'quantity variable with type');
+  assert.ok(output.includes('• ordering person: Reference'), 'ordering person variable with type');
+});
+
+test('formatFlowInspection omits variables section when none exist', async () => {
+  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
+  const inspection = {
+    flow: { name: 'plain', active: true, version: '2', type: 'Flow', sysID: 'abc123' },
+    version: {},
+    payload: {},
+    triggerInstances: [],
+    actionInstances: [],
+    flowLogicInstances: [],
+    subFlowInstances: [],
+    flowInputs: [],
+    flowOutputs: [],
+    flowVariables: [],
+  };
+  const output = await formatFlowInspection(inspection, { instanceURL: '', depth: 1, visited: new Set() });
+  assert.ok(!output.includes('FLOW VARIABLES'), 'no section when no variables');
+});
+
 test('formatSubFlowStep resolves parentFlow (real flow id) over subflowSysId (snapshot id)', async () => {
   const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
   const subFlow = {
