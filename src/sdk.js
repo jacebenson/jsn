@@ -1,5 +1,6 @@
 // ServiceNow REST API client
 
+import { gunzipSync } from 'node:zlib';
 import { errAuth, errAPI, errNetwork } from './errors.js';
 import { getStringField } from './helpers.js';
 
@@ -246,28 +247,51 @@ export class SDKClient {
       flowOutputs: [],
     };
 
-    // 2) Fetch latest flow version
-    const versionQuery = new URLSearchParams();
-    versionQuery.set('sysparm_display_value', 'all');
-    versionQuery.set('sysparm_limit', '1');
-    versionQuery.set('sysparm_query', `flow=${flowSysID}^ORDERBYDESCsys_updated_on`);
-    versionQuery.set('sysparm_fields', 'sys_id,flow,version,payload,sys_updated_on');
-
-    const versionRecords = await this.list('sys_hub_flow_version', versionQuery);
-    if (versionRecords && versionRecords.length > 0) {
-      inspection.version = versionRecords[0];
-      if (!inspection.flow.version) {
-        inspection.flow.version = getStringField(versionRecords[0], 'version');
+    // 2) Prefer the ProcessFlow API — the Flow Designer UI's own source.
+    //    Returns complete structure for both V2 and legacy V1 flows (the
+    //    version payload field is empty for V1 flows).
+    let payloadLoaded = false;
+    try {
+      const pfResponse = await this.request(`${this.baseURL}/api/now/processflow/flow/${flowSysID}`, { method: 'GET' });
+      const pfData = pfResponse?.result?.data;
+      if (pfData && typeof pfData === 'object' && !pfResponse?.result?.errorMessage) {
+        inspection.payload = pfData;
+        if (!inspection.flow.version) {
+          const pfVersion = getStringField(pfData, 'version');
+          if (pfVersion) inspection.flow.version = pfVersion;
+        }
+        hydrateFlowBlocks(inspection.payload);
+        extractPayloadData(inspection, inspection.payload);
+        payloadLoaded = true;
       }
+    } catch {
+      // ProcessFlow API may not exist on older instances — fall through
+    }
 
-      const payload = getStringField(versionRecords[0], 'payload');
-      if (payload) {
-        try {
-          const payloadData = JSON.parse(payload);
-          inspection.payload = payloadData;
-          extractPayloadData(inspection, payloadData);
-        } catch {
-          // ignore parse error
+    // 2b) Fallback: latest flow version payload
+    if (!payloadLoaded) {
+      const versionQuery = new URLSearchParams();
+      versionQuery.set('sysparm_display_value', 'all');
+      versionQuery.set('sysparm_limit', '1');
+      versionQuery.set('sysparm_query', `flow=${flowSysID}^ORDERBYDESCsys_updated_on`);
+      versionQuery.set('sysparm_fields', 'sys_id,flow,version,payload,sys_updated_on');
+
+      const versionRecords = await this.list('sys_hub_flow_version', versionQuery);
+      if (versionRecords && versionRecords.length > 0) {
+        inspection.version = versionRecords[0];
+        if (!inspection.flow.version) {
+          inspection.flow.version = getStringField(versionRecords[0], 'version');
+        }
+
+        const payload = getStringField(versionRecords[0], 'payload');
+        if (payload) {
+          try {
+            const payloadData = JSON.parse(payload);
+            inspection.payload = payloadData;
+            extractPayloadData(inspection, payloadData);
+          } catch {
+            // ignore parse error
+          }
         }
       }
     }
@@ -295,15 +319,24 @@ export class SDKClient {
     }
 
     if (!inspection.flowLogicInstances || inspection.flowLogicInstances.length === 0) {
-      const logicTables = ['sys_hub_flow_logic', 'sys_hub_flow_logic_instance_v2'];
-      for (const table of logicTables) {
+      const logicTables = [
+        { table: 'sys_hub_flow_logic', payloadField: 'inputs' },
+        { table: 'sys_hub_flow_logic_instance_v2', payloadField: 'values' },
+      ];
+      for (const { table, payloadField } of logicTables) {
         const logicQuery = new URLSearchParams();
         logicQuery.set('sysparm_display_value', 'all');
         logicQuery.set('sysparm_query', `flow=${flowSysID}^ORDERBYorder`);
-        logicQuery.set('sysparm_fields', 'sys_id,order,name,display_text,comment,parent_ui_id,logic_definition');
+        logicQuery.set('sysparm_fields', `sys_id,order,name,display_text,comment,parent_ui_id,logic_definition,${payloadField}`);
         logicQuery.set('sysparm_limit', '200');
         const records = await this.list(table, logicQuery);
-        if (records) inspection.flowLogicInstances.push(...records);
+        if (records) {
+          for (const rec of records) {
+            const decoded = decodeGzipJson(rec[payloadField]);
+            if (decoded) rec._decodedValues = decoded;
+          }
+          inspection.flowLogicInstances.push(...records);
+        }
       }
       inspection.flowLogicInstances.sort((a, b) => parseOrderField(a) - parseOrderField(b));
     }
@@ -634,8 +667,72 @@ function toMapSlice(v) {
   return v.filter(item => item && typeof item === 'object');
 }
 
+/**
+ * The ProcessFlow API returns flow structure as flat arrays where children
+ * reference their parent logic step via a `parent` / `parent_ui_id` field
+ * (a uiUniqueIdentifier value). The payload-based renderer expects nested
+ * `flowBlock` arrays on each logic instance. Rebuild that nesting here so
+ * both data sources render identically.
+ */
+export function hydrateFlowBlocks(payload) {
+  const blockKeys = ['actionInstances', 'flowLogicInstances', 'subFlowInstances'];
+  const items = [];
+  for (const key of blockKeys) {
+    if (Array.isArray(payload[key])) {
+      for (const item of payload[key]) {
+        if (item && typeof item === 'object') items.push(item);
+      }
+    }
+  }
+  if (items.length === 0) return;
+
+  // If the payload already has nested flowBlock arrays (version-payload
+  // shape), leave it alone.
+  const logicItems = Array.isArray(payload.flowLogicInstances) ? payload.flowLogicInstances : [];
+  if (logicItems.some(l => l && typeof l === 'object' && Array.isArray(l.flowBlock))) return;
+
+  // Build parent → children map keyed by uiUniqueIdentifier
+  const childrenByParent = new Map();
+  for (const item of items) {
+    const parentId = getStringField(item, 'parent_ui_id') || getStringField(item, 'parent');
+    if (!parentId) continue;
+    if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+    childrenByParent.get(parentId).push(item);
+  }
+
+  // Attach sorted flowBlock to each logic instance
+  for (const logic of logicItems) {
+    if (!logic || typeof logic !== 'object') continue;
+    const uid = getStringField(logic, 'uiUniqueIdentifier');
+    const children = uid ? childrenByParent.get(uid) : null;
+    if (Array.isArray(children) && children.length > 0) {
+      children.sort((a, b) => parseOrderField(a) - parseOrderField(b));
+      logic.flowBlock = children;
+    }
+  }
+}
+
 function parseOrderField(record) {
   const order = getStringField(record, 'order');
   const n = parseInt(order, 10);
   return isNaN(n) ? 0 : n;
+}
+
+/**
+ * Decode a ServiceNow flow-logic "values" field: base64-gzip JSON.
+ * Returns the parsed object, or null when the field is empty / not gzip / unparseable.
+ */
+export function decodeGzipJson(value) {
+  if (!value) return null;
+  const s = (typeof value === 'object' && value !== null)
+    ? (value.value ?? value.display_value ?? '')
+    : String(value);
+  const trimmed = s.trim();
+  if (!trimmed.startsWith('H4sI')) return null; // not gzip base64
+  try {
+    const decoded = gunzipSync(Buffer.from(trimmed, 'base64')).toString('utf-8');
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
 }
