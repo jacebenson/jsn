@@ -1,7 +1,6 @@
 // Generic dev subcommand builder for table-based CRUD
 
-import readline from 'node:readline';
-import { formatRecordForDisplay, getStringField, isHexString, parseDataArg } from '../../helpers.js';
+import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, confirmDelete } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import { paginatedSearch } from '../../paginated-search.js';
 import { isTTY, FormatAuto } from '../../output.js';
@@ -308,17 +307,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
               }
             }
 
-            if (!argv.force && process.stdout.isTTY && process.stdin.isTTY) {
-              const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-              const answer = await new Promise((resolve) => {
-                rl.question(`Delete ${singular} '${recordName}'? (y/N): `, resolve);
-              });
-              rl.close();
-              const response = answer.trim().toLowerCase();
-              if (response !== 'y' && response !== 'yes') {
-                throw new Error('Deletion cancelled');
-              }
-            }
+            await confirmDelete(app, argv, `Delete ${singular} '${recordName}'`);
 
             await app.sdk.delete(table, sysID);
             app.ok({ name: recordName, sys_id: sysID, deleted: true }, { summary: `Deleted ${singular} '${recordName}'` });
