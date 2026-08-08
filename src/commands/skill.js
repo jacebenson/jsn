@@ -14,7 +14,7 @@ const SKILL_REPO_PATH = path.join(
   '..', '..', 'skills', SKILL_NAME, 'SKILL.md'
 );
 
-const SKILL_RAW_URL = 'https://raw.githubusercontent.com/jacebenson/jsn/nodejs/skills/servicenow/SKILL.md';
+const SKILL_RAW_URL = 'https://raw.githubusercontent.com/jacebenson/jsn/main/skills/servicenow/SKILL.md';
 
 /**
  * Resolve the user's real home directory, even when Hermes overrides $HOME.
