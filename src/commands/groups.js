@@ -32,13 +32,13 @@ export function groupsCmd(wrap) {
                 cp.set('sysparm_query', `group=${sysID}`); cp.set('sysparm_limit', '0'); cp.set('sysparm_fields', 'sys_id');
                 const members = await app.sdk.list('sys_user_grmember', cp);
                 memberCount = members.length;
-              } catch {}
+              } catch { /* non-critical */ }
               try {
                 const rp = new URLSearchParams();
                 rp.set('sysparm_query', `group=${sysID}`); rp.set('sysparm_limit', '0'); rp.set('sysparm_fields', 'sys_id');
                 const roles = await app.sdk.list('sys_group_has_role', rp);
                 roleCount = roles.length;
-              } catch {}
+              } catch { /* non-critical */ }
 
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_user_group' };
               return app.ok(picked, {

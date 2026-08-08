@@ -20,7 +20,7 @@ export const importCmd = (wrap) => buildDevCmd('import', 'sys_import_set', ['imp
         const rows = await app.sdk.list('sys_import_set_row', rp);
         console.log(`  Import rows: ${rows.length}`);
         console.log(`    → jsn records list --table sys_import_set_row --query "sys_import_set=${sysID}" --limit 200`);
-      } catch (err) {
+      } catch {
         console.log(`  Import rows: (unavailable)`);
       }
     },

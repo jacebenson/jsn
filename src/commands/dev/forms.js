@@ -22,15 +22,6 @@ function getIntValue(record, key) {
   return 0;
 }
 
-function getBoolValue(record, key) {
-  if (!record || typeof record !== 'object') return false;
-  const val = record[key];
-  if (typeof val === 'boolean') return val;
-  if (typeof val === 'string') return val === 'true';
-  if (typeof val === 'object' && val.value != null) return String(val.value) === 'true';
-  return false;
-}
-
 async function showForm(app, table, viewName) {
   // 1) Look up the view
   const viewParams = new URLSearchParams();
@@ -87,8 +78,6 @@ async function showForm(app, table, viewName) {
   }
 
   sectionsOut.sort((a, b) => a.position - b.position);
-
-  const totalElements = sectionsOut.reduce((sum, s) => sum + s.elements.length, 0);
 
   // Build formatted output
   const lines = [];

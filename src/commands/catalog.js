@@ -16,7 +16,7 @@ export function catalogCmd(wrap) {
             .option('short-description', { alias: 'd', type: 'string' })
             .option('category', { alias: 'c', type: 'string' })
             .option('variable', { alias: 'v', type: 'array', describe: 'Variable: "name:type:label"' })
-            .option('variables', { type: 'string', describe: 'JSON for submit_produce: {\"key\":\"value\"}' }),
+            .option('variables', { type: 'string', describe: 'JSON for submit_produce: {"key":"value"}' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
 
@@ -215,8 +215,6 @@ async function showItem(app, sysID) {
   const wfName = getStringField(item, 'workflow') || '';
   const wfID = item.workflow?.value || '';
   const planName = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan') || '';
-  const planID = item.delivery_plan?.value || item.execution_plan?.value || '';
-
   app.ok({
     name: getStringField(item, 'name'),
     short_description: getStringField(item, 'short_description'),
