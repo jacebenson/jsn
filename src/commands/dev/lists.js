@@ -17,7 +17,7 @@ export function listsCmd(wrap) {
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             let table = argv.table;
-            let viewSysID = null;
+            let viewSysID;
 
             // If no table, pick one interactively
             if (!table) {
@@ -76,7 +76,7 @@ export function listsCmd(wrap) {
             const table = argv.table;
 
             // Resolve view sys_id
-            let viewSysID = '';
+            let viewSysID;
             const vp = new URLSearchParams();
             vp.set('sysparm_limit', '1'); vp.set('sysparm_fields', 'sys_id');
             vp.set('sysparm_query', `name=${argv.view}^name=${table}`);

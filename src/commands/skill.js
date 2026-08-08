@@ -62,11 +62,6 @@ function hermesSkillDir() {
   return path.join(base, 'skills', SKILL_NAME);
 }
 
-/** Resolve the installed SKILL.md path for Hermes. */
-function hermesSkillPath() {
-  return path.join(hermesSkillDir(), 'SKILL.md');
-}
-
 // Known agent skill directories (personal/user-level)
 // Keyed by agent name for the --target flag
 // Each value is the directory for the <name>/SKILL.md file

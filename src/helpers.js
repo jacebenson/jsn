@@ -89,12 +89,7 @@ export function resolveFieldsParam(columns) {
  * @param {string} opts.labelField — field used to match selection (default: 'name')
  * @returns {Promise<void>|null} null if no selection made or non-interactive
  */
-function vowelArticle(word) {
-  const first = word.charAt(0).toLowerCase();
-  return first === 'a' || first === 'e' || first === 'i' || first === 'o' || first === 'u' ? 'an' : 'a';
-}
-
-export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name' }) {
+export async function interactiveList({ app, table, singular, columns, limit = 50, _query = '', formatLabel, labelField = 'name' }) {
   app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
   if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin)) {
@@ -105,7 +100,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   const pickerFields = pickerColumns.join(',');
 
   // Get total count
-  let totalCount = 0;
+  let totalCount;
   try {
     totalCount = await app.sdk.aggregateCount(table, '');
   } catch {
@@ -114,7 +109,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   if (totalCount === 0) return null;
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
-  async function serverSource(term, offset, { signal } = {}) {
+  async function serverSource(term, offset, { signal: _signal } = {}) {
     try {
       const params = new URLSearchParams();
       params.set('sysparm_limit', String(limit));

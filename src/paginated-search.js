@@ -43,7 +43,7 @@ export const paginatedSearch = createPrompt((config, done) => {
           setActive(0);
           setStatus('done');
         }
-      } catch (err) {
+      } catch {
         if (!controller.signal.aborted) {
           setStatus('done');
           setChoices([]);

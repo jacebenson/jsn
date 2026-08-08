@@ -5,7 +5,7 @@ import { hideBin } from 'yargs/helpers';
 import process from 'node:process';
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadConfig, getEffectiveInstance, getActiveProfile, globalConfigDir } from './config.js';
+import { loadConfig, getActiveProfile, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand } from './mutations.js';
@@ -93,14 +93,6 @@ function wrap(handler) {
 export function buildCLI() {
   const cfg = loadConfig();
   const app = new App(cfg);
-
-  // Resolve instance once
-  let effectiveInstance;
-  try {
-    effectiveInstance = getEffectiveInstance(cfg);
-  } catch {
-    effectiveInstance = null;
-  }
 
   return yargs(hideBin(process.argv))
     .scriptName('jsn')

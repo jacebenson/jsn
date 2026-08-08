@@ -1,5 +1,6 @@
 // Generic dev subcommand builder for table-based CRUD
 
+import readline from 'node:readline';
 import { formatRecordForDisplay, getStringField, isHexString, parseDataArg } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import { paginatedSearch } from '../../paginated-search.js';
@@ -81,7 +82,6 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const readOnly = opts.readOnly || false;
   const scopeValidation = opts.scopeValidation || false;
   const extraQuery = opts.extraQuery || '';
-  const formatLabel = opts.formatLabel || null;
   const showSummary = opts.showSummary || ((record, id) => `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${getStringField(record, 'name') || id}`);
   const showBreadcrumbs = opts.showBreadcrumbs || ((record, id) => {
     const crumbs = [
@@ -120,7 +120,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
               totalCount = await app.sdk.aggregateCount(table, extraQuery || '');
             } catch { /* non-critical */ }
 
-            const source = async (term, offset, { signal } = {}) => {
+            const source = async (term, offset, { signal: _signal } = {}) => {
               const params = new URLSearchParams();
               params.set('sysparm_limit', String(limit));
               params.set('sysparm_display_value', 'all');

@@ -107,7 +107,7 @@ describe('Docs status — no DB', () => {
     const statusCmd = all.find((c) => c.command === 'status');
 
     let result = null;
-    const app = { ok: (data, opts) => { result = data; } };
+    const app = { ok: (data) => { result = data; } };
     const handler = statusCmd.handler;
     await handler({}, app);
 
@@ -133,7 +133,6 @@ describe('Docs sync — incremental path', () => {
       return;
     }
 
-    const result = syncDocs({ noIngest: true }); // just pull, don't rebuild
     // With noIngest, we won't hit the incremental branch — need to test the real path.
     // Actually: noIngest skips both. Let's just verify the import works and the function
     // returns the right shape for the incremental case.
