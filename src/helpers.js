@@ -113,6 +113,29 @@ export function resolveFieldsParam(columns) {
   return ['sys_id', ...columns].join(',');
 }
 
+// ServiceNow encoded-query metacharacters. In sysparm_query, `^` is the
+// AND-separator (^OR starts an OR clause), `= < > ~ !` are operators,
+// and `,` is used by IN lists. An identifier containing any of these
+// silently broadens an exact-match lookup — with sysparm_limit=1 the
+// wrong record wins (issue #143 finding #5). Exact-match identifiers
+// (numbers, sys_ids, names) never legitimately contain them.
+const QUERY_METACHARS = /[\^=<>~!,]/;
+
+/**
+ * Validate that an identifier is safe to use in an exact-match encoded
+ * query (field=value). Throws when the value contains characters that
+ * would change the query semantics.
+ * @param {string} value — identifier (number, sys_id, name)
+ */
+export function assertSafeExactMatch(value) {
+  if (value && QUERY_METACHARS.test(value)) {
+    throw new Error(
+      `Unsafe identifier for exact-match lookup: contains ServiceNow query characters (^ = < > ~ ! ,). ` +
+      `Refusing to build a query that could match more than the named record.`
+    );
+  }
+}
+
 /**
  * Shared interactive list helper with search-as-you-type.
  * All list commands that want an interactive TTY picker should use this.

@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
 
 export function ticketsCmd(wrap) {
   return {
@@ -60,6 +60,7 @@ export function ticketsCmd(wrap) {
           aliases: ['get'],
           describe: 'Show a ticket',
           handler: wrap(async (argv, app) => {
+            assertSafeExactMatch(argv.number);
             const params = new URLSearchParams();
             params.set('sysparm_query', `number=${argv.number}`);
             params.set('sysparm_limit', '1');
@@ -87,6 +88,7 @@ export function ticketsCmd(wrap) {
           builder: (y) => y.option('data', { type: 'string', demandOption: true, describe: 'JSON fields (e.g. \'{"state":"2","priority":"1"}\')' }),
           handler: wrap(async (argv, app) => {
             const recordData = JSON.parse(argv.data);
+            assertSafeExactMatch(argv.number);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${argv.number}`);
             findParams.set('sysparm_limit', '1');
@@ -103,6 +105,7 @@ export function ticketsCmd(wrap) {
           command: 'delete <number>',
           describe: 'Delete a ticket',
           handler: wrap(async (argv, app) => {
+            assertSafeExactMatch(argv.number);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${argv.number}`);
             findParams.set('sysparm_limit', '1');

@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { password as passwordPrompt } from '@inquirer/prompts';
 import { globalConfigDir, normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
@@ -15,11 +15,26 @@ import { errAuth } from './errors.js';
 // ─── Credential key helpers ───
 
 /**
+ * Sanitize an instance URL into a filesystem/arg-safe key part.
+ *
+ * Whitelist approach (issue #143 findings #2/#3): first map the `://`
+ * protocol separator to `_` exactly as the Go version's encoding does
+ * (so existing keyring keys like `https_dev437538.service-now.com` keep
+ * matching), then drop everything outside [a-zA-Z0-9._-]. Blacklist
+ * stripping of just `/` and `:` left quotes, `$()`, backticks, `;`,
+ * spaces, and backslashes — which broke out of double-quoted shell args
+ * in keyring calls and, on Windows, out of path.join() credential dirs.
+ */
+export function sanitizeKeyPart(instance) {
+  return instance.replace(/:\/\//g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+/**
  * Build a compound key for credential storage: <username>@<instance>
  * When username is omitted (legacy), just the normalized instance URL is used.
  */
 function credKey(instance, username) {
-  const normalized = instance.replace(/:\/\//g, '_').replace(/\//g, '_').replace(/:/g, '_');
+  const normalized = sanitizeKeyPart(instance);
   if (!username) return normalized;
   return `${username.replace(/[^a-zA-Z0-9._@-]/g, '_')}@${normalized}`;
 }
@@ -29,7 +44,7 @@ function credKey(instance, username) {
 function pkceStatePath(instance) {
   const dir = path.join(globalConfigDir(), 'pkce');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const filename = instance.replace(/:\/\//g, '_').replace(/\//g, '_').replace(/:/g, '_') + '.json';
+  const filename = sanitizeKeyPart(instance) + '.json';
   return path.join(dir, filename);
 }
 
@@ -133,8 +148,11 @@ function buildAuthURL(instanceURL, clientID, pkce) {
 
 function keyringLookup(key) {
   try {
-    const result = execSync(
-      `secret-tool lookup ${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${key}"`,
+    // execFileSync with an arg array — no shell, so `key` can never
+    // break out into command injection (issue #143 finding #2).
+    const result = execFileSync(
+      'secret-tool',
+      ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
     );
     const trimmed = result.trim();
@@ -157,9 +175,10 @@ function keyringLookup(key) {
 
 function keyringStore(key, creds) {
   try {
-    execSync(
-      `secret-tool store --label="Password for '${key}' on '${KEYRING_SERVICE}'" ` +
-      `${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${key}"`,
+    execFileSync(
+      'secret-tool',
+      ['store', `--label=Password for '${key}' on '${KEYRING_SERVICE}'`,
+        KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
       { stdio: ['pipe', 'ignore', 'ignore'], input: JSON.stringify(creds) }
     );
     return true;
@@ -170,8 +189,9 @@ function keyringStore(key, creds) {
 
 function keyringDelete(key) {
   try {
-    execSync(
-      `secret-tool clear ${KEYRING_ATTR_SERVICE} ${KEYRING_SERVICE} ${KEYRING_ATTR_USERNAME} "${key}"`,
+    execFileSync(
+      'secret-tool',
+      ['clear', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
       { stdio: 'ignore' }
     );
   } catch {

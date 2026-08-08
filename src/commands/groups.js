@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
 
 export function groupsCmd(wrap) {
   return {
@@ -72,6 +72,7 @@ export function groupsCmd(wrap) {
           describe: 'Show a group by name or sys_id',
           handler: wrap(async (argv, app) => {
             const id = argv.name;
+            assertSafeExactMatch(id);
             const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
             const params = new URLSearchParams();
             params.set('sysparm_query', isSysID ? `sys_id=${id}` : `name=${id}`);
@@ -117,6 +118,7 @@ export function groupsCmd(wrap) {
             .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
           handler: wrap(async (argv, app) => {
             const id = argv.name;
+            assertSafeExactMatch(id);
             const recordData = JSON.parse(argv.data);
             const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
             const params = new URLSearchParams();
@@ -142,6 +144,7 @@ export function groupsCmd(wrap) {
           describe: 'Delete a group by name or sys_id',
           handler: wrap(async (argv, app) => {
             const id = argv.name;
+            assertSafeExactMatch(id);
             const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
             const params = new URLSearchParams();
             params.set('sysparm_query', isSysID ? `sys_id=${id}` : `name=${id}`);

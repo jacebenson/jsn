@@ -1,5 +1,5 @@
 import { buildTicketCommands } from './_ticket.js';
-import { getStringField } from '../helpers.js';
+import { getStringField, assertSafeExactMatch } from '../helpers.js';
 
 const requestDefaultColumns = ['number', 'short_description', 'stage', 'assigned_to'];
 
@@ -25,6 +25,7 @@ export function requestsCmd(wrap) {
 
 async function enrichedShowHandler(argv, app) {
   const number = argv.number;
+  assertSafeExactMatch(number);
   const params = new URLSearchParams();
   params.set('sysparm_query', `number=${number}`);
   params.set('sysparm_display_value', 'all');

@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
 
 export function groupRolesCmd(wrap) {
   return {
@@ -42,6 +42,8 @@ export function groupRolesCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const groupName = argv.group;
             const roleName = argv.role;
+            assertSafeExactMatch(groupName);
+            assertSafeExactMatch(roleName);
 
             // Resolve group sys_id
             const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
@@ -100,6 +102,8 @@ export function groupRolesCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const groupName = argv.group;
             const roleName = argv.role;
+            assertSafeExactMatch(groupName);
+            assertSafeExactMatch(roleName);
 
             // Resolve group sys_id
             const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);

@@ -1,4 +1,4 @@
-import { isHexString, getStringField } from '../helpers.js';
+import { isHexString, getStringField, assertSafeExactMatch } from '../helpers.js';
 
 export async function resolveIdentifier(app, table, identifier) {
   // If it looks like a sys_id (32 hex chars), use it directly
@@ -7,6 +7,7 @@ export async function resolveIdentifier(app, table, identifier) {
   }
 
   // Otherwise, assume it's a record number — query the table
+  assertSafeExactMatch(identifier);
   const params = new URLSearchParams();
   params.set('sysparm_query', `number=${identifier}`);
   params.set('sysparm_limit', '1');
