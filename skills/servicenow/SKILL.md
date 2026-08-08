@@ -44,7 +44,7 @@ All `list` subcommands use a paginated interactive picker in TTY mode:
 2. **Use sys_id for updates** — All update/delete operations require sys_id
 3. **Check auth first** — Run `jsn auth status` before operations
 4. **NEVER logout** — Only run `jsn auth logout` if the user explicitly asks
-5. **Use `--profile <name>`** to target a specific instance, or `jsn profiles use <name>` to change default
+5. **Use `--profile <name>`** to target a specific instance, or `jsn auth switch <name>` to change the default
 6. **Before using `eval` or `rest`** — Ask: *"Is there a more specific jsn command?"* Prefer specific over generic over escape hatch over eval.
 7. **CONFIRM before destructive operations** — Show what will be created/updated/deleted and ask for approval.
 

@@ -64,16 +64,17 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 Every command supports `--json`, `--query`, and `--help`.
 
-## Profiles
+## Profiles (instances)
 
 Switch between instances without re-authenticating.
 
 ```bash
 jsn auth login https://dev12345.service-now.com
-jsn profiles list
-jsn profiles use dev12345
-jsn profiles show
+jsn auth status
+jsn auth switch dev12345
 ```
+
+Add another instance with `jsn auth login <name-or-url>` — run bare for an interactive picker.
 
 ## Output Formats
 

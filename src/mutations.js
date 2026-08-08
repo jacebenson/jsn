@@ -2,6 +2,29 @@
 // Used by the read-only profile middleware to block mutation commands.
 // Each entry is a command path array matching argv._ tokens.
 
+// Dev commands that expose create/update/delete via buildDevCmd.
+// Each generates the root form (`jsn <name> create`) and the legacy dev form
+// (`jsn dev <name> create`), so read-only profiles block both spellings.
+const DEV_CRUD_COMMANDS = [
+  'actions', 'includes', 'rules', 'clientscripts', 'uiactions', 'uipolicies',
+  'tables', 'uipages', 'appmenu', 'acls', 'roles', 'properties', 'relationships',
+  'appmodules', 'listcontrols', 'views', 'privileges', 'uxscripts',
+  'catalogscripts', 'scriptactions', 'scheduledjobs', 'asyncrules', 'triggers',
+  'email', 'restmethods', 'restmessage', 'soapmessages', 'uimacros',
+  'cataloguipolicies', 'aliases', 'columns', 'flows', 'scrapi',
+];
+
+function devCrudPaths(name) {
+  return [
+    [name, 'create'],
+    [name, 'update'],
+    [name, 'delete'],
+    ['dev', name, 'create'],
+    ['dev', name, 'update'],
+    ['dev', name, 'delete'],
+  ];
+}
+
 export const MUTATION_COMMANDS = [
   // Incidents
   ['incidents', 'create'],
@@ -37,18 +60,20 @@ export const MUTATION_COMMANDS = [
   ['groups', 'delete'],
   // Catalog
   ['catalog', 'create-item'],
-  // Dev flows
-  ['dev', 'flows', 'create'],
-  ['dev', 'flows', 'update'],
-  ['dev', 'flows', 'delete'],
-  // Dev scopes
+  // Dev CRUD commands (root + `jsn dev` forms)
+  ...DEV_CRUD_COMMANDS.flatMap(devCrudPaths),
+  // Dev eval (no sub-action)
+  ['dev', 'eval'],
+  // Scopes: create + set (root + dev forms)
+  ['scopes', 'create'],
+  ['scopes', 'set'],
   ['dev', 'scopes', 'create'],
   ['dev', 'scopes', 'set'],
-  // Dev eval
-  ['dev', 'eval'],
-  // Dev updatesets
-  ['dev', 'updatesets', 'set'],
+  // Update sets: create + set (root + dev forms)
+  ['updatesets', 'create'],
+  ['updatesets', 'set'],
   ['dev', 'updatesets', 'create'],
+  ['dev', 'updatesets', 'set'],
 ];
 
 /**

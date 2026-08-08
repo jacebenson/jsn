@@ -1,16 +1,176 @@
-import { getEffectiveInstance, normalizeInstanceURL } from '../config.js';
+import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile, setProfile } from '../config.js';
 import { errUsage } from '../errors.js';
 import process from 'node:process';
 
+/**
+ * Resolve a login/logout/refresh argument to a concrete instance URL.
+ *
+ * gh-style precision: a full URL is used as-is; a bare name is first checked
+ * against known profile names (gh: --hostname), then treated as a ServiceNow
+ * instance name with the canonical `.service-now.com` host appended. This kills
+ * the old trap where `jsn auth login dev99999` silently targeted
+ * `https://dev99999` (a dead host).
+ */
+export function resolveInstanceArg(arg, cfg) {
+  if (!arg) return '';
+  const trimmed = arg.trim();
+  if (/^https?:\/\//i.test(trimmed)) return normalizeInstanceURL(trimmed);
+  const profile = cfg?.profiles?.[trimmed];
+  if (profile?.instance_url) return normalizeInstanceURL(profile.instance_url);
+  // Already looks like a host (has a dot) — add the scheme, nothing else
+  if (trimmed.includes('.')) return normalizeInstanceURL(trimmed);
+  // Bare ServiceNow instance name → canonical host
+  return normalizeInstanceURL(`${trimmed}.service-now.com`);
+}
+
+/**
+ * Interactive first-run wizard (formerly `jsn setup`).
+ *
+ * Walks: instance URL → profile name → auth method → optional OAuth login.
+ * Creates and activates the profile, then returns the result so the caller
+ * decides how to report it. Basic auth saves credentials directly (the OAuth
+ * path has no interactive username/password).
+ */
+export async function loginWizard(app, argv = {}) {
+  const readline = (await import('node:readline')).default;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
+
+  console.log('Welcome to JSN - ServiceNow CLI');
+  console.log();
+
+  let instance = getEffectiveInstance(app.config);
+  if (!instance) {
+    instance = await ask('ServiceNow instance URL (e.g., dev12345.service-now.com): ');
+    instance = normalizeInstanceURL(instance);
+  }
+  console.log(`Instance: ${instance}`);
+
+  // Warn if another profile already uses this instance URL
+  const existing = Object.entries(app.config.profiles || {}).find(([, p]) => p.instance_url === instance);
+  if (existing) {
+    console.log(`Note: instance is also used by profile "${existing[0]}".`);
+  }
+
+  const profileName = (await ask('Profile name (default): ')) || 'default';
+  const profile = { instance_url: instance };
+  if (argv['read-only']) {
+    profile.read_only = true;
+  }
+
+  const authMethod = await ask('Authentication method (OAuth/Basic) [OAuth]: ');
+  const useBasic = authMethod.toLowerCase().startsWith('b');
+
+  let loggedIn = false;
+  if (useBasic) {
+    const username = await ask('Username: ');
+    rl.close(); // Close outer readline before askHidden creates its own
+    const { loadCredentials, askHidden, saveCredentials } = await import('../auth.js');
+    const existingCreds = loadCredentials(instance) || loadCredentials(instance, username);
+    if (existingCreds && existingCreds.auth_method === 'basic') {
+      console.log(`Using existing credentials for ${instance}`);
+    } else {
+      const password = await askHidden('Password: ');
+      saveCredentials(instance, { auth_method: 'basic', username, password }, username);
+      console.log('Basic auth credentials saved');
+    }
+    profile.username = username;
+    profile.auth_method = 'basic';
+  } else {
+    profile.auth_method = 'oauth';
+  }
+
+  await setProfile(app.config, profileName, profile);
+  // Set as active profile so subsequent commands know which instance to use
+  app.config.activeProfile = profileName;
+  app.config.defaultProfile = profileName;
+  await saveConfig(app.config);
+
+  if (!useBasic) {
+    const loginNow = await ask('Login now? [Y/n]: ');
+    rl.close();
+    if (!loginNow || loginNow.toLowerCase() !== 'n') {
+      await app.auth.login(instance);
+      // Re-save credentials under <user>@<instance> after verifying username
+      try {
+        const { SDKClient } = await import('../sdk.js');
+        const sdk = new SDKClient(instance, app.auth);
+        const user = await sdk.getCurrentUser();
+        if (user && user.user_name) {
+          const { loadCredentials, saveCredentials } = await import('../auth.js');
+          const stored = loadCredentials(instance);
+          if (stored && stored.access_token) {
+            stored.username = user.user_name;
+            saveCredentials(instance, stored, user.user_name);
+          }
+          profile.username = user.user_name;
+        }
+      } catch {
+        // Non-fatal — token saved, username will be set on next auth login
+      }
+      console.log('Login successful!');
+      loggedIn = true;
+    }
+  } else {
+    rl.close();
+  }
+
+  return { instanceURL: instance, profileName, loggedIn };
+}
+
+/**
+ * gh-faithful login target picker: existing profiles plus an "add a new
+ * instance" row. Typing filters profiles; picking the ＋ row uses what you
+ * typed (or prompts for it).
+ *
+ * Returns { addNew: true, instanceName } or { addNew: false, name }.
+ */
+async function pickLoginTarget(app) {
+  const { search, input } = await import('@inquirer/prompts');
+  const ADD_NEW = '__add_new__';
+  const profileNames = Object.keys(app.config.profiles || {});
+  let lastInput = '';
+  const selected = await search({
+    message: 'Log in to which instance?',
+    source: (term) => {
+      const filter = (term || '').toLowerCase();
+      lastInput = term || '';
+      const profiles = profileNames
+        .filter((name) => {
+          const label = `${name} — ${app.config.profiles[name].instance_url}`.toLowerCase();
+          return !filter || label.includes(filter);
+        })
+        .map((name) => ({
+          name: `${name} — ${app.config.profiles[name].instance_url}`,
+          value: name,
+        }));
+      const addLabel = filter
+        ? `＋ Add "${term.trim()}" as a new instance`
+        : '＋ Add a new instance';
+      return [{ name: addLabel, value: ADD_NEW }, ...profiles];
+    },
+  });
+  if (selected === ADD_NEW) {
+    const typed = lastInput.trim();
+    if (typed) return { addNew: true, instanceName: typed };
+    const name = await input({
+      message: 'ServiceNow instance name or URL (e.g. dev12345):',
+      validate: (v) => (v.trim() ? true : 'Instance name or URL is required'),
+    });
+    return { addNew: true, instanceName: name.trim() };
+  }
+  return { addNew: false, name: selected };
+}
+
 export function authCmd(wrap) {
   return {
-    command: 'auth <subcommand>',
+    command: 'auth [subcommand]',
     describe: 'Manage authentication (OAuth or basic auth via env vars)',
     builder: (yargs) => {
       return yargs
         .command({
           command: 'login [instance]',
-          describe: 'Authenticate with a ServiceNow instance via OAuth',
+          describe: 'Authenticate with a ServiceNow instance (interactive picker when run bare)',
           builder: (sub) => sub
             .option('code', {
               describe: 'Authorization code from browser (bypasses interactive prompt)',
@@ -27,38 +187,42 @@ export function authCmd(wrap) {
             .option('wait-file', {
               describe: 'File path to watch for authorization code (used with --print-url)',
               type: 'string',
+            })
+            .option('read-only', {
+              describe: 'Mark the created profile as read-only (blocks mutation commands)',
+              type: 'boolean',
+              default: false,
             }),
           handler: wrap(async (argv, app) => {
             let instanceURL;
             if (argv.instance) {
-              // Check if it's a profile name first
-              const profiles = app.config.profiles || {};
-              if (profiles[argv.instance] && profiles[argv.instance].instance_url) {
-                instanceURL = normalizeInstanceURL(profiles[argv.instance].instance_url);
+              instanceURL = resolveInstanceArg(argv.instance, app.config);
+            } else if (app.isInteractive()) {
+              // gh-faithful: interactive terminals always get a picker —
+              // existing profiles plus "＋ Add a new instance". Zero profiles
+              // goes straight to the setup wizard.
+              const profileNames = Object.keys(app.config.profiles || {});
+              if (profileNames.length === 0) {
+                const wizard = await loginWizard(app, argv);
+                if (wizard.loggedIn) {
+                  app.ok({ authenticated: true, instance: wizard.instanceURL, profile: wizard.profileName },
+                    { summary: `✓ Authenticated to ${wizard.instanceURL} (profile: ${wizard.profileName})` });
+                } else {
+                  app.ok({ setup: true, instance: wizard.instanceURL, profile: wizard.profileName },
+                    { summary: `Profile "${wizard.profileName}" created for ${wizard.instanceURL}. Run "jsn auth login" to authenticate.` });
+                }
+                return;
+              }
+              const target = await pickLoginTarget(app);
+              if (target.addNew) {
+                instanceURL = resolveInstanceArg(target.instanceName, app.config);
               } else {
-                instanceURL = normalizeInstanceURL(argv.instance);
+                instanceURL = normalizeInstanceURL(app.config.profiles[target.name].instance_url);
               }
             } else {
               instanceURL = getEffectiveInstance(app.config);
               if (!instanceURL) {
-                // Try interactive profile picker
-                const profileNames = Object.keys(app.config.profiles || {});
-                if (profileNames.length > 0 && app.isInteractive()) {
-                  const { search } = await import('@inquirer/prompts');
-                  const choices = profileNames.map(name => ({
-                    name: `${name} — ${app.config.profiles[name].instance_url}`,
-                    value: name,
-                  }));
-                  const selected = await search({
-                    message: 'Select a profile:',
-                    source: (input) => {
-                      const filter = (input || '').toLowerCase();
-                      return choices.filter(c => c.name.toLowerCase().includes(filter));
-                    },
-                  });
-                  instanceURL = normalizeInstanceURL(app.config.profiles[selected].instance_url);
-                } else {
-                  throw errUsage(`Instance URL required.
+                throw errUsage(`Instance URL required.
 
 Examples:
   jsn auth login https://dev12345.service-now.com
@@ -66,7 +230,6 @@ Examples:
   jsn auth login --password https://dev328604.service-now.com
 
 Find your instance URL in your browser's address bar when logged into ServiceNow.`);
-                }
               }
             }
 
@@ -129,6 +292,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               instance_url: instanceURL,
               auth_method: argv.password ? 'basic' : 'oauth',
               username: username || undefined,
+              read_only: argv['read-only'] || undefined,
             };
 
             // Re-save OAuth credentials with username now that we have it,
@@ -169,11 +333,11 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
         })
         .command({
           command: 'logout [instance]',
-          describe: 'Remove stored OAuth credentials',
+          describe: 'Clear stored credentials (keeps the instance entry — use "auth remove" to delete it)',
           handler: wrap(async (argv, app) => {
             let instanceURL;
             if (argv.instance) {
-              instanceURL = normalizeInstanceURL(argv.instance);
+              instanceURL = resolveInstanceArg(argv.instance, app.config);
             } else {
               instanceURL = getEffectiveInstance(app.config);
               if (!instanceURL) {
@@ -240,6 +404,7 @@ Examples:
                 days_since_last_seen: daysSinceLastSeen,
                 stale: daysSinceLastSeen > 7,
                 default: instance === defaultInstance,
+                read_only: profile.read_only || false,
               });
             }
 
@@ -273,13 +438,7 @@ Examples:
           handler: wrap(async (argv, app) => {
             let instanceURL;
             if (argv.instance) {
-              // Check if it's a profile name or URL
-              const profiles = app.config.profiles || {};
-              if (profiles[argv.instance] && profiles[argv.instance].instance_url) {
-                instanceURL = normalizeInstanceURL(profiles[argv.instance].instance_url);
-              } else {
-                instanceURL = normalizeInstanceURL(argv.instance);
-              }
+              instanceURL = resolveInstanceArg(argv.instance, app.config);
             } else {
               instanceURL = getEffectiveInstance(app.config);
               if (!instanceURL) {
@@ -300,17 +459,111 @@ Examples:
               expires_at: refreshed.expires_at,
             }, { summary: `✓ Token refreshed for ${instanceURL}` });
           }),
+        })
+        .command({
+          command: 'switch [name]',
+          describe: 'Switch active profile (gh: auth switch)',
+          builder: (sub) => sub
+            .positional('name', {
+              describe: 'Profile name to activate',
+              type: 'string',
+            }),
+          handler: wrap(async (argv, app) => {
+            let name = argv.name;
+            if (!name) {
+              const profileNames = Object.keys(app.config.profiles || {});
+              if (profileNames.length === 0) {
+                throw errUsage('No profiles configured. Run "jsn auth login" first.');
+              }
+              if (profileNames.length > 1 && app.isInteractive()) {
+                const { search } = await import('@inquirer/prompts');
+                const choices = profileNames.map(profileName => ({
+                  name: `${profileName} — ${app.config.profiles[profileName].instance_url}`,
+                  value: profileName,
+                }));
+                const selected = await search({
+                  message: 'Select a profile:',
+                  source: (input) => {
+                    const filter = (input || '').toLowerCase();
+                    return choices.filter(c => c.name.toLowerCase().includes(filter));
+                  },
+                });
+                name = selected;
+              } else {
+                name = profileNames[0];
+              }
+            }
+            await setActiveProfile(app.config, name);
+            app.ok({ active_profile: name }, { summary: `Active profile: ${name}` });
+          }),
+        })
+        .command({
+          command: 'remove [name]',
+          describe: 'Delete an instance entry and its stored credentials',
+          builder: (sub) => sub
+            .positional('name', {
+              describe: 'Profile name to delete',
+              type: 'string',
+            }),
+          handler: wrap(async (argv, app) => {
+            let name = argv.name;
+            if (!name) {
+              const profileNames = Object.keys(app.config.profiles || {});
+              if (profileNames.length === 0) {
+                throw errUsage('No profiles configured. Nothing to remove.');
+              }
+              if (profileNames.length > 1 && app.isInteractive()) {
+                const { search } = await import('@inquirer/prompts');
+                const choices = profileNames.map(profileName => ({
+                  name: `${profileName} — ${app.config.profiles[profileName].instance_url}`,
+                  value: profileName,
+                }));
+                const selected = await search({
+                  message: 'Remove which profile?',
+                  source: (input) => {
+                    const filter = (input || '').toLowerCase();
+                    return choices.filter(c => c.name.toLowerCase().includes(filter));
+                  },
+                });
+                name = selected;
+              } else {
+                name = profileNames[0];
+              }
+            }
+            if (!app.config.profiles[name]) {
+              throw new Error(`Profile not found: ${name}`);
+            }
+            const instance = app.config.profiles[name].instance_url;
+            delete app.config.profiles[name];
+            if (app.config.defaultProfile === name) app.config.defaultProfile = '';
+            if (app.config.activeProfile === name) app.config.activeProfile = '';
+            saveConfig(app.config);
+
+            // Only clear credentials if no other profile uses this instance URL
+            const stillInUse = instance && Object.values(app.config.profiles || {})
+              .some(p => p.instance_url === instance);
+            if (instance && !stillInUse) {
+              app.auth.logout(instance);
+            }
+
+            app.ok({ removed: name }, { summary: `Removed profile: ${name}` });
+          }),
         });
     },
     handler: () => {
-      console.log('Manage OAuth authentication for ServiceNow instances.');
+      console.log('Manage authentication for ServiceNow instances.');
       console.log('');
       console.log('Available subcommands:');
-      console.log('  login <url>    Login with OAuth (supports --print-url, --code for CI/CD)');
-      console.log('  status         Show auth status for the active profile');
-      console.log('  refresh        Refresh the access token');
+      console.log('  login <url|name>  Log in / add an instance (picker when run bare)');
+      console.log('  status            Show auth status for all profiles');
+      console.log('  switch <name>     Switch the active profile');
+      console.log('  refresh           Refresh the access token');
+      console.log('  logout            Clear credentials (keeps the instance entry)');
+      console.log('  remove <name>     Delete an instance entry and its credentials');
       console.log('');
       console.log('Run "jsn auth <command> --help" for details.');
+      console.log('');
+      console.log('Tip: "jsn auth login" is the only command you need to add an instance.');
     },
   };
 }

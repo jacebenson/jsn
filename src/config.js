@@ -168,3 +168,12 @@ export function setProfile(cfg, name, profile) {
   cfg.profiles[name] = profile;
   return saveConfig(cfg);
 }
+
+export function setActiveProfile(cfg, name) {
+  if (!cfg.profiles || !cfg.profiles[name]) {
+    throw new Error(`Profile not found: ${name}`);
+  }
+  cfg.defaultProfile = name;
+  cfg.activeProfile = name;
+  return saveConfig(cfg);
+}

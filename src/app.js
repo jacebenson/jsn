@@ -120,10 +120,15 @@ export class App {
 
     const scopeFormatted = `[${scope}]`;
 
+    // Read-only profiles get a lock badge on every command run, so the
+    // armed safety is always visible (not just in `auth status`).
+    const activeProfile = this.context.profileName ? this.config.profiles[this.context.profileName] : null;
+    const roBadge = activeProfile?.read_only === true ? ' 🔒' : '';
+
     process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
     process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
 
-    const profileStr = `]8;;${instanceLink}\x07${String(this.context.profileName).padEnd(9)}]8;;\x07`;
+    const profileStr = `\u001b]8;;${instanceLink}\x07${String(this.context.profileName).padEnd(9)}${roBadge}\u001b]8;;\x07`;
     const userStr = `]8;;${userLink}\x07${String(displayUserName).padEnd(9)}]8;;\x07`;
     const scopeStr = `]8;;${scopeLink}\x07${String(scopeFormatted).padEnd(17)}]8;;\x07`;
     const updateSetStr = `]8;;${updateSetLink}\x07${updateSet}]8;;\x07`;
@@ -131,9 +136,7 @@ export class App {
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
     // ⚠️  Warning if in the Default update set (mutation commands only)
-    const profile = this.context.profileName ? this.config.profiles[this.context.profileName] : null;
-    const isYolo = profile?.yolo === true;
-    if (!isYolo && isMutationCommand(argv) && updateSet && updateSet.toLowerCase().includes('default')) {
+    if (isMutationCommand(argv) && updateSet && updateSet.toLowerCase().includes('default')) {
       const isGlobal = scope === 'global';
       if (isGlobal) {
         // 🔴 HARD WARNING — Global + Default
@@ -150,8 +153,6 @@ export class App {
           '┃                                                        ┃\n' +
           '┃  Or switch to a scoped scope first:                    ┃\n' +
           '┃    jsn scopes list                                 ┃\n' +
-          '┃                                                        ┃\n' +
-          '┃  (Run jsn updatesets yolo to silence this check)    ┃\n' +
           '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\x1b[0m\n'
         );
       } else {
@@ -162,7 +163,6 @@ export class App {
           '  ⚠  Default update set in scope [' + scope + ']\n' +
           '  Changes are contained to this scope, but a named\n' +
           '  update set is still recommended for tracking.\n' +
-          '  (Run \x1b[1mjsn updatesets yolo\x1b[22m to silence this warning)\n' +
           '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
           '\x1b[0m' // reset
         );
