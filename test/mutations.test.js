@@ -20,8 +20,8 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'eval'] }), true);
   });
 
-  it('should not detect profiles use as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['profiles', 'use', 'foo'] }), false);
+  it('should not detect auth switch as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['auth', 'switch', 'foo'] }), false);
   });
 
   it('should detect records delete as mutation', () => {

@@ -126,3 +126,29 @@ export function asError(err) {
 export function isErrorCode(err, code) {
   return err instanceof AppError && err.code === code;
 }
+
+/**
+ * Format a safety-guard failure (mutation guard middleware in cli.js).
+ * In JSON mode writes the documented error envelope to stdout so piped
+ * consumers (`jsn ... --json | jq`) get a structured error instead of a
+ * raw stderr message. Otherwise writes human text to stderr.
+ * Always exits non-zero via guardExit.
+ */
+export function guardError(argv, { code, message, hint = '' }) {
+  if (argv?.format === 'json') {
+    return {
+      stream: 'stdout',
+      text: JSON.stringify({ ok: false, error: message, code, hint }) + '\n',
+    };
+  }
+  let text = `Error: ${message}\n`;
+  if (hint) text += `\n${hint}\n`;
+  return { stream: 'stderr', text };
+}
+
+export function guardExit(argv, opts) {
+  const { stream, text } = guardError(argv, opts);
+  if (stream === 'stdout') process.stdout.write(text);
+  else process.stderr.write(text);
+  process.exit(1);
+}

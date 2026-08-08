@@ -9,6 +9,7 @@ import { loadConfig, getEffectiveInstance, getActiveProfile, globalConfigDir } f
 import { App } from './app.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand } from './mutations.js';
+import { guardExit } from './errors.js';
 
 // Command modules
 import { setupCmd } from './commands/setup.js';
@@ -161,8 +162,11 @@ export function buildCLI() {
         if (argv.profile) {
           const profile = (cfg.profiles || {})[argv.profile];
           if (!profile) {
-            process.stderr.write(`Error: Unknown profile "${argv.profile}"\n`);
-            process.exit(1);
+            guardExit(argv, {
+              code: 'unknown_profile',
+              message: `Unknown profile "${argv.profile}"`,
+              hint: 'Run "jsn auth status" to list profiles.',
+            });
           }
           const url = profile.instance_url;
           app._overrideInstance = url;
@@ -193,18 +197,16 @@ export function buildCLI() {
             // requireInstance throws errUsage; format it cleanly (the yargs
             // fail handler re-throws middleware errors, which would print a
             // raw stack trace).
-            process.stderr.write(`Error: ${err.message}\n`);
-            process.exit(1);
+            guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });
           }
           const profile = getActiveProfile(cfg);
           if (profile?.read_only === true) {
             const name = cfg.activeProfile || cfg.defaultProfile;
-            process.stderr.write(
-              `Error: Profile "${name}" is read-only. Mutations are blocked.\n\n` +
-              'Switch to a write-enabled profile first:\n' +
-              `  jsn auth switch <name>\n`
-            );
-            process.exit(1);
+            guardExit(argv, {
+              code: 'read_only',
+              message: `Profile "${name}" is read-only. Mutations are blocked.`,
+              hint: 'Switch to a write-enabled profile first:\n  jsn auth switch <name>',
+            });
           }
         }
       },
