@@ -20,6 +20,17 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'eval'] }), true);
   });
 
+  // Read-only bypass regression (issue #143): root `jsn eval` and
+  // `jsn rest` were NOT in the registry — only the legacy dev forms were.
+  it('should detect root eval as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['eval'] }), true);
+  });
+
+  it('should detect rest as mutation in both forms', () => {
+    assert.strictEqual(isMutationCommand({ _: ['rest'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'rest'] }), true);
+  });
+
   it('should not detect auth switch as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['auth', 'switch', 'foo'] }), false);
   });
