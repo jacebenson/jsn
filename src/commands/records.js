@@ -115,6 +115,7 @@ export function recordsCmd(wrap) {
             .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' }),
           handler: wrap(async (argv, app) => {
+            assertSafeExactMatch(argv['sys-id']);
             const params = new URLSearchParams();
             params.set('sysparm_query', `sys_id=${argv['sys-id']}`);
             params.set('sysparm_limit', '1');

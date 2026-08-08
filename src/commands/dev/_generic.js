@@ -1,6 +1,6 @@
 // Generic dev subcommand builder for table-based CRUD
 
-import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, confirmDelete } from '../../helpers.js';
+import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, confirmDelete, assertSafeExactMatch } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import { paginatedSearch } from '../../paginated-search.js';
 import { isTTY, FormatAuto } from '../../output.js';
@@ -149,6 +149,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
 
             if (selectedName) {
               const recordName = typeof selectedName === 'object' ? selectedName.value : selectedName;
+              assertSafeExactMatch(recordName);
               const showParams = new URLSearchParams();
               showParams.set('sysparm_query', `name=${recordName}`);
               showParams.set('sysparm_display_value', 'all');
@@ -201,6 +202,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         handler: wrap(async (argv, app) => {
           const id = argv.identifier;
           const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
+          assertSafeExactMatch(id);
           const params = new URLSearchParams();
           params.set('sysparm_query', `${queryField}=${id}`);
           params.set('sysparm_limit', '1');
@@ -258,6 +260,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
             const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
+            assertSafeExactMatch(id);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `${queryField}=${id}`);
             findParams.set('sysparm_limit', '1');
@@ -288,6 +291,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
             const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
+            assertSafeExactMatch(id);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `${queryField}=${id}`);
             findParams.set('sysparm_limit', '1');

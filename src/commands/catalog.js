@@ -1,4 +1,4 @@
-import { getStringField, interactiveList } from '../helpers.js';
+import { getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
 
 export function catalogCmd(wrap) {
   return {
@@ -150,6 +150,7 @@ export function catalogCmd(wrap) {
             app.requireInstance();
             let id = argv.id;
             if (!/^[a-f0-9]{32}$/i.test(id)) {
+              assertSafeExactMatch(id);
               const p = new URLSearchParams();
               p.set('sysparm_query', `name=${id}`);
               p.set('sysparm_limit', '1');

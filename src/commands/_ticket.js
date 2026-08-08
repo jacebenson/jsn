@@ -1,7 +1,7 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, assertSafeExactMatch } from '../helpers.js';
 import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from '../output.js';
 
@@ -86,6 +86,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               }
 
               if (selectedNumber) {
+                assertSafeExactMatch(selectedNumber);
                 const showParams = new URLSearchParams();
                 showParams.set('sysparm_query', `number=${selectedNumber}`);
                 showParams.set('sysparm_display_value', 'all');
@@ -161,6 +162,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           describe: `Show a specific ${displayName}`,
           handler: wrap(async (argv, app) => {
             const number = argv.number;
+            assertSafeExactMatch(number);
             const params = new URLSearchParams();
             params.set('sysparm_query', `number=${number}`);
             params.set('sysparm_display_value', 'all');
@@ -216,6 +218,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
+            assertSafeExactMatch(number);
             const recordData = JSON.parse(argv.data);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${number}`);
@@ -241,6 +244,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           handler: wrap(async (argv, app) => {
             const number = argv.number;
             await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
+            assertSafeExactMatch(number);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${number}`);
             findParams.set('sysparm_limit', '1');
