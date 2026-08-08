@@ -1,6 +1,6 @@
 # Agent Documentation for JSN CLI
 
-> JSN v3.x — Node.js — branch: `nodejs`
+> JSN v4.x — Node.js — branch: `main`
 
 This document provides guidance for AI agents using the JSN CLI to interact with ServiceNow.
 
@@ -396,6 +396,8 @@ node --test $(find test -name '*inspect*')
 # Run with lint check
 npm run lint && npm test
 ```
+
+**Test env vars:** `JSN_HERMES_BASE_DIR` points skill tests at a temp `.hermes` tree (used by `test/skill.test.js`); `JSN_NO_VERSION_CHECK=1` and `JSN_NO_SKILL_CHECK=1` disable the daily npm/skill checks.
 
 ## AI Agent Integration
 

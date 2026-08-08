@@ -14,7 +14,7 @@ compatibility: |
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
 metadata:
   author: jacebenson
-  version: "3.1.1"
+  version: "4.0.0"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -69,7 +69,7 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 | **Access** | `acls`, `b4rules`, `roles`, `groups`, `users` |
 | **UX** | `forms` (section/element layout), `lists`, `clientscripts`, `uipolicies` |
 | **Data** | `tables`, `columns`, `includes`, `logs`, `properties`, `records` |
-| **Config** | `setup`, `auth`, `profiles`, `updatesets`, `scopes` |
+| **Config** | `setup`, `auth`, `updatesets`, `scopes` |
 | **Docs** | `docs sync`, `docs status`, `docs search`, `docs serve` |
 | **Developer** | `eval`, `rest`, `skill`, `version` |
 
