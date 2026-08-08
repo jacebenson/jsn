@@ -200,12 +200,15 @@ export class OutputWriter {
           // Show lock icon for read-only profiles
           const lockIcon = p.read_only ? ' 🔒' : '';
 
+          // Show confirmations-off badge for skip_confirmations profiles
+          const confirmBadge = p.skip_confirmations ? ' ⚡' : '';
+
           if (p.name) {
-            this.writer.write(`${prefix}${authIcon} ${p.name} — ${p.instance}${lockIcon}${verifiedStr}${staleStr}\n`);
+            this.writer.write(`${prefix}${authIcon} ${p.name} — ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`);
           } else if (p.username) {
-            this.writer.write(`${prefix}${authIcon} ${p.instance} (as ${p.username})${lockIcon}${verifiedStr}${staleStr}\n`);
+            this.writer.write(`${prefix}${authIcon} ${p.instance} (as ${p.username})${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`);
           } else {
-            this.writer.write(`${prefix}${authIcon} ${p.instance}${lockIcon}${verifiedStr}${staleStr}\n`);
+            this.writer.write(`${prefix}${authIcon} ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`);
           }
         }
       }

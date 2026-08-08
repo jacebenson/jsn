@@ -57,6 +57,9 @@ export async function loginWizard(app, argv = {}) {
   if (argv['read-only']) {
     profile.read_only = true;
   }
+  if (argv['skip-confirmations']) {
+    profile.skip_confirmations = true;
+  }
 
   const authMethod = await ask('Authentication method (OAuth/Basic) [OAuth]: ');
   const useBasic = authMethod.toLowerCase().startsWith('b');
@@ -192,6 +195,11 @@ export function authCmd(wrap) {
               describe: 'Mark the created profile as read-only (blocks mutation commands)',
               type: 'boolean',
               default: false,
+            })
+            .option('skip-confirmations', {
+              describe: 'Skip delete confirmations on this profile (deletes run without prompting)',
+              type: 'boolean',
+              default: false,
             }),
           handler: wrap(async (argv, app) => {
             let instanceURL;
@@ -293,6 +301,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               auth_method: argv.password ? 'basic' : 'oauth',
               username: username || undefined,
               read_only: argv['read-only'] || undefined,
+              skip_confirmations: argv['skip-confirmations'] || undefined,
             };
 
             // Re-save OAuth credentials with username now that we have it,
@@ -405,6 +414,7 @@ Examples:
                 stale: daysSinceLastSeen > 7,
                 default: instance === defaultInstance,
                 read_only: profile.read_only || false,
+                skip_confirmations: profile.skip_confirmations || false,
               });
             }
 

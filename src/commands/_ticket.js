@@ -1,7 +1,7 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete } from '../helpers.js';
 import { search } from '@inquirer/prompts';
 import { isTTY, FormatAuto } from '../output.js';
 
@@ -237,8 +237,10 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
         .command({
           command: 'delete <number>',
           describe: `Delete a ${displayName}`,
+          builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
+            await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
             const findParams = new URLSearchParams();
             findParams.set('sysparm_query', `number=${number}`);
             findParams.set('sysparm_limit', '1');

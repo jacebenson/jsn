@@ -1,8 +1,47 @@
 // Shared helper utilities
 
 import fs from 'node:fs';
+import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
+import { getActiveProfile } from './config.js';
+
+/**
+ * Confirm a destructive action before executing.
+ *
+ * Default posture is ASK: interactive terminals get a y/N prompt;
+ * non-interactive invocation (pipes, scripts, AI agents) is rejected
+ * unless --force is passed. A profile can opt out entirely with the
+ * per-instance `skip_confirmations` flag (set via `auth login
+ * --skip-confirmations`).
+ *
+ * @param {object} app — app instance (reads active profile from app.config)
+ * @param {object} argv — parsed args (checks argv.force)
+ * @param {string} question — e.g. `Delete incident INC0010001?`
+ * @returns {Promise<boolean>} true when the action may proceed
+ * @throws when confirmation is required but denied/unavailable
+ */
+export async function confirmDelete(app, argv, question) {
+  const profile = getActiveProfile(app.config);
+  if (profile?.skip_confirmations === true) return true;
+  if (argv.force) return true;
+  if (isTTY(process.stdout) && isTTY(process.stdin)) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise((resolve) => {
+      rl.question(`${question} (y/N): `, resolve);
+    });
+    rl.close();
+    const response = answer.trim().toLowerCase();
+    if (response !== 'y' && response !== 'yes') {
+      throw new Error('Deletion cancelled');
+    }
+    return true;
+  }
+  throw new Error(
+    `${question} — confirmation required. Pass --force to skip, or set skip_confirmations on the profile to disable prompts.`
+  );
+}
+
 
 export function getStringField(record, field) {
   if (!record || typeof record !== 'object') return '';

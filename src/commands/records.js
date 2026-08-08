@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields } from '../helpers.js';
+import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete } from '../helpers.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -169,8 +169,10 @@ export function recordsCmd(wrap) {
           describe: 'Delete a record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' }),
+            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
+            await confirmDelete(app, argv, `Delete record from ${argv.table} (${argv['sys-id']})`);
             await app.sdk.delete(argv.table, argv['sys-id']);
             app.ok({ message: 'Record deleted', table: argv.table, sys_id: argv['sys-id'] }, { summary: `Deleted record from ${argv.table}` });
           }),
