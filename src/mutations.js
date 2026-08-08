@@ -62,8 +62,14 @@ export const MUTATION_COMMANDS = [
   ['catalog', 'create-item'],
   // Dev CRUD commands (root + `jsn dev` forms)
   ...DEV_CRUD_COMMANDS.flatMap(devCrudPaths),
-  // Dev eval (no sub-action)
+  // Dev eval (no sub-action) — both spellings must be gated:
+  // `jsn eval` (root) and legacy `jsn dev eval`
+  ['eval'],
   ['dev', 'eval'],
+  // Raw REST passthrough — can hit any endpoint with any method,
+  // so the whole command is a mutation surface on read-only profiles
+  ['rest'],
+  ['dev', 'rest'],
   // Scopes: create + set (root + dev forms)
   ['scopes', 'create'],
   ['scopes', 'set'],
