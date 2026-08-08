@@ -88,11 +88,6 @@ jsn dev updatesets set "My Development" --json
 # Export an update set to XML
 jsn dev updatesets export --name "My Update Set" --json
 
-# Suppress Default update set warnings (yolo mode)
-jsn dev updatesets yolo --on
-jsn dev updatesets yolo --off
-jsn dev updatesets yolo --status
-
 # List access controls (ACLs) for a table
 jsn dev acls list --query "name=incident" --json
 
@@ -263,7 +258,6 @@ These operations modify data:
 - `jsn dev acls create` / `update` / `delete`
 - `jsn dev roles create` / `update` / `delete`
 - `jsn dev updatesets set`
-- `jsn dev updatesets yolo --on` / `--off`
 - `jsn dev updatesets export`
 - `jsn dev eval`
 

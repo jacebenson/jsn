@@ -5,7 +5,7 @@ import { hideBin } from 'yargs/helpers';
 import process from 'node:process';
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadConfig, getEffectiveInstance, globalConfigDir } from './config.js';
+import { loadConfig, getEffectiveInstance, getActiveProfile, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand } from './mutations.js';
@@ -13,7 +13,6 @@ import { isMutationCommand } from './mutations.js';
 // Command modules
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
-import { profilesCmd } from './commands/profiles.js';
 import { recordsCmd } from './commands/records.js';
 import { catalogCmd } from './commands/catalog.js';
 import { incidentsCmd } from './commands/incidents.js';
@@ -176,10 +175,10 @@ export function buildCLI() {
           argv._overrideInstance = argv.instance;
         }
       },
-      // Guard mutation commands when no instance configured
+      // Guard mutation commands: require an instance, block read-only profiles
       (argv) => {
         const cmd = (argv._[0] || '').toString();
-        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'profiles', 'skill', 'docs'].includes(cmd)) {
+        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs'].includes(cmd)) {
           return;
         }
         // Check for --instance override
@@ -187,11 +186,26 @@ export function buildCLI() {
           app._overrideInstance = argv.instance;
           argv._overrideInstance = argv.instance;
         }
-        // Determine if this is a mutation
-        const subcommand = (argv._[1] || '').toString();
-        const isMutation = isMutationCommand(cmd, subcommand);
-        if (isMutation) {
-          app.requireInstance();
+        if (isMutationCommand(argv)) {
+          try {
+            app.requireInstance();
+          } catch (err) {
+            // requireInstance throws errUsage; format it cleanly (the yargs
+            // fail handler re-throws middleware errors, which would print a
+            // raw stack trace).
+            process.stderr.write(`Error: ${err.message}\n`);
+            process.exit(1);
+          }
+          const profile = getActiveProfile(cfg);
+          if (profile?.read_only === true) {
+            const name = cfg.activeProfile || cfg.defaultProfile;
+            process.stderr.write(
+              `Error: Profile "${name}" is read-only. Mutations are blocked.\n\n` +
+              'Switch to a write-enabled profile first:\n' +
+              `  jsn auth switch <name>\n`
+            );
+            process.exit(1);
+          }
         }
       },
     ])
@@ -277,7 +291,6 @@ export function buildCLI() {
     // CONFIGURATION
     .command(setupCmd(wrap))
     .command(authCmd(wrap))
-    .command(profilesCmd(wrap))
     .command(updateSetsCmd(wrap))
     .command(scopesCmd(wrap))
     // CORE

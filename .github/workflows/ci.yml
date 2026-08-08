@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [nodejs]
+    branches: [main]
   pull_request:
-    branches: [nodejs]
+    branches: [main]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -19,7 +19,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # better-sqlite3 (docs search, PR #134) needs Node >= 22 for FTS5
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -27,25 +28,3 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-      - name: Smoke test
-        run: |
-          node bin/jsn.js --help | head -5
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint

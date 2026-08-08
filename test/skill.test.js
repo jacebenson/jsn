@@ -131,11 +131,13 @@ describe('Skill hermesSkillDir', () => {
   let tmpDir;
   let origHome;
   let origHermesProfile;
+  let origHermesBase;
 
   before(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-hermes-test-'));
     origHome = process.env.HOME;
     origHermesProfile = process.env.HERMES_PROFILE;
+    origHermesBase = process.env.JSN_HERMES_BASE_DIR;
   });
 
   after(() => {
@@ -144,6 +146,8 @@ describe('Skill hermesSkillDir', () => {
     else delete process.env.HOME;
     if (origHermesProfile !== undefined) process.env.HERMES_PROFILE = origHermesProfile;
     else delete process.env.HERMES_PROFILE;
+    if (origHermesBase !== undefined) process.env.JSN_HERMES_BASE_DIR = origHermesBase;
+    else delete process.env.JSN_HERMES_BASE_DIR;
   });
 
   it('should use HERMES_PROFILE env var when set', async () => {
@@ -152,6 +156,7 @@ describe('Skill hermesSkillDir', () => {
     fs.mkdirSync(path.join(hermesDir, 'profiles', 'work'), { recursive: true });
 
     process.env.HOME = tmpDir;
+    process.env.JSN_HERMES_BASE_DIR = hermesDir;
     process.env.HERMES_PROFILE = 'work';
 
     const { hermesSkillDir } = await import('../src/commands/skill.js');
@@ -165,6 +170,7 @@ describe('Skill hermesSkillDir', () => {
     fs.mkdirSync(path.join(hermesDir, 'profiles', 'work'), { recursive: true });
 
     process.env.HOME = tmpDir;
+    process.env.JSN_HERMES_BASE_DIR = hermesDir;
     delete process.env.HERMES_PROFILE;
 
     const { hermesSkillDir } = await import('../src/commands/skill.js');

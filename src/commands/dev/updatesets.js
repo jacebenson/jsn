@@ -165,21 +165,6 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
-          command: 'yolo',
-          aliases: ['silence'],
-          describe: 'Silence the "Default update set" warning for this profile',
-          handler: wrap(async (argv, app) => {
-            const name = app.context.profileName;
-            if (!name) {
-              throw new Error('No active profile to mark as yolo. Run jsn setup first.');
-            }
-            app.config.profiles[name].yolo = true;
-            const { saveConfig } = await import('../../config.js');
-            saveConfig(app.config);
-            app.ok({ profile: name, yolo: true }, { summary: 'Default update set warning silenced for this profile' });
-          }),
-        })
-        .command({
           command: 'export <name>',
           describe: 'Export an update set to XML',
           builder: (y) => y
@@ -225,7 +210,6 @@ export function updateSetsCmd(wrap) {
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  export <name>  Export an update set to XML');
         console.log('  complete <name>  Mark an update set as complete (coming soon)');
-        console.log('  yolo           Silence the "Default update set" warning');
         console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
         console.log('  jsn updatesets create --name "My Feature"');

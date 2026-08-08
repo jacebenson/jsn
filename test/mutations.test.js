@@ -104,4 +104,30 @@ describe('mutations.js', () => {
   it('should detect dev scopes create as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'scopes', 'create'] }), true);
   });
+
+  // Dev CRUD registry expansion (read_only enforcement coverage)
+  it('should detect root dev CRUD create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['includes', 'create'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['rules', 'create'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['acls', 'create'] }), true);
+  });
+
+  it('should detect dev-prefixed CRUD create/update/delete as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'includes', 'update'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'rules', 'delete'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'clientscripts', 'update'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'uiactions', 'create'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'acls', 'delete'] }), true);
+  });
+
+  it('should not detect read-only dev commands as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['sppages', 'create'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'sppages', 'create'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['import', 'create'] }), false);
+  });
+
+  it('should detect root scopes and updatesets set/create as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['scopes', 'set'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['updatesets', 'create'] }), true);
+  });
 });

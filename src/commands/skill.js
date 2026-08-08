@@ -39,7 +39,10 @@ function realHomeDir() {
  * profile directory, falling back to ~/.hermes/skills/ (legacy symlink path).
  */
 function hermesSkillDir() {
-  const base = path.join(realHomeDir(), '.hermes');
+  // JSN_HERMES_BASE_DIR lets tests point at a temp .hermes tree.
+  // realHomeDir() deliberately bypasses $HOME (Hermes overrides it to a
+  // sandbox dir), so tests can't control the base via HOME.
+  const base = process.env.JSN_HERMES_BASE_DIR || path.join(realHomeDir(), '.hermes');
   const profileEnv = process.env.HERMES_PROFILE;
   let profileName = profileEnv;
 

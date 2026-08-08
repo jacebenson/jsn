@@ -107,10 +107,8 @@ const DATA_COMMANDS = [
 ];
 
 const CONFIG_COMMANDS = [
-  { name: 'setup', desc: 'Interactive first-time setup' },
-  { name: 'auth', desc: 'OAuth authentication' },
-  { name: 'profiles', alias: 'profile', desc: 'Instance profiles' },
-  { name: 'updatesets', desc: 'Update sets (set, yolo, export, import)' },
+  { name: 'auth', desc: 'Authentication (login, status, switch, refresh, logout, remove)' },
+  { name: 'updatesets', desc: 'Update sets (set, create, export)' },
   { name: 'scopes', desc: 'Application scopes' },
 ];
 

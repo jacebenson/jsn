@@ -20,7 +20,7 @@ describe('Auth Command Structure', () => {
     assert.ok(cmd.describe.toLowerCase().includes('oauth'));
   });
 
-  it('should define login, logout, status, refresh subcommands', async () => {
+  it('should define login, logout, status, refresh, switch, remove subcommands', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const wrap = (fn) => fn;
     const cmd = authCmd(wrap);
@@ -40,6 +40,8 @@ describe('Auth Command Structure', () => {
     assert.ok(names.includes('logout'));
     assert.ok(names.includes('status'));
     assert.ok(names.includes('refresh'));
+    assert.ok(names.includes('switch'));
+    assert.ok(names.includes('remove'));
   });
 });
 
@@ -151,6 +153,165 @@ describe('Auth Command Handlers', () => {
 
     await logoutCmd.handler({ app: mockApp, instance: 'https://test-instance.service-now.com', _: ['logout'] });
     assert.ok(logoutCalled, 'logout should have been called');
+  });
+});
+
+// ─── Instance argument resolution (gh-style) ───
+
+describe('resolveInstanceArg', () => {
+  let resolveInstanceArg;
+  before(async () => {
+    ({ resolveInstanceArg } = await import('../src/commands/auth.js'));
+  });
+
+  const cfg = {
+    profiles: {
+      staging: { instance_url: 'https://staging.example.com' },
+    },
+  };
+
+  it('should pass full URLs through unchanged', () => {
+    assert.strictEqual(
+      resolveInstanceArg('https://dev12345.service-now.com', cfg),
+      'https://dev12345.service-now.com'
+    );
+  });
+
+  it('should add https:// to a bare host', () => {
+    assert.strictEqual(
+      resolveInstanceArg('dev12345.service-now.com', cfg),
+      'https://dev12345.service-now.com'
+    );
+  });
+
+  it('should resolve a known profile name to its stored URL', () => {
+    assert.strictEqual(
+      resolveInstanceArg('staging', cfg),
+      'https://staging.example.com'
+    );
+  });
+
+  it('should append .service-now.com to an unknown bare name (fixes dead-host trap)', () => {
+    assert.strictEqual(
+      resolveInstanceArg('dev99999', cfg),
+      'https://dev99999.service-now.com'
+    );
+  });
+});
+
+// ─── auth switch handler ───
+
+describe('Auth Command Switch Handler', () => {
+  it('should set the active profile via setActiveProfile', async () => {
+    // setActiveProfile calls saveConfig() which writes the REAL global config.
+    // Isolate with a temp XDG_CONFIG_HOME + cwd so tests can never clobber
+    // the user's ~/.config/servicenow/config.json (see PR review note).
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const origXdg = process.env.XDG_CONFIG_HOME;
+    const origCwd = process.cwd();
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-auth-test-'));
+    process.env.XDG_CONFIG_HOME = tmpDir;
+    process.chdir(tmpDir);
+
+    try {
+      const { authCmd } = await import('../src/commands/auth.js');
+      const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+
+      const cmd = authCmd(wrap);
+      const subcommands = [];
+      const mockYargs = {
+        command: (c, ...rest) => {
+          subcommands.push({ def: typeof c === 'string' ? c : c.command, builder: typeof c === 'object' ? c.builder : rest[0], handler: typeof c === 'object' ? c.handler : rest[1] });
+          return mockYargs;
+        },
+      };
+      cmd.builder(mockYargs);
+
+      const switchCmd = subcommands.find(s => s.def.startsWith('switch'));
+      assert.ok(switchCmd, 'switch subcommand not found');
+
+      const app = {
+        config: {
+          profiles: {
+            dev: { instance_url: 'https://dev.service-now.com' },
+            prod: { instance_url: 'https://prod.service-now.com' },
+          },
+          defaultProfile: 'dev',
+          activeProfile: 'dev',
+        },
+        isInteractive: () => false,
+        ok: (result, opts) => { app._lastResult = result; app._lastSummary = opts.summary; },
+      };
+
+      await switchCmd.handler({ app, name: 'prod', _: ['switch'] });
+      assert.strictEqual(app.config.activeProfile, 'prod');
+      assert.strictEqual(app.config.defaultProfile, 'prod');
+      assert.strictEqual(app._lastResult.active_profile, 'prod');
+    } finally {
+      process.chdir(origCwd);
+      if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = origXdg;
+    }
+  });
+});
+
+// ─── auth remove handler ───
+
+describe('Auth Command Remove Handler', () => {
+  it('should remove the profile and clear credentials', async () => {
+    // saveConfig() writes the REAL global config — isolate like the switch test.
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const origXdg = process.env.XDG_CONFIG_HOME;
+    const origCwd = process.cwd();
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-auth-test-'));
+    process.env.XDG_CONFIG_HOME = tmpDir;
+    process.chdir(tmpDir);
+
+    try {
+      const { authCmd } = await import('../src/commands/auth.js');
+      const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+
+      const cmd = authCmd(wrap);
+      const subcommands = [];
+      const mockYargs = {
+        command: (c, ...rest) => {
+          subcommands.push({ def: typeof c === 'string' ? c : c.command, builder: typeof c === 'object' ? c.builder : rest[0], handler: typeof c === 'object' ? c.handler : rest[1] });
+          return mockYargs;
+        },
+      };
+      cmd.builder(mockYargs);
+
+      const removeCmd = subcommands.find(s => s.def.startsWith('remove'));
+      assert.ok(removeCmd, 'remove subcommand not found');
+
+      const app = {
+        config: {
+          profiles: {
+            dev: { instance_url: 'https://dev.service-now.com' },
+          },
+          defaultProfile: 'dev',
+          activeProfile: 'dev',
+        },
+        isInteractive: () => false,
+        auth: { logout: () => { app._loggedOut = true; } },
+        ok: (result) => { app._lastResult = result; },
+      };
+
+      await removeCmd.handler({ app, name: 'dev', _: ['remove'] });
+      assert.strictEqual(app.config.profiles.dev, undefined);
+      assert.strictEqual(app.config.defaultProfile, '');
+      assert.strictEqual(app.config.activeProfile, '');
+      assert.strictEqual(app._lastResult.removed, 'dev');
+      assert.ok(app._loggedOut, 'credentials should be cleared when no other profile uses the instance');
+    } finally {
+      process.chdir(origCwd);
+      if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = origXdg;
+    }
   });
 });
 

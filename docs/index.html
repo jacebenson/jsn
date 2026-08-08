@@ -236,7 +236,7 @@
             <ul style="margin: 0.5rem 0 0 1.2rem; color: var(--muted); line-height: 1.8;">
                 <li><strong>Node.js</strong> required — that is the only runtime dependency</li>
                 <li><strong>Install:</strong> <code style="color: var(--accent);">npm install -g @jacebenson/jsn</code> — works on Windows, macOS, Linux</li>
-                <li><strong>AI Agents:</strong> <code style="color: var(--accent);">jsn skill install</code> after setup</li>
+                <li><strong>AI Agents:</strong> <code style="color: var(--accent);">jsn skill install</code> after auth</li>
             </ul>
             </div>
 
@@ -258,8 +258,8 @@
         <h2 style="color: var(--accent); font-size: 1.1rem; margin-bottom: 0.5rem; font-family: 'SF Mono', Monaco, monospace; text-align: center;">⏎  What it looks like</h2>
 
         <div class="demo" id="demo">
-            <div class="heading">$ jsn setup</div>
-            <div class="output">→ JSN Setup<br><br>Instance URL: https://dev12345.service-now.com<br>Profile: dev<br>Authentication: OAuth 2.0 (browser)<br>✓ Authenticated as admin</div>
+            <div class="heading">$ jsn auth login</div>
+            <div class="output">? Log in to which instance?<br>&gt; ＋ Add a new instance<br>&nbsp; dev12345 — https://dev12345.service-now.com<br><br>ServiceNow instance name or URL: dev227772<br>✓ Authenticated to https://dev227772.service-now.com (profile: dev227772)</div>
 
             <div class="heading">$ jsn records --table change_request</div>
             <div class="output">Select a record from change_request:<br><br>&gt; CHG0000077 - A failed RAID controller card needs to be replaced<br>&nbsp; CHG0000067 - A failed RAID controller card needs to be replaced<br>&nbsp; CHG0040005 - Add network switch to cabinet<br>&nbsp; CHG0000011 - Another Java Application Server change<br>&nbsp; CHG0000009 - Apply patches 10.2.0.1 to 10.2.0.3<br><br><span style="color:#555;">↑/↓ navigate • enter select • /search • a-z jump</span></div>
@@ -277,7 +277,7 @@
                 <p>Requires Node.js and npm. One command, no ServiceNow plugins, no build step, no config file to wrestle.</p>
                 <div class="code-block">
                     <span class="cmd">npm install -g @jacebenson/jsn</span><br>
-                    <span class="cmd">jsn setup</span> <span class="comment"># Interactive first-time setup</span><br>
+                    <span class="cmd">jsn auth login</span> <span class="comment"># Interactive first-time setup</span><br>
                     <span class="cmd">jsn incidents</span> <span class="comment"># Start using</span>
                 </div>
             </div>
@@ -318,14 +318,14 @@
                 <h3>1. Install CLI</h3>
                 <div class="code-block" style="margin-top: 0.5rem;">
                     <span class="cmd">npm install -g @jacebenson/jsn</span> <span class="comment"># Requires Node.js</span><br>
-                    <span class="cmd">jsn --version</span> <span class="comment"># Verify: jsn 0.1.0</span>
+                    <span class="cmd">jsn --version</span> <span class="comment"># Verify: jsn 4.0.0</span>
                 </div>
             </div>
 
             <div class="feature" style="margin-bottom: 1.5rem;">
                 <h3>2. Authenticate</h3>
                 <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">jsn setup</span> <span class="comment"># Interactive setup</span><br>
+                    <span class="cmd">jsn auth login</span> <span class="comment"># Interactive setup — adds your instance</span><br>
                     <span class="cmd">jsn auth status</span> <span class="comment"># Verify: Authenticated</span>
                 </div>
             </div>
