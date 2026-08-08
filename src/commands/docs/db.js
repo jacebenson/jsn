@@ -28,10 +28,46 @@ export function getDocsSourceMarkdownDir() {
   return path.join(getDocsSourceDir(), 'markdown');
 }
 
+export function getDocsCommunityDir() {
+  return path.join(getDocsCacheDir(), 'community');
+}
+
 export function ensureDocsCacheDir() {
   const dir = getDocsCacheDir();
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Walk one or more markdown source roots, yielding { file, rel } pairs.
+ * `rel` is the path stored in the docs table (unique). Roots are passed as
+ * { dir, prefix } so community content can live under a `community/` prefix
+ * without colliding with the ServiceNowDocs markdown tree.
+ */
+export function* walkDocs(roots) {
+  function* walk(dir, root, prefix) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        yield* walk(full, root, prefix);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        const rel = prefix + path.relative(root, full).split(path.sep).join('/');
+        yield { file: full, rel };
+      }
+    }
+  }
+  for (const root of roots) {
+    if (!fs.existsSync(root.dir)) continue;
+    yield* walk(root.dir, root.dir, root.prefix || '');
+  }
+}
+
+export function defaultDocsRoots(opts = {}) {
+  const communityDir = opts.communityDir || getDocsCommunityDir();
+  return [
+    { dir: opts.docsDir || getDocsSourceMarkdownDir(), prefix: '' },
+    { dir: communityDir, prefix: 'community/' },
+  ];
 }
 
 export function openDocsDb(opts = {}) {

@@ -2,21 +2,17 @@
 // after a ServiceNow docs update (e.g. `git pull` in the docs repo).
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { createHash } from 'node:crypto';
 import matter from 'gray-matter';
-import { openDocsDb, closeDocsDb, getDocsDbPath } from './db.js';
+import { openDocsDb, closeDocsDb, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function refreshDocs(opts = {}) {
-  const docsDir = opts.docsDir;
   const dbPath = opts.dbPath || getDocsDbPath();
+  const roots = opts.roots || defaultDocsRoots(opts);
 
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found: ${dbPath}. Run "jsn docs sync" first for the initial build.`);
-  }
-  if (!fs.existsSync(docsDir)) {
-    throw new Error(`Docs directory not found: ${docsDir}`);
   }
 
   const db = openDocsDb({ dbPath });
@@ -33,14 +29,6 @@ export function refreshDocs(opts = {}) {
   const isBackfill = db.prepare('SELECT COUNT(*) AS n FROM docs WHERE hash IS NOT NULL').get().n === 0
     && db.prepare('SELECT COUNT(*) AS n FROM docs').get().n > 0;
   const setHash = db.prepare('UPDATE docs SET hash = ? WHERE id = ?');
-
-  function* walk(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) yield* walk(full);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) yield full;
-    }
-  }
 
   const existing = new Map();
   for (const row of db.prepare('SELECT id, path, hash FROM docs').all()) {
@@ -60,12 +48,11 @@ export function refreshDocs(opts = {}) {
   const seen = new Set();
   const started = Date.now();
 
-  const files = [...walk(docsDir)];
+  const files = [...walkDocs(roots)];
 
   db.exec('BEGIN');
-  for (const file of files) {
+  for (const { file, rel } of files) {
     try {
-      const rel = path.relative(docsDir, file).split(path.sep).join('/');
       seen.add(rel);
       const raw = fs.readFileSync(file, 'utf8');
       const hash = createHash('sha256').update(raw).digest('hex');

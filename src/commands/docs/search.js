@@ -46,7 +46,7 @@ export function searchDocs(opts = {}) {
 
   // Total matching docs (for pagination)
   const total = db
-    .prepare(`SELECT COUNT(*) AS n FROM docs_fts WHERE docs_fts MATCH @q${where}`)
+    .prepare(`SELECT COUNT(*) AS n FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH @q${where}`)
     .get({ q, ...(bundle && { bundle }), ...(docType && { docType }) }).n;
 
   let rows;

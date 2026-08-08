@@ -1,20 +1,15 @@
 // Ingest ServiceNow markdown docs into a SQLite database with FTS5 full-text search.
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { createHash } from 'node:crypto';
 import matter from 'gray-matter';
-import { openDocsDb, closeDocsDb, initDocsSchema, getDocsDbPath } from './db.js';
+import { openDocsDb, closeDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function ingestDocs(opts = {}) {
-  const docsDir = opts.docsDir;
   const dbPath = opts.dbPath || getDocsDbPath();
   const embed = opts.embed !== false;
-
-  if (!fs.existsSync(docsDir)) {
-    throw new Error(`Docs directory not found: ${docsDir}`);
-  }
+  const roots = opts.roots || defaultDocsRoots(opts);
 
   // Fresh build each run.
   if (fs.existsSync(dbPath)) fs.rmSync(dbPath);
@@ -27,20 +22,12 @@ export function ingestDocs(opts = {}) {
     VALUES (@path, @title, @release, @bundle, @doc_type, @locale, @frontmatter, @body, @size, @mtime, @hash, @hrr_vector)
   `);
 
-  function* walk(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) yield* walk(full);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) yield full;
-    }
-  }
-
   let count = 0;
   let errors = 0;
   const startedAt = Date.now();
 
   db.exec('BEGIN');
-  for (const file of [...walk(docsDir)]) {
+  for (const { file, rel } of walkDocs(roots)) {
     try {
       const stat = fs.statSync(file);
       const raw = fs.readFileSync(file, 'utf8');
@@ -58,7 +45,7 @@ export function ingestDocs(opts = {}) {
         ? phasesToBytes(encodeText(docSurface(data.title ?? null, body), DEFAULT_DIM))
         : null;
       insert.run({
-        path: path.relative(docsDir, file).split(path.sep).join('/'),
+        path: rel,
         title: data.title ?? null,
         release: data.release ?? null,
         bundle: data.bundle ?? null,

@@ -13,6 +13,7 @@ import { refreshDocs } from './refresh.js';
 import { embedDocs } from './embed.js';
 import { searchDocs } from './search.js';
 import { serveDocs } from './serve.js';
+import { syncCommunity, listCommunityDocs } from './community.js';
 
 function formatBytes(n) {
   if (n == null) return '-';
@@ -226,6 +227,45 @@ export function docsCmd(wrap) {
             const result = refreshDocs({ docsDir: getDocsSourceMarkdownDir() });
             app.ok(result, { summary: `Refresh complete: +${result.added} ~${result.updated} -${result.removed} =${result.unchanged}` });
           }),
+        })
+        .command({
+          command: 'community <action>',
+          describe: 'Sync ServiceNow Community articles into the searchable docs index',
+          builder: (y) => y
+            .command({
+              command: 'sync',
+              describe: 'Fetch community hub pages (+ linked articles with --expand) and index them',
+              builder: (yy) => yy
+                .option('expand', { type: 'boolean', describe: 'Also fetch every linked community article found on the hub pages' })
+                .option('force', { type: 'boolean', describe: 'Re-fetch articles already downloaded' })
+                .option('sources', { type: 'string', describe: 'Path to a community-sources.json (default: bundled)' })
+                .option('delay-ms', { type: 'number', describe: 'Delay between article fetches (default: 500)' }),
+              handler: wrap(async (argv, app) => {
+                const result = await syncCommunity({
+                  sourcesFile: argv.sources,
+                  expand: argv.expand === true,
+                  force: argv.force === true,
+                  delayMs: argv['delay-ms'],
+                });
+                app.ok(result, {
+                  summary: `Community sync: ${result.hubs.length} hub(s), ${result.articles.length} article(s), ${result.skipped.length} skipped, ${result.errors.length} error(s)`,
+                });
+              }),
+            })
+            .command({
+              command: 'list',
+              describe: 'List community docs currently in the index',
+              handler: wrap(async (argv, app) => {
+                const result = listCommunityDocs();
+                const lines = result.docs.map((d) => `[${d.id}] ${d.title || d.path} (${d.doc_type})`);
+                app.ok({
+                  _formatted: lines.length ? lines.join('\n') : '(no community docs indexed yet)',
+                  total: result.total,
+                  docs: result.docs,
+                }, { summary: `${result.total} community doc(s) indexed` });
+              }),
+            })
+            .demandCommand(1, 'Specify an action: sync or list'),
         });
     },
     handler: () => {
@@ -236,6 +276,7 @@ export function docsCmd(wrap) {
       process.stdout.write('  search    Full-text + semantic search across the local docs index\n');
       process.stdout.write('  show      Display a full documentation page by id or path\n');
       process.stdout.write('  serve     Start a local web UI for browsing and searching docs\n');
+      process.stdout.write('  community Sync ServiceNow Community articles (hubs + linked posts) into the index\n');
       process.stdout.write('\n');
       process.stdout.write('Tip: use "jsn docs serve --expose" to bind to 0.0.0.0 and share on your network.\n');
       process.stdout.write('\n');
