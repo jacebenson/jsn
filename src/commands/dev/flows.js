@@ -14,7 +14,12 @@ export function flowsCmd(wrap) {
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
-            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' })
+            .option('depth', {
+              type: 'number',
+              default: 2,
+              describe: 'Expand nested subflows to this depth (1 = subflow names only, 2 = one level, 3+ = deeper)',
+            }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const columns = argv.columns ? argv.columns.split(',') : ['name', 'active', 'description', 'sys_created_by', 'sys_updated_on'];
@@ -28,7 +33,13 @@ export function flowsCmd(wrap) {
             if (picked === undefined) return; // user cancelled
             if (picked) {
               const inspection = await app.sdk.inspectFlow(getStringField(picked, 'sys_id'));
-              const formatted = formatFlowInspection(inspection, app.getEffectiveInstance());
+              const ctx = {
+                sdk: app.sdk,
+                instanceURL: app.getEffectiveInstance(),
+                depth: Math.max(1, Math.floor(argv.depth ?? 2)),
+                visited: new Set([inspection.flow.sysID]),
+              };
+              const formatted = await formatFlowInspection(inspection, ctx);
               return app.ok({ ...inspection, _formatted: formatted }, {
                 summary: `Flow: ${inspection.flow.name}`,
                 breadcrumbs: [{ action: 'list', cmd: 'jsn flows list', description: 'Back to all flows' }],
@@ -56,9 +67,21 @@ export function flowsCmd(wrap) {
           command: 'show <identifier>',
           aliases: ['get'],
           describe: 'Show flow details by name or sys_id',
+          builder: (y) => y
+            .option('depth', {
+              type: 'number',
+              default: 2,
+              describe: 'Expand nested subflows to this depth (1 = subflow names only, 2 = one level, 3+ = deeper)',
+            }),
           handler: wrap(async (argv, app) => {
             const inspection = await app.sdk.inspectFlow(argv.identifier);
-            const formatted = formatFlowInspection(inspection, app.getEffectiveInstance());
+            const ctx = {
+              sdk: app.sdk,
+              instanceURL: app.getEffectiveInstance(),
+              depth: Math.max(1, Math.floor(argv.depth ?? 2)),
+              visited: new Set([inspection.flow.sysID]),
+            };
+            const formatted = await formatFlowInspection(inspection, ctx);
             const data = { ...inspection, _formatted: formatted };
             app.ok(data, {
               summary: `Flow: ${inspection.flow.name}`,
@@ -109,15 +132,16 @@ export function flowsCmd(wrap) {
       console.log('');
       console.log('Run "jsn flows <command> --help" for details.');
       console.log('');
-      console.log('Note: Flow inspection detail varies. V2 flows (with payload)');
-      console.log('show full action inputs and conditions. Subflows and V1 flows');
-      console.log('show step names only.');
+      console.log('Note: Flow structure comes from the ProcessFlow API (the Flow');
+      console.log('Designer UI source), so V1, V2, and subflow definitions all');
+      console.log('render with full action inputs and conditions.');
     },
   };
 }
 
-function formatFlowInspection(inspection, instanceURL) {
+export async function formatFlowInspection(inspection, ctx) {
   const lines = [];
+  const instanceURL = ctx?.instanceURL || '';
   const flow = inspection.flow;
 
   lines.push('');
@@ -130,6 +154,27 @@ function formatFlowInspection(inspection, instanceURL) {
   lines.push(`  Sys ID: ${flow.sysID}`);
   if (instanceURL && flow.sysID) {
     lines.push(`  Link: ${instanceURL}/sys_hub_flow.do?sys_id=${flow.sysID}`);
+  }
+
+  // Flow variables section
+  if (inspection.flowVariables && inspection.flowVariables.length > 0) {
+    const vars = [...inspection.flowVariables].sort((a, b) => {
+      const ao = parseInt(getStringField(a, 'order'), 10) || 0;
+      const bo = parseInt(getStringField(b, 'order'), 10) || 0;
+      return ao - bo;
+    });
+    lines.push('');
+    lines.push('▶ FLOW VARIABLES');
+    lines.push('─'.repeat(50));
+    for (const v of vars) {
+      const name = firstNonEmpty(getStringField(v, 'label'), getStringField(v, 'name'), 'Variable');
+      const typeName = firstNonEmpty(getStringField(v, 'type_label'), getStringField(v, 'type'), '');
+      if (typeName) {
+        lines.push(`  • ${name}: ${typeName}`);
+      } else {
+        lines.push(`  • ${name}`);
+      }
+    }
   }
 
   // Subflow I/O section
@@ -185,12 +230,14 @@ function formatFlowInspection(inspection, instanceURL) {
   lines.push('');
   lines.push('⚡ FLOW STRUCTURE');
   lines.push('─'.repeat(50));
-  const structureLines = formatFlowStructure(inspection);
+  const structureLines = await formatFlowStructure(inspection, ctx);
   lines.push(...structureLines);
-  // Note limitation for V1/subflows without payload detail
-  if (!inspection.payload || Object.keys(inspection.payload).length === 0) {
+  // Note limitation only when we couldn't reconstruct detail from the payload OR the gzip fallback
+  const hasPayload = inspection.payload && Object.keys(inspection.payload).length > 0;
+  const hasDecodedLogic = (inspection.flowLogicInstances || []).some(l => l._decodedValues);
+  if (!hasPayload && !hasDecodedLogic) {
     lines.push('');
-    lines.push('  (step detail limited — this flow lacks a V2 payload)');
+    lines.push('  (step detail limited — no flow definition data available)');
   }
 
   lines.push('');
@@ -254,15 +301,15 @@ function inferFlowVersion(inspection) {
   return 'Unset';
 }
 
-function formatFlowStructure(inspection) {
+async function formatFlowStructure(inspection, ctx) {
   const payload = inspection.payload;
   if (Object.keys(payload).length > 0) {
-    return formatFlowStructureFromPayload(payload);
+    return formatFlowStructureFromPayload(payload, ctx);
   }
   return formatFlowStructureFallback(inspection);
 }
 
-function formatFlowStructureFromPayload(payload) {
+async function formatFlowStructureFromPayload(payload, ctx) {
   const childUIDs = new Set();
 
   function markChildren(items) {
@@ -312,10 +359,10 @@ function formatFlowStructureFromPayload(payload) {
   const lines = [];
   let stepNum = 1;
 
-  function walk(steps, indent) {
+  async function walk(steps, indent) {
     for (const step of steps) {
       const pad = '    '.repeat(indent);
-      lines.push(...formatStepLine(stepNum, pad, step));
+      lines.push(...await formatStepLine(stepNum, pad, step, ctx));
       stepNum++;
 
       if (step.stepType !== 'logic') continue;
@@ -332,11 +379,11 @@ function formatFlowStructureFromPayload(payload) {
         });
       }
       children.sort((a, b) => a.order - b.order);
-      walk(children, indent + 1);
+      await walk(children, indent + 1);
     }
   }
 
-  walk(roots, 0);
+  await walk(roots, 0);
   return lines;
 }
 
@@ -351,7 +398,7 @@ function formatFlowStructureFallback(inspection) {
         getStringField(action, 'display_text'),
         'Action',
       );
-      steps.push({ order: parseOrderField(action), text: name });
+      steps.push({ order: parseOrderField(action), text: name, comment: getStringField(action, 'comment') });
     }
   }
 
@@ -363,7 +410,12 @@ function formatFlowStructureFallback(inspection) {
         getStringField(logic, 'display_text'),
         'Logic',
       );
-      steps.push({ order: parseOrderField(logic), text: name });
+      steps.push({
+        order: parseOrderField(logic),
+        text: name,
+        comment: getStringField(logic, 'comment'),
+        decoded: logic._decodedValues || null,
+      });
     }
   }
 
@@ -385,21 +437,71 @@ function formatFlowStructureFallback(inspection) {
     return ['  (no steps found)'];
   }
 
-  return steps.map((step, i) => `${i + 1}. ${step.text}`);
+  const lines = [];
+  steps.forEach((step, i) => {
+    const num = `${i + 1}.`;
+    // Decoded gzip values carry the same input detail as a V2 payload
+    if (step.decoded && (step.text === 'If' || step.text === 'Else If')) {
+      let condition = '';
+      let conditionLabel = '';
+      if (Array.isArray(step.decoded.inputs)) {
+        for (const raw of step.decoded.inputs) {
+          if (!raw || typeof raw !== 'object') continue;
+          const inputName = getStringField(raw, 'name');
+          if (inputName === 'condition') {
+            condition = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
+          }
+          if (inputName === 'condition_name') {
+            conditionLabel = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
+          }
+        }
+      }
+      let displayText = step.text;
+      if (conditionLabel) {
+        displayText = `${step.text}: ${conditionLabel}`;
+      } else if (condition && condition.length < 60) {
+        displayText = `${step.text}: ${condition}`;
+      }
+      lines.push(`  ${num} ${displayText}`);
+      if (condition && condition.length >= 60 && !conditionLabel) {
+        lines.push(`     Condition: ${condition}`);
+      }
+    } else if (step.decoded && step.text === 'Set Flow Variables') {
+      lines.push(`  ${num} ${step.text}`);
+      const vars = step.decoded.variables || step.decoded.flowVariables;
+      if (Array.isArray(vars) && vars.length > 0) {
+        lines.push(`     Variables Set:`);
+        for (const raw of vars) {
+          if (!raw || typeof raw !== 'object') continue;
+          const varName = getStringField(raw, 'name');
+          const varValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
+          if (!varName) continue;
+          lines.push(varValue ? `       • ${varName} = ${varValue}` : `       • ${varName}`);
+        }
+      }
+    } else {
+      lines.push(`  ${num} ${step.text}`);
+    }
+    if (step.comment) {
+      lines.push(`     Annotation: ${step.comment}`);
+    }
+  });
+
+  return lines;
 }
 
-function formatStepLine(stepNum, pad, step) {
+async function formatStepLine(stepNum, pad, step, ctx) {
   switch (step.stepType) {
     case 'logic':
       return formatLogicStep(stepNum, pad, step.data);
     case 'subflow':
-      return formatSubFlowStep(stepNum, pad, step.data);
+      return formatSubFlowStep(stepNum, pad, step.data, ctx);
     default:
       return formatActionStep(stepNum, pad, step.data);
   }
 }
 
-function formatActionStep(stepNum, pad, action) {
+export function formatActionStep(stepNum, pad, action) {
   const lines = [];
   let actionName = firstNonEmpty(
     getNestedString(action, 'actionType', 'fName'),
@@ -425,8 +527,9 @@ function formatActionStep(stepNum, pad, action) {
     }
   }
 
+  const showsTableSuffix = tableName && (actionName === 'Update Record' || actionName === 'Create or Update Record');
   let actionDisplay = actionName;
-  if (tableName && actionName === 'Update Record') {
+  if (showsTableSuffix) {
     actionDisplay = actionName + ' - ' + tableName;
   }
 
@@ -441,27 +544,33 @@ function formatActionStep(stepNum, pad, action) {
     for (const raw of action.inputs) {
       if (!raw || typeof raw !== 'object') continue;
       const inputName = getStringField(raw, 'name');
-      if (inputName === 'table_name') continue;
+      if (inputName === 'table_name' && showsTableSuffix) continue;
 
       let inputValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
       if (!inputValue) continue;
-      if (inputValue.length > 50) {
-        inputValue = inputValue.slice(0, 47) + '...';
-      }
 
       let label = inputName;
       if (raw.parameter && typeof raw.parameter === 'object') {
         label = firstNonEmpty(getStringField(raw.parameter, 'label'), label);
       }
 
-      lines.push(`${pad}    ${label}: ${inputValue}`);
+      // ServiceNow writes multi-field payloads (encoded-query style) as
+      // "field=value^field2=value2". Split those onto one line per field;
+      // plain long strings stay on a single line, untruncated.
+      if (inputValue.includes('^')) {
+        for (const field of inputValue.split('^')) {
+          if (field) lines.push(`${pad}    ${label}: ${field}`);
+        }
+      } else {
+        lines.push(`${pad}    ${label}: ${inputValue}`);
+      }
     }
   }
 
   return lines;
 }
 
-function formatSubFlowStep(stepNum, pad, subFlow) {
+export async function formatSubFlowStep(stepNum, pad, subFlow, ctx) {
   const lines = [];
   const subFlowName = firstNonEmpty(
     getNestedString(subFlow, 'subFlowType', 'fName'),
@@ -479,7 +588,43 @@ function formatSubFlowStep(stepNum, pad, subFlow) {
     lines.push(`${pad}${stepNum}. ↪ ${subFlowName}`);
   }
 
-  lines.push(`${pad}   jsn flows "${subFlowName}"`);
+  // Recurse into the subflow when depth allows and we haven't already seen it.
+  // Note: `subflowSysId` on the instance is a snapshot id (sys_hub_flow_snapshot),
+  // NOT the flow id. The embedded `subFlow.parentFlow` is the real flow sys_id.
+  const subflowSysId = firstNonEmpty(
+    getNestedString(subFlow, 'subFlow', 'parentFlow'),
+    getStringField(subFlow, 'subflowSysId'),
+    getNestedString(subFlow, 'subFlow', 'sys_id'),
+    getStringField(subFlow, 'sys_id'),
+  );
+  const depth = ctx?.depth ?? 1;
+  const canRecurse = ctx?.sdk && subflowSysId && depth > 1 && !ctx.visited.has(subflowSysId);
+
+  if (!canRecurse) {
+    if (!subflowSysId) {
+      lines.push(`${pad}   (subflow definition not found)`);
+    } else if (depth <= 1) {
+      lines.push(`${pad}   jsn flows show "${subFlowName}"`);
+    }
+    return lines;
+  }
+
+  ctx.visited.add(subflowSysId);
+  try {
+    const subInspection = await ctx.sdk.inspectFlow(subflowSysId);
+    const subCtx = { ...ctx, depth: depth - 1 };
+    const subLines = await formatFlowStructure(subInspection, subCtx);
+    if (subLines.length === 0) {
+      lines.push(`${pad}   (no steps found)`);
+    } else {
+      const innerPad = pad + '   ';
+      for (const l of subLines) {
+        lines.push(innerPad + l.replace(/^ {2}/, ''));
+      }
+    }
+  } catch (e) {
+    lines.push(`${pad}   (could not load subflow: ${e.message})`);
+  }
   return lines;
 }
 
