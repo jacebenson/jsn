@@ -77,6 +77,19 @@ describe('HRR helpers', () => {
   });
 });
 
+describe('Docs search — bundle filter (regression)', () => {
+  const INTEG = process.env.JSN_INTEGRATION_TESTS === 'true';
+
+  it('should not crash when filtering by bundle', { skip: !INTEG }, async () => {
+    const { searchDocs } = await import('../src/commands/docs/search.js');
+    const { docsDbExists } = await import('../src/commands/docs/db.js');
+    if (!docsDbExists()) return;
+    const result = searchDocs({ query: 'knowledge', mode: 'keyword', bundle: 'community', limit: 5 });
+    assert.ok(Array.isArray(result.results));
+    assert.ok(result.total >= 0);
+  });
+});
+
 describe('Docs status — no DB', () => {
   it('should return not-downloaded state when nothing exists', async () => {
     const cmd = docsCmd(fakeWrap);

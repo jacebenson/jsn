@@ -1,0 +1,18 @@
+{
+  "sources": [
+    {
+      "name": "maik-skoddow-knowledge-sources",
+      "author": "Maik Skoddow",
+      "author_url": "https://www.servicenow.com/community/user/viewprofilepage/user-id/116698",
+      "url": "https://www.servicenow.com/community/training-and-certifications/knowledge-sources-to-go/ta-p/2310130",
+      "expand": true
+    },
+    {
+      "name": "mark-roethof-experiences",
+      "author": "Mark Roethof",
+      "author_url": "https://www.servicenow.com/community/user/viewprofilepage/user-id/201738",
+      "url": "https://www.servicenow.com/community/developer-blog/456-articles-blogs-videos-podcasts-share-projects-experiences/ba-p/2292127",
+      "expand": true
+    }
+  ]
+}
