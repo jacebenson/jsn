@@ -302,11 +302,114 @@ function inferFlowVersion(inspection) {
 }
 
 async function formatFlowStructure(inspection, ctx) {
+  const names = await collectCatalogVarNames(inspection, ctx);
+  if (names.size > 0) {
+    if (!ctx.catalogVarNames) ctx.catalogVarNames = new Map();
+    for (const [k, v] of names) ctx.catalogVarNames.set(k, v);
+  }
   const payload = inspection.payload;
   if (Object.keys(payload).length > 0) {
     return formatFlowStructureFromPayload(payload, ctx);
   }
   return formatFlowStructureFallback(inspection);
+}
+
+/**
+ * ServiceNow serializes catalog variable selections in action inputs as
+ * comma-separated "sys_id:table" pairs (e.g. Get Catalog Variables / Create
+ * Catalog Task steps). The payload carries the source table on the parameter
+ * attributes, but the value itself also names it in each token. Resolve those
+ * sys_ids to readable labels (question_text, falling back to name) with one
+ * batched Table API query per distinct table.
+ */
+async function collectCatalogVarNames(inspection, ctx) {
+  const names = new Map();
+  if (!ctx?.sdk) return names;
+
+  const refs = new Map(); // table -> Set<sys_id>
+  const TOKEN_RE = /([0-9a-f]{32}):([a-z_]+)/g;
+
+  function addRefsFromValue(value) {
+    if (!value) return;
+    for (const m of String(value).matchAll(TOKEN_RE)) {
+      const [, id, table] = m;
+      if (!refs.has(table)) refs.set(table, new Set());
+      refs.get(table).add(id);
+    }
+  }
+
+  function walk(items) {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      if (Array.isArray(item.inputs)) {
+        for (const input of item.inputs) {
+          if (!input || typeof input !== 'object') continue;
+          addRefsFromValue(firstNonEmpty(getStringField(input, 'displayValue'), getStringField(input, 'value')));
+        }
+      }
+      if (Array.isArray(item.flowBlock)) walk(item.flowBlock);
+    }
+  }
+
+  const payload = inspection?.payload;
+  if (payload && typeof payload === 'object') {
+    walk(payload.actionInstances);
+    if (Array.isArray(payload.flowLogicInstances)) {
+      for (const logic of payload.flowLogicInstances) walk(logic?.flowBlock);
+    }
+  }
+  // Fallback table sources may also carry inputs (e.g. decoded logic values)
+  walk(inspection?.actionInstances);
+  if (Array.isArray(inspection?.flowLogicInstances)) {
+    for (const logic of inspection.flowLogicInstances) {
+      if (logic?._decodedValues?.inputs) {
+        for (const input of logic._decodedValues.inputs) {
+          if (!input || typeof input !== 'object') continue;
+          addRefsFromValue(firstNonEmpty(getStringField(input, 'displayValue'), getStringField(input, 'value')));
+        }
+      }
+    }
+  }
+
+  for (const [table, ids] of refs) {
+    const idList = [...ids];
+    for (let i = 0; i < idList.length; i += 100) {
+      const chunk = idList.slice(i, i + 100);
+      try {
+        const params = new URLSearchParams();
+        params.set('sysparm_query', `sys_idIN${chunk.join(',')}`);
+        params.set('sysparm_fields', 'sys_id,name,question_text');
+        params.set('sysparm_display_value', 'all');
+        params.set('sysparm_limit', String(chunk.length));
+        const records = await ctx.sdk.list(table, params);
+        for (const r of records) {
+          const id = getStringField(r, 'sys_id');
+          const label = firstNonEmpty(getStringField(r, 'question_text'), getStringField(r, 'name'));
+          if (id && label) names.set(id, label);
+        }
+      } catch {
+        // resolution failed (no access, deleted record) — leave raw sys_ids
+      }
+    }
+  }
+
+  return names;
+}
+
+/**
+ * Replace catalog variable "sys_id:table" pairs with readable labels when the
+ * resolver map has them. Returns null when the value isn't a catalog-variable
+ * list (so callers keep rendering it raw).
+ */
+function resolveCatalogVarValue(value, catalogVarNames) {
+  if (!catalogVarNames || catalogVarNames.size === 0 || !value) return null;
+  const trimmed = String(value).trim();
+  if (!/^([0-9a-f]{32}:[a-z_]+)(,[0-9a-f]{32}:[a-z_]+)*,?$/.test(trimmed)) return null;
+  return String(value).replace(/([0-9a-f]{32}):[a-z_]+/g, (m, id) => {
+    const label = catalogVarNames.get(id);
+    return label || m;
+  });
 }
 
 async function formatFlowStructureFromPayload(payload, ctx) {
@@ -497,11 +600,11 @@ async function formatStepLine(stepNum, pad, step, ctx) {
     case 'subflow':
       return formatSubFlowStep(stepNum, pad, step.data, ctx);
     default:
-      return formatActionStep(stepNum, pad, step.data);
+      return formatActionStep(stepNum, pad, step.data, ctx);
   }
 }
 
-export function formatActionStep(stepNum, pad, action) {
+export function formatActionStep(stepNum, pad, action, ctx) {
   const lines = [];
   let actionName = firstNonEmpty(
     getNestedString(action, 'actionType', 'fName'),
@@ -548,6 +651,11 @@ export function formatActionStep(stepNum, pad, action) {
 
       let inputValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
       if (!inputValue) continue;
+
+      // Catalog variable selections arrive as "sys_id:table" pairs; resolve
+      // them to readable names when we have a resolver map (built per flow).
+      const resolvedCatalog = resolveCatalogVarValue(inputValue, ctx?.catalogVarNames);
+      if (resolvedCatalog) inputValue = resolvedCatalog;
 
       let label = inputName;
       if (raw.parameter && typeof raw.parameter === 'object') {
