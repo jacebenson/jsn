@@ -204,3 +204,65 @@ test('formatActionStep splits carrot-separated fields onto separate lines', asyn
   assert.ok(fieldLines.some(l => l.includes('work_notes=Auto-closing: No application found')), 'second field present, untruncated');
   assert.ok(fieldLines.some(l => l.includes('priority=1')), 'third field present');
 });
+
+test('formatActionStep resolves catalog variable sys_ids to readable names', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Get Catalog Variables' },
+    inputs: [
+      {
+        name: 'catalog_variables',
+        displayValue: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new,03fc6fc29fa502100f8b65b23b0a1c29:item_option_new',
+        value: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new,03fc6fc29fa502100f8b65b23b0a1c29:item_option_new',
+        parameter: { label: 'Catalog Variables' },
+      },
+    ],
+  };
+  const ctx = {
+    catalogVarNames: new Map([
+      ['a524f7ca9fa502100f8b65b23b0a1cdb', 'Permission type'],
+      ['03fc6fc29fa502100f8b65b23b0a1c29', 'Application Name'],
+    ]),
+  };
+  const lines = formatActionStep(1, '', action, ctx);
+  const catalogLine = lines.find(l => l.includes('Catalog Variables:'));
+  assert.ok(catalogLine, 'catalog variables line present');
+  assert.ok(catalogLine.includes('Permission type'), 'first variable resolved to question_text');
+  assert.ok(catalogLine.includes('Application Name'), 'second variable resolved to question_text');
+  assert.ok(!catalogLine.includes('item_option_new'), 'raw sys_id pairs replaced');
+});
+
+test('formatActionStep keeps raw sys_ids when no resolver map exists', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Get Catalog Variables' },
+    inputs: [
+      {
+        name: 'catalog_variables',
+        displayValue: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new',
+        value: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new',
+        parameter: { label: 'Catalog Variables' },
+      },
+    ],
+  };
+  const lines = formatActionStep(1, '', action); // no ctx
+  const catalogLine = lines.find(l => l.includes('Catalog Variables:'));
+  assert.ok(catalogLine.includes('a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new'), 'raw pairs preserved without resolver');
+});
+
+test('formatActionStep leaves non-catalog values untouched even with resolver map', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Update Record' },
+    inputs: [
+      { name: 'short_description', displayValue: '{{Created_1.table_name}}', value: '{{Created_1.table_name}}' },
+    ],
+  };
+  const ctx = {
+    catalogVarNames: new Map([['a524f7ca9fa502100f8b65b23b0a1cdb', 'Permission type']]),
+  };
+  const lines = formatActionStep(1, '', action, ctx);
+  const line = lines.find(l => l.includes('short_description'));
+  assert.ok(line.includes('{{Created_1.table_name}}'), 'pills stay raw');
+  assert.ok(!line.includes('Permission type'), 'no catalog substitution on non-pair values');
+});
