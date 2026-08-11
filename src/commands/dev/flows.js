@@ -307,11 +307,58 @@ async function formatFlowStructure(inspection, ctx) {
     if (!ctx.catalogVarNames) ctx.catalogVarNames = new Map();
     for (const [k, v] of names) ctx.catalogVarNames.set(k, v);
   }
+  const labelCache = buildLabelCache(inspection.payload);
+  if (labelCache.size > 0) {
+    if (!ctx.labelCache) ctx.labelCache = new Map();
+    for (const [k, v] of labelCache) ctx.labelCache.set(k, v);
+  }
   const payload = inspection.payload;
   if (Object.keys(payload).length > 0) {
     return formatFlowStructureFromPayload(payload, ctx);
   }
   return formatFlowStructureFallback(inspection);
+}
+
+/**
+ * The ProcessFlow payload carries a label cache (also serialized as
+ * labelCacheAsJsonString) mapping data-pill names like "<step-uid>.<var>"
+ * to the human labels the Flow Designer UI shows, e.g.
+ * "1 - Get Catalog Variables➛session_title". Build a Map so guid-prefixed
+ * pills can be rendered readably.
+ */
+function buildLabelCache(payload) {
+  const cache = new Map();
+  if (!payload || typeof payload !== 'object') return cache;
+  let entries = payload.label_cache;
+  if (!Array.isArray(entries)) {
+    try {
+      entries = JSON.parse(payload.labelCacheAsJsonString || '[]');
+    } catch {
+      entries = [];
+    }
+  }
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    const name = getStringField(e, 'name');
+    const label = getStringField(e, 'label');
+    if (name && label) cache.set(name, label);
+  }
+  return cache;
+}
+
+const GUID_PILL_RE = /\{\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([^}]+)\}\}/g;
+
+/**
+ * Replace opaque guid-prefixed pills ({{<32-hex-guid>.<var>}}) with their
+ * human label from the payload's label cache. Readable step refs like
+ * {{Created_1.table_name}} are NOT matched and stay raw.
+ */
+function resolveGuidPills(value, labelCache) {
+  if (!labelCache || labelCache.size === 0 || !value) return value;
+  return String(value).replace(GUID_PILL_RE, (m, guid, name) => {
+    const label = labelCache.get(`${guid}.${name}`);
+    return label ? `{{${label}}}` : m;
+  });
 }
 
 /**
@@ -656,6 +703,10 @@ export function formatActionStep(stepNum, pad, action, ctx) {
       // them to readable names when we have a resolver map (built per flow).
       const resolvedCatalog = resolveCatalogVarValue(inputValue, ctx?.catalogVarNames);
       if (resolvedCatalog) inputValue = resolvedCatalog;
+
+      // Opaque guid-prefixed pills ({{<32-hex>.<var>}}) get their human
+      // label from the payload's label cache. Readable step refs stay raw.
+      inputValue = resolveGuidPills(inputValue, ctx?.labelCache);
 
       let label = inputName;
       if (raw.parameter && typeof raw.parameter === 'object') {

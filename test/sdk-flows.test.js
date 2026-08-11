@@ -266,3 +266,71 @@ test('formatActionStep leaves non-catalog values untouched even with resolver ma
   assert.ok(line.includes('{{Created_1.table_name}}'), 'pills stay raw');
   assert.ok(!line.includes('Permission type'), 'no catalog substitution on non-pair values');
 });
+
+test('formatActionStep resolves guid-prefixed pills via label cache', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Create Catalog Task' },
+    inputs: [
+      {
+        name: 'ah_fields',
+        displayValue: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}^description={{a1190b0a-ec10-45db-96b0-38f329306ed3.first_name}}',
+        value: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}^description={{a1190b0a-ec10-45db-96b0-38f329306ed3.first_name}}',
+      },
+    ],
+  };
+  const ctx = {
+    labelCache: new Map([
+      ['a1190b0a-ec10-45db-96b0-38f329306ed3.session_title', '1 - Get Catalog Variables➛session_title'],
+      ['a1190b0a-ec10-45db-96b0-38f329306ed3.first_name', '1 - Get Catalog Variables➛first_name'],
+    ]),
+  };
+  const lines = formatActionStep(1, '', action, ctx);
+  const fieldLines = lines.filter(l => l.includes('ah_fields:'));
+  assert.equal(fieldLines.length, 2, 'each carrot field gets its own line');
+  assert.ok(fieldLines[0].includes('1 - Get Catalog Variables➛session_title'), 'guid pill resolved to label');
+  assert.ok(fieldLines[1].includes('1 - Get Catalog Variables➛first_name'), 'second guid pill resolved');
+  assert.ok(!fieldLines[0].includes('a1190b0a-ec10-45db-96b0-38f329306ed3'), 'raw guid gone');
+});
+
+test('formatActionStep keeps guid pills raw when label cache is absent', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Create Catalog Task' },
+    inputs: [
+      {
+        name: 'ah_fields',
+        displayValue: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}',
+        value: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}',
+      },
+    ],
+  };
+  const lines = formatActionStep(1, '', action); // no ctx
+  const fieldLine = lines.find(l => l.includes('ah_fields:'));
+  assert.ok(fieldLine.includes('{{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}'), 'guid pill preserved without cache');
+});
+
+test('formatActionStep resolves only guid pills, leaves readable step refs raw', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const action = {
+    actionType: { fName: 'Create Catalog Task' },
+    inputs: [
+      {
+        name: 'ah_fields',
+        displayValue: 'requested_item={{Service Catalog_1.request_item}}^track={{a1190b0a-ec10-45db-96b0-38f329306ed3.track}}',
+        value: 'requested_item={{Service Catalog_1.request_item}}^track={{a1190b0a-ec10-45db-96b0-38f329306ed3.track}}',
+      },
+    ],
+  };
+  const ctx = {
+    labelCache: new Map([
+      ['a1190b0a-ec10-45db-96b0-38f329306ed3.track', '1 - Get Catalog Variables➛track'],
+    ]),
+  };
+  const lines = formatActionStep(1, '', action, ctx);
+  const fieldLines = lines.filter(l => l.includes('ah_fields:'));
+  const joined = fieldLines.join('\n');
+  assert.ok(joined.includes('{{Service Catalog_1.request_item}}'), 'readable step ref stays raw');
+  assert.ok(joined.includes('1 - Get Catalog Variables➛track'), 'guid pill resolved');
+  assert.ok(!joined.includes('a1190b0a-ec10-45db-96b0-38f329306ed3'), 'guid gone from resolved pill');
+});
