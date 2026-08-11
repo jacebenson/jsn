@@ -8,9 +8,9 @@
   },
   "main": "src/cli.js",
   "scripts": {
-    "test": "NODE_OPTIONS=--require=./suppress-warnings.cjs node --test $(find test -name '*.test.js')",
+    "test": "node --experimental-test-module-mocks --test $(find test -name '*.test.js')",
     "lint": "npx eslint src/ bin/ test/",
-    "start": "NODE_OPTIONS=--require=./suppress-warnings.cjs node bin/jsn.js",
+    "start": "node bin/jsn.js",
     "tag-reminder": "node scripts/tag-reminder.js",
     "release": "node scripts/release.js"
   },
@@ -42,7 +42,6 @@
   },
   "files": [
     "bin/jsn.js",
-    "suppress-warnings.cjs",
     "src/",
     "skills/",
     "scripts/",
