@@ -14,6 +14,23 @@ Node.js 18+. macOS, Linux, Windows.
 
 The install also copies an AI agent skill file to `~/.agents/skills/servicenow/SKILL.md`.
 
+### Install from GitHub (test unreleased builds)
+
+To test a branch or the freshly merged `main` before it's published to npm:
+
+```bash
+npm install -g github:jacebenson/jsn#main        # merged but not yet tagged
+npm install -g github:jacebenson/jsn#<branch>    # any PR/feature branch
+```
+
+Go back to the released version with:
+
+```bash
+npm install -g @jacebenson/jsn
+```
+
+**Note:** git installs build `better-sqlite3` (docs search) from source, so the machine needs build tools (Python, make, a C++ compiler).
+
 ## Quick Start
 
 ```bash
