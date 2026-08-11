@@ -24,6 +24,28 @@ export function resolveInstanceArg(arg, cfg) {
 }
 
 /**
+ * Pick a profile by name — interactive search picker when ambiguous,
+ * auto-selects when there's exactly one, throws when none configured.
+ */
+export async function pickProfile(app, message) {
+  const { search } = await import('@inquirer/prompts');
+  const profileNames = Object.keys(app.config.profiles || {});
+  if (profileNames.length === 0) throw errUsage('No profiles configured. Run "jsn setup" first.');
+  if (profileNames.length === 1 || !app.isInteractive()) return profileNames[0];
+  const choices = profileNames.map(name => ({
+    name: `${name} — ${app.config.profiles[name].instance_url}`,
+    value: name,
+  }));
+  return search({
+    message,
+    source: (input) => {
+      const filter = (input || '').toLowerCase();
+      return choices.filter(c => c.name.toLowerCase().includes(filter));
+    },
+  });
+}
+
+/**
  * Interactive first-run wizard (formerly `jsn setup`).
  *
  * Walks: instance URL → profile name → auth method → optional OAuth login.
@@ -163,6 +185,63 @@ async function pickLoginTarget(app) {
     return { addNew: true, instanceName: name.trim() };
   }
   return { addNew: false, name: selected };
+}
+
+/** Per-profile configurable flags (extensible — any boolean on the profile). */
+const PROFILE_FLAGS = [
+  { name: 'Read-only (blocks mutation commands)', value: 'read_only', icon: '🔒' },
+  { name: 'Skip confirmations (deletes run without prompting)', value: 'skip_confirmations', icon: '⚡' },
+];
+
+/**
+ * Toggle a per-profile configuration flag (read_only / skip_confirmations).
+ * Interactive flag picker when no flag passed; testable via argv.flag.
+ */
+export async function modifyProfile(app, argv = {}) {
+  const name = argv.name || await pickProfile(app, 'Modify which instance?');
+  const profile = app.config.profiles?.[name];
+  if (!profile) throw new Error(`Profile not found: ${name}`);
+
+  let flag = argv.flag;
+  if (!flag) {
+    const { select } = await import('@inquirer/prompts');
+    flag = await select({
+      message: `Modify ${name} (${profile.instance_url})`,
+      choices: PROFILE_FLAGS.map(f => ({
+        name: `${f.icon} ${f.name}: ${profile[f.value] ? 'on' : 'off'}`,
+        value: f.value,
+      })),
+    });
+  }
+
+  profile[flag] = !profile[flag];
+  await saveConfig(app.config);
+  app.ok({ profile: name, [flag]: profile[flag] },
+    { summary: `${flag} is now ${profile[flag] ? 'ON' : 'off'} for ${name}` });
+}
+
+/**
+ * Delete an instance entry and its stored credentials (shared by the
+ * `auth remove` subcommand and the `jsn setup` hub).
+ */
+export async function removeProfile(app, name) {
+  if (!app.config.profiles[name]) {
+    throw new Error(`Profile not found: ${name}`);
+  }
+  const instance = app.config.profiles[name].instance_url;
+  delete app.config.profiles[name];
+  if (app.config.defaultProfile === name) app.config.defaultProfile = '';
+  if (app.config.activeProfile === name) app.config.activeProfile = '';
+  saveConfig(app.config);
+
+  // Only clear credentials if no other profile uses this instance URL
+  const stillInUse = instance && Object.values(app.config.profiles || {})
+    .some(p => p.instance_url === instance);
+  if (instance && !stillInUse) {
+    app.auth.logout(instance);
+  }
+
+  app.ok({ removed: name }, { summary: `Removed profile: ${name}` });
 }
 
 export function authCmd(wrap) {
@@ -508,6 +587,18 @@ Examples:
           }),
         })
         .command({
+          command: 'modify [name]',
+          describe: 'Toggle instance configuration (read-only, skip confirmations)',
+          builder: (sub) => sub
+            .positional('name', {
+              describe: 'Profile name to modify',
+              type: 'string',
+            }),
+          handler: wrap(async (argv, app) => {
+            await modifyProfile(app, argv);
+          }),
+        })
+        .command({
           command: 'remove [name]',
           describe: 'Delete an instance entry and its stored credentials',
           builder: (sub) => sub
@@ -518,45 +609,9 @@ Examples:
           handler: wrap(async (argv, app) => {
             let name = argv.name;
             if (!name) {
-              const profileNames = Object.keys(app.config.profiles || {});
-              if (profileNames.length === 0) {
-                throw errUsage('No profiles configured. Nothing to remove.');
-              }
-              if (profileNames.length > 1 && app.isInteractive()) {
-                const { search } = await import('@inquirer/prompts');
-                const choices = profileNames.map(profileName => ({
-                  name: `${profileName} — ${app.config.profiles[profileName].instance_url}`,
-                  value: profileName,
-                }));
-                const selected = await search({
-                  message: 'Remove which profile?',
-                  source: (input) => {
-                    const filter = (input || '').toLowerCase();
-                    return choices.filter(c => c.name.toLowerCase().includes(filter));
-                  },
-                });
-                name = selected;
-              } else {
-                name = profileNames[0];
-              }
+              name = await pickProfile(app, 'Remove which instance?');
             }
-            if (!app.config.profiles[name]) {
-              throw new Error(`Profile not found: ${name}`);
-            }
-            const instance = app.config.profiles[name].instance_url;
-            delete app.config.profiles[name];
-            if (app.config.defaultProfile === name) app.config.defaultProfile = '';
-            if (app.config.activeProfile === name) app.config.activeProfile = '';
-            saveConfig(app.config);
-
-            // Only clear credentials if no other profile uses this instance URL
-            const stillInUse = instance && Object.values(app.config.profiles || {})
-              .some(p => p.instance_url === instance);
-            if (instance && !stillInUse) {
-              app.auth.logout(instance);
-            }
-
-            app.ok({ removed: name }, { summary: `Removed profile: ${name}` });
+            await removeProfile(app, name);
           }),
         });
     },
@@ -565,15 +620,11 @@ Examples:
       console.log('');
       console.log('Available subcommands:');
       console.log('  login <url|name>  Log in / add an instance (picker when run bare)');
-      console.log('  status            Show auth status for all profiles');
-      console.log('  switch <name>     Switch the active profile');
       console.log('  refresh           Refresh the access token');
-      console.log('  logout            Clear credentials (keeps the instance entry)');
-      console.log('  remove <name>     Delete an instance entry and its credentials');
+      console.log('  status            Show auth status for all profiles');
       console.log('');
+      console.log('Tip: "jsn setup" is the interactive manager — add, switch, remove, or modify instances.');
       console.log('Run "jsn auth <command> --help" for details.');
-      console.log('');
-      console.log('Tip: "jsn auth login" is the only command you need to add an instance.');
     },
   };
 }

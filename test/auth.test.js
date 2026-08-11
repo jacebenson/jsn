@@ -20,7 +20,7 @@ describe('Auth Command Structure', () => {
     assert.ok(cmd.describe.toLowerCase().includes('oauth'));
   });
 
-  it('should define login, logout, status, refresh, switch, remove subcommands', async () => {
+  it('should define login, logout, status, refresh, switch, modify, remove subcommands', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const wrap = (fn) => fn;
     const cmd = authCmd(wrap);
@@ -41,6 +41,7 @@ describe('Auth Command Structure', () => {
     assert.ok(names.includes('status'));
     assert.ok(names.includes('refresh'));
     assert.ok(names.includes('switch'));
+    assert.ok(names.includes('modify'));
     assert.ok(names.includes('remove'));
   });
 });
@@ -254,6 +255,110 @@ describe('Auth Command Switch Handler', () => {
       if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = origXdg;
     }
+  });
+});
+
+// ─── auth modify handler ───
+
+describe('Auth Command Modify Handler', () => {
+  it('should toggle read_only and persist via saveConfig', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const origXdg = process.env.XDG_CONFIG_HOME;
+    const origCwd = process.cwd();
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-auth-test-'));
+    process.env.XDG_CONFIG_HOME = tmpDir;
+    process.chdir(tmpDir);
+
+    try {
+      const { authCmd } = await import('../src/commands/auth.js');
+      const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+
+      const cmd = authCmd(wrap);
+      const subcommands = [];
+      const mockYargs = {
+        command: (c, ...rest) => {
+          subcommands.push({ def: typeof c === 'string' ? c : c.command, builder: typeof c === 'object' ? c.builder : rest[0], handler: typeof c === 'object' ? c.handler : rest[1] });
+          return mockYargs;
+        },
+      };
+      cmd.builder(mockYargs);
+
+      const modifyCmd = subcommands.find(s => s.def.startsWith('modify'));
+      assert.ok(modifyCmd, 'modify subcommand not found');
+
+      const app = {
+        config: {
+          profiles: {
+            dev: { instance_url: 'https://dev.service-now.com', auth_method: 'oauth' },
+          },
+          defaultProfile: 'dev',
+          activeProfile: 'dev',
+        },
+        isInteractive: () => false,
+        ok: (result, opts) => { app._lastResult = result; app._lastSummary = opts.summary; },
+      };
+
+      await modifyCmd.handler({ app, name: 'dev', flag: 'read_only', _: ['modify'] });
+      assert.strictEqual(app.config.profiles.dev.read_only, true);
+      assert.strictEqual(app._lastResult.read_only, true);
+
+      // Config persisted to disk under the temp XDG_CONFIG_HOME
+      const { loadConfig } = await import('../src/config.js');
+      const onDisk = loadConfig();
+      assert.strictEqual(onDisk.profiles.dev.read_only, true);
+
+      // Toggle back off
+      await modifyCmd.handler({ app, name: 'dev', flag: 'read_only', _: ['modify'] });
+      assert.strictEqual(app.config.profiles.dev.read_only, false);
+    } finally {
+      process.chdir(origCwd);
+      if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = origXdg;
+    }
+  });
+
+  it('should toggle skip_confirmations', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const origXdg = process.env.XDG_CONFIG_HOME;
+    const origCwd = process.cwd();
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-auth-test-'));
+    process.env.XDG_CONFIG_HOME = tmpDir;
+    process.chdir(tmpDir);
+
+    try {
+      const { modifyProfile } = await import('../src/commands/auth.js');
+      const app = {
+        config: {
+          profiles: {
+            dev: { instance_url: 'https://dev.service-now.com', auth_method: 'oauth' },
+          },
+        },
+        isInteractive: () => false,
+        ok: (result, opts) => { app._lastResult = result; app._lastSummary = opts.summary; },
+      };
+
+      await modifyProfile(app, { name: 'dev', flag: 'skip_confirmations' });
+      assert.strictEqual(app.config.profiles.dev.skip_confirmations, true);
+      assert.strictEqual(app._lastResult.skip_confirmations, true);
+    } finally {
+      process.chdir(origCwd);
+      if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = origXdg;
+    }
+  });
+
+  it('should throw for a missing profile', async () => {
+    const { modifyProfile } = await import('../src/commands/auth.js');
+    const app = {
+      config: { profiles: {} },
+      isInteractive: () => false,
+      ok: () => {},
+    };
+    await assert.rejects(() => modifyProfile(app, { name: 'nope' }), /Profile not found/);
   });
 });
 

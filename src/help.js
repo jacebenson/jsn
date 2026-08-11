@@ -107,7 +107,8 @@ const DATA_COMMANDS = [
 ];
 
 const CONFIG_COMMANDS = [
-  { name: 'auth', desc: 'Authentication (login, status, switch, refresh, logout, remove)' },
+  { name: 'setup', desc: 'Set up and manage instances (interactive: add, switch, remove, modify)' },
+  { name: 'auth', desc: 'Authentication (login, refresh, status)' },
   { name: 'updatesets', desc: 'Update sets (set, create, export)' },
   { name: 'scopes', desc: 'Application scopes' },
 ];

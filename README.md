@@ -17,8 +17,7 @@ The install also copies an AI agent skill file to `~/.agents/skills/servicenow/S
 ## Quick Start
 
 ```bash
-jsn setup                                    # Interactive first-time setup
-jsn auth login https://dev12345.service-now.com
+jsn setup                                    # Interactive: add, switch, remove, modify instances
 jsn incidents list --query "priority=1"      # Critical incidents
 ```
 
@@ -64,17 +63,23 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 Every command supports `--json`, `--query`, and `--help`.
 
-## Profiles (instances)
+## Instances
 
 Switch between instances without re-authenticating.
 
 ```bash
-jsn auth login https://dev12345.service-now.com
-jsn auth status
-jsn auth switch dev12345
+jsn setup                    # Interactive: add, switch, remove, or modify instances
+jsn auth status              # Dashboard — auth state, read-only 🔒, skip-confirmations ⚡
 ```
 
-Add another instance with `jsn auth login <name-or-url>` — run bare for an interactive picker.
+`jsn setup` is the human front door — one command, interactive menu. For scripts and CI, use the atomic commands:
+
+```bash
+jsn auth login https://dev12345.service-now.com   # Add + authenticate (scripted)
+jsn auth refresh                                  # Manually refresh the OAuth token
+jsn auth switch dev12345                          # Flip the active profile (scripted)
+jsn auth modify dev12345                          # Toggle read-only / skip confirmations
+```
 
 ## Output Formats
 
