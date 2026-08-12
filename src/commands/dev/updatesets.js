@@ -358,7 +358,6 @@ export function updateSetsCmd(wrap) {
         console.log('  complete <name> Mark an update set as complete');
         console.log('  delete <name>  Delete an update set');
         console.log('  parent <name>  Set the parent of an update set');
-        console.log('  export         (removed — requires a browser session; use the platform "Export to XML" action)');
         console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
         console.log('  jsn updatesets create --name "My Feature"');
