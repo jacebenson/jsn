@@ -1,5 +1,7 @@
 // ServiceNow runtime context: current user, scope, update set
 
+import { getStringField } from './helpers.js';
+
 export async function getCurrentUser(sdk) {
   const params = new URLSearchParams();
   params.set('sysparm_query', 'user_name=javascript:gs.getUserName()');
@@ -59,4 +61,49 @@ export async function getCurrentUpdateSet(sdk, userSysID) {
     // fallback
   }
   return { name: val, sys_id: val };
+}
+
+/**
+ * Find-or-create a sys_user_preference and set its value. Shared by the
+ * scope/update-set "set" commands and create auto-set (was copy-pasted 3x).
+ */
+async function setUserPreference(sdk, userSysID, name, value) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `user=${userSysID}^name=${name}`);
+  params.set('sysparm_limit', '1');
+  params.set('sysparm_fields', 'sys_id');
+  const prefs = await sdk.list('sys_user_preference', params);
+  if (prefs.length > 0) {
+    await sdk.update('sys_user_preference', getStringField(prefs[0], 'sys_id'), { value });
+  } else {
+    await sdk.create('sys_user_preference', {
+      user: userSysID,
+      name,
+      value,
+      type: 'string',
+    });
+  }
+}
+
+/** Resolve the current user's sys_id (throws if it can't be determined). */
+export async function requireCurrentUserSysId(sdk) {
+  const user = await sdk.list('sys_user', new URLSearchParams({
+    sysparm_query: 'user_name=javascript:gs.getUserName()',
+    sysparm_limit: '1',
+    sysparm_fields: 'sys_id',
+  }));
+  if (user.length === 0) {
+    throw new Error('Could not determine current user');
+  }
+  return getStringField(user[0], 'sys_id');
+}
+
+/** Set the current application scope via the apps.current_app preference. */
+export async function setCurrentApplication(sdk, userSysID, scopeSysID) {
+  await setUserPreference(sdk, userSysID, 'apps.current_app', scopeSysID);
+}
+
+/** Set the current update set via the sys_update_set preference. */
+export async function setCurrentUpdateSet(sdk, userSysID, updateSetSysID) {
+  await setUserPreference(sdk, userSysID, 'sys_update_set', updateSetSysID);
 }
