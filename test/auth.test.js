@@ -360,6 +360,72 @@ describe('Auth Command Modify Handler', () => {
     };
     await assert.rejects(() => modifyProfile(app, { name: 'nope' }), /Profile not found/);
   });
+
+  it('should clear the domain via auth modify --domain clear', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const origXdg = process.env.XDG_CONFIG_HOME;
+    const origCwd = process.cwd();
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-auth-domain-test-'));
+    process.env.XDG_CONFIG_HOME = tmpDir;
+    process.chdir(tmpDir);
+
+    try {
+      const { modifyProfile } = await import('../src/commands/auth.js');
+      const app = {
+        config: {
+          profiles: {
+            dev: { instance_url: 'https://dev.service-now.com', auth_method: 'oauth', domain_separation: true, domain: 'acme-id' },
+          },
+        },
+        isInteractive: () => false,
+        auth: { getCredentials: async () => ({}) },
+        ok: (result, opts) => { app._lastResult = result; app._lastSummary = opts.summary; },
+      };
+
+      await modifyProfile(app, { name: 'dev', domain: 'clear' });
+      assert.strictEqual(app.config.profiles.dev.domain, '');
+      assert.strictEqual(app._lastSummary, 'Domain cleared for dev');
+    } finally {
+      process.chdir(origCwd);
+      if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = origXdg;
+    }
+  });
+
+  it('should reject domain set when domain separation is not installed', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const origXdg = process.env.XDG_CONFIG_HOME;
+    const origCwd = process.cwd();
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-auth-nods-test-'));
+    process.env.XDG_CONFIG_HOME = tmpDir;
+    process.chdir(tmpDir);
+
+    try {
+      const { modifyProfile } = await import('../src/commands/auth.js');
+      const app = {
+        config: {
+          profiles: {
+            dev: { instance_url: 'https://dev.service-now.com', auth_method: 'oauth' },
+          },
+        },
+        isInteractive: () => false,
+        ok: () => {},
+      };
+
+      await assert.rejects(
+        () => modifyProfile(app, { name: 'dev', domain: 'ACME' }),
+        /Domain separation is not installed/,
+      );
+    } finally {
+      process.chdir(origCwd);
+      if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = origXdg;
+    }
+  });
 });
 
 // ─── wizard instance resolution (regression: setup → Add skipped URL ask) ───
