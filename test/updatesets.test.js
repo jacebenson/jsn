@@ -33,6 +33,7 @@ describe('formatUpdateSetDetail', () => {
 
     const calls = [];
     const app = {
+      getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
         list: async (table, params) => {
           calls.push({ table, query: params.get('sysparm_query') });
@@ -63,15 +64,34 @@ describe('formatUpdateSetDetail', () => {
     assert.strictEqual(detail.application, 'My App');
     assert.strictEqual(detail.parent, 'Parent Set');
     assert.deepStrictEqual(detail.children, ['b.xml', 'a.xml']);
+    assert.strictEqual(detail.link, 'https://dev.service-now.com/sys_update_set.do?sys_id=abc123');
     assert.ok(detail._formatted.includes('Update set: My Feature'));
     assert.ok(detail._formatted.includes('Parent:    Parent Set'));
     assert.ok(detail._formatted.includes('Updates:   2'));
     assert.ok(detail._formatted.includes('    b.xml'));
+    // open set → set/parent/complete hints
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'complete']);
+  });
+
+  it('closed sets get a cannot-set hint and no complete hint', async () => {
+    const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
+    const app = {
+      getEffectiveInstance: () => 'https://dev.service-now.com',
+      sdk: {
+        list: async (table) => table === 'sys_update_set'
+          ? [{ sys_id: 'x1', name: 'Shipped', state: { display_value: 'Complete', value: 'complete' }, application: 'Global' }]
+          : [],
+      },
+    };
+    const detail = await formatUpdateSetDetail(app, { sys_id: 'x1', name: 'Shipped' });
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent']);
+    assert.ok(detail.hints[0].description.includes('Cannot set as current'));
   });
 
   it('shows Updates: 0 when a set has no children', async () => {
     const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
     const app = {
+      getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
         list: async (table) => table === 'sys_update_set'
           ? [{ sys_id: 'x1', name: 'Empty', state: 'Complete', application: 'Global' }]

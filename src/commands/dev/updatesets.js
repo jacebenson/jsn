@@ -14,6 +14,8 @@ import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, se
 export async function formatUpdateSetDetail(app, record) {
   const sysID = getStringField(record, 'sys_id');
   const name = getStringField(record, 'name');
+  const instance = app.getEffectiveInstance();
+  const link = `${instance}/sys_update_set.do?sys_id=${sysID}`;
 
   let full = record;
   try {
@@ -60,6 +62,38 @@ export async function formatUpdateSetDetail(app, record) {
   for (const c of children) {
     lines.push(`    ${c}`);
   }
+  lines.push(`  Link:      ${link}`);
+
+  // State-aware action hints (rendered as breadcrumbs under the detail).
+  // Closed sets (complete/committed) cannot be set as current.
+  const stateRaw = String(full.state?.value ?? full.state ?? '').toLowerCase();
+  const isClosed = ['complete', 'committed'].includes(stateRaw);
+  const hints = [];
+  if (isClosed) {
+    hints.push({
+      action: 'set',
+      cmd: '',
+      description: 'Cannot set as current — update set is closed (complete/committed)',
+    });
+  } else {
+    hints.push({
+      action: 'set',
+      cmd: `jsn updatesets set "${name}"`,
+      description: 'Set as current update set',
+    });
+  }
+  hints.push({
+    action: 'parent',
+    cmd: `jsn updatesets parent "${name}" --parent "<parent set name>"`,
+    description: 'Set the parent of this update set',
+  });
+  if (!isClosed) {
+    hints.push({
+      action: 'complete',
+      cmd: `jsn updatesets complete "${name}"`,
+      description: 'Mark as complete when done',
+    });
+  }
 
   return {
     sys_id: sysID,
@@ -70,7 +104,9 @@ export async function formatUpdateSetDetail(app, record) {
     sys_created_on: created,
     sys_updated_on: updated,
     children,
+    link,
     _formatted: lines.join('\n'),
+    hints,
   };
 }
 
@@ -100,7 +136,7 @@ export function updateSetsCmd(wrap) {
             if (picked === undefined) return; // user cancelled
             if (picked) {
               const detail = await formatUpdateSetDetail(app, picked);
-              return app.ok(detail, { summary: `Update set: ${getStringField(picked, 'name')}` });
+              return app.ok(detail, { summary: `Update set: ${getStringField(picked, 'name')}`, breadcrumbs: detail.hints });
             }
 
             const params = new URLSearchParams();
@@ -134,7 +170,7 @@ export function updateSetsCmd(wrap) {
               throw new Error(`Update set not found: ${argv.name}`);
             }
             const detail = await formatUpdateSetDetail(app, records[0]);
-            app.ok(detail, { summary: `Update set ${argv.name}` });
+            app.ok(detail, { summary: `Update set ${argv.name}`, breadcrumbs: detail.hints });
           }),
         })
         .command({
@@ -178,6 +214,55 @@ export function updateSetsCmd(wrap) {
             }
 
             app.ok({ update_set: name, sys_id: sysID }, { summary: `Current update set: ${name}${scopeWarn}` });
+          }),
+        })
+        .command({
+          command: 'parent <name>',
+          describe: 'Set the parent of an update set',
+          builder: (y) => y
+            .positional('name', { describe: 'Update set name', type: 'string' })
+            .option('parent', { type: 'string', describe: 'Parent update set name' }),
+          handler: wrap(async (argv, app) => {
+            assertSafeExactMatch(argv.name);
+            const params = new URLSearchParams();
+            params.set('sysparm_query', `name=${argv.name}`);
+            params.set('sysparm_limit', '1');
+            params.set('sysparm_fields', 'sys_id,name,application');
+            const records = await app.sdk.list('sys_update_set', params);
+            if (records.length === 0) {
+              throw new Error(`Update set not found: ${argv.name}`);
+            }
+            const sysID = getStringField(records[0], 'sys_id');
+            const childScope = getStringField(records[0], 'application');
+
+            let parentName = argv.parent;
+            if (!parentName) {
+              const picked = await interactiveList({
+                app, table: 'sys_update_set', singular: 'parent update set', columns: ['name', 'state', 'application'], labelField: 'name',
+                formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${getStringField(r, 'application') || '?'})`,
+              });
+              if (!picked) return; // cancelled or non-interactive
+              parentName = getStringField(picked, 'name');
+            }
+            assertSafeExactMatch(parentName);
+            const parentParams = new URLSearchParams();
+            parentParams.set('sysparm_query', `name=${parentName}`);
+            parentParams.set('sysparm_limit', '1');
+            parentParams.set('sysparm_fields', 'sys_id,name,application');
+            const parentRecords = await app.sdk.list('sys_update_set', parentParams);
+            if (parentRecords.length === 0) {
+              throw new Error(`Parent update set not found: ${parentName}`);
+            }
+            const parentSysID = getStringField(parentRecords[0], 'sys_id');
+            const parentScope = getStringField(parentRecords[0], 'application');
+
+            let warn = '';
+            if (childScope && parentScope && childScope !== parentScope) {
+              warn = ` ⚠️ child is in scope "${childScope}", parent is in scope "${parentScope}" — allowed, but they won't commit as one unit`;
+            }
+
+            await app.sdk.update('sys_update_set', sysID, { parent: parentSysID });
+            app.ok({ update_set: argv.name, parent: parentName }, { summary: `Parent of "${argv.name}" is now "${parentName}"${warn}` });
           }),
         })
         .command({
@@ -318,6 +403,7 @@ export function updateSetsCmd(wrap) {
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete <name> Mark an update set as complete');
         console.log('  delete <name>  Delete an update set');
+        console.log('  parent <name>  Set the parent of an update set');
         console.log('  export <name>  Export an update set to XML');
         console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
