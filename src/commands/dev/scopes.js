@@ -21,18 +21,27 @@ export async function formatScopeDetail(app, record) {
     params.set('sysparm_query', `sys_id=${sysID}`);
     params.set('sysparm_limit', '1');
     params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'sys_id,name,scope,short_description,active,description,sys_created_on,sys_updated_on');
+    params.set('sysparm_fields', 'sys_id,name,scope,short_description,active,description,version,release_date,sys_class_name,sys_created_on,sys_updated_on');
     const recs = await app.sdk.list('sys_scope', params);
     if (Array.isArray(recs) && recs.length > 0) full = recs[0];
   } catch {
     // fall back to the passed record
   }
 
+  // Store apps carry sys_class_name "Store Application" — link to the
+  // Store search for the scope value (no store-side app ID is available
+  // locally; the search URL is the reliable path).
+  const isStoreApp = String(getStringField(full, 'sys_class_name')).toLowerCase().includes('store');
+  const storeLink = isStoreApp ? `https://store.servicenow.com/store/apps?q=${encodeURIComponent(getStringField(full, 'scope'))}` : '';
+
   const lines = [];
   lines.push(`Scope: ${getStringField(full, 'name') || '?'}`);
   lines.push(`  Scope value: ${getStringField(full, 'scope') || '?'}`);
+  if (getStringField(full, 'version')) lines.push(`  Version:     ${getStringField(full, 'version')}`);
+  if (getStringField(full, 'release_date')) lines.push(`  Released:    ${getStringField(full, 'release_date')}`);
   if (getStringField(full, 'short_description')) lines.push(`  Description: ${getStringField(full, 'short_description')}`);
   if (getStringField(full, 'active')) lines.push(`  Active:      ${getStringField(full, 'active')}`);
+  if (storeLink) lines.push(`  Store:       ${storeLink}`);
   if (getStringField(full, 'sys_created_on')) lines.push(`  Created:     ${getStringField(full, 'sys_created_on')}`);
   if (getStringField(full, 'sys_updated_on')) lines.push(`  Updated:     ${getStringField(full, 'sys_updated_on')}`);
   lines.push(`  Link:        ${link}`);
@@ -41,8 +50,11 @@ export async function formatScopeDetail(app, record) {
     sys_id: sysID,
     name: getStringField(full, 'name'),
     scope: getStringField(full, 'scope'),
+    version: getStringField(full, 'version') || '',
+    release_date: getStringField(full, 'release_date') || '',
     short_description: getStringField(full, 'short_description') || '',
     active: getStringField(full, 'active') || '',
+    store_link: storeLink,
     sys_created_on: getStringField(full, 'sys_created_on') || '',
     sys_updated_on: getStringField(full, 'sys_updated_on') || '',
     link,
