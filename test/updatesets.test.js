@@ -165,3 +165,61 @@ describe('scopeMismatchWarning', () => {
     assert.strictEqual(scopeMismatchWarning({ display_value: 'test' }, { scope: 'x_8821_test', appSysId: '' }), '');
   });
 });
+
+// ─── Name resolution (duplicate "Default" sets) ───
+
+describe('resolveUpdateSetByName', () => {
+  const CURRENT_APP_ID = '0fbc46c58335c314f7bfc670ceaad3dc'; // test scope
+
+  const buildApp = (updateSets) => ({
+    sdk: {
+      list: async (table, params) => {
+        const q = params.get('sysparm_query') || '';
+        if (table === 'sys_user') {
+          return [{ sys_id: 'user1' }];
+        }
+        if (table === 'sys_user_preference') {
+          // apps.current_app → current test scope
+          return [{ value: { display_value: CURRENT_APP_ID, value: CURRENT_APP_ID } }];
+        }
+        if (table === 'sys_scope') {
+          return [{ scope: 'x_8821_test' }];
+        }
+        if (table === 'sys_update_set') {
+          return updateSets.filter((r) => q.includes(`name=${r.name}`));
+        }
+        return [];
+      },
+    },
+  });
+
+  it('prefers the set in the current scope when names collide', async () => {
+    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const app = buildApp([
+      { sys_id: 'global-default', name: 'Default', application: { display_value: 'Global', value: 'global' }, state: 'in progress' },
+      { sys_id: 'test-default', name: 'Default', application: { display_value: 'test', value: CURRENT_APP_ID }, state: 'in progress' },
+      { sys_id: 'cs-default', name: 'Default', application: { display_value: 'Creator Studio', value: 'cs-scope-id' }, state: 'in progress' },
+    ]);
+    const resolved = await resolveUpdateSetByName(app, 'Default');
+    assert.strictEqual(getSysId(resolved), 'test-default');
+  });
+
+  it('returns the only match when the name is unique', async () => {
+    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const app = buildApp([
+      { sys_id: 'only-one', name: 'AI in a Box 3.1.6', application: { display_value: 'Global', value: 'global' }, state: 'complete' },
+    ]);
+    const resolved = await resolveUpdateSetByName(app, 'AI in a Box 3.1.6');
+    assert.strictEqual(getSysId(resolved), 'only-one');
+  });
+
+  it('throws when the name is not found', async () => {
+    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const app = buildApp([]);
+    await assert.rejects(() => resolveUpdateSetByName(app, 'Nope'), /not found/);
+  });
+});
+
+function getSysId(r) {
+  return r?.sys_id?.value ?? r?.sys_id;
+}

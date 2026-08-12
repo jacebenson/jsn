@@ -28,6 +28,44 @@ export function formatUpdateSetLabel(r) {
 }
 
 /**
+ * Resolve an update set by name, disambiguating duplicate names via the
+ * current application scope. Every scope has its own "Default" update set,
+ * so a bare name lookup must prefer the set in the current scope and only
+ * error when it's still ambiguous.
+ * @returns {object} resolved record ({sys_id,name,application,state,...})
+ */
+export async function resolveUpdateSetByName(app, name) {
+  assertSafeExactMatch(name);
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `name=${name}`);
+  params.set('sysparm_limit', '50');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', 'sys_id,name,application,state');
+  const records = await app.sdk.list('sys_update_set', params);
+  if (records.length === 0) {
+    throw new Error(`Update set not found: ${name}`);
+  }
+  if (records.length === 1) return records[0];
+
+  // Multiple sets share the name — prefer the one in the current scope.
+  try {
+    const userSysID = await requireCurrentUserSysId(app.sdk);
+    const currentApp = await getCurrentApplication(app.sdk, userSysID);
+    const appIdOf = (r) => r.application?.value || (typeof r.application === 'string' ? r.application : '');
+    const inScope = records.find((r) => {
+      const appId = appIdOf(r);
+      return appId && currentApp.appSysId && appId === currentApp.appSysId;
+    });
+    if (inScope) return inScope;
+  } catch {
+    // fall through to ambiguity error
+  }
+
+  const scopes = records.map((r) => r.application?.display_value || r.application || '?').join(', ');
+  throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.\nRun bare "jsn updatesets set" and pick by scope.`);
+}
+
+/**
  * Rich display for an update set: header fields + child update filenames.
  * Children (sys_update_xml) listed filename-only, sorted by sys_updated_on
  * descending (newest first). Shared by `list` pick and `show`.
@@ -192,16 +230,8 @@ export function updateSetsCmd(wrap) {
           aliases: ['get'],
           describe: 'Show an update set',
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.name);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
-            }
-            const detail = await formatUpdateSetDetail(app, records[0]);
+            const record = await resolveUpdateSetByName(app, argv.name);
+            const detail = await formatUpdateSetDetail(app, record);
             app.ok(detail, { summary: `Update set ${argv.name}`, breadcrumbs: detail.hints });
           }),
         })
@@ -228,22 +258,10 @@ export function updateSetsCmd(wrap) {
               stateRaw = String(picked.state?.value ?? picked.state ?? '').toLowerCase();
             }
             if (!sysID) {
-              assertSafeExactMatch(name);
-              const params = new URLSearchParams();
-              params.set('sysparm_query', `name=${name}`);
-              params.set('sysparm_limit', '10');
-              params.set('sysparm_display_value', 'all');
-              params.set('sysparm_fields', 'sys_id,name,application,state');
-              const records = await app.sdk.list('sys_update_set', params);
-              if (records.length === 0) {
-                throw new Error(`Update set not found: ${name}`);
-              }
-              if (records.length > 1) {
-                throw errUsage(`Multiple update sets named "${name}" (${records.length}). Run bare "jsn updatesets set" and pick by scope.`);
-              }
-              sysID = getStringField(records[0], 'sys_id');
-              updateSetApp = records[0].application;
-              stateRaw = String(records[0].state?.value ?? records[0].state ?? '').toLowerCase();
+              const resolved = await resolveUpdateSetByName(app, name);
+              sysID = getStringField(resolved, 'sys_id');
+              updateSetApp = resolved.application;
+              stateRaw = String(resolved.state?.value ?? resolved.state ?? '').toLowerCase();
             }
             if (['complete', 'ignore'].includes(stateRaw)) {
               throw errUsage(`Cannot set "${name}" as current — update set is ${stateRaw === 'ignore' ? 'ignored' : 'complete'}.\nView it instead: jsn updatesets show "${name}"`);
@@ -279,17 +297,9 @@ export function updateSetsCmd(wrap) {
             .positional('name', { describe: 'Update set name', type: 'string' })
             .option('parent', { type: 'string', describe: 'Parent update set name' }),
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.name);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name,application');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
-            const childScope = getStringField(records[0], 'application');
+            const child = await resolveUpdateSetByName(app, argv.name);
+            const sysID = getStringField(child, 'sys_id');
+            const childScope = getStringField(child, 'application');
 
             let parentName = argv.parent;
             if (!parentName) {
@@ -300,17 +310,9 @@ export function updateSetsCmd(wrap) {
               if (!picked) return; // cancelled or non-interactive
               parentName = getStringField(picked, 'name');
             }
-            assertSafeExactMatch(parentName);
-            const parentParams = new URLSearchParams();
-            parentParams.set('sysparm_query', `name=${parentName}`);
-            parentParams.set('sysparm_limit', '1');
-            parentParams.set('sysparm_fields', 'sys_id,name,application');
-            const parentRecords = await app.sdk.list('sys_update_set', parentParams);
-            if (parentRecords.length === 0) {
-              throw new Error(`Parent update set not found: ${parentName}`);
-            }
-            const parentSysID = getStringField(parentRecords[0], 'sys_id');
-            const parentScope = getStringField(parentRecords[0], 'application');
+            const parentRecord = await resolveUpdateSetByName(app, parentName);
+            const parentSysID = getStringField(parentRecord, 'sys_id');
+            const parentScope = getStringField(parentRecord, 'application');
 
             let warn = '';
             if (childScope && parentScope && childScope !== parentScope) {
