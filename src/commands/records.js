@@ -21,7 +21,7 @@ function getDefaultColumns(table) {
 
 export function recordsCmd(wrap) {
   return {
-    command: 'records <subcommand>',
+    command: 'records [subcommand]',
     describe: 'Query and manage records in any table (e.g. "records list --table incident --query priority=1")',
     builder: (yargs) => {
       return yargs
@@ -208,7 +208,8 @@ export function recordsCmd(wrap) {
         })
 
     },
-    handler: () => {
+    handler: (argv) => {
+      if (argv._[1]) return; // a subcommand ran — its own handler handled it
       console.log('Query and manage records in any ServiceNow table.');
       console.log('');
       console.log('Available subcommands:');

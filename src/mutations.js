@@ -75,11 +75,17 @@ export const MUTATION_COMMANDS = [
   ['scopes', 'set'],
   ['dev', 'scopes', 'create'],
   ['dev', 'scopes', 'set'],
-  // Update sets: create + set (root + dev forms)
+  // Update sets: create, set, complete, ignore, parent (root + dev forms)
   ['updatesets', 'create'],
   ['updatesets', 'set'],
+  ['updatesets', 'complete'],
+  ['updatesets', 'ignore'],
+  ['updatesets', 'parent'],
   ['dev', 'updatesets', 'create'],
   ['dev', 'updatesets', 'set'],
+  ['dev', 'updatesets', 'complete'],
+  ['dev', 'updatesets', 'ignore'],
+  ['dev', 'updatesets', 'parent'],
 ];
 
 /**

@@ -1,5 +1,184 @@
-import fs from 'node:fs';
-import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
+import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../../context.js';
+import { errUsage } from '../../errors.js';
+
+/**
+ * Scope-mismatch check for an update set vs the current app.
+ * The update set's `application` is a sys_app reference — its display is the
+ * app NAME ("test"), while the current app resolves to the scope VALUE
+ * ("x_8821_test"). Compare by app sys_id: same sys_id = same scope.
+ * @param {object} updateSetApp raw application field ({display_value, value} or string)
+ * @param {object} currentApp { scope, appSysId } from getCurrentApplication
+ * @returns {string} warning text, or '' when scopes match / can't determine
+ */
+export function scopeMismatchWarning(updateSetApp, currentApp) {
+  if (!updateSetApp || !currentApp) return '';
+  const updateSetAppId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
+  if (!updateSetAppId || !currentApp.appSysId || updateSetAppId === currentApp.appSysId) return '';
+  const name = updateSetApp?.display_value || updateSetApp;
+  return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes won't land here. Run: jsn scopes set ${name}`;
+}
+
+/** Format a picker label for an update set: "Name [State] (app/scope)". */
+export function formatUpdateSetLabel(r) {
+  const appName = getStringField(r, 'application');
+  const scopeName = getStringField(r, 'application.scope');
+  const scope = appName && scopeName ? `${appName}/${scopeName}` : (appName || scopeName);
+  return `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${scope || '?'})`;
+}
+
+/**
+ * Resolve an update set by name, disambiguating duplicate names via the
+ * current application scope. Every scope has its own "Default" update set,
+ * so a bare name lookup must prefer the set in the current scope and only
+ * error when it's still ambiguous.
+ * @returns {object} resolved record ({sys_id,name,application,state,...})
+ */
+export async function resolveUpdateSetByName(app, name) {
+  assertSafeExactMatch(name);
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `name=${name}`);
+  params.set('sysparm_limit', '50');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', 'sys_id,name,application,state');
+  const records = await app.sdk.list('sys_update_set', params);
+  if (records.length === 0) {
+    throw new Error(`Update set not found: ${name}`);
+  }
+  if (records.length === 1) return records[0];
+
+  // Multiple sets share the name — prefer the one in the current scope.
+  try {
+    const userSysID = await requireCurrentUserSysId(app.sdk);
+    const currentApp = await getCurrentApplication(app.sdk, userSysID);
+    const appIdOf = (r) => r.application?.value || (typeof r.application === 'string' ? r.application : '');
+    const inScope = records.find((r) => {
+      const appId = appIdOf(r);
+      return appId && currentApp.appSysId && appId === currentApp.appSysId;
+    });
+    if (inScope) return inScope;
+  } catch {
+    // fall through to ambiguity error
+  }
+
+  const scopes = records.map((r) => r.application?.display_value || r.application || '?').join(', ');
+  throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.\nRun bare "jsn updatesets set" and pick by scope.`);
+}
+
+/**
+ * Rich display for an update set: header fields + child update filenames.
+ * Children (sys_update_xml) listed filename-only, sorted by sys_updated_on
+ * descending (newest first). Shared by `list` pick and `show`.
+ *
+ * Fetches an enriched record itself (sysparm_display_value=all so the parent
+ * reference renders as a name, not a sys_id) — callers can pass a thin
+ * picker record; the formatter completes it.
+ */
+export async function formatUpdateSetDetail(app, record) {
+  const sysID = getStringField(record, 'sys_id');
+  const name = getStringField(record, 'name');
+  const instance = app.getEffectiveInstance();
+  const link = `${instance}/sys_update_set.do?sys_id=${sysID}`;
+
+  let full = record;
+  try {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `sys_id=${sysID}`);
+    params.set('sysparm_limit', '1');
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,sys_created_on,sys_updated_on');
+    const recs = await app.sdk.list('sys_update_set', params);
+    if (Array.isArray(recs) && recs.length > 0) full = recs[0];
+  } catch {
+    // fall back to the passed record
+  }
+
+  const state = getStringField(full, 'state') || '?';
+  const appName = getStringField(full, 'application') || '';
+  const scopeName = getStringField(full, 'application.scope') || '';
+  const application = appName && scopeName ? `${appName}/${scopeName}` : (appName || scopeName);
+  const parent = getStringField(full, 'parent') || '';
+  const created = getStringField(full, 'sys_created_on') || '';
+  const updated = getStringField(full, 'sys_updated_on') || '';
+
+  // Child updates: filename only, newest first by sys_updated_on
+  let children = [];
+  try {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `update_set=${sysID}^ORDERBYDESCsys_updated_on`);
+    params.set('sysparm_limit', '500');
+    params.set('sysparm_fields', 'name,sys_updated_on');
+    const updates = await app.sdk.list('sys_update_xml', params);
+    if (Array.isArray(updates)) {
+      children = updates.map(u => getStringField(u, 'name')).filter(Boolean);
+    }
+  } catch {
+    // children are best-effort — a broken query shouldn't kill the display
+  }
+
+  const lines = [];
+  lines.push(`Update set: ${name}`);
+  lines.push(`  State:     ${state}`);
+  if (application) lines.push(`  Scope:     ${application}`);
+  if (parent) lines.push(`  Parent:    ${parent}`);
+  if (created) lines.push(`  Created:   ${created}`);
+  if (updated) lines.push(`  Updated:   ${updated}`);
+  lines.push(`  Updates:   ${children.length}`);
+  for (const c of children) {
+    lines.push(`    ${c}`);
+  }
+  lines.push(`  Link:      ${link}`);
+
+  // State-aware action hints (rendered as breadcrumbs under the detail).
+  // Closed sets (complete/committed) cannot be set as current.
+  const stateRaw = String(full.state?.value ?? full.state ?? '').toLowerCase();
+  const isClosed = ['complete', 'committed'].includes(stateRaw);
+  const hints = [];
+  if (isClosed) {
+    hints.push({
+      action: 'set',
+      cmd: '',
+      description: 'Cannot set as current — update set is closed (complete/committed)',
+    });
+  } else {
+    hints.push({
+      action: 'set',
+      cmd: `jsn updatesets set "${name}"`,
+      description: 'Set as current update set',
+    });
+  }
+  hints.push({
+    action: 'parent',
+    cmd: `jsn updatesets parent "${name}" --parent "<parent set name>"`,
+    description: 'Set the parent of this update set',
+  });
+  if (!isClosed) {
+    hints.push({
+      action: 'complete',
+      cmd: 'jsn updatesets complete',
+      description: 'Mark the current update set as complete (set it first with jsn updatesets set)',
+    });
+    hints.push({
+      action: 'ignore',
+      cmd: 'jsn updatesets ignore',
+      description: 'Ignore the current update set (won\'t be installed)',
+    });
+  }
+
+  return {
+    sys_id: sysID,
+    name,
+    state,
+    application,
+    parent,
+    sys_created_on: created,
+    sys_updated_on: updated,
+    children,
+    link,
+    _formatted: lines.join('\n'),
+    hints,
+  };
+}
 
 export function updateSetsCmd(wrap) {
   return {
@@ -11,23 +190,23 @@ export function updateSetsCmd(wrap) {
         .command({
           command: 'list',
           aliases: ['ls'],
-          describe: 'List update sets',
+          describe: 'List update sets (shows the application scope each belongs to)',
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
-            const columns = argv.columns ? argv.columns.split(',') : ['name', 'state', 'application'];
+            const columns = argv.columns ? argv.columns.split(',') : ['name', 'state', 'application', 'application.scope'];
             const query = argv.query || '';
 
             const picked = await interactiveList({
               app, table: 'sys_update_set', singular: 'update set', columns, limit: argv.limit, query, labelField: 'name',
-              formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}]`,
+              formatLabel: formatUpdateSetLabel,
             });
             if (picked === undefined) return; // user cancelled
             if (picked) {
-              picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_update_set' };
-              return app.ok(picked, { summary: `Update set: ${getStringField(picked, 'name')}` });
+              const detail = await formatUpdateSetDetail(app, picked);
+              return app.ok(detail, { summary: `Update set: ${getStringField(picked, 'name')}`, breadcrumbs: detail.hints });
             }
 
             const params = new URLSearchParams();
@@ -51,61 +230,102 @@ export function updateSetsCmd(wrap) {
           aliases: ['get'],
           describe: 'Show an update set',
           handler: wrap(async (argv, app) => {
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
-            }
-            app.ok(records[0], { summary: `Update set ${argv.name}` });
+            const record = await resolveUpdateSetByName(app, argv.name);
+            const detail = await formatUpdateSetDetail(app, record);
+            app.ok(detail, { summary: `Update set ${argv.name}`, breadcrumbs: detail.hints });
           }),
         })
         .command({
-          command: 'set <name>',
-          describe: 'Set the current update set',
+          command: 'set [name]',
+          describe: 'Set the current update set (interactive picker with scope when run bare)',
           handler: wrap(async (argv, app) => {
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
-            // Update user preference
-            const user = await app.sdk.list('sys_user', new URLSearchParams({
-              sysparm_query: 'user_name=javascript:gs.getUserName()',
-              sysparm_limit: '1',
-              sysparm_fields: 'sys_id',
-            }));
-            if (user.length === 0) {
-              throw new Error('Could not determine current user');
-            }
-            const userSysID = getStringField(user[0], 'sys_id');
-            // Find or create preference
-            const prefParams = new URLSearchParams();
-            prefParams.set('sysparm_query', `user=${userSysID}^name=sys_update_set`);
-            prefParams.set('sysparm_limit', '1');
-            const prefs = await app.sdk.list('sys_user_preference', prefParams);
-            if (prefs.length > 0) {
-              await app.sdk.update('sys_user_preference', getStringField(prefs[0], 'sys_id'), { value: sysID });
-            } else {
-              await app.sdk.create('sys_user_preference', {
-                user: userSysID,
-                name: 'sys_update_set',
-                value: sysID,
-                type: 'string',
+            let name = argv.name;
+            let sysID = null;
+            let updateSetApp = null; // raw application field ({display_value, value} or string)
+            let stateRaw = '';
+            if (!name) {
+              const picked = await interactiveList({
+                app, table: 'sys_update_set', singular: 'update set', columns: ['name', 'state', 'application', 'application.scope'], labelField: 'name',
+                formatLabel: formatUpdateSetLabel,
               });
+              if (!picked) return; // cancelled or non-interactive
+              // Picker returns the full record — use its sys_id directly.
+              // Do NOT re-query by name: duplicate names (e.g. "Default")
+              // would resolve to the wrong record.
+              name = getStringField(picked, 'name');
+              sysID = getStringField(picked, 'sys_id');
+              updateSetApp = picked.application;
+              stateRaw = String(picked.state?.value ?? picked.state ?? '').toLowerCase();
             }
-            app.ok({ update_set: argv.name, sys_id: sysID }, { summary: `Current update set: ${argv.name}` });
+            if (!sysID) {
+              const resolved = await resolveUpdateSetByName(app, name);
+              sysID = getStringField(resolved, 'sys_id');
+              updateSetApp = resolved.application;
+              stateRaw = String(resolved.state?.value ?? resolved.state ?? '').toLowerCase();
+            }
+            if (['complete', 'ignore'].includes(stateRaw)) {
+              throw errUsage(`Cannot set "${name}" as current — update set is ${stateRaw === 'ignore' ? 'ignored' : 'complete'}.\nView it instead: jsn updatesets show "${name}"`);
+            }
+            const userSysID = await requireCurrentUserSysId(app.sdk);
+            await setCurrentUpdateSet(app.sdk, userSysID, sysID);
+
+            // Like the platform update set picker: switching the set also
+            // switches the application scope into the set's scope. The
+            // application field is a sys_scope reference, so its raw value
+            // IS the scope sys_id the apps.current_app preference stores.
+            let scopeNote = '';
+            try {
+              const scopeSysId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
+              if (scopeSysId) {
+                await setCurrentApplication(app.sdk, userSysID, scopeSysId);
+                const scopeName = updateSetApp?.display_value || updateSetApp;
+                scopeNote = ` — scope switched to ${scopeName}`;
+              }
+            } catch {
+              // scope switch failed — fall back to a warning
+              const currentApp = await getCurrentApplication(app.sdk, userSysID).catch(() => null);
+              scopeNote = scopeMismatchWarning(updateSetApp, currentApp);
+            }
+
+            app.ok({ update_set: name, sys_id: sysID }, { summary: `Current update set: ${name}${scopeNote}` });
+          }),
+        })
+        .command({
+          command: 'parent <name>',
+          describe: 'Set the parent of an update set',
+          builder: (y) => y
+            .positional('name', { describe: 'Update set name', type: 'string' })
+            .option('parent', { type: 'string', describe: 'Parent update set name' }),
+          handler: wrap(async (argv, app) => {
+            const child = await resolveUpdateSetByName(app, argv.name);
+            const sysID = getStringField(child, 'sys_id');
+            const childScope = getStringField(child, 'application');
+
+            let parentName = argv.parent;
+            if (!parentName) {
+              const picked = await interactiveList({
+                app, table: 'sys_update_set', singular: 'parent update set', columns: ['name', 'state', 'application', 'application.scope'], labelField: 'name',
+                formatLabel: formatUpdateSetLabel,
+              });
+              if (!picked) return; // cancelled or non-interactive
+              parentName = getStringField(picked, 'name');
+            }
+            const parentRecord = await resolveUpdateSetByName(app, parentName);
+            const parentSysID = getStringField(parentRecord, 'sys_id');
+            const parentScope = getStringField(parentRecord, 'application');
+
+            let warn = '';
+            if (childScope && parentScope && childScope !== parentScope) {
+              warn = ` ⚠️ child is in scope "${childScope}", parent is in scope "${parentScope}" — allowed, but they won't commit as one unit`;
+            }
+
+            await app.sdk.update('sys_update_set', sysID, { parent: parentSysID });
+            app.ok({ update_set: argv.name, parent: parentName }, { summary: `Parent of "${argv.name}" is now "${parentName}"${warn}` });
           }),
         })
         .command({
           command: 'create',
-          describe: 'Create a new update set',
+          describe: 'Create a new update set (auto-sets as current)',
           builder: (y) => y
             .option('name', { alias: 'n', type: 'string', demandOption: true, describe: 'Update set name' })
             .option('description', { type: 'string', describe: 'Description' }),
@@ -119,30 +339,8 @@ export function updateSetsCmd(wrap) {
             // Auto-set as current update set
             const sysID = record?.sys_id?.value || record?.sys_id;
             try {
-              const user = await app.sdk.list('sys_user', new URLSearchParams({
-                sysparm_query: 'user_name=javascript:gs.getUserName()',
-                sysparm_limit: '1',
-                sysparm_fields: 'sys_id',
-              }));
-              if (user.length > 0) {
-                const userSysID = user[0].sys_id?.value || user[0].sys_id;
-                // Check for existing preference
-                const prefParams = new URLSearchParams();
-                prefParams.set('sysparm_query', `user=${userSysID}^name=sys_update_set`);
-                prefParams.set('sysparm_limit', '1');
-                const prefs = await app.sdk.list('sys_user_preference', prefParams);
-                if (prefs.length > 0) {
-                  const prefID = prefs[0].sys_id?.value || prefs[0].sys_id;
-                  await app.sdk.update('sys_user_preference', prefID, { value: sysID });
-                } else {
-                  await app.sdk.create('sys_user_preference', {
-                    user: userSysID,
-                    name: 'sys_update_set',
-                    value: sysID,
-                    type: 'string',
-                  });
-                }
-              }
+              const userSysID = await requireCurrentUserSysId(app.sdk);
+              await setCurrentUpdateSet(app.sdk, userSysID, sysID);
             } catch {
               // Non-fatal — auto-set is a convenience, not mandatory
             }
@@ -165,37 +363,29 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
-          command: 'export <name>',
-          describe: 'Export an update set to XML',
-          builder: (y) => y
-            .positional('name', {
-              describe: 'Update set name',
-              type: 'string',
-            })
-            .option('output', {
-              alias: 'o',
-              type: 'string',
-              describe: 'Output file path (default: stdout)',
-            }),
+          command: 'complete',
+          describe: 'Mark the current update set as complete',
           handler: wrap(async (argv, app) => {
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
+            const userSysID = await requireCurrentUserSysId(app.sdk);
+            const current = await getCurrentUpdateSet(app.sdk, userSysID);
+            if (!current?.sys_id) {
+              throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
             }
-            const sysID = getStringField(records[0], 'sys_id');
-            const instance = app.getEffectiveInstance();
-            const url = `${instance}/sys_update_set.do?XML&sysparm_sys_id=${sysID}`;
-            const xml = await app.sdk.rawRequest(url, { method: 'GET' });
-            if (argv.output) {
-              fs.writeFileSync(argv.output, xml, 'utf-8');
-              app.ok({ name: argv.name, sys_id: sysID, output: argv.output }, { summary: `Exported update set to ${argv.output}` });
-            } else {
-              process.stdout.write(xml + '\n');
+            await app.sdk.update('sys_update_set', current.sys_id, { state: 'complete' });
+            app.ok({ update_set: current.name, state: 'complete' }, { summary: `Update set marked complete: ${current.name}` });
+          }),
+        })
+        .command({
+          command: 'ignore',
+          describe: 'Ignore the current update set (won\'t be installed)',
+          handler: wrap(async (argv, app) => {
+            const userSysID = await requireCurrentUserSysId(app.sdk);
+            const current = await getCurrentUpdateSet(app.sdk, userSysID);
+            if (!current?.sys_id) {
+              throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
             }
+            await app.sdk.update('sys_update_set', current.sys_id, { state: 'ignore' });
+            app.ok({ update_set: current.name, state: 'ignore' }, { summary: `Update set ignored: ${current.name}` });
           }),
         })
 
@@ -204,12 +394,13 @@ export function updateSetsCmd(wrap) {
       if (!argv._[1]) {
         console.log('Manage ServiceNow update sets.\n');
         console.log('Commands:');
-        console.log('  list           List update sets');
+        console.log('  list           List update sets (shows scope)');
         console.log('  show <name>    Show an update set');
-        console.log('  set  <name>    Set the current update set');
+        console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
-        console.log('  export <name>  Export an update set to XML');
-        console.log('  complete <name>  Mark an update set as complete (coming soon)');
+        console.log('  complete       Mark the current update set as complete');
+        console.log('  ignore         Ignore the current update set');
+        console.log('  parent <name>  Set the parent of an update set');
         console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
         console.log('  jsn updatesets create --name "My Feature"');

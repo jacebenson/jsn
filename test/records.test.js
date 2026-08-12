@@ -37,6 +37,16 @@ describe('Records Command Structure', () => {
     const names = subcommands.map(s => s.split(' ')[0]);
     assert.ok(names.includes('inspect'));
   });
+
+  it('uses optional [subcommand] so bare invocation shows help, not a yargs error', async () => {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const wrap = (fn) => fn;
+    const cmd = recordsCmd(wrap);
+    // Regression: this was '<subcommand>' (required), so bare `jsn records`
+    // died with "Not enough non-option arguments" before the handler ran.
+    assert.match(cmd.command, /records \[subcommand\]/);
+    assert.doesNotMatch(cmd.command, /records <subcommand>/);
+  });
 });
 
 // ─── SDK Helper Function Tests ───
