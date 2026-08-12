@@ -1,6 +1,55 @@
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
 import { requireCurrentUserSysId, setCurrentApplication } from '../../context.js';
 
+/** Format a picker label for a scope: "Name [scope]". */
+export function formatScopeLabel(r) {
+  return `${getStringField(r, 'name')} [${getStringField(r, 'scope') || '?'}]`;
+}
+
+/**
+ * Rich display for a scope: header fields + record link.
+ * Shared by `list` pick and `show` so they can't drift.
+ */
+export async function formatScopeDetail(app, record) {
+  const sysID = getStringField(record, 'sys_id');
+  const instance = app.getEffectiveInstance();
+  const link = `${instance}/sys_scope.do?sys_id=${sysID}`;
+
+  let full = record;
+  try {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `sys_id=${sysID}`);
+    params.set('sysparm_limit', '1');
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'sys_id,name,scope,short_description,active,description,sys_created_on,sys_updated_on');
+    const recs = await app.sdk.list('sys_scope', params);
+    if (Array.isArray(recs) && recs.length > 0) full = recs[0];
+  } catch {
+    // fall back to the passed record
+  }
+
+  const lines = [];
+  lines.push(`Scope: ${getStringField(full, 'name') || '?'}`);
+  lines.push(`  Scope value: ${getStringField(full, 'scope') || '?'}`);
+  if (getStringField(full, 'short_description')) lines.push(`  Description: ${getStringField(full, 'short_description')}`);
+  if (getStringField(full, 'active')) lines.push(`  Active:      ${getStringField(full, 'active')}`);
+  if (getStringField(full, 'sys_created_on')) lines.push(`  Created:     ${getStringField(full, 'sys_created_on')}`);
+  if (getStringField(full, 'sys_updated_on')) lines.push(`  Updated:     ${getStringField(full, 'sys_updated_on')}`);
+  lines.push(`  Link:        ${link}`);
+
+  return {
+    sys_id: sysID,
+    name: getStringField(full, 'name'),
+    scope: getStringField(full, 'scope'),
+    short_description: getStringField(full, 'short_description') || '',
+    active: getStringField(full, 'active') || '',
+    sys_created_on: getStringField(full, 'sys_created_on') || '',
+    sys_updated_on: getStringField(full, 'sys_updated_on') || '',
+    link,
+    _formatted: lines.join('\n'),
+  };
+}
+
 export function scopesCmd(wrap) {
   return {
     command: 'scopes [subcommand]',
@@ -22,12 +71,12 @@ export function scopesCmd(wrap) {
 
             const picked = await interactiveList({
               app, table: 'sys_scope', singular: 'scope', columns, limit: argv.limit, query, labelField: 'name',
-              formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'scope') || '?'}]`,
+              formatLabel: formatScopeLabel,
             });
             if (picked === undefined) return; // user cancelled
             if (picked) {
-              picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_scope' };
-              return app.ok(picked, { summary: `Scope: ${getStringField(picked, 'name')}` });
+              const detail = await formatScopeDetail(app, picked);
+              return app.ok(detail, { summary: `Scope: ${getStringField(picked, 'name')}` });
             }
 
             const params = new URLSearchParams();
@@ -70,7 +119,8 @@ export function scopesCmd(wrap) {
             if (!records || records.length === 0) {
               throw new Error(`Scope not found: ${argv.scope}`);
             }
-            app.ok(records[0], { summary: `Scope ${argv.scope}` });
+            const detail = await formatScopeDetail(app, records[0]);
+            app.ok(detail, { summary: `Scope ${argv.scope}` });
           }),
         })
         .command({
