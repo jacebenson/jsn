@@ -103,3 +103,39 @@ describe('formatUpdateSetDetail', () => {
     assert.ok(detail._formatted.includes('Updates:   0'));
   });
 });
+
+// ─── Scope mismatch warning ───
+
+describe('scopeMismatchWarning', () => {
+  it('returns empty when the update set is in the current app (same sys_id)', async () => {
+    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const warn = scopeMismatchWarning(
+      { display_value: 'test', value: '0fbc46c58335c314f7bfc670ceaad3dc' },
+      { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' },
+    );
+    assert.strictEqual(warn, '');
+  });
+
+  it('warns when the update set is in a different app', async () => {
+    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const warn = scopeMismatchWarning(
+      { display_value: 'Global', value: 'abc123' },
+      { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' },
+    );
+    assert.ok(warn.includes('in app "Global"'));
+    assert.ok(warn.includes('jsn scopes set Global'));
+  });
+
+  it('handles a plain-string application field (non-display-value path)', async () => {
+    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const warn = scopeMismatchWarning('global', { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' });
+    assert.ok(warn.includes('in app "global"'));
+  });
+
+  it('returns empty when either side is missing', async () => {
+    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    assert.strictEqual(scopeMismatchWarning(null, { scope: 'x_8821_test', appSysId: 'x' }), '');
+    assert.strictEqual(scopeMismatchWarning({ display_value: 'test', value: 'x' }, null), '');
+    assert.strictEqual(scopeMismatchWarning({ display_value: 'test' }, { scope: 'x_8821_test', appSysId: '' }), '');
+  });
+});

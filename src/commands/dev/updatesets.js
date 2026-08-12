@@ -3,6 +3,23 @@ import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, se
 import { errUsage } from '../../errors.js';
 
 /**
+ * Scope-mismatch check for an update set vs the current app.
+ * The update set's `application` is a sys_app reference — its display is the
+ * app NAME ("test"), while the current app resolves to the scope VALUE
+ * ("x_8821_test"). Compare by app sys_id: same sys_id = same scope.
+ * @param {object} updateSetApp raw application field ({display_value, value} or string)
+ * @param {object} currentApp { scope, appSysId } from getCurrentApplication
+ * @returns {string} warning text, or '' when scopes match / can't determine
+ */
+export function scopeMismatchWarning(updateSetApp, currentApp) {
+  if (!updateSetApp || !currentApp) return '';
+  const updateSetAppId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
+  if (!updateSetAppId || !currentApp.appSysId || updateSetAppId === currentApp.appSysId) return '';
+  const name = updateSetApp?.display_value || updateSetApp;
+  return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes won't land here. Run: jsn scopes set ${name}`;
+}
+
+/**
  * Rich display for an update set: header fields + child update filenames.
  * Children (sys_update_xml) listed filename-only, sorted by sys_updated_on
  * descending (newest first). Shared by `list` pick and `show`.
@@ -183,37 +200,42 @@ export function updateSetsCmd(wrap) {
           describe: 'Set the current update set (interactive picker with scope when run bare)',
           handler: wrap(async (argv, app) => {
             let name = argv.name;
+            let sysID = null;
+            let updateSetApp = null; // raw application field ({display_value, value} or string)
             if (!name) {
               const picked = await interactiveList({
                 app, table: 'sys_update_set', singular: 'update set', columns: ['name', 'state', 'application'], labelField: 'name',
                 formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${getStringField(r, 'application') || '?'})`,
               });
               if (!picked) return; // cancelled or non-interactive
+              // Picker returns the full record — use its sys_id directly.
+              // Do NOT re-query by name: duplicate names (e.g. "Default")
+              // would resolve to the wrong record.
               name = getStringField(picked, 'name');
+              sysID = getStringField(picked, 'sys_id');
+              updateSetApp = picked.application;
             }
-            assertSafeExactMatch(name);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name,application');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${name}`);
+            if (!sysID) {
+              assertSafeExactMatch(name);
+              const params = new URLSearchParams();
+              params.set('sysparm_query', `name=${name}`);
+              params.set('sysparm_limit', '1');
+              params.set('sysparm_display_value', 'all');
+              params.set('sysparm_fields', 'sys_id,name,application');
+              const records = await app.sdk.list('sys_update_set', params);
+              if (records.length === 0) {
+                throw new Error(`Update set not found: ${name}`);
+              }
+              sysID = getStringField(records[0], 'sys_id');
+              updateSetApp = records[0].application;
             }
-            const sysID = getStringField(records[0], 'sys_id');
             const userSysID = await requireCurrentUserSysId(app.sdk);
             await setCurrentUpdateSet(app.sdk, userSysID, sysID);
 
-            // Scope-aware: if the update set belongs to a scope different from
-            // the current one, changes won't be captured in it. Warn + offer.
             let scopeWarn = '';
-            const updateSetScope = getStringField(records[0], 'application');
             try {
               const currentApp = await getCurrentApplication(app.sdk, userSysID);
-              const currentScope = currentApp?.scope || 'global';
-              if (updateSetScope && currentScope !== 'global' && updateSetScope !== currentScope) {
-                scopeWarn = ` ⚠️ in scope "${updateSetScope}", but current scope is "${currentScope}" — changes won't land here. Run: jsn scopes set ${updateSetScope}`;
-              }
+              scopeWarn = scopeMismatchWarning(updateSetApp, currentApp);
             } catch {
               // non-fatal — warning is best-effort
             }

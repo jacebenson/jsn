@@ -24,24 +24,24 @@ export async function getCurrentApplication(sdk, userSysID) {
   params.set('sysparm_limit', '1');
   params.set('sysparm_fields', 'value');
   const records = await sdk.list('sys_user_preference', params);
-  if (records.length === 0) return { scope: 'global' };
+  if (records.length === 0) return { scope: 'global', appSysId: '' };
   const val = records[0].value?.value || records[0].value;
-  if (!val) return { scope: 'global' };
+  if (!val) return { scope: 'global', appSysId: '' };
 
   // Try to resolve sys_id to scope name
   try {
     const app = await sdk.get('sys_scope', val);
-    if (app) return { scope: app.scope || 'global' };
+    if (app) return { scope: app.scope || 'global', appSysId: val };
   } catch {
     // fallback
   }
   try {
     const app2 = await sdk.get('sys_app', val);
-    if (app2) return { scope: app2.scope || 'global' };
+    if (app2) return { scope: app2.scope || 'global', appSysId: val };
   } catch {
     // fallback
   }
-  return { scope: val };
+  return { scope: val, appSysId: val };
 }
 
 export async function getCurrentUpdateSet(sdk, userSysID) {
