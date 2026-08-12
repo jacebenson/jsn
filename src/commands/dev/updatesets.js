@@ -1,6 +1,5 @@
-import fs from 'node:fs';
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, confirmDelete } from '../../helpers.js';
-import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentUpdateSet } from '../../context.js';
+import { getCurrentApplication, requireCurrentUserSysId, setCurrentUpdateSet } from '../../context.js';
 
 /**
  * Rich display for an update set: header fields + child update filenames.
@@ -266,15 +265,6 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
-          command: 'current',
-          describe: 'Show the current update set',
-          handler: wrap(async (argv, app) => {
-            const userSysID = await requireCurrentUserSysId(app.sdk);
-            const current = await getCurrentUpdateSet(app.sdk, userSysID);
-            app.ok({ update_set: current?.name || 'Default', sys_id: current?.sys_id || '' }, { summary: `Current update set: ${current?.name || 'Default'}` });
-          }),
-        })
-        .command({
           command: 'create',
           describe: 'Create a new update set (auto-sets as current)',
           builder: (y) => y
@@ -355,41 +345,6 @@ export function updateSetsCmd(wrap) {
             app.ok({ update_set: argv.name, deleted: true }, { summary: `Deleted update set: ${argv.name}` });
           }),
         })
-        .command({
-          command: 'export <name>',
-          describe: 'Export an update set to XML',
-          builder: (y) => y
-            .positional('name', {
-              describe: 'Update set name',
-              type: 'string',
-            })
-            .option('output', {
-              alias: 'o',
-              type: 'string',
-              describe: 'Output file path (default: stdout)',
-            }),
-          handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.name);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
-            const instance = app.getEffectiveInstance();
-            const url = `${instance}/sys_update_set.do?XML&sysparm_sys_id=${sysID}`;
-            const xml = await app.sdk.rawRequest(url, { method: 'GET' });
-            if (argv.output) {
-              fs.writeFileSync(argv.output, xml, 'utf-8');
-              app.ok({ name: argv.name, sys_id: sysID, output: argv.output }, { summary: `Exported update set to ${argv.output}` });
-            } else {
-              process.stdout.write(xml + '\n');
-            }
-          }),
-        })
 
     },
     handler: (argv) => {
@@ -399,12 +354,11 @@ export function updateSetsCmd(wrap) {
         console.log('  list           List update sets (shows scope)');
         console.log('  show <name>    Show an update set');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
-        console.log('  current        Show the current update set');
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete <name> Mark an update set as complete');
         console.log('  delete <name>  Delete an update set');
         console.log('  parent <name>  Set the parent of an update set');
-        console.log('  export <name>  Export an update set to XML');
+        console.log('  export         (removed — requires a browser session; use the platform "Export to XML" action)');
         console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
         console.log('  jsn updatesets create --name "My Feature"');

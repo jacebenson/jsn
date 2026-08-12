@@ -19,7 +19,7 @@ describe('UpdateSets Command Structure', () => {
     const mockYargs = { command: (c) => { subcommands.push(typeof c === 'string' ? c : c.command); return mockYargs; } };
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
-    for (const n of ['list', 'show', 'set', 'current', 'create', 'complete', 'delete', 'export']) {
+    for (const n of ['list', 'show', 'set', 'create', 'complete', 'delete', 'parent']) {
       assert.ok(names.includes(n), `missing subcommand: ${n}`);
     }
   });

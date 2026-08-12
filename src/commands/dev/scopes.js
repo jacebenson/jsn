@@ -1,5 +1,5 @@
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
-import { getCurrentApplication, requireCurrentUserSysId, setCurrentApplication } from '../../context.js';
+import { requireCurrentUserSysId, setCurrentApplication } from '../../context.js';
 
 export function scopesCmd(wrap) {
   return {
@@ -102,15 +102,6 @@ export function scopesCmd(wrap) {
           }),
         })
         .command({
-          command: 'current',
-          describe: 'Show the current application scope',
-          handler: wrap(async (argv, app) => {
-            const userSysID = await requireCurrentUserSysId(app.sdk);
-            const current = await getCurrentApplication(app.sdk, userSysID);
-            app.ok({ scope: current?.scope || 'global' }, { summary: `Current scope: ${current?.scope || 'global'}` });
-          }),
-        })
-        .command({
           command: 'create',
           describe: 'Create a new application scope',
           builder: (y) => y
@@ -158,7 +149,6 @@ export function scopesCmd(wrap) {
         console.log('  list           List application scopes');
         console.log('  show <scope>   Show a scope');
         console.log('  set  [scope]   Set the current application scope (picker when run bare)');
-        console.log('  current        Show the current application scope');
         console.log('  create         Create a new application scope');
         console.log('\nRun "jsn scopes <command> --help" for details.');
       }
