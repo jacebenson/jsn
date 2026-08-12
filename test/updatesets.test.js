@@ -43,6 +43,7 @@ describe('formatUpdateSetDetail', () => {
               name: 'My Feature',
               state: { display_value: 'In progress', value: 'in progress' },
               application: { display_value: 'My App', value: 'x_my_app' },
+              'application.scope': { display_value: 'x_my_app', value: 'x_my_app' },
               parent: { display_value: 'Parent Set', value: 'par001' },
               sys_created_on: { display_value: '2026-08-01 10:00:00', value: '2026-08-01' },
               sys_updated_on: { display_value: '2026-08-11 09:00:00', value: '2026-08-11' },
@@ -61,7 +62,7 @@ describe('formatUpdateSetDetail', () => {
 
     assert.strictEqual(detail.name, 'My Feature');
     assert.strictEqual(detail.state, 'In progress');
-    assert.strictEqual(detail.application, 'My App');
+    assert.strictEqual(detail.application, 'My App/x_my_app');
     assert.strictEqual(detail.parent, 'Parent Set');
     assert.deepStrictEqual(detail.children, ['b.xml', 'a.xml']);
     assert.strictEqual(detail.link, 'https://dev.service-now.com/sys_update_set.do?sys_id=abc123');
@@ -101,6 +102,31 @@ describe('formatUpdateSetDetail', () => {
     const detail = await formatUpdateSetDetail(app, { sys_id: 'x1', name: 'Empty' });
     assert.deepStrictEqual(detail.children, []);
     assert.ok(detail._formatted.includes('Updates:   0'));
+  });
+});
+
+// ─── Scope mismatch warning ───
+
+describe('formatUpdateSetLabel', () => {
+  it('shows app/system scope names together', async () => {
+    const { formatUpdateSetLabel } = await import('../src/commands/dev/updatesets.js');
+    const label = formatUpdateSetLabel({
+      name: 'Default',
+      state: 'In progress',
+      application: { display_value: 'test', value: '0fbc46c58335c314f7bfc670ceaad3dc' },
+      'application.scope': { display_value: 'x_8821_test', value: 'x_8821_test' },
+    });
+    assert.strictEqual(label, 'Default [In progress] (test/x_8821_test)');
+  });
+
+  it('falls back to display name when scope is unavailable', async () => {
+    const { formatUpdateSetLabel } = await import('../src/commands/dev/updatesets.js');
+    const label = formatUpdateSetLabel({
+      name: 'Global Set',
+      state: 'Complete',
+      application: { display_value: 'Global', value: 'global' },
+    });
+    assert.strictEqual(label, 'Global Set [Complete] (Global)');
   });
 });
 

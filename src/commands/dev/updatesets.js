@@ -19,6 +19,14 @@ export function scopeMismatchWarning(updateSetApp, currentApp) {
   return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes won't land here. Run: jsn scopes set ${name}`;
 }
 
+/** Format a picker label for an update set: "Name [State] (app/scope)". */
+export function formatUpdateSetLabel(r) {
+  const appName = getStringField(r, 'application');
+  const scopeName = getStringField(r, 'application.scope');
+  const scope = appName && scopeName ? `${appName}/${scopeName}` : (appName || scopeName);
+  return `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${scope || '?'})`;
+}
+
 /**
  * Rich display for an update set: header fields + child update filenames.
  * Children (sys_update_xml) listed filename-only, sorted by sys_updated_on
@@ -40,7 +48,7 @@ export async function formatUpdateSetDetail(app, record) {
     params.set('sysparm_query', `sys_id=${sysID}`);
     params.set('sysparm_limit', '1');
     params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'sys_id,name,state,application,parent,sys_created_on,sys_updated_on');
+    params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,sys_created_on,sys_updated_on');
     const recs = await app.sdk.list('sys_update_set', params);
     if (Array.isArray(recs) && recs.length > 0) full = recs[0];
   } catch {
@@ -48,7 +56,9 @@ export async function formatUpdateSetDetail(app, record) {
   }
 
   const state = getStringField(full, 'state') || '?';
-  const application = getStringField(full, 'application') || '';
+  const appName = getStringField(full, 'application') || '';
+  const scopeName = getStringField(full, 'application.scope') || '';
+  const application = appName && scopeName ? `${appName}/${scopeName}` : (appName || scopeName);
   const parent = getStringField(full, 'parent') || '';
   const created = getStringField(full, 'sys_created_on') || '';
   const updated = getStringField(full, 'sys_updated_on') || '';
@@ -148,12 +158,12 @@ export function updateSetsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
-            const columns = argv.columns ? argv.columns.split(',') : ['name', 'state', 'application'];
+            const columns = argv.columns ? argv.columns.split(',') : ['name', 'state', 'application', 'application.scope'];
             const query = argv.query || '';
 
             const picked = await interactiveList({
               app, table: 'sys_update_set', singular: 'update set', columns, limit: argv.limit, query, labelField: 'name',
-              formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${getStringField(r, 'application') || '?'})`,
+              formatLabel: formatUpdateSetLabel,
             });
             if (picked === undefined) return; // user cancelled
             if (picked) {
@@ -202,10 +212,11 @@ export function updateSetsCmd(wrap) {
             let name = argv.name;
             let sysID = null;
             let updateSetApp = null; // raw application field ({display_value, value} or string)
+            let stateRaw = '';
             if (!name) {
               const picked = await interactiveList({
-                app, table: 'sys_update_set', singular: 'update set', columns: ['name', 'state', 'application'], labelField: 'name',
-                formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${getStringField(r, 'application') || '?'})`,
+                app, table: 'sys_update_set', singular: 'update set', columns: ['name', 'state', 'application', 'application.scope'], labelField: 'name',
+                formatLabel: formatUpdateSetLabel,
               });
               if (!picked) return; // cancelled or non-interactive
               // Picker returns the full record — use its sys_id directly.
@@ -214,6 +225,7 @@ export function updateSetsCmd(wrap) {
               name = getStringField(picked, 'name');
               sysID = getStringField(picked, 'sys_id');
               updateSetApp = picked.application;
+              stateRaw = String(picked.state?.value ?? picked.state ?? '').toLowerCase();
             }
             if (!sysID) {
               assertSafeExactMatch(name);
@@ -221,13 +233,17 @@ export function updateSetsCmd(wrap) {
               params.set('sysparm_query', `name=${name}`);
               params.set('sysparm_limit', '1');
               params.set('sysparm_display_value', 'all');
-              params.set('sysparm_fields', 'sys_id,name,application');
+              params.set('sysparm_fields', 'sys_id,name,application,state');
               const records = await app.sdk.list('sys_update_set', params);
               if (records.length === 0) {
                 throw new Error(`Update set not found: ${name}`);
               }
               sysID = getStringField(records[0], 'sys_id');
               updateSetApp = records[0].application;
+              stateRaw = String(records[0].state?.value ?? records[0].state ?? '').toLowerCase();
+            }
+            if (['complete', 'ignore'].includes(stateRaw)) {
+              throw errUsage(`Cannot set "${name}" as current — update set is ${stateRaw === 'ignore' ? 'ignored' : 'complete'}.\nView it instead: jsn updatesets show "${name}"`);
             }
             const userSysID = await requireCurrentUserSysId(app.sdk);
             await setCurrentUpdateSet(app.sdk, userSysID, sysID);
@@ -265,8 +281,8 @@ export function updateSetsCmd(wrap) {
             let parentName = argv.parent;
             if (!parentName) {
               const picked = await interactiveList({
-                app, table: 'sys_update_set', singular: 'parent update set', columns: ['name', 'state', 'application'], labelField: 'name',
-                formatLabel: r => `${getStringField(r, 'name')} [${getStringField(r, 'state') || '?'}] (${getStringField(r, 'application') || '?'})`,
+                app, table: 'sys_update_set', singular: 'parent update set', columns: ['name', 'state', 'application', 'application.scope'], labelField: 'name',
+                formatLabel: formatUpdateSetLabel,
               });
               if (!picked) return; // cancelled or non-interactive
               parentName = getStringField(picked, 'name');
