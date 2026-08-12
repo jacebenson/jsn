@@ -19,7 +19,7 @@ describe('UpdateSets Command Structure', () => {
     const mockYargs = { command: (c) => { subcommands.push(typeof c === 'string' ? c : c.command); return mockYargs; } };
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
-    for (const n of ['list', 'show', 'set', 'create', 'complete', 'delete', 'parent']) {
+    for (const n of ['list', 'show', 'set', 'create', 'complete', 'ignore', 'parent']) {
       assert.ok(names.includes(n), `missing subcommand: ${n}`);
     }
   });
@@ -69,8 +69,8 @@ describe('formatUpdateSetDetail', () => {
     assert.ok(detail._formatted.includes('Parent:    Parent Set'));
     assert.ok(detail._formatted.includes('Updates:   2'));
     assert.ok(detail._formatted.includes('    b.xml'));
-    // open set → set/parent/complete hints
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'complete']);
+    // open set → set/parent/complete/ignore hints
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'complete', 'ignore']);
   });
 
   it('closed sets get a cannot-set hint and no complete hint', async () => {

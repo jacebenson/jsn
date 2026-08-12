@@ -1,5 +1,6 @@
-import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, confirmDelete } from '../../helpers.js';
-import { getCurrentApplication, requireCurrentUserSysId, setCurrentUpdateSet } from '../../context.js';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
+import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentUpdateSet } from '../../context.js';
+import { errUsage } from '../../errors.js';
 
 /**
  * Rich display for an update set: header fields + child update filenames.
@@ -89,8 +90,13 @@ export async function formatUpdateSetDetail(app, record) {
   if (!isClosed) {
     hints.push({
       action: 'complete',
-      cmd: `jsn updatesets complete "${name}"`,
-      description: 'Mark as complete when done',
+      cmd: 'jsn updatesets complete',
+      description: 'Mark the current update set as complete (set it first with jsn updatesets set)',
+    });
+    hints.push({
+      action: 'ignore',
+      cmd: 'jsn updatesets ignore',
+      description: 'Ignore the current update set (won\'t be installed)',
     });
   }
 
@@ -304,45 +310,29 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
-          command: 'complete <name>',
-          describe: 'Mark an update set as complete',
-          builder: (y) => y
-            .positional('name', { describe: 'Update set name', type: 'string' }),
+          command: 'complete',
+          describe: 'Mark the current update set as complete',
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.name);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
+            const userSysID = await requireCurrentUserSysId(app.sdk);
+            const current = await getCurrentUpdateSet(app.sdk, userSysID);
+            if (!current?.sys_id) {
+              throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
             }
-            const sysID = getStringField(records[0], 'sys_id');
-            await app.sdk.update('sys_update_set', sysID, { state: 'complete' });
-            app.ok({ update_set: argv.name, state: 'complete' }, { summary: `Update set marked complete: ${argv.name}` });
+            await app.sdk.update('sys_update_set', current.sys_id, { state: 'complete' });
+            app.ok({ update_set: current.name, state: 'complete' }, { summary: `Update set marked complete: ${current.name}` });
           }),
         })
         .command({
-          command: 'delete <name>',
-          describe: 'Delete an update set',
-          builder: (y) => y
-            .positional('name', { describe: 'Update set name', type: 'string' })
-            .option('force', { type: 'boolean', describe: 'Skip confirmation' }),
+          command: 'ignore',
+          describe: 'Ignore the current update set (won\'t be installed)',
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.name);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `name=${argv.name}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,name');
-            const records = await app.sdk.list('sys_update_set', params);
-            if (records.length === 0) {
-              throw new Error(`Update set not found: ${argv.name}`);
+            const userSysID = await requireCurrentUserSysId(app.sdk);
+            const current = await getCurrentUpdateSet(app.sdk, userSysID);
+            if (!current?.sys_id) {
+              throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
             }
-            const sysID = getStringField(records[0], 'sys_id');
-            await confirmDelete(app, argv, `Delete update set "${argv.name}"?`);
-            await app.sdk.delete('sys_update_set', sysID);
-            app.ok({ update_set: argv.name, deleted: true }, { summary: `Deleted update set: ${argv.name}` });
+            await app.sdk.update('sys_update_set', current.sys_id, { state: 'ignore' });
+            app.ok({ update_set: current.name, state: 'ignore' }, { summary: `Update set ignored: ${current.name}` });
           }),
         })
 
@@ -355,8 +345,8 @@ export function updateSetsCmd(wrap) {
         console.log('  show <name>    Show an update set');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
-        console.log('  complete <name> Mark an update set as complete');
-        console.log('  delete <name>  Delete an update set');
+        console.log('  complete       Mark the current update set as complete');
+        console.log('  ignore         Ignore the current update set');
         console.log('  parent <name>  Set the parent of an update set');
         console.log('\nRun "jsn updatesets <command> --help" for details.');
         console.log('\nTip: Create an update set first:');
