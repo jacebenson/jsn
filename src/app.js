@@ -3,7 +3,7 @@
 import { AuthManager } from './auth.js';
 import { SDKClient } from './sdk.js';
 import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
-import { getEffectiveInstance, normalizeInstanceURL } from './config.js';
+import { getEffectiveInstance, normalizeInstanceURL, saveConfig } from './config.js';
 import { extractProfileName } from './helpers.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
@@ -20,7 +20,9 @@ export class App {
 
     const instance = getEffectiveInstance(cfg);
     if (instance) {
-      this.sdk = new SDKClient(instance, this.auth);
+      this.sdk = new SDKClient(instance, this.auth, {
+        domain: this._profileDomain(cfg),
+      });
     }
 
     this.context = {
@@ -202,8 +204,28 @@ export class App {
     const normalizedUrl = normalizeInstanceURL(url);
     if (normalizedUrl) {
       this._overrideInstance = normalizedUrl;
-      this.sdk = new SDKClient(normalizedUrl, this.auth);
+      this.sdk = new SDKClient(normalizedUrl, this.auth, {
+        domain: this._profileDomain(this.config),
+      });
     }
+  }
+
+  /** Read the configured domain for the active profile (empty = no scoping). */
+  _profileDomain(cfg) {
+    const name = cfg.activeProfile || cfg.defaultProfile;
+    if (name && cfg.profiles[name]) {
+      return cfg.profiles[name].domain || '';
+    }
+    return '';
+  }
+
+  /** Set (or clear with '') the domain for the active profile. */
+  setDomain(domain) {
+    const name = this.config.activeProfile || this.config.defaultProfile;
+    if (!name) throw errUsage('No active profile to set a domain on');
+    if (!this.config.profiles[name]) this.config.profiles[name] = {};
+    this.config.profiles[name].domain = domain || '';
+    return saveConfig(this.config);
   }
 }
 

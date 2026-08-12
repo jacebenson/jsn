@@ -11,6 +11,7 @@ export class SDKClient {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.authProvider = authProvider;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
+    this.domain = opts.domain || '';
   }
 
   async _setAuth(req) {
@@ -52,6 +53,9 @@ export class SDKClient {
       req.headers.set('Accept', 'application/json');
       if (opts.body && typeof opts.body === 'string') {
         req.headers.set('Content-Type', 'application/json');
+      }
+      if (this.domain) {
+        req.headers.set('X-Now-Domain', this.domain);
       }
       await this._setAuth(req);
 

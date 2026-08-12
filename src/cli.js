@@ -53,6 +53,7 @@ import { formsCmd } from './commands/dev/forms.js';
 import { listsCmd } from './commands/dev/lists.js';
 import { updateSetsCmd } from './commands/dev/updatesets.js';
 import { scopesCmd } from './commands/dev/scopes.js';
+import { domainsCmd } from './commands/dev/domains.js';
 import { evalCmd } from './commands/dev/eval.js';
 import { restCmd } from './commands/dev/rest.js';
 import { logsCmd } from './commands/dev/logs.js';
@@ -287,6 +288,7 @@ export function buildCLI() {
     .command(authCmd(wrap))
     .command(updateSetsCmd(wrap))
     .command(scopesCmd(wrap))
+    .command(domainsCmd(wrap))
     // CORE
     .command(incidentsCmd(wrap))
     .command(changesCmd(wrap))
@@ -388,7 +390,7 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp() + '\n');
+        process.stdout.write(renderHelp(loadConfig()) + '\n');
         process.exit(0);
       }
       process.stderr.write(msg + '\n');

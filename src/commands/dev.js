@@ -15,6 +15,7 @@ import { formsCmd } from './dev/forms.js';
 import { listsCmd } from './dev/lists.js';
 import { updateSetsCmd } from './dev/updatesets.js';
 import { scopesCmd } from './dev/scopes.js';
+import { domainsCmd } from './dev/domains.js';
 import { evalCmd } from './dev/eval.js';
 import { restCmd } from './dev/rest.js';
 import { logsCmd } from './dev/logs.js';
@@ -47,6 +48,7 @@ export function devCmd(wrap) {
         .command(rolesCmd(wrap))
         .command(updateSetsCmd(wrap))
         .command(scopesCmd(wrap))
+        .command(domainsCmd(wrap))
         .command(propertiesCmd(wrap))
         .command(relationshipsCmd(wrap))
         .command(appmodulesCmd(wrap))

@@ -151,6 +151,36 @@ export async function loginWizard(app, argv = {}) {
       }
       console.log('Login successful!');
       loggedIn = true;
+
+      // Probe domain separation capability once and stamp the profile, so
+      // `jsn domains` (and its help entry) only appear on instances with it.
+      try {
+        const { SDKClient } = await import('../sdk.js');
+        const domainsMod = await import('./dev/domains.js');
+        const sdk = new SDKClient(instance, app.auth);
+        profile.domain_separation = await domainsMod.isDomainSeparationInstalled({ sdk });
+        await setProfile(app.config, profileName, profile);
+
+        // If domain separation is installed, offer to pick a default domain
+        // for the profile — every request will be scoped to it via X-Now-Domain.
+        if (profile.domain_separation) {
+          const { confirm } = await import('@inquirer/prompts');
+          const setDomainNow = await confirm({
+            message: 'Domain separation detected. Configure a domain for this instance?',
+            default: false,
+          });
+          if (setDomainNow) {
+            const domainSysID = await domainsMod.pickDomain({ ...app, sdk });
+            if (domainSysID) {
+              profile.domain = domainSysID;
+              await setProfile(app.config, profileName, profile);
+              console.log('Domain configured.');
+            }
+          }
+        }
+      } catch {
+        // Non-fatal — capability unknown; domains command falls back to probing
+      }
     }
   } else {
     rl.close();
@@ -210,24 +240,82 @@ const PROFILE_FLAGS = [
 ];
 
 /**
- * Toggle a per-profile configuration flag (read_only / skip_confirmations).
- * Interactive flag picker when no flag passed; testable via argv.flag.
+ * Modify a profile: toggle a boolean flag, or set/clear the domain.
+ * Interactive picker when no flag passed; testable via argv.flag/argv.domain.
  */
 export async function modifyProfile(app, argv = {}) {
   const name = argv.name || await pickProfile(app, 'Modify which instance?');
   const profile = app.config.profiles?.[name];
   if (!profile) throw new Error(`Profile not found: ${name}`);
 
+  // Domain setting path: --domain <name|sys_id|clear>
+  if (argv.domain !== undefined) {
+    if (!profile.domain_separation) {
+      throw new Error(`Domain separation is not installed on ${profile.instance_url} — no domain to configure.`);
+    }
+    if (argv.domain === 'clear' || argv.domain === 'none' || argv.domain === '') {
+      profile.domain = '';
+      await saveConfig(app.config);
+      app.ok({ profile: name, domain: '' }, { summary: `Domain cleared for ${name}` });
+      return;
+    }
+    const { isDomainSeparationInstalled } = await import('./dev/domains.js');
+    const { SDKClient } = await import('../sdk.js');
+    const sdk = new SDKClient(profile.instance_url, app.auth);
+    if (!(await isDomainSeparationInstalled({ sdk }))) {
+      throw new Error(`Domain separation is not installed on ${profile.instance_url}`);
+    }
+    const { resolveDomainSysId } = await import('./dev/domains.js');
+    const sysID = await resolveDomainSysId({ sdk }, argv.domain);
+    profile.domain = sysID;
+    await saveConfig(app.config);
+    app.ok({ profile: name, domain: sysID }, { summary: `Domain set for ${name}` });
+    return;
+  }
+
   let flag = argv.flag;
   if (!flag) {
     const { select } = await import('@inquirer/prompts');
+    const choices = PROFILE_FLAGS.map(f => ({
+      name: `${f.icon} ${f.name}: ${profile[f.value] ? 'on' : 'off'}`,
+      value: f.value,
+    }));
+    if (profile.domain_separation) {
+      choices.push({
+        name: `🌐 Domain: ${profile.domain ? 'set' : 'not set'}`,
+        value: 'domain',
+      });
+    }
+    const { SDKClient } = await import('../sdk.js');
+    const sdk = new SDKClient(profile.instance_url, app.auth);
     flag = await select({
       message: `Modify ${name} (${profile.instance_url})`,
-      choices: PROFILE_FLAGS.map(f => ({
-        name: `${f.icon} ${f.name}: ${profile[f.value] ? 'on' : 'off'}`,
-        value: f.value,
-      })),
+      choices,
     });
+    if (flag === 'domain') {
+      const domainsMod = await import('./dev/domains.js');
+      const installed = await domainsMod.isDomainSeparationInstalled({ sdk });
+      if (!installed) {
+        throw new Error(`Domain separation is not installed on ${profile.instance_url}`);
+      }
+      const { confirm } = await import('@inquirer/prompts');
+      const clear = profile.domain
+        ? await confirm({ message: `Domain is set. Clear it?`, default: false })
+        : false;
+      if (clear) {
+        profile.domain = '';
+        await saveConfig(app.config);
+        app.ok({ profile: name, domain: '' }, { summary: `Domain cleared for ${name}` });
+        return;
+      }
+      const sysID = await domainsMod.pickDomain({ ...app, sdk });
+      if (sysID) {
+        profile.domain = sysID;
+        await saveConfig(app.config);
+        app.ok({ profile: name, domain: sysID }, { summary: `Domain set for ${name}` });
+      }
+      return;
+    }
   }
 
   profile[flag] = !profile[flag];
@@ -558,6 +646,23 @@ Examples:
 
             const creds = await app.auth.getCredentialsFor(instanceURL);
             const refreshed = await app.auth.refreshToken(instanceURL, creds);
+
+            // Re-probe domain separation on refresh so the capability flag
+            // stays in sync if the plugin was installed/removed since setup.
+            try {
+              const { SDKClient } = await import('../sdk.js');
+              const { isDomainSeparationInstalled } = await import('./dev/domains.js');
+              const sdk = new SDKClient(instanceURL, app.auth);
+              const hasDS = await isDomainSeparationInstalled({ sdk });
+              const name = app.config.activeProfile || app.config.defaultProfile;
+              if (name && app.config.profiles[name] && app.config.profiles[name].instance_url === instanceURL) {
+                app.config.profiles[name].domain_separation = hasDS;
+                await saveConfig(app.config);
+              }
+            } catch {
+              // Non-fatal — capability probe is best-effort
+            }
+
             app.ok({
               refreshed: true,
               instance: instanceURL,
@@ -604,11 +709,15 @@ Examples:
         })
         .command({
           command: 'modify [name]',
-          describe: 'Toggle instance configuration (read-only, skip confirmations)',
+          describe: 'Toggle instance configuration (read-only, skip confirmations, domain)',
           builder: (sub) => sub
             .positional('name', {
               describe: 'Profile name to modify',
               type: 'string',
+            })
+            .option('domain', {
+              type: 'string',
+              describe: 'Set the domain for this profile (name, sys_id, or "clear")',
             }),
           handler: wrap(async (argv, app) => {
             await modifyProfile(app, argv);

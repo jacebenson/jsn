@@ -75,6 +75,9 @@ export const MUTATION_COMMANDS = [
   ['scopes', 'set'],
   ['dev', 'scopes', 'create'],
   ['dev', 'scopes', 'set'],
+  // Domains: set writes the profile config (root + dev forms)
+  ['domains', 'set'],
+  ['dev', 'domains', 'set'],
   // Update sets: create, set, complete, ignore, parent (root + dev forms)
   ['updatesets', 'create'],
   ['updatesets', 'set'],

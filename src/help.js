@@ -111,6 +111,7 @@ const CONFIG_COMMANDS = [
   { name: 'auth', desc: 'Authentication (login, refresh, status)' },
   { name: 'updatesets', desc: 'Update sets (set, create, export)' },
   { name: 'scopes', desc: 'Application scopes' },
+  { name: 'domains', desc: 'Domains (domain separation)' },
 ];
 
 const DEVELOPER_COMMANDS = [
@@ -153,8 +154,21 @@ LEARN MORE
   Use "jsn <command> --help" for more information about a command.`;
 }
 
-export function renderHelp() {
-  const sections = Object.entries(COMMAND_GROUPS).map(([name, cmds]) => renderGroup(name, cmds));
+export function renderHelp(config) {
+  // Domain separation is an optional plugin — only advertise `domains`
+  // when the active profile's capability probe found it installed.
+  const activeName = config?.activeProfile || config?.defaultProfile;
+  const hasDS = !!(activeName && config?.profiles?.[activeName]?.domain_separation);
+  const configCmds = hasDS
+    ? CONFIG_COMMANDS
+    : CONFIG_COMMANDS.filter((c) => !c.name || c.name !== 'domains');
+
+  const COMMAND_GROUPS_LOCAL = {
+    ...COMMAND_GROUPS,
+    'CONFIGURATION': configCmds,
+  };
+
+  const sections = Object.entries(COMMAND_GROUPS_LOCAL).map(([name, cmds]) => renderGroup(name, cmds));
 
   return [
     'Usage: jsn <command> [options]',
