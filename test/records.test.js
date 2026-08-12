@@ -54,3 +54,53 @@ describe('SDK Helper Functions', () => {
     assert.strictEqual(params.get('sysparm_query'), 'active=true^ORDERBYDESCsys_updated_on');
   });
 });
+
+// ─── records get handler (regression: missing assertSafeExactMatch import, #153) ───
+
+describe('Records Get Handler', () => {
+  async function getHandler() {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const cmd = recordsCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const getCmd = subcommands.find(s => s.def.startsWith('get'));
+    assert.ok(getCmd, 'get subcommand not found');
+    return getCmd.handler;
+  }
+
+  it('get with a safe sys_id calls sdk.list (import wired, no ReferenceError)', async () => {
+    const handler = await getHandler();
+    let listCalled = false;
+    const app = {
+      config: { profiles: {} },
+      sdk: { list: async () => { listCalled = true; return [{ sys_id: 'abc123' }]; } },
+      ok: () => {},
+      getEffectiveInstance: () => 'https://dev.service-now.com',
+    };
+    await handler({ app, table: 'sys_script_include', 'sys-id': 'abc123def456abc123def456abc123de', _: ['get'] });
+    assert.ok(listCalled, 'sdk.list should be called for a safe sys_id');
+  });
+
+  it('get with an unsafe sys_id (^) is rejected before hitting the SDK', async () => {
+    const handler = await getHandler();
+    let listCalled = false;
+    const app = {
+      config: { profiles: {} },
+      sdk: { list: async () => { listCalled = true; return []; } },
+      ok: () => {},
+      getEffectiveInstance: () => 'https://dev.service-now.com',
+    };
+    await assert.rejects(
+      () => handler({ app, table: 'sys_script_include', 'sys-id': 'abc^OR1=1', _: ['get'] }),
+      /Unsafe identifier/
+    );
+    assert.ok(!listCalled, 'sdk.list must NOT be called for an unsafe sys_id');
+  });
+});

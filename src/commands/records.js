@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete } from '../helpers.js';
+import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch } from '../helpers.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
