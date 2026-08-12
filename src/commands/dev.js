@@ -61,6 +61,19 @@ export function devCmd(wrap) {
         .command(evalCmd(wrap))
         .command(restCmd(wrap));
     },
-    handler: () => {},
+    handler: (argv) => {
+      if (argv._[1]) return; // a subcommand ran — its own handler handled it
+      console.log('Manage ServiceNow development artifacts.');
+      console.log('');
+      console.log('Most dev commands are also available at the top level:');
+      console.log('  flows, actions, rules, clientscripts, uiactions, uipolicies,');
+      console.log('  tables, columns, forms, lists, import, sppages, spwidgets,');
+      console.log('  uipages, appmenu, scrapi, acls, roles, properties,');
+      console.log('  relationships, appmodules, listcontrols, views, privileges,');
+      console.log('  uxscripts, aliases, catalogscripts, cataloguipolicies, logs,');
+      console.log('  updatesets, scopes, eval, rest');
+      console.log('');
+      console.log('Run "jsn dev <command> --help" or "jsn <command> --help" for details.');
+    },
   };
 }
