@@ -1,5 +1,5 @@
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
-import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentUpdateSet } from '../../context.js';
+import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../../context.js';
 import { errUsage } from '../../errors.js';
 
 /**
@@ -231,12 +231,15 @@ export function updateSetsCmd(wrap) {
               assertSafeExactMatch(name);
               const params = new URLSearchParams();
               params.set('sysparm_query', `name=${name}`);
-              params.set('sysparm_limit', '1');
+              params.set('sysparm_limit', '10');
               params.set('sysparm_display_value', 'all');
               params.set('sysparm_fields', 'sys_id,name,application,state');
               const records = await app.sdk.list('sys_update_set', params);
               if (records.length === 0) {
                 throw new Error(`Update set not found: ${name}`);
+              }
+              if (records.length > 1) {
+                throw errUsage(`Multiple update sets named "${name}" (${records.length}). Run bare "jsn updatesets set" and pick by scope.`);
               }
               sysID = getStringField(records[0], 'sys_id');
               updateSetApp = records[0].application;
@@ -248,15 +251,25 @@ export function updateSetsCmd(wrap) {
             const userSysID = await requireCurrentUserSysId(app.sdk);
             await setCurrentUpdateSet(app.sdk, userSysID, sysID);
 
-            let scopeWarn = '';
+            // Like the platform update set picker: switching the set also
+            // switches the application scope into the set's scope. The
+            // application field is a sys_scope reference, so its raw value
+            // IS the scope sys_id the apps.current_app preference stores.
+            let scopeNote = '';
             try {
-              const currentApp = await getCurrentApplication(app.sdk, userSysID);
-              scopeWarn = scopeMismatchWarning(updateSetApp, currentApp);
+              const scopeSysId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
+              if (scopeSysId) {
+                await setCurrentApplication(app.sdk, userSysID, scopeSysId);
+                const scopeName = updateSetApp?.display_value || updateSetApp;
+                scopeNote = ` — scope switched to ${scopeName}`;
+              }
             } catch {
-              // non-fatal — warning is best-effort
+              // scope switch failed — fall back to a warning
+              const currentApp = await getCurrentApplication(app.sdk, userSysID).catch(() => null);
+              scopeNote = scopeMismatchWarning(updateSetApp, currentApp);
             }
 
-            app.ok({ update_set: name, sys_id: sysID }, { summary: `Current update set: ${name}${scopeWarn}` });
+            app.ok({ update_set: name, sys_id: sysID }, { summary: `Current update set: ${name}${scopeNote}` });
           }),
         })
         .command({
