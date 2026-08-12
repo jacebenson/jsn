@@ -362,6 +362,50 @@ describe('Auth Command Modify Handler', () => {
   });
 });
 
+// ─── wizard instance resolution (regression: setup → Add skipped URL ask) ───
+
+describe('resolveWizardInstance', () => {
+  let origEnv;
+  before(() => { origEnv = process.env.SERVICENOW_INSTANCE_URL; });
+  after(() => {
+    if (origEnv === undefined) delete process.env.SERVICENOW_INSTANCE_URL;
+    else process.env.SERVICENOW_INSTANCE_URL = origEnv;
+  });
+
+  it('returns empty when only a default profile exists (must ask for URL)', async () => {
+    delete process.env.SERVICENOW_INSTANCE_URL;
+    const { resolveWizardInstance } = await import('../src/commands/auth.js');
+    const app = {
+      config: {
+        defaultProfile: 'dev227772',
+        profiles: { dev227772: { instance_url: 'https://dev227772.service-now.com' } },
+      },
+    };
+    assert.strictEqual(resolveWizardInstance(app, {}), '');
+  });
+
+  it('pre-fills from an explicit --instance override', async () => {
+    delete process.env.SERVICENOW_INSTANCE_URL;
+    const { resolveWizardInstance } = await import('../src/commands/auth.js');
+    const app = { config: { profiles: {} }, _overrideInstance: 'https://dev99999.service-now.com' };
+    assert.strictEqual(resolveWizardInstance(app, {}), 'https://dev99999.service-now.com');
+  });
+
+  it('pre-fills from argv.instance', async () => {
+    delete process.env.SERVICENOW_INSTANCE_URL;
+    const { resolveWizardInstance } = await import('../src/commands/auth.js');
+    const app = { config: { profiles: {} } };
+    assert.strictEqual(resolveWizardInstance(app, { instance: 'https://dev12345.service-now.com' }), 'https://dev12345.service-now.com');
+  });
+
+  it('pre-fills from the env var', async () => {
+    process.env.SERVICENOW_INSTANCE_URL = 'https://dev55555.service-now.com';
+    const { resolveWizardInstance } = await import('../src/commands/auth.js');
+    const app = { config: { profiles: {} } };
+    assert.strictEqual(resolveWizardInstance(app, {}), 'https://dev55555.service-now.com');
+  });
+});
+
 // ─── auth remove handler ───
 
 describe('Auth Command Remove Handler', () => {

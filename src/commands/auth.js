@@ -46,6 +46,15 @@ export async function pickProfile(app, message) {
 }
 
 /**
+ * Resolve the instance for the wizard: only an EXPLICIT source (env var,
+ * --instance flag/override) pre-fills. The config's default profile must
+ * NOT — the wizard adds an instance, so it always asks otherwise.
+ */
+export function resolveWizardInstance(app, argv = {}) {
+  return process.env.SERVICENOW_INSTANCE_URL || app._overrideInstance || argv.instance || '';
+}
+
+/**
  * Interactive first-run wizard (formerly `jsn setup`).
  *
  * Walks: instance URL → profile name → auth method → optional OAuth login.
@@ -61,8 +70,15 @@ export async function loginWizard(app, argv = {}) {
   console.log('Welcome to JSN - ServiceNow CLI');
   console.log();
 
-  let instance = getEffectiveInstance(app.config);
-  if (!instance) {
+  // Ask for the instance URL unless one was explicitly provided (env var,
+  // --instance flag/override). NEVER pre-fill from the config's default
+  // profile — this wizard adds an instance, so it must always ask.
+  // (Regression: setup → Add skipped the URL ask when a default profile
+  // existed, silently re-targeting the default instance.)
+  let instance = resolveWizardInstance(app, argv);
+  if (instance) {
+    instance = normalizeInstanceURL(instance);
+  } else {
     instance = await ask('ServiceNow instance URL (e.g., dev12345.service-now.com): ');
     instance = normalizeInstanceURL(instance);
   }
