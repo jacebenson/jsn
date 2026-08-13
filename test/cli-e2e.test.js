@@ -98,10 +98,6 @@ function runCli(args) {
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
-function cliOk(result) {
-  return result.status === 0;
-}
-
 // ─── Read-only profile guard (PR #144) ───
 
 describe('CLI E2E - Read-only profile guard', { skip: !INTEGRATION_ENABLED }, () => {

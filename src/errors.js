@@ -9,6 +9,7 @@ export const CodeNetwork = 'network_error';
 export const CodeAPI = 'api_error';
 export const CodeAmbiguous = 'ambiguous';
 export const CodeEmptyResult = 'empty_result';
+export const CodeConfirmationRequired = 'confirmation_required';
 
 export class AppError extends Error {
   constructor(code, message, hint = '', status = 0, cause = null) {
@@ -114,6 +115,20 @@ export function errAmbiguous(resource, matches) {
     CodeAmbiguous,
     `Multiple ${resource} found matching your query`,
     `Did you mean one of: ${matches.join(', ')}?`
+  );
+}
+
+/**
+ * Structured error for a destructive action that requires confirmation
+ * but no human is available to answer (non-TTY, pipes, or AI agents).
+ * The hint is written to be machine-parseable: an agent can read the
+ * re-run command and either present it to its user or execute it.
+ */
+export function errConfirmationRequired(question, rerunCmd) {
+  return new AppError(
+    CodeConfirmationRequired,
+    `${question} — confirmation required. Pass --force to skip, or set skip_confirmations on the profile to disable prompts.`,
+    `This is a destructive action. Ask your user to confirm, then re-run:\n  ${rerunCmd} --force\nOr set skip_confirmations on the profile to disable prompts:\n  jsn auth login <instance> --skip-confirmations`
   );
 }
 

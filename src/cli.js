@@ -10,6 +10,7 @@ import { App } from './app.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand } from './mutations.js';
 import { guardExit } from './errors.js';
+import { FormatJSON } from './output.js';
 
 // Command modules
 import { setupCmd } from './commands/setup.js';
@@ -85,6 +86,19 @@ function wrap(handler) {
       if (err.code === 'system_error') {
         process.stderr.write(`Error (system): ${err.message}\n`);
         process.exit(3);
+      }
+      if (err.code === 'confirmation_required') {
+        // Structured error for AI agents / piped consumers: emit the
+        // JSON envelope on stdout (where tooling reads) so the agent can
+        // surface the decision to its user or re-run with --force.
+        const app = argv.app;
+        if (app && app.output.effectiveFormat() === FormatJSON) {
+          app.err(err);
+        } else {
+          process.stderr.write(`Error: ${err.message}\n`);
+          if (err.hint) process.stderr.write(`\n${err.hint}\n`);
+        }
+        process.exit(1);
       }
       process.stderr.write(`Error: ${err.message}\n`);
       process.exit(1);
