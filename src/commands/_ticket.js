@@ -1,9 +1,9 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, assertSafeExactMatch } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, assertSafeExactMatch, canPrompt } from '../helpers.js';
 import { search } from '@inquirer/prompts';
-import { isTTY, FormatAuto } from '../output.js';
+import { FormatAuto } from '../output.js';
 
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap) {
   return {
@@ -28,7 +28,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const offset = argv.offset;
 
             // Interactive picker in TTY with auto format and no explicit query/offset
-            const isInteractive = isTTY(process.stdout) && isTTY(process.stdin);
+            const isInteractive = canPrompt();
             if (isInteractive && app.output.getFormat() === FormatAuto && !query && offset === 0) {
               const pickerColumns = ['sys_id', 'number', 'short_description', 'state', 'assigned_to'];
               const pickerParams = new URLSearchParams();

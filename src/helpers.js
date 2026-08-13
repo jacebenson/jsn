@@ -5,6 +5,32 @@ import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 import { getActiveProfile } from './config.js';
+import { errConfirmationRequired } from './errors.js';
+
+/**
+ * Detect whether a human is actually available to answer interactive
+ * prompts. Agent tooling (VSCode Copilot, Claude Code, Cursor, etc.)
+ * allocates a PTY for subprocesses, so isTTY() returns true even though
+ * no one will ever type a response. Those environments set signals that
+ * let us fall back to non-interactive behavior instead of hanging:
+ *
+ *   - JSN_NO_PROMPTS=1        (explicit opt-out, documented for agents)
+ *   - CI / NONINTERACTIVE / GITHUB_ACTIONS
+ *   - CLAUDE_CODE / COPILOT_* / CURSOR_* agent markers
+ *   - TERM=dumb
+ *
+ * @returns {boolean} true when a human can answer a prompt
+ */
+export function canPrompt() {
+  if (process.env.JSN_NO_PROMPTS === '1') return false;
+  if (process.env.CI === 'true' || process.env.CI === '1') return false;
+  if (process.env.NONINTERACTIVE === 'true' || process.env.NONINTERACTIVE === '1') return false;
+  if (process.env.GITHUB_ACTIONS === 'true') return false;
+  if (process.env.TERM === 'dumb') return false;
+  const agentMarkers = ['CLAUDE_CODE', 'COPILOT_AGENT', 'VSCODE_AGENT', 'CURSOR_AGENT', 'CODEX_AGENT', 'GITHUB_COPILOT_AGENT'];
+  if (agentMarkers.some((m) => process.env[m] === 'true' || process.env[m] === '1')) return false;
+  return isTTY(process.stdout) && isTTY(process.stdin);
+}
 
 /**
  * Confirm a destructive action before executing.
@@ -25,7 +51,7 @@ export async function confirmDelete(app, argv, question) {
   const profile = getActiveProfile(app.config);
   if (profile?.skip_confirmations === true) return true;
   if (argv.force) return true;
-  if (isTTY(process.stdout) && isTTY(process.stdin)) {
+  if (canPrompt()) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const answer = await new Promise((resolve) => {
       rl.question(`${question} (y/N): `, resolve);
@@ -37,9 +63,10 @@ export async function confirmDelete(app, argv, question) {
     }
     return true;
   }
-  throw new Error(
-    `${question} — confirmation required. Pass --force to skip, or set skip_confirmations on the profile to disable prompts.`
-  );
+  // No human available (pipes, scripts, AI agents). Fail fast with a
+  // structured error an agent can act on — never hang waiting for stdin.
+  const cmd = ['jsn', ...(argv._ || [])].join(' ');
+  throw errConfirmationRequired(question, cmd);
 }
 
 
@@ -232,7 +259,7 @@ export function assertSafeExactMatch(value) {
 export async function interactiveList({ app, table, singular, columns, limit = 50, _query = '', formatLabel, labelField = 'name' }) {
   app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
-  if (effectiveFormat !== FormatAuto || !isTTY(process.stdout) || !isTTY(process.stdin)) {
+  if (effectiveFormat !== FormatAuto || !canPrompt()) {
     return null; // not interactive — caller should fall back to text/table
   }
 

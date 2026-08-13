@@ -1,9 +1,9 @@
 // Generic dev subcommand builder for table-based CRUD
 
-import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, confirmDelete, assertSafeExactMatch } from '../../helpers.js';
+import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, confirmDelete, assertSafeExactMatch, canPrompt } from '../../helpers.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import { paginatedSearch } from '../../paginated-search.js';
-import { isTTY, FormatAuto } from '../../output.js';
+import { FormatAuto } from '../../output.js';
 
 function vowelArticle(word) {
   const first = word.charAt(0).toLowerCase();
@@ -111,7 +111,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const limit = argv.limit;
 
           // Interactive picker with pagination
-          const interactive = isTTY(process.stdout) && isTTY(process.stdin);
+          const interactive = canPrompt();
           if (interactive && app.output.getFormat() === FormatAuto && !query) {
             // Get total count
             let totalCount = 0;
