@@ -55,6 +55,84 @@ export function getStringField(record, field) {
   return String(val);
 }
 
+/**
+ * Extract the raw value from a field that may be a string or a
+ * {display_value, value} object returned by the Table API.
+ * Prefers .value (the raw stored value) over .display_value.
+ */
+function getRawValue(val) {
+  if (val == null) return '';
+  if (typeof val === 'object') {
+    if (val.value != null) return String(val.value);
+    if (val.display_value != null) return String(val.display_value);
+    return '';
+  }
+  return String(val);
+}
+
+/**
+ * Normalize a value the user supplied in --data for comparison against
+ * what the API persisted. Objects like {"value": "<sys_id>"} are unwrapped.
+ */
+function normalizeSupplied(val) {
+  if (val == null) return '';
+  if (typeof val === 'object') {
+    if (val.value != null) return String(val.value);
+    return '';
+  }
+  return String(val);
+}
+
+/**
+ * Write-back verification for records create/update.
+ *
+ * After a mutation, re-GET the record and compare each field supplied in
+ * --data against what actually persisted. Surfaces silent server-side
+ * drops (inherited references, ACL-restricted fields, IO: prefixed strings,
+ * platform quirks) that ServiceNow ignores without erroring.
+ *
+ * Skips sys_* fields (system-managed, already warned by checkDerivedFields).
+ *
+ * @returns {Promise<Array<{field: string, sent: string, got: string}>>}
+ */
+export async function verifyWriteBack(app, table, sysID, sentData) {
+  const mismatches = [];
+  if (!sysID || !sentData || typeof sentData !== 'object') return mismatches;
+
+  const fields = Object.keys(sentData).filter(f => f !== 'sys_id' && !f.startsWith('sys_'));
+  if (fields.length === 0) return mismatches;
+
+  let persisted;
+  try {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `sys_id=${sysID}`);
+    params.set('sysparm_limit', '1');
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', ['sys_id', ...fields].join(','));
+    const records = await app.sdk.list(table, params);
+    persisted = records[0] || null;
+  } catch {
+    // Verification GET failed — don't fail the mutation, just report it.
+    mismatches.push({ field: '(verify)', sent: '', got: 'write-back check failed (GET error)' });
+    return mismatches;
+  }
+
+  if (!persisted) {
+    mismatches.push({ field: '(verify)', sent: '', got: 'record not found after write' });
+    return mismatches;
+  }
+
+  for (const field of fields) {
+    const sent = normalizeSupplied(sentData[field]);
+    const got = getRawValue(persisted[field]);
+    if (sent !== got) {
+      mismatches.push({ field, sent, got });
+    }
+  }
+
+  return mismatches;
+}
+
 export function formatRecordForDisplay(record, columns) {
   const result = {};
 

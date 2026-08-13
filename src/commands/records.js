@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch } from '../helpers.js';
+import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -135,7 +135,8 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
-            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' }),
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
+            .option('strict', { type: 'boolean', default: false, describe: 'Exit non-zero if any supplied field was not persisted (write-back check)' }),
           handler: wrap(async (argv, app) => {
             const recordData = parseDataArg(argv);
             const warnings = checkDerivedFields(argv.table, recordData);
@@ -143,6 +144,14 @@ export function recordsCmd(wrap) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
             const record = await app.sdk.create(argv.table, recordData);
+            const sysID = getStringField(record, 'sys_id');
+            const mismatches = await verifyWriteBack(app, argv.table, sysID, recordData);
+            for (const m of mismatches) {
+              process.stderr.write(`⚠ field "${m.field}" was not persisted (sent: "${m.sent}", got: "${m.got}")\n`);
+            }
+            if (mismatches.length > 0 && argv.strict) {
+              throw new Error(`Strict mode: ${mismatches.length} field(s) not persisted after create`);
+            }
             app.ok(record, { summary: `Created record in ${argv.table}` });
           }),
         })
@@ -154,7 +163,8 @@ export function recordsCmd(wrap) {
             .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
             .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
-            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' }),
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
+            .option('strict', { type: 'boolean', default: false, describe: 'Exit non-zero if any supplied field was not persisted (write-back check)' }),
           handler: wrap(async (argv, app) => {
             const recordData = parseDataArg(argv);
             const warnings = checkDerivedFields(argv.table, recordData);
@@ -162,6 +172,13 @@ export function recordsCmd(wrap) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
             const record = await app.sdk.update(argv.table, argv['sys-id'], recordData);
+            const mismatches = await verifyWriteBack(app, argv.table, argv['sys-id'], recordData);
+            for (const m of mismatches) {
+              process.stderr.write(`⚠ field "${m.field}" was not persisted (sent: "${m.sent}", got: "${m.got}")\n`);
+            }
+            if (mismatches.length > 0 && argv.strict) {
+              throw new Error(`Strict mode: ${mismatches.length} field(s) not persisted after update`);
+            }
             app.ok(record, { summary: `Updated record in ${argv.table}` });
           }),
         })
