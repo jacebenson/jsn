@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { getCurrentUser, getCurrentApplication } from '../../context.js';
 
 export function evalCmd(wrap) {
   return {
@@ -8,16 +9,34 @@ export function evalCmd(wrap) {
       return yargs
         .option('script', { alias: 's', type: 'string', describe: "JavaScript code to execute (single-quote the script, double quotes inside: --script 'gs.log(\"Hello\")')" })
         .option('file', { alias: 'f', type: 'string', describe: 'Read script from file (avoids shell quoting issues)' })
-        .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: global)' });
+        .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: active scope from banner)' });
     },
     handler: wrap(async (argv, app) => {
       let script;
       let scopeSysId = null;
 
-      if (argv.scope) {
-        scopeSysId = await app.sdk.resolveScope(argv.scope);
+      // Resolve execution scope: explicit --scope wins; otherwise use the
+      // active scope from apps.current_app (same source as the banner);
+      // fall back to global only when no active scope exists.
+      let scope = argv.scope || '';
+      if (!scope) {
+        try {
+          const user = await getCurrentUser(app.sdk);
+          if (user && user.sys_id) {
+            const currentApp = await getCurrentApplication(app.sdk, user.sys_id);
+            if (currentApp && currentApp.scope && currentApp.scope !== 'global') {
+              scope = currentApp.scope;
+            }
+          }
+        } catch {
+          // ignore — fall back to global
+        }
+      }
+
+      if (scope) {
+        scopeSysId = await app.sdk.resolveScope(scope);
         if (!scopeSysId) {
-          throw new Error(`Scope not found: ${argv.scope}`);
+          throw new Error(`Scope not found: ${scope}`);
         }
       }
 
@@ -36,10 +55,13 @@ export function evalCmd(wrap) {
       const warning = scopeSysId
         ? ` ⚠️ Records without explicit sys_scope will land in global. Use $scopeSysId variable.`
         : '';
-      const output = await app.sdk.executeScript(script, argv.scope);
+      // Pass the resolved sys_id (not the name) — sys.scripts.do only
+      // honors selectable scope values, which are sys_ids.
+      const output = await app.sdk.executeScript(script, scopeSysId || '');
       app.ok({
         script,
         output,
+        scope: scope || 'global',
         instance: app.getEffectiveInstance(),
       }, {
         summary: 'Script executed' + warning,
