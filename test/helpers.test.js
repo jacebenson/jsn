@@ -136,3 +136,100 @@ describe('parseDataArg', () => {
     assert.throws(() => parseDataArg({ data: '{invalid}' }), /Invalid JSON/);
   });
 });
+
+describe('verifyWriteBack', () => {
+  it('reports fields that were dropped server-side', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          ui_policy: { display_value: '', value: '' },
+          mandatory: 'true',
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'catalog_ui_policy_action', 'rec123', {
+      ui_policy: 'pol456',
+      mandatory: 'true',
+    });
+    assert.strictEqual(mismatches.length, 1);
+    assert.strictEqual(mismatches[0].field, 'ui_policy');
+    assert.strictEqual(mismatches[0].sent, 'pol456');
+    assert.strictEqual(mismatches[0].got, '');
+  });
+
+  it('passes when all fields persisted', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          catalog_variable: { display_value: 'IO:var789', value: 'IO:var789' },
+          mandatory: 'true',
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'catalog_ui_policy_action', 'rec123', {
+      catalog_variable: 'IO:var789',
+      mandatory: 'true',
+    });
+    assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('normalizes {"value": ...} supplied objects', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          assigned_to: { display_value: 'John Smith', value: 'user456' },
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'incident', 'rec123', {
+      assigned_to: { value: 'user456' },
+    });
+    assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('skips sys_* fields (system-managed)', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{ sys_id: 'rec123', sys_updated_on: '2026-01-01' }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'incident', 'rec123', {
+      sys_updated_on: '2026-01-01',
+    });
+    assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('returns empty for missing sys_id', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = { sdk: { list: async () => [] } };
+    const mismatches = await verifyWriteBack(app, 'incident', '', { short_description: 'x' });
+    assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('reports GET failure without throwing', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => { throw new Error('network down'); },
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'incident', 'rec123', { short_description: 'x' });
+    assert.strictEqual(mismatches.length, 1);
+    assert.ok(mismatches[0].got.includes('write-back check failed'));
+  });
+
+  it('reports record not found after write', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = { sdk: { list: async () => [] } };
+    const mismatches = await verifyWriteBack(app, 'incident', 'rec123', { short_description: 'x' });
+    assert.strictEqual(mismatches.length, 1);
+    assert.ok(mismatches[0].got.includes('record not found'));
+  });
+});
