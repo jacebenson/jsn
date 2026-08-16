@@ -121,9 +121,53 @@
         .demo .output { color: var(--muted); }
         .demo .heading { color: #fff; font-weight: bold; margin-top: 1rem; }
 
+        /* Expandable demo panels */
+        details.demo-item {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #1e1e1e;
+            margin: 0.75rem 0;
+            padding: 0.5rem 1rem;
+        }
+
+        details.demo-item summary {
+            cursor: pointer;
+            color: var(--accent);
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9rem;
+            padding: 0.5rem 0;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        details.demo-item summary .demo-cmd {
+            flex: 1;
+        }
+
+        details.demo-item summary:hover .demo-cmd {
+            color: #fff;
+        }
+
+        details.demo-item[open] summary .demo-cmd {
+            color: #fff;
+        }
+
+        details.demo-item .output {
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            overflow-x: auto;
+        }
+
+        details.demo-item .output pre {
+            margin: 0;
+        }
+
         /* Features */
         .features {
             display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
             gap: 2rem;
             margin: 3rem 0;
         }
@@ -211,7 +255,7 @@
     <div class="container">
         <header class="hero">
             <h1>Agent-first, agent-native<span class="cursor"></span></h1>
-            <p class="tagline">A CLI for exploring and managing ServiceNow instances.<br>Works standalone or with any AI agent.</p>
+            <p class="tagline">The ServiceNow REST API, plus the context that matters.<br>Catalog variables, flow subflows, related records. Works standalone or with any AI agent.</p>
             <p style="text-align: center; margin-top: 1rem;">
                 <a href="https://github.com/jacebenson/jsn" style="color: var(--accent); font-size: 1rem; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; padding: 0.5rem 1.2rem; border: 1px solid var(--accent); border-radius: 6px;">
                     <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
@@ -258,99 +302,222 @@
         <h2 style="color: var(--accent); font-size: 1.1rem; margin-bottom: 0.5rem; font-family: 'SF Mono', Monaco, monospace; text-align: center;">⏎  What it looks like</h2>
 
         <div class="demo" id="demo">
-            <div class="heading">$ jsn setup</div>
-            <div class="output">? What would you like to do?<br>&gt; Add a new instance<br>&nbsp; Switch to a different instance<br>&nbsp; Remove an instance<br>&nbsp; Modify an instance</div>
+            <details class="demo-item">
+                <summary><span class="demo-cmd">$ jsn incidents list --limit 4</span><button class="copy-btn" onclick="copyDemo(this, 'jsn incidents list --limit 4')">Copy</button></summary>
+                <div class="output"><pre>4 incident(s)
 
-            <div class="heading">$ jsn records --table change_request</div>
-            <div class="output">Select a record from change_request:<br><br>&gt; CHG0000077 - A failed RAID controller card needs to be replaced<br>&nbsp; CHG0000067 - A failed RAID controller card needs to be replaced<br>&nbsp; CHG0040005 - Add network switch to cabinet<br>&nbsp; CHG0000011 - Another Java Application Server change<br>&nbsp; CHG0000009 - Apply patches 10.2.0.1 to 10.2.0.3<br><br><span style="color:#555;">↑/↓ navigate • enter select • /search • a-z jump</span></div>
 
-            <div class="heading">$ jsn rules --table incident</div>
-            <div class="output">Select a rule to view:<br><br>&gt; Abort changes on group - incident - before<br>&nbsp; Add info messages for incident closure - incident - after<br>&nbsp; Auto assessment business rule - incident - async<br>&nbsp; Caller Close - incident - before<br>&nbsp; Cascade closure of Incident Tasks - incident - after<br><br><span style="color:#555;">1-5 of 20 loaded (20 total)</span></div>
+number          short_description                                 priority        state       assigned_to
+--------------  ------------------------------------------------  --------------  ----------  ---------------
+INC0000014      Missing my home directory test-1                  1 - Critical    Closed      Bud Richman
+INC0000601      The USB port on my PC stopped working             5 - Planning    Closed
+INC0009004      Defect tracking tool is down.                     3 - Moderate    Closed
+INC0000005      CPU load high for over 10 minutes                 1 - Critical    Closed      Bud Richman
 
-            <div class="heading">$ jsn flows</div>
-            <div class="output">Flow: Change - Cloud Infrastructure - Authorize<br><br>&nbsp; Status: Active | Version: Unset (Assumed V1)<br><br>▶ TRIGGER<br>──────────────────────────────────────<br>&nbsp; Created or Updated<br><br>⚡ FLOW STRUCTURE<br>──────────────────────────────────────<br>1. Apply Change Approval Policy<br>2. Wait For Condition<br>3. Do the following in Parallel<br>4. &nbsp; If → Update Record<br>5. &nbsp; Else → Update Record<br>6. Evaluate Change Model</div>
+→ create: jsn inc create --description "..." — Create a new incidents
+→ filter: jsn inc list --query "priority=1" — Filter: critical only
+→ next: jsn inc list --limit 4 --offset 4 — Next page (offset 4)</pre></div>
+            </details>
+
+            <details class="demo-item">
+                <summary><span class="demo-cmd">$ jsn requests show RITM0010001</span><button class="copy-btn" onclick="copyDemo(this, 'jsn requests show RITM0010001')">Copy</button></summary>
+                <div class="output"><pre>Request RITM0010001
+
+
+RITM0010001 (Requested Item)
+
+─ Core ─
+  number:  RITM0010001
+  sys_id:  02dedb44839e8b10f7bfc670ceaad36c
+  state:  Open
+  active:  true
+  short_description:  Submit a nulledge knowledge speaking session
+  priority:  4 - Low
+  opened_by:  System Administrator
+  opened_at:  2026-07-20 18:47:11
+
+─ Catalog Variables ─
+  Topic:  Moveworks!  What is Slate?  He can tell you!
+  Speaker:  Teo
+
+
+→ update: jsn req update RITM0010001 --data '{...}' — Update this request
+→ list: jsn req list — Back to all requests</pre></div>
+            </details>
+
+            <details class="demo-item">
+                <summary><span class="demo-cmd">$ jsn flows show "Service Catalog item request"</span><button class="copy-btn" onclick="copyDemo(this, 'jsn flows show \"Service Catalog item request\"')">Copy</button></summary>
+                <div class="output"><pre>Flow: Service Catalog item request
+
+  Status: Active | Version: 2
+
+▶ TRIGGER
+──────────────────────────────────────────────────
+  Name: Service Catalog
+  Type: Service Catalog
+
+⚡ FLOW STRUCTURE
+──────────────────────────────────────────────────
+1. ↪ Requested Item Manager Approval
+   1. Ask For Approval
+     Record: {{subflow.requested_item}}
+     Table: Requested Item
+     Approval Field: approval
+     Rules: ApprovesAnyU[{{subflow.requested_item.requested_for.manager}}]OrRejectsAnyU[{{subflow.requested_item.requested_for.manager}}]
+   2. If: Manager Apporval is Rejected
+     3. Assign Subflow Outputs
+     4. End
+2. If: Requested Item is Rejected By Manager
+    3. End
+4. ↪ Requested Item Dept Head Approval
+   1. Ask For Approval
+     Record: {{subflow.requested_item}}
+     Table: Requested Item
+     Approval Field: approval
+     Rules: ApprovesAnyU[{{subflow.requested_item.requested_for.department.dept_head}}]OrRejectsAnyU[{{subflow.requested_item.requested_for.department.dept_head}}]
+   2. If: Dept Head Approval is Rejected
+     3. Assign Subflow Outputs
+     4. End
+5. If: Requested Item is Rejected by Dept Head
+    6. End
+7. Create Catalog Task
+    Table Name: sc_task
+    Requested Item: {{Service Catalog_1.request_item}}
+    Short Description: Please fulfill this order
+    Fields: assignment_group=Procurement
+    Fields: description=Pull from Stock or Order from Vendor if required.
+
+→ list: jsn flows list — Back to all flows</pre></div>
+            </details>
+
+            <details class="demo-item">
+                <summary><span class="demo-cmd">$ jsn flows show "Major Incident Playbook - Create a Problem from Incident"</span><button class="copy-btn" onclick="copyDemo(this, 'jsn flows show \"Major Incident Playbook - Create a Problem from Incident\"')">Copy</button></summary>
+                <div class="output"><pre>Flow: Major Incident Playbook - Create a Problem from Incident
+
+  Status: Active | Version: 2
+
+▶ SUBFLOW
+──────────────────────────────────────────────────
+  Inputs (4)
+    • Incident: reference
+    • Close Conditions: condition_string
+    • Cancel Conditions: condition_string
+    • Skip Conditions: condition_string
+
+  Outputs (2)
+    • Flow Data Record: reference
+    • Problem: reference
+
+⚡ FLOW STRUCTURE
+──────────────────────────────────────────────────
+1. Create Flow Data
+    Definition: Manual Activity
+    Wait for user input: No
+    State: In Progress
+2. ↪ Major Incident Playbook - Manage Flow Data Record
+   1. If: Flow Data Record is Complete or Skipped
+     2. End
+   3. Else
+     4. Do the following in Parallel
+         5. Parallel Branch
+             6. If: Skip Conditions are not empty
+                 7. Wait For Condition
+                     Record: {{subflow.incident_record}}
+                     Table: Incident
+                     Conditions: {{subflow.skip_conditions}}
+                     Enable timeout: false
+                 8. Update Record - Flow Data
+                     Record: {{subflow.flow_data_record}}
+                     Fields: state=SKIPPED
+                 9. End
+         10. Parallel Branch
+             11. If: Cancel Conditions are not empty
+                 12. Wait For Condition
+                     Record: {{subflow.incident_record}}
+                     Table: Incident
+                     Conditions: {{subflow.cancel_conditions}}
+                     Enable timeout: false
+                 13. Update Record - Flow Data
+                     Record: {{subflow.flow_data_record}}
+                     Fields: state=CANCELLED
+3. If: Flow Data is Completed or Canceled
+    4. Assign Subflow Outputs
+    5. End
+6. Major Incident Playbook - Check if plugin is installed
+    Plugin ID: com.snc.best_practice.problem.madrid.state_model
+    Property name: com.snc.problem.auto_creation.enable
+7. If: Problem Management Best Practice - Madrid - State Model is active
+    8. Create Problem Record from Incident
+        Incident Record: {{subflow.incident}}
+    9. If
+        10. Assign Subflow Outputs
+11. Else
+    12. Assign Subflow Outputs
+13. ↪ Major Incident Playbook - Manage Flow Data Record
+
+→ list: jsn flows list — Back to all flows</pre></div>
+            </details>
         </div>
 
+        <section class="why" style="margin: 3rem 0; text-align: center;">
+            <h2 style="color: var(--accent); font-size: 1.1rem; margin-bottom: 1rem; font-family: 'SF Mono', Monaco, monospace;">Why jsn exists</h2>
+            <p style="color: var(--muted); max-width: 640px; margin: 0 auto; line-height: 1.8;">
+                When I started this in March 2026, the ServiceNow SDK couldn't read a record from a live instance. It could only build. So I built what I wanted: a CLI that works with your data across scopes.
+            </p>
+            <p style="color: var(--muted); max-width: 640px; margin: 0.75rem auto 0; line-height: 1.8;">
+                now-sdk added live queries in June 2026. Good for them. But reading records was never the whole point.
+            </p>
+        </section>
+
         <section class="features">
+            <h2 style="color: var(--accent); font-size: 1.1rem; margin-bottom: 1.5rem; font-family: 'SF Mono', Monaco, monospace; text-align: center; grid-column: 1 / -1;">What it does that plain REST doesn't</h2>
+
             <div class="feature">
-                <h3>Quick Setup</h3>
-                <p>Requires Node.js and npm. One command, no ServiceNow plugins, no build step, no config file to wrestle.</p>
-                <div class="code-block">
-                    <span class="cmd">npm install -g @jacebenson/jsn</span><br>
-                    <span class="cmd">jsn setup</span> <span class="comment"># Interactive — add, switch, remove, modify instances</span><br>
-                    <span class="cmd">jsn incidents</span> <span class="comment"># Start using</span>
-                </div>
+                <h3>Context, not just REST</h3>
+                <p>Load a catalog item and get its variables. Load a flow and get its subflows. Related records, resolved. Plain REST doesn't do that.</p>
             </div>
 
             <div class="feature">
                 <h3>Agent-Native</h3>
-                <p>Designed for AI agents. JSON output, breadcrumbs, and machine-readable structure. Works with Hermes, Claude, Codex, Cursor, OpenCode, OpenClaw, GitHub Copilot, and VS Code.</p>
+                <p>JSON output and breadcrumbs for agents. Works with Hermes, Claude, Codex, Cursor, OpenCode, Copilot. The skill is a markdown file, no MCP server to stand up. CLIs run on a fraction of the context MCP servers eat (<a href="https://layered.dev/mcp-tool-schema-bloat-the-hidden-token-tax-and-how-to-fix-it/" target="_blank" style="color: var(--accent);">why</a>), and even the protocol's own repo admits the bloat problem (<a href="https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/2036" target="_blank" style="color: var(--accent);">discussion #2036</a>).</p>
                 <div class="code-block">
-                    <span class="cmd">jsn dev tables --json</span> <span class="comment"># Structured JSON output</span><br>
-                    <span class="cmd">jsn incidents list -q</span> <span class="comment"># Quiet mode, no prompts</span>
+                    <span class="cmd">jsn incidents list --json</span> <span class="comment"># Structured output</span><br>
+                    <span class="cmd">jsn skill install</span> <span class="comment"># Expert knowledge for your agent</span>
                 </div>
             </div>
 
             <div class="feature">
-                <h3>Explore Your Instance</h3>
-                <p>Understand your ServiceNow instance without clicking through 12 UI screens. Incidents, changes, requests, tables, business rules, flows, and more.</p>
-                <div class="code-block">
-                    <span class="cmd">jsn incidents list --query "priority=1"</span> <span class="comment"># Critical incidents</span><br>
-                    <span class="cmd">jsn dev rules --table incident</span> <span class="comment"># Business rules</span><br>
-                    <span class="cmd">jsn dev tables incident</span> <span class="comment"># Table schema</span>
-                </div>
+                <h3>The docs, local</h3>
+                <p>All ~50,000 ServiceNow docs, indexed, searchable instantly, offline. Ask the difference between Flow Designer and Playbooks and get an answer from the docs, not a guess.</p>
             </div>
 
             <div class="feature">
-                <h3>AI Agent Skills</h3>
-                <p>Built-in skill file for AI agents. Run <code>jsn skill install</code> and your agent automatically gains expert-level ServiceNow knowledge.</p>
-                <div class="code-block">
-                    <span class="cmd">jsn skill install</span> <span class="comment"># Interactive picker — pick your agent</span><br>
-                    <span class="cmd">jsn skill show</span> <span class="comment"># Preview the skill content</span>
-                </div>
+                <h3>Auth that just works</h3>
+                <p>OAuth handled. The part raw AI plus REST keeps tripping on.</p>
+            </div>
+
+            <div class="feature">
+                <h3>Safe by default</h3>
+                <p>Read-only by default. Deletes are blocked unless you pass --force. You can even mark a profile read-only and mutations are blocked entirely.</p>
+            </div>
+
+            <div class="feature">
+                <h3>Small by design</h3>
+                <p>They declare 3 dependencies. You end up with 628 packages and 353 MB. We declare 6. You end up with 90 and 41 MB. None of ours are abandoned. Three of theirs are.</p>
             </div>
         </section>
 
-        <section class="skills-setup">
-            <h2 style="color: #fff; font-size: 1.5rem; margin-bottom: 1.5rem; font-family: 'SF Mono', Monaco, monospace;">Quick Setup for AI Agents</h2>
-            
-            <div class="feature" style="margin-bottom: 1.5rem;">
-                <h3>1. Install CLI</h3>
-                <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">npm install -g @jacebenson/jsn</span> <span class="comment"># Requires Node.js</span><br>
-                    <span class="cmd">jsn --version</span> <span class="comment"># Verify: jsn 4.0.0</span>
-                </div>
-            </div>
-
-            <div class="feature" style="margin-bottom: 1.5rem;">
-                <h3>2. Authenticate</h3>
-                <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">jsn setup</span> <span class="comment"># Interactive — adds your instance</span><br>
-                    <span class="cmd">jsn auth status</span> <span class="comment"># Verify: Authenticated</span>
-                </div>
-            </div>
-
-            <div class="feature" style="margin-bottom: 1.5rem;">
-                <h3>3. Install Skill</h3>
-                <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="cmd">jsn skill install</span> <span class="comment"># Interactive picker — Hermes, Claude, Codex, OpenCode, OpenClaw, VS Code, and more</span><br>
-                    <span class="cmd">jsn skill show</span> <span class="comment"># Verify: displays skill content</span>
-                </div>
-            </div>
-
-            <div class="feature">
-                <h3>4. Start Using</h3>
-                <div class="code-block" style="margin-top: 0.5rem;">
-                    <span class="comment"># Restart your agent to load the skill</span><br>
-                    <span class="comment"># Then just ask naturally about ServiceNow:</span><br>
-                    <span class="comment"># "Show me my incidents" or "List business rules on incident"</span><br>
-                    <span class="comment"># The agent automatically invokes jsn commands for you</span>
-                </div>
-            </div>
-
-            <p style="text-align: center; margin-top: 2rem; color: var(--muted);">
-                <a href="https://github.com/jacebenson/jsn/blob/nodejs/skills/servicenow/SKILL.md" style="color: var(--accent); text-decoration: none;">View full skill documentation →</a>
+        <section style="text-align: center; padding: 2rem 0;">
+            <p style="color: var(--muted);">
+                Install: <code style="color: var(--accent);">npm install -g @jacebenson/jsn</code> · Auth: <code style="color: var(--accent);">jsn setup</code> · Agents: <code style="color: var(--accent);">jsn skill install</code>
             </p>
+            <p style="margin-top: 1rem;">
+                <a href="https://github.com/jacebenson/jsn/blob/nodejs/skills/servicenow/SKILL.md" style="color: var(--accent); text-decoration: none;">Full setup guide &amp; skill docs →</a>
+            </p>
+        </section>
+
+        <section style="text-align: center; padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 3rem;">
+            <p style="color: var(--muted); font-size: 0.95rem;">Open source, MIT. Runs locally. No analytics, nothing phones home. Credentials stay in your config.</p>
         </section>
 
         <footer class="footer">
@@ -376,6 +543,23 @@
                 document.execCommand('copy');
                 document.body.removeChild(textarea);
                 const btn = event.target;
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            });
+        }
+
+        // Copy a demo command
+        function copyDemo(btn, cmd) {
+            navigator.clipboard.writeText(cmd).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            }).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = cmd;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
                 btn.textContent = 'Copied!';
                 setTimeout(() => btn.textContent = 'Copy', 2000);
             });
