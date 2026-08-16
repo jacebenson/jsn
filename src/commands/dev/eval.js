@@ -9,6 +9,7 @@ export function evalCmd(wrap) {
       return yargs
         .option('script', { alias: 's', type: 'string', describe: "JavaScript code to execute (single-quote the script, double quotes inside: --script 'gs.log(\"Hello\")')" })
         .option('file', { alias: 'f', type: 'string', describe: 'Read script from file (avoids shell quoting issues)' })
+        .option('stdin', { type: 'boolean', describe: 'Read script from stdin (pipe-friendly, e.g. cat script.js | jsn eval --stdin)' })
         .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: active scope from banner)' });
     },
     handler: wrap(async (argv, app) => {
@@ -42,10 +43,18 @@ export function evalCmd(wrap) {
 
       if (argv.file) {
         script = fs.readFileSync(argv.file, 'utf-8');
+      } else if (argv.stdin) {
+        script = await new Promise((resolve, reject) => {
+          let data = '';
+          process.stdin.setEncoding('utf-8');
+          process.stdin.on('data', (chunk) => { data += chunk; });
+          process.stdin.on('end', () => resolve(data));
+          process.stdin.on('error', reject);
+        });
       } else if (argv.script) {
         script = argv.script;
       } else {
-        throw new Error('--script or --file is required');
+        throw new Error('--script, --file, or --stdin is required');
       }
 
       if (scopeSysId) {

@@ -177,6 +177,55 @@ export class SDKClient {
     await this.request(endpoint, { method: 'DELETE' });
   }
 
+  // ─── Attachments ───
+
+  /**
+   * List attachments on a record.
+   * @param {string} sysID - record sys_id
+   * @returns {Promise<Array>} attachment metadata rows
+   */
+  async listAttachments(sysID) {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `table_sys_id=${sysID}`);
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'sys_id,file_name,size_bytes,content_type,sys_created_by,sys_created_on');
+    const endpoint = `${this.baseURL}/api/now/attachment?${params.toString()}`;
+    const result = await this.request(endpoint, { method: 'GET' });
+    return result?.result || [];
+  }
+
+  /**
+   * Download an attachment's file contents as a Buffer.
+   * @param {string} sysID - attachment sys_id
+   * @returns {Promise<Buffer>}
+   */
+  async getAttachment(sysID) {
+    const endpoint = `${this.baseURL}/api/now/attachment/${sysID}/file`;
+    const resp = await this._fetchWithAuth(endpoint, { method: 'GET', headers: { Accept: 'application/octet-stream' } });
+    if (!resp.ok) {
+      throw errAPI(resp.status, String(resp.statusText));
+    }
+    const buf = Buffer.from(await resp.arrayBuffer());
+    return buf;
+  }
+
+  /**
+   * Upload a file as a new attachment on a record.
+   * @param {string} table - parent table name (e.g. 'incident')
+   * @param {string} sysID - parent record sys_id
+   * @param {Buffer|string} content - file bytes or path
+   * @param {string} fileName - display file name
+   * @returns {Promise<object>} created attachment row
+   */
+  async addAttachment(table, sysID, content, fileName) {
+    const form = new FormData();
+    const blob = Buffer.isBuffer(content) ? new Blob([content]) : new Blob([String(content)]);
+    form.append('file', blob, fileName);
+    const endpoint = `${this.baseURL}/api/now/attachment?table_name=${encodeURIComponent(table)}&table_sys_id=${encodeURIComponent(sysID)}`;
+    const result = await this.request(endpoint, { method: 'POST', body: form });
+    return result?.result || null;
+  }
+
   async getCurrentUser() {
     const params = new URLSearchParams();
     params.set('sysparm_query', 'user_name=javascript:gs.getUserName()');

@@ -7,6 +7,36 @@ export const FormatJSON = 'json';
 export const FormatMarkdown = 'markdown';
 export const FormatStyled = 'styled';
 export const FormatQuiet = 'quiet';
+export const FormatCSV = 'csv';
+
+/**
+ * Resolve a dotpath (`.data[0].number`, `data.records.0.sys_id`) against an
+ * object. Supports dotted keys and `[N]` array indexes. Returns undefined
+ * when the path doesn't resolve. Dependency-free — not a jq replacement.
+ */
+export function resolvePath(obj, path) {
+  const s = String(path || '').trim().replace(/^\./, '');
+  if (!s) return undefined;
+  // Tokenize on dots, '[' and ']'. Pure-integer segments become array indexes.
+  const tokens = [];
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '.' || ch === '[' || ch === ']') { i += 1; continue; }
+    let j = i;
+    while (j < s.length && s[j] !== '.' && s[j] !== '[' && s[j] !== ']') j += 1;
+    const part = s.slice(i, j);
+    const n = Number(part);
+    tokens.push(Number.isInteger(n) && String(n) === part ? n : part);
+    i = j;
+  }
+  let cur = obj;
+  for (const tok of tokens) {
+    if (cur == null) return undefined;
+    cur = cur[tok];
+  }
+  return cur;
+}
 
 export function hyperlink(text, url) {
   if (!url) return text;
@@ -49,6 +79,16 @@ export class OutputWriter {
     return this;
   }
 
+  /**
+   * Set a dotpath extractor. When set, successful output is reduced to the
+   * value at the path (resolved against the JSON envelope) and printed as-is.
+   * Gives pipelines a dependency-free `--get` without needing jq.
+   */
+  setJqFilter(path) {
+    this.jqFilter = path || '';
+    return this;
+  }
+
   effectiveFormat() {
     if (this.format === FormatAuto) {
       return isTTY(this.writer) ? FormatStyled : FormatJSON;
@@ -57,6 +97,16 @@ export class OutputWriter {
   }
 
   ok(data, opts = {}) {
+    // --get extractor: resolve against the JSON envelope and print just that
+    // value as JSON. Takes precedence over styling/table formats — a path
+    // extract is inherently scriptable, not presentational.
+    if (this.jqFilter) {
+      const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
+      const value = resolvePath(envelope, this.jqFilter);
+      this.writer.write(JSON.stringify(value, null, 2) + '\n');
+      return;
+    }
+
     const format = this.effectiveFormat();
     switch (format) {
       case FormatJSON:
@@ -65,6 +115,8 @@ export class OutputWriter {
         return this.writeMarkdown(data, opts);
       case FormatQuiet:
         return this.writeQuiet(data);
+      case FormatCSV:
+        return this.writeCSV(data, opts);
       case FormatStyled:
         return this.writeStyled(data, opts);
       default:
@@ -157,6 +209,41 @@ export class OutputWriter {
         return String(val);
       });
       this.writer.write('| ' + cells.join(' | ') + ' |\n');
+    }
+  }
+
+  writeCSV(data, opts) {
+    if (opts.summary && isTTY(this.writer)) {
+      this.writer.write(opts.summary + '\n\n');
+    }
+    if (Array.isArray(data)) {
+      this.writeCSVTable(data);
+    } else if (data && typeof data === 'object' && Array.isArray(data.records)) {
+      this.writeCSVTable(data.records);
+    } else {
+      this.writeCSVTable([data]);
+    }
+  }
+
+  writeCSVTable(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      this.writer.write('');
+      return;
+    }
+    const columns = Object.keys(rows[0]);
+    this.writer.write(columns.map(csvEscape).join(',') + '\n');
+    for (const row of rows) {
+      const cells = columns.map((col) => {
+        const val = row[col];
+        if (val == null) return '';
+        if (typeof val === 'object') {
+          if (val.display_value != null) return csvEscape(val.display_value);
+          if (val.value != null) return csvEscape(val.value);
+          return csvEscape(JSON.stringify(val));
+        }
+        return csvEscape(val);
+      });
+      this.writer.write(cells.join(',') + '\n');
     }
   }
 
@@ -485,4 +572,14 @@ export function getDisplayValue(val) {
     return JSON.stringify(val);
   }
   return String(val);
+}
+
+/** Escape a single CSV field: quote when it contains a delimiter, quote, or newline. */
+export function csvEscape(val) {
+  if (val == null) return '';
+  const s = String(val);
+  if (/[",\n\r]/.test(s)) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
 }

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
 
 const tableDefaultColumns = {
@@ -108,6 +110,19 @@ export function recordsCmd(wrap) {
           }),
         })
         .command({
+          command: 'count',
+          describe: 'Count records in a table (optional encoded query), returns the true total',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('query', { type: 'string', describe: 'Encoded query (e.g. "priority=1^active=true")' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const query = argv.query || '';
+            const count = await app.sdk.aggregateCount(argv.table, query);
+            app.ok({ table: argv.table, count, query }, { summary: `${count} record(s) in ${argv.table}${query ? ` matching "${query}"` : ''}` });
+          }),
+        })
+        .command({
           command: 'get',
           describe: 'Get a single record by sys_id',
           builder: (y) => y
@@ -196,6 +211,163 @@ export function recordsCmd(wrap) {
           }),
         })
         .command({
+          command: 'attachments',
+          describe: 'Work with attachments on a record',
+          builder: (y) => y
+            .command({
+              command: 'list',
+              describe: 'List attachments on a record',
+              builder: (yy) => yy
+                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id' })
+                .option('table', { type: 'string', describe: 'Parent table name (context only)' }),
+              handler: wrap(async (argv, app) => {
+                app.requireInstance();
+                const attachments = await app.sdk.listAttachments(argv['sys-id']);
+                app.ok({
+                  sys_id: argv['sys-id'],
+                  table: argv.table || '',
+                  count: attachments.length,
+                  attachments,
+                  context: { instance_url: app.getEffectiveInstance() },
+                }, { summary: `${attachments.length} attachment(s) on record ${argv['sys-id']}` });
+              }),
+            })
+            .command({
+              command: 'get <attachment-id>',
+              describe: 'Download an attachment to a local file',
+              builder: (yy) => yy
+                .positional('attachment-id', { describe: 'Attachment sys_id', type: 'string' })
+                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id (used to resolve the file name)' })
+                .option('out', { alias: 'o', type: 'string', describe: 'Output file path (default: attachment file name in cwd)' }),
+              handler: wrap(async (argv, app) => {
+                app.requireInstance();
+                const buf = await app.sdk.getAttachment(argv['attachment-id']);
+                let name = argv.out;
+                if (!name) {
+                  // Best-effort: derive the file name from the attachment row.
+                  let fileName = `${argv['attachment-id']}.bin`;
+                  try {
+                    const rows = await app.sdk.listAttachments(argv['sys-id']);
+                    const hit = (rows || []).find((a) => getStringField(a, 'sys_id') === argv['attachment-id']);
+                    const fn = getStringField(hit, 'file_name');
+                    if (fn) fileName = fn;
+                  } catch { /* keep default */ }
+                  name = fileName;
+                }
+                await fs.promises.writeFile(name, buf);
+                app.ok({ sys_id: argv['attachment-id'], out: name, bytes: buf.length }, { summary: `Wrote ${buf.length} bytes to ${name}` });
+              }),
+            })
+            .command({
+              command: 'add <file>',
+              describe: 'Upload a file as a new attachment on a record (mutation)',
+              builder: (yy) => yy
+                .positional('file', { describe: 'Local file path to upload', type: 'string' })
+                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id' })
+                .option('table', { type: 'string', demandOption: true, describe: 'Parent table for the record (e.g. incident)' })
+                .option('name', { type: 'string', describe: 'Display file name (default: basename of --file)' })
+                .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+              handler: wrap(async (argv, app) => {
+                app.requireInstance();
+                await confirmDelete(app, argv, `Upload "${argv.file}" as an attachment on ${argv.table} ${argv['sys-id']}?`);
+                const content = await fs.promises.readFile(argv.file);
+                const fileName = argv.name || path.basename(argv.file);
+                const created = await app.sdk.addAttachment(argv.table, argv['sys-id'], content, fileName);
+                app.ok({ sys_id: created?.sys_id, file_name: fileName, table: argv.table, recordsys_id: argv['sys-id'] }, { summary: `Attached ${fileName}` });
+              }),
+            })
+            .demandCommand(1, 'Specify an attachment action: list, get, or add'),
+        })
+        .command({
+          command: 'bulk',
+          describe: 'Bulk-update records matching a query. Dry-run by default — pass --execute to commit',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('query', { type: 'string', demandOption: true, describe: 'Encoded query selecting the records to update (e.g. "priority=1^state=1")' })
+            .option('set', { type: 'string', demandOption: true, describe: 'JSON object of fields to set (e.g. \'{"state":"3"}\')' })
+            .option('dry-run', { type: 'boolean', default: true, describe: 'Preview the count + a sample without mutating (default)' })
+            .option('execute', { type: 'boolean', default: false, describe: 'Perform the update after confirmation' })
+            .option('limit', { type: 'number', default: 200, describe: 'Max records to update when executing' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            let set;
+            try {
+              set = JSON.parse(argv.set);
+            } catch (e) {
+              throw new Error(`Invalid --set JSON: ${e.message}`, { cause: e });
+            }
+            if (!set || typeof set !== 'object' || Array.isArray(set)) {
+              throw new Error('--set must be a JSON object of field=value pairs');
+            }
+            if (!argv['dry-run'] && !argv.execute) {
+              argv.execute = true; // explicit --no-dry-run implies execute intent
+            }
+            const dryRun = argv['dry-run'] && !argv.execute;
+            const count = await app.sdk.aggregateCount(argv.table, argv.query);
+
+            if (dryRun) {
+              const params = new URLSearchParams();
+              params.set('sysparm_query', argv.query);
+              params.set('sysparm_limit', '5');
+              params.set('sysparm_fields', 'sys_id,number,name');
+              let sample = [];
+              try { sample = await app.sdk.list(argv.table, params); } catch { /* non-fatal */ }
+              app.ok({
+                table: argv.table,
+                query: argv.query,
+                set,
+                count,
+                dry_run: true,
+                sample,
+                context: { instance_url: app.getEffectiveInstance() },
+              }, { summary: `Dry run: ${count} record(s) in ${argv.table} would be updated` });
+              return;
+            }
+
+            await confirmDelete(app, argv, `Bulk update ${count} record(s) in ${argv.table}?`);
+            const sysIDs = [];
+            const pageSize = Math.min(argv.limit, 1000);
+            const params = new URLSearchParams();
+            params.set('sysparm_query', argv.query);
+            params.set('sysparm_limit', String(pageSize));
+            params.set('sysparm_fields', 'sys_id');
+            let offset = 0;
+            while (sysIDs.length < argv.limit) {
+              params.set('sysparm_offset', String(offset));
+              let recs;
+              try { recs = await app.sdk.list(argv.table, params); } catch { break; }
+              if (!recs || recs.length === 0) break;
+              for (const r of recs) {
+                const id = getStringField(r, 'sys_id');
+                if (id) sysIDs.push(id);
+              }
+              if (recs.length < pageSize) break;
+              offset += recs.length;
+            }
+            const targets = sysIDs.slice(0, argv.limit);
+            let updated = 0;
+            const failures = [];
+            for (const id of targets) {
+              try {
+                await app.sdk.update(argv.table, id, set);
+                updated += 1;
+              } catch (e) {
+                failures.push({ sys_id: id, error: e.message || String(e) });
+              }
+            }
+            app.ok({
+              table: argv.table,
+              query: argv.query,
+              set,
+              matched: count,
+              updated,
+              failed: failures,
+              context: { instance_url: app.getEffectiveInstance() },
+            }, { summary: `Updated ${updated} of ${count} matching record(s) in ${argv.table}` });
+          }),
+        })
+        .command({
           command: 'inspect <table> <identifier>',
           aliases: ['debug', 'diag'],
           describe: 'Inspect a record: show audit history, business rules, and running flows',
@@ -231,6 +403,7 @@ export function recordsCmd(wrap) {
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                  List records from a table');
+      console.log('  count                 Count records in a table (true total)');
       console.log('  get                   Get a single record by sys_id');
       console.log('  create                Create a record');
       console.log('  update                Update a record');

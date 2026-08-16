@@ -38,6 +38,10 @@ export const MUTATION_COMMANDS = [
   ['records', 'create'],
   ['records', 'update'],
   ['records', 'delete'],
+  // Records — bulk update (mass mutation; dry-run by default)
+  ['records', 'bulk'],
+  // Records — attachment add (uploads a file; behind confirm)
+  ['records', 'attachments', 'add'],
   // Requests
   ['requests', 'create'],
   ['requests', 'update'],
@@ -98,8 +102,12 @@ export const MUTATION_COMMANDS = [
  */
 export function isMutationCommand(argv) {
   const cmd = argv._ || [];
+  // Prefix match: a command whose argv._ path begins with a mutation pattern
+  // IS that mutation (trailing positionals like a sys_id or file path don't
+  // change the intent). This lets positional mutation subcommands (e.g.
+  // `records attachments <id> add <file>`) be gated on read-only profiles.
   for (const pattern of MUTATION_COMMANDS) {
-    if (pattern.length !== cmd.length) continue;
+    if (pattern.length > cmd.length) continue;
     let match = true;
     for (let i = 0; i < pattern.length; i++) {
       if (pattern[i] !== cmd[i]) {
