@@ -59,9 +59,22 @@ jsn updatesets set "My Feature"
 # Generic table access
 jsn records list --table incident --limit 50 --json | jq '.[].number'
 jsn records create --table incident --data '{"short_description":"test"}'
+jsn records list --table incident --limit 50 --get "data.records.0.number"   # no jq needed
+jsn records count --table incident --query "active=true"                      # true total
+jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
+jsn records attachments list --sys-id 8a1234abcd5678                         # files on a record
+jsn records list --table incident --limit 10 --csv                            # output CSV
 
 # Script execution
 jsn eval "gs.info('Hello World')"
+cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
+
+# Saved query snippets (stored locally, run against the active profile)
+jsn snippets save open-inc --table incident --query "active=true"
+jsn snippets run open-inc
+
+# Live log tailing (Ctrl+C to stop)
+jsn logs follow --level error --tail 10
 ```
 
 ## Commands
@@ -76,7 +89,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records`, `tables`, `columns`, `includes`, `import`, `logs`, `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 Every command supports `--json`, `--query`, and `--help`.
 
@@ -106,6 +119,8 @@ jsn auth modify dev12345                          # Toggle read-only / skip conf
 | `--json` | Pipelines, scripts |
 | `--markdown` | Documentation |
 | `--quiet` / `-q` | Data only, no envelope |
+| `--csv` | Spreadsheets (opens straight into Excel) |
+| `--get <path>` | Pull one value out of the JSON envelope — no jq (e.g. `--get "data.records.0.number"`) |
 
 ## Authentication
 
