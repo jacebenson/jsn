@@ -175,7 +175,15 @@ export function catalogCmd(wrap) {
 }
 
 async function showItem(app, sysID) {
-  const item = await app.sdk.get('sc_cat_item', sysID);
+  // Use list + display_value=all so reference fields (category, flow) resolve
+  // to readable display values instead of raw sys_ids.
+  const p = new URLSearchParams();
+  p.set('sysparm_query', `sys_id=${sysID}`);
+  p.set('sysparm_limit', '1');
+  p.set('sysparm_display_value', 'all');
+  const items = await app.sdk.list('sc_cat_item', p);
+  const item = items[0] || null;
+  if (!item) throw new Error(`Not found: ${sysID}`);
 
   const vp = new URLSearchParams();
   vp.set('sysparm_query', `cat_item=${sysID}^active=true`);
@@ -216,7 +224,8 @@ async function showItem(app, sysID) {
   const wfName = getStringField(item, 'workflow') || '';
   const wfID = item.workflow?.value || '';
   const planName = getStringField(item, 'delivery_plan') || getStringField(item, 'execution_plan') || '';
-  app.ok({
+
+  const data = {
     name: getStringField(item, 'name'),
     short_description: getStringField(item, 'short_description'),
     category: getStringField(item, 'category'),
@@ -232,7 +241,60 @@ async function showItem(app, sysID) {
       standalone: standalone.map(v => ({ label: v.question_text || v.name, type: v.type, mandatory: String(v.mandatory) === 'true' })),
       sets: Array.from(setVars.values()).map(s => ({ name: s.name, variables: s.variables.map(v => ({ label: v.question_text || v.name, type: v.type, mandatory: String(v.mandatory) === 'true' })) })),
     } : undefined,
-  }, {
-    summary: `${getStringField(item, 'name')} — ${totalVars} variable(s)`,
+  };
+
+  // Styled-mode rendering (non-enumerable so JSON output stays clean)
+  Object.defineProperty(data, '_formatted', {
+    value: buildCatalogFormatted(data, standalone, Array.from(setVars.values()), totalVars),
+    enumerable: false,
+    configurable: true,
   });
+
+  app.ok(data, {
+    summary: `${data.name} — ${totalVars} variable(s)`,
+    breadcrumbs: [
+      { action: 'list', cmd: 'jsn catalogitems list', description: 'Back to all catalog items' },
+    ],
+  });
+}
+
+function buildCatalogFormatted(data, standalone, setVars, totalVars) {
+  const lines = [];
+  lines.push(`${data.name} (sc_cat_item)`);
+  lines.push('');
+  lines.push('─ Details ─');
+  if (data.short_description) lines.push(`  short_description:  ${data.short_description}`);
+  if (data.category) lines.push(`  category:  ${data.category}`);
+  lines.push(`  active:  ${data.active}`);
+  if (data.url) lines.push(`  url:  ${data.url}`);
+  if (data.execution_plan) lines.push(`  execution_plan:  ${data.execution_plan}`);
+  lines.push('');
+  if (data.flow) {
+    lines.push('─ Flow ─');
+    lines.push(`  ${data.flow}`);
+    if (data.flow_cmd) lines.push(`  → ${data.flow_cmd}`);
+    lines.push('');
+  }
+  if (data.workflow) {
+    lines.push('─ Workflow ─');
+    lines.push(`  ${data.workflow}`);
+    if (data.workflow_cmd) lines.push(`  → ${data.workflow_cmd}`);
+    lines.push('');
+  }
+  if (totalVars > 0) {
+    lines.push('─ Catalog Variables ─');
+    for (const v of standalone) {
+      const label = v.question_text || v.name;
+      lines.push(`  ${label}:  ${v.type}${String(v.mandatory) === 'true' ? ' (mandatory)' : ''}`);
+    }
+    for (const s of setVars) {
+      lines.push(`  [${s.name}]`);
+      for (const v of s.variables) {
+        const label = v.question_text || v.name;
+        lines.push(`    ${label}:  ${v.type}${String(v.mandatory) === 'true' ? ' (mandatory)' : ''}`);
+      }
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
 }

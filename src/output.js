@@ -1,7 +1,6 @@
 // Output formatting: JSON, Markdown, Styled, Quiet
 
 import process from 'node:process';
-import chalk from 'chalk';
 
 export const FormatAuto = 'auto';
 export const FormatJSON = 'json';
@@ -27,6 +26,12 @@ export function isTTY(writer) {
   if (!writer) writer = process.stdout;
   return writer.isTTY === true;
 }
+
+// Minimal ANSI colors — replaces chalk (only used for error/hint styling,
+// which is already TTY-gated by callers).
+const ansi = (code) => (text) => `\x1b[${code}m${text}\x1b[0m`;
+const colorRed = ansi('31');
+const colorYellow = ansi('33');
 
 export class OutputWriter {
   constructor(opts = {}) {
@@ -82,8 +87,8 @@ export class OutputWriter {
         break;
       default:
         if (isTTY(this.writer)) {
-          this.writer.write(chalk.red(`Error (${e.code}): ${e.message}\n`));
-          if (e.hint) this.writer.write(chalk.yellow(`Hint: ${e.hint}\n`));
+          this.writer.write(colorRed(`Error (${e.code}): ${e.message}\n`));
+          if (e.hint) this.writer.write(colorYellow(`Hint: ${e.hint}\n`));
         } else {
           this.writer.write(JSON.stringify(resp, null, 2) + '\n');
         }
