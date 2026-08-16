@@ -48,21 +48,38 @@ export async function resolveUpdateSetByName(app, name) {
   if (records.length === 1) return records[0];
 
   // Multiple sets share the name — prefer the one in the current scope.
+  let scopeNote = '';
   try {
     const userSysID = await requireCurrentUserSysId(app.sdk);
     const currentApp = await getCurrentApplication(app.sdk, userSysID);
     const appIdOf = (r) => r.application?.value || (typeof r.application === 'string' ? r.application : '');
-    const inScope = records.find((r) => {
+    const inScope = currentApp.appSysId ? records.find((r) => {
       const appId = appIdOf(r);
-      return appId && currentApp.appSysId && appId === currentApp.appSysId;
-    });
+      return appId && appId === currentApp.appSysId;
+    }) : undefined;
     if (inScope) return inScope;
-  } catch {
-    // fall through to ambiguity error
+
+    // OAuth/service accounts often lack the apps.current_app user preference,
+    // so getCurrentApplication yields an empty appSysId and nothing matches.
+    // Fall back to the user's CURRENT update set sys_id, then a unique
+    // Global-scope match.
+    let current;
+    try { current = await getCurrentUpdateSet(app.sdk, userSysID); } catch { current = null; }
+    if (current?.sys_id) {
+      const byId = records.find((r) => getStringField(r, 'sys_id') === current.sys_id);
+      if (byId) return byId;
+    }
+    const globalOnes = records.filter((r) => appIdOf(r) === 'global');
+    if (globalOnes.length === 1) return globalOnes[0];
+    if (!currentApp.appSysId) {
+      scopeNote = ' (no apps.current_app preference — resolved nothing by scope)';
+    }
+  } catch (err) {
+    scopeNote = ` (couldn't resolve scope: ${err.message})`;
   }
 
   const scopes = records.map((r) => r.application?.display_value || r.application || '?').join(', ');
-  throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.\nRun bare "jsn updatesets set" and pick by scope.`);
+  throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.${scopeNote}\nRun bare "jsn updatesets set" and pick by scope.`);
 }
 
 /**

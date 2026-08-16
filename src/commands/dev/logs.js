@@ -110,6 +110,26 @@ export function logsCmd(wrap) {
             const base = filters.filter(Boolean).join('^');
             const intervalMs = Math.max(500, argv.interval || 2000);
             let watermark = '';
+            const seen = new Set();
+
+            // sys_created_on> comparisons run in UTC; the display_value is server-local
+            // time, so a display-based watermark never advances on a non-UTC instance.
+            // Normalize the raw UTC .value to 'YYYY-MM-DD HH:mm:ss' for the query and
+            // lexicographic comparison. The sys_id seen-set guarantees a row can never
+            // re-print even if two polls fall in the same timestamp bucket.
+            const toQueryTs = (v) => {
+              if (typeof v !== 'string') return v;
+              return v.replace('T', ' ').replace(/\.\d{1,3}[Zz]?$/, '').replace(/[Zz]$/, '');
+            };
+            const rawTs = (r) => {
+              const f = r.sys_created_on;
+              if (f && typeof f === 'object') {
+                const v = f.value != null ? f.value : f.display_value;
+                return v ? toQueryTs(String(v)) : '';
+              }
+              return f ? toQueryTs(String(f)) : '';
+            };
+            const sysIdOf = (r) => getStringField(r, 'sys_id');
 
             const formatRow = (r) => {
               const ts = getStringField(r, 'sys_created_on');
@@ -117,6 +137,18 @@ export function logsCmd(wrap) {
               const src = getStringField(r, 'source');
               const msg = getStringField(r, 'message');
               return `${ts} ${logIcon(level).padEnd(2)} [${src}] ${msg}`;
+            };
+
+            const emit = (r) => {
+              const id = sysIdOf(r);
+              if (id) {
+                if (seen.has(id)) return; // never re-print a row this run
+                seen.add(id);
+              }
+              const ts = rawTs(r);
+              if (ts && !watermark) watermark = ts;
+              else if (ts && ts > watermark) watermark = ts;
+              process.stdout.write(formatRow(r) + '\n');
             };
 
             const fetchNew = async () => {
@@ -132,14 +164,10 @@ export function logsCmd(wrap) {
                 process.stderr.write(`⚠ poll error: ${err.message}\n`);
                 return;
               }
-              for (const r of records) {
-                const ts = getStringField(r, 'sys_created_on');
-                process.stdout.write(formatRow(r) + '\n');
-                if (ts && (!watermark || ts > watermark)) watermark = ts;
-              }
+              for (const r of records) emit(r);
             };
 
-            // Optional backfill: show the last N newest first, then set watermark.
+            // Optional backfill: show last N newest-first, then follow.
             if (argv.tail > 0) {
               const params = new URLSearchParams();
               params.set('sysparm_display_value', 'all');
@@ -150,11 +178,7 @@ export function logsCmd(wrap) {
               try {
                 const recent = await app.sdk.list('syslog', params);
                 const ordered = [...recent].reverse(); // oldest->newest on screen
-                for (const r of ordered) {
-                  const ts = getStringField(r, 'sys_created_on');
-                  process.stdout.write(formatRow(r) + '\n');
-                  if (ts && ts > watermark) watermark = ts;
-                }
+                for (const r of ordered) emit(r);
               } catch (err) { process.stderr.write(`⚠ backfill error: ${err.message}\n`); }
             }
 
