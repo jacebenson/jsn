@@ -24,12 +24,49 @@ function buildApp(sdk) {
     config: { profiles: {}, activeProfile: null },
     requireInstance() {},
     getEffectiveInstance: () => 'https://dev.example.service-now.com',
+    output: { getFormat: () => 'json' }, // non-auto → interactiveList short-circuits
     ok: (data, opts) => { app.lastOk = { data, opts }; },
   };
   return app;
 }
 
 // ─── helpers to navigate the yargs command tree ───
+
+describe('records list totals (include_counts)', () => {
+  it('includes the total by default', async () => {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const cmd = recordsCmd((fn) => fn);
+    const list = collectSubcommands(cmd).find((s) => s.command === 'list');
+    const sdk = { list: async () => [{ sys_id: 'r1' }], aggregateCount: async () => 67 };
+    const app = buildApp(sdk);
+    await list.handler({ app, table: 'incident', limit: 20, offset: 0, query: '', count: true }, app);
+    assert.strictEqual(app.lastOk.data.pagination.total, 67);
+    assert.match(app.lastOk.opts.summary, /of 67/);
+  });
+
+  it('--no-count omits the total', async () => {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const cmd = recordsCmd((fn) => fn);
+    const list = collectSubcommands(cmd).find((s) => s.command === 'list');
+    const sdk = { list: async () => [{ sys_id: 'r1' }], aggregateCount: async () => 67 };
+    const app = buildApp(sdk);
+    await list.handler({ app, table: 'incident', limit: 20, offset: 0, query: '', count: false }, app);
+    assert.strictEqual(app.lastOk.data.pagination.total, undefined);
+    assert.doesNotMatch(app.lastOk.opts.summary, /of 67/);
+  });
+
+  it('respects per-profile include_counts:false opt-out', async () => {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const cmd = recordsCmd((fn) => fn);
+    const list = collectSubcommands(cmd).find((s) => s.command === 'list');
+    const sdk = { list: async () => [{ sys_id: 'r1' }], aggregateCount: async () => 67 };
+    const app = buildApp(sdk);
+    app.config.activeProfile = 'shotlist';
+    app.config.profiles.shotlist = { include_counts: false };
+    await list.handler({ app, table: 'incident', limit: 20, offset: 0, query: '', count: true }, app);
+    assert.strictEqual(app.lastOk.data.pagination.total, undefined);
+  });
+});
 
 describe('records bulk (dry-run by default)', () => {
   it('dry-run previews count without mutating', async () => {
