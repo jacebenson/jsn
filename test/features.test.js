@@ -29,20 +29,7 @@ function buildApp(sdk) {
   return app;
 }
 
-describe('records count', () => {
-  it('reports the true total via aggregateCount', async () => {
-    const { recordsCmd } = await import('../src/commands/records.js');
-    const cmd = recordsCmd((fn) => fn);
-    const countCmd = collectSubcommands(cmd).find((s) => s.command === 'count');
-    assert.ok(countCmd, 'count subcommand exists');
-
-    const sdk = { aggregateCount: async (t, q) => (q === 'priority=1' ? 42 : 0) };
-    const app = buildApp(sdk);
-    await countCmd.handler({ app, table: 'incident', query: 'priority=1' }, app);
-    assert.strictEqual(app.lastOk.data.count, 42);
-    assert.strictEqual(app.lastOk.data.table, 'incident');
-  });
-});
+// ─── helpers to navigate the yargs command tree ───
 
 describe('records bulk (dry-run by default)', () => {
   it('dry-run previews count without mutating', async () => {
@@ -113,6 +100,21 @@ describe('records attachments', () => {
     sdk._fetchWithAuth = async () => ({ ok: true, arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) });
     const out = await sdk.getAttachment('att1');
     assert.strictEqual(out.toString(), 'hello');
+  });
+
+  it('records get --attachments attaches the file list to the record', async () => {
+    const { recordsCmd } = await import('../src/commands/records.js');
+    const cmd = recordsCmd((fn) => fn);
+    const get = collectSubcommands(cmd).find((s) => s.command === 'get');
+
+    const sdk = {
+      list: async () => [{ sys_id: 'rec1', number: 'INC1' }],
+      listAttachments: async () => [{ sys_id: 'a1', file_name: 'notes.txt' }],
+    };
+    const app = buildApp(sdk);
+    await get.handler({ app, table: 'incident', 'sys-id': 'rec1', attachments: true }, app);
+    assert.deepStrictEqual(app.lastOk.data._attachments, [{ sys_id: 'a1', file_name: 'notes.txt' }]);
+    assert.strictEqual(app.lastOk.data.number, 'INC1');
   });
 });
 

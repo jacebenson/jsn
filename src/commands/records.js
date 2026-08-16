@@ -36,7 +36,8 @@ export function recordsCmd(wrap) {
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { type: 'number', default: 20, describe: 'Max records' })
-            .option('offset', { type: 'number', default: 0, describe: 'Offset' }),
+            .option('offset', { type: 'number', default: 0, describe: 'Offset' })
+            .option('count', { type: 'boolean', default: true, describe: 'Include the total-matching count (use --no-count to opt out)' }),
           handler: wrap(async (argv, app) => {
             const table = argv.table;
             const columns = argv.columns ? argv.columns.split(',') : getDefaultColumns(table);
@@ -73,6 +74,16 @@ export function recordsCmd(wrap) {
             if (query) params.set('sysparm_query', query);
             const records = await app.sdk.list(table, params);
             const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+
+            // include_counts: default opt-in on every list. Opt out per-profile
+            // (config include_counts:false) or per-invocation (--no-count).
+            const profile = (app.config.profiles || {})[app.config.activeProfile || app.config.defaultProfile] || {};
+            const countsOn = argv.count !== false && profile.include_counts !== false;
+            let total;
+            if (countsOn && !argv['sys-id']) {
+              try { total = await app.sdk.aggregateCount(table, query); } catch { total = undefined; }
+            }
+
             const breadcrumbs = [
               { action: 'create', cmd: `jsn records create --table ${table} --data '{...}'`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
@@ -104,22 +115,12 @@ export function recordsCmd(wrap) {
               count: records.length,
               columns,
               records: displayRecords,
-              pagination: { limit: argv.limit, offset: argv.offset },
+              pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total } : {}) },
               context: { instance_url: app.getEffectiveInstance() },
-            }, { summary: `${records.length} record(s) from ${table}`, breadcrumbs });
-          }),
-        })
-        .command({
-          command: 'count',
-          describe: 'Count records in a table (optional encoded query), returns the true total',
-          builder: (y) => y
-            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('query', { type: 'string', describe: 'Encoded query (e.g. "priority=1^active=true")' }),
-          handler: wrap(async (argv, app) => {
-            app.requireInstance();
-            const query = argv.query || '';
-            const count = await app.sdk.aggregateCount(argv.table, query);
-            app.ok({ table: argv.table, count, query }, { summary: `${count} record(s) in ${argv.table}${query ? ` matching "${query}"` : ''}` });
+            }, {
+              summary: `${records.length} record(s) from ${table}${total != null ? ` of ${total}` : ''}`,
+              breadcrumbs,
+            });
           }),
         })
         .command({
@@ -128,7 +129,8 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
-            .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' }),
+            .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
+            .option('attachments', { type: 'boolean', default: false, describe: 'Also list the record\'s attachments' }),
           handler: wrap(async (argv, app) => {
             assertSafeExactMatch(argv['sys-id']);
             const params = new URLSearchParams();
@@ -140,7 +142,17 @@ export function recordsCmd(wrap) {
             if (records.length === 0) {
               throw new Error(`Record not found: ${argv['sys-id']}`);
             }
-            app.ok(records[0], { summary: `Record from ${argv.table}` });
+            const record = records[0];
+            if (argv.attachments) {
+              try {
+                const atts = await app.sdk.listAttachments(argv['sys-id']);
+                record._attachments = atts;
+              } catch {
+                record._attachments = [];
+              }
+            }
+            record._context = { instance_url: app.getEffectiveInstance(), table: argv.table };
+            app.ok(record, { summary: `Record from ${argv.table}${argv.attachments ? ` (${(record._attachments || []).length} attachment(s))` : ''}` });
           }),
         })
         .command({
@@ -402,9 +414,8 @@ export function recordsCmd(wrap) {
       console.log('Query and manage records in any ServiceNow table.');
       console.log('');
       console.log('Available subcommands:');
-      console.log('  list                  List records from a table');
-      console.log('  count                 Count records in a table (true total)');
-      console.log('  get                   Get a single record by sys_id');
+      console.log('  list                  List records from a table (includes total by default)');
+      console.log('  get                   Get a single record by sys_id (--attachments to include files)');
       console.log('  create                Create a record');
       console.log('  update                Update a record');
       console.log('  delete                Delete a record');

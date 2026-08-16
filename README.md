@@ -60,9 +60,10 @@ jsn updatesets set "My Feature"
 jsn records list --table incident --limit 50 --json | jq '.[].number'
 jsn records create --table incident --data '{"short_description":"test"}'
 jsn records list --table incident --limit 50 --get "data.records.0.number"   # no jq needed
-jsn records count --table incident --query "active=true"                      # true total
+jsn records list --table incident --query "active=true"                       # totals included by default
+jsn records list --table incident --limit 10 --no-count                       # opt out of the total query
 jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
-jsn records attachments list --sys-id 8a1234abcd5678                         # files on a record
+jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
 jsn records list --table incident --limit 10 --csv                            # output CSV
 
 # Script execution
