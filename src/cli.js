@@ -16,6 +16,7 @@ import { FormatJSON } from './output.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
+import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
 import { incidentsCmd } from './commands/incidents.js';
 import { changesCmd } from './commands/changes.js';
@@ -383,6 +384,7 @@ export function buildCLI() {
     .command(propertiesCmd(wrap))
     // DATA
     .command(recordsCmd(wrap))
+    .command(snippetsCmd(wrap))
     .command(ticketsCmd(wrap))
     // DEVELOPER
     .command(evalCmd(wrap))

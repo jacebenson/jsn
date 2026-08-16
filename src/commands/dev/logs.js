@@ -92,6 +92,79 @@ export function logsCmd(wrap) {
             const level = getStringField(record, 'level') || '?';
             app.ok(record, { summary: `${logIcon(level)} ${level}: ${(getStringField(record, 'message') || '').substring(0, 80)}` });
           }),
+        })
+        .command({
+          command: 'follow',
+          describe: 'Tail system logs in real time (Ctrl+C to stop)',
+          builder: (y) => y
+            .option('query', { type: 'string', describe: 'Additional encoded query filter (e.g. "sourceLIKEscript")' })
+            .option('level', { type: 'string', describe: 'Filter by level (error, warning, information)' })
+            .option('source', { type: 'string', describe: 'Filter by source' })
+            .option('tail', { type: 'number', default: 0, describe: 'Show the last N existing entries first, then follow' })
+            .option('interval', { type: 'number', default: 2000, describe: 'Poll interval in ms (min 500)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const filters = [argv.query || ''];
+            if (argv.level) filters.push(`level=${argv.level}`);
+            if (argv.source) filters.push(`sourceLIKE${argv.source}`);
+            const base = filters.filter(Boolean).join('^');
+            const intervalMs = Math.max(500, argv.interval || 2000);
+            let watermark = '';
+
+            const formatRow = (r) => {
+              const ts = getStringField(r, 'sys_created_on');
+              const level = getStringField(r, 'level');
+              const src = getStringField(r, 'source');
+              const msg = getStringField(r, 'message');
+              return `${ts} ${logIcon(level).padEnd(2)} [${src}] ${msg}`;
+            };
+
+            const fetchNew = async () => {
+              const params = new URLSearchParams();
+              params.set('sysparm_display_value', 'all');
+              params.set('sysparm_fields', 'sys_created_on,level,source,message,sys_id');
+              params.set('sysparm_limit', '100');
+              let q = watermark ? `sys_created_on>${watermark}^ORDERBYsys_created_on` : 'ORDERBYsys_created_on';
+              if (base) q = `${base}^${q}`;
+              params.set('sysparm_query', q);
+              let records;
+              try { records = await app.sdk.list('syslog', params); } catch (err) {
+                process.stderr.write(`⚠ poll error: ${err.message}\n`);
+                return;
+              }
+              for (const r of records) {
+                const ts = getStringField(r, 'sys_created_on');
+                process.stdout.write(formatRow(r) + '\n');
+                if (ts && (!watermark || ts > watermark)) watermark = ts;
+              }
+            };
+
+            // Optional backfill: show the last N newest first, then set watermark.
+            if (argv.tail > 0) {
+              const params = new URLSearchParams();
+              params.set('sysparm_display_value', 'all');
+              params.set('sysparm_fields', 'sys_created_on,level,source,message,sys_id');
+              let q = base ? `${base}^ORDERBYDESCsys_created_on` : 'ORDERBYDESCsys_created_on';
+              params.set('sysparm_query', q);
+              params.set('sysparm_limit', String(argv.tail));
+              try {
+                const recent = await app.sdk.list('syslog', params);
+                const ordered = [...recent].reverse(); // oldest->newest on screen
+                for (const r of ordered) {
+                  const ts = getStringField(r, 'sys_created_on');
+                  process.stdout.write(formatRow(r) + '\n');
+                  if (ts && ts > watermark) watermark = ts;
+                }
+              } catch (err) { process.stderr.write(`⚠ backfill error: ${err.message}\n`); }
+            }
+
+            await fetchNew();
+            const timer = setInterval(fetchNew, intervalMs);
+            process.stdout.write(`\n[jsn logs follow] watching syslog every ${intervalMs}ms — Ctrl+C to stop\n`);
+            const stop = () => { clearInterval(timer); process.exit(0); };
+            process.on('SIGINT', stop);
+            process.on('SIGTERM', stop);
+          }),
         });
     },
     handler: () => {
