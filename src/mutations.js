@@ -96,6 +96,10 @@ export const MUTATION_COMMANDS = [
   // ATF: run/run-suite schedule tests that act on records (top-level only)
   ['atf', 'run'],
   ['atf', 'run-suite'],
+  // Approvals: approve/reject/submit change approval state on records
+  ['approvals', 'approve'],
+  ['approvals', 'reject'],
+  ['approvals', 'submit'],
 ];
 
 /**

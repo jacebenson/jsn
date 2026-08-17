@@ -153,4 +153,16 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['atf', 'suites'] }), false);
     assert.strictEqual(isMutationCommand({ _: ['atf', 'results', 'abc123'] }), false);
   });
+
+  it('should detect approvals approve/reject/submit as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['approvals', 'approve'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['approvals', 'approve', 'abc123'] }), true); // trailing positional
+    assert.strictEqual(isMutationCommand({ _: ['approvals', 'reject'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['approvals', 'submit'] }), true);
+  });
+
+  it('should not detect read-only approvals commands as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['approvals', 'list'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['approvals', 'history', 'CHG001'] }), false);
+  });
 });

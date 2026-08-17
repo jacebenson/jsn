@@ -210,6 +210,7 @@ These operations are always safe:
 - `jsn records list` / `jsn records get`
 - `jsn records inspect`
 - `jsn atf list` / `jsn atf suites` / `jsn atf results`
+- `jsn approvals list` / `jsn approvals history` (read-only; approve/reject/submit are mutations)
 - `jsn users list` / `jsn users <search>`
 - `jsn groups list`
 - `jsn tickets list`
@@ -253,6 +254,7 @@ These operations modify data:
 - `jsn records create` / `update` / `delete`
 - `jsn records inspect` (read-only, but actively queries the instance)
 - `jsn atf run` / `jsn atf run-suite` (schedules ATF tests that act on records)
+- `jsn approvals approve` / `jsn approvals reject` / `jsn approvals submit` (change approval state)
 - `jsn dev includes create` / `update` / `delete`
 - `jsn dev rules create` / `update` / `delete`
 - `jsn dev clientscripts create` / `update` / `delete`
@@ -483,6 +485,29 @@ jsn atf run-suite <suite_sys_id> --json
 
 # Fetch results for a run
 jsn atf results <execution_id> --json
+```
+
+### Workflow 11: Approvals
+
+```bash
+# List pending approval requests (read-only; default state=requested)
+jsn approvals list --json
+
+# Only approvals assigned to the current user (fails loudly if the profile has no username)
+jsn approvals list --mine --json
+
+# Approvals for a specific record
+jsn approvals list --for CHG0010001 --json
+
+# Show the approval progression for a record (approver rows + rollup state)
+jsn approvals history CHG0010001 --json
+
+# Approve/reject a request (mutation-gated, confirm required)
+jsn approvals approve <approver_sys_id> --comments "Looks good" --json
+jsn approvals reject <approver_sys_id> --comments "Needs more info" --json
+
+# Request approval on a record (mutation-gated; sets approval=requested)
+jsn approvals submit change_request <sys_id> --json
 ```
 
 ## References
