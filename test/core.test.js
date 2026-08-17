@@ -258,10 +258,28 @@ describe('SDKClient', () => {
 
   it('has core CRUD methods', async () => {
     const { SDKClient } = await import('../src/sdk.js');
-    const coreMethods = ['list', 'get', 'create', 'update', 'delete', 'request', 'rawRequest', 'aggregateCount', 'executeScript'];
+    const coreMethods = ['list', 'get', 'create', 'update', 'delete', 'request', 'rawRequest', 'aggregateCount', 'executeScript', 'exportUpdateSet'];
     for (const method of coreMethods) {
       assert.strictEqual(typeof SDKClient.prototype[method], 'function', `Missing method: ${method}`);
     }
+  });
+
+  it('exportUpdateSet hits the fluent endpoint with CSRF + scope', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const calls = [];
+    const client = new SDKClient('https://dev.example.service-now.com', { isAuthenticated: () => true, getCredentials: async () => ({ username: 'admin' }) });
+    client._warmSession = async () => 'JSESSIONID=abc';
+    client._getScriptsPageCSRF = async () => 'csrf-token-123';
+    client.rawRequest = async (endpoint, opts) => { calls.push({ endpoint, opts }); return '<xml/>'; };
+
+    const xml = await client.exportUpdateSet('set123', 'scope456');
+    assert.strictEqual(xml, '<xml/>');
+    assert.strictEqual(calls.length, 1);
+    assert.ok(calls[0].endpoint.includes('/fluent_update_set_export.do'));
+    assert.ok(calls[0].endpoint.includes('sysparm_ck=csrf-token-123'));
+    assert.ok(calls[0].endpoint.includes('sysparm_sys_id=set123'));
+    assert.ok(calls[0].endpoint.includes('sysparm_app_sys_id=scope456'));
+    assert.ok(calls[0].opts.headers.Cookie.includes('JSESSIONID=abc'));
   });
 
   it('does not have domain-specific methods', async () => {

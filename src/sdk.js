@@ -483,6 +483,31 @@ export class SDKClient {
   // ─── Background Script Execution (3-step OAuth session flow) ───
 
   /**
+   * Export an update set to XML via the fluent export endpoint.
+   * Same session dance as executeScript: warm the session for cookies,
+   * grab the CSRF token from sys.scripts.do, then GET the export endpoint.
+   *
+   * @param {string} updateSetSysId - sys_id of the sys_update_set record
+   * @param {string} appSysId - sys_scope sys_id (scope of the update set)
+   * @returns {Promise<string>} The update set XML document
+   */
+  async exportUpdateSet(updateSetSysId, appSysId = '') {
+    const cookies = await this._warmSession();
+    const csrfToken = await this._getScriptsPageCSRF(cookies);
+
+    const params = new URLSearchParams();
+    params.set('sysparm_ck', csrfToken);
+    params.set('sysparm_sys_id', updateSetSysId);
+    params.set('sysparm_app_sys_id', appSysId);
+
+    const endpoint = `${this.baseURL}/fluent_update_set_export.do?${params.toString()}`;
+    return this.rawRequest(endpoint, {
+      method: 'GET',
+      headers: cookies ? { Cookie: cookies } : {},
+    });
+  }
+
+  /**
    * Execute a background script on the ServiceNow instance via sys.scripts.do.
    * Uses a 3-step session-establishment flow compatible with OAuth tokens:
    *  1. Make a REST API call to get session cookies
