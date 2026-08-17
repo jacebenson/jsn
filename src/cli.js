@@ -63,6 +63,7 @@ import { logsCmd } from './commands/dev/logs.js';
 import { scrapiCmd } from './commands/dev/scrapi.js';
 import { b4rulesCmd } from './commands/dev/b4rules.js';
 import { atfCmd } from './commands/atf.js';
+import { approvalsCmd } from './commands/approvals.js';
 
 function wrap(handler) {
   return async (argv) => {
@@ -391,6 +392,7 @@ export function buildCLI() {
     .command(ticketsCmd(wrap))
     // DEVELOPER
     .command(atfCmd(wrap))
+    .command(approvalsCmd(wrap))
     .command(evalCmd(wrap))
     .command(restCmd(wrap))
     .command(skillCmd(wrap))
