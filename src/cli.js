@@ -16,6 +16,7 @@ import { FormatJSON } from './output.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
+import { cmdbCmd } from './commands/cmdb.js';
 import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
 import { incidentsCmd } from './commands/incidents.js';
@@ -383,6 +384,7 @@ export function buildCLI() {
     .command(logsCmd(wrap))
     .command(propertiesCmd(wrap))
     // DATA
+    .command(cmdbCmd(wrap))
     .command(recordsCmd(wrap))
     .command(snippetsCmd(wrap))
     .command(ticketsCmd(wrap))
