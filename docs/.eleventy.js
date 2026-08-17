@@ -1,11 +1,16 @@
 // Eleventy config for the jsn docs site.
-// Paths resolve from the project root (repo root) — that's where `npm run docs` runs.
+// docs/ is its own standalone npm project (docs/package.json) so the docs build
+// never installs the CLI's runtime deps (better-sqlite3 needs node-gyp + Python,
+// which Nixpacks' Node image doesn't have — that's what broke the Coolify build).
+// All paths below are relative to the docs/ project root (where eleventy runs).
 // Run from repo root:  npm run docs        (build)
 //                      npm run docs:serve  (dev server)
+// Or from docs/:       npm run build / npm run serve
 export default function (eleventyConfig) {
-  // Static assets copied to the output as-is
-  eleventyConfig.addPassthroughCopy("docs/css");
-  eleventyConfig.addPassthroughCopy("docs/assets");
+  // Static assets copied to the output as-is.
+  // Paths are relative to this file's project root (docs/).
+  eleventyConfig.addPassthroughCopy("css");
+  eleventyConfig.addPassthroughCopy("assets");
 
   // Render a verdict object as a table cell.
   // v: { v: yes|no|partial|unknown|na|info, note?: string }
@@ -40,8 +45,8 @@ export default function (eleventyConfig) {
 
   return {
     dir: {
-      input: "docs",
-      output: "docs/_site",
+      input: ".",
+      output: "_site",
       includes: "_includes",
       data: "_data",
     },

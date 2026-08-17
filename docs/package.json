@@ -1,0 +1,15 @@
+{
+  "name": "jsn-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Eleventy site for the jsn CLI docs (deployed at jsn.jace.pro). Standalone npm project so the docs build never installs the CLI's runtime deps (better-sqlite3 etc.).",
+  "scripts": {
+    "build": "eleventy",
+    "serve": "eleventy --serve",
+    "start": "eleventy --serve"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^3.1.6"
+  }
+}
