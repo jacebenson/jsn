@@ -265,7 +265,9 @@ export class OutputWriter {
       }
 
       const { isRecord, tableName } = detectRecord(data);
-      if (isRecord) {
+      if (isRecord && !data._formatted) {
+        // _formatted (e.g. cmdb show card) replaces the raw field dump —
+        // the visual is the curated view; JSON/quiet keep full data.
         this.writeFormattedRecord(data, tableName);
       }
 
@@ -306,7 +308,11 @@ export class OutputWriter {
       }
 
       if (Array.isArray(data.records) && data.records.length > 0) {
-        this.writeRecordsTable(data);
+        // A _formatted visual (e.g. cmdb relationship tree) replaces the
+        // flat table in styled mode — showing both is noise.
+        if (!data._formatted) {
+          this.writeRecordsTable(data);
+        }
       }
     } else {
       if (!opts.summary) {
@@ -372,7 +378,8 @@ export class OutputWriter {
       const row = records[i];
       for (let j = 0; j < columns.length; j++) {
         const col = columns[j];
-        let val = row[col] || '';
+        // Coerce to string — rows can carry numeric cells (e.g. cmdb depth)
+        let val = String(row[col] ?? '');
         const width = colWidths[col] || 20;
 
         if (j === 0 && instanceURL && table && row.sys_id) {
@@ -461,7 +468,7 @@ export class OutputWriter {
       }
     }
 
-    const otherFields = Object.keys(data).filter(f => !displayed.has(f) && !f.startsWith('_')).sort();
+    const otherFields = Object.keys(data).filter(f => !displayed.has(f) && !f.startsWith('_') && f !== 'relationships').sort();
     if (otherFields.length > 0) {
       this.writer.write('─ Other ─\n');
       for (const field of otherFields) {
@@ -474,6 +481,33 @@ export class OutputWriter {
         } else {
           this.writer.write(`  ${field}:  ${displayVal}\n`);
         }
+      }
+      this.writer.write('\n');
+    }
+
+    // Inline relationships (e.g. cmdb show). Grouped shape:
+    // { parents: [], siblings: [], children: [], counts: {} } renders as
+    // sections; a flat array renders as one compact list.
+    if (data.relationships && typeof data.relationships === 'object' && !Array.isArray(data.relationships)) {
+      const renderGroup = (label, rows, total, arrow, viaKey) => {
+        if ((!rows || rows.length === 0) && !total) return;
+        const capNote = total && total > (rows?.length || 0) ? ` (showing ${rows.length} of ${total})` : '';
+        this.writer.write(`─ ${label}${capNote} ─\n`);
+        for (const rel of rows || []) {
+          const via = viaKey && rel[viaKey] ? ` (via ${rel[viaKey]})` : '';
+          this.writer.write(`  ${arrow} ${rel.name} (${rel.class}) — ${rel.type}${via}\n`);
+        }
+        this.writer.write('\n');
+      };
+      const counts = data.relationships.counts || {};
+      renderGroup('Parents', data.relationships.parents, counts.parents, '↑');
+      renderGroup('Siblings', data.relationships.siblings, counts.siblings, '↔', 'via');
+      renderGroup('Children', data.relationships.children, counts.children, '↓');
+    } else if (Array.isArray(data.relationships) && data.relationships.length > 0) {
+      this.writer.write('─ Relationships ─\n');
+      for (const rel of data.relationships) {
+        const arrow = rel.direction === 'upstream' ? '↑' : '↓';
+        this.writer.write(`  ${arrow} ${rel.name} (${rel.class}) — ${rel.type}\n`);
       }
       this.writer.write('\n');
     }
@@ -543,6 +577,12 @@ function detectRecord(data) {
       const map = { INC: 'incident', CHG: 'change_request', RIT: 'sc_req_item', SCT: 'sc_task', PRB: 'problem' };
       if (map[prefix]) tableName = map[prefix];
     }
+  }
+
+  // Explicit table stamp set by command handlers (e.g. _context.table on
+  // cmdb_rel_ci rows, which have neither sys_class_name nor number).
+  if (!tableName && data._context && typeof data._context === 'object' && data._context.table) {
+    tableName = data._context.table;
   }
 
   return { isRecord: hasSysID && (hasSysClass || tableName), tableName };

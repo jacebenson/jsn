@@ -14,8 +14,49 @@ const tableDefaultColumns = {
   sys_user_group: ['name', 'manager', 'email'],
   cmdb_ci: ['name', 'operational_status', 'ip_address'],
   cmdb_ci_server: ['name', 'operational_status', 'ip_address'],
+  cmdb_rel_ci: ['parent', 'type', 'child'],
   kb_knowledge: ['number', 'short_description', 'workflow_state', 'author'],
 };
+
+/**
+ * Raw sys_id from a reference field (string or {display_value, link, value}).
+ */
+function refSysId(field) {
+  if (!field) return '';
+  if (typeof field === 'string') return field;
+  if (typeof field === 'object') {
+    if (field.value && typeof field.value === 'string') return field.value;
+    if (field.link && typeof field.link === 'string') {
+      const parts = field.link.split('/');
+      return parts[parts.length - 1];
+    }
+  }
+  return '';
+}
+
+/**
+ * Breadcrumbs from a cmdb_rel_ci record into the cmdb relationships walk.
+ */
+export function relationshipBreadcrumbs(record) {
+  const parentId = refSysId(record.parent);
+  const childId = refSysId(record.child);
+  const crumbs = [];
+  if (childId) {
+    crumbs.push({
+      action: 'relationships',
+      cmd: `jsn cmdb relationships --ci ${childId}`,
+      description: "Traverse from this relationship's child CI",
+    });
+  }
+  if (parentId) {
+    crumbs.push({
+      action: 'impact',
+      cmd: `jsn cmdb relationships --ci ${parentId} --impact`,
+      description: 'Impact analysis upstream from the parent CI',
+    });
+  }
+  return crumbs;
+}
 
 function getDefaultColumns(table) {
   return tableDefaultColumns[table] || ['sys_id'];
@@ -54,13 +95,24 @@ export function recordsCmd(wrap) {
               const picked = await interactiveList({
                 app, table, singular: 'record', columns, limit: argv.limit, query, labelField: 'sys_id',
                 formatLabel: r => {
+                  // Relationship rows read best as "parent <type> child [sys_id]"
+                  if (table === 'cmdb_rel_ci') {
+                    const parent = getStringField(r, 'parent');
+                    const type = getStringField(r, 'type') || 'Related to';
+                    const child = getStringField(r, 'child');
+                    return `${parent || '?'} ${type} ${child || '?'} [${getStringField(r, 'sys_id')}]`;
+                  }
                   const cols = getDefaultColumns(table);
                   return cols.map(c => `${c}: ${getStringField(r, c) || '-'}`).join(' | ');
                 },
               });
               if (picked) {
                 picked._context = { instance_url: app.getEffectiveInstance(), table };
-                return app.ok(picked, { summary: `Record from ${table}` });
+                const crumbs = table === 'cmdb_rel_ci' ? relationshipBreadcrumbs(picked) : [];
+                return app.ok(picked, {
+                  summary: `Record from ${table}`,
+                  ...(crumbs.length ? { breadcrumbs: crumbs } : {}),
+                });
               }
             }
 
@@ -137,7 +189,7 @@ export function recordsCmd(wrap) {
             params.set('sysparm_query', `sys_id=${argv['sys-id']}`);
             params.set('sysparm_limit', '1');
             params.set('sysparm_display_value', 'true');
-            if (argv.columns && argv.columns !== '*') params.set('sysparm_fields', argv.columns);
+            if (argv.columns && argv.columns !== '*') params.set('sysparm_fields', `sys_id,${argv.columns}`);
             const records = await app.sdk.list(argv.table, params);
             if (records.length === 0) {
               throw new Error(`Record not found: ${argv['sys-id']}`);
@@ -152,7 +204,11 @@ export function recordsCmd(wrap) {
               }
             }
             record._context = { instance_url: app.getEffectiveInstance(), table: argv.table };
-            app.ok(record, { summary: `Record from ${argv.table}${argv.attachments ? ` (${(record._attachments || []).length} attachment(s))` : ''}` });
+            const crumbs = argv.table === 'cmdb_rel_ci' ? relationshipBreadcrumbs(record) : [];
+            app.ok(record, {
+              summary: `Record from ${argv.table}${argv.attachments ? ` (${(record._attachments || []).length} attachment(s))` : ''}`,
+              ...(crumbs.length ? { breadcrumbs: crumbs } : {}),
+            });
           }),
         })
         .command({
