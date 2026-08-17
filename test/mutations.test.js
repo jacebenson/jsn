@@ -141,4 +141,16 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['scopes', 'set'] }), true);
     assert.strictEqual(isMutationCommand({ _: ['updatesets', 'create'] }), true);
   });
+
+  it('should detect atf run and run-suite as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['atf', 'run'] }), true);
+    assert.strictEqual(isMutationCommand({ _: ['atf', 'run', 'abc123'] }), true); // trailing positional
+    assert.strictEqual(isMutationCommand({ _: ['atf', 'run-suite'] }), true);
+  });
+
+  it('should not detect read-only atf commands as mutations', () => {
+    assert.strictEqual(isMutationCommand({ _: ['atf', 'list'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['atf', 'suites'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['atf', 'results', 'abc123'] }), false);
+  });
 });

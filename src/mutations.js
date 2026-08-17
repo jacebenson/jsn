@@ -93,6 +93,9 @@ export const MUTATION_COMMANDS = [
   ['dev', 'updatesets', 'complete'],
   ['dev', 'updatesets', 'ignore'],
   ['dev', 'updatesets', 'parent'],
+  // ATF: run/run-suite schedule tests that act on records (top-level only)
+  ['atf', 'run'],
+  ['atf', 'run-suite'],
 ];
 
 /**

@@ -209,6 +209,7 @@ These operations are always safe:
 - `jsn tasks list` / `jsn tasks <number>`
 - `jsn records list` / `jsn records get`
 - `jsn records inspect`
+- `jsn atf list` / `jsn atf suites` / `jsn atf results`
 - `jsn users list` / `jsn users <search>`
 - `jsn groups list`
 - `jsn tickets list`
@@ -250,6 +251,7 @@ These operations modify data:
 - `jsn tickets create` / `update` / `delete`
 - `jsn records create` / `update` / `delete`
 - `jsn records inspect` (read-only, but actively queries the instance)
+- `jsn atf run` / `jsn atf run-suite` (schedules ATF tests that act on records)
 - `jsn dev includes create` / `update` / `delete`
 - `jsn dev rules create` / `update` / `delete`
 - `jsn dev clientscripts create` / `update` / `delete`
