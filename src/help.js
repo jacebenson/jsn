@@ -115,6 +115,7 @@ const CONFIG_COMMANDS = [
 ];
 
 const DEVELOPER_COMMANDS = [
+  { name: 'atf', desc: 'Automated Test Framework (list, suites, run, results)' },
   { name: 'eval', desc: 'Run server-side JavaScript' },
   { name: 'rest', desc: 'Raw REST API calls' },
   { name: 'skill', desc: 'AI agent skill file (show, fetch, install)' },
