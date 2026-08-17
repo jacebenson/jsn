@@ -11,8 +11,8 @@
     "test": "node --experimental-test-module-mocks --test $(find test -name '*.test.js')",
     "lint": "npx eslint src/ bin/ test/",
     "start": "node bin/jsn.js",
-    "docs": "eleventy --config=docs/.eleventy.js",
-    "docs:serve": "eleventy --config=docs/.eleventy.js --serve",
+    "docs": "npm --prefix docs run build",
+    "docs:serve": "npm --prefix docs run serve",
     "tag-reminder": "node scripts/tag-reminder.js",
     "release": "node scripts/release.js"
   },
@@ -36,7 +36,6 @@
     "yargs": "^17.7.2"
   },
   "devDependencies": {
-    "@11ty/eleventy": "^3.1.6",
     "@eslint/js": "^10.0.1",
     "@inquirer/search": "^4.2.1",
     "globals": "^17.6.0"
