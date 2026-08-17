@@ -213,6 +213,7 @@ These operations are always safe:
 - `jsn users list` / `jsn users <search>`
 - `jsn groups list`
 - `jsn tickets list`
+- `jsn cmdb list` / `jsn cmdb show` / `jsn cmdb relationships` (read-only CI + relationship traversal)
 
 **Dev Commands (read-only variants):**
 
@@ -452,6 +453,37 @@ jsn docs serve --expose
 **State flow:** `not downloaded` → `not indexed` → `indexed (not embedded)` → `ready`
 
 **Re-running `jsn docs sync`** on an existing DB does a smart incremental refresh (seconds, not minutes). It pulls the latest docs and only rebuilds changed files.
+
+### Workflow 9: CMDB Inspection
+
+```bash
+# List CIs with an interactive picker
+jsn cmdb list --json
+
+# Show a CI with key fields + parents/siblings/children (capped, counts)
+jsn cmdb show <ci_sys_id_or_name> --json
+
+# Traverse the relationship graph (BFS, zero deps)
+jsn cmdb relationships --ci <sys_id> --direction both --depth 3 --json
+
+# Options: --direction upstream|downstream|both, --depth 1-5, --type <substring>,
+#          --class <substring>, --impact (upstream only), --limit
+```
+
+### Workflow 10: ATF Test Execution
+
+```bash
+# List ATF tests / suites (read-only)
+jsn atf list --query "active=true" --json
+jsn atf suites --json
+
+# Run a test or suite (mutation-gated, confirm required; --no-wait to skip polling)
+jsn atf run <test_sys_id> --json
+jsn atf run-suite <suite_sys_id> --json
+
+# Fetch results for a run
+jsn atf results <execution_id> --json
+```
 
 ## References
 

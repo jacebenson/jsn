@@ -43,6 +43,7 @@ tmp/
 # Build artifacts
 dist/
 build/
+docs/_site/
 
 # bruno tests
 .bruno/

@@ -1,0 +1,9 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠  Default update set in scope [x_8821_test]
+  Changes are contained to this scope, but a named
+  update set is still recommended for tracking.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Script executed ⚠️ Records without explicit sys_scope will land in global. Use $scopeSysId variable.
+
+
+  → eval: jsn eval --script '...' — Execute a background script on the ServiceNow instance

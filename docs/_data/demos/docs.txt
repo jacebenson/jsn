@@ -1,0 +1,19 @@
+{
+  "state": "ready",
+  "downloaded": {
+    "ok": true,
+    "path": "/home/jace/.cache/servicenow-cli/docs/source"
+  },
+  "db": {
+    "ok": true,
+    "path": "/home/jace/.cache/servicenow-cli/docs/docs.db"
+  },
+  "embedded": {
+    "ok": true
+  },
+  "documents": 49180,
+  "bundles": 56,
+  "docTypes": 3,
+  "syncedAt": "2026-08-13T17:55:16.376Z",
+  "dbSizeHuman": "534.4 MB"
+}

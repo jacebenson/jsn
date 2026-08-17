@@ -1,0 +1,23 @@
+jsn auth modify [name]
+
+Toggle instance configuration (read-only, skip confirmations, domain)
+
+Positionals:
+  name  Profile name to modify                                          [string]
+
+Options:
+  -i, --instance  ServiceNow instance URL                               [string]
+  -p, --profile   Configuration profile to use                          [string]
+      --format    Output format: auto, json, markdown, styled, quiet, csv
+        [string] [choices: "auto", "json", "markdown", "styled", "quiet", "csv"]
+      --json      Output in JSON format (shortcut for --format=json)   [boolean]
+      --csv       Output in CSV format (shortcut for --format=csv)     [boolean]
+      --get       Extract a JSON path from the output envelope (e.g. --get "data
+                  .records.0.number"); no jq needed                     [string]
+  -q, --quiet     Output only data, no envelope (shortcut for --format=quiet)
+                                                                       [boolean]
+      --styled    Force styled output even when piped                  [boolean]
+      --markdown  Output in Markdown table format                      [boolean]
+      --help      Show help                                            [boolean]
+      --domain    Set the domain for this profile (name, sys_id, or "clear")
+                                                                        [string]

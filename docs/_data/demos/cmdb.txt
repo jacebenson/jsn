@@ -1,0 +1,23 @@
+CMDB: ThinkStation S20 (Computer)
+Sys ID: 01a9ec0d3790200044e0bfc8bcbe5dc3
+────────────────────────────────────────────────────────
+▶ RELATIONSHIPS (23)
+────────────────────────────────────────────────────────
+▶ PARENTS
+  (none)
+
+**YOU ARE HERE** ThinkStation S20 (Computer)
+
+▶ CHILDREN
+└─ ↓ Blackberry (Service) — Applicative Flow To::Applicative Flow From
+   ├─ ↓ Email (Service) — Depends on::Used by
+   │  ├─ ↓ IronMail-SD-01 (Email Server) — Depends on::Used by
+   │  ├─ ↓ IronMail-SD-02 (Email Server) — Depends on::Used by
+   │  └─ ↓ EXCHANGE-NY-02 (Email Server) — Depends on::Used by
+   └─ ↓ INSIGHT-NY-03 (Server) — Depends on::Used by
+
+
+  → show: jsn cmdb show 01a9ec0d3790200044e0bfc8bcbe5dc3 — Full record for the root CI
+  → impact: jsn cmdb relationships --ci 01a9ec0d3790200044e0bfc8bcbe5dc3 --impact — Impact analysis: upstream only
+  → deeper: jsn cmdb relationships --ci 01a9ec0d3790200044e0bfc8bcbe5dc3 --depth 5 — Traverse deeper (max depth 5)
+  → filter: jsn cmdb relationships --ci 01a9ec0d3790200044e0bfc8bcbe5dc3 --type "<rel type>" --class "<ci class>" — Filter by relationship type or CI class

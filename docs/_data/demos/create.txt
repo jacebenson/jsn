@@ -1,0 +1,35 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠  Default update set in scope [x_8821_test]
+  Changes are contained to this scope, but a named
+  update set is still recommended for tracking.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Created incidents INC0010019
+
+
+INC0010019 (incident)
+
+─ Core ─
+  number:  INC0010019
+  sys_id:  3b753e3c83be8f10f7bfc670ceaad3e7
+  sys_class_name:  incident
+  state:  1
+  active:  true
+  short_description:  Demo: read me in the hero
+  description:  
+  priority:  5
+  urgency:  3
+  impact:  3
+
+─ People ─
+  opened_by:  6816f79cc0a8016401c5a33be04be441
+
+─ Status ─
+  approval:  not requested
+  escalation:  0
+  made_sla:  true
+
+─ Dates & Times ─
+  opened_at:  2026-08-17 03:13:22
+  sys_created_on:  2026-08-17 03:13:22
+
+  → view: jsn inc show INC0010019 — View the new incidents

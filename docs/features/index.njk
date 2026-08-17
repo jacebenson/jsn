@@ -1,0 +1,23 @@
+---
+title: Every jsn feature
+layout: comparison.njk
+subtitle: "Fourteen features, each with a page and real terminal output from a live instance. Verified against v4.1.0 source."
+---
+
+<style>
+    .feat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+    .feat-card { border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem 1.2rem; background: rgba(255, 193, 7, 0.03); text-decoration: none; display: block; transition: border-color 0.15s; }
+    .feat-card:hover { border-color: var(--accent); }
+    .feat-card h3 { color: var(--accent); font-family: 'SF Mono', Monaco, monospace; font-size: 0.95rem; margin: 0 0 0.4rem; }
+    .feat-card p { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 0; }
+    .feat-card .arrow { color: var(--accent); font-size: 0.8rem; }
+</style>
+
+<div class="feat-grid">
+{% for s in showcases %}
+<a class="feat-card" href="/features/{{ s.id }}/">
+    <h3>{{ s.title }} <span class="arrow">→</span></h3>
+    <p>{{ s.tagline }}</p>
+</a>
+{% endfor %}
+</div>

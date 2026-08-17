@@ -1,0 +1,31 @@
+{
+  "_formatted": "[2049] Flow Designer\n  # [Flow] [Designer] [Flow] [Designer] is a ServiceNow AI Platform feature that enables …\n\n[49059] Platform: Flow Designer || Knowledge &amp; Troubleshooting Resources\n  … 2020-06-01, by ServiceNow Community [**Make Work [Flow].... with [Flow] [Designer] …\n\n… 2076 more results (use --offset 2 for next page)",
+  "query": "flow designer",
+  "mode": "hybrid",
+  "total": 2078,
+  "count": 2,
+  "results": [
+    {
+      "id": 2049,
+      "path": "application-development/flow-designer.md",
+      "title": "Flow Designer",
+      "bundle": null,
+      "doc_type": null,
+      "release": "australia",
+      "canonical_url": "https://www.servicenow.com/docs/r/application-development/flow-designer.html",
+      "snippet": "\n# [Flow] [Designer]\n\n[Flow] [Designer] is a ServiceNow AI Platform feature that enables … ",
+      "score": 0.7946721291486142
+    },
+    {
+      "id": 49059,
+      "path": "community/maik-skoddow/platform-flow-designer-knowledge-amp-troubleshooting-resources.md",
+      "title": "Platform: Flow Designer || Knowledge &amp; Troubleshooting Resources",
+      "bundle": "community",
+      "doc_type": "article",
+      "release": null,
+      "canonical_url": "https://www.servicenow.com/community/now-platform-articles/platform-flow-designer-knowledge-amp-troubleshooting-resources/ta-p/2316818",
+      "snippet": " … 2020-06-01, by ServiceNow Community\n\n[**Make Work [Flow].... with [Flow] [Designer] … ",
+      "score": 0.6571573485797787
+    }
+  ]
+}

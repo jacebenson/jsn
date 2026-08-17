@@ -1,0 +1,10 @@
+Manage ServiceNow users from the sys_user table.
+
+Available subcommands:
+  list                  List users
+  show <name or sys_id>  Show a user by user_name or sys_id
+  create                Create a new user
+  update <identifier>   Update a user
+  delete <identifier>   Delete a user
+
+Run "jsn users <command> --help" for details.

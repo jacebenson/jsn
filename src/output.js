@@ -378,8 +378,9 @@ export class OutputWriter {
       const row = records[i];
       for (let j = 0; j < columns.length; j++) {
         const col = columns[j];
-        // Coerce to string — rows can carry numeric cells (e.g. cmdb depth)
-        let val = String(row[col] ?? '');
+        // Coerce to string — rows can carry ServiceNow reference objects
+        // ({display_value, value}) and numeric cells (e.g. cmdb depth)
+        let val = getDisplayValue(row[col]);
         const width = colWidths[col] || 20;
 
         if (j === 0 && instanceURL && table && row.sys_id) {

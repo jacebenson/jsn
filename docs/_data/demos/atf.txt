@@ -1,0 +1,8 @@
+3 record(s)
+
+
+name                            sys_class_name        active                sys_updated_on          
+------------------------------  --------------------  --------------------  ----------------------  
+SKILLS MGMT: Skill level in...  Test                  false                 2019-11-23 23:13:07     
+CHG:High Risk With Ui Actio...  Test                  false                 2019-09-12 06:32:32     
+RecordAction With Mappings      Test                  true                  2016-07-18 15:17:04

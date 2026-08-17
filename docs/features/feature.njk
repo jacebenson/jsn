@@ -1,0 +1,79 @@
+---
+layout: comparison.njk
+pagination:
+  data: showcases
+  size: 1
+  alias: feature
+permalink: "/features/{{ feature.id }}/"
+eleventyComputed:
+  title: "{{ feature.title | safe }} — jsn"
+  subtitle: "{{ feature.tagline | safe }}"
+---
+
+<style>
+    .feat-cmds { margin: 1.5rem 0; }
+    .feat-cmds table { width: 100%; font-size: 0.85rem; }
+    .feat-cmds td { vertical-align: top; }
+    .feat-cmds td:first-child { white-space: normal; min-width: 18rem; }
+    .feat-cmds code { color: var(--accent); }
+    .feat-screen { margin: 1.5rem 0; border: 1px solid var(--border); border-radius: 8px; background: #0d0d0d; overflow: hidden; }
+    .feat-screen .bar { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.9rem; background: #1a1a1a; border-bottom: 1px solid var(--border); font-family: 'SF Mono', Monaco, monospace; font-size: 0.75rem; color: var(--muted); }
+    .feat-screen .bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .feat-screen .bar .dot.r { background: #ff5f57; } .feat-screen .bar .dot.y { background: #febc2e; } .feat-screen .bar .dot.g { background: #28c840; }
+    .feat-screen pre { margin: 0; padding: 1rem 1.2rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.8rem; line-height: 1.55; overflow-x: auto; color: #d4d4d4; white-space: pre; }
+    .feat-screen .cmdline { color: var(--accent); }
+    {% if feature.screenshots %}{% for sh in feature.screenshots %}.feat-shot img { width: 100%; border-top: 1px solid var(--border); display: block; }{% endfor %}{% endif %}
+    .feat-cta { margin: 2rem 0 0.5rem; padding: 1.5rem 1.75rem; border: 1px solid var(--border); border-radius: 8px; background: rgba(255, 193, 7, 0.05); text-align: center; }
+    .feat-cta h2 { color: var(--accent); font-family: 'SF Mono', Monaco, monospace; font-size: 1.1rem; margin: 0 0 0.4rem; }
+    .feat-cta p { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
+    .feat-cta pre { display: inline-block; text-align: left; background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.2rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.8rem; line-height: 1.6; color: #d4d4d4; }
+    .feat-cta a { color: var(--accent); font-size: 0.85rem; display: inline-block; margin-top: 1rem; }
+    .feat-back { text-align: center; margin: 1rem 0 0; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; }
+    .feat-back a { color: var(--accent); text-decoration: none; }
+</style>
+
+<div class="feat-cmds">
+<table>
+<thead><tr><th>Command</th><th>What it does</th></tr></thead>
+<tbody>
+{% for c in feature.commands %}
+<tr><td><code>{{ c.cmd }}</code></td><td>{{ c.what }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<div class="feat-screen">
+    <div class="bar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span style="margin-left: 0.5rem;">$ {{ feature.commands[0].cmd | cmdName }}</span>
+    </div>
+    {% if feature.screens %}
+    {% for sc in feature.screens %}
+    <div class="cscreen active"><pre><span class="cmdline">$ {{ sc.cmd | wrapCmd }}</span>
+
+{{ sc.text }}</pre></div>
+    {% if not loop.last %}<div style="padding: 0.25rem 1.2rem; border-top: 1px dashed var(--border); color: var(--muted); font-family: 'SF Mono', Monaco, monospace; font-size: 0.7rem;">▼ next screen</div>{% endif %}
+    {% endfor %}
+    {% else %}
+    <pre><span class="cmdline">$ {{ feature.commands[0].cmd | wrapCmd }}</span>
+
+{{ feature.demoText }}</pre>
+    {% endif %}
+    {% if feature.screenshots %}
+    {% for sh in feature.screenshots %}
+    <div class="feat-shot"><img src="{{ sh.src }}" alt="{{ sh.alt }}"></div>
+    {% endfor %}
+    {% endif %}
+</div>
+
+<div class="feat-cta">
+    <h2>Get started</h2>
+    <p>Install, point it at your instance, then run this feature.</p>
+    <pre><span class="cmdline">$ npm install -g @jacebenson/jsn</span>
+<span class="cmdline">$ jsn setup</span>
+<span class="cmdline">$ {{ feature.commands[0].cmd }}</span></pre>
+    <a href="https://github.com/jacebenson/jsn/blob/nodejs/skills/servicenow/SKILL.md">Full setup guide &amp; skill docs →</a>
+</div>
+
+<p class="feat-back"><a href="/features/">← All features</a></p>

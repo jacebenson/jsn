@@ -1,0 +1,13 @@
+4 incident(s)
+
+
+number          short_description                                 priority        state       assigned_to      
+--------------  ------------------------------------------------  --------------  ----------  ---------------  
+INC0000014      Missing my home directory test-1                  1 - Critical    Closed      Bud Richman      
+INC0000601      The USB port on my PC stopped working             5 - Planning    Closed                       
+INC0009004      Defect tracking tool is down.                     3 - Moderate    Closed                       
+INC0000005      CPU load high for over 10 minutes                 1 - Critical    Closed      Bud Richman      
+
+  → create: jsn inc create --description "..." — Create a new incidents
+  → filter: jsn inc list --query "priority=1" — Filter: critical only
+  → next: jsn inc list --limit 4 --offset 4 — Next page (offset 4)

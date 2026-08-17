@@ -1,0 +1,101 @@
+Request RITM0010001
+
+
+RITM0010001 (Requested Item)
+
+─ Core ─
+  number:  RITM0010001
+  sys_id:  02dedb44839e8b10f7bfc670ceaad36c
+  sys_class_name:  Requested Item
+  state:  Open
+  active:  true
+  short_description:  Submit a nulledge knowledge speaking session
+  description:  
+  priority:  4 - Low
+  urgency:  3 - Low
+  impact:  3 - Low
+
+─ People ─
+  opened_by:  System Administrator
+
+─ Status ─
+  approval:  Approved
+  approval_set:  2026-07-20 18:47:16
+  escalation:  Normal
+  made_sla:  true
+
+─ Dates & Times ─
+  opened_at:  2026-07-20 18:47:11
+  sys_created_on:  2026-07-20 18:47:11
+  sys_updated_on:  2026-07-20 18:47:16
+  due_date:  2026-07-22 18:47:11
+  sla_due:  UNKNOWN
+  activity_due:  UNKNOWN
+
+─ System ─
+  sys_domain:  global
+  sys_domain_path:  /
+  sys_created_by:  admin
+  sys_updated_by:  system
+  sys_mod_count:  2
+
+─ Other ─
+  backordered:  false
+  billable:  false
+  business_duration:  
+  business_service:  
+  calendar_duration:  
+  cat_item:  Knowledge Speaking Session
+  close_notes:  
+  cmdb_ci:  
+  comments:  
+  comments_and_work_notes:  
+  company:  
+  configuration_item:  
+  contact_type:  
+  context:  
+  contract:  
+  correlation_display:  
+  correlation_id:  
+  delivery_plan:  DEFAULT
+  delivery_task:  
+  estimated_delivery:  
+  flow_context:  
+  follow_up:  
+  group_list:  
+  knowledge:  false
+  location:  
+  order:  
+  order_guide:  
+  parent:  
+  price:  $0.00
+  quantity:  1
+  reassignment_count:  0
+  recurring_frequency:  
+  recurring_price:  $0.00
+  request:  REQ0010001
+  requested_for:  System Administrator
+  route_reason:  
+  sc_catalog:  
+  service_offering:  
+  skills:  
+  stage:  Assess or Scope Task
+  task_effective_number:  RITM0010001
+  task_for:  
+  time_worked:  
+  universal_request:  
+  upon_approval:  Proceed to Next Task
+  upon_reject:  Cancel all future Tasks
+  user_input:  
+  work_notes:  
+  work_notes_list:  
+
+─ Catalog Variables ─
+  Topic:  Moveworks!  What is Slate?  He can tell you!
+  Speaker:  Teo
+
+Link:  https://dev227772.service-now.com/requested_item.do?sys_id=02dedb44839e8b10f7bfc670ceaad36c
+
+
+  → update: jsn req update RITM0010001 --data '{...}' — Update this request
+  → list: jsn req list — Back to all requests

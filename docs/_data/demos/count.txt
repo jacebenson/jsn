@@ -1,0 +1,13 @@
+3 record(s) from incident of 67
+
+
+number          short_description                                 priority        state       assigned_to      
+--------------  ------------------------------------------------  --------------  ----------  ---------------  
+INC0000060      Unable to connect to email                        3 - Moderate    Closed      David Loo        
+INC0009002      My computer is not detecting the headphone de...  3 - Moderate    Closed                       
+INC0000009      Reset my password                                 1 - Critical    Closed      David Loo        
+
+  → create: jsn records create --table incident --data '{...}' — Create a new record
+  → filter: jsn records list --table incident --query "priority=1" — Filter: priority 1 only
+  → columns: jsn columns --table incident — View available columns
+  → next: jsn records list --table incident --limit 3 --offset 3 — Next page

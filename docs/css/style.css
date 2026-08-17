@@ -1,0 +1,321 @@
+* {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #121212;
+            --fg: #bebebe;
+            --accent: #ffc107;
+            --accent-dim: #e68e0d;
+            --muted: #8a8a8d;
+            --border: #333333;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 4rem 0 3rem;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.5rem;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 12px;
+            height: 1.2em;
+            background: var(--accent);
+            animation: blink 1s step-end infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        .tagline {
+            font-size: 1.25rem;
+            color: var(--muted);
+            margin-bottom: 2rem;
+        }
+
+        /* Install */
+        .install {
+            background: var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            margin: 2rem 0;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border: 1px solid #444;
+        }
+
+        .install code {
+            color: var(--accent);
+            flex: 1;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--muted);
+            color: var(--fg);
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Demo */
+        .demo {
+            margin: 3rem 0;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: #1e1e1e;
+            padding: 1.5rem;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+
+        .demo .prompt { color: var(--accent); }
+        .demo .output { color: var(--muted); }
+        .demo .heading { color: #fff; font-weight: bold; margin-top: 1rem; }
+
+        /* Expandable demo panels */
+        details.demo-item {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #1e1e1e;
+            margin: 0.75rem 0;
+            padding: 0.5rem 1rem;
+        }
+
+        details.demo-item summary {
+            cursor: pointer;
+            color: var(--accent);
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.9rem;
+            padding: 0.5rem 0;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        details.demo-item summary .demo-cmd {
+            flex: 1;
+        }
+
+        details.demo-item summary:hover .demo-cmd {
+            color: #fff;
+        }
+
+        details.demo-item[open] summary .demo-cmd {
+            color: #fff;
+        }
+
+        details.demo-item .output {
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            overflow-x: auto;
+        }
+
+        details.demo-item .output pre {
+            margin: 0;
+        }
+
+        /* Features */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+
+        .feature {
+            padding: 1.5rem;
+            border-left: 3px solid var(--accent);
+            background: rgba(255, 193, 7, 0.03);
+        }
+
+        .feature h3 {
+            color: #fff;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
+        .feature p {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        /* Code examples */
+        .code-block {
+            background: var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+        }
+
+        .code-block .comment {
+            color: var(--muted);
+        }
+
+        .code-block .cmd {
+            color: var(--accent);
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 3rem 0;
+            border-top: 1px solid var(--border);
+            margin-top: 3rem;
+        }
+
+        .github-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.95rem;
+        }
+
+        .github-link:hover {
+            text-decoration: underline;
+        }
+
+        .footer p {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+            .install {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 0.75rem;
+            }
+            .install code {
+                font-size: 0.8rem;
+                word-break: break-all;
+            }
+        }
+
+/* Interactive showcase (FeedHive-style hero) */
+.showcase {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 1rem;
+    margin: 2rem 0;
+    align-items: start;
+}
+.showcase .pills {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.showcase .pill {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    padding: 0.5rem 0.9rem;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.showcase .pill:hover { color: var(--fg); border-color: var(--accent-dim); }
+.showcase .pill.active { color: var(--accent); border-color: var(--accent); background: rgba(255, 193, 7, 0.06); }
+.showcase .screen {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0d0d0d;
+    overflow: hidden;
+    min-height: 320px;
+}
+.showcase .pane { display: none; }
+.showcase .pane.active { display: block; }
+.showcase .pane-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.5rem 0.9rem;
+    background: #1a1a1a;
+    border-bottom: 1px solid var(--border);
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    overflow-x: auto;
+    white-space: nowrap;
+}
+.showcase .pane-bar .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.showcase .pane-bar .dot.r { background: #ff5f57; }
+.showcase .pane-bar .dot.y { background: #febc2e; }
+.showcase .pane-bar .dot.g { background: #28c840; }
+.showcase .pane-bar .pane-cmd { color: var(--accent); margin-left: 0.5rem; }
+.showcase .pane .cmdline { color: var(--accent); display: block; margin-bottom: 0.6rem; }
+.showcase .pane pre {
+    margin: 0;
+    padding: 1rem 1.2rem;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    overflow-x: auto;
+    color: #d4d4d4;
+    white-space: pre;
+}
+@media (max-width: 700px) {
+    .showcase { grid-template-columns: 1fr; }
+    .showcase .pills { flex-direction: row; flex-wrap: wrap; }
+}
+
+/* Carousel (multi-screen demos like the setup wizard) */
+.carousel .cscreen { display: none; }
+.carousel .cscreen.active { display: block; }
+.carousel .cdots { display: flex; gap: 0.4rem; justify-content: center; padding: 0.6rem; border-bottom: 1px solid var(--border); background: #1a1a1a; }
+.carousel .cdot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--muted); background: transparent; padding: 0; cursor: pointer; }
+.carousel .cdot.active { background: var(--accent); border-color: var(--accent); }
+.feat-shot img { width: 100%; border-top: 1px solid var(--border); display: block; }
