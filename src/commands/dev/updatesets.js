@@ -1,6 +1,7 @@
+import fs from 'node:fs';
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../../context.js';
-import { errUsage } from '../../errors.js';
+import { errAPI, errUsage } from '../../errors.js';
 
 /**
  * Scope-mismatch check for an update set vs the current app.
@@ -211,6 +212,11 @@ export async function formatUpdateSetDetail(app, record) {
     cmd: `jsn updatesets parent "${name}" --parent "<parent set name>"`,
     description: 'Set the parent of this update set',
   });
+  hints.push({
+    action: 'export',
+    cmd: `jsn updatesets export "${name}" --out ${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.xml`,
+    description: 'Export this update set to XML',
+  });
   if (!isClosed) {
     hints.push({
       action: 'complete',
@@ -295,6 +301,61 @@ export function updateSetsCmd(wrap) {
             const record = await resolveUpdateSetByName(app, argv.name);
             const detail = await formatUpdateSetDetail(app, record);
             app.ok(detail, { summary: `Update set ${argv.name}`, breadcrumbs: detail.hints });
+          }),
+        })
+        .command({
+          command: 'export <name>',
+          describe: 'Export an update set to XML (raw XML to stdout, or --out file)',
+          builder: (y) => y
+            .positional('name', { describe: 'Update set name', type: 'string' })
+            .option('out', { alias: 'o', type: 'string', describe: 'Write XML to this file instead of stdout' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const record = await resolveUpdateSetByName(app, argv.name);
+            const sysID = getStringField(record, 'sys_id');
+            // The fluent export endpoint wants the update set's SCOPE sys_id
+            // (application is a sys_scope reference) so it can resolve the
+            // app's update set members.
+            const appSysId = record.application?.value
+              || (typeof record.application === 'string' ? record.application : '');
+
+            // Fluent export endpoint: warm session → CSRF → GET. Returns the
+            // full update set XML (header + all sys_update_xml payloads).
+            const xml = await app.sdk.exportUpdateSet(sysID, appSysId);
+
+            // Guard: the endpoint returns the XML document itself. If we got
+            // anything that doesn't start like XML it's an error/login page.
+            const trimmed = xml.trimStart();
+            if (!/^(<\?xml|<unload)/i.test(trimmed)) {
+              throw errAPI(200, `Export returned a non-XML response (${trimmed.slice(0, 60)}…) — the instance may need an authenticated session.`);
+            }
+
+            const bytes = Buffer.byteLength(xml, 'utf-8');
+            if (argv.out) {
+              await fs.promises.writeFile(argv.out, xml);
+              app.ok({
+                update_set: getStringField(record, 'name'),
+                sys_id: sysID,
+                out: argv.out,
+                bytes,
+              }, { summary: `Exported update set "${getStringField(record, 'name')}" (${bytes} bytes) to ${argv.out}` });
+              return;
+            }
+
+            // No --out: raw XML to stdout so it pipes cleanly
+            // (`jsn updatesets export "X" > set.xml`). Only wrap in the JSON
+            // envelope when the user explicitly asks for it — auto format
+            // detection must NOT hijack the payload for piped consumers.
+            if (argv.json || argv.format === 'json') {
+              app.ok({
+                update_set: getStringField(record, 'name'),
+                sys_id: sysID,
+                xml,
+                bytes,
+              }, { summary: `Exported update set "${getStringField(record, 'name')}" (${bytes} bytes)` });
+              return;
+            }
+            process.stdout.write(xml + (xml.endsWith('\n') ? '' : '\n'));
           }),
         })
         .command({
@@ -458,6 +519,7 @@ export function updateSetsCmd(wrap) {
         console.log('Commands:');
         console.log('  list           List update sets (shows scope)');
         console.log('  show <name>    Show an update set (type counts + risky items)');
+        console.log('  export <name>  Export an update set to XML (stdout or --out)');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete       Mark the current update set as complete');

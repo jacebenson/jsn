@@ -19,7 +19,7 @@ describe('UpdateSets Command Structure', () => {
     const mockYargs = { command: (c) => { subcommands.push(typeof c === 'string' ? c : c.command); return mockYargs; } };
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
-    for (const n of ['list', 'show', 'set', 'create', 'complete', 'ignore', 'parent']) {
+    for (const n of ['list', 'show', 'export', 'set', 'create', 'complete', 'ignore', 'parent']) {
       assert.ok(names.includes(n), `missing subcommand: ${n}`);
     }
   });
@@ -70,8 +70,8 @@ describe('formatUpdateSetDetail', () => {
     assert.ok(detail._formatted.includes('Parent:    Parent Set'));
     assert.ok(detail._formatted.includes('Updates:   2'));
     assert.ok(detail._formatted.includes('    b.xml'));
-    // open set → set/parent/complete/ignore hints
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'complete', 'ignore']);
+    // open set → set/parent/export/complete/ignore hints
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'export', 'complete', 'ignore']);
   });
 
   it('closed sets get a cannot-set hint and no complete hint', async () => {
@@ -85,7 +85,7 @@ describe('formatUpdateSetDetail', () => {
       },
     };
     const detail = await formatUpdateSetDetail(app, { sys_id: 'x1', name: 'Shipped' });
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent']);
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'export']);
     assert.ok(detail.hints[0].description.includes('Cannot set as current'));
   });
 
@@ -253,3 +253,117 @@ describe('resolveUpdateSetByName', () => {
 function getSysId(r) {
   return r?.sys_id?.value ?? r?.sys_id;
 }
+
+// ─── Export handler ───
+
+describe('updatesets export', () => {
+  const XML = '<?xml version="1.0" encoding="utf-8"?>\n<unload>\n  <sys_update_set>\n    <sys_id>abc123</sys_id>\n    <name>My Feature</name>\n  </sys_update_set>\n</unload>';
+
+  // Pull the export subcommand object out of the yargs chain so its handler
+  // can be invoked directly with a mocked app.
+  async function findExportCmd() {
+    const { updateSetsCmd } = await import('../src/commands/dev/updatesets.js');
+    const cmd = updateSetsCmd((fn) => fn);
+    let found = null;
+    const mockYargs = {
+      command: (c) => {
+        if (typeof c === 'object' && c.command?.startsWith('export ')) found = c;
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    assert.ok(found, 'export subcommand not found');
+    return found;
+  }
+
+  function makeApp(sdkOverrides = {}) {
+    const writes = [];
+    const sdk = {
+      list: async (table) => {
+        if (table === 'sys_update_set') {
+          return [{ sys_id: 'abc123', name: 'My Feature', application: { display_value: 'Global', value: 'global' }, state: 'in progress' }];
+        }
+        return [];
+      },
+      exportUpdateSet: async () => XML,
+      ...sdkOverrides,
+    };
+    const app = {
+      requireInstance: () => {},
+      getEffectiveInstance: () => 'https://dev.service-now.com',
+      sdk,
+      ok: (data, opts) => { app._ok = { data, opts }; return app._ok; },
+    };
+    return { app, writes };
+  }
+
+  it('writes raw XML to stdout by default (no --json, no --out)', async () => {
+    const exportCmd = await findExportCmd();
+    const { app } = makeApp();
+    let stdout = '';
+    const orig = process.stdout.write;
+    process.stdout.write = (chunk) => { stdout += String(chunk); return true; };
+    try {
+      await exportCmd.handler({ app, name: 'My Feature' }, app);
+    } finally {
+      process.stdout.write = orig;
+    }
+    assert.strictEqual(stdout, XML + '\n');
+  });
+
+  it('returns the XML in the JSON envelope when --json is passed', async () => {
+    const exportCmd = await findExportCmd();
+    const { app } = makeApp();
+    await exportCmd.handler({ app, name: 'My Feature', json: true }, app);
+    assert.strictEqual(app._ok.data.xml, XML);
+    assert.strictEqual(app._ok.data.sys_id, 'abc123');
+    assert.strictEqual(app._ok.data.bytes, Buffer.byteLength(XML));
+  });
+
+  it('writes to --out file and reports the path', async () => {
+    const exportCmd = await findExportCmd();
+    const { app } = makeApp();
+    await exportCmd.handler({ app, name: 'My Feature', out: '/tmp/jsn-export-test.xml' }, app);
+    const fs = await import('node:fs');
+    assert.strictEqual(fs.readFileSync('/tmp/jsn-export-test.xml', 'utf-8'), XML);
+    assert.strictEqual(app._ok.data.out, '/tmp/jsn-export-test.xml');
+    assert.strictEqual(app._ok.data.bytes, Buffer.byteLength(XML));
+    fs.rmSync('/tmp/jsn-export-test.xml', { force: true });
+  });
+
+  it('calls exportUpdateSet with the resolved sys_id and scope', async () => {
+    const exportCmd = await findExportCmd();
+    let hit = null;
+    const { app } = makeApp({
+      exportUpdateSet: async (sysID, appSysId) => { hit = { sysID, appSysId }; return XML; },
+    });
+    await exportCmd.handler({ app, name: 'My Feature' }, app);
+    assert.deepStrictEqual(hit, { sysID: 'abc123', appSysId: 'global' });
+  });
+
+  it('throws a clear error when the response is not XML', async () => {
+    const exportCmd = await findExportCmd();
+    const { app } = makeApp({ exportUpdateSet: async () => '<html><body>Login</body></html>' });
+    await assert.rejects(
+      () => exportCmd.handler({ app, name: 'My Feature' }, app),
+      /non-XML response/,
+    );
+  });
+
+  it('resolves the set by name first (list call before export)', async () => {
+    const exportCmd = await findExportCmd();
+    const order = [];
+    const { app } = makeApp({
+      list: async (table) => {
+        order.push('list');
+        if (table === 'sys_update_set') {
+          return [{ sys_id: 'abc123', name: 'My Feature', application: { display_value: 'Global', value: 'global' }, state: 'in progress' }];
+        }
+        return [];
+      },
+      exportUpdateSet: async () => { order.push('export'); return XML; },
+    });
+    await exportCmd.handler({ app, name: 'My Feature' }, app);
+    assert.deepStrictEqual(order, ['list', 'export']);
+  });
+});

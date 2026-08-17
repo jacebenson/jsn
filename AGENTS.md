@@ -85,8 +85,8 @@ jsn dev updatesets list --query "state=in progress" --json
 # Set current update set
 jsn dev updatesets set "My Development" --json
 
-# Export an update set to XML
-jsn dev updatesets export --name "My Update Set" --json
+# Export an update set to XML (raw XML to stdout, or --out <file>)
+jsn dev updatesets export "My Update Set" --out my-update-set.xml
 
 # List access controls (ACLs) for a table
 jsn dev acls list --query "name=incident" --json
@@ -258,7 +258,6 @@ These operations modify data:
 - `jsn dev acls create` / `update` / `delete`
 - `jsn dev roles create` / `update` / `delete`
 - `jsn dev updatesets set`
-- `jsn dev updatesets export`
 - `jsn dev eval`
 
 **Agent Rule**: Always verify with the user before running mutation commands.
