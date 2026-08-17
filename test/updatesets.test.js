@@ -64,7 +64,7 @@ describe('formatUpdateSetDetail', () => {
     assert.strictEqual(detail.state, 'In progress');
     assert.strictEqual(detail.application, 'My App/x_my_app');
     assert.strictEqual(detail.parent, 'Parent Set');
-    assert.deepStrictEqual(detail.children, ['b.xml', 'a.xml']);
+    assert.deepStrictEqual(detail.children, [{ name: 'b.xml', type: '?' }, { name: 'a.xml', type: '?' }]);
     assert.strictEqual(detail.link, 'https://dev.service-now.com/sys_update_set.do?sys_id=abc123');
     assert.ok(detail._formatted.includes('Update set: My Feature'));
     assert.ok(detail._formatted.includes('Parent:    Parent Set'));
@@ -87,6 +87,36 @@ describe('formatUpdateSetDetail', () => {
     const detail = await formatUpdateSetDetail(app, { sys_id: 'x1', name: 'Shipped' });
     assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent']);
     assert.ok(detail.hints[0].description.includes('Cannot set as current'));
+  });
+
+  it('classes children by type (name fallback) and flags risky items', async () => {
+    const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
+    const H = (x) => x.repeat(32);
+    const app = {
+      getEffectiveInstance: () => 'https://dev.service-now.com',
+      sdk: {
+        list: async (table) => table === 'sys_update_set'
+          ? [{ sys_id: 's1', name: 'Review Me', state: { display_value: 'In progress', value: 'in progress' }, application: 'Global' }]
+          : [
+              { name: `sys_security_acl_${H('a')}` },            // risky via name prefix
+              { name: `sys_script_${H('b')}` },                  // risky via name prefix
+              { name: 'x_my_app.MyRule', sys_class_name: 'sys_script_include' }, // risky via class
+              { name: `sys_properties_${H('c')}` },              // not risky
+            ],
+      },
+    };
+    const detail = await formatUpdateSetDetail(app, { sys_id: 's1', name: 'Review Me' });
+    assert.deepStrictEqual(detail.by_type, {
+      sys_security_acl: 1,
+      sys_script: 1,
+      sys_script_include: 1,
+      sys_properties: 1,
+    });
+    assert.strictEqual(detail.risky_count, 3);
+    assert.deepStrictEqual(detail.children.map((c) => c.type),
+      ['sys_security_acl', 'sys_script', 'sys_script_include', 'sys_properties']);
+    assert.ok(detail._formatted.includes('By type:'));
+    assert.ok(detail._formatted.includes('Risky:  3'));
   });
 
   it('shows Updates: 0 when a set has no children', async () => {

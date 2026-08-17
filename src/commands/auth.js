@@ -125,6 +125,18 @@ export async function loginWizard(app, argv = {}) {
   // Set as active profile so subsequent commands know which instance to use
   app.config.activeProfile = profileName;
   app.config.defaultProfile = profileName;
+
+  // Present all connection-level options during setup. Gated on interactivity
+  // so a piped/scripted call never blocks on prompts.
+  const { canPrompt } = await import('../helpers.js');
+  if (canPrompt()) {
+    const { confirm } = await import('@inquirer/prompts');
+    profile.read_only = await confirm({ message: 'Read-only profile (blocks mutation commands)?', default: profile.read_only || false });
+    profile.skip_confirmations = await confirm({ message: 'Skip confirmations (deletes run without prompting)?', default: profile.skip_confirmations || false });
+    profile.include_counts = await confirm({ message: 'Include result totals on list commands?', default: profile.include_counts !== false });
+    console.log('');
+  }
+
   await saveConfig(app.config);
 
   if (!useBasic) {
@@ -237,6 +249,7 @@ async function pickLoginTarget(app) {
 const PROFILE_FLAGS = [
   { name: 'Read-only (blocks mutation commands)', value: 'read_only', icon: '🔒' },
   { name: 'Skip confirmations (deletes run without prompting)', value: 'skip_confirmations', icon: '⚡' },
+  { name: 'Include result totals on list commands', value: 'include_counts', icon: '🔢' },
 ];
 
 /**
@@ -383,6 +396,10 @@ export function authCmd(wrap) {
               describe: 'Skip delete confirmations on this profile (deletes run without prompting)',
               type: 'boolean',
               default: false,
+            })
+            .option('include-counts', {
+              describe: 'Include result totals on list commands (default on; pass --no-include-counts to opt out)',
+              type: 'boolean',
             }),
           handler: wrap(async (argv, app) => {
             let instanceURL;
@@ -485,6 +502,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               username: username || undefined,
               read_only: argv['read-only'] || undefined,
               skip_confirmations: argv['skip-confirmations'] || undefined,
+              include_counts: argv['include-counts'] === true ? true : argv['include-counts'] === false ? false : undefined,
             };
 
             // Re-save OAuth credentials with username now that we have it,
@@ -598,6 +616,7 @@ Examples:
                 default: instance === defaultInstance,
                 read_only: profile.read_only || false,
                 skip_confirmations: profile.skip_confirmations || false,
+                include_counts: profile.include_counts !== false,
               });
             }
 

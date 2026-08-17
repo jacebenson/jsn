@@ -16,6 +16,7 @@ import { FormatJSON } from './output.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
+import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
 import { incidentsCmd } from './commands/incidents.js';
 import { changesCmd } from './commands/changes.js';
@@ -133,12 +134,20 @@ export function buildCLI() {
       },
       format: {
         type: 'string',
-        description: 'Output format: auto, json, markdown, styled, quiet',
-        choices: ['auto', 'json', 'markdown', 'styled', 'quiet'],
+        description: 'Output format: auto, json, markdown, styled, quiet, csv',
+        choices: ['auto', 'json', 'markdown', 'styled', 'quiet', 'csv'],
       },
       json: {
         type: 'boolean',
         description: 'Output in JSON format (shortcut for --format=json)',
+      },
+      csv: {
+        type: 'boolean',
+        description: 'Output in CSV format (shortcut for --format=csv)',
+      },
+      get: {
+        type: 'string',
+        description: 'Extract a JSON path from the output envelope (e.g. --get "data.records.0.number"); no jq needed',
       },
       quiet: {
         type: 'boolean',
@@ -161,8 +170,12 @@ export function buildCLI() {
         if (argv.quiet) argv.format = 'quiet';
         if (argv.styled) argv.format = 'styled';
         if (argv.markdown) argv.format = 'markdown';
+        if (argv.csv) argv.format = 'csv';
         if (argv.format) {
           app.output.setFormat(argv.format);
+        }
+        if (argv.get) {
+          app.output.setJqFilter(argv.get);
         }
         // --profile: resolve profile name to its instance URL
         // --instance wins if both are specified (explicit URL > profile reference)
@@ -371,6 +384,7 @@ export function buildCLI() {
     .command(propertiesCmd(wrap))
     // DATA
     .command(recordsCmd(wrap))
+    .command(snippetsCmd(wrap))
     .command(ticketsCmd(wrap))
     // DEVELOPER
     .command(evalCmd(wrap))

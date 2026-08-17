@@ -48,21 +48,38 @@ export async function resolveUpdateSetByName(app, name) {
   if (records.length === 1) return records[0];
 
   // Multiple sets share the name — prefer the one in the current scope.
+  let scopeNote = '';
   try {
     const userSysID = await requireCurrentUserSysId(app.sdk);
     const currentApp = await getCurrentApplication(app.sdk, userSysID);
     const appIdOf = (r) => r.application?.value || (typeof r.application === 'string' ? r.application : '');
-    const inScope = records.find((r) => {
+    const inScope = currentApp.appSysId ? records.find((r) => {
       const appId = appIdOf(r);
-      return appId && currentApp.appSysId && appId === currentApp.appSysId;
-    });
+      return appId && appId === currentApp.appSysId;
+    }) : undefined;
     if (inScope) return inScope;
-  } catch {
-    // fall through to ambiguity error
+
+    // OAuth/service accounts often lack the apps.current_app user preference,
+    // so getCurrentApplication yields an empty appSysId and nothing matches.
+    // Fall back to the user's CURRENT update set sys_id, then a unique
+    // Global-scope match.
+    let current;
+    try { current = await getCurrentUpdateSet(app.sdk, userSysID); } catch { current = null; }
+    if (current?.sys_id) {
+      const byId = records.find((r) => getStringField(r, 'sys_id') === current.sys_id);
+      if (byId) return byId;
+    }
+    const globalOnes = records.filter((r) => appIdOf(r) === 'global');
+    if (globalOnes.length === 1) return globalOnes[0];
+    if (!currentApp.appSysId) {
+      scopeNote = ' (no apps.current_app preference — resolved nothing by scope)';
+    }
+  } catch (err) {
+    scopeNote = ` (couldn't resolve scope: ${err.message})`;
   }
 
   const scopes = records.map((r) => r.application?.display_value || r.application || '?').join(', ');
-  throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.\nRun bare "jsn updatesets set" and pick by scope.`);
+  throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.${scopeNote}\nRun bare "jsn updatesets set" and pick by scope.`);
 }
 
 /**
@@ -101,16 +118,47 @@ export async function formatUpdateSetDetail(app, record) {
   const created = getStringField(full, 'sys_created_on') || '';
   const updated = getStringField(full, 'sys_updated_on') || '';
 
-  // Child updates: filename only, newest first by sys_updated_on
+  // Child updates: filename only, newest first by sys_updated_on.
+  // Also group by element type (sys_class_name) and flag risky types for
+  // pre-promotion review (update-set members that can clobber prod).
+  const RISKY_TYPES = new Set([
+    'sys_script',            // business rules
+    'sys_script_include',    // script includes
+    'sys_script_client',     // client scripts
+    'sys_security_acl',      // ACLs / access controls
+    'sys_ui_action',         // UI actions
+    'sys_process_flow',      // flows
+    'sys_flow',              // flow definitions
+    'sys_hub_flow',          // flow definitions (flow-designer)
+    'sys_script_trigger',    // workflow/script triggers
+    'sys_script_email_event',// email notifications/actions
+    'sys_script_queue',      // scheduled jobs
+    'sys_script_widget',
+  ]);
   let children = [];
+  const byType = {};
+  const risky = [];
   try {
     const params = new URLSearchParams();
     params.set('sysparm_query', `update_set=${sysID}^ORDERBYDESCsys_updated_on`);
     params.set('sysparm_limit', '500');
-    params.set('sysparm_fields', 'name,sys_updated_on');
+    params.set('sysparm_fields', 'name,sys_updated_on,sys_class_name');
     const updates = await app.sdk.list('sys_update_xml', params);
     if (Array.isArray(updates)) {
-      children = updates.map(u => getStringField(u, 'name')).filter(Boolean);
+      for (const u of updates) {
+        const name = getStringField(u, 'name');
+        if (!name) continue;
+        // sys_class_name is often empty on dev; fall back to the element-type
+        // prefix baked into the update name (e.g. sys_security_acl_<sysid32>).
+        let type = getStringField(u, 'sys_class_name');
+        if (!type) {
+          const m = /^(sys_[a-z_]+?)_[0-9a-f]{32}$/i.exec(name);
+          type = m ? m[1] : '?';
+        }
+        children.push({ name, type });
+        if (type && type !== '?') byType[type] = (byType[type] || 0) + 1;
+        if (type && RISKY_TYPES.has(type)) risky.push(name);
+      }
     }
   } catch {
     // children are best-effort — a broken query shouldn't kill the display
@@ -123,9 +171,20 @@ export async function formatUpdateSetDetail(app, record) {
   if (parent) lines.push(`  Parent:    ${parent}`);
   if (created) lines.push(`  Created:   ${created}`);
   if (updated) lines.push(`  Updated:   ${updated}`);
-  lines.push(`  Updates:   ${children.length}`);
+  lines.push(`Updates:   ${children.length}`);
+  const typeEntries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  if (typeEntries.length > 0) {
+    lines.push(`  By type:  ${typeEntries.map(([t, n]) => `${t}×${n}`).join(', ')}`);
+  }
+  if (risky.length > 0) {
+    lines.push(`  ⚠️ Risky:  ${risky.length} (business rules, ACLs, client scripts, flows, ...)`);
+    for (const r of risky.slice(0, 10)) {
+      lines.push(`    ⚠️ ${r}`);
+    }
+    if (risky.length > 10) lines.push(`    … and ${risky.length - 10} more`);
+  }
   for (const c of children) {
-    lines.push(`    ${c}`);
+    lines.push(`    ${c.name}`);
   }
   lines.push(`  Link:      ${link}`);
 
@@ -174,6 +233,9 @@ export async function formatUpdateSetDetail(app, record) {
     sys_created_on: created,
     sys_updated_on: updated,
     children,
+    by_type: byType,
+    risky_count: risky.length,
+    risky,
     link,
     _formatted: lines.join('\n'),
     hints,
@@ -227,8 +289,8 @@ export function updateSetsCmd(wrap) {
         })
         .command({
           command: 'show <name>',
-          aliases: ['get'],
-          describe: 'Show an update set',
+          aliases: ['get', 'review'],
+          describe: 'Show an update set (members, type counts, risky items)',
           handler: wrap(async (argv, app) => {
             const record = await resolveUpdateSetByName(app, argv.name);
             const detail = await formatUpdateSetDetail(app, record);
@@ -395,7 +457,7 @@ export function updateSetsCmd(wrap) {
         console.log('Manage ServiceNow update sets.\n');
         console.log('Commands:');
         console.log('  list           List update sets (shows scope)');
-        console.log('  show <name>    Show an update set');
+        console.log('  show <name>    Show an update set (type counts + risky items)');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete       Mark the current update set as complete');

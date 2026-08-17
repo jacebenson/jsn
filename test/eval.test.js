@@ -97,12 +97,12 @@ describe('eval scope resolution (issue #161)', () => {
     );
   });
 
-  it('still requires --script or --file', async () => {
+  it('still requires --script, --file, or --stdin', async () => {
     const sdk = makeSdk();
     const cmd = evalCmd((fn) => fn);
     await assert.rejects(
       () => cmd.handler({ app: makeApp(sdk) }, makeApp(sdk)),
-      /--script or --file is required/
+      /--script, --file, or --stdin is required/
     );
   });
 });
