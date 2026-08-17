@@ -1,0 +1,21 @@
+Flow: Service Catalog item request
+
+  Status: Active | Version: 2
+  Sys ID: 30f3d26187e92300e0ef0cf888cb0b91
+  Link: https://dev227772.service-now.com/sys_hub_flow.do?sys_id=30f3d26187e92300e0ef0cf888cb0b91
+
+▶ TRIGGER
+──────────────────────────────────────────────────
+  Name: Service Catalog
+  Type: Service Catalog
+
+⚡ FLOW STRUCTURE
+──────────────────────────────────────────────────
+1. ↪ Requested Item Manager Approval
+   1. Ask For Approval
+     Record: {{subflow.requested_item}}
+     Table: Requested Item
+     Approval Field: approval
+     Journal Field: approval_history
+     Rules: ApprovesAnyU[{{subflow.requested_item.requested_for.manager}}]OrRejectsAnyU[{{subflow.requested_item.requested_for.manager}}]
+     Due Date: {"action":"none","date_type":"actual","date":"{{}}","duration":1,"duration_type":"days","schedule":"","schedule_label":""}

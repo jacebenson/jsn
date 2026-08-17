@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} — JSN</title>
+    <meta name="description" content="{% if subtitle %}{{ subtitle | striptags | truncate(155) }}{% else %}JSN — the agent-native ServiceNow CLI. Records, flows, catalog variables, CMDB, ATF, update sets, and 49,180 docs offline.{% endif %}">
+    <link rel="canonical" href="{{ site.url }}{{ page.url }}">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{ title }} — JSN">
+    <meta property="og:description" content="{% if subtitle %}{{ subtitle | striptags | truncate(155) }}{% else %}JSN — the agent-native ServiceNow CLI.{% endif %}">
+    <meta property="og:url" content="{{ site.url }}{{ page.url }}">
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .cmp-wrap { max-width: 900px; margin: 0 auto; padding: 2rem; }
+        .cmp-nav { display: flex; gap: 1rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; margin-bottom: 2rem; }
+        .cmp-nav a { color: var(--accent); text-decoration: none; }
+        .cmp-nav a:hover { text-decoration: underline; }
+        .cmp-nav .spacer { flex: 1; }
+        .cmp-wrap h1 { color: #fff; font-family: 'SF Mono', Monaco, monospace; font-size: 1.6rem; margin-bottom: 0.25rem; }
+        .cmp-wrap .sub { color: var(--muted); font-size: 0.95rem; margin-bottom: 2rem; }
+        .cmp-wrap h2 { color: var(--accent); font-size: 1.1rem; margin: 2rem 0 0.5rem; font-family: 'SF Mono', Monaco, monospace; }
+        .cmp-wrap p { color: var(--fg); line-height: 1.7; margin: 0.5rem 0; }
+        .cmp-wrap ul, .cmp-wrap ol { color: var(--fg); line-height: 1.7; margin: 0.5rem 0 0.5rem 1.5rem; }
+        .cmp-wrap li { margin: 0.25rem 0; }
+        .cmp-wrap code { color: var(--accent); font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; }
+        .cmp-wrap pre { background: var(--border); border: 1px solid #444; border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.85rem; }
+        .cmp-wrap pre code { color: var(--fg); }
+        .cmp-wrap a { color: var(--accent); }
+        .cmp-wrap blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: 0.5rem 1rem; background: rgba(255, 193, 7, 0.05); color: var(--muted); }
+        .cmp-wrap table { border-collapse: collapse; margin: 1rem 0; width: 100%; font-size: 0.9rem; }
+        .cmp-wrap th, .cmp-wrap td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: left; }
+        .cmp-wrap th { color: var(--accent); font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; }
+        .cmp-wrap .todo { color: var(--accent-dim); font-size: 0.9rem; }
+        .cmp-footer { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+    </style>
+</head>
+<body>
+    <div class="cmp-wrap">
+        <nav class="cmp-nav">
+            <a href="/">JSN</a>
+            <a href="/features/">Features</a>
+            <span class="spacer"></span>
+            <a href="https://github.com/jacebenson/jsn">GitHub</a>
+        </nav>
+        <h1>{{ title }}</h1>
+        {% if subtitle %}<p class="sub">{{ subtitle }}</p>{% endif %}
+        {{ content | safe }}
+        <footer class="cmp-footer">
+            <p>JSN — ServiceNow CLI · MIT · Built with Eleventy</p>
+        </footer>
+    </div>
+</body>
+</html>

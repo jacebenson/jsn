@@ -1,0 +1,9 @@
+Error: Delete record from incident (57e8723483fe8f10f7bfc670ceaad3aa) — confirmation required. Pass --force to skip, or set skip_confirmations on the profile to disable prompts.
+
+This is a destructive action. Ask your user to confirm, then re-run:
+  jsn records delete --force
+Or set skip_confirmations on the profile to disable prompts:
+  jsn auth login <instance> --skip-confirmations
+
+$ jsn records delete --table incident --sys-id 57e8723483fe8f10f7bfc670ceaad3aa --force
+Deleted record from incident

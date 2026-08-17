@@ -1,0 +1,11 @@
+? Where should the jsn skill be installed?
+❯◉ Hermes Agent
+ ◯ GitHub Copilot
+ ◯ VS Code (Copilot Instructions)
+ ◯ Claude Code
+ ◉ Cursor
+ ◯ Agents (open standard)
+ ◯ OpenCode
+
+~/.hermes/profiles/holly/skills/servicenow/SKILL.md
+(space to toggle, enter to confirm)

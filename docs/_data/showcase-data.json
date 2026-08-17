@@ -1,0 +1,285 @@
+[
+  {
+    "id": "auth",
+    "title": "Auth & setup",
+    "tagline": "The interactive setup wizard: instance, OAuth or basic, read-only mode and per-profile toggles.",
+    "commands": [
+      {
+        "cmd": "jsn setup",
+        "what": "Interactive wizard: add/switch/remove/modify instances"
+      },
+      {
+        "cmd": "jsn auth modify <name>",
+        "what": "Toggle read-only, skip confirmations, include counts, domain"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn setup",
+        "text": "# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\nPROFILE   USER      [SCOPE]           UPDATE SET\ndev227772 System... [x_8821_test]     Default\n\n? What would you like to do?\n❯ Add a new instance\n  Switch to a different instance\n  Remove an instance\n  Modify an instance\n\n↑↓ navigate • ⏎ select"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ What would you like to do? Add a new instance\nWelcome to JSN - ServiceNow CLI\n\nServiceNow instance URL (e.g., dev12345.service-now.com): "
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "Instance: https://dev12345.service-now.com\nProfile name (default): "
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "Authentication method (OAuth/Basic) [OAuth]: \n\nOAuth is recommended — token-based, auto-refreshed.\nBasic sends username/password on every request."
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "? Read-only profile (blocks mutation commands)? (y/N)"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ Read-only profile (blocks mutation commands)? No\n? Skip confirmations (deletes run without prompting)? (y/N)"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ Skip confirmations (deletes run without prompting)? No\n? Include result totals on list commands? (Y/n)"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ Include result totals on list commands? Yes\n\nLogin now? [Y/n]: "
+      }
+    ]
+  },
+  {
+    "id": "skill",
+    "title": "Agent skill installer",
+    "tagline": "One command drops the full playbook into any AI agent — no MCP server to stand up.",
+    "commands": [
+      {
+        "cmd": "jsn skill install",
+        "what": "Install for Hermes, Claude, Codex, Cursor, OpenCode, Copilot and more"
+      }
+    ],
+    "demo": "skill"
+  },
+  {
+    "id": "docs-cli",
+    "title": "The docs, from the terminal",
+    "tagline": "49,180 ServiceNow docs searchable in the CLI — for you and for your agents.",
+    "commands": [
+      {
+        "cmd": "jsn docs sync",
+        "what": "Download + index (incremental after first run)"
+      },
+      {
+        "cmd": "jsn docs search \"bill mcdermott\"",
+        "what": "Full-text + semantic search"
+      },
+      {
+        "cmd": "jsn docs show 2635",
+        "what": "Read a doc from the terminal"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn docs sync",
+        "text": "Updating existing clone at /home/jace/.cache/servicenow-cli/docs/source ...\nAlready up to date.\nDocs DB found — running incremental refresh...\nDocs sync complete"
+      },
+      {
+        "cmd": "jsn docs search \"bill mcdermott\"",
+        "text": "[2635] Design considerations for prompting\n  … Update caller to [Bill] [McDermott], impact and urgency categories to \"2- Medium …\n\n[49002] Administration: Security &amp; Data Privacy || Knowledge &amp; Troubleshooting Resources\n  … on what they do best.\"_ **[Bill] [McDermott]** Chief Executive Officer, ServiceNow ServiceNow …"
+      },
+      {
+        "cmd": "jsn docs show 2635",
+        "text": "Design considerations for prompting\n───────────────────────────────────\n\n\n# Design considerations for prompting\n\nGenerate your desired test by following the guided principles of effective prompting.\n\nStarting with the Australia release, Test generation is being prepared for future deprecation. It will be hidden and no longer installed on new instances but will continue to be supported. For details, see the [Deprecation Process [KB0867184]](https://support.servicenow.com/kb_view.do?sysparm_article=KB0867184) article in the Now Support Knowledge Base.\n\n-   Clear and concise ATF prompts that describes test steps\n-   Consider the scope and capability of Test generation"
+      }
+    ]
+  },
+  {
+    "id": "docs-web",
+    "title": "The docs, in the browser",
+    "tagline": "The same index as a local web UI — search, filter by bundle, read in a viewer.",
+    "commands": [
+      {
+        "cmd": "jsn docs serve",
+        "what": "Start the local web UI"
+      },
+      {
+        "cmd": "jsn docs serve --expose",
+        "what": "Share on your network"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn docs serve",
+        "text": "ServiceNow docs search listening on http://127.0.0.1:3000"
+      }
+    ],
+    "screenshots": [
+      { "src": "/assets/jsn-docs-search-1.png", "alt": "jsn docs serve — search results for \"bill mcdermott\"" },
+      { "src": "/assets/jsn-docs-search-2.png", "alt": "jsn docs serve — the doc viewer showing \"Design considerations for prompting\"" }
+    ]
+  },
+  {
+    "id": "read",
+    "title": "Read & query records",
+    "tagline": "Any table, encoded queries, counts on every list.",
+    "commands": [
+      {
+        "cmd": "jsn records list --table incident --limit 4",
+        "what": "Query any table with styled output"
+      },
+      {
+        "cmd": "jsn records list --table incident --query \"priority=1\" --json",
+        "what": "Encoded queries, JSON for pipes"
+      }
+    ],
+    "demo": "read"
+  },
+  {
+    "id": "create",
+    "title": "Create & update records",
+    "tagline": "Create records with the right fields for the table. The strict write-back check confirms every field persisted.",
+    "commands": [
+      {
+        "cmd": "jsn incidents create --description \"Demo: read me in the hero\" --data '{\"urgency\":\"3\",\"impact\":\"3\"}'",
+        "what": "Create an incident with fields"
+      },
+      {
+        "cmd": "jsn records create --table incident --data '{\"short_description\":\"...\"}'",
+        "what": "Any table"
+      }
+    ],
+    "demo": "create"
+  },
+  {
+    "id": "catalog-create",
+    "title": "Catalog item one-liner",
+    "tagline": "Create a catalog item with its variables in a single command.",
+    "commands": [
+      {
+        "cmd": "jsn catalogitems create --name \"Demo Hero Laptop\" --variable \"model:string:Model\" --variables '{\"model\":\"X1 Carbon\"}'",
+        "what": "Item + variables, one shot"
+      },
+      {
+        "cmd": "jsn catalogitems show <id>",
+        "what": "See the item with variables resolved"
+      }
+    ],
+    "demo": "catalog-create"
+  },
+  {
+    "id": "delete",
+    "title": "Delete records, safely",
+    "tagline": "Read-only by default. Deletes need --force; read-only profiles block writes entirely.",
+    "commands": [
+      {
+        "cmd": "jsn records delete --table incident --sys-id <id>",
+        "what": "Deletes are blocked without --force"
+      },
+      {
+        "cmd": "jsn records delete --table incident --sys-id <id> --force",
+        "what": "Force flag skips the confirmation"
+      }
+    ],
+    "demo": "delete"
+  },
+  {
+    "id": "bulk",
+    "title": "Bulk operations",
+    "tagline": "Update thousands of records by query. Dry-run by default — preview before you commit.",
+    "commands": [
+      {
+        "cmd": "jsn records bulk --table incident --query \"active=true\" --set '{\"state\":\"2\"}'",
+        "what": "Dry-run: shows the count + sample first"
+      },
+      {
+        "cmd": "jsn records bulk ... --execute",
+        "what": "Commit after reviewing"
+      }
+    ],
+    "demo": "bulk"
+  },
+  {
+    "id": "cmdb",
+    "title": "CMDB relationship traversal",
+    "tagline": "Walk the dependency graph: parents above, children below, cycles collapsed.",
+    "commands": [
+      {
+        "cmd": "jsn cmdb relationships --ci <sys_id>",
+        "what": "BFS traversal, zero deps"
+      },
+      {
+        "cmd": "jsn cmdb relationships --ci <sys_id> --depth 5 --type \"Depends on\"",
+        "what": "Depth, type, class filters"
+      }
+    ],
+    "demo": "cmdb"
+  },
+  {
+    "id": "flows",
+    "title": "Flow subflow context",
+    "tagline": "See the whole flow structure — triggers, actions, nested subflows.",
+    "commands": [
+      {
+        "cmd": "jsn flows show \"Service Catalog item request\"",
+        "what": "Flow structure with subflow expansion"
+      }
+    ],
+    "demo": "flows"
+  },
+  {
+    "id": "catalog",
+    "title": "Catalog variables",
+    "tagline": "A request item with its variables resolved — plain REST doesn't do this.",
+    "commands": [
+      {
+        "cmd": "jsn requests show RITM0010001",
+        "what": "Request with catalog variables"
+      }
+    ],
+    "demo": "catalog"
+  },
+  {
+    "id": "updatesets",
+    "title": "Update set handling",
+    "tagline": "List, set, complete, ignore — and export any set to XML.",
+    "commands": [
+      {
+        "cmd": "jsn dev updatesets list",
+        "what": "See every set and its state"
+      },
+      {
+        "cmd": "jsn dev updatesets export \"My Set\" --out set.xml",
+        "what": "Export to XML via the fluent endpoint"
+      }
+    ],
+    "demo": "updatesets"
+  },
+  {
+    "id": "atf",
+    "title": "ATF test execution",
+    "tagline": "Discover tests and suites, run them, and poll results.",
+    "commands": [
+      {
+        "cmd": "jsn atf list",
+        "what": "Find tests"
+      },
+      {
+        "cmd": "jsn atf run <test_sys_id>",
+        "what": "Run + poll (confirm-gated)"
+      }
+    ],
+    "demo": "atf"
+  },
+  {
+    "id": "scripts",
+    "title": "Background script execution",
+    "tagline": "Run GlideScript on the instance from your terminal.",
+    "commands": [
+      {
+        "cmd": "jsn dev eval --script 'gs.info(\"hello\");'",
+        "what": "Execute on the instance, session + CSRF handled"
+      }
+    ],
+    "demo": "scripts"
+  }
+]

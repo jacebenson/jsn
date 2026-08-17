@@ -1,0 +1,4 @@
+{
+  "url": "https://jacebenson.github.io/jsn",
+  "description": "JSN — the agent-native ServiceNow CLI. Read, create, update, delete records on any table; flow subflow context, catalog variables, CMDB relationship traversal, ATF test execution, update set export, and ~50,000 ServiceNow docs indexed and searchable offline. JSON output with breadcrumbs for AI agents; install with npm install -g @jacebenson/jsn."
+}
