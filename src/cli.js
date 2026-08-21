@@ -113,8 +113,11 @@ function wrap(handler) {
 export function buildCLI() {
   const cfg = loadConfig();
   const app = new App(cfg);
+  // Root command names for the completion filter — captured from the yargs
+  // registry after the chain below finishes registering all commands.
+  let rootCommands = [];
 
-  return yargs(hideBin(process.argv))
+  const cliInstance = yargs(hideBin(process.argv))
     .scriptName('jsn')
     .usage('Usage: jsn <command> [options]')
     .middleware([
@@ -401,6 +404,26 @@ export function buildCLI() {
     // Legacy
     .command(devCmd(wrap))
     .demandCommand(1, 'You must specify a command')
+    // Custom completion filter (#176). Two yargs behaviors need help:
+    // 1. Under strictCommands(), yargs' default completion handler aborts
+    //    when the current word isn't an exact command match. Delegating to
+    //    completionFilter (the default generator) sidesteps that.
+    // 2. When the current word is an exact ALIAS (e.g. "inc" for incidents),
+    //    yargs descends into that command's subcommands, so a still-being-
+    //    typed "jsn inc<TAB>" offers subcommands that can't match the prefix.
+    //    When completing the FIRST word (depth 1, the command slot), merge
+    //    in the root command list — the shell's compgen prefix-filters the
+    //    final list anyway.
+    .completion('completion', 'Generate shell completion script', (current, argv, completionFilter, done) => {
+      completionFilter((err, completions) => {
+        let out = completions || [];
+        const depth = (argv._ || []).length;
+        if (current && !current.startsWith('-') && depth <= 2) {
+          out = [...new Set([...out, ...rootCommands])];
+        }
+        done(out);
+      });
+    })
     .help('help', 'Show help')
     .version(false)
     .strictCommands()
@@ -430,6 +453,12 @@ export function buildCLI() {
       process.stderr.write(msg + '\n');
       process.exit(1);
     });
+
+  // Snapshot the root command names (plus aliases) for the completion
+  // filter. Done before any parse — command builders mutate the registry.
+  rootCommands = cliInstance.getInternalMethods().getCommandInstance().getCommands();
+
+  return cliInstance;
 }
 
 // Run if invoked directly (bin/jsn.js calls cli.parse())
