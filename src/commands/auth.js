@@ -105,12 +105,15 @@ export async function pickProfile(app, message) {
 }
 
 /**
- * Resolve the instance for the wizard: only an EXPLICIT source (env var,
- * --instance flag/override) pre-fills. The config's default profile must
- * NOT — the wizard adds an instance, so it always asks otherwise.
+ * Resolve the instance for the wizard: only an EXPLICIT source (env var or
+ * a flag-provided override visible on the app session) pre-fills. The
+ * config's default profile must NOT — the wizard adds an instance, so it
+ * always asks otherwise.
  */
 export function resolveWizardInstance(app, argv = {}) {
-  return process.env.SERVICENOW_INSTANCE_URL || app._overrideInstance || argv.instance || '';
+  // app.getEffectiveInstance() is the session-backed read (production App);
+  // the _overrideInstance fallback keeps hand-rolled test fakes honest.
+  return process.env.SERVICENOW_INSTANCE_URL || app.getEffectiveInstance?.() || app._overrideInstance || argv.instance || '';
 }
 
 /**
@@ -566,15 +569,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
 
             // Re-save OAuth credentials with username now that we have it,
             // so they're keyed by <user>@<instance> for per-user isolation.
-            // Also clean up the old bare-instance key so migration is clean.
+            // The legacy bare-instance key is cleaned up behind the
+            // AuthManager seam (credential-store internals don't leak here).
             if (!argv.password && username) {
-              const { saveCredentials, loadCredentials, deleteCredentials } = await import('../auth.js');
-              const stored = loadCredentials(instanceURL);
-              if (stored && stored.access_token) {
-                stored.username = username;
-                saveCredentials(instanceURL, stored, username);
-                deleteCredentials(instanceURL); // remove bare-instance legacy key
-              }
+              app.auth.migrateLegacyCredential(instanceURL, username);
             }
 
             // Set as default if this is the first one

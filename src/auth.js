@@ -272,23 +272,40 @@ function askHidden(promptText) {
 }
 
 export class AuthManager {
-  constructor(configProvider) {
-    this.configProvider = configProvider;
+  /**
+   * @param {object} identity — the resolved-identity provider. Production
+   *   wiring (src/app.js) hands an adapter over app.session:
+   *   { getUsername(), getEffectiveInstance() }. AuthManager no longer
+   *   reaches into config.profiles itself — the session owns "who am I".
+   *
+   *   Transitional back-compat: a legacy configProvider ({ config, ...
+   *   getEffectiveInstance() }) is adapted to the identity surface, so the
+   *   existing test fixtures (which predate the session) keep working.
+   */
+  constructor(identity) {
+    if (identity && identity.config && typeof identity.getUsername !== 'function') {
+      const provider = identity;
+      this.identity = {
+        getUsername: () => {
+          const cfg = provider.config;
+          const name = cfg.activeProfile || cfg.defaultProfile;
+          return (name && cfg.profiles?.[name]?.username) || null;
+        },
+        getEffectiveInstance: () => provider.getEffectiveInstance(),
+      };
+    } else {
+      this.identity = identity;
+    }
     this.httpClient = { timeout: 30000 };
   }
 
   /**
-   * Resolve the username for credential keying from the active profile.
+   * The username for credential keying, from the resolved session identity.
    * Returns null when no profile is configured — callers fall back to bare
    * instance key for backward compatibility with legacy / no-profile usage.
    */
   _activeUsername() {
-    const cfg = this.configProvider.config;
-    const name = cfg.activeProfile || cfg.defaultProfile;
-    if (name && cfg.profiles[name] && cfg.profiles[name].username) {
-      return cfg.profiles[name].username;
-    }
-    return null;
+    return this.identity.getUsername() || null;
   }
 
   getLastSeen(instance) {
@@ -334,7 +351,7 @@ export class AuthManager {
   isAuthenticated() {
     if (process.env.SERVICENOW_OAUTH_TOKEN) return true;
     if (getBasicAuthFromEnv()) return true;
-    const instance = this.configProvider.getEffectiveInstance();
+    const instance = this.identity.getEffectiveInstance();
     if (!instance) return false;
     try {
       this.getCredentialsFor(instance);
@@ -357,7 +374,7 @@ export class AuthManager {
     if (process.env.SERVICENOW_OAUTH_TOKEN) {
       return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN, auth_source: 'env_token' };
     }
-    const instance = this.configProvider.getEffectiveInstance();
+    const instance = this.identity.getEffectiveInstance();
     if (!instance) {
       throw errAuth('No instance configured');
     }
@@ -580,6 +597,24 @@ export class AuthManager {
       throw errAuth('No instance specified');
     }
     deleteCredentials(instance, this._activeUsername());
+  }
+
+  /**
+   * Migrate legacy bare-instance-keyed credentials to <user>@<instance>
+   * keying after an OAuth login verifies the username. Re-saves under the
+   * compound key and removes the bare key. Returns true when a migration
+   * happened. Credential-store internals (key shapes, legacy bare keys)
+   * live behind this seam — command handlers must not import
+   * loadCredentials/saveCredentials/deleteCredentials to do this themselves.
+   */
+  migrateLegacyCredential(instance, username) {
+    if (!instance || !username) return false;
+    const stored = loadCredentials(instance);
+    if (!stored || !stored.access_token) return false;
+    stored.username = username;
+    saveCredentials(instance, stored, username);
+    deleteCredentials(instance); // remove bare-instance legacy key
+    return true;
   }
 }
 

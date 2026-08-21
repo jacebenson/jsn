@@ -1,10 +1,17 @@
 // App context: bundles config, auth, SDK, output, and runtime context
+//
+// Identity ("which instance, as whom, with what profile flags") is owned by
+// the SESSION (src/session.js): the constructor resolves one from the
+// config, the cli.js middleware re-applies it once --instance/--profile are
+// known (applySession), and getEffectiveInstance()/requireInstance()/
+// setEffectiveInstance() are thin session-backed shims kept for the many
+// command handlers that already call them.
 
 import { AuthManager } from './auth.js';
 import { SDKClient } from './sdk.js';
 import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
-import { getEffectiveInstance, normalizeInstanceURL, saveConfig } from './config.js';
-import { extractProfileName } from './helpers.js';
+import { saveConfig } from './config.js';
+import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
 import { isMutationCommand } from './mutations.js';
@@ -14,52 +21,47 @@ import process from 'node:process';
 export class App {
   constructor(cfg) {
     this.config = cfg;
-    this.auth = new AuthManager(this);
     this.output = new OutputWriter({ format: resolveFormat(cfg.format) });
     this.sdk = null;
+    // Back-compat field: flag-provided instance override (--instance /
+    // --profile). Written by applySession only; mirrored on argv no longer.
+    this._overrideInstance = null;
+    // Pinned argv flags for session re-resolution after config edits
+    // (auth switch / login / remove change the config under a pinned
+    // --profile). Set by applySession; {} means "no flags seen".
+    this._sessionArgv = {};
 
-    const instance = getEffectiveInstance(cfg);
-    if (instance) {
-      this.sdk = new SDKClient(instance, this.auth, {
-        domain: this._profileDomain(cfg),
-      });
+    // Resolve the initial session from config alone (no argv yet — the
+    // middleware re-applies with argv). AuthManager is TOLD the identity:
+    // it reads username/instance through this provider over the session
+    // instead of reaching into config.profiles itself.
+    this.session = resolveSession({}, cfg);
+    this.auth = new AuthManager({
+      getUsername: () => this.session?.username || null,
+      getEffectiveInstance: () => this.session?.instance || '',
+    });
+
+    if (this.session.instance) {
+      this._buildSdk(this.session.instance, this.session);
     }
 
-    this.context = {
-      profileName: '',
-      username: '',
-      scope: '',
-      updateSet: '',
-    };
-
+    this.context = { profileName: '', username: '', scope: '', updateSet: '' };
     this.loadContext();
   }
 
-  loadContext() {
-    const activeName = this.config.activeProfile || this.config.defaultProfile;
-    if (activeName && this.config.profiles[activeName]) {
-      this.context.profileName = activeName;
-      this.context.username = this.config.profiles[activeName].username || '';
-      return;
-    }
+  /** Build (or rebuild) the SDK client for an instance + session. */
+  _buildSdk(instance, session = this.session) {
+    this.sdk = new SDKClient(instance, this.auth, {
+      domain: session?.domain || '',
+    });
+  }
 
-    // Fallback: no active profile name — find by instance URL (legacy config)
-    const instance = getEffectiveInstance(this.config);
-    if (!instance) return;
-    this.context.profileName = extractProfileName(instance);
-    for (const [name, profile] of Object.entries(this.config.profiles || {})) {
-      if (profile.instance_url === instance) {
-        this.context.profileName = name;
-        this.context.username = profile.username || '';
-        break;
-      }
-    }
+  loadContext() {
+    this.context = contextFromSession(this.session, this.config);
   }
 
   getEffectiveInstance() {
-    // Command-line override (--instance, --profile) takes precedence
-    if (this._overrideInstance) return this._overrideInstance;
-    return getEffectiveInstance(this.config);
+    return this.session?.instance || '';
   }
 
   async printContextHeader(argv = {}) {
@@ -124,16 +126,15 @@ export class App {
 
     // Read-only profiles get a lock badge on every command run, so the
     // armed safety is always visible (not just in `auth status`).
-    const activeProfile = this.context.profileName ? this.config.profiles[this.context.profileName] : null;
-    const roBadge = activeProfile?.read_only === true ? ' 🔒' : '';
+    const roBadge = this.session?.readOnly === true ? ' 🔒' : '';
 
     process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
     process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
 
-    const profileStr = `\u001b]8;;${instanceLink}\x07${String(this.context.profileName).padEnd(9)}${roBadge}\u001b]8;;\x07`;
-    const userStr = `]8;;${userLink}\x07${String(displayUserName).padEnd(9)}]8;;\x07`;
-    const scopeStr = `]8;;${scopeLink}\x07${String(scopeFormatted).padEnd(17)}]8;;\x07`;
-    const updateSetStr = `]8;;${updateSetLink}\x07${updateSet}]8;;\x07`;
+    const profileStr = `]8;;${instanceLink}${String(this.context.profileName).padEnd(9)}${roBadge}]8;;`;
+    const userStr = `]8;;${userLink}${String(displayUserName).padEnd(9)}]8;;`;
+    const scopeStr = `]8;;${scopeLink}${String(scopeFormatted).padEnd(17)}]8;;`;
+    const updateSetStr = `]8;;${updateSetLink}${updateSet}]8;;`;
 
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
@@ -185,9 +186,7 @@ export class App {
   }
 
   requireInstance() {
-    if (!this.getEffectiveInstance()) {
-      throw errUsage('Instance URL required. Set via --instance flag, SERVICENOW_INSTANCE_URL env, or config file.');
-    }
+    requireSessionInstance(this.session);
   }
 
   requireAuth() {
@@ -197,26 +196,11 @@ export class App {
   }
 
   /**
-   * Override the effective instance for this command run.
-   * Rebuilds the SDK client for the new instance.
+   * Back-compat shim: override the effective instance for this command run.
+   * Routes through the session resolver (rebuilds the SDK client).
    */
   setEffectiveInstance(url) {
-    const normalizedUrl = normalizeInstanceURL(url);
-    if (normalizedUrl) {
-      this._overrideInstance = normalizedUrl;
-      this.sdk = new SDKClient(normalizedUrl, this.auth, {
-        domain: this._profileDomain(this.config),
-      });
-    }
-  }
-
-  /** Read the configured domain for the active profile (empty = no scoping). */
-  _profileDomain(cfg) {
-    const name = cfg.activeProfile || cfg.defaultProfile;
-    if (name && cfg.profiles[name]) {
-      return cfg.profiles[name].domain || '';
-    }
-    return '';
+    applySession(this, { instance: url });
   }
 
   /** Set (or clear with '') the domain for the active profile. */
