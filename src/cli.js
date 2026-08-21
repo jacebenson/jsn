@@ -10,8 +10,7 @@ import { App } from './app.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
-import { guardExit } from './errors.js';
-import { FormatJSON } from './output.js';
+import { guardExit, exitWithError } from './errors.js';
 
 // Command modules
 import { setupCmd } from './commands/setup.js';
@@ -77,37 +76,11 @@ function wrap(handler) {
       }
       await handler(argv, app);
     } catch (err) {
-      if (err.code === 'not_found') {
-        const id = argv._.slice(1).join(' ') || argv.id || argv.name || argv.sysID || '';
-        process.stderr.write(`Error (${err.code}): ${err.message}\n`);
-        if (id) {
-          process.stderr.write(`\nHint: The identifier "${id}" was not found. Check the name or sys_id.\n`);
-        }
-        process.exit(1);
-      }
-      if (err.code === 'usage') {
-        process.stderr.write(`Error (usage): ${err.message}\n`);
-        process.exit(2);
-      }
-      if (err.code === 'system_error') {
-        process.stderr.write(`Error (system): ${err.message}\n`);
-        process.exit(3);
-      }
-      if (err.code === 'confirmation_required') {
-        // Structured error for AI agents / piped consumers: emit the
-        // JSON envelope on stdout (where tooling reads) so the agent can
-        // surface the decision to its user or re-run with --force.
-        const app = argv.app;
-        if (app && app.output.effectiveFormat() === FormatJSON) {
-          app.err(err);
-        } else {
-          process.stderr.write(`Error: ${err.message}\n`);
-          if (err.hint) process.stderr.write(`\n${err.hint}\n`);
-        }
-        process.exit(1);
-      }
-      process.stderr.write(`Error: ${err.message}\n`);
-      process.exit(1);
+      // All error rendering goes through the unified renderer in
+      // src/errors.js — exit codes, stream choice, and the JSON envelope
+      // for confirmation_required live there, not here.
+      const identifier = argv._.slice(1).join(' ') || argv.id || argv.name || argv.sysID || '';
+      exitWithError(err, { app: argv.app, argv, identifier });
     }
   };
 }
