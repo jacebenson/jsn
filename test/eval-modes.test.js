@@ -6,6 +6,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { buildScriptFormBody } from '../src/sdk.js';
 
 const CLI = path.resolve('bin/jsn.js');
@@ -15,12 +17,29 @@ const ENV = {
   JSN_NO_SKILL_CHECK: '1',
 };
 
-function run(args, input = '') {
+function run(args, input = '', env = {}) {
   return spawnSync('node', [CLI, ...args], {
     encoding: 'utf-8',
-    env: ENV,
+    env: { ...ENV, ...env },
     input,
   });
+}
+
+// The --sandbox warning is emitted by the eval *handler*, which only runs
+// after the middleware instance guard passes. With no instance configured the
+// guard exits before the handler — so a bare env (CI) never sees the warning.
+// These tests exercise the warning, so they need (a) an isolated empty config
+// (no developer profile leaking in via ~/.config) and (b) a fake instance so
+// the guard passes and the handler runs. The command then fails at auth —
+// after the warning — which is what we assert on.
+function isolatedEnv() {
+  const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-eval-test-'));
+  return {
+    XDG_CONFIG_HOME: cfgDir,
+    SERVICENOW_INSTANCE_URL: 'https://nonexistent.invalid',
+    SERVICENOW_USERNAME: 'fake',
+    SERVICENOW_PASSWORD: 'fake',
+  };
 }
 
 describe('buildScriptFormBody', () => {
@@ -73,15 +92,15 @@ describe('jsn eval flags', () => {
   });
 
   it('warns when --sandbox is combined with a multi-line script', () => {
-    const r = run(['eval', '--stdin', '--sandbox', '--json'], 'var a = 1;\nvar b = 2;\ngs.info(a+b);');
-    // No instance in the sandbox test env — the command will fail at auth,
-    // but the sandbox warning should be emitted first on stderr.
+    const r = run(['eval', '--stdin', '--sandbox', '--json'], 'var a = 1;\nvar b = 2;\ngs.info(a+b);', isolatedEnv());
+    // Fake instance present so the guard passes and the handler runs; it then
+    // fails at auth, but the sandbox warning is emitted first on stderr.
     assert.match(r.stderr, /sandbox/i);
     assert.match(r.stderr, /single expression|one expression|multi/i);
   });
 
   it('does not warn for single-expression --sandbox', () => {
-    const r = run(['eval', '--stdin', '--sandbox', '--json'], '1 + 1');
+    const r = run(['eval', '--stdin', '--sandbox', '--json'], '1 + 1', isolatedEnv());
     assert.ok(!/sandbox/i.test(r.stderr), `unexpected sandbox warning: ${r.stderr}`);
   });
 });
