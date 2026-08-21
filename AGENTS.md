@@ -6,9 +6,20 @@ source in `skills/`) or README.md.
 
 ## Stack
 
-Node.js 18+, ESM (`"type": "module"`), no build step, no TypeScript.
-Entry: `bin/jsn.js` → `src/cli.js`. Key deps: yargs 17 (CLI), better-sqlite3
-(docs search index). Tests: `node:test` runner, eslint.
+Node.js (see `engines` in package.json for the floor), ESM (`"type": "module"`),
+no build step, no TypeScript. Entry: `bin/jsn.js` → `src/cli.js`.
+
+Runtime deps — keep this list short, every addition needs a reason:
+
+| Package | Why it's here |
+|---------|---------------|
+| `yargs` | CLI framework — commands, options, help, shell completion |
+| `@inquirer/prompts` + `@inquirer/core` | Interactive pickers (TTY list views, setup wizard) |
+| `better-sqlite3` | `jsn docs` search index — native module, needs build tools on git installs (node:sqlite lacks FTS5 on some platforms) |
+| `gray-matter` | Frontmatter parsing for docs markdown |
+| `turndown` | HTML → markdown for docs ingestion |
+
+Tests: `node:test` runner + eslint.
 
 ## Layout
 
