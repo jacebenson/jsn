@@ -7,10 +7,15 @@ export function evalCmd(wrap) {
     describe: 'Execute background scripts on the instance',
     builder: (yargs) => {
       return yargs
-        .option('script', { alias: 's', type: 'string', describe: "JavaScript code to execute (single-quote the script, double quotes inside: --script 'gs.log(\"Hello\")')" })
+        .option('script', { alias: 's', type: 'string', describe: 'JavaScript code to execute (single-quote the script, double quotes inside: --script \'gs.log("Hello")\')' })
         .option('file', { alias: 'f', type: 'string', describe: 'Read script from file (avoids shell quoting issues)' })
         .option('stdin', { type: 'boolean', describe: 'Read script from stdin (pipe-friendly, e.g. cat script.js | jsn eval --stdin)' })
-        .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: active scope from banner)' });
+        .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: active scope from banner)' })
+        // Script-mode flags (issue #177) — map to the Script Background form checkboxes
+        .option('rollback', { type: 'boolean', default: true, describe: 'Record rollback context (--no-rollback to skip)' })
+        .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript evaluator, single expression only — no DB writes)' })
+        .option('scriptlet', { type: 'boolean', default: false, describe: 'Run as scriptlet with global server-side objects' })
+        .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' });
     },
     handler: wrap(async (argv, app) => {
       let script;
@@ -57,6 +62,18 @@ export function evalCmd(wrap) {
         throw new Error('--script, --file, or --stdin is required');
       }
 
+      // Sandbox mode uses the KittyScript evaluator, which only accepts a
+      // single expression — multi-statement scripts fail server-side. Warn
+      // early, on the user's raw script (before the $scopeSysId prepend).
+      if (argv.sandbox) {
+        const statements = script.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
+        const multiLine = statements.length > 1;
+        const hasTerminator = /;[\s\S]*\S/.test(script);
+        if (multiLine || hasTerminator) {
+          process.stderr.write('Warning: --sandbox runs a single expression (KittyScript). Multi-statement scripts will fail.\n\n');
+        }
+      }
+
       if (scopeSysId) {
         script = `var $scopeSysId = '${scopeSysId}';\n${script}`;
       }
@@ -66,7 +83,12 @@ export function evalCmd(wrap) {
         : '';
       // Pass the resolved sys_id (not the name) — sys.scripts.do only
       // honors selectable scope values, which are sys_ids.
-      const output = await app.sdk.executeScript(script, scopeSysId || '');
+      const output = await app.sdk.executeScript(script, scopeSysId || '', {
+        rollback: argv.rollback,
+        quotaManagedTransaction: argv.quotaManagedTransaction,
+        sandbox: argv.sandbox,
+        scriptlet: argv.scriptlet,
+      });
       app.ok({
         script,
         output,

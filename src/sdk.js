@@ -6,6 +6,23 @@ import { getStringField } from './helpers.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
+// Build the sys.scripts.do POST body for background script execution.
+// Extracted for testability (issue #177): maps script-mode options to the
+// form fields on ServiceNow's Script Background form. Defaults preserve the
+// historical behavior (rollback recording on, quota-managed transaction on).
+export function buildScriptFormBody({ script, csrf, scope, rollback = true, quotaManagedTransaction = true, sandbox = false, scriptlet = false }) {
+  const formBody = new URLSearchParams();
+  formBody.set('script', script);
+  formBody.set('sysparm_ck', csrf);
+  formBody.set('runscript', 'Run script');
+  formBody.set('sys_scope', scope || 'global');
+  if (rollback) formBody.set('record_for_rollback', 'on');
+  if (quotaManagedTransaction) formBody.set('quota_managed_transaction', 'on');
+  if (sandbox) formBody.set('sandbox', 'on');
+  if (scriptlet) formBody.set('scriptlet', 'on');
+  return formBody;
+}
+
 export class SDKClient {
   constructor(baseURL, authProvider, opts = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
@@ -515,9 +532,16 @@ export class SDKClient {
    *  3. POST /sys.scripts.do with the script, CSRF token, and cookies
    *
    * @param {string} script - JavaScript code to execute
+   * @param {string} scope - Scope sys_id to run under ('' = global)
+   * @param {object} [opts] - Script-mode flags (issue #177), mapping to the
+   *   Script Background form checkboxes:
+   *   - rollback (default true) → record_for_rollback
+   *   - quotaManagedTransaction (default true) → quota_managed_transaction
+   *   - sandbox (default false) → sandbox (KittyScript, single expression)
+   *   - scriptlet (default false) → scriptlet
    * @returns {Promise<string>} The script's output text
    */
-  async executeScript(script, scope) {
+  async executeScript(script, scope, opts = {}) {
     // Step 1: Warm up the session by hitting any REST API — this makes
     // ServiceNow issue session cookies for subsequent UI page requests.
     // We capture cookies to forward them (Node.js fetch() has no built-in cookie jar).
@@ -528,13 +552,15 @@ export class SDKClient {
 
     // Step 3: POST the script with form data including the CSRF token.
     const endpoint = `${this.baseURL}/sys.scripts.do`;
-    const formBody = new URLSearchParams();
-    formBody.set('script', script);
-    formBody.set('sysparm_ck', csrfToken);
-    formBody.set('runscript', 'Run script');
-    formBody.set('sys_scope', scope || 'global');
-    formBody.set('record_for_rollback', 'on');
-    formBody.set('quota_managed_transaction', 'on');
+    const formBody = buildScriptFormBody({
+      script,
+      csrf: csrfToken,
+      scope,
+      rollback: opts.rollback,
+      quotaManagedTransaction: opts.quotaManagedTransaction,
+      sandbox: opts.sandbox,
+      scriptlet: opts.scriptlet,
+    });
 
     const html = await this.rawRequest(endpoint, {
       method: 'POST',
