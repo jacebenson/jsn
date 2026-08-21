@@ -1,4 +1,5 @@
-import { getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
+import { getStringField, interactiveList } from '../helpers.js';
+import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('catalogitems', { mutationSubcommands: ['create'] });
@@ -27,16 +28,7 @@ export function catalogCmd(wrap) {
             if (argv.variables) {
               let varsObj;
               try { varsObj = JSON.parse(argv.variables); } catch { throw new Error('--variables must be valid JSON'); }
-              let itemSysID = argv.name;
-              if (!/^[a-f0-9]{32}$/i.test(itemSysID)) {
-                const sp = new URLSearchParams();
-                sp.set('sysparm_query', `name=${itemSysID}`);
-                sp.set('sysparm_limit', '1');
-                sp.set('sysparm_fields', 'sys_id');
-                const items = await app.sdk.list('sc_cat_item', sp);
-                if (items.length === 0) throw new Error(`Not found: ${itemSysID}`);
-                itemSysID = items[0].sys_id?.value || items[0].sys_id;
-              }
+              const itemSysID = await resolveSysId(app.sdk, { table: 'sc_cat_item', identifier: argv.name, matchField: 'name', resource: 'Catalog item' });
               const endpoint = `${app.sdk.baseURL}/api/sn_sc/servicecatalog/items/${itemSysID}/submit_produce`;
               const result = await app.sdk.request(endpoint, { method: 'POST', body: JSON.stringify({ variables: varsObj }) });
               const reqID = result?.result?.sys_id || result?.result?.number || '';
@@ -151,17 +143,7 @@ export function catalogCmd(wrap) {
           describe: 'Show a catalog item',
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            let id = argv.id;
-            if (!/^[a-f0-9]{32}$/i.test(id)) {
-              assertSafeExactMatch(id);
-              const p = new URLSearchParams();
-              p.set('sysparm_query', `name=${id}`);
-              p.set('sysparm_limit', '1');
-              p.set('sysparm_fields', 'sys_id');
-              const results = await app.sdk.list('sc_cat_item', p);
-              if (results.length === 0) throw new Error(`Not found: ${id}`);
-              id = results[0].sys_id?.value || results[0].sys_id;
-            }
+            const id = await resolveSysId(app.sdk, { table: 'sc_cat_item', identifier: argv.id, matchField: 'name', resource: 'Catalog item' });
             await showItem(app, id);
           }),
         });

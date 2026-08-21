@@ -164,4 +164,31 @@ describe('Users Command Handlers', () => {
     await delHandler({ app, identifier: 'todelete', _: ['delete', 'todelete'] });
     assert.strictEqual(deletedSysID, 'abc123');
   });
+
+  // Regression: every users resolve path (show/update/delete) must request
+  // sysparm_display_value=all — the delete lookup previously forgot it, so a
+  // wrapped sys_id could not be unwrapped for the DELETE call.
+  for (const [idx, name, extra] of [
+    [1, 'show', {}],
+    [3, 'update', { data: '{"active":"false"}' }],
+    [4, 'delete', {}],
+  ]) {
+    it(`${name} resolve includes sysparm_display_value=all`, async () => {
+      let displayValue;
+      const app = makeApp({
+        list: async (_table, params) => {
+          displayValue = params.get('sysparm_display_value');
+          return [{ sys_id: 'abc123', user_name: 'target' }];
+        },
+      });
+      const { usersCmd } = await import('../src/commands/users.js');
+      const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+      const cmd = usersCmd(wrap);
+      const subcommands = [];
+      const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
+      cmd.builder(mockYargs);
+      await subcommands[idx]({ app, identifier: 'target', _: [name, 'target'], ...extra });
+      assert.strictEqual(displayValue, 'all', `${name} lookup must set sysparm_display_value=all`);
+    });
+  }
 });

@@ -1,8 +1,8 @@
 // Generic dev subcommand builder for table-based CRUD
 
-import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, confirmDelete, assertSafeExactMatch, canPrompt } from '../../helpers.js';
+import { formatRecordForDisplay, getStringField, parseDataArg, confirmDelete, interactiveList, canPrompt } from '../../helpers.js';
+import { resolveRecord, unwrapSysId } from '../../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
-import { paginatedSearch } from '../../paginated-search.js';
 import { FormatAuto } from '../../output.js';
 import { declareCapabilities } from '../../capabilities.js';
 
@@ -76,6 +76,20 @@ async function resolveRecordScope(sdk, record) {
   }
 }
 
+/**
+ * Scope guard for update/delete on scoped tables: when scopeValidation is
+ * enabled and the record lives outside the current scope, refuse with a
+ * "switch scope first" error. Pass the resolved record straight through.
+ */
+async function guardScope(sdk, record) {
+  const recordScope = await resolveRecordScope(sdk, record);
+  const scopeErr = await checkScope(sdk, recordScope);
+  if (scopeErr) {
+    throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn scopes set ${scopeErr.recordScope}`);
+  }
+  return record;
+}
+
 export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {}) {
   const showFields = opts.showFields !== undefined ? opts.showFields : null;
   const singular = toSingular(name, opts.singular);
@@ -119,66 +133,32 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const limit = argv.limit;
 
           // Interactive picker with pagination
-          const interactive = canPrompt();
-          if (interactive && app.output.getFormat() === FormatAuto && !query) {
-            // Get total count
-            let totalCount = 0;
-            try {
-              totalCount = await app.sdk.aggregateCount(table, extraQuery || '');
-            } catch { /* non-critical */ }
-
-            const source = async (term, offset, { signal: _signal } = {}) => {
-              const params = new URLSearchParams();
-              params.set('sysparm_limit', String(limit));
-              params.set('sysparm_display_value', 'all');
-              params.set('sysparm_fields', ['sys_id', 'name', 'sys_scope'].join(','));
-              if (term) {
-                params.set('sysparm_query', `nameLIKE${term}^ORDERBYDESCsys_updated_on`);
-              } else {
-                params.set('sysparm_query', (extraQuery ? extraQuery + '^' : '') + 'ORDERBYDESCsys_updated_on');
-                params.set('sysparm_offset', String(offset));
-              }
-              const records = await app.sdk.list(table, params);
-              return records.map(r => {
+          if (canPrompt() && app.output.getFormat() === FormatAuto && !query) {
+            const picked = await interactiveList({
+              app, table, singular, columns: ['name', 'sys_scope'], limit, query: extraQuery,
+              labelField: 'name',
+              message: `Select ${vowelArticle(singular)} ${singular}`,
+              formatLabel: (r) => {
                 const recordName = getStringField(r, 'name') || getStringField(r, 'sys_id');
                 const scope = getStringField(r, 'sys_scope') || '';
-                let label = recordName;
-                if (scope && scope !== 'global') label += ` [${scope}]`;
-                return { name: label, value: recordName };
-              });
-            };
-
-            const selectedName = await paginatedSearch({
-              message: `Select ${vowelArticle(singular)} ${singular}`,
-              pageSize: 10,
-              totalCount,
-              source,
+                return (scope && scope !== 'global') ? `${recordName} [${scope}]` : recordName;
+              },
             });
+            if (picked === undefined || picked === null) return; // cancelled, or table is empty
 
-            if (selectedName) {
-              const recordName = typeof selectedName === 'object' ? selectedName.value : selectedName;
-              assertSafeExactMatch(recordName);
-              const showParams = new URLSearchParams();
-              showParams.set('sysparm_query', `name=${recordName}`);
-              showParams.set('sysparm_display_value', 'all');
-              showParams.set('sysparm_limit', '1');
-              const showRecords = await app.sdk.list(table, showParams);
-              if (showRecords.length === 0) {
-                throw new Error(`${singular} not found: ${recordName}`);
-              }
-              const record = showRecords[0];
-              record._context = { instance_url: app.getEffectiveInstance(), table };
-              if (opts.onShow) {
-                await opts.onShow(record, app);
-              }
-              app.ok(record, {
-                summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${recordName}`,
-                breadcrumbs: [
-                  ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${recordName} --data '{...}'`, description: `Update this ${singular}` }]),
-                  { action: 'list', cmd: `jsn ${name} list`, description: `Back to all ${name}` },
-                ],
-              });
+            const record = picked;
+            const recordName = getStringField(record, 'name') || getStringField(record, 'sys_id');
+            record._context = { instance_url: app.getEffectiveInstance(), table };
+            if (opts.onShow) {
+              await opts.onShow(record, app);
             }
+            app.ok(record, {
+              summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${recordName}`,
+              breadcrumbs: [
+                ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${recordName} --data '{...}'`, description: `Update this ${singular}` }]),
+                { action: 'list', cmd: `jsn ${name} list`, description: `Back to all ${name}` },
+              ],
+            });
             return;
           }
 
@@ -209,34 +189,25 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
         handler: wrap(async (argv, app) => {
           const id = argv.identifier;
-          const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
-          assertSafeExactMatch(id);
-          const params = new URLSearchParams();
-          params.set('sysparm_query', `${queryField}=${id}`);
-          params.set('sysparm_limit', '1');
-          params.set('sysparm_display_value', 'all');
           // Only restrict sysparm_fields if showFields is explicitly set.
           // Go version fetches all fields for show unless explicitly restricted.
-          if (showFields && showFields.length > 0) {
-            params.set('sysparm_fields', [...new Set(['sys_id', ...showFields])].join(','));
-          }
-          const records = await app.sdk.list(table, params);
-          if (records.length === 0) {
-            throw new Error(`${singular} not found: ${id}`);
-          }
-          records[0]._context = {
+          const fields = (showFields && showFields.length > 0)
+            ? [...new Set(['sys_id', ...showFields])]
+            : undefined;
+          const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular, fields });
+          record._context = {
             instance_url: app.getEffectiveInstance(),
             table,
           };
 
           if (opts.onShow) {
-            await opts.onShow(records[0], app);
+            await opts.onShow(record, app);
           }
 
-          const summary = typeof showSummary === 'function' ? showSummary(records[0], id) : showSummary;
-          const breadcrumbs = typeof showBreadcrumbs === 'function' ? showBreadcrumbs(records[0], id) : showBreadcrumbs;
+          const summary = typeof showSummary === 'function' ? showSummary(record, id) : showSummary;
+          const breadcrumbs = typeof showBreadcrumbs === 'function' ? showBreadcrumbs(record, id) : showBreadcrumbs;
 
-          app.ok(records[0], { summary, breadcrumbs });
+          app.ok(record, { summary, breadcrumbs });
         }),
       });
 
@@ -267,26 +238,12 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
-            assertSafeExactMatch(id);
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `${queryField}=${id}`);
-            findParams.set('sysparm_limit', '1');
-            findParams.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list(table, findParams);
-            if (records.length === 0) {
-              throw new Error(`${singular} not found: ${id}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
-            const recordScope = await resolveRecordScope(app.sdk, records[0]);
-
+            const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular });
             if (scopeValidation) {
-              const scopeErr = await checkScope(app.sdk, recordScope);
-              if (scopeErr) {
-                throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn scopes set ${scopeErr.recordScope}`);
-              }
+              await guardScope(app.sdk, record);
             }
 
+            const sysID = unwrapSysId(record);
             const recordData = parseDataArg(argv);
             const updated = await app.sdk.update(table, sysID, recordData);
             app.ok(updated, { summary: `Updated ${singular} ${id}` });
@@ -298,26 +255,13 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const queryField = isHexString(id) && id.length === 32 ? 'sys_id' : 'name';
-            assertSafeExactMatch(id);
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `${queryField}=${id}`);
-            findParams.set('sysparm_limit', '1');
-            findParams.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list(table, findParams);
-            if (records.length === 0) {
-              throw new Error(`${singular} not found: ${id}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
-            const recordName = getStringField(records[0], 'name') || id;
-            const recordScope = await resolveRecordScope(app.sdk, records[0]);
-
+            const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular });
             if (scopeValidation) {
-              const scopeErr = await checkScope(app.sdk, recordScope);
-              if (scopeErr) {
-                throw new Error(`record is in scope '${scopeErr.recordScope}', but your current scope is '${scopeErr.currentScope}'. Switch scope first: jsn scopes set ${scopeErr.recordScope}`);
-              }
+              await guardScope(app.sdk, record);
             }
+
+            const sysID = unwrapSysId(record);
+            const recordName = getStringField(record, 'name') || id;
 
             await confirmDelete(app, argv, `Delete ${singular} '${recordName}'`);
 
