@@ -57,6 +57,31 @@ export function isTTY(writer) {
   return writer.isTTY === true;
 }
 
+// Default styled-table column widths for well-known ServiceNow fields.
+// Pure presentation defaults — commands can override per envelope via
+// `data.columnWidths` (see writeRecordsTable).
+const DEFAULT_COLUMN_WIDTHS = {
+  number: 14,
+  short_description: 48,
+  priority: 14,
+  state: 10,
+  assigned_to: 15,
+  risk: 10,
+  name: 30,
+  user_name: 15,
+  email: 30,
+  sys_id: 32,
+  sys_updated_on: 22,
+  sys_created_on: 22,
+  opened_at: 22,
+  closed_at: 22,
+  sys_updated_by: 20,
+  sys_created_by: 20,
+  opened_by: 20,
+  u_category: 20,
+  u_subcategory: 20,
+};
+
 // Minimal ANSI colors — replaces chalk (only used for error/hint styling,
 // which is already TTY-gated by callers).
 const ansi = (code) => (text) => `\x1b[${code}m${text}\x1b[0m`;
@@ -248,6 +273,22 @@ export class OutputWriter {
   }
 
   writeStyled(data, opts) {
+    // ── The `_formatted` interface ──────────────────────────────────────
+    // Commands may ship a pre-rendered styled view as `data._formatted`
+    // (a plain string). The writer prints it verbatim and suppresses both
+    // opts.summary and the records table / field-dump renderers — the
+    // curated visual IS the output. JSON/quiet/markdown/csv formats ignore
+    // `_formatted` entirely and serialize the full envelope as usual, so
+    // scripting (`--json`, `--get`) is unaffected.
+    //
+    // This is the documented escape hatch for command-curated visuals
+    // (auth status, cmdb show cards/trees, docs search results, …). View
+    // logic belongs in the command that owns the domain — output.js stays
+    // generic. Other underscore-prefixed side-channel keys commands may
+    // attach: `_context` ({instance_url, table} consumed by the record
+    // renderer), `_attachments`, `_variables` (record card sections), plus
+    // `records`/`columns`/`table`/`relationships` for the generic table and
+    // record views below.
     const hasFormatted = data && typeof data === 'object' && data._formatted;
 
     if (opts.summary && !hasFormatted) {
@@ -269,42 +310,6 @@ export class OutputWriter {
         // _formatted (e.g. cmdb show card) replaces the raw field dump —
         // the visual is the curated view; JSON/quiet keep full data.
         this.writeFormattedRecord(data, tableName);
-      }
-
-      if (Array.isArray(data.profiles) && data.profiles.length > 0) {
-        this.writer.write('\n');
-        for (const p of data.profiles) {
-          const prefix = p.default ? '* ' : '  ';
-          const authIcon = p.authenticated ? '✓' : '✗';
-
-          // Show verified status if we got one
-          let verifiedStr = '';
-          if (p.verified === true) {
-            verifiedStr = ' ✅';
-          } else if (p.verified === false) {
-            verifiedStr = ' ⚠️';
-          }
-
-          // Show stale hint if >7 days since last seen
-          let staleStr = '';
-          if (p.stale && p.days_since_last_seen) {
-            staleStr = ` (${p.days_since_last_seen}d ago — may have been released)`;
-          }
-
-          // Show lock icon for read-only profiles
-          const lockIcon = p.read_only ? ' 🔒' : '';
-
-          // Show confirmations-off badge for skip_confirmations profiles
-          const confirmBadge = p.skip_confirmations ? ' ⚡' : '';
-
-          if (p.name) {
-            this.writer.write(`${prefix}${authIcon} ${p.name} — ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`);
-          } else if (p.username) {
-            this.writer.write(`${prefix}${authIcon} ${p.instance} (as ${p.username})${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`);
-          } else {
-            this.writer.write(`${prefix}${authIcon} ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`);
-          }
-        }
       }
 
       if (Array.isArray(data.records) && data.records.length > 0) {
@@ -334,27 +339,10 @@ export class OutputWriter {
     const table = data.table || '';
     const instanceURL = data.context?.instance_url || '';
 
-    const colWidths = {
-      number: 14,
-      short_description: 48,
-      priority: 14,
-      state: 10,
-      assigned_to: 15,
-      risk: 10,
-      name: 30,
-      user_name: 15,
-      email: 30,
-      sys_id: 32,
-      sys_updated_on: 22,
-      sys_created_on: 22,
-      opened_at: 22,
-      closed_at: 22,
-      sys_updated_by: 20,
-      sys_created_by: 20,
-      opened_by: 20,
-      u_category: 20,
-      u_subcategory: 20,
-    };
+    // Default per-column widths for known ServiceNow fields; unknown columns
+    // fall back to 20. Commands may override/extend per call by attaching
+    // `data.columnWidths = { <col>: <width> }` — hints win over defaults.
+    const colWidths = { ...DEFAULT_COLUMN_WIDTHS, ...(data.columnWidths || {}) };
 
     this.writer.write('\n');
 

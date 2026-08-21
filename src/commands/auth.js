@@ -9,6 +9,59 @@ import process from 'node:process';
 declareCapabilities('auth', { noInstance: true });
 
 /**
+ * Render the `jsn auth status` styled (TTY) view: one line per profile with
+ * default marker, auth ✓/✗, 🔒 read_only, ⚡ skip_confirmations, ✅/⚠️
+ * live-verification, and stale-last-seen hints.
+ *
+ * This view logic lives in the auth command — NOT in src/output.js — and is
+ * shipped to the OutputWriter as `data._formatted` (the documented escape
+ * hatch for command-curated visuals; see the interface comment in
+ * src/output.js). The `summary` line is folded into the formatted string
+ * because the writer suppresses opts.summary when _formatted is present.
+ * Golden-pinned by test/auth.test.js ("auth status styled output").
+ */
+export function renderAuthStatus(result, summary) {
+  let out = summary ? `${summary}\n\n` : '';
+  const profiles = Array.isArray(result.profiles) ? result.profiles : [];
+  if (profiles.length > 0) {
+    out += '\n';
+    for (const p of profiles) {
+      const prefix = p.default ? '* ' : '  ';
+      const authIcon = p.authenticated ? '✓' : '✗';
+
+      // Show verified status if we got one
+      let verifiedStr = '';
+      if (p.verified === true) {
+        verifiedStr = ' ✅';
+      } else if (p.verified === false) {
+        verifiedStr = ' ⚠️';
+      }
+
+      // Show stale hint if >7 days since last seen
+      let staleStr = '';
+      if (p.stale && p.days_since_last_seen) {
+        staleStr = ` (${p.days_since_last_seen}d ago — may have been released)`;
+      }
+
+      // Show lock icon for read-only profiles
+      const lockIcon = p.read_only ? ' 🔒' : '';
+
+      // Show confirmations-off badge for skip_confirmations profiles
+      const confirmBadge = p.skip_confirmations ? ' ⚡' : '';
+
+      if (p.name) {
+        out += `${prefix}${authIcon} ${p.name} — ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`;
+      } else if (p.username) {
+        out += `${prefix}${authIcon} ${p.instance} (as ${p.username})${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`;
+      } else {
+        out += `${prefix}${authIcon} ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Resolve a login/logout/refresh argument to a concrete instance URL.
  *
  * gh-style precision: a full URL is used as-is; a bare name is first checked
@@ -633,7 +686,11 @@ Examples:
               profiles,
             };
 
-            app.ok(result, { summary: `${profiles.length} profile(s)` });
+            const summary = `${profiles.length} profile(s)`;
+            // Ship the styled view as _formatted (see renderAuthStatus); the
+            // OutputWriter prints it verbatim and suppresses the summary.
+            result._formatted = renderAuthStatus(result, summary);
+            app.ok(result, { summary });
 
             // Warn about legacy credentials that need re-authentication
             const legacyProfiles = profiles.filter(p => p.legacy);
