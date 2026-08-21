@@ -1,4 +1,4 @@
-import { getStringField, interactiveList } from '../helpers.js';
+import { getStringField, interactiveList, resolveItemOptionType } from '../helpers.js';
 import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
@@ -66,9 +66,8 @@ export function catalogCmd(wrap) {
                   const label = parts.length >= 3 ? parts[parts.length - 1] : parts[0];
                   const sysName = parts[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
                   try {
-                    const typeMap = { string: '6', multilinetext: '2', select: '3', date: '4', datetime: '5', reference: '8', checkbox: '12', email: '11' };
                     await app.sdk.create('item_option_new', {
-                      name: sysName, question_text: label, type: typeMap[typeName] || '6',
+                      name: sysName, question_text: label, type: resolveItemOptionType(typeName),
                       order: (varCount + 1) * 100, cat_item: itemID, mandatory: true, active: true,
                     });
                     varCount++;
