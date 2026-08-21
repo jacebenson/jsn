@@ -28,6 +28,7 @@ import { groupsCmd } from './commands/groups.js';
 import { groupMembersCmd } from './commands/groupmembers.js';
 import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
+import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
 import { devCmd } from './commands/dev.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
@@ -393,6 +394,7 @@ export function buildCLI() {
     .command(recordsCmd(wrap))
     .command(snippetsCmd(wrap))
     .command(ticketsCmd(wrap))
+    .command(codesearchCmd(wrap))
     // DEVELOPER
     .command(atfCmd(wrap))
     .command(approvalsCmd(wrap))
