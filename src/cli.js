@@ -404,7 +404,9 @@ export function buildCLI() {
     // Legacy
     .command(devCmd(wrap))
     .demandCommand(1, 'You must specify a command')
-    // Custom completion filter (#176). Two yargs behaviors need help:
+    // Completion plumbing under a hidden command name, so the explicit
+    // 'completion' command below owns the UX. (#176)
+    // The custom filter fixes two yargs behaviors:
     // 1. Under strictCommands(), yargs' default completion handler aborts
     //    when the current word isn't an exact command match. Delegating to
     //    completionFilter (the default generator) sidesteps that.
@@ -414,15 +416,46 @@ export function buildCLI() {
     //    When completing the FIRST word (depth 1, the command slot), merge
     //    in the root command list — the shell's compgen prefix-filters the
     //    final list anyway.
-    .completion('completion', 'Generate shell completion script', (current, argv, completionFilter, done) => {
+    .completion('__completion', false, (current, argv, completionFilter, done) => {
       completionFilter((err, completions) => {
         let out = completions || [];
         const depth = (argv._ || []).length;
         if (current && !current.startsWith('-') && depth <= 2) {
           out = [...new Set([...out, ...rootCommands])];
         }
-        done(out);
+        done([...new Set(out)]);
       });
+    })
+    // User-facing completion command with a real help page (install docs).
+    // yargs' built-in completion command prints the script even for --help,
+    // which is why the plumbing above uses the hidden '__completion' name.
+    .command({
+      command: 'completion',
+      describe: 'Generate shell completion script',
+      builder: (y) => y
+        .usage('Usage: jsn completion > <file for your shell>')
+        .epilogue([
+          'Install for your shell:',
+          '',
+          '  # bash (auto-loaded if the bash-completion package is installed)',
+          '  jsn completion > ~/.local/share/bash-completion/jsn',
+          '',
+          '  # bash (simple)',
+          '  jsn completion >> ~/.bashrc',
+          '',
+          '  # fish',
+          '  jsn completion > ~/.config/fish/completions/jsn.fish',
+          '',
+          '  # zsh — the generated script is bash-style, load via bashcompinit.',
+          '  # Add to ~/.zshrc:',
+          '  autoload -U +X bashcompinit && bashcompinit',
+          '  source <(jsn completion)',
+          '',
+          'Restart your shell (or source the file) after installing.',
+        ].join('\n')),
+      handler: () => {
+        cliInstance.showCompletionScript();
+      },
     })
     .help('help', 'Show help')
     .version(false)

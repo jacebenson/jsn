@@ -1,517 +1,72 @@
-# Agent Documentation for JSN CLI
+# AGENTS.md — working on the jsn codebase
 
-> JSN v4.x — Node.js — branch: `main`
+For AI agents (and humans) **building jsn itself**. If you want to *use* jsn
+against a ServiceNow instance, see the bundled skill (`jsn skill show`,
+source in `skills/`) or README.md.
 
-This document provides guidance for AI agents using the JSN CLI to interact with ServiceNow.
+## Stack
 
-## Design Philosophy
+Node.js 18+, ESM (`"type": "module"`), no build step, no TypeScript.
+Entry: `bin/jsn.js` → `src/cli.js`. Key deps: yargs 17 (CLI), better-sqlite3
+(docs search index). Tests: `node:test` runner, eslint.
 
-JSN is designed for **safe, composable automation**:
+## Layout
 
-1. **Read-only by default** — List and get operations are safe
-2. **Explicit mutations** — Create/update/delete require explicit flags
-3. **Idempotent operations** — Running the same command twice produces the same result
-4. **Structured output** — JSON output can be piped to other tools
-5. **Error handling** — Clear error messages with hints for resolution
+- `bin/jsn.js` — entry, patches out node:sqlite experimental warning, calls `cli.parse()`
+- `src/cli.js` — `buildCLI()`: global options, middleware, command registration
+- `src/app.js` — `App`: instance resolution, SDK handle, output controller
+- `src/config.js` — profile config (XDG config dir)
+- `src/commands/` — one file per command family; `dev/_simple.js` builds the
+  many simple table CRUD commands, `commands/_ticket.js` builds ticket-style
+  CRUD (incidents/changes/requests/tasks)
+- `src/helpers.js`, `src/output.js`, `src/errors.js`, `src/mutations.js`
+- `skills/` — the agent skill shipped in the npm package
+- `test/` — `*.test.js`, `node:test` + `spawnSync` for CLI-level tests
 
-## Common Workflows
+## Adding a command
 
-### Workflow 1: Incident Management
+1. Create `src/commands/<name>.js` exporting `export const <name>Cmd = (wrap) => ({...yargs command module})`.
+2. Register in `src/cli.js` with `.command(<name>Cmd(wrap))` — keep the
+   section grouping. Aliases go on the command module.
+3. All handlers must go through `wrap(handler)` — it injects `app` and
+   converts thrown errors (`err.code`) into clean exits with hints.
+4. Simple table CRUD? Don't hand-roll: extend `dev/_simple.js` or use
+   `buildTicketCommands` (`_ticket.js`).
 
-```bash
-# List all open critical incidents
-jsn incidents list --query "priority=1^active=true^state!=6" --json
+## Rules that will bite you
 
-# Get details of a specific incident
-jsn incidents INC0010001 --json
+- **Middleware skip-lists.** `src/cli.js` has several lists like
+  `['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs']` that
+  skip instance guards / version checks / context headers. A new no-instance
+  command must be added to every one of them.
+- **strictCommands() is on.** This breaks yargs' default shell-completion
+  handler — see the custom filter in `cli.js` and the comment there before
+  touching `.completion()`.
+- **Mutations are guarded.** `src/mutations.js` (`isMutationCommand`) drives
+  the require-instance + read-only-profile + confirmation flow. New mutation
+  subcommands must be registered there or they bypass the safety model.
+- **`.fail()` is custom.** The "You must specify a command" path prints
+  `renderHelp()` and exits 0; lone `--profile` prints the profile list.
+- **Output envelope.** Everything goes through `app.output` (formats: auto,
+  json, markdown, styled, quiet, csv). Never `console.log` data — write to
+  stdout via the output controller so `--json`/`--get` keep working.
+- **`--get`** is jsn's jq substitute (JSON path into the envelope) — keep it
+  working for new output shapes.
 
-# Create a new incident (returns the created record)
-jsn incidents create --description "Issue description" --priority 2 --json
-
-# Update an incident status
-jsn incidents update INC0010001 --data '{"state": "2", "assigned_to": "user_id"}'
-
-# Add a work note to an incident
-jsn records update --table incident --sys-id <sys_id> --data '{"work_notes": "Updated status"}'
-```
-
-### Workflow 2: Change Request Management
-
-```bash
-# List pending changes
-jsn changes list --query "state=-5" --json
-
-# Create a standard change
-jsn changes create --description "Monthly maintenance" --risk low --json
-
-# Approve a change (move to assessment)
-jsn changes update CHG0010001 --data '{"state": "1"}'
-```
-
-### Workflow 3: User Management
-
-```bash
-# Search for users
-jsn users "John Smith" --json
-
-# Get user details
-jsn users list --query "user_name=john.smith" --json
-
-# Find user's group memberships
-jsn records list --table sys_user_grmember --query "user.name=john.smith" --columns "group.name,group.manager" --json
-```
-
-### Workflow 4: Development Tasks
+## Testing
 
 ```bash
-# List script includes in a scope
-jsn dev includes list --query "sys_scope.scope=x_myapp" --json
-
-# Get script include code
-jsn dev includes MyScriptInclude --json | jq -r '.script'
-
-# List business rules on a table
-jsn dev rules list --query "collection=incident^active=true" --json
-
-# List client scripts on a table
-jsn dev clientscripts list --query "table_name=incident^active=true" --json
-
-# List UI actions on a table
-jsn dev uiactions list --query "table=incident^active=true" --json
-
-# List update sets
-jsn dev updatesets list --query "state=in progress" --json
-
-# Set current update set
-jsn dev updatesets set "My Development" --json
-
-# Export an update set to XML (raw XML to stdout, or --out <file>)
-jsn dev updatesets export "My Update Set" --out my-update-set.xml
-
-# List access controls (ACLs) for a table
-jsn dev acls list --query "name=incident" --json
-
-# Query system properties
-jsn dev properties list --query "nameLIKEglide.encryption" --json
+npm test                    # full suite (node --test, no instance needed)
+npm run lint                # eslint src/ bin/ test/
+JSN_INTEGRATION_TESTS=true npm test   # live-instance e2e (creates/deletes records!)
 ```
 
-### Workflow 5: Records Inspect (Audit & Diagnostics)
-
-```bash
-# Show audit history for a record
-jsn records inspect INC0010001 --audit
-
-# Show business rules that fire on a record's table
-jsn records inspect INC0010001 --rules
-
-# Show running flows for a record
-jsn records inspect INC0010001 --flows
-
-# Run all diagnostics at once
-jsn records inspect INC0010001 --all
-```
-
-### Workflow 6: Dev Commands with Full CRUD
-
-Several dev commands now support create, update, and delete in addition to list/show:
-
-```bash
-# Create a new business rule
-jsn dev rules create --data '{"name": "My Rule", "collection": "incident", "script": "gs.log(\"hello\");"}'
-
-# Update a script include
-jsn dev includes update <sys_id> --data '{"script": "// updated code"}'
-
-# Delete a UI action
-jsn dev uiactions delete <sys_id> --confirm
-
-# Create a new ACL
-jsn dev acls create --data '{"name": "incident", "operation": "read", "type": "record"}'
-```
-
-Supported dev CRUD tables: `sys_script_include`, `sys_script`, `sys_script_client`, `sys_ui_action`, `sys_ui_policy`, `sys_scope`, `sys_properties`, `sys_acl`, `sys_import_set`, `sys_ws_definition`, `sys_rest_message`, `sys_rest_message_fn`, `sys_roles`, `sys_user_role`, `sys_flow`, `sys_flow_trigger`, `sys_flow_action`, `sys_ui_page`, `sys_ui_module`, `sys_app`, `sys_application`, `sys_ui_section`, `sys_ui_related_list`, `sys_ui_list`, `sys_ui_view`, `sys_ui_form`, `sys_ui_script`, `sys_ui_message`, `sys_ui_policy_condition`, `sys_script_queue`, `sys_script_email_template`, `sys_script_rest_operation`, `sys_script_rest_message`, `sys_script_rest_operation_fn`, `sys_script_ws_definition`.
-
-### Workflow 7: Data Queries
-
-```bash
-# Generic table query with jq processing
-jsn records list --table incident --query "active=true^opened_at>javascript:gs.daysAgo(7)" --json | \
-  jq -r '.[] | "\(.number): \(.short_description)"'
-
-# Count records
-jsn records list --table incident --query "priority=1" --json | jq 'length'
-
-# Export to CSV (using jq)
-jsn records list --table incident --limit 100 --json | \
-  jq -r '.[] | [.number, .short_description, .priority, .state] | @csv'
-
-# Fetch all fields from a record
-jsn records get --table incident --sys-id <sys_id> --columns '*' --json
-```
-
-## Best Practices for Agents
-
-### 1. Always Use --json for Automation
-
-```bash
-# Good - structured output for parsing
-jsn incidents list --json | jq '.[].number'
-
-# Avoid - parsing human-readable output
-jsn incidents list | grep "INC" | awk '{print $1}'
-```
-
-### 2. Handle Errors Gracefully
-
-```bash
-# Check if command succeeded
-if jsn incidents INC0010001 --json > /dev/null 2>&1; then
-    echo "Incident exists"
-else
-    echo "Incident not found"
-fi
-```
-
-### 3. Use --limit for Large Tables
-
-```bash
-# Prevent timeouts on large tables
-jsn records list --table sys_audit --limit 100 --json
-```
-
-### 4. Batch Operations
-
-```bash
-# Get multiple records efficiently
-jsn records list --table incident --query "numberININC0010001,INC0010002,INC0010003" --json
-```
-
-### 5. Safe Update Patterns
-
-```bash
-# Always verify before updating
-INCIDENT=$(jsn incidents INC0010001 --json)
-if [ $? -eq 0 ]; then
-    SYS_ID=$(echo "$INCIDENT" | jq -r '.sys_id')
-    jsn records update --table incident --sys-id "$SYS_ID" --data '{"state": "6"}'
-fi
-```
-
-## Safety Guidelines
-
-### Safe Operations (Read-Only)
-
-These operations are always safe:
-
-- `jsn incidents list` / `jsn incidents <number>`
-- `jsn changes list` / `jsn changes <number>`
-- `jsn requests list` / `jsn requests <number>`
-- `jsn tasks list` / `jsn tasks <number>`
-- `jsn records list` / `jsn records get`
-- `jsn records inspect`
-- `jsn atf list` / `jsn atf suites` / `jsn atf results`
-- `jsn approvals list` / `jsn approvals history` (read-only; approve/reject/submit are mutations)
-- `jsn users list` / `jsn users <search>`
-- `jsn groups list`
-- `jsn tickets list`
-- `jsn cmdb list` / `jsn cmdb show` / `jsn cmdb relationships` (read-only CI + relationship traversal)
-
-**Dev Commands (read-only variants):**
-
-- `jsn dev flows list`
-- `jsn dev actions list`
-- `jsn dev includes list`
-- `jsn dev rules list`
-- `jsn dev clientscripts list`
-- `jsn dev uiactions list`
-- `jsn dev uipolicies list`
-- `jsn dev tables list`
-- `jsn dev columns list`
-- `jsn dev import list`
-- `jsn dev acls list`
-- `jsn dev roles list`
-- `jsn dev updatesets list`
-- `jsn dev scopes list`
-- `jsn dev properties list`
-- `jsn dev logs list`
-- `jsn dev forms list`
-- `jsn dev lists list`
-
-**Docs Commands (no instance required, always read-only):**
-
-- `jsn docs sync` / `jsn docs status` / `jsn docs search`
-- `jsn docs serve` / `jsn docs refresh` / `jsn docs embed`
-
-### Operations Requiring Confirmation
-
-These operations modify data:
-
-- `jsn incidents create` / `update` / `delete`
-- `jsn changes create` / `update` / `delete`
-- `jsn requests create` / `update` / `delete`
-- `jsn tasks create` / `update` / `delete`
-- `jsn tickets create` / `update` / `delete`
-- `jsn records create` / `update` / `delete`
-- `jsn records inspect` (read-only, but actively queries the instance)
-- `jsn atf run` / `jsn atf run-suite` (schedules ATF tests that act on records)
-- `jsn approvals approve` / `jsn approvals reject` / `jsn approvals submit` (change approval state)
-- `jsn dev includes create` / `update` / `delete`
-- `jsn dev rules create` / `update` / `delete`
-- `jsn dev clientscripts create` / `update` / `delete`
-- `jsn dev uiactions create` / `update` / `delete`
-- `jsn dev uipolicies create` / `update` / `delete`
-- `jsn dev acls create` / `update` / `delete`
-- `jsn dev roles create` / `update` / `delete`
-- `jsn dev updatesets set`
-- `jsn dev eval`
-
-**Agent Rule**: Always verify with the user before running mutation commands.
-
-## Output Format Reference
-
-### JSON Output Structure
-
-```json
-{
-  "ok": true,
-  "data": { ... },
-  "summary": "Description of result",
-  "breadcrumbs": [
-    {
-      "action": "create",
-      "cmd": "jsn incidents create --description \"...\"",
-      "description": "Create a new incident"
-    }
-  ],
-  "meta": { ... }
-}
-```
-
-### Error Response Structure
-
-```json
-{
-  "ok": false,
-  "error": "Description of error",
-  "code": "error_code",
-  "hint": "How to fix this error",
-  "meta": { ... }
-}
-```
-
-## Common Error Codes
-
-| Code | Description | Resolution |
-|------|-------------|------------|
-| `auth` | Authentication error | Run `jsn auth login` |
-| `usage` | Invalid usage | Check command syntax with `--help` |
-| `not_found` | Record not found | Verify the identifier exists |
-| `api_error` | ServiceNow API error | Check instance status and permissions |
-| `network` | Network error | Check connectivity |
-
-## Working with Encoded Queries
-
-ServiceNow uses encoded queries for filtering:
-
-```bash
-# Operators
-^          AND
-^OR        OR
-^NQ        New query (OR group)
-=          Equals
-!=         Not equals
->          Greater than
-<          Less than
->=         Greater or equal
-<=         Less or equal
-LIKE       Contains
-NOT LIKE   Does not contain
-STARTSWITH Starts with
-ENDSWITH   Ends with
-EMPTY      Is empty
-NOT EMPTY  Is not empty
-IN         In list (comma-separated)
-
-# Examples
-"priority=1^active=true"                          # Critical and active
-"priorityIN1,2^state!=6"                          # Priority 1 or 2, not closed
-"short_descriptionLIKEserver^ORnumber=INC0010001" # Contains "server" OR specific number
-"opened_at>javascript:gs.daysAgo(7)"              # Opened in last 7 days
-```
-
-## Integration Patterns
-
-### With jq (JSON processing)
-
-```bash
-# Extract specific fields
-jsn incidents list --json | jq '.[].number'
-
-# Filter results
-jsn incidents list --json | jq '.[] | select(.priority == "1")'
-
-# Transform to different format
-jsn incidents list --json | jq -r '.[] | "\(.number): \(.short_description)"'
-```
-
-### With grep/awk
-
-```bash
-# Simple text filtering (on styled output)
-jsn incidents list --styled | grep "INC001"
-
-# Count results
-jsn incidents list --json | jq 'length'
-```
-
-### With Other CLIs
-
-```bash
-# Create incident and send notification
-INCIDENT=$(jsn incidents create --description "Issue" --json)
-NUMBER=$(echo "$INCIDENT" | jq -r '.data.number')
-echo "Created $NUMBER" | mail -s "New Incident" admin@example.com
-```
-
-## Testing Commands
-
-When testing or exploring:
-
-```bash
-# Use --limit to prevent timeouts
-jsn records list --table sys_audit --limit 5 --json
-
-# Use quiet mode to see just the data
-jsn incidents list --limit 5 -q
-
-# Combine with head/tail
-jsn incidents list --json | jq -r '.[].number' | head -5
-```
-
-## Running Tests
-
-```bash
-# Run the full test suite
-npm test
-
-# Run tests matching a pattern
-node --test $(find test -name '*inspect*')
-
-# Run with lint check
-npm run lint && npm test
-```
-
-**Test env vars:** `JSN_HERMES_BASE_DIR` points skill tests at a temp `.hermes` tree (used by `test/skill.test.js`); `JSN_NO_VERSION_CHECK=1` and `JSN_NO_SKILL_CHECK=1` disable the daily npm/skill checks.
-
-## AI Agent Integration
-
-JSN ships a built-in agent skill file. Use the `jsn skill` command to manage it:
-
-```bash
-# View the bundled skill content
-jsn skill show
-
-# Download the latest skill from GitHub (prints to stdout)
-jsn skill fetch | head -30
-
-# Install to Hermes skills directory
-jsn skill install
-
-# Install to a custom location
-jsn skill install /path/to/project/.hermes/skills/servicenow/
-```
-
-## Checking for Updates
-
-```bash
-jsn version                    # Show current version
-jsn version --check            # Check npm for newer versions
-```
-
-## Workflow 8: Documentation Search
-
-`jsn docs` provides local offline search of ServiceNow documentation — no instance required.
-
-```bash
-# One-time setup: download docs and build the search index (~45k files, ~3-5 min)
-jsn docs sync
-
-# Check what state things are in
-jsn docs status
-
-# Full-text + semantic hybrid search
-jsn docs search "incident management" --limit 5 --json
-
-# Filter by bundle
-jsn docs search "REST API" --bundle it-service-management --json
-
-# Start the web UI for browsing
-jsn docs serve
-
-# Share on your network
-jsn docs serve --expose
-```
-
-**State flow:** `not downloaded` → `not indexed` → `indexed (not embedded)` → `ready`
-
-**Re-running `jsn docs sync`** on an existing DB does a smart incremental refresh (seconds, not minutes). It pulls the latest docs and only rebuilds changed files.
-
-### Workflow 9: CMDB Inspection
-
-```bash
-# List CIs with an interactive picker
-jsn cmdb list --json
-
-# Show a CI with key fields + parents/siblings/children (capped, counts)
-jsn cmdb show <ci_sys_id_or_name> --json
-
-# Traverse the relationship graph (BFS, zero deps)
-jsn cmdb relationships --ci <sys_id> --direction both --depth 3 --json
-
-# Options: --direction upstream|downstream|both, --depth 1-5, --type <substring>,
-#          --class <substring>, --impact (upstream only), --limit
-```
-
-### Workflow 10: ATF Test Execution
-
-```bash
-# List ATF tests / suites (read-only)
-jsn atf list --query "active=true" --json
-jsn atf suites --json
-
-# Run a test or suite (mutation-gated, confirm required; --no-wait to skip polling)
-jsn atf run <test_sys_id> --json
-jsn atf run-suite <suite_sys_id> --json
-
-# Fetch results for a run
-jsn atf results <execution_id> --json
-```
-
-### Workflow 11: Approvals
-
-```bash
-# List pending approval requests (read-only; default state=requested)
-jsn approvals list --json
-
-# Only approvals assigned to the current user (fails loudly if the profile has no username)
-jsn approvals list --mine --json
-
-# Approvals for a specific record
-jsn approvals list --for CHG0010001 --json
-
-# Show the approval progression for a record (approver rows + rollup state)
-jsn approvals history CHG0010001 --json
-
-# Approve/reject a request (mutation-gated, confirm required)
-jsn approvals approve <approver_sys_id> --comments "Looks good" --json
-jsn approvals reject <approver_sys_id> --comments "Needs more info" --json
-
-# Request approval on a record (mutation-gated; sets approval=requested)
-jsn approvals submit change_request <sys_id> --json
-```
-
-## References
-
-- [ServiceNow Table API Docs](https://docs.servicenow.com/bundle/tokyo-application-development/page/integrate/inbound-rest/concept/c_TableAPI.html)
-- [ServiceNow Encoded Query Docs](https://docs.servicenow.com/bundle/tokyo-platform-administration/page/administer/table-administration/concept/c_EncodedQueryStrings.html)
-- [jq Manual](https://stedolan.github.io/jq/manual/)
+Test env vars: `JSN_NO_VERSION_CHECK=1`, `JSN_NO_SKILL_CHECK=1` (disable the
+daily checks — set these in tests), `JSN_HERMES_BASE_DIR` (skill tests).
+CLI-level tests spawn `bin/jsn.js` via `spawnSync` — see
+`test/completion.test.js` for the pattern.
+
+## Git flow
+
+PRs against `main` on github.com/jacebenson/jsn, squash-merged
+(`gh pr merge --squash`). Jace tests merged main; don't push release tags.
