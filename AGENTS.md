@@ -34,6 +34,15 @@ Tests: `node:test` runner + eslint.
 - `skills/` — the agent skill shipped in the npm package
 - `test/` — `*.test.js`, `node:test` + `spawnSync` for CLI-level tests
 
+## Domain vocabulary & decisions
+
+- `CONTEXT.md` — the domain model (command, capability registry, record
+  resolver, session, output envelope, …) and the invariants that must stay
+  true. Update it in the same commit that changes a concept.
+- `docs/adr/` — architecture decision records (ADR-0001 covers the
+  capability-registry / record-resolver / output-shapes deepening). Don't
+  re-litigate a rejected alternative without new friction.
+
 ## Adding a command
 
 1. Create `src/commands/<name>.js` exporting `export const <name>Cmd = (wrap) => ({...yargs command module})`.
@@ -46,16 +55,19 @@ Tests: `node:test` runner + eslint.
 
 ## Rules that will bite you
 
-- **Middleware skip-lists.** `src/cli.js` has several lists like
-  `['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs']` that
-  skip instance guards / version checks / context headers. A new no-instance
-  command must be added to every one of them.
+- **Command capabilities are declared, not listed.** `src/capabilities.js`
+  (`declareCapabilities`) is the source of truth for `noInstance` /
+  `skipDailyChecks` / `mutationSubcommands` / `devAlias`. Middleware derives
+  the skip-lists and the mutation guard from it — never add a command name to
+  a hand-written string list. Factories (`buildDevCmd`, `buildTicketCommands`)
+  declare automatically from flags like `readOnly`.
 - **strictCommands() is on.** This breaks yargs' default shell-completion
   handler — see the custom filter in `cli.js` and the comment there before
   touching `.completion()`.
 - **Mutations are guarded.** `src/mutations.js` (`isMutationCommand`) drives
-  the require-instance + read-only-profile + confirmation flow. New mutation
-  subcommands must be registered there or they bypass the safety model.
+  the require-instance + read-only-profile + confirmation flow, with its path
+  list derived from the capability registry. Declare a mutation via
+  `mutationSubcommands` on the command — never edit a path list by hand.
 - **`.fail()` is custom.** The "You must specify a command" path prints
   `renderHelp()` and exits 0; lone `--profile` prints the profile list.
 - **Output envelope.** Everything goes through `app.output` (formats: auto,
