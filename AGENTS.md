@@ -8,11 +8,52 @@ This document provides guidance for AI agents using the JSN CLI to interact with
 
 JSN is designed for **safe, composable automation**:
 
-1. **Read-only by default** — List and get operations are safe
-2. **Explicit mutations** — Create/update/delete require explicit flags
-3. **Idempotent operations** — Running the same command twice produces the same result
-4. **Structured output** — JSON output can be piped to other tools
+1. **Read-only by default** — List and show operations are safe
+2. **Explicit mutations** — Create/update/delete require confirmation (`--force` to skip in scripts)
+3. **Read-only profiles** — Profiles flagged `read_only` block all mutations
+4. **Structured output** — Every command emits a JSON envelope with `--json`
 5. **Error handling** — Clear error messages with hints for resolution
+
+## Command Layout
+
+All commands are root-level. Run `jsn help` for the full command list. Every command supports `--help` (e.g. `jsn incidents --help`).
+
+Global options:
+
+| Flag | Purpose |
+|------|---------|
+| `-i, --instance <url>` | Override the configured instance |
+| `-p, --profile <name>` | Use a named profile (resolves its instance URL) |
+| `--json` | JSON envelope output (shortcut for `--format=json`) |
+| `--csv` | CSV output |
+| `-q, --quiet` | Bare data, no envelope |
+| `--markdown` / `--styled` | Force markdown table / styled output |
+| `--get <path>` | Extract a value from the JSON envelope (e.g. `--get "data.records.0.number"`) — no jq needed |
+| `--help` | Per-command help |
+
+## Shell Completion
+
+Tab completion for commands, subcommands, and options:
+
+```bash
+# Print install instructions for your shell
+jsn completion --help
+
+# bash (with bash-completion package — auto-loaded)
+jsn completion > ~/.local/share/bash-completion/jsn
+
+# bash (simple)
+jsn completion >> ~/.bashrc
+
+# fish
+jsn completion > ~/.config/fish/completions/jsn.fish
+
+# zsh (script is bash-style; load via bashcompinit in ~/.zshrc)
+autoload -U +X bashcompinit && bashcompinit
+source <(jsn completion)
+```
+
+Restart the shell after installing.
 
 ## Common Workflows
 
@@ -23,15 +64,15 @@ JSN is designed for **safe, composable automation**:
 jsn incidents list --query "priority=1^active=true^state!=6" --json
 
 # Get details of a specific incident
-jsn incidents INC0010001 --json
+jsn incidents show INC0010001 --json
 
 # Create a new incident (returns the created record)
 jsn incidents create --description "Issue description" --priority 2 --json
 
-# Update an incident status
+# Update an incident
 jsn incidents update INC0010001 --data '{"state": "2", "assigned_to": "user_id"}'
 
-# Add a work note to an incident
+# Add a work note
 jsn records update --table incident --sys-id <sys_id> --data '{"work_notes": "Updated status"}'
 ```
 
@@ -61,38 +102,37 @@ jsn users list --query "user_name=john.smith" --json
 jsn records list --table sys_user_grmember --query "user.name=john.smith" --columns "group.name,group.manager" --json
 ```
 
-### Workflow 4: Development Tasks
+### Workflow 4: Development Artifacts
 
 ```bash
-# List script includes in a scope
-jsn dev includes list --query "sys_scope.scope=x_myapp" --json
+# Script includes in a scope
+jsn includes list --query "sys_scope.scope=x_myapp" --json
 
 # Get script include code
-jsn dev includes MyScriptInclude --json | jq -r '.script'
+jsn includes show MyScriptInclude --json --get "data.script"
 
-# List business rules on a table
-jsn dev rules list --query "collection=incident^active=true" --json
+# Business rules on a table
+jsn rules list --query "collection=incident^active=true" --json
 
-# List client scripts on a table
-jsn dev clientscripts list --query "table_name=incident^active=true" --json
+# Client scripts / UI actions / UI policies on a table
+jsn clientscripts list --query "table_name=incident^active=true" --json
+jsn uiactions list --query "table=incident^active=true" --json
+jsn uipolicies list --query "table=incident^active=true" --json
 
-# List UI actions on a table
-jsn dev uiactions list --query "table=incident^active=true" --json
+# Update sets
+jsn updatesets list --query "state=in progress" --json
+jsn updatesets set "My Development" --json
+jsn updatesets export "My Update Set" --out my-update-set.xml
 
-# List update sets
-jsn dev updatesets list --query "state=in progress" --json
+# ACLs for a table
+jsn acls list --query "name=incident" --json
 
-# Set current update set
-jsn dev updatesets set "My Development" --json
+# System properties
+jsn properties list --query "nameLIKEglide.encryption" --json
 
-# Export an update set to XML (raw XML to stdout, or --out <file>)
-jsn dev updatesets export "My Update Set" --out my-update-set.xml
-
-# List access controls (ACLs) for a table
-jsn dev acls list --query "name=incident" --json
-
-# Query system properties
-jsn dev properties list --query "nameLIKEglide.encryption" --json
+# Table schema
+jsn tables list --query "nameLIKEincident" --json
+jsn columns list --query "name=incident" --json
 ```
 
 ### Workflow 5: Records Inspect (Audit & Diagnostics)
@@ -111,39 +151,36 @@ jsn records inspect INC0010001 --flows
 jsn records inspect INC0010001 --all
 ```
 
-### Workflow 6: Dev Commands with Full CRUD
+### Workflow 6: Create/Update/Delete on Dev Artifacts
 
-Several dev commands now support create, update, and delete in addition to list/show:
+Most artifact commands support full CRUD:
 
 ```bash
-# Create a new business rule
-jsn dev rules create --data '{"name": "My Rule", "collection": "incident", "script": "gs.log(\"hello\");"}'
+# Create a business rule
+jsn rules create --data '{"name": "My Rule", "collection": "incident", "script": "gs.log(\"hello\");"}'
 
 # Update a script include
-jsn dev includes update <sys_id> --data '{"script": "// updated code"}'
+jsn includes update <sys_id> --data '{"script": "// updated code"}'
 
 # Delete a UI action
-jsn dev uiactions delete <sys_id> --confirm
-
-# Create a new ACL
-jsn dev acls create --data '{"name": "incident", "operation": "read", "type": "record"}'
+jsn uiactions delete <sys_id> --force
 ```
-
-Supported dev CRUD tables: `sys_script_include`, `sys_script`, `sys_script_client`, `sys_ui_action`, `sys_ui_policy`, `sys_scope`, `sys_properties`, `sys_acl`, `sys_import_set`, `sys_ws_definition`, `sys_rest_message`, `sys_rest_message_fn`, `sys_roles`, `sys_user_role`, `sys_flow`, `sys_flow_trigger`, `sys_flow_action`, `sys_ui_page`, `sys_ui_module`, `sys_app`, `sys_application`, `sys_ui_section`, `sys_ui_related_list`, `sys_ui_list`, `sys_ui_view`, `sys_ui_form`, `sys_ui_script`, `sys_ui_message`, `sys_ui_policy_condition`, `sys_script_queue`, `sys_script_email_template`, `sys_script_rest_operation`, `sys_script_rest_message`, `sys_script_rest_operation_fn`, `sys_script_ws_definition`.
 
 ### Workflow 7: Data Queries
 
 ```bash
 # Generic table query with jq processing
 jsn records list --table incident --query "active=true^opened_at>javascript:gs.daysAgo(7)" --json | \
-  jq -r '.[] | "\(.number): \(.short_description)"'
+  jq -r '.data.records[] | "\(.number): \(.short_description)"'
 
 # Count records
-jsn records list --table incident --query "priority=1" --json | jq 'length'
+jsn records list --table incident --query "priority=1" --json | jq '.data.records | length'
 
-# Export to CSV (using jq)
-jsn records list --table incident --limit 100 --json | \
-  jq -r '.[] | [.number, .short_description, .priority, .state] | @csv'
+# Export to CSV without jq
+jsn records list --table incident --limit 100 --csv
+
+# Extract one value without jq
+jsn incidents show INC0010001 --json --get "data.records.0.sys_id"
 
 # Fetch all fields from a record
 jsn records get --table incident --sys-id <sys_id> --columns '*' --json
@@ -155,7 +192,7 @@ jsn records get --table incident --sys-id <sys_id> --columns '*' --json
 
 ```bash
 # Good - structured output for parsing
-jsn incidents list --json | jq '.[].number'
+jsn incidents list --json --get "data.records.0.number"
 
 # Avoid - parsing human-readable output
 jsn incidents list | grep "INC" | awk '{print $1}'
@@ -165,7 +202,7 @@ jsn incidents list | grep "INC" | awk '{print $1}'
 
 ```bash
 # Check if command succeeded
-if jsn incidents INC0010001 --json > /dev/null 2>&1; then
+if jsn incidents show INC0010001 --json > /dev/null 2>&1; then
     echo "Incident exists"
 else
     echo "Incident not found"
@@ -190,80 +227,36 @@ jsn records list --table incident --query "numberININC0010001,INC0010002,INC0010
 
 ```bash
 # Always verify before updating
-INCIDENT=$(jsn incidents INC0010001 --json)
-if [ $? -eq 0 ]; then
-    SYS_ID=$(echo "$INCIDENT" | jq -r '.sys_id')
-    jsn records update --table incident --sys-id "$SYS_ID" --data '{"state": "6"}'
-fi
+SYS_ID=$(jsn incidents show INC0010001 --json --get "data.records.0.sys_id") && \
+  jsn records update --table incident --sys-id "$SYS_ID" --data '{"state": "6"}'
 ```
 
 ## Safety Guidelines
 
 ### Safe Operations (Read-Only)
 
-These operations are always safe:
-
-- `jsn incidents list` / `jsn incidents <number>`
-- `jsn changes list` / `jsn changes <number>`
-- `jsn requests list` / `jsn requests <number>`
-- `jsn tasks list` / `jsn tasks <number>`
-- `jsn records list` / `jsn records get`
-- `jsn records inspect`
-- `jsn atf list` / `jsn atf suites` / `jsn atf results`
-- `jsn approvals list` / `jsn approvals history` (read-only; approve/reject/submit are mutations)
-- `jsn users list` / `jsn users <search>`
-- `jsn groups list`
-- `jsn tickets list`
-- `jsn cmdb list` / `jsn cmdb show` / `jsn cmdb relationships` (read-only CI + relationship traversal)
-
-**Dev Commands (read-only variants):**
-
-- `jsn dev flows list`
-- `jsn dev actions list`
-- `jsn dev includes list`
-- `jsn dev rules list`
-- `jsn dev clientscripts list`
-- `jsn dev uiactions list`
-- `jsn dev uipolicies list`
-- `jsn dev tables list`
-- `jsn dev columns list`
-- `jsn dev import list`
-- `jsn dev acls list`
-- `jsn dev roles list`
-- `jsn dev updatesets list`
-- `jsn dev scopes list`
-- `jsn dev properties list`
-- `jsn dev logs list`
-- `jsn dev forms list`
-- `jsn dev lists list`
-
-**Docs Commands (no instance required, always read-only):**
-
-- `jsn docs sync` / `jsn docs status` / `jsn docs search`
-- `jsn docs serve` / `jsn docs refresh` / `jsn docs embed`
+- `jsn incidents list` / `show` (same for `changes`, `requests`, `tasks`, `tickets`)
+- `jsn records list` / `get` / `inspect`
+- `jsn users list`, `jsn groups list`, `jsn groupmembers list`, `jsn grouproles list`
+- `jsn cmdb list` / `show` / `relationships` (read-only CI + relationship traversal)
+- `jsn atf list` / `suites` / `results`
+- `jsn approvals list` / `history`
+- All artifact `list` / `show` (`rules`, `includes`, `clientscripts`, `uiactions`, `uipolicies`, `tables`, `columns`, `acls`, `roles`, `updatesets`, `scopes`, `properties`, `logs`, `forms`, `lists`, `flows`, `actions`, `import`, ...)
+- `jsn snippets list` / `show`
+- `jsn docs *` (no instance required, always read-only)
+- `jsn completion`, `jsn version`, `jsn skill show`
 
 ### Operations Requiring Confirmation
 
-These operations modify data:
+These modify data and prompt unless `--force` is passed:
 
-- `jsn incidents create` / `update` / `delete`
-- `jsn changes create` / `update` / `delete`
-- `jsn requests create` / `update` / `delete`
-- `jsn tasks create` / `update` / `delete`
-- `jsn tickets create` / `update` / `delete`
-- `jsn records create` / `update` / `delete`
-- `jsn records inspect` (read-only, but actively queries the instance)
-- `jsn atf run` / `jsn atf run-suite` (schedules ATF tests that act on records)
-- `jsn approvals approve` / `jsn approvals reject` / `jsn approvals submit` (change approval state)
-- `jsn dev includes create` / `update` / `delete`
-- `jsn dev rules create` / `update` / `delete`
-- `jsn dev clientscripts create` / `update` / `delete`
-- `jsn dev uiactions create` / `update` / `delete`
-- `jsn dev uipolicies create` / `update` / `delete`
-- `jsn dev acls create` / `update` / `delete`
-- `jsn dev roles create` / `update` / `delete`
-- `jsn dev updatesets set`
-- `jsn dev eval`
+- `create` / `update` / `delete` on `incidents`, `changes`, `requests`, `tasks`, `tickets`, `records`, and dev artifacts
+- `jsn updatesets set`
+- `jsn eval` (executes arbitrary scripts on the instance)
+- `jsn atf run` / `run-suite` (schedules tests that act on records)
+- `jsn approvals approve` / `reject` / `submit`
+
+Profiles can be flagged `read_only`, which blocks all mutations outright.
 
 **Agent Rule**: Always verify with the user before running mutation commands.
 
@@ -274,7 +267,7 @@ These operations modify data:
 ```json
 {
   "ok": true,
-  "data": { ... },
+  "data": { "records": [ ... ] },
   "summary": "Description of result",
   "breadcrumbs": [
     {
@@ -306,6 +299,8 @@ These operations modify data:
 | `auth` | Authentication error | Run `jsn auth login` |
 | `usage` | Invalid usage | Check command syntax with `--help` |
 | `not_found` | Record not found | Verify the identifier exists |
+| `read_only` | Mutation blocked on read-only profile | `jsn auth switch <name>` |
+| `confirmation_required` | Mutation needs `--force` or confirm | Re-run with `--force` |
 | `api_error` | ServiceNow API error | Check instance status and permissions |
 | `network` | Network error | Check connectivity |
 
@@ -345,31 +340,23 @@ IN         In list (comma-separated)
 
 ```bash
 # Extract specific fields
-jsn incidents list --json | jq '.[].number'
+jsn incidents list --json | jq '.data.records[].number'
 
 # Filter results
-jsn incidents list --json | jq '.[] | select(.priority == "1")'
-
-# Transform to different format
-jsn incidents list --json | jq -r '.[] | "\(.number): \(.short_description)"'
+jsn incidents list --json | jq '.data.records[] | select(.priority == "1")'
 ```
 
-### With grep/awk
+### With --get (no jq)
 
 ```bash
-# Simple text filtering (on styled output)
-jsn incidents list --styled | grep "INC001"
-
-# Count results
-jsn incidents list --json | jq 'length'
+jsn incidents show INC0010001 --json --get "data.records.0.assigned_to.display_value"
 ```
 
 ### With Other CLIs
 
 ```bash
 # Create incident and send notification
-INCIDENT=$(jsn incidents create --description "Issue" --json)
-NUMBER=$(echo "$INCIDENT" | jq -r '.data.number')
+NUMBER=$(jsn incidents create --description "Issue" --json --get "data.number")
 echo "Created $NUMBER" | mail -s "New Incident" admin@example.com
 ```
 
@@ -385,7 +372,7 @@ jsn records list --table sys_audit --limit 5 --json
 jsn incidents list --limit 5 -q
 
 # Combine with head/tail
-jsn incidents list --json | jq -r '.[].number' | head -5
+jsn incidents list --json --get "data.records" | head -50
 ```
 
 ## Running Tests
@@ -399,9 +386,12 @@ node --test $(find test -name '*inspect*')
 
 # Run with lint check
 npm run lint && npm test
+
+# Instance-backed E2E tests (requires configured auth; creates/deletes records)
+JSN_INTEGRATION_TESTS=true npm test
 ```
 
-**Test env vars:** `JSN_HERMES_BASE_DIR` points skill tests at a temp `.hermes` tree (used by `test/skill.test.js`); `JSN_NO_VERSION_CHECK=1` and `JSN_NO_SKILL_CHECK=1` disable the daily npm/skill checks.
+**Test env vars:** `JSN_HERMES_BASE_DIR` points skill tests at a temp `.hermes` tree; `JSN_NO_VERSION_CHECK=1` and `JSN_NO_SKILL_CHECK=1` disable the daily npm/skill checks.
 
 ## AI Agent Integration
 
@@ -459,7 +449,7 @@ jsn docs serve --expose
 ### Workflow 9: CMDB Inspection
 
 ```bash
-# List CIs with an interactive picker
+# List CIs
 jsn cmdb list --json
 
 # Show a CI with key fields + parents/siblings/children (capped, counts)

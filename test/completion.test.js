@@ -99,4 +99,25 @@ describe('jsn completion', () => {
     const r = spawnSync('node', [CLI, 'help'], { encoding: 'utf-8', env: ENV });
     assert.match(r.stdout + r.stderr, /completion/, '"completion" not mentioned in help output');
   });
+
+  it('completion --help shows install instructions (not the script)', () => {
+    const r = spawnSync('node', [CLI, 'completion', '--help'], { encoding: 'utf-8', env: ENV });
+    assert.strictEqual(r.status, 0, `exit ${r.status}: ${r.stderr}`);
+    assert.match(r.stdout, /bash-completion/, 'missing bash install instructions');
+    assert.match(r.stdout, /fish/, 'missing fish install instructions');
+    assert.match(r.stdout, /zsh/, 'missing zsh install instructions');
+    assert.ok(!r.stdout.includes('###-begin-jsn-completions-###'),
+      '--help should show help, not dump the script');
+  });
+
+  it('completion prints the script (handler path, same as built-in)', () => {
+    const r = runCompletion();
+    assert.strictEqual(r.status, 0);
+    assert.match(r.stdout, /###-begin-jsn-completions-###/);
+  });
+
+  it('hidden __completion plumbing command is not listed in completions', () => {
+    const out = yargsCompletions(['jsn', '']);
+    assert.ok(!out.includes('__completion'), '__completion leaked into completions');
+  });
 });
