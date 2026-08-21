@@ -24,6 +24,10 @@ import {
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
 import { errUsage, errNotFound } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
+
+// run/run-suite schedule tests that act on records (top-level only).
+declareCapabilities('atf', { mutationSubcommands: ['run', 'run-suite'] });
 
 // sn_cicd progress statuses (now-sdk poller.ts)
 const PROGRESS_PENDING = '0';

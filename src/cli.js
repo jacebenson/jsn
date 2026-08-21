@@ -8,9 +8,9 @@ import fs from 'node:fs';
 import { loadConfig, getActiveProfile, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { renderHelp } from './help.js';
-import { isMutationCommand } from './mutations.js';
-import { guardExit } from './errors.js';
-import { FormatJSON } from './output.js';
+import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
+import { guardExit, exitWithError } from './errors.js';
 
 // Command modules
 import { setupCmd } from './commands/setup.js';
@@ -38,7 +38,7 @@ import { docsCmd } from './commands/docs/docs.js';
 // Dev subcommands promoted to root level for progressive disclosure
 import {
   actionsCmd, includesCmd, rulesCmd,
-  clientScriptsCmd, uiActionsCmd, uiPoliciesCmd,
+  clientScriptsCmd, uiActionsCmd,
   tablesCmd, columnsCmd, importCmd,
   spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
   aclsCmd, rolesCmd, propertiesCmd,
@@ -76,37 +76,11 @@ function wrap(handler) {
       }
       await handler(argv, app);
     } catch (err) {
-      if (err.code === 'not_found') {
-        const id = argv._.slice(1).join(' ') || argv.id || argv.name || argv.sysID || '';
-        process.stderr.write(`Error (${err.code}): ${err.message}\n`);
-        if (id) {
-          process.stderr.write(`\nHint: The identifier "${id}" was not found. Check the name or sys_id.\n`);
-        }
-        process.exit(1);
-      }
-      if (err.code === 'usage') {
-        process.stderr.write(`Error (usage): ${err.message}\n`);
-        process.exit(2);
-      }
-      if (err.code === 'system_error') {
-        process.stderr.write(`Error (system): ${err.message}\n`);
-        process.exit(3);
-      }
-      if (err.code === 'confirmation_required') {
-        // Structured error for AI agents / piped consumers: emit the
-        // JSON envelope on stdout (where tooling reads) so the agent can
-        // surface the decision to its user or re-run with --force.
-        const app = argv.app;
-        if (app && app.output.effectiveFormat() === FormatJSON) {
-          app.err(err);
-        } else {
-          process.stderr.write(`Error: ${err.message}\n`);
-          if (err.hint) process.stderr.write(`\n${err.hint}\n`);
-        }
-        process.exit(1);
-      }
-      process.stderr.write(`Error: ${err.message}\n`);
-      process.exit(1);
+      // All error rendering goes through the unified renderer in
+      // src/errors.js — exit codes, stream choice, and the JSON envelope
+      // for confirmation_required live there, not here.
+      const identifier = argv._.slice(1).join(' ') || argv.id || argv.name || argv.sysID || '';
+      exitWithError(err, { app: argv.app, argv, identifier });
     }
   };
 }
@@ -209,7 +183,9 @@ export function buildCLI() {
       // Guard mutation commands: require an instance, block read-only profiles
       (argv) => {
         const cmd = (argv._[0] || '').toString();
-        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs'].includes(cmd)) {
+        // Skip-list is derived from command capability declarations
+        // (noInstance: true), not a hand-maintained name list.
+        if (!cmd || noInstanceCommands().has(cmd)) {
           return;
         }
         // Check for --instance override
@@ -245,16 +221,19 @@ export function buildCLI() {
       }
 
       const cmd = (argv._[0] || '').toString();
+      // Daily-check + context-header skip-list is derived from command
+      // capability declarations (skipDailyChecks: true).
+      const dailySkips = dailyCheckSkipCommands();
 
       // Daily npm version check (fire-and-forget, non-blocking)
       // Checks npm for newer jsn releases, at most once per 24 hours.
-      const skipNpmCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
+      const skipNpmCheck = dailySkips.has(cmd)
         || process.env.JSN_NO_VERSION_CHECK === '1'
         || argv.json
         || argv.quiet;
 
       // Auto-check skill on every command (once per 24h, non-blocking)
-      const skipSkillCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
+      const skipSkillCheck = dailySkips.has(cmd)
         || process.env.JSN_NO_SKILL_CHECK === '1'
         || argv['no-skill-check'];
       if (!skipSkillCheck) {
@@ -313,7 +292,7 @@ export function buildCLI() {
       }
 
       // Print context header for interactive terminals
-      if (!['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)) {
+      if (!dailySkips.has(cmd)) {
         await argv.app.printContextHeader(argv);
       }
     })
@@ -360,11 +339,10 @@ export function buildCLI() {
     .command(formsCmd(wrap))
     .command(listsCmd(wrap))
     .command(clientScriptsCmd(wrap))
-    .command(uiPoliciesCmd(wrap))
+    .command(uipoliciesCmd(wrap))
     .command(uiActionsCmd(wrap))
     .command(viewsCmd(wrap))
     .command(catalogscriptsCmd(wrap))
-    .command(uipoliciesCmd(wrap))
     .command(cataloguipoliciesCmd(wrap))
     // USER EXPERIENCE — Core UI
     .command(uiPagesCmd(wrap))
@@ -492,6 +470,10 @@ export function buildCLI() {
   // Snapshot the root command names (plus aliases) for the completion
   // filter. Done before any parse — command builders mutate the registry.
   rootCommands = cliInstance.getInternalMethods().getCommandInstance().getCommands();
+
+  // The capability registry is fully populated now that every command
+  // factory has run — generate the mutation guard's path list.
+  refreshMutationCommands();
 
   return cliInstance;
 }

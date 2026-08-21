@@ -1,6 +1,11 @@
 import { loginWizard, modifyProfile, removeProfile, pickProfile } from './auth.js';
 import { setActiveProfile } from '../config.js';
 import { errUsage } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
+
+// Setup manages local profile config — runs without a configured instance.
+// (Not in the daily-check skip-list: legacy behavior checks for updates here.)
+declareCapabilities('setup', { noInstance: true });
 
 /** Interactive hub: what do you want to do? Returns 'add' | 'switch' | 'remove' | 'modify'. */
 export async function authHubMenu() {

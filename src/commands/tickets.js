@@ -1,4 +1,7 @@
 import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+
+declareCapabilities('tickets', { mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function ticketsCmd(wrap) {
   return {

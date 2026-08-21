@@ -1,4 +1,7 @@
 import { getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+
+declareCapabilities('catalogitems', { mutationSubcommands: ['create'] });
 
 export function catalogCmd(wrap) {
   return {

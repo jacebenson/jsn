@@ -143,14 +143,105 @@ export function isErrorCode(err, code) {
 }
 
 /**
+ * ── Unified error renderer ─────────────────────────────────────────────
+ * ONE place owns AppError → (stream, text, exit code). wrap()'s catch
+ * block, the middleware guard (guardError/guardExit), and any future
+ * entry point all route through renderAppError so the rendering can't
+ * diverge again (it had: wrap checked app.output.effectiveFormat() while
+ * guardError checked argv.format; 'usage' vs 'usage_error' disagreed).
+ *
+ * Exit-code contract (observable behavior, pinned by tests):
+ *   not_found              → 1   stderr, "Error (not_found): …" + identifier hint
+ *   usage / usage_error    → 2   stderr, "Error (usage): …"
+ *   system_error           → 3   stderr, "Error (system): …"
+ *   confirmation_required  → 1   JSON envelope on stdout in JSON mode
+ *                                (machine consumers), else stderr + hint
+ *   anything else          → 1   stderr, "Error: …"
+ *
+ * jsonMode resolution: prefer app.output.effectiveFormat() (respects
+ * --json/--quiet/etc. shortcuts AND piped-stdout auto-detection); fall
+ * back to argv.format for callers without an App (unit tests).
+ */
+function resolveJsonMode(app, argv) {
+  if (app?.output) return app.output.effectiveFormat() === 'json';
+  return argv?.format === 'json';
+}
+
+/**
+ * Render an error for the terminal/pipe.
+ *
+ * @param {object} err — Error with optional .code and .hint
+ * @param {object} [opts]
+ * @param {object} [opts.app] — App instance (format resolution, JSON envelope)
+ * @param {object} [opts.argv] — yargs argv (fallback format resolution)
+ * @param {string} [opts.identifier] — for not_found: the id that missed
+ * @returns {{ stream: 'stdout'|'stderr', text: string|null, exitCode: number, appErr?: boolean }}
+ *   text is null when the error was rendered through app.err (envelope).
+ */
+export function renderAppError(err, { app = null, argv = null, identifier = '' } = {}) {
+  const code = err.code || 'unknown';
+
+  if (code === CodeConfirmationRequired) {
+    // Structured error for AI agents / piped consumers: the JSON envelope
+    // goes to stdout (where tooling reads) so the agent can surface the
+    // decision to its user or re-run with --force.
+    if (resolveJsonMode(app, argv) && app) {
+      return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    }
+    let text = `Error: ${err.message}\n`;
+    if (err.hint) text += `\n${err.hint}\n`;
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
+  if (code === CodeNotFound) {
+    let text = `Error (${code}): ${err.message}\n`;
+    if (identifier) {
+      text += `\nHint: The identifier "${identifier}" was not found. Check the name or sys_id.\n`;
+    }
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
+  // 'usage' is the legacy literal; CodeUsage ('usage_error') is the
+  // exported constant. Both render as the usage class.
+  if (code === CodeUsage || code === 'usage') {
+    return { stream: 'stderr', text: `Error (usage): ${err.message}\n`, exitCode: 2 };
+  }
+
+  if (code === 'system_error') {
+    return { stream: 'stderr', text: `Error (system): ${err.message}\n`, exitCode: 3 };
+  }
+
+  return { stream: 'stderr', text: `Error: ${err.message}\n`, exitCode: 1 };
+}
+
+/**
+ * Write + exit for a rendered error. Shared by wrap() and guardExit().
+ */
+export function exitWithError(err, opts = {}) {
+  const { app = null } = opts;
+  const r = renderAppError(err, opts);
+  if (r.appErr && app) {
+    app.err(err);
+  } else if (r.stream === 'stdout') {
+    process.stdout.write(r.text);
+  } else {
+    process.stderr.write(r.text);
+  }
+  process.exit(r.exitCode);
+}
+
+/**
  * Format a safety-guard failure (mutation guard middleware in cli.js).
  * In JSON mode writes the documented error envelope to stdout so piped
  * consumers (`jsn ... --json | jq`) get a structured error instead of a
  * raw stderr message. Otherwise writes human text to stderr.
  * Always exits non-zero via guardExit.
+ *
+ * Routes through the same JSON-mode resolution as renderAppError
+ * (app.output.effectiveFormat() when an App is on argv, else argv.format).
  */
 export function guardError(argv, { code, message, hint = '' }) {
-  if (argv?.format === 'json') {
+  if (resolveJsonMode(argv?.app, argv)) {
     return {
       stream: 'stdout',
       text: JSON.stringify({ ok: false, error: message, code, hint }) + '\n',

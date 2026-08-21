@@ -2,13 +2,14 @@
 
 import {
   actionsCmd, includesCmd, rulesCmd,
-  clientScriptsCmd, uiActionsCmd, uiPoliciesCmd,
+  clientScriptsCmd, uiActionsCmd,
   tablesCmd, columnsCmd, importCmd,
   spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
   aclsCmd, rolesCmd, propertiesCmd,
   relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
   privilegesCmd, uxscriptsCmd, aliasesCmd,
   catalogscriptsCmd, cataloguipoliciesCmd,
+  uipoliciesCmd,
 } from './dev/_simple.js';
 import { flowsCmd } from './dev/flows.js';
 import { formsCmd } from './dev/forms.js';
@@ -33,7 +34,7 @@ export function devCmd(wrap) {
         .command(rulesCmd(wrap))
         .command(clientScriptsCmd(wrap))
         .command(uiActionsCmd(wrap))
-        .command(uiPoliciesCmd(wrap))
+        .command(uipoliciesCmd(wrap))
         .command(tablesCmd(wrap))
         .command(columnsCmd(wrap))
         .command(formsCmd(wrap))

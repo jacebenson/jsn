@@ -1,5 +1,8 @@
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
 import { requireCurrentUserSysId, setCurrentApplication } from '../../context.js';
+import { declareCapabilities } from '../../capabilities.js';
+
+declareCapabilities('scopes', { mutationSubcommands: ['create', 'set'], devAlias: true });
 
 /** Format a picker label for a scope: "Name [scope]". */
 export function formatScopeLabel(r) {

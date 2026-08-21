@@ -1,3 +1,9 @@
+import { declareCapabilities } from '../../capabilities.js';
+
+// Raw REST passthrough — can hit any endpoint with any method, so the whole
+// command is a mutation surface on read-only profiles (both spellings).
+declareCapabilities('rest', { mutationSubcommands: [''], devAlias: true });
+
 export function restCmd(wrap) {
   return {
     command: 'rest [endpoint]',

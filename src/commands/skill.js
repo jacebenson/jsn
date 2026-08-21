@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
 import { globalConfigPath } from '../config.js';
+import { declareCapabilities } from '../capabilities.js';
+
+declareCapabilities('skill', { noInstance: true, skipDailyChecks: true });
 
 const SKILL_NAME = 'servicenow';
 const SKILL_REPO_PATH = path.join(

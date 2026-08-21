@@ -56,7 +56,12 @@ export const clientScriptsCmd = (wrap) => buildDevCmd('clientscripts', 'sys_scri
 
 export const uiActionsCmd = (wrap) => buildDevCmd('uiactions', 'sys_ui_action', ['uiaction', 'ua'], ['name', 'table', 'active', 'order', 'sys_scope'], wrap, { singular: 'UI action', scopeValidation: true });
 
-export const uiPoliciesCmd = (wrap) => buildDevCmd('uipolicies', 'sys_ui_policy', ['uipolicy', 'up'], ['short_description', 'table', 'active', 'order', 'sys_scope'], wrap, { singular: 'UI policy', scopeValidation: true });
+// NOTE: uipolicies has exactly ONE definition — the rich one in
+// ./uipolicies.js (re-exported below at the bottom of this file). A plain
+// buildDevCmd('uipolicies', ...) factory used to live here, but yargs keeps
+// the LAST registration of a duplicate command name, and cli.js registers
+// this module's uiPoliciesCmd before uipoliciesCmd — so the factory version
+// was dead code shadowing nothing. Deleted; the re-export is the behavior.
 
 export const tablesCmd = (wrap) => buildDevCmd('tables', 'sys_db_object', ['table', 't'], ['name', 'label', 'super_class', 'create_access_controls'], wrap, {
   singular: 'table',
@@ -98,28 +103,27 @@ export { aliasesCmd } from './aliases.js';
 export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript', 'cs'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });
 
 // ── Automation: Async ──
-export const scriptactionsCmd = (wrap) => buildDevCmd('scriptactions', 'sysevent_script_action', ['scriptaction'], ['name', 'active', 'sys_scope'], wrap, { singular: 'script action', scopeValidation: true });
-export const scheduledjobsCmd = (wrap) => buildDevCmd('scheduledjobs', 'sysauto_script', ['scheduledjob'], ['name', 'active', 'run_type', 'sys_scope'], wrap, { singular: 'scheduled job', scopeValidation: true });
-export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', ['asyncrule'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'async business rule', scopeValidation: true, extraQuery: 'when=async' });
-export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register', ['trigger'], ['name', 'event_name', 'active', 'sys_scope'], wrap, { singular: 'event trigger', scopeValidation: true });
+export const scriptactionsCmd = (wrap) => buildDevCmd('scriptactions', 'sysevent_script_action', ['scriptaction'], ['name', 'active', 'sys_scope'], wrap, { singular: 'script action', scopeValidation: true, devAlias: false });
+export const scheduledjobsCmd = (wrap) => buildDevCmd('scheduledjobs', 'sysauto_script', ['scheduledjob'], ['name', 'active', 'run_type', 'sys_scope'], wrap, { singular: 'scheduled job', scopeValidation: true, devAlias: false });
+export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', ['asyncrule'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'async business rule', scopeValidation: true, extraQuery: 'when=async', devAlias: false });
+export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register', ['trigger'], ['name', 'event_name', 'active', 'sys_scope'], wrap, { singular: 'event trigger', scopeValidation: true, devAlias: false });
 
 // ── Automation: In Memory ──
-export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_ws_definition', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true });
-export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assignment', ['assignment'], ['name', 'active', 'sys_scope'], wrap, { singular: 'assignment rule', scopeValidation: true, readOnly: true });
+export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_ws_definition', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true, devAlias: false });
+export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assignment', ['assignment'], ['name', 'active', 'sys_scope'], wrap, { singular: 'assignment rule', scopeValidation: true, readOnly: true, devAlias: false });
 
 // ── Automation: Inbound ──
-export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_in_email_action', ['emails'], ['name', 'active', 'type', 'sys_scope'], wrap, { singular: 'inbound email action', scopeValidation: true });
+export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_in_email_action', ['emails'], ['name', 'active', 'type', 'sys_scope'], wrap, { singular: 'inbound email action', scopeValidation: true, devAlias: false });
 
 // ── Automation: Outbound ──
 export { restmessageCmd } from './restmessage.js';
-export const restmethodsCmd = (wrap) => buildDevCmd('restmethods', 'sys_rest_message_fn', ['restmethod'], ['name', 'http_method', 'active', 'sys_scope'], wrap, { singular: 'REST method', scopeValidation: true });
 export { soapmessagesCmd } from './soapmessages.js';
 
 // ── UX: Core UI ──
-export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['uimacro'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UI macro', scopeValidation: true });
+export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['uimacro'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UI macro', scopeValidation: true, devAlias: false });
 
 // ── UX: Workspaces ──
-export const uxlistsCmd = (wrap) => buildDevCmd('uxlists', 'sys_ux_list', ['uxlist'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace list', scopeValidation: true, readOnly: true });
-export const uxapplicabilityCmd = (wrap) => buildDevCmd('uxapplicability', 'sys_ux_applicability_m2m', ['uxapp'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace applicability', scopeValidation: true, readOnly: true });
+export const uxlistsCmd = (wrap) => buildDevCmd('uxlists', 'sys_ux_list', ['uxlist'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace list', scopeValidation: true, readOnly: true, devAlias: false });
+export const uxapplicabilityCmd = (wrap) => buildDevCmd('uxapplicability', 'sys_ux_applicability_m2m', ['uxapp'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace applicability', scopeValidation: true, readOnly: true, devAlias: false });
 export { uipoliciesCmd } from './uipolicies.js';
 export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'catalog_item', 'variable_set', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });

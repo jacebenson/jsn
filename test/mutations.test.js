@@ -2,9 +2,15 @@ import { describe, it } from 'node:test';
 import { isMutationCommand, MUTATION_COMMANDS } from '../src/mutations.js';
 import assert from 'node:assert';
 
+// The mutation path data is derived from the capability registry, which is
+// populated when command factories run — i.e. when cli.js is loaded.
+// Import it for its side effect before any isMutationCommand() call.
+import '../src/cli.js';
+
 describe('mutations.js', () => {
   it('should have MUTATION_COMMANDS exported as an array', () => {
     assert.ok(Array.isArray(MUTATION_COMMANDS));
+    // Populated at CLI build time (buildCLI → refreshMutationCommands)
     assert.ok(MUTATION_COMMANDS.length > 0);
   });
 
@@ -96,12 +102,43 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['groups', 'delete'] }), true);
   });
 
-  it('should detect catalog create-item as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['catalog', 'create-item'] }), true);
+  // The real command is `catalogitems create` (src/commands/catalog.js).
+  // The old hand-maintained registry listed ['catalog', 'create-item'],
+  // a command that does not exist — the guard never fired on the real one.
+  it('should detect catalogitems create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['catalogitems', 'create'] }), true);
   });
 
-  it('should not detect catalog list-items as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['catalog', 'list-items'] }), false);
+  it('should not detect catalogitems list as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['catalogitems', 'list'] }), false);
+  });
+
+  it('should not detect catalog create-item (no such command)', () => {
+    assert.strictEqual(isMutationCommand({ _: ['catalog', 'create-item'] }), false);
+  });
+
+  // Read-only bypass regression: the actual command is `catalogitems create`
+  // (src/commands/catalog.js), but the hand-maintained registry listed
+  // ['catalog', 'create-item'] — so `jsn catalogitems create` bypassed the
+  // read-only profile guard entirely.
+  it('should detect catalogitems create as mutation (registry-derived)', async () => {
+    // Importing cli.js runs buildCLI() at module scope, populating the
+    // capability registry the derived paths come from.
+    await import('../src/cli.js');
+    const { mutationPaths } = await import('../src/capabilities.js');
+    const paths = mutationPaths();
+    assert.strictEqual(isMutationCommand({ _: ['catalogitems', 'create'] }, paths), true);
+    assert.strictEqual(isMutationCommand({ _: ['catalogitems', 'list'] }, paths), false);
+    assert.strictEqual(isMutationCommand({ _: ['catalogitems', 'show', 'abc'] }, paths), false);
+  });
+
+  it('should not flag unregistered commands when derived (restmethods dead entry)', async () => {
+    await import('../src/cli.js');
+    const { mutationPaths } = await import('../src/capabilities.js');
+    const paths = mutationPaths();
+    // restmethods is never registered in cli.js — it must not appear in the
+    // derived mutation surface.
+    assert.strictEqual(isMutationCommand({ _: ['restmethods', 'create'] }, paths), false);
   });
 
   it('should detect dev flows create as mutation', () => {
