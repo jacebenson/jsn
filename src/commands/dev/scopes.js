@@ -1,8 +1,50 @@
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
 import { requireCurrentUserSysId, setCurrentApplication } from '../../context.js';
 import { declareCapabilities } from '../../capabilities.js';
+import { unwrapSysId } from '../../resolve-record.js';
 
 declareCapabilities('scopes', { mutationSubcommands: ['create', 'set'], devAlias: true });
+
+/**
+ * Resolve a scope identifier to a single sys_scope record.
+ *
+ * Precedence (issue #190):
+ *   1. sys_id — tried first so explicit selectors win. This catches both the
+ *      32-hex form AND the canonical Global record, whose sys_id is the
+ *      literal string 'global' (not hex, so isSysId() alone would miss it).
+ *   2. scope value — e.g. 'global', 'x_417611_daves_o_0'. When several rows
+ *      share the value (a third-party app can also report scope=global), the
+ *      canonical Global record (sys_id='global') is preferred; any other tie
+ *      is an ambiguous error naming the candidates.
+ *   3. name — the display name, last resort.
+ *
+ * @param {object} sdk — SDK handle (uses sdk.list)
+ * @param {string} identifier — sys_id, scope value, or name
+ * @returns {Promise<object>} the sys_scope record (display values requested)
+ * @throws {Error} 'Scope not found: <id>' when nothing matches, or an
+ *   'Ambiguous scope' error listing candidate sys_ids on a non-global tie.
+ */
+export async function resolveScope(sdk, identifier) {
+  assertSafeExactMatch(identifier);
+  for (const queryField of ['sys_id', 'scope', 'name']) {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `${queryField}=${identifier}`);
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'sys_id,scope,name');
+    const records = await sdk.list('sys_scope', params);
+    if (records.length === 0) continue;
+    if (records.length === 1) return records[0];
+    // Multiple matches on one field. Only the 'scope' value can legitimately
+    // collide (sys_id and name are unique). Prefer the canonical Global
+    // record when 'global' is in play; otherwise force an explicit choice.
+    const canonical = records.find(r => unwrapSysId(r) === 'global');
+    if (queryField === 'scope' && canonical) return canonical;
+    const candidates = records.map(r => `${unwrapSysId(r)} (${getStringField(r, 'name') || 'unnamed'})`).join(', ');
+    throw new Error(`Ambiguous scope '${identifier}' matches ${records.length} records: ${candidates}. Re-run with an explicit sys_id.`);
+  }
+  throw new Error(`Scope not found: ${identifier}`);
+}
+
 
 /** Format a picker label for a scope: "Name [scope]". */
 export function formatScopeLabel(r) {
@@ -120,21 +162,8 @@ export function scopesCmd(wrap) {
               type: 'string',
             }),
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.scope);
-            let records;
-            // Try by scope value first, then by name
-            for (const queryField of ['scope', 'name']) {
-              const params = new URLSearchParams();
-              params.set('sysparm_query', `${queryField}=${argv.scope}`);
-              params.set('sysparm_limit', '1');
-              params.set('sysparm_display_value', 'all');
-              records = await app.sdk.list('sys_scope', params);
-              if (records.length > 0) break;
-            }
-            if (!records || records.length === 0) {
-              throw new Error(`Scope not found: ${argv.scope}`);
-            }
-            const detail = await formatScopeDetail(app, records[0]);
+            const record = await resolveScope(app.sdk, argv.scope);
+            const detail = await formatScopeDetail(app, record);
             app.ok(detail, { summary: `Scope ${argv.scope}` });
           }),
         })
@@ -151,16 +180,8 @@ export function scopesCmd(wrap) {
               if (!picked) return; // cancelled or non-interactive
               scopeArg = getStringField(picked, 'scope');
             }
-            assertSafeExactMatch(scopeArg);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `scope=${scopeArg}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id,scope,name');
-            const records = await app.sdk.list('sys_scope', params);
-            if (records.length === 0) {
-              throw new Error(`Scope not found: ${scopeArg}`);
-            }
-            const scopeSysID = getStringField(records[0], 'sys_id');
+            const record = await resolveScope(app.sdk, scopeArg);
+            const scopeSysID = unwrapSysId(record);
             const userSysID = await requireCurrentUserSysId(app.sdk);
             await setCurrentApplication(app.sdk, userSysID, scopeSysID);
             app.ok({ scope: scopeArg, sys_id: scopeSysID }, { summary: `Current scope: ${scopeArg}` });
