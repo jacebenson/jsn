@@ -5,8 +5,9 @@ import { hideBin } from 'yargs/helpers';
 import process from 'node:process';
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadConfig, getActiveProfile, globalConfigDir } from './config.js';
+import { loadConfig, globalConfigDir } from './config.js';
 import { App } from './app.js';
+import { resolveSession, applySession } from './session.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
@@ -99,7 +100,6 @@ export function buildCLI() {
       // Attach App instance to every command
       (argv) => {
         argv.app = app;
-        argv._profile = cfg.profiles || {};
       },
     ])
     .options({
@@ -158,27 +158,21 @@ export function buildCLI() {
         if (argv.get) {
           app.output.setJqFilter(argv.get);
         }
-        // --profile: resolve profile name to its instance URL
-        // --instance wins if both are specified (explicit URL > profile reference)
-        if (argv.profile) {
-          const profile = (cfg.profiles || {})[argv.profile];
-          if (!profile) {
-            guardExit(argv, {
-              code: 'unknown_profile',
-              message: `Unknown profile "${argv.profile}"`,
-              hint: 'Run "jsn auth status" to list profiles.',
-            });
-          }
-          const url = profile.instance_url;
-          app._overrideInstance = url;
-          argv._overrideInstance = url;
-          // Temporarily switch active profile so auth picks up the right user
-          cfg.activeProfile = argv.profile;
+      },
+      // --profile / --instance resolve through the SESSION (src/session.js).
+      // resolveSession is pure; applySession is the ONLY place cfg.activeProfile
+      // / app._overrideInstance change — no more argv._overrideInstance mirror
+      // or duplicated --instance branches across middlewares.
+      (argv) => {
+        const session = resolveSession(argv, cfg);
+        if (session.unknownProfile) {
+          guardExit(argv, {
+            code: 'unknown_profile',
+            message: `Unknown profile "${session.unknownProfile}"`,
+            hint: 'Run "jsn auth status" to list profiles.',
+          });
         }
-        if (argv.instance) {
-          app._overrideInstance = argv.instance;
-          argv._overrideInstance = argv.instance;
-        }
+        applySession(app, session);
       },
       // Guard mutation commands: require an instance, block read-only profiles
       (argv) => {
@@ -187,11 +181,6 @@ export function buildCLI() {
         // (noInstance: true), not a hand-maintained name list.
         if (!cmd || noInstanceCommands().has(cmd)) {
           return;
-        }
-        // Check for --instance override
-        if (argv.instance) {
-          app._overrideInstance = argv.instance;
-          argv._overrideInstance = argv.instance;
         }
         if (isMutationCommand(argv)) {
           try {
@@ -202,12 +191,10 @@ export function buildCLI() {
             // raw stack trace).
             guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });
           }
-          const profile = getActiveProfile(cfg);
-          if (profile?.read_only === true) {
-            const name = cfg.activeProfile || cfg.defaultProfile;
+          if (app.session?.readOnly === true) {
             guardExit(argv, {
               code: 'read_only',
-              message: `Profile "${name}" is read-only. Mutations are blocked.`,
+              message: `Profile "${app.session.profileName}" is read-only. Mutations are blocked.`,
               hint: 'Switch to a write-enabled profile first:\n  jsn auth switch <name>',
             });
           }
@@ -215,11 +202,8 @@ export function buildCLI() {
       },
     ])
     .middleware(async (argv) => {
-      // Override instance for this command run
-      if (argv._overrideInstance) {
-        app.setEffectiveInstance(argv._overrideInstance);
-      }
-
+      // Session (incl. --instance/--profile overrides) was already applied
+      // by the middleware above — nothing to re-apply here.
       const cmd = (argv._[0] || '').toString();
       // Daily-check + context-header skip-list is derived from command
       // capability declarations (skipDailyChecks: true).
