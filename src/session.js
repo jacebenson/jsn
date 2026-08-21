@@ -77,19 +77,20 @@ export function resolveSession(argv = {}, config) {
   const profile = profileName ? profiles[profileName] : null;
 
   // Instance: --instance flag > profile reference > active/default
-  // profile > legacy bare instanceURL. The flag is normalized here so
+  // profile > legacy bare instanceURL. The override is normalized here so
   // every downstream consumer (SDK client, context header links) sees the
-  // canonical form.
+  // canonical form. --profile counts as an override too (the old code
+  // poked the profile's URL into app._overrideInstance and rebuilt the SDK
+  // via setEffectiveInstance's normalization) — session.instance is always
+  // the normalized effective URL either way.
   let override = null;
   if (argv.instance) {
-    const normalized = normalizeInstanceURL(argv.instance);
-    override = normalized || null;
+    override = normalizeInstanceURL(argv.instance) || null;
+  } else if (argv.profile && profile?.instance_url) {
+    override = normalizeInstanceURL(profile.instance_url) || null;
   }
 
-  const instance = override
-    || (profile && profile.instance_url)
-    || cfg.instanceURL
-    || '';
+  const instance = normalizeInstanceURL(override || (profile && profile.instance_url) || cfg.instanceURL || '');
 
   return {
     instance,

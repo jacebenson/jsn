@@ -142,7 +142,7 @@ describe('applySession — the single mutation point', () => {
     const s = resolveSession({ profile: 'prod' }, cfg);
     applySession(app, s);
     assert.strictEqual(cfg.activeProfile, 'prod');
-    assert.strictEqual(app._overrideInstance, null);
+    assert.strictEqual(app._overrideInstance, PROD);
     assert.strictEqual(app.getEffectiveInstance(), PROD);
     assert.strictEqual(app.session.profileName, 'prod');
   });
