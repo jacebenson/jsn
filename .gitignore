@@ -3,7 +3,7 @@
 /main
 bin/*
 !bin/jsn.js
-
+_site/
 # Dependencies
 node_modules/
 
