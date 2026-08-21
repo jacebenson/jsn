@@ -1,4 +1,5 @@
-import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
+import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('tickets', { mutationSubcommands: ['create', 'update', 'delete'] });
@@ -63,16 +64,8 @@ export function ticketsCmd(wrap) {
           aliases: ['get'],
           describe: 'Show a ticket',
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.number);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `number=${argv.number}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('task', params);
-            if (records.length === 0) {
-              throw new Error(`Ticket not found: ${argv.number}`);
-            }
-            app.ok(records[0], { summary: `Ticket ${argv.number}` });
+            const record = await resolveRecord(app.sdk, { table: 'task', identifier: argv.number, matchField: 'number', resource: 'Ticket' });
+            app.ok(record, { summary: `Ticket ${argv.number}` });
           }),
         })
         .command({
@@ -91,15 +84,7 @@ export function ticketsCmd(wrap) {
           builder: (y) => y.option('data', { type: 'string', demandOption: true, describe: 'JSON fields (e.g. \'{"state":"2","priority":"1"}\')' }),
           handler: wrap(async (argv, app) => {
             const recordData = JSON.parse(argv.data);
-            assertSafeExactMatch(argv.number);
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `number=${argv.number}`);
-            findParams.set('sysparm_limit', '1');
-            const records = await app.sdk.list('task', findParams);
-            if (records.length === 0) {
-              throw new Error(`Ticket not found: ${argv.number}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            const sysID = await resolveSysId(app.sdk, { table: 'task', identifier: argv.number, matchField: 'number', resource: 'Ticket' });
             const updated = await app.sdk.update('task', sysID, recordData);
             app.ok(updated, { summary: `Updated ticket ${argv.number}` });
           }),
@@ -108,15 +93,7 @@ export function ticketsCmd(wrap) {
           command: 'delete <number>',
           describe: 'Delete a ticket',
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv.number);
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `number=${argv.number}`);
-            findParams.set('sysparm_limit', '1');
-            const records = await app.sdk.list('task', findParams);
-            if (records.length === 0) {
-              throw new Error(`Ticket not found: ${argv.number}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            const sysID = await resolveSysId(app.sdk, { table: 'task', identifier: argv.number, matchField: 'number', resource: 'Ticket' });
             await app.sdk.delete('task', sysID);
             app.ok({ number: argv.number, message: 'Ticket deleted' }, { summary: `Deleted ticket ${argv.number}` });
           }),

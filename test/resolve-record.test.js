@@ -128,9 +128,11 @@ describe('interactiveList query handling', () => {
   }
 
   const promptCapture = {};
-  function fakePrompt(config) {
+  async function fakePrompt(config) {
     promptCapture.config = config;
-    return Promise.resolve({ name: 'picked', value: { sys_id: 's1', name: 'Picked' } });
+    // Mirror paginatedSearch: it loads the first page on mount.
+    await config.source(undefined, 0, {});
+    return { name: 'picked', value: { sys_id: 's1', name: 'Picked' } };
   }
 
   it('applies the caller query filter to count, browse, and search requests', async () => {

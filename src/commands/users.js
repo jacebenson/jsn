@@ -1,4 +1,5 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam } from '../helpers.js';
+import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('users', { mutationSubcommands: ['create', 'update', 'delete'] });
@@ -60,17 +61,8 @@ export function usersCmd(wrap) {
           describe: 'Show a user by user_name or sys_id',
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            assertSafeExactMatch(id);
-            const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', isSysID ? `sys_id=${id}` : `user_name=${id}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            const records = await app.sdk.list('sys_user', params);
-            if (records.length === 0) {
-              throw new Error(`User not found: ${id}`);
-            }
-            app.ok(records[0], { summary: `User ${id}` });
+            const record = await resolveRecord(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
+            app.ok(record, { summary: `User ${id}` });
           }),
         })
         .command({
@@ -108,19 +100,8 @@ export function usersCmd(wrap) {
             .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            assertSafeExactMatch(id);
             const recordData = JSON.parse(argv.data);
-            const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', isSysID ? `sys_id=${id}` : `user_name=${id}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'all');
-            params.set('sysparm_fields', 'sys_id');
-            const records = await app.sdk.list('sys_user', params);
-            if (records.length === 0) {
-              throw new Error(`User not found: ${id}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            const sysID = await resolveSysId(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
             const updated = await app.sdk.update('sys_user', sysID, recordData);
             app.ok(updated, {
               summary: `Updated user ${id}`,
@@ -135,17 +116,7 @@ export function usersCmd(wrap) {
           describe: 'Delete a user by user_name or sys_id',
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            assertSafeExactMatch(id);
-            const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', isSysID ? `sys_id=${id}` : `user_name=${id}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id');
-            const records = await app.sdk.list('sys_user', params);
-            if (records.length === 0) {
-              throw new Error(`User not found: ${id}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            const sysID = await resolveSysId(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
             await app.sdk.delete('sys_user', sysID);
             app.ok({ identifier: id, message: 'User deleted' }, {
               summary: `Deleted user ${id}`,

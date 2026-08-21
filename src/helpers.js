@@ -251,25 +251,36 @@ export function assertSafeExactMatch(value) {
  * @param {string} opts.singular — e.g. "script include", "log entry"
  * @param {string[]} opts.columns — default display columns
  * @param {number} opts.limit — max records (default 20)
- * @param {string} opts.query — optional encoded query
+ * @param {string} opts.query — optional encoded query, folded into every
+ *   request (browse pages, search-as-you-type, and the aggregate count)
  * @param {Function} opts.formatLabel — (record) => string for the picker display
  * @param {string} opts.labelField — field used to match selection (default: 'name')
- * @returns {Promise<void>|null} null if no selection made or non-interactive
+ * @param {string} [opts.message] — picker prompt message
+ *   (default: "Select a <singular>")
+ * @param {Function} [opts.formatValue] — (record) => value for the choice;
+ *   defaults to returning the full record on selection
+ * @param {Function} [opts.promptFn] — test seam: replaces paginatedSearch;
+ *   injecting it also bypasses the TTY/canPrompt gate (the test drives the
+ *   interactive path explicitly)
+ * @returns {Promise<*|null|undefined>} the selected record (or formatValue
+ *   result), undefined when the user cancelled, null when non-interactive
  */
-export async function interactiveList({ app, table, singular, columns, limit = 50, _query = '', formatLabel, labelField = 'name' }) {
+export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name', message, formatValue, promptFn }) {
+  const prompt = promptFn || paginatedSearch;
   app.requireInstance();
   const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
-  if (effectiveFormat !== FormatAuto || !canPrompt()) {
+  if (!promptFn && (effectiveFormat !== FormatAuto || !canPrompt())) {
     return null; // not interactive — caller should fall back to text/table
   }
 
   const pickerColumns = ['sys_id', labelField, ...columns.filter(c => c !== labelField && c !== 'sys_id' && c !== '*')];
   const pickerFields = pickerColumns.join(',');
+  const baseQuery = query ? query + '^' : '';
 
   // Get total count
   let totalCount;
   try {
-    totalCount = await app.sdk.aggregateCount(table, '');
+    totalCount = await app.sdk.aggregateCount(table, query || '');
   } catch {
     totalCount = 0;
   }
@@ -283,9 +294,9 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       params.set('sysparm_display_value', 'all');
       if (pickerFields) params.set('sysparm_fields', pickerFields);
       if (term) {
-        params.set('sysparm_query', `${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+        params.set('sysparm_query', `${baseQuery}${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
       } else {
-        params.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
+        params.set('sysparm_query', baseQuery + 'ORDERBYDESCsys_updated_on');
         params.set('sysparm_offset', String(offset));
       }
       const records = await app.sdk.list(table, params);
@@ -295,7 +306,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       }
       return records.map(r => ({
         name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-        value: r,
+        value: formatValue ? formatValue(r) : r,
       }));
     } catch (err) {
       console.error('serverSource error:', err.message || err);
@@ -303,14 +314,14 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     }
   }
 
-  const selected = await paginatedSearch({
-    message: `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
+  const selected = await prompt({
+    message: message || `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
     pageSize: 10,
     totalCount,
     source: serverSource,
   });
 
-  return selected?.value; // unwrap {name, value} → raw record, undefined on cancel
+  return selected?.value; // unwrap {name, value}, undefined on cancel
 }
 
 /**

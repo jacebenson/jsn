@@ -1,8 +1,8 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, assertSafeExactMatch, canPrompt } from '../helpers.js';
-import { search } from '@inquirer/prompts';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList } from '../helpers.js';
+import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 
@@ -32,86 +32,32 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const offset = argv.offset;
 
             // Interactive picker in TTY with auto format and no explicit query/offset
-            const isInteractive = canPrompt();
-            if (isInteractive && app.output.getFormat() === FormatAuto && !query && offset === 0) {
-              const pickerColumns = ['sys_id', 'number', 'short_description', 'state', 'assigned_to'];
-              const pickerParams = new URLSearchParams();
-              pickerParams.set('sysparm_limit', String(limit));
-              pickerParams.set('sysparm_offset', '0');
-              pickerParams.set('sysparm_display_value', 'all');
-              pickerParams.set('sysparm_fields', pickerColumns.join(','));
-              pickerParams.set('sysparm_query', 'ORDERBYDESCsys_updated_on');
-
-              const pickerRecords = await app.sdk.list(table, pickerParams);
-              if (pickerRecords.length === 0) {
-                app.ok({
-                  table,
-                  count: 0,
-                  columns: pickerColumns,
-                  records: [],
-                  pagination: { limit, offset: 0 },
-                  context: { instance_url: app.getEffectiveInstance() },
-                }, {
-                  summary: `0 ${table}(s)`,
-                  breadcrumbs: [
-                    { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },
-                  ],
-                });
-                return;
-              }
-
-              const choices = pickerRecords.map((record) => {
-                const number = getStringField(record, 'number');
-                const desc = getStringField(record, 'short_description');
-                const state = getStringField(record, 'state');
-                const assigned = getStringField(record, 'assigned_to');
-                let label = `${number} ${desc} | ${state}`;
-                if (assigned) {
-                  label += ` → ${assigned}`;
-                }
-                return { name: label, value: number };
+            if (app.output.getFormat() === FormatAuto && !query && offset === 0) {
+              const picked = await interactiveList({
+                app, table, singular: displayName.slice(0, -1), columns: defaultColumns, limit,
+                labelField: 'number',
+                formatLabel: (r) => {
+                  let label = `${getStringField(r, 'number')} ${getStringField(r, 'short_description')} | ${getStringField(r, 'state')}`;
+                  const assigned = getStringField(r, 'assigned_to');
+                  if (assigned) label += ` → ${assigned}`;
+                  return label;
+                },
               });
+              if (picked === undefined || picked === null) return; // cancelled or non-interactive
 
-              let selectedNumber;
-              try {
-                selectedNumber = await search({
-                  message: `Select a ${displayName.slice(0, -1)}:`,
-                  source: async (input) => {
-                    if (!input) return choices;
-                    const term = input.toLowerCase();
-                    return choices.filter(c => c.name.toLowerCase().includes(term));
-                  },
-                });
-              } catch (err) {
-                if (err.name === 'ExitPromptError' || (err.message && err.message.includes('force closed'))) {
-                  return;
-                }
-                throw err;
-              }
-
-              if (selectedNumber) {
-                assertSafeExactMatch(selectedNumber);
-                const showParams = new URLSearchParams();
-                showParams.set('sysparm_query', `number=${selectedNumber}`);
-                showParams.set('sysparm_display_value', 'all');
-                showParams.set('sysparm_limit', '1');
-                const showRecords = await app.sdk.list(table, showParams);
-                if (showRecords.length === 0) {
-                  throw new Error(`${displayName} not found: ${selectedNumber}`);
-                }
-                const record = showRecords[0];
-                record._context = {
-                  instance_url: app.getEffectiveInstance(),
-                  table,
-                };
-                app.ok(record, {
-                  summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${selectedNumber}`,
-                  breadcrumbs: [
-                    { action: 'update', cmd: `jsn ${alias} update ${selectedNumber} --data '{...}'`, description: `Update this ${displayName}` },
-                    { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
-                  ],
-                });
-              }
+              const record = picked;
+              const number = getStringField(record, 'number');
+              record._context = {
+                instance_url: app.getEffectiveInstance(),
+                table,
+              };
+              app.ok(record, {
+                summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
+                breadcrumbs: [
+                  { action: 'update', cmd: `jsn ${alias} update ${number} --data '{...}'`, description: `Update this ${displayName}` },
+                  { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
+                ],
+              });
               return;
             }
 
@@ -166,16 +112,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           describe: `Show a specific ${displayName}`,
           handler: wrap(async (argv, app) => {
             const number = argv.number;
-            assertSafeExactMatch(number);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `number=${number}`);
-            params.set('sysparm_display_value', 'all');
-            params.set('sysparm_limit', '1');
-            const records = await app.sdk.list(table, params);
-            if (records.length === 0) {
-              throw new Error(`${displayName} not found: ${number}`);
-            }
-            const record = records[0];
+            const record = await resolveRecord(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
             record._context = {
               instance_url: app.getEffectiveInstance(),
               table,
@@ -222,16 +159,8 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
-            assertSafeExactMatch(number);
             const recordData = JSON.parse(argv.data);
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `number=${number}`);
-            findParams.set('sysparm_limit', '1');
-            const records = await app.sdk.list(table, findParams);
-            if (records.length === 0) {
-              throw new Error(`${displayName} not found: ${number}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            const sysID = await resolveSysId(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
             const updated = await app.sdk.update(table, sysID, recordData);
             app.ok(updated, {
               summary: `Updated ${displayName} ${number}`,
@@ -248,15 +177,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           handler: wrap(async (argv, app) => {
             const number = argv.number;
             await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
-            assertSafeExactMatch(number);
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `number=${number}`);
-            findParams.set('sysparm_limit', '1');
-            const records = await app.sdk.list(table, findParams);
-            if (records.length === 0) {
-              throw new Error(`${displayName} not found: ${number}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            const sysID = await resolveSysId(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
             await app.sdk.delete(table, sysID);
             app.ok({ number, message: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} deleted` }, {
               summary: `Deleted ${displayName} ${number}`,
