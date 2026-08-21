@@ -1,7 +1,7 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -32,9 +32,10 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const offset = argv.offset;
 
             // Interactive picker in TTY with auto format and no explicit query/offset
-            if (app.output.getFormat() === FormatAuto && !query && offset === 0) {
+            if (canPrompt() && app.output.getFormat() === FormatAuto && !query && offset === 0) {
+              const pickerColumns = ['sys_id', 'number', 'short_description', 'state', 'assigned_to'];
               const picked = await interactiveList({
-                app, table, singular: displayName.slice(0, -1), columns: defaultColumns, limit,
+                app, table, singular: displayName.slice(0, -1), columns: pickerColumns, limit,
                 labelField: 'number',
                 formatLabel: (r) => {
                   let label = `${getStringField(r, 'number')} ${getStringField(r, 'short_description')} | ${getStringField(r, 'state')}`;
@@ -42,8 +43,26 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
                   if (assigned) label += ` → ${assigned}`;
                   return label;
                 },
+                formatValue: (r) => r,
               });
-              if (picked === undefined || picked === null) return; // cancelled or non-interactive
+              if (picked === undefined) return; // user cancelled
+              if (picked === null) {
+                // canPrompt() passed, so null means the table is empty.
+                app.ok({
+                  table,
+                  count: 0,
+                  columns: pickerColumns,
+                  records: [],
+                  pagination: { limit, offset: 0 },
+                  context: { instance_url: app.getEffectiveInstance() },
+                }, {
+                  summary: `0 ${table}(s)`,
+                  breadcrumbs: [
+                    { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },
+                  ],
+                });
+                return;
+              }
 
               const record = picked;
               const number = getStringField(record, 'number');

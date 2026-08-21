@@ -1,6 +1,6 @@
 // Generic dev subcommand builder for table-based CRUD
 
-import { formatRecordForDisplay, getStringField, parseDataArg, confirmDelete, interactiveList } from '../../helpers.js';
+import { formatRecordForDisplay, getStringField, parseDataArg, confirmDelete, interactiveList, canPrompt } from '../../helpers.js';
 import { resolveRecord, unwrapSysId } from '../../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import { FormatAuto } from '../../output.js';
@@ -133,7 +133,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const limit = argv.limit;
 
           // Interactive picker with pagination
-          if (app.output.getFormat() === FormatAuto && !query) {
+          if (canPrompt() && app.output.getFormat() === FormatAuto && !query) {
             const picked = await interactiveList({
               app, table, singular, columns: ['name', 'sys_scope'], limit, query: extraQuery,
               labelField: 'name',
@@ -144,7 +144,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
                 return (scope && scope !== 'global') ? `${recordName} [${scope}]` : recordName;
               },
             });
-            if (picked === undefined || picked === null) return; // cancelled or non-interactive
+            if (picked === undefined || picked === null) return; // cancelled, or table is empty
 
             const record = picked;
             const recordName = getStringField(record, 'name') || getStringField(record, 'sys_id');
