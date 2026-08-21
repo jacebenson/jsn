@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+
+declareCapabilities('records', {
+  mutationSubcommands: ['create', 'update', 'delete', 'bulk', 'attachments add'],
+});
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],

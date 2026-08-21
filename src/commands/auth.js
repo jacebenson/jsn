@@ -1,6 +1,12 @@
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile, setProfile } from '../config.js';
 import { errUsage } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
+
+// Auth manages local credentials/profiles — runs without a configured
+// instance. (Not in the daily-check skip-list: legacy behavior checks for
+// updates here.)
+declareCapabilities('auth', { noInstance: true });
 
 /**
  * Resolve a login/logout/refresh argument to a concrete instance URL.

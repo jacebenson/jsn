@@ -1,5 +1,10 @@
 import fs from 'node:fs';
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
+import { declareCapabilities } from '../../capabilities.js';
+
+// The whole command is a mutation surface (runs arbitrary server-side JS) —
+// declared as `['']` so both `jsn eval` and `jsn dev eval` are gated.
+declareCapabilities('eval', { mutationSubcommands: [''], devAlias: true });
 
 export function evalCmd(wrap) {
   return {

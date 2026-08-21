@@ -14,6 +14,9 @@ import { embedDocs } from './embed.js';
 import { searchDocs } from './search.js';
 import { serveDocs } from './serve.js';
 import { syncCommunity, listCommunityDocs } from './community.js';
+import { declareCapabilities } from '../../capabilities.js';
+
+declareCapabilities('docs', { noInstance: true, skipDailyChecks: true });
 
 function formatBytes(n) {
   if (n == null) return '-';

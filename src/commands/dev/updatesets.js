@@ -2,6 +2,12 @@ import fs from 'node:fs';
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../../context.js';
 import { errAPI, errUsage } from '../../errors.js';
+import { declareCapabilities } from '../../capabilities.js';
+
+declareCapabilities('updatesets', {
+  mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent'],
+  devAlias: true,
+});
 
 /**
  * Scope-mismatch check for an update set vs the current app.

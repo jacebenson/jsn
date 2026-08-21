@@ -1,4 +1,7 @@
 import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+
+declareCapabilities('users', { mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function usersCmd(wrap) {
   return {

@@ -22,6 +22,10 @@ import {
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
 import { errUsage, errNotFound } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
+
+// approve/reject/submit change approval state on records.
+declareCapabilities('approvals', { mutationSubcommands: ['approve', 'reject', 'submit'] });
 
 // Raw sysapproval_approver.state values (verified live).
 const APPROVAL_STATES = [

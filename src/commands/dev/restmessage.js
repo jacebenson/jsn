@@ -5,6 +5,7 @@ export const restmessageCmd = (wrap) => buildDevCmd('restmessage', 'sys_rest_mes
   ['name', 'endpoint', 'active', 'sys_scope'], wrap, {
     singular: 'REST message',
     scopeValidation: true,
+    devAlias: false,
     onShow: async (record, app) => {
       const sysID = getStringField(record, 'sys_id') || '';
       if (!sysID) return;

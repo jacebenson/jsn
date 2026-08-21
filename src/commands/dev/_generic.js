@@ -4,6 +4,7 @@ import { formatRecordForDisplay, getStringField, isHexString, parseDataArg, conf
 import { getCurrentUser, getCurrentApplication } from '../../context.js';
 import { paginatedSearch } from '../../paginated-search.js';
 import { FormatAuto } from '../../output.js';
+import { declareCapabilities } from '../../capabilities.js';
 
 function vowelArticle(word) {
   const first = word.charAt(0).toLowerCase();
@@ -79,6 +80,13 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const showFields = opts.showFields !== undefined ? opts.showFields : null;
   const singular = toSingular(name, opts.singular);
   const readOnly = opts.readOnly || false;
+  // Capability declaration: the readOnly flag drives the mutation registry.
+  // buildDevCmd commands are registered both at root and under `jsn dev`
+  // unless opts.devAlias says otherwise (root-only commands pass false).
+  declareCapabilities(name, {
+    mutationSubcommands: readOnly ? [] : ['create', 'update', 'delete'],
+    devAlias: opts.devAlias !== false,
+  });
   const scopeValidation = opts.scopeValidation || false;
   const extraQuery = opts.extraQuery || '';
   const showSummary = opts.showSummary || ((record, id) => `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${getStringField(record, 'name') || id}`);

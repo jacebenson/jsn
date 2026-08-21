@@ -5,6 +5,7 @@ export const soapmessagesCmd = (wrap) => buildDevCmd('soapmessages', 'sys_soap_m
   ['name', 'active', 'sys_scope'], wrap, {
     singular: 'SOAP message',
     scopeValidation: true,
+    devAlias: false,
     onShow: async (record, app) => {
       const sysID = getStringField(record, 'sys_id') || '';
       if (!sysID) return;

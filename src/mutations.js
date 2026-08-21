@@ -1,119 +1,49 @@
-// Centralized mutation command registry
-// Used by the read-only profile middleware to block mutation commands.
-// Each entry is a command path array matching argv._ tokens.
+// Mutation guard — the public face is isMutationCommand(argv), used by the
+// read-only-profile middleware in cli.js. The command-path data is DERIVED
+// from the capability registry (src/capabilities.js) at call time — command
+// modules declare their mutating subcommands once, at the definition site.
+//
+// The registry used to be a hand-maintained list here, and it rotted: it
+// gated `catalog create-item` while the real command is `catalogitems
+// create` (read-only bypass), and listed `restmethods`, a command that was
+// never registered. Derived data can't drift that way.
 
-// Dev commands that expose create/update/delete via buildDevCmd.
-// Each generates the root form (`jsn <name> create`) and the legacy dev form
-// (`jsn dev <name> create`), so read-only profiles block both spellings.
-const DEV_CRUD_COMMANDS = [
-  'actions', 'includes', 'rules', 'clientscripts', 'uiactions', 'uipolicies',
-  'tables', 'uipages', 'appmenu', 'acls', 'roles', 'properties', 'relationships',
-  'appmodules', 'listcontrols', 'views', 'privileges', 'uxscripts',
-  'catalogscripts', 'scriptactions', 'scheduledjobs', 'asyncrules', 'triggers',
-  'email', 'restmethods', 'restmessage', 'soapmessages', 'uimacros',
-  'cataloguipolicies', 'aliases', 'columns', 'flows', 'scrapi',
-];
+import { mutationPaths } from './capabilities.js';
 
-function devCrudPaths(name) {
-  return [
-    [name, 'create'],
-    [name, 'update'],
-    [name, 'delete'],
-    ['dev', name, 'create'],
-    ['dev', name, 'update'],
-    ['dev', name, 'delete'],
-  ];
+/**
+ * Back-compat export: the derived mutation path list, refreshed by
+ * refreshMutationCommands() — cli.js calls it at the end of buildCLI(),
+ * so the data is generated at CLI build time, not hand-maintained.
+ * Prefer isMutationCommand().
+ */
+export const MUTATION_COMMANDS = [];
+
+export function refreshMutationCommands() {
+  MUTATION_COMMANDS.length = 0;
+  MUTATION_COMMANDS.push(...mutationPaths());
+  return MUTATION_COMMANDS;
 }
 
-export const MUTATION_COMMANDS = [
-  // Incidents
-  ['incidents', 'create'],
-  ['incidents', 'update'],
-  ['incidents', 'delete'],
-  // Changes
-  ['changes', 'create'],
-  ['changes', 'update'],
-  ['changes', 'delete'],
-  // Records
-  ['records', 'create'],
-  ['records', 'update'],
-  ['records', 'delete'],
-  // Records — bulk update (mass mutation; dry-run by default)
-  ['records', 'bulk'],
-  // Records — attachment add (uploads a file; behind confirm)
-  ['records', 'attachments', 'add'],
-  // Requests
-  ['requests', 'create'],
-  ['requests', 'update'],
-  ['requests', 'delete'],
-  // Tasks
-  ['tasks', 'create'],
-  ['tasks', 'update'],
-  ['tasks', 'delete'],
-  // Tickets
-  ['tickets', 'create'],
-  ['tickets', 'update'],
-  ['tickets', 'delete'],
-  // Users
-  ['users', 'create'],
-  ['users', 'update'],
-  ['users', 'delete'],
-  // Groups
-  ['groups', 'create'],
-  ['groups', 'update'],
-  ['groups', 'delete'],
-  // Catalog
-  ['catalog', 'create-item'],
-  // Dev CRUD commands (root + `jsn dev` forms)
-  ...DEV_CRUD_COMMANDS.flatMap(devCrudPaths),
-  // Dev eval (no sub-action) — both spellings must be gated:
-  // `jsn eval` (root) and legacy `jsn dev eval`
-  ['eval'],
-  ['dev', 'eval'],
-  // Raw REST passthrough — can hit any endpoint with any method,
-  // so the whole command is a mutation surface on read-only profiles
-  ['rest'],
-  ['dev', 'rest'],
-  // Scopes: create + set (root + dev forms)
-  ['scopes', 'create'],
-  ['scopes', 'set'],
-  ['dev', 'scopes', 'create'],
-  ['dev', 'scopes', 'set'],
-  // Domains: set writes the profile config (root + dev forms)
-  ['domains', 'set'],
-  ['dev', 'domains', 'set'],
-  // Update sets: create, set, complete, ignore, parent (root + dev forms)
-  ['updatesets', 'create'],
-  ['updatesets', 'set'],
-  ['updatesets', 'complete'],
-  ['updatesets', 'ignore'],
-  ['updatesets', 'parent'],
-  ['dev', 'updatesets', 'create'],
-  ['dev', 'updatesets', 'set'],
-  ['dev', 'updatesets', 'complete'],
-  ['dev', 'updatesets', 'ignore'],
-  ['dev', 'updatesets', 'parent'],
-  // ATF: run/run-suite schedule tests that act on records (top-level only)
-  ['atf', 'run'],
-  ['atf', 'run-suite'],
-  // Approvals: approve/reject/submit change approval state on records
-  ['approvals', 'approve'],
-  ['approvals', 'reject'],
-  ['approvals', 'submit'],
-];
+function currentPaths(paths) {
+  return paths || refreshMutationCommands();
+}
 
 /**
  * Check if the parsed argv matches any mutation command pattern.
+ * Prefix match: a command whose argv._ path begins with a mutation pattern
+ * IS that mutation (trailing positionals like a sys_id or file path don't
+ * change the intent). This lets positional mutation subcommands (e.g.
+ * `records attachments <id> add <file>`) be gated on read-only profiles.
+ *
  * @param {object} argv — yargs parsed argv with `_` array
+ * @param {Array<string[]>} [paths] — mutation path patterns; defaults to
+ *   the paths derived from the capability registry. (Tests pass explicit
+ *   paths; production callers should let it derive.)
  * @returns {boolean}
  */
-export function isMutationCommand(argv) {
+export function isMutationCommand(argv, paths) {
   const cmd = argv._ || [];
-  // Prefix match: a command whose argv._ path begins with a mutation pattern
-  // IS that mutation (trailing positionals like a sys_id or file path don't
-  // change the intent). This lets positional mutation subcommands (e.g.
-  // `records attachments <id> add <file>`) be gated on read-only profiles.
-  for (const pattern of MUTATION_COMMANDS) {
+  for (const pattern of currentPaths(paths)) {
     if (pattern.length > cmd.length) continue;
     let match = true;
     for (let i = 0; i < pattern.length; i++) {

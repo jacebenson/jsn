@@ -11,6 +11,10 @@
 // to its own picker sessions.
 
 import { getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
+import { declareCapabilities } from '../../capabilities.js';
+
+// `domains set` writes the chosen domain into the profile config.
+declareCapabilities('domains', { mutationSubcommands: ['set'], devAlias: true });
 
 const DETAIL_FIELDS = 'sys_id,name,parent,sys_domain_path,description,active,sys_created_on,sys_updated_on';
 

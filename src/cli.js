@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import { loadConfig, getActiveProfile, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { renderHelp } from './help.js';
-import { isMutationCommand } from './mutations.js';
+import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
 import { guardExit } from './errors.js';
 import { FormatJSON } from './output.js';
 
@@ -38,7 +39,7 @@ import { docsCmd } from './commands/docs/docs.js';
 // Dev subcommands promoted to root level for progressive disclosure
 import {
   actionsCmd, includesCmd, rulesCmd,
-  clientScriptsCmd, uiActionsCmd, uiPoliciesCmd,
+  clientScriptsCmd, uiActionsCmd,
   tablesCmd, columnsCmd, importCmd,
   spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
   aclsCmd, rolesCmd, propertiesCmd,
@@ -209,7 +210,9 @@ export function buildCLI() {
       // Guard mutation commands: require an instance, block read-only profiles
       (argv) => {
         const cmd = (argv._[0] || '').toString();
-        if (!cmd || ['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs'].includes(cmd)) {
+        // Skip-list is derived from command capability declarations
+        // (noInstance: true), not a hand-maintained name list.
+        if (!cmd || noInstanceCommands().has(cmd)) {
           return;
         }
         // Check for --instance override
@@ -245,16 +248,19 @@ export function buildCLI() {
       }
 
       const cmd = (argv._[0] || '').toString();
+      // Daily-check + context-header skip-list is derived from command
+      // capability declarations (skipDailyChecks: true).
+      const dailySkips = dailyCheckSkipCommands();
 
       // Daily npm version check (fire-and-forget, non-blocking)
       // Checks npm for newer jsn releases, at most once per 24 hours.
-      const skipNpmCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
+      const skipNpmCheck = dailySkips.has(cmd)
         || process.env.JSN_NO_VERSION_CHECK === '1'
         || argv.json
         || argv.quiet;
 
       // Auto-check skill on every command (once per 24h, non-blocking)
-      const skipSkillCheck = ['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)
+      const skipSkillCheck = dailySkips.has(cmd)
         || process.env.JSN_NO_SKILL_CHECK === '1'
         || argv['no-skill-check'];
       if (!skipSkillCheck) {
@@ -313,7 +319,7 @@ export function buildCLI() {
       }
 
       // Print context header for interactive terminals
-      if (!['help', 'version', 'completion', 'skill', 'docs'].includes(cmd)) {
+      if (!dailySkips.has(cmd)) {
         await argv.app.printContextHeader(argv);
       }
     })
@@ -360,11 +366,10 @@ export function buildCLI() {
     .command(formsCmd(wrap))
     .command(listsCmd(wrap))
     .command(clientScriptsCmd(wrap))
-    .command(uiPoliciesCmd(wrap))
+    .command(uipoliciesCmd(wrap))
     .command(uiActionsCmd(wrap))
     .command(viewsCmd(wrap))
     .command(catalogscriptsCmd(wrap))
-    .command(uipoliciesCmd(wrap))
     .command(cataloguipoliciesCmd(wrap))
     // USER EXPERIENCE — Core UI
     .command(uiPagesCmd(wrap))
@@ -492,6 +497,10 @@ export function buildCLI() {
   // Snapshot the root command names (plus aliases) for the completion
   // filter. Done before any parse — command builders mutate the registry.
   rootCommands = cliInstance.getInternalMethods().getCommandInstance().getCommands();
+
+  // The capability registry is fully populated now that every command
+  // factory has run — generate the mutation guard's path list.
+  refreshMutationCommands();
 
   return cliInstance;
 }

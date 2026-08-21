@@ -1,4 +1,7 @@
 import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
+import { declareCapabilities } from '../../capabilities.js';
+
+declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete'], devAlias: true });
 
 export function flowsCmd(wrap) {
   return {

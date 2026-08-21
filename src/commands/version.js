@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { declareCapabilities } from '../capabilities.js';
+
+declareCapabilities('version', { noInstance: true, skipDailyChecks: true });
 
 const NPM_PKG = '@jacebenson/jsn';
 const NPM_REGISTRY = `https://registry.npmjs.org/${NPM_PKG}/latest`;
