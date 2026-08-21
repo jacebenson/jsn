@@ -171,6 +171,20 @@ export function getMeta(db, key, defaultValue = null) {
   }
 }
 
+/**
+ * Index statistics for `jsn docs status`: document/bundle/doc-type counts,
+ * embedding coverage, and the synced_at meta stamp. All docs-table aggregate
+ * SQL lives here so command handlers never touch the schema.
+ */
+export function getDocsIndexStats(db) {
+  const documents = db.prepare('SELECT COUNT(*) AS n FROM docs').get().n;
+  const bundles = db.prepare('SELECT COUNT(DISTINCT bundle) AS n FROM docs').get().n;
+  const docTypes = db.prepare('SELECT COUNT(DISTINCT doc_type) AS n FROM docs').get().n;
+  const embeddedCount = db.prepare('SELECT COUNT(*) AS n FROM docs WHERE hrr_vector IS NOT NULL').get().n;
+  const syncedAt = getMeta(db, 'synced_at');
+  return { documents, bundles, docTypes, embeddedCount, syncedAt };
+}
+
 export function setMeta(db, key, value) {
   db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(key, value);
 }

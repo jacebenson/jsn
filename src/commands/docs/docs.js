@@ -6,12 +6,12 @@ import net from 'node:net';
 import process from 'node:process';
 import {
   getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir, docsDbExists,
-  openDocsDb, closeDocsDb, getMeta,
+  openDocsDb, closeDocsDb, getDocsIndexStats,
 } from './db.js';
 import { syncDocs } from './sync.js';
 import { refreshDocs } from './refresh.js';
 import { embedDocs } from './embed.js';
-import { searchDocs } from './search.js';
+import { searchDocs, getDocByIdOrPath } from './search.js';
 import { serveDocs } from './serve.js';
 import { syncCommunity, listCommunityDocs } from './community.js';
 import { declareCapabilities } from '../../capabilities.js';
@@ -60,16 +60,13 @@ export function docsCmd(wrap) {
             let state, embedded, documents, bundles, docTypes, syncedAt, dbSize;
             if (dbExists) {
               const db = openDocsDb();
-              documents = db.prepare('SELECT COUNT(*) AS n FROM docs').get().n;
-              bundles = db.prepare('SELECT COUNT(DISTINCT bundle) AS n FROM docs').get().n;
-              docTypes = db.prepare('SELECT COUNT(DISTINCT doc_type) AS n FROM docs').get().n;
-              const embCount = db.prepare('SELECT COUNT(*) AS n FROM docs WHERE hrr_vector IS NOT NULL').get().n;
-              syncedAt = getMeta(db, 'synced_at');
+              const stats = getDocsIndexStats(db);
+              ({ documents, bundles, docTypes, syncedAt } = stats);
               const stat = fs.statSync(dbPath);
               dbSize = stat.size;
               closeDocsDb(db);
 
-              embedded = embCount >= documents && documents > 0;
+              embedded = stats.embeddedCount >= documents && documents > 0;
               if (embedded) state = 'ready';
               else if (documents > 0) state = 'indexed (not embedded)';
               else state = 'empty';
@@ -157,19 +154,7 @@ export function docsCmd(wrap) {
             .option('lines', { type: 'number', default: 80, describe: 'Lines of body to show in terminal (use --json for full content)' }),
           handler: wrap(async (argv, app) => {
             const idOrPath = argv['id-or-path'];
-            const db = openDocsDb();
-            let row;
-            if (/^\d+$/.test(idOrPath)) {
-              row = db.prepare('SELECT * FROM docs WHERE id = ?').get(parseInt(idOrPath, 10));
-            } else {
-              row = db.prepare('SELECT * FROM docs WHERE path LIKE ?').get(`%${idOrPath}%`);
-              if (!row) {
-                row = db.prepare(
-                  `SELECT d.* FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ? LIMIT 1`
-                ).get(idOrPath);
-              }
-            }
-            closeDocsDb(db);
+            const row = getDocByIdOrPath(idOrPath);
 
             if (!row) {
               throw Object.assign(new Error(`No doc found for "${idOrPath}"`), { code: 'not_found' });

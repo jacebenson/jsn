@@ -1,8 +1,7 @@
 // CLI search against the docs SQLite database.
 
 import fs from 'node:fs';
-import Database from 'better-sqlite3';
-import { getDocsDbPath, hasEmbeddings } from './db.js';
+import { getDocsDbPath, hasEmbeddings, openDocsDb, closeDocsDb, getMeta } from './db.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
 function safeParse(s) {
@@ -10,6 +9,33 @@ function safeParse(s) {
     return JSON.parse(s);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Fetch one doc for `jsn docs show`: exact id when the argument is numeric,
+ * otherwise a path-substring match, falling back to a single best FTS match.
+ * Returns the docs row, or undefined when nothing matches. Owns its DB
+ * handle (pass opts.dbPath to target a non-default database — used by tests).
+ */
+export function getDocByIdOrPath(idOrPath, opts = {}) {
+  const dbPath = opts.dbPath || getDocsDbPath();
+  const db = openDocsDb({ dbPath });
+  try {
+    let row;
+    if (/^\d+$/.test(idOrPath)) {
+      row = db.prepare('SELECT * FROM docs WHERE id = ?').get(parseInt(idOrPath, 10));
+    } else {
+      row = db.prepare('SELECT * FROM docs WHERE path LIKE ?').get(`%${idOrPath}%`);
+      if (!row) {
+        row = db.prepare(
+          `SELECT d.* FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ? LIMIT 1`
+        ).get(idOrPath);
+      }
+    }
+    return row;
+  } finally {
+    closeDocsDb(db);
   }
 }
 
@@ -24,7 +50,7 @@ export function searchDocs(opts = {}) {
     throw new Error(`Database not found: ${dbPath}. Run "jsn docs sync" first.`);
   }
 
-  const db = new Database(dbPath, { readonly: true });
+  const db = openDocsDb({ dbPath });
   const limit = Math.min(parseInt(opts.limit, 10) || 20, 1000);
   const offset = parseInt(opts.offset, 10) || 0;
   const bundle = opts.bundle ? String(opts.bundle) : null;
@@ -86,12 +112,9 @@ export function searchDocs(opts = {}) {
       rows = [];
     } else {
       const hrrDim = (() => {
-        try {
-          const row = db.prepare("SELECT value FROM meta WHERE key='hrr_dim'").get();
-          return row ? parseInt(row.value, 10) : DEFAULT_DIM;
-        } catch {
-          return DEFAULT_DIM;
-        }
+        const value = getMeta(db, 'hrr_dim');
+        const n = parseInt(value, 10);
+        return Number.isInteger(n) ? n : DEFAULT_DIM;
       })();
       const queryVec = encodeText(q, hrrDim);
       const queryTokens = new Set(q.toLowerCase().split(/\s+/).filter(Boolean));
@@ -128,7 +151,7 @@ export function searchDocs(opts = {}) {
     }
   }
 
-  db.close();
+  closeDocsDb(db);
 
   // Post-process canonical_url JSON strings that may contain escaped content.
   for (const row of rows) {
