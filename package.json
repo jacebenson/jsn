@@ -1,6 +1,6 @@
 {
   "name": "@jacebenson/jsn",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "description": "A command-line interface for ServiceNow that follows the Unix philosophy: simple, composable, and scriptable.",
   "type": "module",
   "bin": {
