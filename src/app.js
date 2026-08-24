@@ -9,7 +9,7 @@
 
 import { AuthManager } from './auth.js';
 import { SDKClient } from './sdk.js';
-import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
+import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled, hyperlink } from './output.js';
 import { saveConfig } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
@@ -131,10 +131,10 @@ export class App {
     process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
     process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
 
-    const profileStr = `]8;;${instanceLink}${String(this.context.profileName).padEnd(9)}${roBadge}]8;;`;
-    const userStr = `]8;;${userLink}${String(displayUserName).padEnd(9)}]8;;`;
-    const scopeStr = `]8;;${scopeLink}${String(scopeFormatted).padEnd(17)}]8;;`;
-    const updateSetStr = `]8;;${updateSetLink}${updateSet}]8;;`;
+    const profileStr = hyperlink(`${String(this.context.profileName).padEnd(9)}${roBadge}`, instanceLink);
+    const userStr = hyperlink(String(displayUserName).padEnd(9), userLink);
+    const scopeStr = hyperlink(String(scopeFormatted).padEnd(17), scopeLink);
+    const updateSetStr = hyperlink(updateSet, updateSetLink);
 
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
