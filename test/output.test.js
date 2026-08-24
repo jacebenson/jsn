@@ -1,6 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
+describe('hyperlink', () => {
+  it('emits a complete OSC 8 sequence', async () => {
+    const { hyperlink } = await import('../src/output.js');
+    assert.strictEqual(
+      hyperlink('USER     ', 'https://example.service-now.com/sys_user.do'),
+      '\x1b]8;;https://example.service-now.com/sys_user.do\x07USER     \x1b]8;;\x07'
+    );
+  });
+});
+
 describe('OutputWriter format methods', () => {
   it('setFormat updates getFormat', async () => {
     const { OutputWriter } = await import('../src/output.js');
