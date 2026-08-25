@@ -131,10 +131,10 @@ export class App {
     process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
     process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
 
-    const profileStr = hyperlink(`${String(this.context.profileName).padEnd(9)}${roBadge}`, instanceLink);
+    const profileStr = `${hyperlink(String(this.context.profileName).padEnd(9), instanceLink)}${roBadge}`;
     const userStr = hyperlink(String(displayUserName).padEnd(9), userLink);
     const scopeStr = hyperlink(String(scopeFormatted).padEnd(17), scopeLink);
-    const updateSetStr = hyperlink(updateSet, updateSetLink);
+    const updateSetStr = hyperlink(String(updateSet), updateSetLink);
 
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
