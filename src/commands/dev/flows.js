@@ -78,7 +78,8 @@ export function flowsCmd(wrap) {
             .option('until', { type: 'string', describe: 'Only contexts created on or before this timestamp' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max executions' })
             .option('summary', { type: 'boolean', default: false, describe: 'Return local counts and duration metrics by flow' })
-            .option('all', { type: 'boolean', default: false, describe: 'Include completed executions (default shows recent executions)' }),
+            .option('active', { type: 'boolean', default: false, describe: 'Only waiting, running, and queued executions' })
+            .option('all', { type: 'boolean', default: false, describe: 'Compatibility flag; all states are now shown by default' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const fields = await discoverFlowContextFields(app.sdk);
@@ -86,7 +87,7 @@ export function flowsCmd(wrap) {
               record: argv.record,
               since: argv.since,
               until: argv.until,
-              query: argv.query || (!argv.all ? 'stateINWAITING,RUNNING,QUEUED' : ''),
+              query: argv.query || (argv.active ? 'stateINWAITING,RUNNING,QUEUED' : ''),
             });
             const params = new URLSearchParams();
             params.set('sysparm_query', query);
