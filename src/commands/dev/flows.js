@@ -1,5 +1,5 @@
 import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
-import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, mergeFlowContextStats, buildFlowContextQuery } from '../../flow-context.js';
+import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../../flow-context.js';
 import { declareCapabilities } from '../../capabilities.js';
 
 declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete'], devAlias: true });
@@ -94,7 +94,7 @@ export function flowsCmd(wrap) {
             params.set('sysparm_fields', [...fields].join(','));
             params.set('sysparm_display_value', 'all');
             const records = await app.sdk.list('sys_flow_context', params);
-            const executions = records.map(record => ({ ...normalizeFlowContext(record), raw: record }));
+            const executions = records.map(record => normalizeFlowContext(record));
             const sampledSummary = summarizeFlowContexts(executions);
             let executionSummary = sampledSummary;
             if (argv.summary) {
@@ -110,7 +110,7 @@ export function flowsCmd(wrap) {
               sample_count: executions.length,
               query,
               fields: [...fields],
-              field_mapping: executions[0]?.field_mapping || {},
+              field_mapping: aggregateFlowContextMappings(executions),
               missing_fields: [...new Set(executions.flatMap(execution => execution.missing_fields))],
               summary: executionSummary,
               executions: argv.summary ? undefined : executions,

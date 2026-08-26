@@ -101,6 +101,14 @@ export function formatFlowContextSummary(summary) {
   return lines.join('\n') + '\n';
 }
 
+export function aggregateFlowContextMappings(executions) {
+  const keys = ['status', 'started', 'ended', 'duration', 'wait_for', 'error'];
+  return Object.fromEntries(keys.map(key => {
+    const values = [...new Set(executions.map(execution => execution.field_mapping?.[key]).filter(Boolean))];
+    return [key, values.length === 1 ? values[0] : values.length > 1 ? 'mixed' : null];
+  }));
+}
+
 export function mergeFlowContextStats(groups, sampledSummary, totalCount) {
   const byFlow = {};
   for (const group of groups || []) {

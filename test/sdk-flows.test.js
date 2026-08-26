@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { decodeGzipJson, hydrateFlowBlocks } from '../src/sdk.js';
-import { normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, mergeFlowContextStats, buildFlowContextQuery } from '../src/flow-context.js';
+import { normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../src/flow-context.js';
 
 test('normalizeFlowContext maps runtime timestamps and derives duration', () => {
   const result = normalizeFlowContext({
@@ -73,6 +73,12 @@ test('formatFlowContextSummary renders the local summary for terminal users', ()
   assert.match(text, /Approval/);
   assert.match(text, /COMPLETED: 1, ERROR: 1/);
   assert.match(text, /10s-30s, avg 20s/);
+});
+test('aggregateFlowContextMappings reports mixed record mappings', () => {
+  assert.deepEqual(aggregateFlowContextMappings([
+    { field_mapping: { status: 'state', started: 'started' } },
+    { field_mapping: { status: 'execution_state', started: 'started' } },
+  ]), { status: 'mixed', started: 'started', ended: null, duration: null, wait_for: null, error: null });
 });
 test('mergeFlowContextStats keeps server counts separate from sampled metrics', () => {
   const result = mergeFlowContextStats([
