@@ -223,6 +223,26 @@ describe('SDKClient', () => {
     assert.strictEqual(client.timeout, 60000);
   });
 
+  it('uses persisted Basic Auth credentials for requests', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const auth = {
+      getCredentials: async () => ({
+        auth_method: 'basic',
+        username: 'admin',
+        password: 'secret',
+      }),
+    };
+    const client = new SDKClient('https://test.service-now.com', auth);
+    const request = new Request('https://test.service-now.com/api/now/table/incident');
+
+    await client._setAuth(request);
+
+    assert.strictEqual(
+      request.headers.get('Authorization'),
+      `Basic ${Buffer.from('admin:secret').toString('base64')}`,
+    );
+  });
+
   it('extracts HTML script output', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const auth = { getCredentials: () => ({ auth_method: 'oauth', access_token: 'test-token' }) };
@@ -317,6 +337,31 @@ describe('Auth', () => {
     const { AuthManager } = await import('../src/auth.js');
     const auth = new AuthManager({ getEffectiveInstance: () => '' });
     assert.strictEqual(auth.isAuthenticatedFor(''), false);
+  });
+
+  it('isAuthenticatedFor recognizes stored basic auth credentials', async () => {
+    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const instance = `https://basic-auth-${Date.now()}.service-now.com`;
+    saveCredentials(instance, {
+      auth_method: 'basic',
+      username: 'admin',
+      password: 'secret',
+    }, 'admin');
+
+    try {
+      const auth = new AuthManager({
+        getUsername: () => 'admin',
+        getEffectiveInstance: () => instance,
+      });
+      assert.strictEqual(auth.isAuthenticatedFor(instance), true);
+      const credentials = await auth.getCredentials();
+      assert.strictEqual(credentials.auth_method, 'basic');
+      assert.strictEqual(credentials.username, 'admin');
+      assert.strictEqual(credentials.password, 'secret');
+      assert.ok(credentials.auth_source);
+    } finally {
+      deleteCredentials(instance, 'admin');
+    }
   });
 
   it('throws when no instance configured for getCredentials', async () => {

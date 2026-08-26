@@ -426,7 +426,7 @@ export async function removeProfile(app, name) {
 export function authCmd(wrap) {
   return {
     command: 'auth [subcommand]',
-    describe: 'Manage authentication (OAuth or basic auth via env vars)',
+    describe: 'Manage authentication (OAuth or Basic Auth)',
     builder: (yargs) => {
       return yargs
         .command({
@@ -437,8 +437,9 @@ export function authCmd(wrap) {
               describe: 'Authorization code from browser (bypasses interactive prompt)',
               type: 'string',
             })
-            .option('password', {
-              describe: 'Authenticate with basic auth via env vars (SN_USERNAME/SN_PASSWORD)',
+            .option('basic', {
+              alias: 'password',
+              describe: 'Authenticate with Basic Auth via env vars (SN_USERNAME/SN_PASSWORD)',
               type: 'boolean',
             })
             .option('print-url', {
@@ -497,14 +498,15 @@ export function authCmd(wrap) {
 Examples:
   jsn auth login https://dev12345.service-now.com
   jsn auth login dev373698
-  jsn auth login --password https://dev328604.service-now.com
+  jsn auth login --basic https://dev328604.service-now.com
 
 Find your instance URL in your browser's address bar when logged into ServiceNow.`);
               }
             }
 
-            // --password: authenticate with basic auth from env vars
-            if (argv.password) {
+            // --basic (with --password as a compatibility alias): authenticate
+            // with basic auth from env vars and persist it for this profile.
+            if (argv.basic || argv.password) {
               await app.auth.loginWithPassword(instanceURL);
             }
             // --print-url with --wait-file: print URL and wait for code file
@@ -560,7 +562,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             app.config.profiles[profileName] = {
               ...(app.config.profiles[profileName] || {}),
               instance_url: instanceURL,
-              auth_method: argv.password ? 'basic' : 'oauth',
+              auth_method: argv.basic || argv.password ? 'basic' : 'oauth',
               username: username || undefined,
               read_only: argv['read-only'] || undefined,
               skip_confirmations: argv['skip-confirmations'] || undefined,

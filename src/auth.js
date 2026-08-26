@@ -366,6 +366,9 @@ export class AuthManager {
     if (getBasicAuthFromEnv(instance)) return true;
     const creds = loadCredentials(instance, this._activeUsername());
     if (!creds) return false;
+    if (creds.auth_method === 'basic') {
+      return Boolean(creds.username && creds.password);
+    }
     if (creds.expires_at && Date.now() >= creds.expires_at * 1000) return false;
     return !!creds.access_token;
   }
