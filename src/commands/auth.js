@@ -111,9 +111,10 @@ export async function pickProfile(app, message) {
  * always asks otherwise.
  */
 export function resolveWizardInstance(app, argv = {}) {
-  // app.getEffectiveInstance() is the session-backed read (production App);
-  // the _overrideInstance fallback keeps hand-rolled test fakes honest.
-  return process.env.SERVICENOW_INSTANCE_URL || app.getEffectiveInstance?.() || app._overrideInstance || argv.instance || '';
+  // Only explicit inputs may pre-fill the wizard. The active/default profile
+  // belongs to the existing connection and must not silently become the new
+  // instance when setup is adding a profile.
+  return process.env.SERVICENOW_INSTANCE_URL || app._overrideInstance || argv.instance || '';
 }
 
 /**
