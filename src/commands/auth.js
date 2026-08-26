@@ -83,6 +83,18 @@ export function resolveInstanceArg(arg, cfg) {
 }
 
 /**
+ * Select the login method. Explicit Basic Auth wins; otherwise reuse the
+ * method recorded on an existing profile. New instances remain OAuth by
+ * default.
+ */
+export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '') {
+  if (argv.basic || argv.password) return true;
+  return Object.values(cfg.profiles || {}).some(profile =>
+    profile.instance_url === instanceURL && profile.auth_method === 'basic'
+  );
+}
+
+/**
  * Pick a profile by name — interactive search picker when ambiguous,
  * auto-selects when there's exactly one, throws when none configured.
  */
@@ -505,9 +517,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               }
             }
 
+            const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL);
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
-            if (argv.basic || argv.password) {
+            if (useBasic) {
               await app.auth.loginWithPassword(instanceURL);
             }
             // --print-url with --wait-file: print URL and wait for code file
@@ -563,7 +576,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             app.config.profiles[profileName] = {
               ...(app.config.profiles[profileName] || {}),
               instance_url: instanceURL,
-              auth_method: argv.basic || argv.password ? 'basic' : 'oauth',
+              auth_method: useBasic ? 'basic' : 'oauth',
               username: username || undefined,
               read_only: argv['read-only'] || undefined,
               skip_confirmations: argv['skip-confirmations'] || undefined,
@@ -574,7 +587,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // so they're keyed by <user>@<instance> for per-user isolation.
             // The legacy bare-instance key is cleaned up behind the
             // AuthManager seam (credential-store internals don't leak here).
-            if (!argv.password && username) {
+            if (!useBasic && username) {
               app.auth.migrateLegacyCredential(instanceURL, username);
             }
 

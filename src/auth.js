@@ -488,15 +488,17 @@ export class AuthManager {
    */
   async loginWithPassword(instanceURL) {
     instanceURL = normalizeInstanceURL(instanceURL);
-    const creds = getBasicAuthFromEnv(instanceURL);
-    if (!creds) {
+    const envCreds = getBasicAuthFromEnv(instanceURL);
+    const storedCreds = loadCredentials(instanceURL, this._activeUsername());
+    const creds = envCreds || storedCreds;
+    if (!creds || creds.auth_method !== 'basic' || !creds.username || !creds.password) {
       throw errAuth(
-        `No basic auth credentials found in environment.\n\n` +
+        `No basic auth credentials found in environment or stored profile.\n\n` +
         `Set the following environment variables:\n` +
         `  SN_USERNAME=admin           (or SN_${envVarName(instanceURL)}_USERNAME)\n` +
         `  SN_PASSWORD=<password>      (or SN_${envVarName(instanceURL)}_PASSWORD)\n\n` +
         `Then run:\n` +
-        `  jsn auth login --password ${instanceURL}`
+        `  jsn auth login --basic ${instanceURL}`
       );
     }
     saveCredentials(instanceURL, creds, creds.username);

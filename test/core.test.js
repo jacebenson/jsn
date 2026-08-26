@@ -359,6 +359,9 @@ describe('Auth', () => {
       assert.strictEqual(credentials.username, 'admin');
       assert.strictEqual(credentials.password, 'secret');
       assert.ok(credentials.auth_source);
+      const relogged = await auth.loginWithPassword(instance);
+      assert.strictEqual(relogged.auth_method, 'basic');
+      assert.strictEqual(relogged.username, 'admin');
     } finally {
       deleteCredentials(instance, 'admin');
     }

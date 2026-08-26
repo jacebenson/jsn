@@ -200,6 +200,32 @@ describe('resolveInstanceArg', () => {
   });
 });
 
+describe('auth login method selection', () => {
+  it('uses the stored Basic Auth method for an existing profile', async () => {
+    const { shouldUseBasicAuth } = await import('../src/commands/auth.js');
+    const instance = 'https://cmdbpetadebraptor1.service-now.com';
+    const config = {
+      profiles: {
+        snugb: { instance_url: instance, auth_method: 'basic' },
+      },
+    };
+
+    assert.strictEqual(shouldUseBasicAuth({}, config, instance), true);
+  });
+
+  it('keeps OAuth as the default for new or OAuth profiles', async () => {
+    const { shouldUseBasicAuth } = await import('../src/commands/auth.js');
+    const config = {
+      profiles: {
+        dev: { instance_url: 'https://dev.service-now.com', auth_method: 'oauth' },
+      },
+    };
+
+    assert.strictEqual(shouldUseBasicAuth({}, config, 'https://new.service-now.com'), false);
+    assert.strictEqual(shouldUseBasicAuth({}, config, 'https://dev.service-now.com'), false);
+  });
+});
+
 // ─── auth switch handler ───
 
 describe('Auth Command Switch Handler', () => {
