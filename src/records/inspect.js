@@ -1,4 +1,5 @@
 import { isHexString, getStringField, assertSafeExactMatch } from '../helpers.js';
+import { discoverFlowContextFields, normalizeFlowContext } from '../flow-context.js';
 
 export async function resolveIdentifier(app, table, identifier) {
   // If it looks like a sys_id (32 hex chars), use it directly
@@ -164,20 +165,15 @@ async function fetchBusinessRules(app, table) {
 }
 
 async function fetchFlows(app, sysId) {
-  const params = new URLSearchParams();
-  params.set('sysparm_query', `source_record=${sysId}`);
-  params.set('sysparm_limit', '20');
-  params.set('sysparm_fields', 'flow_catalog_model,name,execution_id,state,engine_major_version,sys_created_on,origins,calling_source');
-  params.set('sysparm_display_value', 'all');
   try {
+    const fields = await discoverFlowContextFields(app.sdk);
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `source_record=${sysId}^ORDERBYDESCsys_created_on`);
+    params.set('sysparm_limit', '20');
+    params.set('sysparm_fields', [...fields].join(','));
+    params.set('sysparm_display_value', 'all');
     const records = await app.sdk.list('sys_flow_context', params);
-    return records.map(r => ({
-      flow: r.name?.display_value || r.name || r.flow_catalog_model?.display_value || r.flow_catalog_model?.value || '(deleted flow)',
-      executionId: r.execution_id?.display_value || r.execution_id,
-      state: r.state?.display_value || r.state,
-      version: r.engine_major_version?.display_value || r.engine_major_version,
-      started: r.sys_created_on?.display_value || r.sys_created_on,
-    }));
+    return records.map(r => normalizeFlowContext(r));
   } catch {
     return []; // Flow Designer might not be installed
   }
@@ -245,8 +241,13 @@ export function formatInspectOutput(data) {
   } else {
     for (const f of data.flows) {
       lines.push(`  Flow: ${f.flow}`);
-      lines.push(`  Status: ${f.state} | Version: ${f.version}`);
+      lines.push(`  Status: ${f.status || '(unknown)'}${f.execution_id ? ` | Execution: ${f.execution_id}` : ''}`);
       if (f.started) lines.push(`  Started: ${f.started}`);
+      if (f.ended) lines.push(`  Ended: ${f.ended}`);
+      if (f.duration_seconds != null) lines.push(`  Duration: ${f.duration_seconds}s`);
+      if (f.waiting_age_seconds != null) lines.push(`  Waiting age: ${f.waiting_age_seconds}s`);
+      if (f.wait_for) lines.push(`  Waiting for: ${f.wait_for}`);
+      if (f.error) lines.push(`  Error: ${f.error}`);
       lines.push('');
     }
   }

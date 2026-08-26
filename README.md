@@ -53,6 +53,9 @@ jsn incidents create --description "Server down" --priority 1
 # Admin tasks
 jsn flows list                                # Interactive picker with pagination
 jsn flows show "Assign Task"                  # Full flow detail
+jsn flows executions                          # Recent waiting/running executions
+jsn flows executions --all --limit 100        # Include completed executions
+jsn flows executions --record <sys_id>        # Executions for one source record
 jsn rules list --query "collection=incident"
 jsn updatesets set "My Feature"
 
@@ -77,6 +80,19 @@ jsn snippets run open-inc
 # Live log tailing (Ctrl+C to stop)
 jsn logs follow --level error --tail 10
 ```
+
+### Flow execution fields
+
+`jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:
+
+- `started`: `started`, `start_time`, `started_at`, then `sys_created_on`
+- `ended`: `ended`, `end_time`, `ended_at`, then `completed_on`
+- `duration_seconds`: stored `duration`, `run_time`, or `execution_duration`, otherwise `ended - started`
+- `waiting_age_seconds`: current time minus `started` while the status is waiting, queued, paused, pending, or running
+- `status`: `state`, then `status`, then `execution_state`
+- `error`: `error`, `error_message`, `exception`, then `message`
+
+The timestamp fields are instance-dependent. `sys_created_on` is a fallback for when the context row was created, not a claim that it is the true runtime start time.
 
 ## Commands
 

@@ -1,4 +1,5 @@
 import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
+import { discoverFlowContextFields, normalizeFlowContext } from '../../flow-context.js';
 import { declareCapabilities } from '../../capabilities.js';
 
 declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete'], devAlias: true });
@@ -67,6 +68,38 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
+          command: 'executions',
+          aliases: ['runs', 'contexts'],
+          describe: 'Show Flow Designer executions from sys_flow_context',
+          builder: (y) => y
+            .option('query', { type: 'string', describe: 'Encoded query (e.g. "state=WAITING" or "source_record=<sys_id>")' })
+            .option('record', { type: 'string', describe: 'Only executions for this source record sys_id' })
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max executions' })
+            .option('all', { type: 'boolean', default: false, describe: 'Include completed executions (default shows recent executions)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const fields = await discoverFlowContextFields(app.sdk);
+            const params = new URLSearchParams();
+            const queryParts = [];
+            if (argv.record) queryParts.push(`source_record=${argv.record}`);
+            if (argv.query) queryParts.push(argv.query);
+            if (!argv.all && !argv.query) queryParts.push('stateINWAITING,RUNNING,QUEUED');
+            params.set('sysparm_query', `${queryParts.join('^')}${queryParts.length ? '^' : ''}ORDERBYDESCsys_created_on`);
+            params.set('sysparm_limit', String(argv.limit));
+            params.set('sysparm_fields', [...fields].join(','));
+            params.set('sysparm_display_value', 'all');
+            const records = await app.sdk.list('sys_flow_context', params);
+            const executions = records.map(record => ({ ...normalizeFlowContext(record), raw: record }));
+            app.ok({
+              table: 'sys_flow_context',
+              count: executions.length,
+              fields: [...fields],
+              executions,
+              context: { instance_url: app.getEffectiveInstance() },
+            }, { summary: `${executions.length} flow execution(s)` });
+          }),
+        })
+        .command({
           command: 'show <identifier>',
           aliases: ['get'],
           describe: 'Show flow details by name or sys_id',
@@ -128,6 +161,7 @@ export function flowsCmd(wrap) {
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                  List flows');
+      console.log('  executions            Show flow executions from sys_flow_context');
       console.log('  show <identifier>     Show flow details by name or sys_id');
       console.log('  create                Create a new flow (not yet implemented)');
       console.log('  update <identifier>   Update a flow (not yet implemented)');

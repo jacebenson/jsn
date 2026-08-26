@@ -2,7 +2,29 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { decodeGzipJson, hydrateFlowBlocks } from '../src/sdk.js';
+import { normalizeFlowContext } from '../src/flow-context.js';
 
+test('normalizeFlowContext maps runtime timestamps and derives duration', () => {
+  const result = normalizeFlowContext({
+    sys_id: 'ctx-1', name: { display_value: 'Approval flow' }, execution_id: 'exec-1',
+    state: { display_value: 'COMPLETED' }, started: '2026-08-26 10:00:00', ended: '2026-08-26 10:01:12',
+  });
+  assert.equal(result.flow, 'Approval flow');
+  assert.equal(result.status, 'COMPLETED');
+  assert.equal(result.started, '2026-08-26 10:00:00');
+  assert.equal(result.ended, '2026-08-26 10:01:12');
+  assert.equal(result.duration_seconds, 72);
+});
+
+test('normalizeFlowContext derives waiting age and exposes errors', () => {
+  const result = normalizeFlowContext({
+    name: 'Wait flow', state: 'WAITING', sys_created_on: '2026-08-26 09:58:00',
+    wait_for: 'approval', error_message: 'Approval timed out',
+  }, { now: new Date('2026-08-26T10:00:00Z') });
+  assert.equal(result.waiting_age_seconds, 120);
+  assert.equal(result.wait_for, 'approval');
+  assert.equal(result.error, 'Approval timed out');
+});
 function gzipB64(obj) {
   return gzipSync(Buffer.from(JSON.stringify(obj), 'utf-8')).toString('base64');
 }
