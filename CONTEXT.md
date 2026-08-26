@@ -103,6 +103,10 @@ knowledge lives here. `docs.js` command handlers stay thin: argv → options →
 `app.ok`; they call data-layer functions (`searchDocs`, `getDocsIndexStats`,
 `getDocByIdOrPath`) rather than running SQL.
 
+## Flow execution
+
+`src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.
+
 ---
 
 ## Invariants (things that must stay true)

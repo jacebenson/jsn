@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { decodeGzipJson, hydrateFlowBlocks } from '../src/sdk.js';
-import { normalizeFlowContext } from '../src/flow-context.js';
+import { normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, mergeFlowContextStats, buildFlowContextQuery } from '../src/flow-context.js';
 
 test('normalizeFlowContext maps runtime timestamps and derives duration', () => {
   const result = normalizeFlowContext({
@@ -29,6 +29,61 @@ function gzipB64(obj) {
   return gzipSync(Buffer.from(JSON.stringify(obj), 'utf-8')).toString('base64');
 }
 
+test('normalizeFlowContext separates waiting age from running age and reports mapping', () => {
+  const waiting = normalizeFlowContext({ state: 'WAITING', started: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  const running = normalizeFlowContext({ state: 'RUNNING', started: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  assert.equal(waiting.waiting_age_seconds, 120);
+  assert.equal(waiting.execution_age_seconds, null);
+  assert.equal(running.waiting_age_seconds, null);
+  assert.equal(running.execution_age_seconds, 120);
+  assert.equal(waiting.field_mapping.started, 'started');
+  assert.deepEqual(waiting.missing_fields, ['ended', 'duration']);
+});
+
+test('normalizeFlowContext does not call row creation time execution age', () => {
+  const result = normalizeFlowContext({ state: 'RUNNING', sys_created_on: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  assert.equal(result.execution_age_seconds, null);
+  assert.equal(result.duration_seconds, null);
+  assert.equal(result.field_mapping.started, 'sys_created_on');
+});
+test('buildFlowContextQuery creates bounded, ordered queries', () => {
+  assert.equal(
+    buildFlowContextQuery({ record: 'abc', since: '2026-08-25 00:00:00', until: '2026-08-26 00:00:00', query: 'state=WAITING' }),
+    'source_record=abc^sys_created_on>=2026-08-25 00:00:00^sys_created_on<=2026-08-26 00:00:00^state=WAITING^ORDERBYDESCsys_created_on',
+  );
+  assert.throws(() => buildFlowContextQuery({ since: '2026-08-25^bad=true' }), /invalid --since/);
+});
+
+test('summarizeFlowContexts groups statuses and duration metrics by flow', () => {
+  const result = summarizeFlowContexts([
+    { flow: 'Approval', status: 'COMPLETED', duration_seconds: 10, waiting_age_seconds: null },
+    { flow: 'Approval', status: 'ERROR', duration_seconds: 30, waiting_age_seconds: null },
+    { flow: 'Wait', status: 'WAITING', duration_seconds: null, waiting_age_seconds: 90 },
+  ]);
+  assert.equal(result.count, 3);
+  assert.deepEqual(result.by_flow.Approval.statuses, { COMPLETED: 1, ERROR: 1 });
+  assert.deepEqual(result.by_flow.Approval.duration_seconds, { count: 2, min: 10, max: 30, average: 20 });
+  assert.equal(result.by_flow.Wait.waiting_count, 1);
+});
+test('formatFlowContextSummary renders the local summary for terminal users', () => {
+  const text = formatFlowContextSummary({ total_count: 2, sample_count: 2, by_flow: {
+    Approval: { count: 2, sampled: 2, statuses: { COMPLETED: 1, ERROR: 1 }, waiting_count: 0, duration_seconds: { count: 2, min: 10, max: 30, average: 20 } },
+  } });
+  assert.match(text, /FLOW EXECUTIONS/);
+  assert.match(text, /Approval/);
+  assert.match(text, /COMPLETED: 1, ERROR: 1/);
+  assert.match(text, /10s-30s, avg 20s/);
+});
+test('mergeFlowContextStats keeps server counts separate from sampled metrics', () => {
+  const result = mergeFlowContextStats([
+    { groupby_fields: [{ field: 'name', value: 'Approval' }, { field: 'state', value: 'Waiting' }], stats: { count: '99' } },
+  ], { count: 2, by_flow: { Approval: { count: 2, statuses: { Waiting: 2 }, waiting_count: 2, duration_seconds: { count: 0, min: null, max: null, average: null } } } }, 99);
+  assert.equal(result.total_count, 99);
+  assert.equal(result.sample_count, 2);
+  assert.equal(result.by_flow.Approval.count, 99);
+  assert.equal(result.by_flow.Approval.sampled, 2);
+  assert.equal(result.by_flow.Approval.waiting_count, 2);
+});
 test('decodeGzipJson decodes base64-gzip JSON with surrounding whitespace', () => {
   const payload = { inputs: [{ name: 'condition', value: '{{x}}ISNOTEMPTY' }], variables: [] };
   const raw = `\n\t\t\t${gzipB64(payload)}`;
