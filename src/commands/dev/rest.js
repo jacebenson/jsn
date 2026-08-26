@@ -26,6 +26,11 @@ export function restCmd(wrap) {
           type: 'string',
           describe: 'Table name shorthand for api/now/table/{table}',
         })
+        .option('raw', {
+          type: 'boolean',
+          default: false,
+          describe: 'Return non-JSON response bodies as text (for XML/HTML diagnostic endpoints)',
+        })
         .option('query', {
           type: 'string',
           describe: 'Query parameters string',
@@ -63,7 +68,9 @@ export function restCmd(wrap) {
         requestOptions.body = argv.data;
       }
 
-      const result = await app.sdk.request(url, requestOptions);
+      const result = argv.raw
+        ? await app.sdk.rawRequest(url, requestOptions)
+        : await app.sdk.request(url, requestOptions);
       app.ok(result, { summary: `${method} ${endpoint}` });
     }),
   };

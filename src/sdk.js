@@ -497,7 +497,31 @@ export class SDKClient {
     return 0;
   }
 
-  // ─── Background Script Execution (3-step OAuth session flow) ───
+  async aggregate(table, options = {}) {
+    const params = new URLSearchParams();
+    const fields = (value) => Array.isArray(value) ? value.filter(Boolean).join(',') : String(value || '');
+    const groupBy = fields(options.groupBy);
+    const orderBy = fields(options.orderBy);
+
+    if (options.query) params.set('sysparm_query', options.query);
+    if (options.count !== false) params.set('sysparm_count', 'true');
+    if (groupBy) params.set('sysparm_group_by', groupBy);
+    if (fields(options.averageFields)) params.set('sysparm_avg_fields', fields(options.averageFields));
+    if (fields(options.sumFields)) params.set('sysparm_sum_fields', fields(options.sumFields));
+    if (fields(options.minimumFields)) params.set('sysparm_min_fields', fields(options.minimumFields));
+    if (fields(options.maximumFields)) params.set('sysparm_max_fields', fields(options.maximumFields));
+    if (orderBy) params.set('sysparm_order_by', orderBy);
+
+    const endpoint = `${this.baseURL}/api/now/stats/${table}?${params.toString()}`;
+    const result = await this.request(endpoint, { method: 'GET' });
+    const payload = result?.result || {};
+    const numericKeys = Object.keys(payload).filter(key => /^\d+$/.test(key));
+    if (numericKeys.length > 0 && numericKeys.length === Object.keys(payload).length) {
+      return { groups: numericKeys.sort((a, b) => Number(a) - Number(b)).map(key => payload[key]) };
+    }
+    return payload;
+  }
+
 
   /**
    * Export an update set to XML via the fluent export endpoint.

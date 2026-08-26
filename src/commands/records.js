@@ -352,6 +352,50 @@ export function recordsCmd(wrap) {
             .demandCommand(1, 'Specify an attachment action: list, get, or add'),
         })
         .command({
+          command: 'aggregate',
+          describe: 'Run ServiceNow Stats API aggregation with optional grouping',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('query', { type: 'string', describe: 'Encoded query to constrain the aggregation' })
+            .option('group-by', { type: 'string', describe: 'Comma-separated fields to group by' })
+            .option('count', { type: 'boolean', default: true, describe: 'Include record counts' })
+            .option('avg-fields', { type: 'string', describe: 'Comma-separated fields to average' })
+            .option('sum-fields', { type: 'string', describe: 'Comma-separated fields to sum' })
+            .option('min-fields', { type: 'string', describe: 'Comma-separated fields for minimum values' })
+            .option('max-fields', { type: 'string', describe: 'Comma-separated fields for maximum values' })
+            .option('order-by', { type: 'string', describe: 'Comma-separated fields to order by' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const split = (value) => value ? value.split(',').map(v => v.trim()).filter(Boolean) : [];
+            const options = {
+              query: argv.query || '',
+              groupBy: split(argv['group-by']),
+              count: argv.count !== false,
+              averageFields: split(argv['avg-fields']),
+              sumFields: split(argv['sum-fields']),
+              minimumFields: split(argv['min-fields']),
+              maximumFields: split(argv['max-fields']),
+              orderBy: split(argv['order-by']),
+            };
+            const result = await app.sdk.aggregate(argv.table, options);
+            app.ok({
+              table: argv.table,
+              query: options.query,
+              group_by: options.groupBy,
+              aggregate: {
+                count: options.count,
+                average_fields: options.averageFields,
+                sum_fields: options.sumFields,
+                minimum_fields: options.minimumFields,
+                maximum_fields: options.maximumFields,
+                order_by: options.orderBy,
+              },
+              ...result,
+              context: { instance_url: app.getEffectiveInstance() },
+            }, { summary: `Aggregated ${argv.table}${options.groupBy.length ? ` by ${options.groupBy.join(', ')}` : ''}` });
+          }),
+        })
+        .command({
           command: 'bulk',
           describe: 'Bulk-update records matching a query. Dry-run by default — pass --execute to commit',
           builder: (y) => y
@@ -480,7 +524,8 @@ export function recordsCmd(wrap) {
       console.log('  create                Create a record');
       console.log('  update                Update a record');
       console.log('  delete                Delete a record');
-      console.log('  inspect               Inspect table schema and statistics');
+      console.log('  aggregate              Run Stats API aggregation with optional grouping');
+      console.log('  inspect                Inspect table schema and statistics');
       console.log('');
       console.log('Run "jsn records <command> --help" for details.');
     },

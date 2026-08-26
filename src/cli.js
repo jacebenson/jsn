@@ -29,6 +29,8 @@ import { groupsCmd } from './commands/groups.js';
 import { groupMembersCmd } from './commands/groupmembers.js';
 import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
+import { transactionsCmd } from './commands/transactions.js';
+import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
 import { devCmd } from './commands/dev.js';
@@ -354,6 +356,8 @@ export function buildCLI() {
     // DATA
     .command(cmdbCmd(wrap))
     .command(recordsCmd(wrap))
+    .command(transactionsCmd(wrap))
+    .command(platformCmd(wrap))
     .command(snippetsCmd(wrap))
     .command(ticketsCmd(wrap))
     .command(codesearchCmd(wrap))
