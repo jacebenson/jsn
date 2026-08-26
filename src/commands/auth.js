@@ -517,11 +517,14 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               }
             }
 
+            const targetProfile = Object.values(app.config.profiles || {})
+              .find(profile => profile.instance_url === instanceURL);
+            const targetUsername = targetProfile?.username || '';
             const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL);
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
             if (useBasic) {
-              await app.auth.loginWithPassword(instanceURL);
+              await app.auth.loginWithPassword(instanceURL, targetUsername || undefined);
             }
             // --print-url with --wait-file: print URL and wait for code file
             else if (argv.printUrl && argv.waitFile) {
@@ -544,9 +547,12 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // Verify auth by fetching current user
             let username = '';
             try {
-              if (!app.sdk) {
+              if (!app.sdk || targetUsername) {
                 const { SDKClient } = await import('../sdk.js');
-                app.sdk = new SDKClient(instanceURL, app.auth);
+                const authProvider = targetUsername
+                  ? { getCredentials: () => app.auth.getCredentialsFor(instanceURL, targetUsername) }
+                  : app.auth;
+                app.sdk = new SDKClient(instanceURL, authProvider);
               }
               const user = await app.sdk.getCurrentUser();
               username = user?.user_name || user?.name || '';

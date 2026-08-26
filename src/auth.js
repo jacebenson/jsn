@@ -387,11 +387,11 @@ export class AuthManager {
     return this.getCredentialsFor(instance);
   }
 
-  getCredentialsFor(instance) {
+  getCredentialsFor(instance, username = this._activeUsername()) {
     // Check basic auth from env vars first
     const basicCreds = getBasicAuthFromEnv(instance);
     if (basicCreds) return basicCreds;
-    const creds = loadCredentials(instance, this._activeUsername());
+    const creds = loadCredentials(instance, username);
     if (!creds) {
       throw errAuth(`Not authenticated for ${instance}`);
     }
@@ -486,10 +486,10 @@ export class AuthManager {
    * Reads SN_USERNAME/SN_PASSWORD (or SN_<INSTANCE>_USERNAME/SN_<INSTANCE>_PASSWORD).
    * Stores the basic auth credentials so they persist across sessions.
    */
-  async loginWithPassword(instanceURL) {
+  async loginWithPassword(instanceURL, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const envCreds = getBasicAuthFromEnv(instanceURL);
-    const storedCreds = loadCredentials(instanceURL, this._activeUsername());
+    const storedCreds = loadCredentials(instanceURL, username);
     const creds = envCreds || storedCreds;
     if (!creds || creds.auth_method !== 'basic' || !creds.username || !creds.password) {
       throw errAuth(
