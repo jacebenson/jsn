@@ -201,6 +201,13 @@ describe('resolveInstanceArg', () => {
 });
 
 describe('auth login method selection', () => {
+  it('recognizes browser session authentication explicitly', async () => {
+    const { shouldUseGckAuth } = await import('../src/commands/auth.js');
+    assert.strictEqual(shouldUseGckAuth({ gck: true }), true);
+    assert.strictEqual(shouldUseGckAuth({ headers: 'X-UserToken: token' }), true);
+    assert.strictEqual(shouldUseGckAuth({}), false);
+  });
+
   it('uses the stored Basic Auth method for an existing profile', async () => {
     const { shouldUseBasicAuth } = await import('../src/commands/auth.js');
     const instance = 'https://cmdbpetadebraptor1.service-now.com';

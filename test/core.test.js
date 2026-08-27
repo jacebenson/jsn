@@ -243,6 +243,25 @@ describe('SDKClient', () => {
     );
   });
 
+  it('uses browser session credentials for requests', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const auth = {
+      getCredentials: async () => ({
+        auth_method: 'gck',
+        access_token: 'gck-token',
+        cookies: 'JSESSIONID=session-id',
+      }),
+    };
+    const client = new SDKClient('https://test.service-now.com', auth);
+    const request = new Request('https://test.service-now.com/api/now/table/incident');
+
+    await client._setAuth(request);
+
+    assert.strictEqual(request.headers.get('X-UserToken'), 'gck-token');
+    assert.strictEqual(request.headers.get('Cookie'), 'JSESSIONID=session-id');
+    assert.strictEqual(request.headers.get('Authorization'), null);
+  });
+
   it('extracts HTML script output', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const auth = { getCredentials: () => ({ auth_method: 'oauth', access_token: 'test-token' }) };

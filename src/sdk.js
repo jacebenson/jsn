@@ -47,6 +47,10 @@ export class SDKClient {
       case 'oauth':
         req.headers.set('Authorization', `Bearer ${creds.access_token}`);
         break;
+      case 'gck':
+        req.headers.set('X-UserToken', creds.access_token);
+        if (creds.cookies) req.headers.set('Cookie', creds.cookies);
+        break;
       default:
         if (creds.username && creds.password) {
           req.headers.set('Authorization', 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`).toString('base64'));
