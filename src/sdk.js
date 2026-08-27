@@ -59,16 +59,17 @@ export class SDKClient {
   }
 
   async request(endpoint, opts = {}) {
+    const { timeout = this.timeout, ...requestOptions } = opts;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
+    const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
       const req = new Request(endpoint, {
-        ...opts,
+        ...requestOptions,
         signal: controller.signal,
       });
       req.headers.set('Accept', 'application/json');
-      if (opts.body && typeof opts.body === 'string') {
+      if (requestOptions.body && typeof requestOptions.body === 'string') {
         req.headers.set('Content-Type', 'application/json');
       }
       if (this.domain) {
@@ -494,12 +495,15 @@ export class SDKClient {
     return { action, steps: steps || [] };
   }
 
-  async aggregateCount(table, queryStr) {
+  async aggregateCount(table, queryStr, options = {}) {
     const params = new URLSearchParams();
     params.set('sysparm_count', 'true');
     if (queryStr) params.set('sysparm_query', queryStr);
     const endpoint = `${this.baseURL}/api/now/stats/${table}?${params.toString()}`;
-    const result = await this.request(endpoint, { method: 'GET' });
+    const result = await this.request(endpoint, {
+      method: 'GET',
+      ...(options.timeout ? { timeout: options.timeout } : {}),
+    });
     const stats = result?.result?.stats;
     if (!stats) return 0;
 
