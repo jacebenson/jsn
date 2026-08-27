@@ -186,7 +186,7 @@ export async function readBrowserSessionInput() {
  */
 export async function loginWizard(app, argv = {}) {
   const readline = (await import('node:readline')).default;
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  let rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
 
   console.log('Welcome to JSN - ServiceNow CLI');
@@ -259,6 +259,11 @@ export async function loginWizard(app, argv = {}) {
   // so a piped/scripted call never blocks on prompts.
   const { canPrompt } = await import('../helpers.js');
   if (canPrompt()) {
+    // @inquirer/prompts owns stdin while these confirmations run. Close the
+    // older readline interface before handing stdin to Inquirer. This matters
+    // on Windows Git Bash: leaving both readers attached can make the later
+    // OAuth question see EOF and let Node exit instead of waiting for input.
+    rl.close();
     const { confirm } = await import('@inquirer/prompts');
     profile.read_only = await confirm({ message: 'Read-only profile (blocks mutation commands)?', default: profile.read_only || false });
     profile.skip_confirmations = await confirm({ message: 'Skip confirmations (deletes run without prompting)?', default: profile.skip_confirmations || false });
@@ -269,6 +274,9 @@ export async function loginWizard(app, argv = {}) {
   await saveConfig(app.config);
 
   if (!useBasic && !useGck) {
+    // Recreate readline after Inquirer has released stdin. Do not reuse the
+    // interface that was open before the confirmation prompts.
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const loginNow = await ask('Login now? [Y/n]: ');
     rl.close();
     if (!loginNow || loginNow.toLowerCase() !== 'n') {
