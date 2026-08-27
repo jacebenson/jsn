@@ -460,6 +460,40 @@ export class SDKClient {
     return inspection;
   }
 
+  /**
+   * Resolve a custom action and return its internal step instances.
+   * The action reference on sys_hub_step_instance points at the shared
+   * Action Type Base, so the action definition sys_id is the query value.
+   *
+   * @param {string} identifier - action name or sys_id
+   * @returns {Promise<{action: object, steps: object[]}|null>}
+   */
+  async inspectCustomAction(identifier) {
+    if (!identifier) return null;
+    const isSysID = /^[0-9a-fA-F]{32}$/.test(String(identifier));
+    const actionQuery = new URLSearchParams();
+    actionQuery.set('sysparm_display_value', 'all');
+    actionQuery.set('sysparm_limit', '1');
+    actionQuery.set('sysparm_query', isSysID ? `sys_id=${identifier}` : `name=${identifier}`);
+    actionQuery.set('sysparm_fields', 'sys_id,name,master_snapshot,latest_snapshot,state,active');
+
+    const actions = await this.list('sys_hub_action_type_definition', actionQuery);
+    if (!actions || actions.length === 0) return null;
+
+    const action = actions[0];
+    const actionSysID = getStringField(action, 'sys_id');
+    if (!actionSysID) return null;
+
+    const stepQuery = new URLSearchParams();
+    stepQuery.set('sysparm_display_value', 'all');
+    stepQuery.set('sysparm_query', `action=${actionSysID}^ORDERBYorder`);
+    stepQuery.set('sysparm_fields', 'sys_id,label,action,step_type,order,section,inputs,outputs,extended_inputs,extended_outputs,error_handling_type');
+    stepQuery.set('sysparm_limit', '200');
+    const steps = await this.list('sys_hub_step_instance', stepQuery);
+
+    return { action, steps: steps || [] };
+  }
+
   async aggregateCount(table, queryStr) {
     const params = new URLSearchParams();
     params.set('sysparm_count', 'true');

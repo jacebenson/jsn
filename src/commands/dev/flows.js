@@ -708,8 +708,64 @@ async function formatStepLine(stepNum, pad, step, ctx) {
     case 'subflow':
       return formatSubFlowStep(stepNum, pad, step.data, ctx);
     default:
-      return formatActionStep(stepNum, pad, step.data, ctx);
+      return formatActionStepWithChildren(stepNum, pad, step.data, ctx);
   }
+}
+
+async function formatActionStepWithChildren(stepNum, pad, action, ctx) {
+  const lines = formatActionStep(stepNum, pad, action, ctx);
+  const depth = ctx?.depth ?? 1;
+  if (!ctx?.sdk?.inspectCustomAction || depth <= 1) return lines;
+
+  const actionName = getActionName(action);
+  if (!actionName) return lines;
+
+  if (!ctx.customActionCache) ctx.customActionCache = new Map();
+  if (!ctx.customActionCache.has(actionName)) {
+    ctx.customActionCache.set(actionName, ctx.sdk.inspectCustomAction(actionName).catch(() => null));
+  }
+  const details = await ctx.customActionCache.get(actionName);
+  const steps = details?.steps;
+  if (!Array.isArray(steps) || steps.length === 0 || !hasUsefulActionSteps(actionName, steps)) return lines;
+
+  lines.push(`${pad}   ↳ Internal action steps`);
+  const ordered = [...steps].sort((a, b) => parseOrderField(a) - parseOrderField(b));
+  ordered.forEach((step, index) => {
+    const label = firstNonEmpty(getStringField(step, 'label'), getStringField(step, 'name'), 'Action step');
+    const type = getNestedString(step, 'step_type', 'display_value') || getStringField(step, 'step_type');
+    const suffix = type ? ` - ${type}` : '';
+    lines.push(`${pad}      Step ${index + 1}: ${label}${suffix}`);
+    appendStepValues(lines, pad + '         ', step, ctx);
+  });
+  return lines;
+}
+
+function hasUsefulActionSteps(actionName, steps) {
+  if (steps.length !== 1) return true;
+  const step = steps[0];
+  const label = firstNonEmpty(getStringField(step, 'label'), getStringField(step, 'name'))
+    .replace(/\s+step$/i, '').trim().toLowerCase();
+  return label !== actionName.trim().toLowerCase();
+}
+
+function appendStepValues(lines, pad, step, ctx) {
+  for (const field of ['inputs', 'outputs', 'extended_inputs', 'extended_outputs']) {
+    const value = getStringField(step, field);
+    if (!value) continue;
+    const resolved = resolveGuidPills(value, ctx?.labelCache);
+    for (const part of resolved.split('^')) {
+      if (part) lines.push(`${pad}${field}: ${part}`);
+    }
+  }
+}
+
+function getActionName(action) {
+  return firstNonEmpty(
+    getNestedString(action, 'actionType', 'fName'),
+    getStringField(action, 'actionName'),
+    getStringField(action, 'actionInternalName'),
+    getStringField(action, 'name'),
+  );
 }
 
 export function formatActionStep(stepNum, pad, action, ctx) {
@@ -758,7 +814,6 @@ export function formatActionStep(stepNum, pad, action, ctx) {
       if (inputName === 'table_name' && showsTableSuffix) continue;
 
       let inputValue = firstNonEmpty(getStringField(raw, 'displayValue'), getStringField(raw, 'value'));
-      if (!inputValue) continue;
 
       // Catalog variable selections arrive as "sys_id:table" pairs; resolve
       // them to readable names when we have a resolver map (built per flow).
@@ -772,6 +827,11 @@ export function formatActionStep(stepNum, pad, action, ctx) {
       let label = inputName;
       if (raw.parameter && typeof raw.parameter === 'object') {
         label = firstNonEmpty(getStringField(raw.parameter, 'label'), label);
+      }
+
+      if (!inputValue) {
+        lines.push(`${pad}    ${label}: (not set)`);
+        continue;
       }
 
       // ServiceNow writes multi-field payloads (encoded-query style) as

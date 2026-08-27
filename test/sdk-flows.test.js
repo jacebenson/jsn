@@ -417,3 +417,97 @@ test('formatActionStep resolves only guid pills, leaves readable step refs raw',
   assert.ok(joined.includes('1 - Get Catalog Variables➛track'), 'guid pill resolved');
   assert.ok(!joined.includes('a1190b0a-ec10-45db-96b0-38f329306ed3'), 'guid gone from resolved pill');
 });
+
+test('formatActionStep renders unset inputs instead of hiding them', async () => {
+  const { formatActionStep } = await import('../src/commands/dev/flows.js');
+  const lines = formatActionStep(1, '', {
+    actionType: { fName: 'Create Flow Data' },
+    inputs: [
+      { name: 'definition', displayValue: 'Update Record', parameter: { label: 'Definition' } },
+      { name: 'assigned_to', value: '', parameter: { label: 'Assigned To' } },
+      { name: 'wait', displayValue: 'No', parameter: { label: 'Wait for user input' } },
+      { name: 'assignment_group', value: '', parameter: { label: 'Assignment group' } },
+      { name: 'state', displayValue: 'In Progress', parameter: { label: 'State' } },
+    ],
+  });
+  assert.deepEqual(lines, [
+    '1. Create Flow Data',
+    '    Definition: Update Record',
+    '    Assigned To: (not set)',
+    '    Wait for user input: No',
+    '    Assignment group: (not set)',
+    '    State: In Progress',
+  ]);
+});
+test('formatFlowInspection expands custom action steps as numbered recipes', async () => {
+  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
+  const inspection = {
+    flow: { name: 'Uses custom action', active: true, version: '2', type: 'Flow', sysID: 'flow-1' },
+    version: {},
+    payload: {
+      actionInstances: [{
+        actionType: { fName: 'Call controller' },
+        order: 1,
+      }],
+    },
+    triggerInstances: [],
+    actionInstances: [],
+    flowLogicInstances: [],
+    subFlowInstances: [],
+    flowInputs: [],
+    flowOutputs: [],
+    flowVariables: [],
+  };
+  const output = await formatFlowInspection(inspection, {
+    depth: 2,
+    visited: new Set(['flow-1']),
+    sdk: {
+      inspectCustomAction: async (name) => {
+        assert.equal(name, 'Call controller');
+        return { steps: [
+          { label: 'Call jace.pro/rest', step_type: { display_value: 'REST' }, order: 2 },
+          { label: 'Transform response', step_type: { display_value: 'Transform' }, order: 3 },
+          { label: 'Run cleanup script', step_type: { display_value: 'Script' }, order: 1 },
+        ] };
+      },
+    },
+  });
+  assert.match(output, /Step 1: Run cleanup script - Script/);
+  assert.match(output, /Step 2: Call jace\.pro\/rest - REST/);
+  assert.match(output, /Step 3: Transform response - Transform/);
+  assert.match(output, /Internal action steps/);
+});
+
+test('formatFlowInspection hides redundant built-in action internals', async () => {
+  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
+  const output = await formatFlowInspection({
+    flow: { name: 'Built-in flow', active: true, type: 'Flow', sysID: 'flow-3' },
+    version: {}, payload: { actionInstances: [{ actionType: { fName: 'Update Record' }, order: 1 }] },
+    triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [],
+    flowInputs: [], flowOutputs: [], flowVariables: [],
+  }, {
+    depth: 2,
+    visited: new Set(['flow-3']),
+    sdk: { inspectCustomAction: async () => ({ steps: [
+      { label: 'Update Record step', step_type: { display_value: 'Update Record' }, order: 1 },
+    ] }) },
+  });
+  assert.doesNotMatch(output, /Internal action steps/);
+});
+
+test('formatFlowInspection does not fetch custom action steps at depth 1', async () => {
+  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
+  let called = false;
+  const output = await formatFlowInspection({
+    flow: { name: 'Shallow flow', active: true, type: 'Flow', sysID: 'flow-2' },
+    version: {}, payload: { actionInstances: [{ actionType: { fName: 'Hidden details' }, order: 1 }] },
+    triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [],
+    flowInputs: [], flowOutputs: [], flowVariables: [],
+  }, {
+    depth: 1,
+    visited: new Set(['flow-2']),
+    sdk: { inspectCustomAction: async () => { called = true; return { steps: [] }; } },
+  });
+  assert.equal(called, false);
+  assert.doesNotMatch(output, /CUSTOM ACTION STEPS/);
+});
