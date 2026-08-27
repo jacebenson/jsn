@@ -271,6 +271,25 @@ function askHidden(promptText) {
   return passwordPrompt({ message: promptText });
 }
 
+/**
+ * Extract the browser session token and cookies from pasted DevTools headers
+ * or a "Copy as cURL" command. Only these two values are retained.
+ */
+export function parseBrowserSessionInput(input) {
+  const text = String(input || '');
+  const tokenMatch = text.match(/(?:x-usertoken|x-user-token)\s*:\s*([^\s'";,]+)/i);
+  const cookieArgMatch = text.match(/(?:^|\s)(?:-b|--cookie)\s+(['"])(.*?)\1/s);
+  const quotedCookieMatch = text.match(/cookie\s*:\s*(['"])(.*?)\1/i);
+  const plainCookieMatch = text.match(/cookie\s*:\s*([^\r\n]+)/i);
+  const token = tokenMatch?.[1]?.trim() || '';
+  const cookies = (cookieArgMatch?.[2] || quotedCookieMatch?.[2] || plainCookieMatch?.[1] || '')
+    .trim()
+    .replace(/['"`]\s*(?:\\\s*)?$/, '');
+  if (!token) throw errAuth('No X-UserToken header found');
+  if (!cookies) throw errAuth('No Cookie header found. Paste the complete request headers or cURL command.');
+  return { auth_method: 'gck', access_token: token, cookies, auth_source: 'gck' };
+}
+
 export class AuthManager {
   /**
    * @param {object} identity — the resolved-identity provider. Production
@@ -368,6 +387,9 @@ export class AuthManager {
     if (!creds) return false;
     if (creds.auth_method === 'basic') {
       return Boolean(creds.username && creds.password);
+    }
+    if (creds.auth_method === 'gck') {
+      return Boolean(creds.access_token && creds.cookies);
     }
     if (creds.expires_at && Date.now() >= creds.expires_at * 1000) return false;
     return !!creds.access_token;
@@ -510,6 +532,13 @@ export class AuthManager {
    * Complete login using an authorization code obtained from a prior buildAuthURL() call.
    * The PKCE state must have been saved by an earlier buildAuthURL() call.
    */
+  async loginWithGck(instanceURL, input, username = this._activeUsername()) {
+    instanceURL = normalizeInstanceURL(instanceURL);
+    const creds = parseBrowserSessionInput(input);
+    saveCredentials(instanceURL, { ...creds, username: username || undefined }, username || undefined);
+    return { ...creds, username: username || undefined };
+  }
+
   async loginWithCode(instanceURL, code) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const clientID = getOAuthClientID();

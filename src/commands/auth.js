@@ -94,6 +94,13 @@ export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '') {
   );
 }
 
+export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '') {
+  if (argv.gck || argv.headers) return true;
+  return Object.values(cfg.profiles || {}).some(profile =>
+    profile.instance_url === instanceURL && profile.auth_method === 'gck'
+  );
+}
+
 /**
  * Pick a profile by name — interactive search picker when ambiguous,
  * auto-selects when there's exactly one, throws when none configured.
@@ -127,6 +134,46 @@ export function resolveWizardInstance(app, argv = {}) {
   // belongs to the existing connection and must not silently become the new
   // instance when setup is adding a profile.
   return process.env.SERVICENOW_INSTANCE_URL || app._overrideInstance || argv.instance || '';
+}
+
+export async function readBrowserSessionInput() {
+  const stdin = process.stdin;
+  console.log('Paste the complete cURL command, then press Ctrl+D:');
+  if (!stdin.isTTY || typeof stdin.setRawMode !== 'function') {
+    const chunks = [];
+    for await (const chunk of stdin) chunks.push(chunk);
+    return Buffer.concat(chunks).toString();
+  }
+
+  return new Promise((resolve, reject) => {
+    let pasted = '';
+    const finish = () => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener('data', onData);
+      stdin.removeListener('error', onError);
+      process.stdout.write('\n');
+    };
+    const onError = (err) => { finish(); reject(err); };
+    const onData = (chunk) => {
+      const text = chunk.toString();
+      const eof = text.indexOf('\x04');
+      if (eof !== -1) {
+        pasted += text.slice(0, eof);
+        finish();
+        resolve(pasted);
+      } else if (text.includes('\x03')) {
+        finish();
+        reject(new Error('Browser session input cancelled'));
+      } else {
+        pasted += text;
+      }
+    };
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on('data', onData);
+    stdin.on('error', onError);
+  });
 }
 
 /**
@@ -174,8 +221,9 @@ export async function loginWizard(app, argv = {}) {
     profile.skip_confirmations = true;
   }
 
-  const authMethod = await ask('Authentication method (OAuth/Basic) [OAuth]: ');
-  const useBasic = authMethod.toLowerCase().startsWith('b');
+  const authMethod = await ask('Authentication method (OAuth/Basic/Browser session) [OAuth]: ');
+  const useGck = authMethod.toLowerCase().startsWith('g') || authMethod.toLowerCase().startsWith('browser');
+  const useBasic = !useGck && authMethod.toLowerCase().startsWith('b');
 
   let loggedIn = false;
   if (useBasic) {
@@ -192,6 +240,12 @@ export async function loginWizard(app, argv = {}) {
     }
     profile.username = username;
     profile.auth_method = 'basic';
+  } else if (useGck) {
+    rl.close();
+    const input = await readBrowserSessionInput();
+    await app.auth.loginWithGck(instance, input);
+    profile.auth_method = 'gck';
+    loggedIn = true;
   } else {
     profile.auth_method = 'oauth';
   }
@@ -214,7 +268,7 @@ export async function loginWizard(app, argv = {}) {
 
   await saveConfig(app.config);
 
-  if (!useBasic) {
+  if (!useBasic && !useGck) {
     const loginNow = await ask('Login now? [Y/n]: ');
     rl.close();
     if (!loginNow || loginNow.toLowerCase() !== 'n') {
