@@ -64,6 +64,21 @@ describe('Aggregate API', () => {
     assert.deepStrictEqual(result.groups.map(g => g.stats.count), ['3', '2']);
   });
 
+  it('passes a per-call timeout through aggregateCount', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://dev.example.service-now.com', {});
+    let call;
+    client.request = async (endpoint, options) => {
+      call = { endpoint, options };
+      return { result: { stats: { count: '42' } } };
+    };
+
+    const result = await client.aggregateCount('task', '', { timeout: 120000 });
+
+    assert.strictEqual(result, 42);
+    assert.strictEqual(call.options.timeout, 120000);
+  });
+
   it('exposes records aggregate as a grouped command', async () => {
     const { recordsCmd } = await import('../src/commands/records.js');
     const cmd = recordsCmd((fn) => fn);
