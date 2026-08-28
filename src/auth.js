@@ -519,6 +519,17 @@ export class AuthManager {
     if (method !== 'gck' && method !== 'oauth' && getBasicAuthFromEnv(instance)) return 'env_basic';
     const creds = this.credentialStore.load(instance, options.username ?? this._activeUsername());
     if (!creds) return null;
+    // A configured method is authoritative at this public boundary. Stored
+    // metadata from another method must not be reported as usable source.
+    if (method !== 'unconfigured') {
+      const storedMethod = normalizeAuthMethod(creds.auth_method, '');
+      if (creds.auth_method != null && (!storedMethod || storedMethod !== method)) return 'unavailable';
+      const source = normalizeAuthSource(creds.auth_source, '');
+      if (!source) return 'unavailable';
+      const sourceMethod = { env_token: 'oauth', env_basic: 'basic', gck: 'gck' }[source];
+      if (sourceMethod && sourceMethod !== method) return 'unavailable';
+      return source;
+    }
     // New creds have auth_source; older ones only have auth_method
     const source = normalizeAuthSource(creds.auth_source, '');
     if (source) return source;

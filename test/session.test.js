@@ -93,13 +93,19 @@ describe('resolveSession — precedence matrix', () => {
     assert.strictEqual(cfg.activeProfile, 'dev');
   });
 
-  it('--instance beats --profile beats active profile', () => {
+  it('rejects conflicting explicit --instance and --profile selectors', () => {
+    assert.throws(
+      () => resolveSession({ instance: 'https://override.service-now.com', profile: 'prod' }, twoProfileCfg()),
+      /--instance.*--profile|--profile.*--instance/
+    );
+  });
+
+  it('accepts explicit --instance and --profile when they identify the same instance', () => {
     const cfg = twoProfileCfg();
-    const s = resolveSession({ instance: 'https://override.service-now.com', profile: 'prod' }, cfg);
-    assert.strictEqual(s.instance, 'https://override.service-now.com');
-    // The profile still resolves (flags/domain track the referenced profile)
+    const s = resolveSession({ instance: PROD + '/', profile: 'prod' }, cfg);
+    assert.strictEqual(s.instance, PROD);
     assert.strictEqual(s.profileName, 'prod');
-    assert.strictEqual(s.override, 'https://override.service-now.com');
+    assert.strictEqual(s.override, PROD);
   });
 
   it('--instance normalizes bare hosts (adds https://, strips trailing slash)', () => {

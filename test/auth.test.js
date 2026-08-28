@@ -1136,6 +1136,38 @@ describe('AuthManager authenticated probe seam', () => {
   });
 });
 
+describe('AuthManager configured auth source precedence', () => {
+  it('does not report stored OAuth source when basic is explicitly configured', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://configured-basic.example.com',
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'oauth', auth_source: 'file', access_token: 'token' }),
+      save: () => {},
+      delete: () => {},
+    } });
+
+    assert.strictEqual(auth.getAuthSource('https://configured-basic.example.com'), 'unavailable');
+  });
+
+  it('reports a stored source only when it matches the configured method', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://configured-basic.example.com',
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'basic', auth_source: 'file', username: 'alice', password: 'secret' }),
+      save: () => {},
+      delete: () => {},
+    } });
+
+    assert.strictEqual(auth.getAuthSource('https://configured-basic.example.com'), 'file');
+  });
+});
+
 describe('AuthManager safe auth state seam', () => {
   let previousXdgConfigHome;
   let isolatedXdgConfigHome;
@@ -1986,7 +2018,17 @@ describe('OAuth URL', () => {
   it('should build a complete OAuth authorization URL', async () => {
     const { AuthManager } = await import('../src/auth.js');
     const auth = new AuthManager({ config: {} });
-    const url = auth.buildAuthURL('https://dev12345.service-now.com');
+    const originalXdg = process.env.XDG_CONFIG_HOME;
+    const tempConfigHome = mkdtempSync(path.join(tmpdir(), 'jsn-auth-pkce-'));
+    process.env.XDG_CONFIG_HOME = tempConfigHome;
+    let url;
+    try {
+      url = auth.buildAuthURL('https://dev12345.service-now.com');
+    } finally {
+      if (originalXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdg;
+      rmSync(tempConfigHome, { recursive: true, force: true });
+    }
 
     assert.ok(url.startsWith('https://dev12345.service-now.com/oauth_auth.do?'));
     assert.ok(url.includes('response_type=code'));

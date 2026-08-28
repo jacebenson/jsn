@@ -25,6 +25,9 @@
 //   --instance flag > --profile reference > active profile >
 //   default profile > legacy bare instanceURL
 //
+// When both explicit selectors are supplied, they must resolve to the same
+// normalized instance; otherwise the command fails with a usage error.
+//
 // Deliberately NOT here: env var loading (loadConfig already folds
 // SERVICENOW_INSTANCE_URL into cfg.instanceURL before the resolver runs)
 // and credential storage I/O (auth.js owns the keyring/file stores).
@@ -75,6 +78,17 @@ export function resolveSession(argv = {}, config) {
   }
 
   const profile = profileName ? profiles[profileName] : null;
+
+  // Explicit selectors must identify the same target. Without this guard,
+  // --profile supplies the credentials while --instance silently points the
+  // SDK at another identity's instance.
+  if (argv.instance && argv.profile && profile?.instance_url) {
+    const flagInstance = normalizeInstanceURL(argv.instance);
+    const profileInstance = normalizeInstanceURL(profile.instance_url);
+    if (flagInstance !== profileInstance) {
+      throw errUsage(`Conflicting selectors: --profile "${argv.profile}" targets ${profileInstance}, but --instance targets ${flagInstance}.`);
+    }
+  }
 
   // Instance: --instance flag > profile reference > active/default
   // profile > legacy bare instanceURL. The override is normalized here so
