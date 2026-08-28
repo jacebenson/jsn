@@ -348,6 +348,77 @@ describe('auth login method selection', () => {
   });
 });
 
+describe('AuthManager credential store boundary', () => {
+  it('uses the injected store for basic and browser-session login operations', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const calls = [];
+    const credentialStore = {
+      load(instance, username) {
+        calls.push(['load', instance, username]);
+        return { auth_method: 'basic', username: 'admin', password: 'secret' };
+      },
+      save(instance, credentials, username) {
+        calls.push(['save', instance, credentials, username]);
+      },
+      delete() {},
+    };
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://injected.example.com',
+    }, { credentialStore });
+
+    await auth.loginWithPassword('https://injected.example.com', 'admin');
+    assert.deepStrictEqual(calls.map(([operation, instance, , username]) => [operation, instance, username]), [
+      ['load', 'https://injected.example.com', undefined],
+      ['save', 'https://injected.example.com', 'admin'],
+    ]);
+
+    calls.length = 0;
+    const gckAuth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://injected.example.com',
+    }, { credentialStore: {
+      load: () => null,
+      save(instance, credentials, username) {
+        calls.push(['save', instance, credentials, username]);
+      },
+      delete() {},
+    } });
+    await gckAuth.loginWithGck(
+      'https://injected.example.com',
+      'curl -H "X-UserToken: token" -H "Cookie: JSESSIONID=cookie"'
+    );
+    assert.strictEqual(calls[0][0], 'save');
+    assert.strictEqual(calls[0][1], 'https://injected.example.com');
+  });
+
+  it('exposes credential operations through AuthManager for command boundaries', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const calls = [];
+    const credentialStore = {
+      load: (...args) => { calls.push(['load', ...args]); return 'credentials'; },
+      save: (...args) => { calls.push(['save', ...args]); return 'saved'; },
+      delete: (...args) => { calls.push(['delete', ...args]); return 'deleted'; },
+    };
+    const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => '' }, { credentialStore });
+    assert.strictEqual(auth.loadCredentials('instance', 'user'), 'credentials');
+    assert.strictEqual(auth.saveCredentials('instance', { token: true }, 'user'), 'saved');
+    assert.strictEqual(auth.deleteCredentials('instance', 'user'), 'deleted');
+    assert.deepStrictEqual(calls.map(([operation, ...args]) => [operation, ...args]), [
+      ['load', 'instance', 'user'],
+      ['save', 'instance', { token: true }, 'user'],
+      ['delete', 'instance', 'user'],
+    ]);
+  });
+
+  it('keeps setup credential paths on the AuthManager boundary', async () => {
+    const source = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('../src/commands/auth.js', import.meta.url), 'utf8'));
+    assert.doesNotMatch(source, /(?<!\.)\b(loadCredentials|saveCredentials|deleteCredentials)\(/);
+    assert.match(source, /app\.auth\.loadCredentials\(/);
+    assert.match(source, /app\.auth\.saveCredentials\(/);
+  });
+});
+
 describe('AuthManager safe auth state seam', () => {
   let previousXdgConfigHome;
   let isolatedXdgConfigHome;

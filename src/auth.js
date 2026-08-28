@@ -389,8 +389,20 @@ export class AuthManager {
     return this.identity.getUsername() || null;
   }
 
+  loadCredentials(instance, username) {
+    return this.credentialStore.load(instance, username);
+  }
+
+  saveCredentials(instance, credentials, username) {
+    return this.credentialStore.save(instance, credentials, username);
+  }
+
+  deleteCredentials(instance, username) {
+    return this.credentialStore.delete(instance, username);
+  }
+
   getLastSeen(instance) {
-    const creds = this.credentialStore.load(instance, this._activeUsername());
+    const creds = this.loadCredentials(instance, this._activeUsername());
     return creds?.last_seen || null;
   }
 
@@ -583,7 +595,7 @@ export class AuthManager {
     console.log('\nExchanging authorization code for tokens...');
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
     // Save with username for per-user credential keying
-    saveCredentials(instanceURL, newCreds, newCreds.username);
+    this.saveCredentials(instanceURL, newCreds, newCreds.username);
     return newCreds;
   }
 
@@ -620,7 +632,7 @@ export class AuthManager {
           console.log(`\nAuthorization code found in ${filePath}`);
           removePKCEState(instanceURL);
           const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-          saveCredentials(instanceURL, newCreds, newCreds.username);
+          this.saveCredentials(instanceURL, newCreds, newCreds.username);
           console.log('Token exchange successful!\n');
           return newCreds;
         }
@@ -640,7 +652,7 @@ export class AuthManager {
   async loginWithPassword(instanceURL, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const envCreds = getBasicAuthFromEnv(instanceURL);
-    const storedCreds = loadCredentials(instanceURL, username);
+    const storedCreds = this.loadCredentials(instanceURL, username);
     const creds = envCreds || storedCreds;
     if (!creds || creds.auth_method !== 'basic' || !creds.username || !creds.password) {
       throw errAuth(
@@ -652,7 +664,7 @@ export class AuthManager {
         `  jsn auth login --basic ${instanceURL}`
       );
     }
-    saveCredentials(instanceURL, creds, creds.username);
+    this.saveCredentials(instanceURL, creds, creds.username);
     console.log(`✓ Basic auth credentials saved for ${instanceURL}`);
     return creds;
   }
@@ -664,7 +676,7 @@ export class AuthManager {
   async loginWithGck(instanceURL, input, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const creds = parseBrowserSessionInput(input);
-    saveCredentials(instanceURL, { ...creds, username: username || undefined }, username || undefined);
+    this.saveCredentials(instanceURL, { ...creds, username: username || undefined }, username || undefined);
     return { ...creds, username: username || undefined };
   }
 
@@ -684,7 +696,7 @@ export class AuthManager {
     removePKCEState(instanceURL);
 
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-    saveCredentials(instanceURL, newCreds, newCreds.username);
+    this.saveCredentials(instanceURL, newCreds, newCreds.username);
     return newCreds;
   }
 

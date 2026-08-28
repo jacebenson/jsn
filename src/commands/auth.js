@@ -229,13 +229,13 @@ export async function loginWizard(app, argv = {}) {
   if (useBasic) {
     const username = await ask('Username: ');
     rl.close(); // Close outer readline before askHidden creates its own
-    const { loadCredentials, askHidden, saveCredentials } = await import('../auth.js');
-    const existingCreds = loadCredentials(instance) || loadCredentials(instance, username);
+    const { askHidden } = await import('../auth.js');
+    const existingCreds = app.auth.loadCredentials(instance) || app.auth.loadCredentials(instance, username);
     if (existingCreds && existingCreds.auth_method === 'basic') {
       console.log(`Using existing credentials for ${instance}`);
     } else {
       const password = await askHidden('Password: ');
-      saveCredentials(instance, { auth_method: 'basic', username, password }, username);
+      app.auth.saveCredentials(instance, { auth_method: 'basic', username, password }, username);
       console.log('Basic auth credentials saved');
     }
     profile.username = username;
@@ -287,12 +287,7 @@ export async function loginWizard(app, argv = {}) {
         const sdk = new SDKClient(instance, app.auth);
         const user = await sdk.getCurrentUser();
         if (user && user.user_name) {
-          const { loadCredentials, saveCredentials } = await import('../auth.js');
-          const stored = loadCredentials(instance);
-          if (stored && stored.access_token) {
-            stored.username = user.user_name;
-            saveCredentials(instance, stored, user.user_name);
-          }
+          app.auth.migrateLegacyCredential(instance, user.user_name);
           profile.username = user.user_name;
         }
       } catch {
