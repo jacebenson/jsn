@@ -511,3 +511,23 @@ test('formatFlowInspection does not fetch custom action steps at depth 1', async
   assert.equal(called, false);
   assert.doesNotMatch(output, /CUSTOM ACTION STEPS/);
 });
+
+test('inspectFlow is the deep public seam for remote inspection and rendering', async () => {
+  const { inspectFlow } = await import('../src/flow-inspection.js');
+  const calls = [];
+  const adapter = {
+    inspectFlow: async (identifier) => {
+      calls.push(identifier);
+      return {
+        flow: { name: identifier, active: true, type: 'Flow', sysID: identifier },
+        version: {}, payload: {}, triggerInstances: [], actionInstances: [],
+        flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [],
+      };
+    },
+    inspectCustomAction: async () => ({ steps: [] }),
+  };
+  const result = await inspectFlow({ adapter, identifier: 'flow-1', instanceURL: 'https://example.service-now.com', depth: 0 });
+  assert.deepEqual(calls, ['flow-1']);
+  assert.equal(result.flow.name, 'flow-1');
+  assert.match(result._formatted, /https:\/\/example\.service-now\.com\/sys_hub_flow\.do\?sys_id=flow-1/);
+});

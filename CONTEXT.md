@@ -103,6 +103,15 @@ knowledge lives here. `docs.js` command handlers stay thin: argv → options →
 `app.ok`; they call data-layer functions (`searchDocs`, `getDocsIndexStats`,
 `getDocByIdOrPath`) rather than running SQL.
 
+## Flow inspection
+
+`src/flow-inspection.js` is the single deep module for `flows show` and the
+interactive flow picker. `inspectFlow({ adapter, identifier, instanceURL,
+depth })` delegates remote flow/custom-action inspection through the narrow
+adapter, then owns depth normalization, recursive subflow traversal, custom
+action expansion, caches, cycle handling, nested failures, and `_formatted`
+rendering. `src/commands/dev/flows.js` only adapts yargs/App output to this seam.
+
 ## Flow execution
 
 `src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.
