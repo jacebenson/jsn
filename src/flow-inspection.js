@@ -1,13 +1,5 @@
 import { getStringField } from './helpers.js';
-
-const catalogResolvers = new WeakMap();
-
-// Internal-only enrichment seam: callers still expose exactly two adapter
-// methods; the command supplies the SDK's generic table reader here.
-export function attachCatalogResolver(adapter, resolver) {
-  if (adapter && typeof resolver === 'function') catalogResolvers.set(adapter, resolver);
-  return adapter;
-}
+import { catalogResolver } from './flow-inspection-internals.js';
 
 /**
  * Inspect a flow through the narrow remote adapter and render its deep view.
@@ -25,6 +17,7 @@ export async function inspectFlow({ adapter, identifier, instanceURL = '', depth
     instanceURL,
     depth: normalizedDepth,
     visited: new Set([inspection.flow?.sysID]),
+    catalogLookupCache: new Map(),
   };
   const formatted = await formatFlowInspection(inspection, ctx);
   return { ...inspection, _formatted: formatted };
@@ -32,7 +25,7 @@ export async function inspectFlow({ adapter, identifier, instanceURL = '', depth
 
 function normalizeInspection(value) {
   const inspection = value && typeof value === 'object' ? value : {};
-  return {
+  const normalized = {
     ...inspection,
     flow: inspection.flow && typeof inspection.flow === 'object' ? inspection.flow : {},
     payload: inspection.payload && typeof inspection.payload === 'object' && !Array.isArray(inspection.payload) ? inspection.payload : {},
@@ -45,6 +38,10 @@ function normalizeInspection(value) {
     flowOutputs: Array.isArray(inspection.flowOutputs) ? inspection.flowOutputs : [],
     flowVariables: Array.isArray(inspection.flowVariables) ? inspection.flowVariables : [],
   };
+  if (typeof inspection[catalogResolver] === 'function') {
+    Object.defineProperty(normalized, catalogResolver, { value: inspection[catalogResolver] });
+  }
+  return normalized;
 }
 
 async function formatFlowInspection(inspection, ctx) {
@@ -209,7 +206,7 @@ function inferFlowVersion(inspection) {
   return 'Unset';
 }
 
-async function collectCatalogVarNames(list, inspection) {
+async function collectCatalogVarNames(list, inspection, ctx) {
   const names = new Map();
   const refs = new Map();
   const tokenRe = /([0-9a-f]{32}):([a-z_]+)/g;
@@ -242,27 +239,29 @@ async function collectCatalogVarNames(list, inspection) {
   walk(inspection.actionInstances);
   for (const logic of inspection.flowLogicInstances) addInputs(logic?._decodedValues?.inputs);
   for (const [table, ids] of refs) {
-    for (let i = 0, listIds = [...ids]; i < listIds.length; i += 100) {
-      const chunk = listIds.slice(i, i + 100);
-      const params = new URLSearchParams({ sysparm_query: `sys_idIN${chunk.join(',')}`, sysparm_fields: 'sys_id,name,question_text', sysparm_display_value: 'all', sysparm_limit: String(chunk.length) });
-      try {
-        const records = await list(table, params);
-        for (const record of records || []) {
-          const id = getStringField(record, 'sys_id');
-          const label = firstNonEmpty(getStringField(record, 'question_text'), getStringField(record, 'name'));
-          if (id && label) names.set(id, label);
-        }
-      } catch { /* optional enrichment */ }
+    const pending = [];
+    for (const id of ids) {
+      const key = `${table}:${id}`;
+      if (!ctx.catalogLookupCache.has(key)) {
+        const request = Promise.resolve().then(() => list(table, id)).catch(() => []);
+        ctx.catalogLookupCache.set(key, request);
+      }
+      pending.push([id, ctx.catalogLookupCache.get(key)]);
+    }
+    for (const [id, request] of pending) {
+      const records = await request;
+      const record = records?.[0];
+      const label = record && firstNonEmpty(getStringField(record, 'question_text'), getStringField(record, 'name'));
+      if (label) names.set(id, label);
     }
   }
   return names;
 }
 
 async function formatFlowStructure(inspection, ctx) {
-  let supplied = inspection.catalogVarNames;
-  if (!supplied && catalogResolvers.has(ctx?.adapter)) {
-    supplied = await collectCatalogVarNames(catalogResolvers.get(ctx.adapter), inspection);
-  }
+  const supplied = typeof inspection[catalogResolver] === 'function'
+    ? await collectCatalogVarNames(inspection[catalogResolver], inspection, ctx)
+    : null;
   const names = supplied instanceof Map
     ? supplied
     : new Map(Object.entries(supplied || {}));
@@ -710,7 +709,7 @@ async function formatSubFlowStep(stepNum, pad, subFlow, ctx) {
 
   ctx.visited.add(subflowSysId);
   try {
-    const subInspection = await ctx.sdk.inspectFlow(subflowSysId);
+    const subInspection = normalizeInspection(await ctx.sdk.inspectFlow(subflowSysId));
     const subCtx = { ...ctx, depth: depth - 1 };
     const subLines = await formatFlowStructure(subInspection, subCtx);
     if (subLines.length === 0) {

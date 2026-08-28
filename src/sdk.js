@@ -3,6 +3,7 @@
 import { gunzipSync } from 'node:zlib';
 import { errAuth, errAPI, errNetwork } from './errors.js';
 import { getStringField } from './helpers.js';
+import { catalogResolver } from './flow-inspection-internals.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -322,6 +323,13 @@ export class SDKClient {
       flowOutputs: [],
       flowVariables: [],
     };
+    Object.defineProperty(inspection, catalogResolver, {
+      value: async (table, id) => {
+        const params = new URLSearchParams({ sysparm_query: `sys_id=${id}`, sysparm_fields: 'sys_id,name,question_text', sysparm_display_value: 'all', sysparm_limit: '1' });
+        return this.list(table, params);
+      },
+      enumerable: false,
+    });
 
     // 2) Prefer the ProcessFlow API — the Flow Designer UI's own source.
     //    Returns complete structure for both V2 and legacy V1 flows (the

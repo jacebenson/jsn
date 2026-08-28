@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import { decodeGzipJson, hydrateFlowBlocks } from '../src/sdk.js';
 import { normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../src/flow-context.js';
+import { catalogResolver } from '../src/flow-inspection-internals.js';
 
 test('normalizeFlowContext maps runtime timestamps and derives duration', () => {
   const result = normalizeFlowContext({
@@ -165,12 +166,16 @@ const baseFlow = (name, payload = {}) => ({
   subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [],
 });
 
-async function inspectPublic(inspection, { depth = 2, nested = new Map(), customAction, catalogVarNames } = {}) {
+async function inspectPublic(inspection, { depth = 2, nested = new Map(), customAction, catalogResolverFn } = {}) {
   const calls = [];
   const adapter = {
     inspectFlow: async (identifier) => {
       calls.push(identifier);
-      if (identifier === inspection.flow.sysID) return { ...inspection, catalogVarNames };
+      if (identifier === inspection.flow.sysID) {
+        const result = { ...inspection };
+        if (catalogResolverFn) Object.defineProperty(result, catalogResolver, { value: catalogResolverFn });
+        return result;
+      }
       if (nested.has(identifier)) {
         const value = nested.get(identifier);
         if (value instanceof Error) throw value;
@@ -194,6 +199,13 @@ test('public inspection seam degrades nested subflow failures inline', async () 
   const parent = baseFlow('parent', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
   const { result } = await inspectPublic(parent, { nested: new Map([['child', new Error('permission denied')]]) });
   assert.match(result._formatted, /could not load subflow: permission denied/);
+});
+
+test('public seam degrades malformed nested inspection payloads through fallback', async () => {
+  const parent = baseFlow('parent', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
+  const { result } = await inspectPublic(parent, { nested: new Map([['child', null]]) });
+  assert.match(result._formatted, /↪ Child/);
+  assert.doesNotMatch(result._formatted, /could not load subflow/);
 });
 
 test('public inspection seam reuses custom-action results for repeated references', async () => {
@@ -220,7 +232,7 @@ test('public inspection seam observes depth-one hints and cycle prevention', asy
 test('public inspection seam consumes catalog labels supplied by the adapter result', async () => {
   const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
   const flow = baseFlow('catalog', { actionInstances: [{ order: 1, actionType: { fName: 'Get Catalog Variables' }, inputs: [{ name: 'catalog_variables', displayValue: `${id}:item_option_new`, parameter: { label: 'Catalog Variables' } }] }] });
-  const { result } = await inspectPublic(flow, { catalogVarNames: { [id]: 'Permission type' } });
+  const { result } = await inspectPublic(flow, { catalogResolverFn: async () => [{ sys_id: id, question_text: 'Permission type' }] });
   assert.match(result._formatted, /Permission type/);
   assert.doesNotMatch(result._formatted, /item_option_new/);
 });
@@ -263,7 +275,7 @@ test('public seam resolves catalog and GUID pills while preserving readable refs
     { name: 'fields', displayValue: `x={{${guid}.session_title}}^y={{Created_1.table_name}}` },
   ] }] });
   const { result } = await inspectPublic(flow, {
-    catalogVarNames: { [id]: 'Permission type' },
+    catalogResolverFn: async () => [{ sys_id: id, question_text: 'Permission type' }],
   });
   assert.match(result._formatted, /Permission type/);
   assert.doesNotMatch(result._formatted, /item_option_new/);
@@ -274,4 +286,30 @@ test('public seam suppresses built-in action internals', async () => {
   const flow = baseFlow('builtin', { actionInstances: [{ order: 1, actionType: { fName: 'Update Record' } }] });
   const { result } = await inspectPublic(flow, { customAction: async () => ({ steps: [{ label: 'Update Record step' }] }) });
   assert.doesNotMatch(result._formatted, /Internal action steps/);
+});
+
+test('public seam caches catalog lookups by table and id', async () => {
+  const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
+  let count = 0;
+  const flow = baseFlow('catalog-cache', { actionInstances: [
+    { order: 1, actionType: { fName: 'Get Catalog Variables' }, inputs: [{ name: 'catalog_variables', displayValue: `${id}:item_option_new` }] },
+    { order: 2, actionType: { fName: 'Get Catalog Variables' }, inputs: [{ name: 'catalog_variables', displayValue: `${id}:item_option_new` }] },
+  ] });
+  const adapter = {
+    inspectFlow: async () => {
+      const result = { ...flow };
+      Object.defineProperty(result, catalogResolver, { value: async () => { count++; return [{ sys_id: id, question_text: 'Permission type' }]; } });
+      return result;
+    },
+    inspectCustomAction: async () => null,
+  };
+  const { inspectFlow } = await import('../src/flow-inspection.js');
+  const result = await inspectFlow({ adapter, identifier: 'catalog-cache' });
+  assert.equal(count, 1);
+  assert.equal((result._formatted.match(/Permission type/g) || []).length, 2);
+});
+
+test('flow inspection exports only inspectFlow', async () => {
+  const module = await import('../src/flow-inspection.js');
+  assert.deepEqual(Object.keys(module), ['inspectFlow']);
 });
