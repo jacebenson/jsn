@@ -129,6 +129,81 @@ describe('Auth Command Handlers', () => {
     assert.strictEqual(app.config.profiles.browser.auth_method, 'gck');
   });
 
+  it('persists new basic logins under the returned username and keeps it on the profile', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = 'https://new-basic.example.com';
+    const records = new Map();
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: (url, username) => records.get(`${url}\\0${username || ''}`) || null,
+      save: (url, credentials, username) => records.set(`${url}\\0${username || ''}`, { ...credentials }),
+      delete: () => {},
+    } });
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: {} },
+      auth,
+      isInteractive: () => false,
+      getSDKForProfile: () => ({ getCurrentUser: async () => null }),
+      sdk: null,
+      ok: () => {},
+    };
+    const oldUser = process.env.SN_USERNAME;
+    const oldPassword = process.env.SN_PASSWORD;
+    process.env.SN_USERNAME = 'new-admin';
+    process.env.SN_PASSWORD = 'secret';
+    try {
+      const subcommands = [];
+      const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+      const mockYargs = { command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      } };
+      cmd.builder(mockYargs);
+      await subcommands.find(s => s.def.startsWith('login')).handler({
+        app, instance, basic: true, _: ['login'],
+      });
+      assert.strictEqual(records.get(`${instance}\\0new-admin`).username, 'new-admin');
+      const profile = Object.values(app.config.profiles)[0];
+      assert.strictEqual(profile.username, 'new-admin');
+    } finally {
+      if (oldUser === undefined) delete process.env.SN_USERNAME; else process.env.SN_USERNAME = oldUser;
+      if (oldPassword === undefined) delete process.env.SN_PASSWORD; else process.env.SN_PASSWORD = oldPassword;
+    }
+  });
+
+  it('explicit --profile targets that profile without invoking the interactive picker', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const instance = 'https://named-profile.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: {
+        named: { instance_url: instance, auth_method: 'oauth', username: 'alice' },
+        other: { instance_url: 'https://other-profile.example.com', auth_method: 'oauth' },
+      } },
+      isInteractive: () => true,
+      auth: { ...mockApp.auth, login: async (...args) => calls.push(args) },
+      getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'alice' }) }),
+      sdk: null,
+      ok: () => {},
+    };
+    const subcommands = [];
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def.startsWith('login')).handler({ app, profile: 'named', _: ['login'] });
+    assert.deepStrictEqual(calls[0], [instance, 'alice']);
+    assert.strictEqual(app.config.profiles.named.instance_url, instance);
+  });
+
   it('auth status should include structured diagnostics in the JSON envelope', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const { OutputWriter } = await import('../src/output.js');
@@ -305,6 +380,30 @@ describe('Auth Command Handlers', () => {
     await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', _: ['status'] });
     assert.strictEqual(output[0].default_instance, 'https://default.example.com');
     assert.strictEqual(output[0].profiles[0].default, false);
+  });
+
+  it('marks only the configured default profile when profiles share an instance URL', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const instance = 'https://shared-default.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, defaultProfile: 'first', profiles: {
+        first: { instance_url: instance, auth_method: 'oauth' },
+        second: { instance_url: instance, auth_method: 'oauth' },
+      } },
+      auth: { ...mockApp.auth, isAuthenticatedFor: () => false, hasLegacyCredentials: () => false },
+      ok: (data) => output.push(data),
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.deepStrictEqual(output[0].profiles.map(profile => profile.default), [true, false]);
   });
 
   it('username-less non-active refresh saves under the bare target identity', async () => {

@@ -564,7 +564,15 @@ export function authCmd(wrap) {
             }),
           handler: wrap(async (argv, app) => {
             let instanceURL;
-            if (argv.instance) {
+            if (argv.profile) {
+              const namedProfile = app.config.profiles?.[argv.profile];
+              if (!namedProfile?.instance_url) {
+                throw errUsage(`Profile "${argv.profile}" is not configured.`);
+              }
+              // An explicit profile is authoritative, including in an
+              // interactive terminal. Never let the picker retarget it.
+              instanceURL = normalizeInstanceURL(namedProfile.instance_url);
+            } else if (argv.instance) {
               instanceURL = resolveInstanceArg(argv.instance, app.config);
             } else if (app.isInteractive()) {
               // gh-faithful: interactive terminals always get a picker —
@@ -604,16 +612,21 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
 
             const target = resolveTargetProfile(argv, app.config, instanceURL);
             const targetProfile = target.profile;
-            const targetUsername = targetProfile?.username || '';
+            let targetUsername = targetProfile?.username || '';
             const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL, targetProfile);
             const useGck = shouldUseGckAuth(argv, app.config, instanceURL, targetProfile);
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
             if (useGck) {
               const input = argv.headers || await readBrowserSessionInput();
-              await app.auth.loginWithGck(instanceURL, input, targetUsername || undefined);
+              const credentials = await app.auth.loginWithGck(instanceURL, input, targetUsername || undefined);
+              targetUsername = credentials?.username || targetUsername;
             } else if (useBasic) {
-              await app.auth.loginWithPassword(instanceURL, targetUsername || undefined);
+              const credentials = await app.auth.loginWithPassword(instanceURL, targetUsername || undefined);
+              // A new profile has no configured username yet. The auth
+              // manager saves env/stored credentials under creds.username;
+              // carry that identity into verification and profile creation.
+              targetUsername = credentials?.username || targetUsername;
             }
             // --print-url with --wait-file: print URL and wait for code file
             else if (argv.printUrl && argv.waitFile) {
@@ -659,6 +672,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             } catch {
               // Non-fatal — token is saved, just couldn't verify
             }
+
+            // Basic/GCK auth establishes the target identity before the
+            // profile exists; preserve it when verification is unavailable.
+            username = username || targetUsername;
 
             // Save to profiles — deduplicate by instance URL
             if (!app.config.profiles) {
@@ -821,7 +838,7 @@ Examples:
                 last_seen: lastSeen || undefined,
                 days_since_last_seen: daysSinceLastSeen,
                 stale: daysSinceLastSeen > 7,
-                default: instance === defaultInstance,
+                default: name === app.config.defaultProfile,
                 read_only: profile.read_only || false,
                 skip_confirmations: profile.skip_confirmations || false,
                 include_counts: profile.include_counts !== false,
