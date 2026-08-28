@@ -676,7 +676,7 @@ export class AuthManager {
     return resolved;
   }
 
-  async login(instanceURL) {
+  async login(instanceURL, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const clientID = getOAuthClientID();
     const pkce = generatePKCE();
@@ -702,8 +702,8 @@ export class AuthManager {
 
     console.log('\nExchanging authorization code for tokens...');
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-    // Save with username for per-user credential keying
-    this.saveCredentials(instanceURL, newCreds, newCreds.username);
+    // Save with the selected profile username when one is already known.
+    this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
     return newCreds;
   }
 
@@ -788,7 +788,7 @@ export class AuthManager {
     return { ...creds, username: username || undefined };
   }
 
-  async loginWithCode(instanceURL, code) {
+  async loginWithCode(instanceURL, code, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const clientID = getOAuthClientID();
     const pkce = loadPKCEState(instanceURL);
@@ -804,7 +804,7 @@ export class AuthManager {
     removePKCEState(instanceURL);
 
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-    this.saveCredentials(instanceURL, newCreds, newCreds.username);
+    this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
     return newCreds;
   }
 
@@ -884,11 +884,11 @@ export class AuthManager {
     return newCreds;
   }
 
-  logout(instance) {
+  logout(instance, username = this._activeUsername()) {
     if (!instance) {
       throw errAuth('No instance specified');
     }
-    this.credentialStore.delete(instance, this._activeUsername());
+    this.credentialStore.delete(instance, username);
   }
 
   /**

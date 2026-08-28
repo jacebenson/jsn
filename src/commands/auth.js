@@ -82,20 +82,32 @@ export function resolveInstanceArg(arg, cfg) {
   return normalizeInstanceURL(`${trimmed}.service-now.com`);
 }
 
+/** Resolve a command target by explicit profile name before instance fallback. */
+export function resolveTargetProfile(argv = {}, cfg = {}, instanceURL = '') {
+  if (argv.profile && cfg.profiles?.[argv.profile]) {
+    return { name: argv.profile, profile: cfg.profiles[argv.profile] };
+  }
+  const entry = Object.entries(cfg.profiles || {})
+    .find(([, profile]) => normalizeInstanceURL(profile.instance_url) === instanceURL);
+  return entry ? { name: entry[0], profile: entry[1] } : { name: null, profile: null };
+}
+
 /**
  * Select the login method. Explicit Basic Auth wins; otherwise reuse the
  * method recorded on an existing profile. New instances remain OAuth by
  * default.
  */
-export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '') {
+export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '', targetProfile = null) {
   if (argv.basic || argv.password) return true;
+  if (targetProfile) return targetProfile.auth_method === 'basic';
   return Object.values(cfg.profiles || {}).some(profile =>
     profile.instance_url === instanceURL && profile.auth_method === 'basic'
   );
 }
 
-export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '') {
+export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '', targetProfile = null) {
   if (argv.gck || argv.headers) return true;
+  if (targetProfile) return targetProfile.auth_method === 'gck';
   return Object.values(cfg.profiles || {}).some(profile =>
     profile.instance_url === instanceURL && profile.auth_method === 'gck'
   );
@@ -485,17 +497,17 @@ export async function removeProfile(app, name) {
   if (!app.config.profiles[name]) {
     throw new Error(`Profile not found: ${name}`);
   }
-  const instance = app.config.profiles[name].instance_url;
+  const profile = app.config.profiles[name];
+  const instance = profile.instance_url;
   delete app.config.profiles[name];
   if (app.config.defaultProfile === name) app.config.defaultProfile = '';
   if (app.config.activeProfile === name) app.config.activeProfile = '';
   saveConfig(app.config);
 
-  // Only clear credentials if no other profile uses this instance URL
-  const stillInUse = instance && Object.values(app.config.profiles || {})
-    .some(p => p.instance_url === instance);
-  if (instance && !stillInUse) {
-    app.auth.logout(instance);
+  // Delete only this profile's credential identity. Other profiles may share
+  // the instance URL but must retain their separate credentials.
+  if (instance) {
+    app.auth.logout(instance, profile.username || null);
   }
 
   app.ok({ removed: name }, { summary: `Removed profile: ${name}` });
@@ -590,11 +602,11 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               }
             }
 
-            const targetProfile = Object.values(app.config.profiles || {})
-              .find(profile => profile.instance_url === instanceURL);
+            const target = resolveTargetProfile(argv, app.config, instanceURL);
+            const targetProfile = target.profile;
             const targetUsername = targetProfile?.username || '';
-            const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL);
-            const useGck = shouldUseGckAuth(argv, app.config, instanceURL);
+            const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL, targetProfile);
+            const useGck = shouldUseGckAuth(argv, app.config, instanceURL, targetProfile);
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
             if (useGck) {
@@ -615,10 +627,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             }
             // --code: exchange the provided authorization code directly
             else if (argv.code) {
-              await app.auth.loginWithCode(instanceURL, argv.code);
+              await app.auth.loginWithCode(instanceURL, argv.code, targetUsername || undefined);
             } else {
               // Interactive: full OAuth flow with browser + prompt
-              await app.auth.login(instanceURL);
+              await app.auth.login(instanceURL, targetUsername || undefined);
             }
 
             // Verify auth by fetching current user
@@ -653,12 +665,15 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               app.config.profiles = {};
             }
 
-            // Check if a profile already exists for this instance
-            let profileName = null;
-            for (const [existingName, existingProfile] of Object.entries(app.config.profiles)) {
-              if (existingProfile.instance_url === instanceURL) {
-                profileName = existingName;
-                break;
+            // Preserve an explicitly selected profile even when another profile
+            // shares the same instance URL.
+            let profileName = target.name;
+            if (!profileName) {
+              for (const [existingName, existingProfile] of Object.entries(app.config.profiles)) {
+                if (existingProfile.instance_url === instanceURL) {
+                  profileName = existingName;
+                  break;
+                }
               }
             }
 
@@ -725,7 +740,8 @@ Examples:
   jsn auth logout https://dev12345.service-now.com`);
               }
             }
-            app.auth.logout(instanceURL);
+            const target = resolveTargetProfile(argv, app.config, instanceURL);
+            app.auth.logout(instanceURL, target.profile?.username ?? null);
             app.ok({ logged_out: true, instance: instanceURL }, { summary: `✓ Logged out from ${instanceURL}` });
           }),
         })
@@ -865,8 +881,8 @@ Examples:
               }
             }
 
-            const targetProfile = Object.values(app.config.profiles || {})
-              .find(profile => profile.instance_url === instanceURL);
+            const target = resolveTargetProfile(argv, app.config, instanceURL);
+            const targetProfile = target.profile;
             const targetAuthOptions = {
               authMethod: targetProfile ? targetProfile.auth_method : 'oauth',
               username: targetProfile?.username,
@@ -889,7 +905,7 @@ Examples:
                 })
                 : app.sdk;
               const hasDS = await isDomainSeparationInstalled({ sdk });
-              const name = app.config.activeProfile || app.config.defaultProfile;
+              const name = target.name || app.config.activeProfile || app.config.defaultProfile;
               if (name && app.config.profiles[name] && app.config.profiles[name].instance_url === instanceURL) {
                 app.config.profiles[name].domain_separation = hasDS;
                 await saveConfig(app.config);

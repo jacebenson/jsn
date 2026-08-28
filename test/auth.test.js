@@ -1323,6 +1323,16 @@ describe('AuthManager safe auth state seam', () => {
 // ─── auth switch handler ───
 
 describe('AuthManager review blocker regressions', () => {
+  it('logout deletes only the explicitly selected username on a shared instance', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const deleted = [];
+    const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://shared.example.com' }, {
+      credentialStore: { load: () => null, save() {}, delete: (...args) => deleted.push(args) },
+    });
+    auth.logout('https://shared.example.com', 'bob');
+    assert.deepStrictEqual(deleted, [['https://shared.example.com', 'bob']]);
+  });
+
   it('resolves OAuth environment credentials for the selected profile', async () => {
     const { AuthManager } = await import('../src/auth.js');
     const previous = process.env.SERVICENOW_OAUTH_TOKEN;
@@ -1916,5 +1926,74 @@ describe('OAuth URL', () => {
     const url = auth.buildAuthURL('dev12345.service-now.com');
 
     assert.ok(url.startsWith('https://dev12345.service-now.com/'));
+  });
+
+  it('remove deletes the removed profile username while preserving same-instance credentials', async () => {
+    const { removeProfile } = await import('../src/commands/auth.js');
+    const deleted = [];
+    const instance = 'https://shared.example.com';
+    const app = {
+      config: { profiles: {
+        alice: { instance_url: instance, username: 'alice' },
+        bob: { instance_url: instance, username: 'bob' },
+      }, activeProfile: 'alice', defaultProfile: 'alice' },
+      auth: { logout: (...args) => deleted.push(args) },
+      ok() {},
+    };
+    await removeProfile(app, 'bob');
+    assert.deepStrictEqual(deleted, [[instance, 'bob']]);
+    assert.ok(app.config.profiles.alice);
+  });
+
+  it('login --profile uses the named same-instance profile identity', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const instance = 'https://shared.example.com';
+    const app = {
+      config: { profiles: {
+        alice: { instance_url: instance, username: 'alice', auth_method: 'oauth' },
+        bob: { instance_url: instance, username: 'bob', auth_method: 'oauth' },
+      }, activeProfile: 'alice', defaultProfile: 'alice' },
+      auth: {
+        loginWithCode: (...args) => { calls.push(args); return Promise.resolve(); },
+        migrateLegacyCredential() {},
+      },
+      sdk: { getCurrentUser: async () => ({ user_name: 'bob' }) },
+      getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'bob' }) }),
+      ok() {},
+    };
+    const commands = [];
+    const yargs = { command(c) { commands.push(c); return yargs; } };
+    authCmd((fn) => async (argv) => fn(argv, argv.app)).builder(yargs);
+    const login = commands.find(c => c.command.startsWith('login'));
+    await login.handler({ app, profile: 'bob', instance, code: 'auth-code' });
+    assert.deepStrictEqual(calls[0], [instance, 'auth-code', 'bob']);
+    assert.strictEqual(app.config.profiles.bob.username, 'bob');
+    assert.strictEqual(app.config.profiles.alice.username, 'alice');
+  });
+
+  it('refresh --profile selects the named same-instance profile', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const instance = 'https://shared.example.com';
+    const app = {
+      config: { profiles: {
+        alice: { instance_url: instance, username: 'alice', auth_method: 'oauth', domain_separation: false },
+        bob: { instance_url: instance, username: 'bob', auth_method: 'oauth', domain_separation: false },
+      }, activeProfile: 'alice', defaultProfile: 'alice' },
+      auth: {
+        getCredentialsFor: (...args) => { calls.push(['get', ...args]); return { auth_method: 'oauth', refresh_token: 'rt' }; },
+        refreshToken: (...args) => { calls.push(['refresh', ...args]); return { expires_at: 1 }; },
+      },
+      getSDKForProfile: () => ({ list: async () => [] }),
+      ok() {},
+    };
+    const commands = [];
+    const yargs = { command(c) { commands.push(c); return yargs; } };
+    authCmd((fn) => async (argv) => fn(argv, argv.app)).builder(yargs);
+    const refresh = commands.find(c => c.command.startsWith('refresh'));
+    await refresh.handler({ app, profile: 'bob', instance });
+    assert.strictEqual(calls[0][2], 'bob');
+    assert.strictEqual(calls[1][3], 'bob');
   });
 });
