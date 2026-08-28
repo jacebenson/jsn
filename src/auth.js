@@ -310,6 +310,66 @@ function normalizeAuthSource(value, fallback = 'unavailable') {
   return AUTH_SOURCES.has(value) ? value : fallback;
 }
 
+const PROBE_FAILURES = {
+  missing_credentials: {
+    message: 'Credentials are not available for this profile.',
+    hint: 'Run: jsn auth login',
+  },
+  credentials_expired: {
+    message: 'Credentials have expired and cannot be refreshed.',
+    hint: 'Run: jsn auth login',
+  },
+  refresh_required: {
+    message: 'Credentials require refresh before probing.',
+    hint: 'Run: jsn auth refresh',
+  },
+  refresh_failed: {
+    message: 'Credential refresh failed before the authenticated probe.',
+    hint: 'Run: jsn auth login',
+  },
+  invalid_browser_session: {
+    message: 'Browser session credentials are incomplete or invalid.',
+    hint: 'Capture a fresh ServiceNow browser request and run: jsn auth login --gck',
+  },
+  malformed_credentials: {
+    message: 'Credentials are malformed for the selected authentication method.',
+    hint: 'Run: jsn auth login',
+  },
+  permission_denied: {
+    message: 'The authenticated user lacks permission for the current-user probe.',
+    hint: 'Ask an administrator to grant access to the sys_user table/API.',
+  },
+  unauthorized: {
+    message: 'The instance rejected the selected credentials.',
+    hint: 'Run: jsn auth login',
+  },
+  network: {
+    message: 'The authenticated probe could not reach the instance.',
+    hint: 'Check your internet connection and instance URL.',
+  },
+  unknown: {
+    message: 'The authenticated probe failed for an unknown reason.',
+    hint: 'Retry the probe; if it persists, check the instance logs.',
+  },
+};
+
+function probeFailure(code, status = 'failed') {
+  return { status, code, ...PROBE_FAILURES[code] };
+}
+
+function classifyProbeError(error, method) {
+  if (error?.status === 401 || error?.status === 403) {
+    return error.status === 403 ? 'permission_denied' : 'unauthorized';
+  }
+  if (error?.code === 'network_error' || ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT'].includes(error?.code)) {
+    return 'network';
+  }
+  const text = String(error?.message || '').toLowerCase();
+  if (error?.code === 'auth_error' && text.includes('refresh')) return 'refresh_failed';
+  if (method === 'gck' && error?.code === 'auth_error') return 'invalid_browser_session';
+  return 'unknown';
+}
+
 /**
  * Classify credentials without returning or logging any credential material.
  * This is deliberately pure so diagnostics cannot refresh, persist, or probe.
@@ -506,6 +566,31 @@ export class AuthManager {
       auth_source: normalizeAuthSource(source, 'unavailable'),
       state,
     };
+  }
+
+  /**
+   * Perform one read-only authenticated current-user request and classify only
+   * safe lifecycle outcomes. The SDK is injected to keep this seam independent
+   * of command wiring and to make the selected auth path explicit.
+   */
+  async probeCurrentUser(instance = this.identity.getEffectiveInstance(), sdk) {
+    const authState = this.getAuthState(instance);
+    const method = authState.auth_method === 'unconfigured' ? null : authState.auth_method;
+    const stateFailures = {
+      missing: 'missing_credentials',
+      expired: 'credentials_expired',
+      refreshable: 'refresh_required',
+      malformed: method === 'gck' ? 'invalid_browser_session' : 'malformed_credentials',
+    };
+    if (stateFailures[authState.state]) return probeFailure(stateFailures[authState.state], 'not_attempted');
+    if (!sdk || typeof sdk.getCurrentUser !== 'function') return probeFailure('unknown', 'not_attempted');
+
+    try {
+      await sdk.getCurrentUser({ touchLastSeen: false });
+      return { status: 'succeeded' };
+    } catch (error) {
+      return probeFailure(classifyProbeError(error, method));
+    }
   }
 
   isAuthenticated() {

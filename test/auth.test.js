@@ -419,6 +419,109 @@ describe('AuthManager credential store boundary', () => {
   });
 });
 
+describe('AuthManager authenticated probe seam', () => {
+  it('reports a successful read-only probe without exposing the current user', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const calls = [];
+    const auth = new AuthManager({
+      getUsername: () => 'admin',
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'oauth', access_token: 'token', auth_source: 'keyring' }),
+      save: () => { throw new Error('probe must not save credentials'); },
+      delete: () => { throw new Error('probe must not delete credentials'); },
+    } });
+    const sdk = {
+      getCurrentUser: async (options) => {
+        calls.push(options);
+        return { user_name: 'admin', name: 'Administrator', sys_id: 'secret-id' };
+      },
+    };
+
+    const result = await auth.probeCurrentUser('https://probe.example.com', sdk);
+
+    assert.deepStrictEqual(result, { status: 'succeeded' });
+    assert.deepStrictEqual(calls, [{ touchLastSeen: false }]);
+    assert.strictEqual(JSON.stringify(result).includes('admin'), false);
+  });
+
+  it('does not attempt a probe when credentials are unavailable', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: { load: () => null, save() {}, delete() {} } });
+    let attempts = 0;
+    const sdk = { getCurrentUser: async () => { attempts += 1; } };
+
+    const result = await auth.probeCurrentUser('https://probe.example.com', sdk);
+
+    assert.deepStrictEqual(result, {
+      status: 'not_attempted',
+      code: 'missing_credentials',
+      message: 'Credentials are not available for this profile.',
+      hint: 'Run: jsn auth login',
+    });
+    assert.strictEqual(attempts, 0);
+  });
+
+  it('classifies safe permission, unauthorized, network, and unknown probe failures', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'admin',
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'oauth', access_token: 'token' }), save() {}, delete() {},
+    } });
+    const cases = [
+      [{ code: 'api_error', status: 403, message: 'API error (status 403): secret detail' }, 'permission_denied'],
+      [{ code: 'api_error', status: 401, message: 'API error (status 401): secret detail' }, 'unauthorized'],
+      [{ code: 'network_error', message: 'Network error: secret host' }, 'network'],
+      [{ code: 'some_other_error', message: 'contains secret-token' }, 'unknown'],
+    ];
+
+    for (const [error, code] of cases) {
+      const result = await auth.probeCurrentUser('https://probe.example.com', {
+        getCurrentUser: async () => { throw error; },
+      });
+      assert.strictEqual(result.status, 'failed');
+      assert.strictEqual(result.code, code);
+      assert.strictEqual(JSON.stringify(result).includes('secret'), false);
+      assert.ok(result.message);
+      assert.ok(result.hint);
+    }
+  });
+
+  it('keeps refresh and browser-session failures distinct without fallback', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const makeAuth = (method, credentials) => new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => method,
+    }, { credentialStore: { load: () => credentials, save() {}, delete() {} } });
+
+    const refreshable = await makeAuth('oauth', {
+      auth_method: 'oauth', access_token: 'old-token', refresh_token: 'refresh-token', expires_at: 1,
+    }).probeCurrentUser('https://probe.example.com', { getCurrentUser: async () => { throw new Error('should not run'); } });
+    assert.deepStrictEqual(refreshable, {
+      status: 'not_attempted', code: 'refresh_required',
+      message: 'Credentials require refresh before probing.',
+      hint: 'Run: jsn auth refresh',
+    });
+
+    const browser = await makeAuth('gck', { auth_method: 'gck', access_token: 'browser-token', cookies: '' })
+      .probeCurrentUser('https://probe.example.com', { getCurrentUser: async () => { throw new Error('should not run'); } });
+    assert.deepStrictEqual(browser, {
+      status: 'not_attempted', code: 'invalid_browser_session',
+      message: 'Browser session credentials are incomplete or invalid.',
+      hint: 'Capture a fresh ServiceNow browser request and run: jsn auth login --gck',
+    });
+  });
+});
+
 describe('AuthManager safe auth state seam', () => {
   let previousXdgConfigHome;
   let isolatedXdgConfigHome;

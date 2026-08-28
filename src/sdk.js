@@ -63,7 +63,7 @@ export class SDKClient {
   }
 
   async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, ...requestOptions } = opts;
+    const { timeout = this.timeout, touchLastSeen = true, ...requestOptions } = opts;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -94,7 +94,7 @@ export class SDKClient {
 
       // Stamp last_seen on successful API call
       try {
-        if (this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
+        if (touchLastSeen && this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
           this.authProvider.touchLastSeen(this.baseURL);
         }
       } catch { /* non-fatal */ }
@@ -163,10 +163,10 @@ export class SDKClient {
     }
   }
 
-  async list(table, params = {}) {
+  async list(table, params = {}, opts = {}) {
     const query = new URLSearchParams(params).toString();
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
-    const result = await this.request(endpoint, { method: 'GET' });
+    const result = await this.request(endpoint, { method: 'GET', ...opts });
     return result?.result || [];
   }
 
@@ -248,13 +248,13 @@ export class SDKClient {
     return result?.result || null;
   }
 
-  async getCurrentUser() {
+  async getCurrentUser({ touchLastSeen = true } = {}) {
     const params = new URLSearchParams();
     params.set('sysparm_query', 'user_name=javascript:gs.getUserName()');
     params.set('sysparm_limit', '1');
     params.set('sysparm_display_value', 'all');
     params.set('sysparm_fields', 'sys_id,user_name,name');
-    const records = await this.list('sys_user', params);
+    const records = await this.list('sys_user', params, { touchLastSeen });
     if (records.length === 0) return null;
     const r = records[0];
     return {
