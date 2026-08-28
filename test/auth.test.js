@@ -532,6 +532,43 @@ describe('Auth Command Handlers', () => {
     assert.ok(refreshCalled, 'refreshToken should have been called');
   });
 
+  it('auth refresh passes the target profile username to refreshToken', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const instance = 'https://target-refresh.example.com';
+    const calls = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        activeProfile: 'active',
+        profiles: {
+          active: { instance_url: 'https://active-refresh.example.com', username: 'alice', auth_method: 'oauth' },
+          target: { instance_url: instance, username: 'bob', auth_method: 'oauth' },
+        },
+      },
+      auth: {
+        ...mockApp.auth,
+        getCredentialsFor: async () => ({ auth_method: 'oauth', refresh_token: 'old-refresh' }),
+        refreshToken: async (...args) => {
+          calls.push(args);
+          return { access_token: 'refreshed', expires_at: 9999999999 };
+        },
+      },
+    };
+    const cmd = authCmd((fn) => async (argv) => { await fn(argv, argv.app); });
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+
+    await subcommands.find(s => s.def.startsWith('refresh')).handler({ app, instance, _: ['refresh'] });
+    assert.deepStrictEqual(calls[0].slice(0, 3), [instance, { auth_method: 'oauth', refresh_token: 'old-refresh' }, 'bob']);
+  });
+
   it('auth logout should call logout', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
@@ -782,8 +819,8 @@ describe('AuthManager refresh lifecycle blockers', () => {
       const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://refresh.example.com', getAuthMethod: () => 'oauth' }, {
         credentialStore: { load: () => null, save: (...args) => saves.push(args), delete: () => {} },
       });
-      await auth.refreshToken('https://refresh.example.com', { auth_method: 'oauth', refresh_token: 'old-refresh' });
-      assert.strictEqual(saves[0][2], 'alice');
+      await auth.refreshToken('https://refresh.example.com', { auth_method: 'oauth', refresh_token: 'old-refresh' }, 'bob');
+      assert.strictEqual(saves[0][2], 'bob');
     } finally {
       globalThis.fetch = originalFetch;
     }

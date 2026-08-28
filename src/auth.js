@@ -841,7 +841,7 @@ export class AuthManager {
     };
   }
 
-  async refreshToken(instance, creds) {
+  async refreshToken(instance, creds, targetUsername = undefined) {
     if (creds.auth_method !== 'oauth') {
       throw errAuth(`Cannot refresh ${creds.auth_method || 'unconfigured'} credentials; only OAuth credentials support refresh`);
     }
@@ -864,7 +864,7 @@ export class AuthManager {
     }
 
     const tokenResp = await resp.json();
-    const username = creds.username || this._activeUsername();
+    const username = targetUsername || creds.username || this._activeUsername();
     const newCreds = {
       auth_method: 'oauth',
       access_token: tokenResp.access_token,

@@ -875,7 +875,7 @@ Examples:
               targetProfile?.username,
               targetAuthOptions
             );
-            const refreshed = await app.auth.refreshToken(instanceURL, creds);
+            const refreshed = await app.auth.refreshToken(instanceURL, creds, targetProfile?.username);
 
             // Re-probe domain separation on refresh so the capability flag
             // stays in sync if the plugin was installed/removed since setup.
