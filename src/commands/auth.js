@@ -714,11 +714,12 @@ Examples:
               : configuredProfiles;
             for (const [name, profile] of selectedProfiles) {
               const instance = profile.instance_url;
-              const isAuth = app.auth.isAuthenticatedFor(instance);
-              const lastSeen = app.auth.getLastSeen(instance);
               const authOptions = { authMethod: profile.auth_method, username: profile.username };
+              const identityOptions = { username: profile.username };
+              const isAuth = app.auth.isAuthenticatedFor(instance, identityOptions);
+              const lastSeen = app.auth.getLastSeen(instance, identityOptions);
               const authState = app.auth.getAuthState(instance, authOptions);
-              const legacy = !isAuth && app.auth.hasLegacyCredentials(instance) ? true : undefined;
+              const legacy = !isAuth && app.auth.hasLegacyCredentials(instance, identityOptions) ? true : undefined;
               // Keep the established status field contract: unauthenticated
               // profiles omit auth_source, except legacy credentials retain
               // their historical `legacy` marker. getAuthState remains the
@@ -732,9 +733,15 @@ Examples:
               if (instance) {
                 try {
                   const { SDKClient } = await import('../sdk.js');
-                  const sdk = app.sdk && app.getEffectiveInstance?.() === instance
+                  const activeProfile = app.config.activeProfile || app.config.defaultProfile;
+                  const activeUsername = app.config.profiles?.[activeProfile]?.username;
+                  const sdk = app.sdk && app.getEffectiveInstance?.() === instance && activeUsername === profile.username
                     ? app.sdk
-                    : new SDKClient(instance, app.auth);
+                    : new SDKClient(instance, {
+                      ...app.auth,
+                      getCredentials: () => app.auth.getCredentialsFor(instance, profile.username),
+                      touchLastSeen: () => app.auth.touchLastSeen(instance, identityOptions),
+                    });
                   let user;
                   probe = await app.auth.probeCurrentUser(instance, {
                     getCurrentUser: async (options) => {

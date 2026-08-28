@@ -119,6 +119,48 @@ describe('Auth Command Handlers', () => {
     assert.strictEqual(envelope.data.profiles[0].diagnostics.probe.message, 'safe message');
   });
 
+  it('auth status passes each profile instance and identity to every auth path', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const profiles = {
+      first: { instance_url: 'https://first.example.com', username: 'alice', auth_method: 'oauth' },
+      second: { instance_url: 'https://second.example.com', username: 'bob', auth_method: 'basic' },
+    };
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticated: () => true,
+        isAuthenticatedFor: (...args) => { calls.push(['authenticated', ...args]); return false; },
+        getLastSeen: (...args) => { calls.push(['last_seen', ...args]); return null; },
+        getAuthState: (...args) => { calls.push(['state', ...args]); return { auth_method: args[1].authMethod, auth_source: 'unavailable', state: 'missing' }; },
+        hasLegacyCredentials: (...args) => { calls.push(['legacy', ...args]); return false; },
+        probeCurrentUser: async (...args) => { calls.push(['probe', ...args.slice(0, 3)]); return { status: 'not_attempted', code: 'missing_credentials', classification: 'unavailable' }; },
+      },
+      ok: () => {},
+    };
+    const subcommands = [];
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const mockYargs = { command: (c, ...rest) => { subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] }); return mockYargs; } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.deepStrictEqual(calls.filter(([kind]) => kind !== 'probe'), [
+      ['authenticated', 'https://first.example.com', { username: 'alice' }],
+      ['last_seen', 'https://first.example.com', { username: 'alice' }],
+      ['state', 'https://first.example.com', { authMethod: 'oauth', username: 'alice' }],
+      ['legacy', 'https://first.example.com', { username: 'alice' }],
+      ['authenticated', 'https://second.example.com', { username: 'bob' }],
+      ['last_seen', 'https://second.example.com', { username: 'bob' }],
+      ['state', 'https://second.example.com', { authMethod: 'basic', username: 'bob' }],
+      ['legacy', 'https://second.example.com', { username: 'bob' }],
+    ]);
+    assert.deepStrictEqual(calls.filter(([kind]) => kind === 'probe').map(([, instance, , options]) => [instance, options]), [
+      ['https://first.example.com', { authMethod: 'oauth', username: 'alice' }],
+      ['https://second.example.com', { authMethod: 'basic', username: 'bob' }],
+    ]);
+  });
+
   it('auth status focuses diagnostics with --profile while preserving profile fields', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const output = [];
@@ -149,6 +191,18 @@ describe('Auth Command Handlers', () => {
     assert.deepStrictEqual(output[0].profiles.map(p => p.name), ['second']);
     assert.strictEqual(output[0].profiles[0].authenticated, true);
     assert.strictEqual(output[0].profiles[0].diagnostics.probe.status, 'succeeded');
+  });
+
+  it('probe results classify success without exposing credential material', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const manager = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://probe.example.com', getAuthMethod: () => 'oauth' }, {
+      credentialStore: { load: () => ({ auth_method: 'oauth', access_token: 'secret', expires_at: 9999999999 }), save: () => {}, delete: () => {} },
+    });
+    const result = await manager.probeCurrentUser('https://probe.example.com', {
+      getCurrentUser: async () => ({ user_name: 'alice' }),
+    });
+    assert.deepStrictEqual(result, { status: 'succeeded', classification: 'authenticated' });
+    assert.strictEqual(JSON.stringify(result).includes('secret'), false);
   });
 
   it('auth status diagnostics never serialize credential secrets', async () => {
@@ -629,7 +683,7 @@ describe('AuthManager authenticated probe seam', () => {
 
     const result = await auth.probeCurrentUser('https://probe.example.com', sdk);
 
-    assert.deepStrictEqual(result, { status: 'succeeded' });
+    assert.deepStrictEqual(result, { status: 'succeeded', classification: 'authenticated' });
     assert.deepStrictEqual(calls, [{ touchLastSeen: false }]);
     assert.strictEqual(JSON.stringify(result).includes('admin'), false);
   });
@@ -649,6 +703,7 @@ describe('AuthManager authenticated probe seam', () => {
     assert.deepStrictEqual(result, {
       status: 'not_attempted',
       code: 'missing_credentials',
+      classification: 'unavailable',
       message: 'Credentials are not available for this profile.',
       hint: 'Run: jsn auth login',
     });
@@ -677,6 +732,9 @@ describe('AuthManager authenticated probe seam', () => {
       });
       assert.strictEqual(result.status, 'failed');
       assert.strictEqual(result.code, code);
+      assert.strictEqual(result.classification, {
+        permission_denied: 'permission_denied', unauthorized: 'unauthorized', network: 'network_error', unknown: 'unknown',
+      }[code]);
       assert.strictEqual(JSON.stringify(result).includes('secret'), false);
       assert.ok(result.message);
       assert.ok(result.hint);
@@ -695,7 +753,7 @@ describe('AuthManager authenticated probe seam', () => {
       auth_method: 'oauth', access_token: 'old-token', refresh_token: 'refresh-token', expires_at: 1,
     }).probeCurrentUser('https://probe.example.com', { getCurrentUser: async () => { throw new Error('should not run'); } });
     assert.deepStrictEqual(refreshable, {
-      status: 'not_attempted', code: 'refresh_required',
+      status: 'not_attempted', code: 'refresh_required', classification: 'refresh_required',
       message: 'Credentials require refresh before probing.',
       hint: 'Run: jsn auth refresh',
     });
@@ -703,7 +761,7 @@ describe('AuthManager authenticated probe seam', () => {
     const browser = await makeAuth('gck', { auth_method: 'gck', access_token: 'browser-token', cookies: '' })
       .probeCurrentUser('https://probe.example.com', { getCurrentUser: async () => { throw new Error('should not run'); } });
     assert.deepStrictEqual(browser, {
-      status: 'not_attempted', code: 'invalid_browser_session',
+      status: 'not_attempted', code: 'invalid_browser_session', classification: 'browser_session_invalid',
       message: 'Browser session credentials are incomplete or invalid.',
       hint: 'Capture a fresh ServiceNow browser request and run: jsn auth login --gck',
     });

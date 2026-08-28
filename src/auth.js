@@ -353,8 +353,15 @@ const PROBE_FAILURES = {
   },
 };
 
+const PROBE_CLASSIFICATIONS = {
+  missing_credentials: 'unavailable', credentials_expired: 'expired', refresh_required: 'refresh_required',
+  refresh_failed: 'refresh_failed', invalid_browser_session: 'browser_session_invalid',
+  malformed_credentials: 'malformed', permission_denied: 'permission_denied', unauthorized: 'unauthorized',
+  network: 'network_error', unknown: 'unknown',
+};
+
 function probeFailure(code, status = 'failed') {
-  return { status, code, ...PROBE_FAILURES[code] };
+  return { status, code, classification: PROBE_CLASSIFICATIONS[code] || 'unknown', ...PROBE_FAILURES[code] };
 }
 
 function classifyProbeError(error, method) {
@@ -461,8 +468,8 @@ export class AuthManager {
     return this.credentialStore.delete(instance, username);
   }
 
-  getLastSeen(instance) {
-    const creds = this.loadCredentials(instance, this._activeUsername());
+  getLastSeen(instance, options = {}) {
+    const creds = this.loadCredentials(instance, options.username ?? this._activeUsername());
     return creds?.last_seen || null;
   }
 
@@ -479,13 +486,13 @@ export class AuthManager {
    * user@instance keying). Returns true when old-style creds are found
    * but wouldn't be picked up by the current username-scoped lookup.
    */
-  hasLegacyCredentials(instance) {
+  hasLegacyCredentials(instance, options = {}) {
     if (!instance) return false;
     const bareCreds = this.credentialStore.load(instance);
     if (!bareCreds) return false;
     // If active profile has a username, the bare key won't be found
     // by loadCredentials(instance, username). That's the legacy case.
-    const username = this._activeUsername();
+    const username = options.username ?? this._activeUsername();
     if (!username) return false; // No username set — bare key IS the active path
     const userCreds = this.credentialStore.load(instance, username);
     return !!bareCreds && !userCreds;
@@ -589,7 +596,7 @@ export class AuthManager {
 
     try {
       await sdk.getCurrentUser({ touchLastSeen: false });
-      return { status: 'succeeded' };
+      return { status: 'succeeded', classification: 'authenticated' };
     } catch (error) {
       return probeFailure(classifyProbeError(error, method));
     }
@@ -608,10 +615,10 @@ export class AuthManager {
     }
   }
 
-  isAuthenticatedFor(instance) {
+  isAuthenticatedFor(instance, options = {}) {
     if (!instance) return false;
     if (getBasicAuthFromEnv(instance)) return true;
-    const creds = this.credentialStore.load(instance, this._activeUsername());
+    const creds = this.credentialStore.load(instance, options.username ?? this._activeUsername());
     if (!creds) return false;
     if (creds.auth_method === 'basic') {
       return Boolean(creds.username && creds.password);
