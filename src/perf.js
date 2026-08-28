@@ -365,6 +365,26 @@ export function formatComparisonDetailed(result) {
     .replace('.max_response_time_ms', '.max_ms')
     .replace('.stats.', '.');
   const displayValue = value => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(2) : String(value);
+  const semaphoreFields = ['available', 'borrowed', 'maximum_concurrency', 'queue_depth', 'queue_depth_limit'];
+  const semaphoreLabels = ['avail', 'borrow', 'max', 'qd', 'qlim'];
+  const semaphorePattern = /^(.*\.semaphores\[name=[^\]]+\])\.(available|borrowed|maximum_concurrency|queue_depth|queue_depth_limit)$/;
+  const grouped = new Map();
+  const regular = [];
+  for (const metric of result.metrics) {
+    const match = metric.metric.match(semaphorePattern);
+    if (!match) {
+      regular.push(metric);
+      continue;
+    }
+    if (!grouped.has(match[1])) grouped.set(match[1], new Map());
+    grouped.get(match[1]).set(match[2], metric);
+  }
+  const formatValue = value => value == null ? '?' : displayValue(value);
+  const formatSemaphore = (name, fields) => {
+    const values = side => semaphoreFields.map(field => formatValue(fields.get(field)?.[side])).join(' ');
+    const delta = semaphoreFields.map(field => formatValue(fields.get(field)?.delta)).join(' ');
+    return `${shortMetric(name)} [${semaphoreLabels.join(' ')}]`.padEnd(42) + ` ${values('baseline').padStart(16)} | ${values('new').padStart(16)} | ${delta.padStart(16)}`;
+  };
   const lines = [
     `Performance comparison: ${result.status}`,
     `Baseline: ${result.baseline?.profile || 'default'} @ ${result.baseline?.instance || 'unknown'} (${result.baseline_run_id})`,
@@ -372,12 +392,13 @@ export function formatComparisonDetailed(result) {
     '',
     'METRIC                                      BASELINE          NEW       DELTA',
   ];
-  for (const m of result.metrics) {
+  for (const m of regular) {
     const metric = shortMetric(m.metric);
     if (m.availability === 'missing_from_baseline') lines.push(`${metric.padEnd(42)} Unavailable: missing from baseline`);
     else if (m.availability === 'missing_from_new') lines.push(`${metric.padEnd(42)} Unavailable: missing from new result`);
     else lines.push(`${metric.padEnd(42)} ${displayValue(m.baseline).padStart(16)} ${displayValue(m.new).padStart(12)} ${displayValue(m.delta).padStart(12)}`);
   }
+  for (const [name, fields] of grouped) lines.push(formatSemaphore(name, fields));
   const newline = String.fromCharCode(10);
   return lines.join(newline) + newline;
 }

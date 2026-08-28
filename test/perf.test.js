@@ -82,10 +82,15 @@ describe('performance formatter', () => {
       metrics: [
         { metric: 'transactions.transaction_types[type=rest].avg_response_time_ms', availability: 'available', baseline: 71.1538, new: 71.156, delta: 0.0022 },
         { metric: 'platform_health.nodes[sys_id=123456789].stats.semaphores[name=Default].available', availability: 'available', baseline: 16, new: 15, delta: -1 },
+        { metric: 'platform_health.nodes[sys_id=123456789].stats.semaphores[name=Default].borrowed', availability: 'available', baseline: 0, new: 1, delta: 1 },
+        { metric: 'platform_health.nodes[sys_id=123456789].stats.semaphores[name=Default].maximum_concurrency', availability: 'available', baseline: 16, new: 16, delta: 0 },
+        { metric: 'platform_health.nodes[sys_id=123456789].stats.semaphores[name=Default].queue_depth', availability: 'available', baseline: 2, new: 3, delta: 1 },
+        { metric: 'platform_health.nodes[sys_id=123456789].stats.semaphores[name=Default].queue_depth_limit', availability: 'available', baseline: 50, new: 50, delta: 0 },
       ],
     });
     assert.match(output, /tx\[rest\]\.avg_ms\s+71\.15\s+71\.16\s+0\.00/);
-    assert.match(output, /node\[12345678\]\.sem\[Default\]\.available/);
+    assert.match(output, /node\[12345678\]\.sem\[Default\] \[avail borrow max qd qlim\].*16 0 16 2 50.*15 1 16 3 50.*-1 1 0 1 0/);
+    assert.equal(output.match(/node\[12345678\]\.sem\[Default\]/g).length, 1);
   });
 });
 
