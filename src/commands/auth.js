@@ -520,6 +520,14 @@ export function authCmd(wrap) {
               describe: 'Authenticate with Basic Auth via env vars (SN_USERNAME/SN_PASSWORD)',
               type: 'boolean',
             })
+            .option('gck', {
+              describe: 'Authenticate with a browser session from pasted request headers',
+              type: 'boolean',
+            })
+            .option('headers', {
+              describe: 'Browser request headers or cURL command for browser-session auth',
+              type: 'string',
+            })
             .option('print-url', {
               describe: 'Print the OAuth URL and exit (saves PKCE state for --code)',
               type: 'boolean',
@@ -586,9 +594,13 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               .find(profile => profile.instance_url === instanceURL);
             const targetUsername = targetProfile?.username || '';
             const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL);
+            const useGck = shouldUseGckAuth(argv, app.config, instanceURL);
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
-            if (useBasic) {
+            if (useGck) {
+              const input = argv.headers || await readBrowserSessionInput();
+              await app.auth.loginWithGck(instanceURL, input, targetUsername || undefined);
+            } else if (useBasic) {
               await app.auth.loginWithPassword(instanceURL, targetUsername || undefined);
             }
             // --print-url with --wait-file: print URL and wait for code file
@@ -617,7 +629,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               const activeInstance = app.getEffectiveInstance?.() || activeProfile?.instance_url || '';
               const activeUsername = activeProfile?.username || '';
               const activeMethod = activeProfile?.auth_method || '';
-              const targetMethod = useBasic ? 'basic' : 'oauth';
+              const targetMethod = useGck ? 'gck' : useBasic ? 'basic' : 'oauth';
               const targetDiffers = instanceURL !== activeInstance
                 || targetUsername !== activeUsername
                 || targetMethod !== activeMethod;
@@ -658,7 +670,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             app.config.profiles[profileName] = {
               ...(app.config.profiles[profileName] || {}),
               instance_url: instanceURL,
-              auth_method: useBasic ? 'basic' : 'oauth',
+              auth_method: useGck ? 'gck' : useBasic ? 'basic' : 'oauth',
               username: username || undefined,
               read_only: argv['read-only'] || undefined,
               skip_confirmations: argv['skip-confirmations'] || undefined,
@@ -669,7 +681,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // so they're keyed by <user>@<instance> for per-user isolation.
             // The legacy bare-instance key is cleaned up behind the
             // AuthManager seam (credential-store internals don't leak here).
-            if (!useBasic && username) {
+            if (!useBasic && !useGck && username) {
               app.auth.migrateLegacyCredential(instanceURL, username);
             }
 
@@ -855,7 +867,7 @@ Examples:
             const targetProfile = Object.values(app.config.profiles || {})
               .find(profile => profile.instance_url === instanceURL);
             const targetAuthOptions = {
-              authMethod: targetProfile?.auth_method || 'oauth',
+              authMethod: targetProfile ? targetProfile.auth_method : 'oauth',
               username: targetProfile?.username,
             };
             const creds = await app.auth.getCredentialsFor(

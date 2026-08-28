@@ -414,7 +414,7 @@ export function classifyCredentialState(credentials, method, now = Date.now()) {
   if (credentials.expires_at !== undefined && credentials.expires_at !== null && credentials.expires_at !== 0) {
     const expiresAt = Number(credentials.expires_at);
     if (!Number.isFinite(expiresAt)) return 'malformed';
-    if (now >= expiresAt * 1000) return credentials.refresh_token ? 'refreshable' : 'expired';
+    if (now >= (expiresAt - 300) * 1000) return credentials.refresh_token ? 'refreshable' : 'expired';
   }
   return 'available';
 }
@@ -462,7 +462,7 @@ export class AuthManager {
    * instance key for backward compatibility with legacy / no-profile usage.
    */
   _activeUsername() {
-    return this.identity.getUsername() || null;
+    return typeof this.identity.getUsername === 'function' ? this.identity.getUsername() || null : null;
   }
 
   loadCredentials(instance, username) {
@@ -530,7 +530,7 @@ export class AuthManager {
   }
 
   _selectedMethod(options = {}) {
-    const value = options.authMethod !== undefined ? options.authMethod
+    const value = Object.hasOwn(options, 'authMethod') ? options.authMethod
       : typeof this.identity.getAuthMethod === 'function' ? this.identity.getAuthMethod() : null;
     return normalizeAuthMethod(value, 'unconfigured');
   }
@@ -547,7 +547,7 @@ export class AuthManager {
    * Unlike getCredentialsFor(), this never refreshes or mutates credentials.
    */
   getAuthState(instance = this.identity.getEffectiveInstance(), options = {}) {
-    const configuredValue = options.authMethod !== undefined
+    const configuredValue = Object.hasOwn(options, 'authMethod')
       ? options.authMethod
       : typeof this.identity.getAuthMethod === 'function'
       ? this.identity.getAuthMethod() : null;
@@ -630,12 +630,7 @@ export class AuthManager {
   isAuthenticated() {
     const instance = this.identity.getEffectiveInstance();
     if (!instance) return false;
-    try {
-      this.getCredentialsFor(instance);
-      return true;
-    } catch {
-      return false;
-    }
+    return this.getAuthState(instance).state === 'available';
   }
 
   isAuthenticatedFor(instance, options = {}) {
@@ -675,7 +670,7 @@ export class AuthManager {
     if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
     if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
-      if (resolved.refresh_token) return this.refreshToken(instance, resolved);
+      if (resolved.refresh_token) return this.refreshToken(instance, resolved, username);
       throw errAuth('Token expired, please login again');
     }
     return resolved;
@@ -847,6 +842,9 @@ export class AuthManager {
   }
 
   async refreshToken(instance, creds) {
+    if (creds.auth_method !== 'oauth') {
+      throw errAuth(`Cannot refresh ${creds.auth_method || 'unconfigured'} credentials; only OAuth credentials support refresh`);
+    }
     const tokenURL = `${instance.replace(/\/$/, '')}/oauth_token.do`;
     const clientID = getOAuthClientID();
     const body = new URLSearchParams();
@@ -866,6 +864,7 @@ export class AuthManager {
     }
 
     const tokenResp = await resp.json();
+    const username = creds.username || this._activeUsername();
     const newCreds = {
       auth_method: 'oauth',
       access_token: tokenResp.access_token,
@@ -876,7 +875,7 @@ export class AuthManager {
     if (tokenResp.expires_in) {
       newCreds.expires_at = Math.floor(Date.now() / 1000) + tokenResp.expires_in;
     }
-    this.credentialStore.save(instance, newCreds, creds.username);
+    this.credentialStore.save(instance, newCreds, username);
     return newCreds;
   }
 

@@ -83,6 +83,52 @@ describe('Auth Command Handlers', () => {
     // cleanup
   });
 
+  it('auth status authentication checks never refresh or persist credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    let saves = 0;
+    let loads = 0;
+    const manager = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://readonly-status.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: () => { loads++; return { auth_method: 'oauth', access_token: 'old', refresh_token: 'refresh', expires_at: Math.floor(Date.now() / 1000) + 60 }; },
+      save: () => { saves++; },
+      delete: () => {},
+    } });
+    assert.strictEqual(manager.isAuthenticated(), false);
+    assert.strictEqual(manager.isAuthenticatedFor('https://readonly-status.example.com', { authMethod: 'oauth', username: 'alice' }), false);
+    assert.strictEqual(saves, 0);
+    assert.ok(loads > 0);
+  });
+
+  it('dispatches normal browser-session login and preserves its configured method', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const instance = 'https://gck-login.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { browser: { instance_url: instance, auth_method: 'gck' } } },
+      auth: {
+        ...mockApp.auth,
+        login: async () => {},
+        loginWithGck: async (...args) => { calls.push(args); return { auth_method: 'gck' }; },
+      },
+      getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'alice' }) }),
+      sdk: null,
+    };
+    const subcommands = [];
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const mockYargs = { command: (c, ...rest) => { subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] }); return mockYargs; } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def.startsWith('login')).handler({
+      app, instance, headers: 'curl -H "X-UserToken: token" -H "Cookie: sid=cookie"', _: ['login'],
+    });
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0][1].includes('X-UserToken'), true);
+    assert.strictEqual(app.config.profiles.browser.auth_method, 'gck');
+  });
+
   it('auth status should include structured diagnostics in the JSON envelope', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const { OutputWriter } = await import('../src/output.js');
@@ -723,6 +769,43 @@ describe('unconfigured environment authentication', () => {
       assert.strictEqual(auth.isAuthenticatedFor(instance, { authMethod: 'gck' }), false);
       assert.strictEqual(auth.getAuthState(instance, { authMethod: 'gck' }).auth_source, 'unavailable');
     });
+  });
+});
+
+describe('AuthManager refresh lifecycle blockers', () => {
+  it('saves refreshed OAuth credentials under the target profile username', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const originalFetch = globalThis.fetch;
+    const saves = [];
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ access_token: 'new-token', refresh_token: 'new-refresh', expires_in: 3600 }) });
+    try {
+      const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://refresh.example.com', getAuthMethod: () => 'oauth' }, {
+        credentialStore: { load: () => null, save: (...args) => saves.push(args), delete: () => {} },
+      });
+      await auth.refreshToken('https://refresh.example.com', { auth_method: 'oauth', refresh_token: 'old-refresh' });
+      assert.strictEqual(saves[0][2], 'alice');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('rejects non-OAuth refresh without network or persistence', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    let saves = 0;
+    const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://refresh.example.com' }, {
+      credentialStore: { load: () => null, save: () => { saves++; }, delete: () => {} },
+    });
+    await assert.rejects(() => auth.refreshToken('https://refresh.example.com', { auth_method: 'gck', refresh_token: 'not-oauth' }), /only OAuth credentials support refresh/);
+    assert.strictEqual(saves, 0);
+  });
+
+  it('treats an explicitly missing profile auth method as unconfigured', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://unconfigured.example.com', getAuthMethod: () => 'gck' }, {
+      credentialStore: { load: () => ({ auth_method: 'oauth', access_token: 'token' }), save: () => {}, delete: () => {} },
+    });
+    assert.strictEqual(auth.getAuthState('https://unconfigured.example.com', { authMethod: undefined, username: 'alice' }).auth_method, 'unconfigured');
+    assert.deepStrictEqual(auth.getCredentialsFor('https://unconfigured.example.com', 'alice', { authMethod: undefined }), { auth_method: 'oauth', access_token: 'token' });
   });
 });
 
