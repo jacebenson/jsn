@@ -717,7 +717,8 @@ Examples:
               const instance = profile.instance_url;
               const isAuth = app.auth.isAuthenticatedFor(instance);
               const lastSeen = app.auth.getLastSeen(instance);
-              const authSource = isAuth ? app.auth.getAuthSource(instance) : null;
+              const authState = app.auth.getAuthState(instance);
+              const authSource = isAuth ? authState.auth_source : null;
               const legacy = !isAuth && app.auth.hasLegacyCredentials(instance) ? true : undefined;
 
               // Try live verification
@@ -748,7 +749,7 @@ Examples:
                 instance,
                 authenticated: isAuth,
                 legacy,
-                auth_source: authSource || (legacy ? 'legacy' : undefined),
+                auth_source: authSource,
                 verified,
                 verified_as: verifiedAt || undefined,
                 last_seen: lastSeen || undefined,

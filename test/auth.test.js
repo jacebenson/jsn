@@ -1,7 +1,10 @@
 // Tests for auth command structure and handler logic
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // ─── Command Structure Tests ───
 
@@ -98,6 +101,84 @@ describe('Auth Command Handlers', () => {
     await statusCmd.handler({ app: mockApp, _: ['status'] });
     // Should not throw
     assert.ok(true);
+  });
+
+  it('auth status uses the safe source vocabulary at the command boundary', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const instance = 'https://safe-source.example.com';
+    const output = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { safe: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        isAuthenticated: () => true,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'unavailable', state: 'available' }),
+        getAuthSource: () => { throw new Error('legacy source seam must not be called'); },
+      },
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+    assert.strictEqual(output[0].profiles[0].auth_source, 'unavailable');
+    assert.strictEqual(JSON.stringify(output[0]).includes('legacy'), false);
+  });
+
+  it('auth status keeps legacy detection separate from the source vocabulary', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const instance = 'https://legacy-status.example.com';
+    const output = [];
+    let authStateCalls = 0;
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { legacy: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => false,
+        isAuthenticated: () => false,
+        getAuthState: () => {
+          authStateCalls += 1;
+          return { auth_method: 'oauth', auth_source: 'unavailable', state: 'missing' };
+        },
+        getAuthSource: () => { throw new Error('legacy source seam must not be called'); },
+        hasLegacyCredentials: () => true,
+      },
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+    assert.strictEqual(authStateCalls, 1);
+    assert.strictEqual(output[0].profiles[0].legacy, true);
+    assert.strictEqual(output[0].profiles[0].auth_source, null);
   });
 
   it('auth refresh should call refreshToken', async () => {
@@ -234,6 +315,21 @@ describe('auth login method selection', () => {
 });
 
 describe('AuthManager safe auth state seam', () => {
+  let previousXdgConfigHome;
+  let isolatedXdgConfigHome;
+
+  beforeEach(() => {
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    isolatedXdgConfigHome = mkdtempSync(path.join(tmpdir(), 'jsn-auth-diagnostics-'));
+    process.env.XDG_CONFIG_HOME = isolatedXdgConfigHome;
+  });
+
+  afterEach(() => {
+    if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    rmSync(isolatedXdgConfigHome, { recursive: true, force: true });
+  });
+
   it('classifies OAuth environment credentials without exposing the token', async () => {
     const { AuthManager } = await import('../src/auth.js');
     const previous = process.env.SERVICENOW_OAUTH_TOKEN;
