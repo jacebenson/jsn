@@ -352,3 +352,46 @@ test('SDK flow inspection keeps catalog records out of the public JSON schema', 
   assert.equal(Object.keys(result).includes('catalogRecords'), false);
   assert.equal(JSON.stringify(result).includes('catalogRecords'), false);
 });
+
+test('SDK flow inspection falls back from metadata-only ProcessFlow to legacy payload before tables', async () => {
+  const client = new SDKClient('https://example.service-now.com', {});
+  const calls = [];
+  client.request = async endpoint => {
+    calls.push(`request:${endpoint}`);
+    return {
+      result: {
+        data: {
+          triggerInstances: [{ name: 'Record trigger', type: 'record' }],
+          flowVariables: [{ name: 'from_processflow' }],
+        },
+      },
+    };
+  };
+  client.list = async table => {
+    calls.push(`list:${table}`);
+    if (table === 'sys_hub_flow') {
+      return [{ sys_id: 'flow-legacy', name: 'Legacy fallback flow', active: 'true', version: '2', type: 'Flow' }];
+    }
+    if (table === 'sys_hub_flow_version') {
+      return [{
+        sys_id: 'version-1',
+        version: '2',
+        payload: JSON.stringify({ actionInstances: [{ order: 1, name: 'Legacy action' }] }),
+      }];
+    }
+    if (table === 'sys_hub_trigger_instance') return [];
+    if (table === 'sys_hub_action_instance') return [];
+    return [];
+  };
+
+  const result = await client.inspectFlow('flow-legacy');
+
+  assert.match(JSON.stringify(result), /Legacy action/);
+  assert.equal(calls[0], 'list:sys_hub_flow');
+  assert.equal(calls[1], 'request:https://example.service-now.com/api/now/processflow/flow/flow-legacy');
+  assert.equal(calls[2], 'list:sys_hub_flow_version');
+  assert.equal(calls[3], 'list:sys_hub_trigger_instance');
+  assert.equal(calls[4], 'list:sys_hub_flow_logic');
+  assert.ok(calls.slice(3).every(call => call.startsWith('list:')));
+  assert.equal(calls.includes('list:sys_hub_action_instance'), false);
+});
