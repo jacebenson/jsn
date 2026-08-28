@@ -83,6 +83,131 @@ describe('Auth Command Handlers', () => {
     // cleanup
   });
 
+  it('auth status should include structured diagnostics in the JSON envelope', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const chunks = [];
+    const instance = 'https://diagnostic-status.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, instance_url: instance, profiles: {
+        diagnostic: { instance_url: instance, auth_method: 'oauth' },
+      } },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'file', state: 'available' }),
+        probeCurrentUser: async () => ({
+          status: 'failed', code: 'permission_denied', message: 'safe message', hint: 'safe hint',
+        }),
+      },
+      ok: (data, opts) => new OutputWriter({ format: 'json', writer: { write: (text) => chunks.push(text) } }).ok(data, opts),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    const envelope = JSON.parse(chunks.join(''));
+    assert.strictEqual(envelope.ok, true);
+    assert.strictEqual(envelope.data.profiles[0].diagnostics.auth_method, 'oauth');
+    assert.strictEqual(envelope.data.profiles[0].diagnostics.probe.code, 'permission_denied');
+    assert.strictEqual(envelope.data.profiles[0].diagnostics.probe.message, 'safe message');
+  });
+
+  it('auth status focuses diagnostics with --profile while preserving profile fields', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const profiles = {
+      first: { instance_url: 'https://first.example.com', auth_method: 'oauth' },
+      second: { instance_url: 'https://second.example.com', auth_method: 'basic' },
+    };
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        getAuthState: (instance) => ({ auth_method: instance.includes('second') ? 'basic' : 'oauth', auth_source: 'file', state: 'available' }),
+        probeCurrentUser: async () => ({ status: 'succeeded' }),
+      },
+      ok: (data) => output.push(data),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', _: ['status'] });
+    assert.deepStrictEqual(output[0].profiles.map(p => p.name), ['second']);
+    assert.strictEqual(output[0].profiles[0].authenticated, true);
+    assert.strictEqual(output[0].profiles[0].diagnostics.probe.status, 'succeeded');
+  });
+
+  it('auth status diagnostics never serialize credential secrets', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const secret = 'super-secret-token-and-cookie';
+    const instance = 'https://redaction-status.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { redacted: { instance_url: instance, auth_method: 'gck' } } },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        getAuthState: () => ({ auth_method: 'gck', auth_source: 'gck', state: 'available', access_token: secret, cookies: secret }),
+        probeCurrentUser: async () => ({ status: 'failed', code: 'unauthorized', message: 'safe', hint: 'safe' }),
+      },
+      ok: (data) => output.push(data),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.doesNotMatch(JSON.stringify(output[0]), new RegExp(secret));
+  });
+
+  it('auth status supports --get-compatible diagnostics paths', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const chunks = [];
+    const instance = 'https://get-status.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { getme: { instance_url: instance, auth_method: 'oauth' } } },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => false,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'unavailable', state: 'missing' }),
+        hasLegacyCredentials: () => false,
+        probeCurrentUser: async () => ({ status: 'not_attempted', code: 'missing_credentials', message: 'safe', hint: 'safe' }),
+      },
+      ok: (data, opts) => new OutputWriter({ format: 'json', jqFilter: 'data.profiles[0].diagnostics.probe.code', writer: { write: (text) => chunks.push(text) } }).ok(data, opts),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.strictEqual(JSON.parse(chunks.join('')), 'missing_credentials');
+  });
+
   it('auth status should not throw', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
@@ -274,7 +399,8 @@ describe('Auth Command Handlers', () => {
     cmd.builder(mockYargs);
     const statusCmd = subcommands.find(s => s.def === 'status');
     await statusCmd.handler({ app, _: ['status'] });
-    assert.strictEqual(JSON.stringify(output[0].profiles[0]).includes('auth_source'), false);
+    const { diagnostics: _diagnostics, ...legacyProfile } = output[0].profiles[0];
+    assert.strictEqual(JSON.stringify(legacyProfile).includes('auth_source'), false);
   });
 
   it('auth refresh should call refreshToken', async () => {

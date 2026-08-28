@@ -701,18 +701,23 @@ Examples:
         .command({
           command: 'status',
           describe: 'Show detailed authentication status',
-          handler: wrap(async (_argv, app) => {
+          handler: wrap(async (argv, app) => {
             const defaultInstance = getEffectiveInstance(app.config);
 
             // Check environment auth
             const envToken = process.env.SERVICENOW_OAUTH_TOKEN || '';
 
             const profiles = [];
-            for (const [name, profile] of Object.entries(app.config.profiles || {})) {
+            const configuredProfiles = Object.entries(app.config.profiles || {});
+            const selectedProfiles = argv.profile
+              ? configuredProfiles.filter(([name]) => name === argv.profile)
+              : configuredProfiles;
+            for (const [name, profile] of selectedProfiles) {
               const instance = profile.instance_url;
               const isAuth = app.auth.isAuthenticatedFor(instance);
               const lastSeen = app.auth.getLastSeen(instance);
-              const authState = app.auth.getAuthState(instance);
+              const authOptions = { authMethod: profile.auth_method, username: profile.username };
+              const authState = app.auth.getAuthState(instance, authOptions);
               const legacy = !isAuth && app.auth.hasLegacyCredentials(instance) ? true : undefined;
               // Keep the established status field contract: unauthenticated
               // profiles omit auth_source, except legacy credentials retain
@@ -723,19 +728,20 @@ Examples:
               // Try live verification through AuthManager's read-only probe seam.
               let verified = null;
               let verifiedAt = null;
-              if (isAuth && instance) {
+              let probe = { status: 'not_attempted' };
+              if (instance) {
                 try {
                   const { SDKClient } = await import('../sdk.js');
                   const sdk = app.sdk && app.getEffectiveInstance?.() === instance
                     ? app.sdk
                     : new SDKClient(instance, app.auth);
                   let user;
-                  const probe = await app.auth.probeCurrentUser(instance, {
+                  probe = await app.auth.probeCurrentUser(instance, {
                     getCurrentUser: async (options) => {
                       user = await sdk.getCurrentUser(options);
                       return user;
                     },
-                  });
+                  }, authOptions);
                   if (probe.status === 'succeeded' && user?.user_name) {
                     verified = true;
                     verifiedAt = user.user_name;
@@ -768,6 +774,12 @@ Examples:
                 read_only: profile.read_only || false,
                 skip_confirmations: profile.skip_confirmations || false,
                 include_counts: profile.include_counts !== false,
+                diagnostics: {
+                  auth_method: authState.auth_method,
+                  auth_source: authState.auth_source,
+                  state: authState.state,
+                  probe,
+                },
               });
             }
 

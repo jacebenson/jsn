@@ -512,8 +512,10 @@ export class AuthManager {
    * Return only safe metadata about the selected auth method and credentials.
    * Unlike getCredentialsFor(), this never refreshes or mutates credentials.
    */
-  getAuthState(instance = this.identity.getEffectiveInstance()) {
-    const configuredValue = typeof this.identity.getAuthMethod === 'function'
+  getAuthState(instance = this.identity.getEffectiveInstance(), options = {}) {
+    const configuredValue = options.authMethod !== undefined
+      ? options.authMethod
+      : typeof this.identity.getAuthMethod === 'function'
       ? this.identity.getAuthMethod() : null;
     const configuredMethod = normalizeAuthMethod(configuredValue);
     const isConfigured = configuredMethod !== 'unconfigured';
@@ -536,7 +538,7 @@ export class AuthManager {
         else classificationMethod = 'basic';
         credentials = basicCredentials;
       } else if (instance) {
-        credentials = this.credentialStore.load(instance, this._activeUsername());
+        credentials = this.credentialStore.load(instance, options.username ?? this._activeUsername());
         if (credentials) {
           if (credentials.auth_method != null) {
             const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
@@ -573,8 +575,8 @@ export class AuthManager {
    * safe lifecycle outcomes. The SDK is injected to keep this seam independent
    * of command wiring and to make the selected auth path explicit.
    */
-  async probeCurrentUser(instance = this.identity.getEffectiveInstance(), sdk) {
-    const authState = this.getAuthState(instance);
+  async probeCurrentUser(instance = this.identity.getEffectiveInstance(), sdk, options = {}) {
+    const authState = this.getAuthState(instance, options);
     const method = authState.auth_method === 'unconfigured' ? null : authState.auth_method;
     const stateFailures = {
       missing: 'missing_credentials',
