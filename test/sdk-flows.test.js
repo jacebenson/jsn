@@ -198,6 +198,14 @@ test('public inspection seam degrades nested subflow failures inline', async () 
   assert.match(result._formatted, /could not load subflow: permission denied/);
 });
 
+test('public seam degrades malformed payload arrays through action fallback', async () => {
+  const flow = baseFlow('malformed-payload', { actionInstances: [null] });
+  flow.actionInstances = [{ order: 1, name: 'Fallback action' }];
+  const { result } = await inspectPublic(flow);
+  assert.match(result._formatted, /Fallback action/);
+  assert.doesNotMatch(result._formatted, /no steps found/);
+});
+
 test('public seam degrades malformed nested inspection payloads through fallback', async () => {
   const parent = baseFlow('parent', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
   const { result } = await inspectPublic(parent, { nested: new Map([['child', null]]) });

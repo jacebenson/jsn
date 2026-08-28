@@ -844,7 +844,7 @@ function getBoolField(record, field) {
 function isUsableFlowPayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
   return ['actionInstances', 'flowLogicInstances', 'subFlowInstances', 'triggerInstances', 'inputs', 'outputs', 'flowVariables']
-    .some(key => Array.isArray(payload[key]) && payload[key].length > 0);
+    .some(key => Array.isArray(payload[key]) && payload[key].some(item => item && typeof item === 'object' && !Array.isArray(item)));
 }
 
 function extractPayloadData(inspection, payload) {

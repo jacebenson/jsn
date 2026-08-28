@@ -267,10 +267,16 @@ async function formatFlowStructure(inspection, ctx) {
     for (const [k, v] of labelCache) ctx.labelCache.set(k, v);
   }
   const payload = inspection.payload;
-  if (Object.keys(payload).length > 0) {
+  if (isUsableFlowPayload(payload)) {
     return formatFlowStructureFromPayload(payload, ctx);
   }
   return formatFlowStructureFallback(inspection);
+}
+
+function isUsableFlowPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  return ['actionInstances', 'flowLogicInstances', 'subFlowInstances', 'triggerInstances', 'inputs', 'outputs', 'flowVariables']
+    .some(key => Array.isArray(payload[key]) && payload[key].some(item => item && typeof item === 'object' && !Array.isArray(item)));
 }
 
 /**
