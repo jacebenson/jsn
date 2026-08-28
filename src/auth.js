@@ -714,7 +714,7 @@ export class AuthManager {
    * If waitFile is provided, the method will read the code from that file
    * (waits for file to appear, polling every 2 seconds, up to 5 minutes).
    */
-  buildAuthURL(instanceURL, waitFile) {
+  buildAuthURL(instanceURL, waitFile, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const clientID = getOAuthClientID();
     const pkce = generatePKCE();
@@ -725,12 +725,12 @@ export class AuthManager {
       console.log();
       console.log(`Waiting for authorization code in file: ${waitFile}`);
       console.log('(polling every 2 seconds — write the code to the file to complete login)');
-      return this._waitForCodeFile(instanceURL, clientID, pkce, waitFile);
+      return this._waitForCodeFile(instanceURL, clientID, pkce, waitFile, 300000, username);
     }
     return url;
   }
 
-  async _waitForCodeFile(instanceURL, clientID, pkce, filePath, timeout = 300000) {
+  async _waitForCodeFile(instanceURL, clientID, pkce, filePath, timeout = 300000, username) {
     const start = Date.now();
     const pollInterval = 2000;
     while (Date.now() - start < timeout) {
@@ -740,7 +740,7 @@ export class AuthManager {
           console.log(`\nAuthorization code found in ${filePath}`);
           removePKCEState(instanceURL);
           const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-          this.saveCredentials(instanceURL, newCreds, newCreds.username);
+          this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
           console.log('Token exchange successful!\n');
           return newCreds;
         }

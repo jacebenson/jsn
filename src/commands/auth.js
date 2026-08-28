@@ -499,6 +499,11 @@ export async function removeProfile(app, name) {
   }
   const profile = app.config.profiles[name];
   const instance = profile.instance_url;
+  const otherBareProfiles = Object.entries(app.config.profiles)
+    .filter(([profileName, other]) => profileName !== name
+      && other.instance_url === instance
+      && !other.username)
+    .length;
   delete app.config.profiles[name];
   if (app.config.defaultProfile === name) app.config.defaultProfile = '';
   if (app.config.activeProfile === name) app.config.activeProfile = '';
@@ -506,11 +511,22 @@ export async function removeProfile(app, name) {
 
   // Delete only this profile's credential identity. Other profiles may share
   // the instance URL but must retain their separate credentials.
-  if (instance) {
+  if (instance && (profile.username || otherBareProfiles === 0)) {
     app.auth.logout(instance, profile.username || null);
   }
 
   app.ok({ removed: name }, { summary: `Removed profile: ${name}` });
+}
+
+/** Bare credentials are safe to clear only when their target is identifiable. */
+function canLogoutBareProfile(app, instance, target, explicitlySelected) {
+  if (target?.username) return true;
+  const sameInstance = Object.entries(app.config.profiles || {})
+    .filter(([, profile]) => profile.instance_url === instance);
+  if (explicitlySelected) {
+    return sameInstance.filter(([, profile]) => !profile.username).length === 1;
+  }
+  return sameInstance.length <= 1;
 }
 
 export function authCmd(wrap) {
@@ -630,7 +646,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             }
             // --print-url with --wait-file: print URL and wait for code file
             else if (argv.printUrl && argv.waitFile) {
-              await app.auth.buildAuthURL(instanceURL, argv.waitFile);
+              await app.auth.buildAuthURL(instanceURL, argv.waitFile, targetUsername || undefined);
             }
             // --print-url: just print the URL and exit
             else if (argv.printUrl) {
@@ -758,7 +774,10 @@ Examples:
               }
             }
             const target = resolveTargetProfile(argv, app.config, instanceURL);
-            app.auth.logout(instanceURL, target.profile?.username ?? null);
+            const username = target.profile?.username ?? null;
+            if (username || canLogoutBareProfile(app, instanceURL, target.profile, !!argv.profile)) {
+              app.auth.logout(instanceURL, username);
+            }
             app.ok({ logged_out: true, instance: instanceURL }, { summary: `✓ Logged out from ${instanceURL}` });
           }),
         })

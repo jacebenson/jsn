@@ -2095,4 +2095,44 @@ describe('OAuth URL', () => {
     assert.strictEqual(calls[0][2], 'bob');
     assert.strictEqual(calls[1][3], 'bob');
   });
+
+  it('wait-file OAuth login persists credentials under the selected profile username', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const root = mkdtempSync(path.join(tmpdir(), 'jsn-oauth-wait-'));
+    const codeFile = path.join(root, 'code');
+    const saved = [];
+    const auth = new AuthManager({ getUsername: () => 'alice' }, {
+      credentialStore: {
+        load: () => null,
+        save: (...args) => saved.push(args),
+        delete() {},
+      },
+    });
+    auth.exchangeCode = async () => ({ auth_method: 'oauth', access_token: 'token' });
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(codeFile, 'auth-code');
+    try {
+      await auth.buildAuthURL('https://shared.example.com', codeFile, 'bob');
+      assert.strictEqual(saved.length, 1);
+      assert.strictEqual(saved[0][2], 'bob');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not delete ambiguous bare credentials for a username-less shared profile', async () => {
+    const { removeProfile } = await import('../src/commands/auth.js');
+    const deleted = [];
+    const instance = 'https://shared-bare.example.com';
+    const app = {
+      config: { profiles: {
+        first: { instance_url: instance },
+        second: { instance_url: instance },
+      }, activeProfile: 'first', defaultProfile: 'first' },
+      auth: { logout: (...args) => deleted.push(args) },
+      ok() {},
+    };
+    await removeProfile(app, 'second');
+    assert.deepStrictEqual(deleted, []);
+  });
 });
