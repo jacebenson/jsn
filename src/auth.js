@@ -172,6 +172,9 @@ function keyringLookup(key) {
       refresh_token: parsed.refresh_token || parsed.RefreshToken || '',
       expires_at: parsed.expires_at || parsed.ExpiresAt || 0,
       created_at: parsed.created_at || parsed.CreatedAt || 0,
+      auth_source: ['oauth', 'env_token', 'env_basic', undefined].includes(parsed.auth_source)
+        ? (parsed.auth_method === 'gck' ? 'gck' : 'keyring')
+        : parsed.auth_source,
     };
   } catch {
     return null;
@@ -225,7 +228,9 @@ function loadCredentials(instance, username) {
     const creds = JSON.parse(data);
     return {
       ...creds,
-      auth_source: creds.auth_source || (creds.auth_method === 'gck' ? 'gck' : 'file'),
+      auth_source: ['oauth', 'env_token', 'env_basic', undefined].includes(creds.auth_source)
+        ? (creds.auth_method === 'gck' ? 'gck' : 'file')
+        : creds.auth_source,
     };
   } catch {
     return null;
@@ -302,13 +307,13 @@ export function parseBrowserSessionInput(input) {
 }
 
 const AUTH_METHODS = new Set(['oauth', 'basic', 'gck']);
-const AUTH_SOURCES = new Set(['env_token', 'env_basic', 'gck', 'oauth', 'keyring', 'file', 'stored', 'unavailable']);
+const AUTH_SOURCES = new Set(['env_token', 'env_basic', 'gck', 'keyring', 'file', 'unavailable']);
 
 function normalizeAuthMethod(value, fallback = 'unconfigured') {
   return AUTH_METHODS.has(value) ? value : fallback;
 }
 
-function normalizeAuthSource(value, fallback = 'stored') {
+function normalizeAuthSource(value, fallback = 'unavailable') {
   return AUTH_SOURCES.has(value) ? value : fallback;
 }
 
@@ -426,7 +431,7 @@ export class AuthManager {
     // New creds have auth_source; older ones only have auth_method
     const source = normalizeAuthSource(creds.auth_source, '');
     if (source) return source;
-    return normalizeAuthMethod(creds.auth_method, '') || 'stored';
+    return normalizeAuthMethod(creds.auth_method, '') || 'unavailable';
   }
 
   /**
@@ -457,15 +462,24 @@ export class AuthManager {
         if (credentials) {
           if (credentials.auth_method != null) {
             const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
-            if (storedMethod) method = storedMethod;
+            if (storedMethod) {
+              if (configuredMethod !== 'unconfigured' && storedMethod !== configuredMethod) {
+                malformedMetadata = true;
+              } else if (configuredMethod === 'unconfigured') {
+                method = storedMethod;
+              }
+            }
             else malformedMetadata = true;
           }
           if (credentials.auth_source != null) {
             const storedSource = normalizeAuthSource(credentials.auth_source, '');
             if (storedSource) source = storedSource;
-            else source = 'stored';
+            else {
+              source = 'unavailable';
+              malformedMetadata = true;
+            }
           } else {
-            source = 'stored';
+            source = 'unavailable';
           }
         }
       }

@@ -368,7 +368,7 @@ describe('AuthManager safe auth state seam', () => {
       });
       assert.deepStrictEqual(auth.getAuthState(instance), {
         auth_method: 'oauth',
-        auth_source: 'stored',
+        auth_source: 'unavailable',
         state: 'malformed',
       });
     } finally {
@@ -376,7 +376,29 @@ describe('AuthManager safe auth state seam', () => {
     }
   });
 
-  it('normalizes an untrusted stored auth source without affecting classification', async () => {
+  it('maps legacy credentials without a stored source to an allowlisted source', async () => {
+    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const instance = `https://legacy-source-${Date.now()}.service-now.com`;
+    saveCredentials(instance, {
+      auth_method: 'oauth',
+      access_token: 'secret-access-token',
+    });
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      });
+      const state = auth.getAuthState(instance);
+      assert.ok(['keyring', 'file', 'unavailable'].includes(state.auth_source));
+      assert.notStrictEqual(state.auth_source, 'stored');
+      assert.strictEqual(state.state, 'available');
+    } finally {
+      deleteCredentials(instance);
+    }
+  });
+
+  it('normalizes an untrusted stored auth source as malformed', async () => {
     const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
     const instance = `https://untrusted-source-${Date.now()}.service-now.com`;
     saveCredentials(instance, {
@@ -392,8 +414,33 @@ describe('AuthManager safe auth state seam', () => {
       });
       assert.deepStrictEqual(auth.getAuthState(instance), {
         auth_method: 'oauth',
-        auth_source: 'stored',
-        state: 'available',
+        auth_source: 'unavailable',
+        state: 'malformed',
+      });
+    } finally {
+      deleteCredentials(instance);
+    }
+  });
+
+  it('keeps the configured method authoritative over disagreeing stored metadata', async () => {
+    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const instance = `https://configured-method-${Date.now()}.service-now.com`;
+    saveCredentials(instance, {
+      auth_method: 'basic',
+      username: 'admin',
+      password: 'secret-password',
+      auth_source: 'file',
+    });
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'oauth',
+        auth_source: 'file',
+        state: 'malformed',
       });
     } finally {
       deleteCredentials(instance);
