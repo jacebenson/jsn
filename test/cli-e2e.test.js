@@ -98,6 +98,45 @@ function runCli(args) {
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 
+describe('CLI selector conflict boundary', () => {
+  it('renders conflicting --profile/--instance as clean JSON and human errors', () => {
+    const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-selector-conflict-'));
+    try {
+      const configDir = path.join(configHome, 'servicenow');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({
+        default_profile: 'prod',
+        profiles: {
+          prod: { instance_url: 'https://prod.service-now.com', auth_method: 'oauth' },
+        },
+      }));
+      const env = {
+        ...process.env,
+        XDG_CONFIG_HOME: configHome,
+        JSN_NO_VERSION_CHECK: '1',
+        JSN_NO_SKILL_CHECK: '1',
+        SERVICENOW_INSTANCE_URL: '',
+      };
+      for (const formatArgs of [['--json'], ['--format', 'styled']]) {
+        const result = spawnSync(process.execPath, [CLI, 'auth', 'status', '--profile', 'prod', '--instance', 'other.service-now.com', ...formatArgs], {
+          encoding: 'utf-8', cwd: path.resolve('.'), env,
+        });
+        assert.strictEqual(result.status, 2);
+        assert.strictEqual(result.stderr.includes('at resolveSession'), false);
+        assert.strictEqual(result.stderr.includes('Conflicting selectors'), formatArgs[0] === '--format');
+        if (formatArgs[0] === '--json') {
+          const envelope = JSON.parse(result.stdout);
+          assert.strictEqual(envelope.ok, false);
+          assert.strictEqual(envelope.code, 'usage_error');
+          assert.match(envelope.error, /Conflicting selectors/);
+        }
+      }
+    } finally {
+      fs.rmSync(configHome, { recursive: true, force: true });
+    }
+  });
+});
+
 // ─── Read-only profile guard (PR #144) ───
 
 describe('CLI E2E - Read-only profile guard', { skip: !INTEGRATION_ENABLED }, () => {

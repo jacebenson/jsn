@@ -256,5 +256,5 @@ export function guardExit(argv, opts) {
   const { stream, text } = guardError(argv, opts);
   if (stream === 'stdout') process.stdout.write(text);
   else process.stderr.write(text);
-  process.exit(1);
+  process.exit(opts.code === CodeUsage || opts.code === 'usage' ? 2 : 1);
 }

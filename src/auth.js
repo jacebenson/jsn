@@ -310,6 +310,10 @@ function normalizeAuthSource(value, fallback = 'unavailable') {
   return AUTH_SOURCES.has(value) ? value : fallback;
 }
 
+function sourceMethod(source) {
+  return { env_token: 'oauth', env_basic: 'basic', gck: 'gck' }[source] || null;
+}
+
 const PROBE_FAILURES = {
   missing_credentials: {
     message: 'Credentials are not available for this profile.',
@@ -596,6 +600,11 @@ export class AuthManager {
               source = 'unavailable';
               malformedMetadata = true;
             }
+            if (storedSource && isConfigured && sourceMethod(storedSource)
+              && sourceMethod(storedSource) !== configuredMethod) {
+              source = 'unavailable';
+              malformedMetadata = true;
+            }
           }
         }
       }
@@ -836,7 +845,7 @@ export class AuthManager {
 
     const text = await resp.text();
     if (!resp.ok) {
-      throw errAuth(`Token exchange failed (status ${resp.status}): ${text}`);
+      throw errAuth(`Token exchange failed (status ${resp.status})`);
     }
 
     const tokenResp = JSON.parse(text);
@@ -870,8 +879,8 @@ export class AuthManager {
     });
 
     if (!resp.ok) {
-      const text = await resp.text();
-      throw errAuth(`Token refresh failed: ${text}`);
+      await resp.text();
+      throw errAuth(`Token refresh failed (status ${resp.status})`);
     }
 
     const tokenResp = await resp.json();

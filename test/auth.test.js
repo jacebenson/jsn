@@ -993,6 +993,46 @@ describe('unconfigured environment authentication', () => {
 });
 
 describe('AuthManager refresh lifecycle blockers', () => {
+  it('redacts provider response bodies from OAuth exchange failures', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const originalFetch = globalThis.fetch;
+    const secret = 'access-token=do-not-leak';
+    globalThis.fetch = async () => ({ ok: false, status: 400, text: async () => `{"error":"invalid_grant","detail":"${secret}"}` });
+    try {
+      const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => 'https://exchange.example.com' }, {
+        credentialStore: { load: () => null, save() {}, delete() {} },
+      });
+      await assert.rejects(
+        () => auth.exchangeCode('https://exchange.example.com', 'client', 'code', { code_verifier: 'verifier' }),
+        (error) => error.code === 'auth_error'
+          && error.message.includes('status 400')
+          && !error.message.includes(secret)
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('redacts provider response bodies from OAuth refresh failures', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const originalFetch = globalThis.fetch;
+    const secret = 'refresh-token=do-not-leak';
+    globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => `{"error":"invalid_grant","detail":"${secret}"}` });
+    try {
+      const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => 'https://refresh.example.com' }, {
+        credentialStore: { load: () => null, save() {}, delete() {} },
+      });
+      await assert.rejects(
+        () => auth.refreshToken('https://refresh.example.com', { auth_method: 'oauth', refresh_token: 'old-refresh' }),
+        (error) => error.code === 'auth_error'
+          && error.message.includes('status 401')
+          && !error.message.includes(secret)
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('saves refreshed OAuth credentials under the target profile username', async () => {
     const { AuthManager } = await import('../src/auth.js');
     const originalFetch = globalThis.fetch;
@@ -1137,6 +1177,22 @@ describe('AuthManager authenticated probe seam', () => {
 });
 
 describe('AuthManager configured auth source precedence', () => {
+  it('marks a stored source from another method unavailable and malformed', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://configured-basic-source.example.com',
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'basic', auth_source: 'gck', username: 'alice', password: 'password' }),
+      save() {}, delete() {},
+    } });
+
+    assert.deepStrictEqual(auth.getAuthState('https://configured-basic-source.example.com'), {
+      auth_method: 'basic', auth_source: 'unavailable', state: 'malformed',
+    });
+  });
+
   it('does not report stored OAuth source when basic is explicitly configured', async () => {
     const { AuthManager } = await import('../src/auth.js');
     const auth = new AuthManager({

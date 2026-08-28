@@ -168,15 +168,19 @@ export function buildCLI() {
       // / app._overrideInstance change — no more argv._overrideInstance mirror
       // or duplicated --instance branches across middlewares.
       (argv) => {
-        const session = resolveSession(argv, cfg);
-        if (session.unknownProfile) {
-          guardExit(argv, {
-            code: 'unknown_profile',
-            message: `Unknown profile "${session.unknownProfile}"`,
-            hint: 'Run "jsn auth status" to list profiles.',
-          });
+        try {
+          const session = resolveSession(argv, cfg);
+          if (session.unknownProfile) {
+            guardExit(argv, {
+              code: 'unknown_profile',
+              message: `Unknown profile "${session.unknownProfile}"`,
+              hint: 'Run "jsn auth status" to list profiles.',
+            });
+          }
+          applySession(app, session);
+        } catch (err) {
+          guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });
         }
-        applySession(app, session);
       },
       // Guard mutation commands: require an instance, block read-only profiles
       (argv) => {
