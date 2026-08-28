@@ -661,6 +661,71 @@ describe('AuthManager credential store boundary', () => {
   });
 });
 
+describe('unconfigured environment authentication', () => {
+  async function withEnv(values, fn) {
+    const previous = {};
+    for (const [key, value] of Object.entries(values)) {
+      previous[key] = process.env[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try {
+      await fn();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  it('resolves unconfigured OAuth env credentials through AuthManager and SDK', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const { SDKClient } = await import('../src/sdk.js');
+    const instance = 'https://env-oauth.example.com';
+    await withEnv({ SERVICENOW_OAUTH_TOKEN: 'oauth-token', SN_USERNAME: undefined, SN_PASSWORD: undefined }, async () => {
+      const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => instance }, {
+        credentialStore: { load: () => null, save() {}, delete() {} },
+      });
+      assert.strictEqual(auth.isAuthenticated(), true);
+      assert.deepStrictEqual(await auth.getCredentials(), {
+        auth_method: 'oauth', access_token: 'oauth-token', auth_source: 'env_token',
+      });
+      const sdk = new SDKClient(instance, auth);
+      assert.deepStrictEqual(await sdk.authProvider.getCredentials(), await auth.getCredentials());
+    });
+  });
+
+  it('resolves unconfigured Basic env credentials when OAuth is absent', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = 'https://env-basic.example.com';
+    await withEnv({ SERVICENOW_OAUTH_TOKEN: undefined, SN_USERNAME: 'env-user', SN_PASSWORD: 'env-pass' }, async () => {
+      const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => instance }, {
+        credentialStore: { load: () => null, save() {}, delete() {} },
+      });
+      assert.strictEqual(auth.isAuthenticated(), true);
+      assert.deepStrictEqual(await auth.getCredentialsFor(instance), {
+        auth_method: 'basic', username: 'env-user', password: 'env-pass', auth_source: 'env_basic',
+      });
+    });
+  });
+
+  it('ignores conflicting environment methods for an explicitly configured profile', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = 'https://configured-gck.example.com';
+    await withEnv({ SERVICENOW_OAUTH_TOKEN: 'oauth-token', SN_USERNAME: 'env-user', SN_PASSWORD: 'env-pass' }, async () => {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'gck',
+      }, { credentialStore: { load: () => null, save() {}, delete() {} } });
+      assert.strictEqual(auth.isAuthenticated(), false);
+      assert.strictEqual(auth.isAuthenticatedFor(instance, { authMethod: 'gck' }), false);
+      assert.strictEqual(auth.getAuthState(instance, { authMethod: 'gck' }).auth_source, 'unavailable');
+    });
+  });
+});
+
 describe('AuthManager authenticated probe seam', () => {
   it('reports a successful read-only probe without exposing the current user', async () => {
     const { AuthManager } = await import('../src/auth.js');

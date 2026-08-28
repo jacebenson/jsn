@@ -653,10 +653,12 @@ export class AuthManager {
 
   getCredentialsFor(instance, username = this._activeUsername(), options = {}) {
     const method = this._selectedMethod(options);
-    if (method === 'oauth' && process.env.SERVICENOW_OAUTH_TOKEN) {
+    // With no configured method, preserve the legacy environment precedence:
+    // OAuth token first, then Basic credentials, then stored credentials.
+    if ((method === 'unconfigured' || method === 'oauth') && process.env.SERVICENOW_OAUTH_TOKEN) {
       return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN, auth_source: 'env_token' };
     }
-    if (method === 'basic') {
+    if (method === 'unconfigured' || method === 'basic') {
       const basicCreds = getBasicAuthFromEnv(instance);
       if (basicCreds) return basicCreds;
     }

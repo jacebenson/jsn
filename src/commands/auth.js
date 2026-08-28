@@ -302,7 +302,11 @@ export async function loginWizard(app, argv = {}) {
       try {
         const domainsMod = await import('./dev/domains.js');
         const sdk = app.getSDKForProfile
-          ? app.getSDKForProfile(instance, { profile })
+          ? app.getSDKForProfile(instance, {
+            profile,
+            authMethod: profile.auth_method || 'oauth',
+            username: profile.username,
+          })
           : app.sdk;
         profile.domain_separation = await domainsMod.isDomainSeparationInstalled({ sdk });
         await setProfile(app.config, profileName, profile);
@@ -608,9 +612,22 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // Verify auth by fetching current user
             let username = '';
             try {
-              if (!app.sdk || targetUsername) {
+              const activeName = app.config.activeProfile || app.config.defaultProfile;
+              const activeProfile = app.config.profiles?.[activeName];
+              const activeInstance = app.getEffectiveInstance?.() || activeProfile?.instance_url || '';
+              const activeUsername = activeProfile?.username || '';
+              const activeMethod = activeProfile?.auth_method || '';
+              const targetMethod = useBasic ? 'basic' : 'oauth';
+              const targetDiffers = instanceURL !== activeInstance
+                || targetUsername !== activeUsername
+                || targetMethod !== activeMethod;
+              if (!app.sdk || targetDiffers) {
                 app.sdk = app.getSDKForProfile
-                  ? app.getSDKForProfile(instanceURL, { authMethod: useBasic ? 'basic' : 'oauth', username: targetUsername })
+                  ? app.getSDKForProfile(instanceURL, {
+                    authMethod: targetMethod,
+                    username: targetUsername,
+                    profile: targetProfile,
+                  })
                   : app.sdk;
               }
               const user = await app.sdk.getCurrentUser();
@@ -835,7 +852,17 @@ Examples:
               }
             }
 
-            const creds = await app.auth.getCredentialsFor(instanceURL);
+            const targetProfile = Object.values(app.config.profiles || {})
+              .find(profile => profile.instance_url === instanceURL);
+            const targetAuthOptions = {
+              authMethod: targetProfile?.auth_method || 'oauth',
+              username: targetProfile?.username,
+            };
+            const creds = await app.auth.getCredentialsFor(
+              instanceURL,
+              targetProfile?.username,
+              targetAuthOptions
+            );
             const refreshed = await app.auth.refreshToken(instanceURL, creds);
 
             // Re-probe domain separation on refresh so the capability flag
@@ -843,7 +870,10 @@ Examples:
             try {
               const { isDomainSeparationInstalled } = await import('./dev/domains.js');
               const sdk = app.getSDKForProfile
-                ? app.getSDKForProfile(instanceURL, { authMethod: 'oauth' })
+                ? app.getSDKForProfile(instanceURL, {
+                  ...targetAuthOptions,
+                  profile: targetProfile,
+                })
                 : app.sdk;
               const hasDS = await isDomainSeparationInstalled({ sdk });
               const name = app.config.activeProfile || app.config.defaultProfile;
