@@ -54,6 +54,55 @@ describe('performance capture execution seam', () => {
 });
 
 describe('performance capture storage', () => {
+  it('releases the capture lock when persistence setup fails', async () => {
+    const { captureRun, getPerfDir } = await import('../src/perf.js');
+    const perfDir = getPerfDir();
+    fs.mkdirSync(perfDir, { recursive: true });
+    fs.mkdirSync(path.join(perfDir, 'perf.db'));
+
+    await assert.rejects(
+      captureRun({ sdk: sdkFor(), instance: 'https://dev.example', profile: 'admin' }),
+      /directory|database/i,
+    );
+
+    fs.rmSync(path.join(perfDir, 'perf.db'), { recursive: true, force: true });
+    await assert.doesNotReject(
+      captureRun({ sdk: sdkFor(), instance: 'https://dev.example', profile: 'admin' }),
+    );
+  });
+
+  it('round-trips the capture snapshot and explicit run metadata exactly', async () => {
+    const { captureRun, getRun } = await import('../src/perf.js');
+    const run = await captureRun({
+      sdk: sdkFor(), instance: 'https://dev.example', profile: 'admin', username: 'admin',
+      label: 'before', options: { window: '1d', include: ['all'] },
+    });
+
+    assert.deepEqual(getRun(run.run_id), run);
+    assert.deepEqual({
+      label: run.label,
+      profile: run.profile,
+      instance: run.instance,
+      username: run.username,
+      command_options: run.command_options,
+      start_time: run.start_time,
+      finish_time: run.finish_time,
+      status: run.status,
+      capture_schema_version: run.capture_schema_version,
+    }, {
+      label: 'before',
+      profile: 'admin',
+      instance: 'https://dev.example',
+      username: 'admin',
+      command_options: { window: '1d', include: ['all'] },
+      start_time: run.start_time,
+      finish_time: run.finish_time,
+      status: 'complete',
+      capture_schema_version: 1,
+    });
+    assert.deepEqual(run.collectors.map(({ name, status, reason, start_time, finish_time, data }) => ({ name, status, reason, start_time, finish_time, data })), getRun(run.run_id).collectors);
+  });
+
   it('creates a durable complete run with metadata and independent collectors', async () => {
     const { captureRun, getRun, listRuns } = await import('../src/perf.js');
     const run = await captureRun({ sdk: sdkFor(), instance: 'https://dev.example', profile: 'admin', username: 'admin', label: 'before' });

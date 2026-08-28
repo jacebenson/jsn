@@ -95,13 +95,13 @@ export function acquireCaptureLock(profile, instance, opts = {}) {
 export async function captureRun({ sdk, instance, profile = '', username = '', label = '', options = {} }) {
   if (!sdk || !instance) throw new Error('An authenticated instance is required for perf capture');
   const lock = acquireCaptureLock(profile, instance);
-  const db = openPerfDb();
-  const start = new Date().toISOString();
-  const runId = nextRunId(db);
+  let db;
   try {
+    db = openPerfDb();
+    const start = new Date().toISOString();
+    const runId = nextRunId(db);
     const capture = await capturePerformance({ sdk, instance, profile, username, label, options });
-    const { collectors } = capture;
-    const { status } = capture;
+    const { collectors, status } = capture;
     const finish = new Date().toISOString();
     db.prepare(`INSERT INTO runs (run_id,label,profile,instance,username,command_options,start_time,finish_time,status,jsn_version,capture_schema_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .run(runId, label || null, profile || null, instance, username || null, JSON.stringify(options), start, finish, status, getVersion(), PERF_SCHEMA_VERSION);
@@ -110,7 +110,7 @@ export async function captureRun({ sdk, instance, profile = '', username = '', l
     save(collectors);
     return getRun(runId, db);
   } finally {
-    closePerfDb(db);
+    if (db) closePerfDb(db);
     lock.release();
   }
 }
