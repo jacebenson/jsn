@@ -73,6 +73,18 @@ describe('performance capture storage', () => {
   });
 });
 
+describe('performance formatter', () => {
+  it('shows captured metric details in the default view', async () => {
+    const { formatRunDetailed } = await import('../src/perf.js');
+    const output = formatRunDetailed({
+      run_id: 'RUN1', label: 'before', status: 'complete', instance: 'https://dev.example', profile: 'admin', start_time: '2026-08-28T00:00:00Z',
+      collectors: [{ name: 'transactions', status: 'success', reason: null, data: { metrics: { transaction_types: [{ type: 'rest', count: 4, avg_response_time_ms: 12, max_response_time_ms: 30 }] } } }],
+    });
+    assert.match(output, /CAPTURED DETAILS/);
+    assert.match(output, /rest: 4 requests, avg 12 ms, max 30 ms/);
+  });
+});
+
 describe('performance comparison', () => {
   it('marks missing metrics unavailable and does not calculate a delta', async () => {
     const { compareRuns } = await import('../src/perf.js');

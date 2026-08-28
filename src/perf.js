@@ -279,6 +279,41 @@ export function formatRun(run) {
   return `${lines.join('\n')}\n`;
 }
 
+export function formatRunDetailed(run) {
+  const lines = [`Run ${run.run_id}${run.label ? ` (${run.label})` : ''}`, `Status: ${run.status}`, `Instance: ${run.instance}`, `Profile: ${run.profile || 'default'}`, `Started: ${run.start_time}`, 'COLLECTOR                 STATUS             REASON'];
+  for (const c of run.collectors) lines.push(`${c.name.padEnd(25)} ${c.status.padEnd(18)} ${c.reason || ''}`);
+  lines.push('', 'CAPTURED DETAILS');
+  for (const c of run.collectors) {
+    lines.push(`  ${c.name}`);
+    if (c.status !== 'success' || !c.data) {
+      lines.push(`    ${c.reason || 'No data captured'}`);
+      continue;
+    }
+    const metrics = c.data.metrics || {};
+    if (c.name === 'transactions') {
+      for (const row of metrics.transaction_types || []) lines.push(`    ${row.type}: ${row.count ?? 'unavailable'} requests, avg ${row.avg_response_time_ms ?? 'unavailable'} ms, max ${row.max_response_time_ms ?? 'unavailable'} ms`);
+    } else if (c.name === 'platform_health') {
+      lines.push(`    Nodes: ${metrics.node_count ?? 'unavailable'}`);
+      for (const node of metrics.nodes || []) lines.push(`    ${node.status || '?'} node ${node.sys_id || ''}: queue ${node.stats?.queue?.length ?? 'unavailable'}, sessions ${node.stats?.active_sessions ?? 'unavailable'}`);
+    } else if (c.name === 'error_warning_summary') {
+      const totals = {};
+      for (const row of metrics.log_groups || []) totals[row.severity || 'unknown'] = (totals[row.severity || 'unknown'] || 0) + (row.count || 0);
+      lines.push(`    Groups: ${(metrics.log_groups || []).length}, by severity: ${Object.entries(totals).map(([severity, count]) => `${severity}=${count}`).join(', ') || 'none'}`);
+    } else if (c.name === 'flow_executions') {
+      for (const row of metrics.flow_states || []) lines.push(`    ${row.state}: ${row.count ?? 'unavailable'} executions, avg ${row.avg_duration ?? 'unavailable'} ms`);
+    } else if (c.name === 'event_queue') {
+      lines.push(`    States: ${(metrics.event_queue || []).length}`);
+      for (const row of metrics.event_queue || []) lines.push(`    ${row.groupby_fields?.[0]?.value || 'unknown'}: ${row.stats?.count ?? 'unavailable'}`);
+    } else if (metrics.counts) {
+      for (const [name, value] of Object.entries(metrics.counts)) lines.push(`    ${name}: ${value ?? 'unavailable'}`);
+    } else {
+      lines.push(`    ${JSON.stringify(metrics)}`);
+    }
+  }
+  const newline = String.fromCharCode(10);
+  return lines.join(newline) + newline;
+}
+
 export function formatRunList(runs) {
   const lines = ['RUN ID                     STATUS      LABEL                 INSTANCE'];
   lines.push('-------------------------  ----------  --------------------  ------------------------------');
