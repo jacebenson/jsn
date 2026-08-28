@@ -1,11 +1,39 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 /**
  * Each test gets its own instance URL so keyring entries never collide.
  * secret-tool is available on this system and doesn't respect XDG_CONFIG_HOME.
  */
 let testCounter = 0;
+let originalPath;
+let originalConfigHome;
+let testConfigHome;
+
+function hermeticizeCredentialBackend() {
+  originalPath = process.env.PATH;
+  originalConfigHome = process.env.XDG_CONFIG_HOME;
+  testConfigHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-auth-creds-'));
+  // Force the production store's normal keyring attempt to fail before it
+  // can reach a developer's real libsecret collection. The file fallback is
+  // isolated in a temporary XDG config directory.
+  process.env.PATH = testConfigHome;
+  process.env.XDG_CONFIG_HOME = testConfigHome;
+}
+
+function restoreCredentialBackend() {
+  process.env.PATH = originalPath;
+  if (originalConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = originalConfigHome;
+  fs.rmSync(testConfigHome, { recursive: true, force: true });
+}
+
+before(hermeticizeCredentialBackend);
+after(restoreCredentialBackend);
+
 function uniqueInstance() {
   testCounter++;
   return `https://jsn-test-${testCounter}-${Date.now()}.service-now.com`;

@@ -718,8 +718,12 @@ Examples:
               const isAuth = app.auth.isAuthenticatedFor(instance);
               const lastSeen = app.auth.getLastSeen(instance);
               const authState = app.auth.getAuthState(instance);
-              const authSource = isAuth ? authState.auth_source : null;
               const legacy = !isAuth && app.auth.hasLegacyCredentials(instance) ? true : undefined;
+              // Keep the established status field contract: unauthenticated
+              // profiles omit auth_source, except legacy credentials retain
+              // their historical `legacy` marker. getAuthState remains the
+              // safe metadata seam for authenticated profiles.
+              const authSource = isAuth ? authState.auth_source : (legacy ? 'legacy' : undefined);
 
               // Try live verification
               let verified = null;

@@ -178,7 +178,41 @@ describe('Auth Command Handlers', () => {
     await statusCmd.handler({ app, _: ['status'] });
     assert.strictEqual(authStateCalls, 1);
     assert.strictEqual(output[0].profiles[0].legacy, true);
-    assert.strictEqual(output[0].profiles[0].auth_source, null);
+    assert.strictEqual(output[0].profiles[0].auth_source, 'legacy');
+  });
+
+  it('auth status omits auth_source for unauthenticated non-legacy profiles', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const instance = 'https://missing-status.example.com';
+    const output = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { missing: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => false,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'unavailable', state: 'missing' }),
+        hasLegacyCredentials: () => false,
+      },
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+    assert.strictEqual(JSON.stringify(output[0].profiles[0]).includes('auth_source'), false);
   });
 
   it('auth refresh should call refreshToken', async () => {
