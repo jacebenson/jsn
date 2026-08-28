@@ -252,25 +252,6 @@ function saveCredentials(instance, creds, username) {
 }
 
 /**
- * Get the last_seen timestamp for an instance, if available.
- */
-function getLastSeen(instance, username) {
-  const creds = loadCredentials(instance, username);
-  if (!creds || !creds.last_seen) return null;
-  return creds.last_seen;
-}
-
-/**
- * Update the last_seen timestamp for an instance to now.
- */
-function touchLastSeen(instance, username) {
-  const creds = loadCredentials(instance, username);
-  if (!creds) return;
-  creds.last_seen = Math.floor(Date.now() / 1000);
-  saveCredentials(instance, creds, username);
-}
-
-/**
  * Delete credentials for an instance keyed by <username>@<instance>.
  */
 function deleteCredentials(instance, username) {
@@ -282,6 +263,12 @@ function deleteCredentials(instance, username) {
     // ignore
   }
 }
+
+const defaultCredentialStore = {
+  load: loadCredentials,
+  save: saveCredentials,
+  delete: deleteCredentials,
+};
 
 function askHidden(promptText) {
   return passwordPrompt({ message: promptText });
@@ -360,8 +347,11 @@ export class AuthManager {
    *   Transitional back-compat: a legacy configProvider ({ config, ...
    *   getEffectiveInstance() }) is adapted to the identity surface, so the
    *   existing test fixtures (which predate the session) keep working.
+   * @param {object} options
+   * @param {object} options.credentialStore — optional load/save/delete adapter;
+   *   defaults to the OS keyring with file fallback.
    */
-  constructor(identity) {
+  constructor(identity, { credentialStore = defaultCredentialStore } = {}) {
     if (identity && identity.config && typeof identity.getUsername !== 'function') {
       const provider = identity;
       this.identity = {
@@ -380,6 +370,7 @@ export class AuthManager {
     } else {
       this.identity = identity;
     }
+    this.credentialStore = credentialStore;
     this.httpClient = { timeout: 30000 };
   }
 
@@ -393,11 +384,16 @@ export class AuthManager {
   }
 
   getLastSeen(instance) {
-    return getLastSeen(instance, this._activeUsername());
+    const creds = this.credentialStore.load(instance, this._activeUsername());
+    return creds?.last_seen || null;
   }
 
   touchLastSeen(instance) {
-    return touchLastSeen(instance, this._activeUsername());
+    const username = this._activeUsername();
+    const creds = this.credentialStore.load(instance, username);
+    if (!creds) return;
+    creds.last_seen = Math.floor(Date.now() / 1000);
+    this.credentialStore.save(instance, creds, username);
   }
 
   /**
@@ -407,13 +403,13 @@ export class AuthManager {
    */
   hasLegacyCredentials(instance) {
     if (!instance) return false;
-    const bareCreds = loadCredentials(instance);
+    const bareCreds = this.credentialStore.load(instance);
     if (!bareCreds) return false;
     // If active profile has a username, the bare key won't be found
     // by loadCredentials(instance, username). That's the legacy case.
     const username = this._activeUsername();
     if (!username) return false; // No username set — bare key IS the active path
-    const userCreds = loadCredentials(instance, username);
+    const userCreds = this.credentialStore.load(instance, username);
     return !!bareCreds && !userCreds;
   }
 
@@ -426,7 +422,7 @@ export class AuthManager {
   getAuthSource(instance) {
     if (process.env.SERVICENOW_OAUTH_TOKEN) return 'env_token';
     if (getBasicAuthFromEnv(instance)) return 'env_basic';
-    const creds = loadCredentials(instance, this._activeUsername());
+    const creds = this.credentialStore.load(instance, this._activeUsername());
     if (!creds) return null;
     // New creds have auth_source; older ones only have auth_method
     const source = normalizeAuthSource(creds.auth_source, '');
@@ -458,7 +454,7 @@ export class AuthManager {
         source = 'env_basic';
         credentials = basicCredentials;
       } else if (instance) {
-        credentials = loadCredentials(instance, this._activeUsername());
+        credentials = this.credentialStore.load(instance, this._activeUsername());
         if (credentials) {
           if (credentials.auth_method != null) {
             const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
@@ -508,7 +504,7 @@ export class AuthManager {
   isAuthenticatedFor(instance) {
     if (!instance) return false;
     if (getBasicAuthFromEnv(instance)) return true;
-    const creds = loadCredentials(instance, this._activeUsername());
+    const creds = this.credentialStore.load(instance, this._activeUsername());
     if (!creds) return false;
     if (creds.auth_method === 'basic') {
       return Boolean(creds.username && creds.password);
@@ -538,7 +534,7 @@ export class AuthManager {
     // Check basic auth from env vars first
     const basicCreds = getBasicAuthFromEnv(instance);
     if (basicCreds) return basicCreds;
-    const creds = loadCredentials(instance, username);
+    const creds = this.credentialStore.load(instance, username);
     if (!creds) {
       throw errAuth(`Not authenticated for ${instance}`);
     }
@@ -747,7 +743,7 @@ export class AuthManager {
     if (tokenResp.expires_in) {
       newCreds.expires_at = Math.floor(Date.now() / 1000) + tokenResp.expires_in;
     }
-    saveCredentials(instance, newCreds, creds.username);
+    this.credentialStore.save(instance, newCreds, creds.username);
     return newCreds;
   }
 
@@ -755,7 +751,7 @@ export class AuthManager {
     if (!instance) {
       throw errAuth('No instance specified');
     }
-    deleteCredentials(instance, this._activeUsername());
+    this.credentialStore.delete(instance, this._activeUsername());
   }
 
   /**
@@ -768,11 +764,11 @@ export class AuthManager {
    */
   migrateLegacyCredential(instance, username) {
     if (!instance || !username) return false;
-    const stored = loadCredentials(instance);
+    const stored = this.credentialStore.load(instance);
     if (!stored || !stored.access_token) return false;
     stored.username = username;
-    saveCredentials(instance, stored, username);
-    deleteCredentials(instance); // remove bare-instance legacy key
+    this.credentialStore.save(instance, stored, username);
+    this.credentialStore.delete(instance); // remove bare-instance legacy key
     return true;
   }
 }

@@ -317,17 +317,41 @@ describe('auth login method selection', () => {
 describe('AuthManager safe auth state seam', () => {
   let previousXdgConfigHome;
   let isolatedXdgConfigHome;
+  let credentialStore;
 
   beforeEach(() => {
     previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     isolatedXdgConfigHome = mkdtempSync(path.join(tmpdir(), 'jsn-auth-diagnostics-'));
     process.env.XDG_CONFIG_HOME = isolatedXdgConfigHome;
+    credentialStore = {
+      load: () => null,
+      save: () => { throw new Error('credential store save must not be called'); },
+      delete: () => { throw new Error('credential store delete must not be called'); },
+    };
   });
 
   afterEach(() => {
     if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
     rmSync(isolatedXdgConfigHome, { recursive: true, force: true });
+  });
+
+  it('uses the injected credential store instead of the OS keyring backend', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    let loads = 0;
+    credentialStore.load = () => {
+      loads += 1;
+      return { auth_method: 'oauth', access_token: 'test-token', auth_source: 'keyring' };
+    };
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://injected-store.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore });
+    assert.deepStrictEqual(auth.getAuthState('https://injected-store.example.com'), {
+      auth_method: 'oauth', auth_source: 'keyring', state: 'available',
+    });
+    assert.strictEqual(loads, 1);
   });
 
   it('classifies OAuth environment credentials without exposing the token', async () => {
@@ -338,7 +362,7 @@ describe('AuthManager safe auth state seam', () => {
       const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => 'https://oauth.example.com',
-      });
+      }, { credentialStore });
       const state = auth.getAuthState('https://oauth.example.com');
       assert.deepStrictEqual(state, {
         auth_method: 'oauth',
@@ -362,7 +386,7 @@ describe('AuthManager safe auth state seam', () => {
       const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => 'https://basic.example.com',
-      });
+      }, { credentialStore });
       const state = auth.getAuthState('https://basic.example.com');
       assert.deepStrictEqual(state, {
         auth_method: 'basic',
@@ -379,27 +403,24 @@ describe('AuthManager safe auth state seam', () => {
   });
 
   it('reports configured browser-session credentials as available without secrets', async () => {
-    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
     const instance = `https://gck-state-${Date.now()}.service-now.com`;
-    saveCredentials(instance, {
+    credentialStore.load = () => ({
       auth_method: 'gck',
+      auth_source: 'gck',
       access_token: 'secret-user-token',
       cookies: 'JSESSIONID=secret-cookie',
     });
-    try {
-      const auth = new AuthManager({
+    const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'gck',
-      });
+      }, { credentialStore });
       const state = auth.getAuthState(instance);
       assert.strictEqual(state.auth_method, 'gck');
       assert.strictEqual(state.auth_source, 'gck');
       assert.strictEqual(state.state, 'available');
       assert.strictEqual(JSON.stringify(state).includes('secret-cookie'), false);
-    } finally {
-      deleteCredentials(instance);
-    }
   });
 
   it('does not report OAuth when no authentication method is configured', async () => {
@@ -409,7 +430,7 @@ describe('AuthManager safe auth state seam', () => {
       getUsername: () => null,
       getEffectiveInstance: () => instance,
       getAuthMethod: () => null,
-    });
+    }, { credentialStore });
     const state = auth.getAuthState(instance);
     assert.strictEqual(state.auth_method, 'unconfigured');
     assert.strictEqual(state.state, 'missing');
@@ -429,7 +450,7 @@ describe('AuthManager safe auth state seam', () => {
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'oauth',
-      });
+      }, { credentialStore });
       auth.getAuthState(instance);
       assert.strictEqual(existsSync(path.join(xdg, 'servicenow', 'credentials')), false);
     } finally {
@@ -449,98 +470,82 @@ describe('AuthManager safe auth state seam', () => {
   });
 
   it('does not expose or accept an untrusted stored auth method', async () => {
-    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
     const instance = `https://untrusted-method-${Date.now()}.service-now.com`;
-    saveCredentials(instance, {
+    credentialStore.load = () => ({
       auth_method: 'password-secret',
       auth_source: 'token-secret',
       access_token: 'secret-access-token',
     });
-    try {
-      const auth = new AuthManager({
+    const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'oauth',
-      });
+      }, { credentialStore });
       assert.deepStrictEqual(auth.getAuthState(instance), {
         auth_method: 'oauth',
         auth_source: 'unavailable',
         state: 'malformed',
       });
-    } finally {
-      deleteCredentials(instance);
-    }
   });
 
   it('maps legacy credentials without a stored source to an allowlisted source', async () => {
-    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
     const instance = `https://legacy-source-${Date.now()}.service-now.com`;
-    saveCredentials(instance, {
+    credentialStore.load = () => ({
       auth_method: 'oauth',
       access_token: 'secret-access-token',
     });
-    try {
-      const auth = new AuthManager({
+    const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'oauth',
-      });
+      }, { credentialStore });
       const state = auth.getAuthState(instance);
       assert.ok(['keyring', 'file', 'unavailable'].includes(state.auth_source));
       assert.notStrictEqual(state.auth_source, 'stored');
       assert.strictEqual(state.state, 'available');
-    } finally {
-      deleteCredentials(instance);
-    }
   });
 
   it('normalizes an untrusted stored auth source as malformed', async () => {
-    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
     const instance = `https://untrusted-source-${Date.now()}.service-now.com`;
-    saveCredentials(instance, {
+    credentialStore.load = () => ({
       auth_method: 'oauth',
       auth_source: 'token-secret',
       access_token: 'secret-access-token',
     });
-    try {
-      const auth = new AuthManager({
+    const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'oauth',
-      });
+      }, { credentialStore });
       assert.deepStrictEqual(auth.getAuthState(instance), {
         auth_method: 'oauth',
         auth_source: 'unavailable',
         state: 'malformed',
       });
-    } finally {
-      deleteCredentials(instance);
-    }
   });
 
   it('keeps the configured method authoritative over disagreeing stored metadata', async () => {
-    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
     const instance = `https://configured-method-${Date.now()}.service-now.com`;
-    saveCredentials(instance, {
+    credentialStore.load = () => ({
       auth_method: 'basic',
       username: 'admin',
       password: 'secret-password',
       auth_source: 'file',
     });
-    try {
-      const auth = new AuthManager({
+    const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'oauth',
-      });
+      }, { credentialStore });
       assert.deepStrictEqual(auth.getAuthState(instance), {
         auth_method: 'oauth',
         auth_source: 'file',
         state: 'malformed',
       });
-    } finally {
-      deleteCredentials(instance);
-    }
   });
 });
 
