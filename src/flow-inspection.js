@@ -20,7 +20,7 @@ export async function inspectFlow({ adapter, identifier, instanceURL = '', depth
   return { ...inspection, _formatted: formatted };
 }
 
-export async function formatFlowInspection(inspection, ctx) {
+async function formatFlowInspection(inspection, ctx) {
   const lines = [];
   const instanceURL = ctx?.instanceURL || '';
   const flow = inspection.flow;
@@ -183,7 +183,9 @@ function inferFlowVersion(inspection) {
 }
 
 async function formatFlowStructure(inspection, ctx) {
-  const names = await collectCatalogVarNames(inspection, ctx);
+  const names = inspection.catalogVarNames instanceof Map
+    ? inspection.catalogVarNames
+    : new Map(Object.entries(inspection.catalogVarNames || {}));
   if (names.size > 0) {
     if (!ctx.catalogVarNames) ctx.catalogVarNames = new Map();
     for (const [k, v] of names) ctx.catalogVarNames.set(k, v);
@@ -240,89 +242,6 @@ function resolveGuidPills(value, labelCache) {
     const label = labelCache.get(`${guid}.${name}`);
     return label ? `{{${label}}}` : m;
   });
-}
-
-/**
- * ServiceNow serializes catalog variable selections in action inputs as
- * comma-separated "sys_id:table" pairs (e.g. Get Catalog Variables / Create
- * Catalog Task steps). The payload carries the source table on the parameter
- * attributes, but the value itself also names it in each token. Resolve those
- * sys_ids to readable labels (question_text, falling back to name) with one
- * batched Table API query per distinct table.
- */
-async function collectCatalogVarNames(inspection, ctx) {
-  const names = new Map();
-  if (!ctx?.sdk) return names;
-
-  const refs = new Map(); // table -> Set<sys_id>
-  const TOKEN_RE = /([0-9a-f]{32}):([a-z_]+)/g;
-
-  function addRefsFromValue(value) {
-    if (!value) return;
-    for (const m of String(value).matchAll(TOKEN_RE)) {
-      const [, id, table] = m;
-      if (!refs.has(table)) refs.set(table, new Set());
-      refs.get(table).add(id);
-    }
-  }
-
-  function walk(items) {
-    if (!Array.isArray(items)) return;
-    for (const item of items) {
-      if (!item || typeof item !== 'object') continue;
-      if (Array.isArray(item.inputs)) {
-        for (const input of item.inputs) {
-          if (!input || typeof input !== 'object') continue;
-          addRefsFromValue(firstNonEmpty(getStringField(input, 'displayValue'), getStringField(input, 'value')));
-        }
-      }
-      if (Array.isArray(item.flowBlock)) walk(item.flowBlock);
-    }
-  }
-
-  const payload = inspection?.payload;
-  if (payload && typeof payload === 'object') {
-    walk(payload.actionInstances);
-    if (Array.isArray(payload.flowLogicInstances)) {
-      for (const logic of payload.flowLogicInstances) walk(logic?.flowBlock);
-    }
-  }
-  // Fallback table sources may also carry inputs (e.g. decoded logic values)
-  walk(inspection?.actionInstances);
-  if (Array.isArray(inspection?.flowLogicInstances)) {
-    for (const logic of inspection.flowLogicInstances) {
-      if (logic?._decodedValues?.inputs) {
-        for (const input of logic._decodedValues.inputs) {
-          if (!input || typeof input !== 'object') continue;
-          addRefsFromValue(firstNonEmpty(getStringField(input, 'displayValue'), getStringField(input, 'value')));
-        }
-      }
-    }
-  }
-
-  for (const [table, ids] of refs) {
-    const idList = [...ids];
-    for (let i = 0; i < idList.length; i += 100) {
-      const chunk = idList.slice(i, i + 100);
-      try {
-        const params = new URLSearchParams();
-        params.set('sysparm_query', `sys_idIN${chunk.join(',')}`);
-        params.set('sysparm_fields', 'sys_id,name,question_text');
-        params.set('sysparm_display_value', 'all');
-        params.set('sysparm_limit', String(chunk.length));
-        const records = await ctx.sdk.list(table, params);
-        for (const r of records) {
-          const id = getStringField(r, 'sys_id');
-          const label = firstNonEmpty(getStringField(r, 'question_text'), getStringField(r, 'name'));
-          if (id && label) names.set(id, label);
-        }
-      } catch {
-        // resolution failed (no access, deleted record) — leave raw sys_ids
-      }
-    }
-  }
-
-  return names;
 }
 
 /**
@@ -588,7 +507,7 @@ function getActionName(action) {
   );
 }
 
-export function formatActionStep(stepNum, pad, action, ctx) {
+function formatActionStep(stepNum, pad, action, ctx) {
   const lines = [];
   let actionName = firstNonEmpty(
     getNestedString(action, 'actionType', 'fName'),
@@ -670,7 +589,7 @@ export function formatActionStep(stepNum, pad, action, ctx) {
   return lines;
 }
 
-export async function formatSubFlowStep(stepNum, pad, subFlow, ctx) {
+async function formatSubFlowStep(stepNum, pad, subFlow, ctx) {
   const lines = [];
   const subFlowName = firstNonEmpty(
     getNestedString(subFlow, 'subFlowType', 'fName'),

@@ -462,6 +462,14 @@ export class SDKClient {
       if (records) inspection.flowVariables = records;
     }
 
+    // Keep catalog-variable lookup behind the SDK adapter so the inspection
+    // renderer can retain its two-method seam.
+    Object.defineProperty(inspection, 'catalogVarNames', {
+      value: await collectCatalogVarNames(this, inspection),
+      enumerable: false,
+      configurable: true,
+    });
+
     return inspection;
   }
 
@@ -898,6 +906,57 @@ export function hydrateFlowBlocks(payload) {
       logic.flowBlock = children;
     }
   }
+}
+
+async function collectCatalogVarNames(sdk, inspection) {
+  const names = {};
+  const refs = new Map();
+  const tokenRe = /([0-9a-f]{32}):([a-z_]+)/g;
+  const add = (value) => {
+    if (!value) return;
+    for (const [, id, table] of String(value).matchAll(tokenRe)) {
+      if (!refs.has(table)) refs.set(table, new Set());
+      refs.get(table).add(id);
+    }
+  };
+  const walk = (items) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      for (const input of item.inputs || []) {
+        if (input && typeof input === 'object') add(getStringField(input, 'displayValue') || getStringField(input, 'value'));
+      }
+      walk(item.flowBlock);
+    }
+  };
+  const payload = inspection.payload;
+  if (payload && typeof payload === 'object') {
+    walk(payload.actionInstances);
+    for (const logic of payload.flowLogicInstances || []) walk(logic?.flowBlock);
+  }
+  walk(inspection.actionInstances);
+  for (const logic of inspection.flowLogicInstances || []) {
+    for (const input of logic?._decodedValues?.inputs || []) {
+      if (input && typeof input === 'object') add(getStringField(input, 'displayValue') || getStringField(input, 'value'));
+    }
+  }
+  for (const [table, ids] of refs) {
+    const params = new URLSearchParams();
+    params.set('sysparm_query', `sys_idIN${[...ids].join(',')}`);
+    params.set('sysparm_fields', 'sys_id,name,question_text');
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_limit', String(ids.size));
+    try {
+      for (const record of await sdk.list(table, params)) {
+        const id = getStringField(record, 'sys_id');
+        const label = getStringField(record, 'question_text') || getStringField(record, 'name');
+        if (id && label) names[id] = label;
+      }
+    } catch {
+      // Optional labels must never make flow inspection fail.
+    }
+  }
+  return names;
 }
 
 function parseOrderField(record) {

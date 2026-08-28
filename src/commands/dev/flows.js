@@ -3,6 +3,13 @@ import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts,
 import { declareCapabilities } from '../../capabilities.js';
 import { inspectFlow } from '../../flow-inspection.js';
 
+function flowInspectionAdapter(app) {
+  return {
+    inspectFlow: app.sdk.inspectFlow.bind(app.sdk),
+    inspectCustomAction: app.sdk.inspectCustomAction.bind(app.sdk),
+  };
+}
+
 declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete'], devAlias: true });
 
 export function flowsCmd(wrap) {
@@ -38,10 +45,7 @@ export function flowsCmd(wrap) {
             if (picked === undefined) return; // user cancelled
             if (picked) {
               const inspection = await inspectFlow({
-                adapter: {
-                  inspectFlow: app.sdk.inspectFlow.bind(app.sdk),
-                  inspectCustomAction: app.sdk.inspectCustomAction.bind(app.sdk),
-                },
+                adapter: flowInspectionAdapter(app),
                 identifier: getStringField(picked, 'sys_id'),
                 instanceURL: app.getEffectiveInstance(),
                 depth: argv.depth,
@@ -137,10 +141,7 @@ export function flowsCmd(wrap) {
             }),
           handler: wrap(async (argv, app) => {
             const inspection = await inspectFlow({
-              adapter: {
-                inspectFlow: app.sdk.inspectFlow.bind(app.sdk),
-                inspectCustomAction: app.sdk.inspectCustomAction.bind(app.sdk),
-              },
+              adapter: flowInspectionAdapter(app),
               identifier: argv.identifier,
               instanceURL: app.getEffectiveInstance(),
               depth: argv.depth,
@@ -201,5 +202,3 @@ export function flowsCmd(wrap) {
     },
   };
 }
-
-export { formatFlowInspection, formatActionStep, formatSubFlowStep } from '../../flow-inspection.js';

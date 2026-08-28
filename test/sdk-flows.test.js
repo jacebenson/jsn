@@ -157,377 +157,78 @@ test('hydrateFlowBlocks handles empty input', () => {
   assert.deepEqual(payload, {});
 });
 
-test('formatFlowInspection renders flow variables with labels and types', async () => {
-  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
-  const inspection = {
-    flow: { name: 'jace flow', active: true, version: '2', type: 'Flow', sysID: 'abc123' },
-    version: {},
-    payload: {},
-    triggerInstances: [],
-    actionInstances: [],
-    flowLogicInstances: [],
-    subFlowInstances: [],
-    flowInputs: [],
-    flowOutputs: [],
-    flowVariables: [
-      { name: 'food', label: 'food', type: 'string', type_label: 'String', order: 1 },
-      { name: 'quantity', label: 'quantity', type: 'integer', type_label: 'Integer', order: 2 },
-      { name: 'ordering_person', label: 'ordering person', type: 'reference', type_label: 'Reference', order: 3 },
-    ],
-  };
-  const output = await formatFlowInspection(inspection, { instanceURL: '', depth: 1, visited: new Set() });
-  assert.ok(output.includes('▶ FLOW VARIABLES'), 'section header present');
-  assert.ok(output.includes('• food: String'), 'food variable with type');
-  assert.ok(output.includes('• quantity: Integer'), 'quantity variable with type');
-  assert.ok(output.includes('• ordering person: Reference'), 'ordering person variable with type');
+
+
+const baseFlow = (name, payload = {}) => ({
+  flow: { name, active: true, version: '2', type: 'Flow', sysID: name },
+  version: {}, payload, triggerInstances: [], actionInstances: [], flowLogicInstances: [],
+  subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [],
 });
 
-test('formatFlowInspection omits variables section when none exist', async () => {
-  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
-  const inspection = {
-    flow: { name: 'plain', active: true, version: '2', type: 'Flow', sysID: 'abc123' },
-    version: {},
-    payload: {},
-    triggerInstances: [],
-    actionInstances: [],
-    flowLogicInstances: [],
-    subFlowInstances: [],
-    flowInputs: [],
-    flowOutputs: [],
-    flowVariables: [],
-  };
-  const output = await formatFlowInspection(inspection, { instanceURL: '', depth: 1, visited: new Set() });
-  assert.ok(!output.includes('FLOW VARIABLES'), 'no section when no variables');
-});
-
-test('formatSubFlowStep resolves parentFlow (real flow id) over subflowSysId (snapshot id)', async () => {
-  const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
-  const subFlow = {
-    subflowSysId: 'snapshot-123', // snapshot id — should NOT be used
-    subFlow: { parentFlow: 'flow-456', name: 'My Subflow' },
-    name: 'My Subflow',
-  };
-  let resolvedId = null;
-  const ctx = {
-    sdk: { inspectFlow: async (id) => { resolvedId = id; return { flow: { sysID: id }, payload: {} }; } },
-    instanceURL: 'https://x.service-now.com',
-    depth: 2,
-    visited: new Set(['parent-flow']),
-  };
-  const lines = await formatSubFlowStep(1, '', subFlow, ctx);
-  assert.equal(resolvedId, 'flow-456', 'should recurse into subFlow.parentFlow, not subflowSysId');
-  assert.ok(lines[0].includes('My Subflow'), 'first line names the subflow');
-});
-
-test('formatSubFlowStep shows hint at depth 1 instead of recursing', async () => {
-  const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
-  const subFlow = {
-    subflowSysId: 'snapshot-123',
-    subFlow: { parentFlow: 'flow-456', name: 'My Subflow' },
-    name: 'My Subflow',
-  };
-  let called = false;
-  const ctx = {
-    sdk: { inspectFlow: async () => { called = true; return {}; } },
-    instanceURL: 'https://x.service-now.com',
-    depth: 1,
-    visited: new Set(['parent-flow']),
-  };
-  const lines = await formatSubFlowStep(1, '', subFlow, ctx);
-  assert.equal(called, false, 'should not fetch at depth 1');
-  assert.ok(lines.some(l => l.includes('jsn flows show')), 'should show drill hint');
-});
-
-test('formatSubFlowStep guards against cycles via visited set', async () => {
-  const { formatSubFlowStep } = await import('../src/commands/dev/flows.js');
-  const subFlow = {
-    subflowSysId: 'snapshot-123',
-    subFlow: { parentFlow: 'flow-456', name: 'Loop Subflow' },
-    name: 'Loop Subflow',
-  };
-  let called = false;
-  const ctx = {
-    sdk: { inspectFlow: async () => { called = true; return {}; } },
-    instanceURL: 'https://x.service-now.com',
-    depth: 3,
-    visited: new Set(['flow-456']), // already visited → cycle
-  };
-  await formatSubFlowStep(1, '', subFlow, ctx);
-  assert.equal(called, false, 'should not re-fetch an already-visited subflow');
-});
-
-test('formatActionStep keeps long single-line values untruncated', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const longValue = 'x'.repeat(200);
-  const action = {
-    actionType: { fName: 'Create Record' },
-    inputs: [
-      { name: 'short_description', displayValue: longValue, value: longValue },
-    ],
-  };
-  const lines = formatActionStep(1, '', action);
-  const line = lines.find(l => l.includes('short_description'));
-  assert.ok(line.includes(longValue), 'long value should appear in full, not truncated');
-  assert.ok(!line.includes('...'), 'no ellipsis truncation');
-  assert.equal(lines.length, 2, 'name line + one value line');
-});
-
-test('formatActionStep splits carrot-separated fields onto separate lines', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Update Record' },
-    inputs: [
-      { name: 'fields', displayValue: 'state=7^work_notes=Auto-closing: No application found^priority=1', value: 'state=7^work_notes=Auto-closing: No application found^priority=1' },
-    ],
-  };
-  const lines = formatActionStep(1, '', action);
-  const fieldLines = lines.filter(l => l.includes('fields:'));
-  assert.equal(fieldLines.length, 3, 'each carrot field gets its own line');
-  assert.ok(fieldLines.some(l => l.includes('state=7')), 'first field present');
-  assert.ok(fieldLines.some(l => l.includes('work_notes=Auto-closing: No application found')), 'second field present, untruncated');
-  assert.ok(fieldLines.some(l => l.includes('priority=1')), 'third field present');
-});
-
-test('formatActionStep resolves catalog variable sys_ids to readable names', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Get Catalog Variables' },
-    inputs: [
-      {
-        name: 'catalog_variables',
-        displayValue: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new,03fc6fc29fa502100f8b65b23b0a1c29:item_option_new',
-        value: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new,03fc6fc29fa502100f8b65b23b0a1c29:item_option_new',
-        parameter: { label: 'Catalog Variables' },
-      },
-    ],
-  };
-  const ctx = {
-    catalogVarNames: new Map([
-      ['a524f7ca9fa502100f8b65b23b0a1cdb', 'Permission type'],
-      ['03fc6fc29fa502100f8b65b23b0a1c29', 'Application Name'],
-    ]),
-  };
-  const lines = formatActionStep(1, '', action, ctx);
-  const catalogLine = lines.find(l => l.includes('Catalog Variables:'));
-  assert.ok(catalogLine, 'catalog variables line present');
-  assert.ok(catalogLine.includes('Permission type'), 'first variable resolved to question_text');
-  assert.ok(catalogLine.includes('Application Name'), 'second variable resolved to question_text');
-  assert.ok(!catalogLine.includes('item_option_new'), 'raw sys_id pairs replaced');
-});
-
-test('formatActionStep keeps raw sys_ids when no resolver map exists', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Get Catalog Variables' },
-    inputs: [
-      {
-        name: 'catalog_variables',
-        displayValue: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new',
-        value: 'a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new',
-        parameter: { label: 'Catalog Variables' },
-      },
-    ],
-  };
-  const lines = formatActionStep(1, '', action); // no ctx
-  const catalogLine = lines.find(l => l.includes('Catalog Variables:'));
-  assert.ok(catalogLine.includes('a524f7ca9fa502100f8b65b23b0a1cdb:item_option_new'), 'raw pairs preserved without resolver');
-});
-
-test('formatActionStep leaves non-catalog values untouched even with resolver map', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Update Record' },
-    inputs: [
-      { name: 'short_description', displayValue: '{{Created_1.table_name}}', value: '{{Created_1.table_name}}' },
-    ],
-  };
-  const ctx = {
-    catalogVarNames: new Map([['a524f7ca9fa502100f8b65b23b0a1cdb', 'Permission type']]),
-  };
-  const lines = formatActionStep(1, '', action, ctx);
-  const line = lines.find(l => l.includes('short_description'));
-  assert.ok(line.includes('{{Created_1.table_name}}'), 'pills stay raw');
-  assert.ok(!line.includes('Permission type'), 'no catalog substitution on non-pair values');
-});
-
-test('formatActionStep resolves guid-prefixed pills via label cache', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Create Catalog Task' },
-    inputs: [
-      {
-        name: 'ah_fields',
-        displayValue: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}^description={{a1190b0a-ec10-45db-96b0-38f329306ed3.first_name}}',
-        value: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}^description={{a1190b0a-ec10-45db-96b0-38f329306ed3.first_name}}',
-      },
-    ],
-  };
-  const ctx = {
-    labelCache: new Map([
-      ['a1190b0a-ec10-45db-96b0-38f329306ed3.session_title', '1 - Get Catalog Variables➛session_title'],
-      ['a1190b0a-ec10-45db-96b0-38f329306ed3.first_name', '1 - Get Catalog Variables➛first_name'],
-    ]),
-  };
-  const lines = formatActionStep(1, '', action, ctx);
-  const fieldLines = lines.filter(l => l.includes('ah_fields:'));
-  assert.equal(fieldLines.length, 2, 'each carrot field gets its own line');
-  assert.ok(fieldLines[0].includes('1 - Get Catalog Variables➛session_title'), 'guid pill resolved to label');
-  assert.ok(fieldLines[1].includes('1 - Get Catalog Variables➛first_name'), 'second guid pill resolved');
-  assert.ok(!fieldLines[0].includes('a1190b0a-ec10-45db-96b0-38f329306ed3'), 'raw guid gone');
-});
-
-test('formatActionStep keeps guid pills raw when label cache is absent', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Create Catalog Task' },
-    inputs: [
-      {
-        name: 'ah_fields',
-        displayValue: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}',
-        value: 'short_description=Session: {{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}',
-      },
-    ],
-  };
-  const lines = formatActionStep(1, '', action); // no ctx
-  const fieldLine = lines.find(l => l.includes('ah_fields:'));
-  assert.ok(fieldLine.includes('{{a1190b0a-ec10-45db-96b0-38f329306ed3.session_title}}'), 'guid pill preserved without cache');
-});
-
-test('formatActionStep resolves only guid pills, leaves readable step refs raw', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const action = {
-    actionType: { fName: 'Create Catalog Task' },
-    inputs: [
-      {
-        name: 'ah_fields',
-        displayValue: 'requested_item={{Service Catalog_1.request_item}}^track={{a1190b0a-ec10-45db-96b0-38f329306ed3.track}}',
-        value: 'requested_item={{Service Catalog_1.request_item}}^track={{a1190b0a-ec10-45db-96b0-38f329306ed3.track}}',
-      },
-    ],
-  };
-  const ctx = {
-    labelCache: new Map([
-      ['a1190b0a-ec10-45db-96b0-38f329306ed3.track', '1 - Get Catalog Variables➛track'],
-    ]),
-  };
-  const lines = formatActionStep(1, '', action, ctx);
-  const fieldLines = lines.filter(l => l.includes('ah_fields:'));
-  const joined = fieldLines.join('\n');
-  assert.ok(joined.includes('{{Service Catalog_1.request_item}}'), 'readable step ref stays raw');
-  assert.ok(joined.includes('1 - Get Catalog Variables➛track'), 'guid pill resolved');
-  assert.ok(!joined.includes('a1190b0a-ec10-45db-96b0-38f329306ed3'), 'guid gone from resolved pill');
-});
-
-test('formatActionStep renders unset inputs instead of hiding them', async () => {
-  const { formatActionStep } = await import('../src/commands/dev/flows.js');
-  const lines = formatActionStep(1, '', {
-    actionType: { fName: 'Create Flow Data' },
-    inputs: [
-      { name: 'definition', displayValue: 'Update Record', parameter: { label: 'Definition' } },
-      { name: 'assigned_to', value: '', parameter: { label: 'Assigned To' } },
-      { name: 'wait', displayValue: 'No', parameter: { label: 'Wait for user input' } },
-      { name: 'assignment_group', value: '', parameter: { label: 'Assignment group' } },
-      { name: 'state', displayValue: 'In Progress', parameter: { label: 'State' } },
-    ],
-  });
-  assert.deepEqual(lines, [
-    '1. Create Flow Data',
-    '    Definition: Update Record',
-    '    Assigned To: (not set)',
-    '    Wait for user input: No',
-    '    Assignment group: (not set)',
-    '    State: In Progress',
-  ]);
-});
-test('formatFlowInspection expands custom action steps as numbered recipes', async () => {
-  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
-  const inspection = {
-    flow: { name: 'Uses custom action', active: true, version: '2', type: 'Flow', sysID: 'flow-1' },
-    version: {},
-    payload: {
-      actionInstances: [{
-        actionType: { fName: 'Call controller' },
-        order: 1,
-      }],
-    },
-    triggerInstances: [],
-    actionInstances: [],
-    flowLogicInstances: [],
-    subFlowInstances: [],
-    flowInputs: [],
-    flowOutputs: [],
-    flowVariables: [],
-  };
-  const output = await formatFlowInspection(inspection, {
-    depth: 2,
-    visited: new Set(['flow-1']),
-    sdk: {
-      inspectCustomAction: async (name) => {
-        assert.equal(name, 'Call controller');
-        return { steps: [
-          { label: 'Call jace.pro/rest', step_type: { display_value: 'REST' }, order: 2 },
-          { label: 'Transform response', step_type: { display_value: 'Transform' }, order: 3 },
-          { label: 'Run cleanup script', step_type: { display_value: 'Script' }, order: 1 },
-        ] };
-      },
-    },
-  });
-  assert.match(output, /Step 1: Run cleanup script - Script/);
-  assert.match(output, /Step 2: Call jace\.pro\/rest - REST/);
-  assert.match(output, /Step 3: Transform response - Transform/);
-  assert.match(output, /Internal action steps/);
-});
-
-test('formatFlowInspection hides redundant built-in action internals', async () => {
-  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
-  const output = await formatFlowInspection({
-    flow: { name: 'Built-in flow', active: true, type: 'Flow', sysID: 'flow-3' },
-    version: {}, payload: { actionInstances: [{ actionType: { fName: 'Update Record' }, order: 1 }] },
-    triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [],
-    flowInputs: [], flowOutputs: [], flowVariables: [],
-  }, {
-    depth: 2,
-    visited: new Set(['flow-3']),
-    sdk: { inspectCustomAction: async () => ({ steps: [
-      { label: 'Update Record step', step_type: { display_value: 'Update Record' }, order: 1 },
-    ] }) },
-  });
-  assert.doesNotMatch(output, /Internal action steps/);
-});
-
-test('formatFlowInspection does not fetch custom action steps at depth 1', async () => {
-  const { formatFlowInspection } = await import('../src/commands/dev/flows.js');
-  let called = false;
-  const output = await formatFlowInspection({
-    flow: { name: 'Shallow flow', active: true, type: 'Flow', sysID: 'flow-2' },
-    version: {}, payload: { actionInstances: [{ actionType: { fName: 'Hidden details' }, order: 1 }] },
-    triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [],
-    flowInputs: [], flowOutputs: [], flowVariables: [],
-  }, {
-    depth: 1,
-    visited: new Set(['flow-2']),
-    sdk: { inspectCustomAction: async () => { called = true; return { steps: [] }; } },
-  });
-  assert.equal(called, false);
-  assert.doesNotMatch(output, /CUSTOM ACTION STEPS/);
-});
-
-test('inspectFlow is the deep public seam for remote inspection and rendering', async () => {
-  const { inspectFlow } = await import('../src/flow-inspection.js');
+async function inspectPublic(inspection, { depth = 2, nested = new Map(), customAction, catalogVarNames } = {}) {
   const calls = [];
   const adapter = {
     inspectFlow: async (identifier) => {
       calls.push(identifier);
-      return {
-        flow: { name: identifier, active: true, type: 'Flow', sysID: identifier },
-        version: {}, payload: {}, triggerInstances: [], actionInstances: [],
-        flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [],
-      };
+      if (identifier === inspection.flow.sysID) return { ...inspection, catalogVarNames };
+      if (nested.has(identifier)) {
+        const value = nested.get(identifier);
+        if (value instanceof Error) throw value;
+        return value;
+      }
+      throw new Error(`missing fixture: ${identifier}`);
     },
-    inspectCustomAction: async () => ({ steps: [] }),
+    inspectCustomAction: async (identifier) => customAction?.(identifier),
   };
-  const result = await inspectFlow({ adapter, identifier: 'flow-1', instanceURL: 'https://example.service-now.com', depth: 0 });
-  assert.deepEqual(calls, ['flow-1']);
-  assert.equal(result.flow.name, 'flow-1');
-  assert.match(result._formatted, /https:\/\/example\.service-now\.com\/sys_hub_flow\.do\?sys_id=flow-1/);
+  const { inspectFlow } = await import('../src/flow-inspection.js');
+  return { result: await inspectFlow({ adapter, identifier: inspection.flow.sysID, instanceURL: 'https://example.service-now.com', depth }), calls };
+}
+
+test('public inspection seam propagates a missing root unchanged', async () => {
+  const { inspectFlow } = await import('../src/flow-inspection.js');
+  const error = Object.assign(new Error('flow not found: missing'), { code: 'not_found' });
+  await assert.rejects(() => inspectFlow({ adapter: { inspectFlow: async () => { throw error; } }, identifier: 'missing' }), (actual) => actual === error);
+});
+
+test('public inspection seam degrades nested subflow failures inline', async () => {
+  const parent = baseFlow('parent', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
+  const { result } = await inspectPublic(parent, { nested: new Map([['child', new Error('permission denied')]]) });
+  assert.match(result._formatted, /could not load subflow: permission denied/);
+});
+
+test('public inspection seam reuses custom-action results for repeated references', async () => {
+  let count = 0;
+  const flow = baseFlow('root', { actionInstances: [
+    { order: 1, actionType: { fName: 'Shared action' } },
+    { order: 2, actionType: { fName: 'Shared action' } },
+  ] });
+  const { result } = await inspectPublic(flow, { customAction: async () => { count++; return { steps: [{ label: 'Do useful work', order: 1 }] }; } });
+  assert.equal(count, 1);
+  assert.equal((result._formatted.match(/Internal action steps/g) || []).length, 2);
+});
+
+test('public inspection seam observes depth-one hints and cycle prevention', async () => {
+  const flow = baseFlow('root', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
+  const child = baseFlow('child', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'root', name: 'Root' } }] });
+  const shallow = await inspectPublic(flow, { depth: 1, nested: new Map([['child', child]]) });
+  assert.match(shallow.result._formatted, /jsn flows show "Child"/);
+  const deep = await inspectPublic(flow, { depth: 3, nested: new Map([['child', child]]) });
+  assert.equal(deep.calls.filter(id => id === 'child').length, 1);
+  assert.doesNotMatch(deep.result._formatted, /missing fixture/);
+});
+
+test('public inspection seam consumes catalog labels supplied by the adapter result', async () => {
+  const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
+  const flow = baseFlow('catalog', { actionInstances: [{ order: 1, actionType: { fName: 'Get Catalog Variables' }, inputs: [{ name: 'catalog_variables', displayValue: `${id}:item_option_new`, parameter: { label: 'Catalog Variables' } }] }] });
+  const { result } = await inspectPublic(flow, { catalogVarNames: { [id]: 'Permission type' } });
+  assert.match(result._formatted, /Permission type/);
+  assert.doesNotMatch(result._formatted, /item_option_new/);
+});
+
+test('public inspection seam returns stable data and formatted output', async () => {
+  const flow = baseFlow('stable');
+  const { result } = await inspectPublic(flow, { depth: 0 });
+  assert.equal(result.flow.name, 'stable');
+  assert.equal(typeof result._formatted, 'string');
+  assert.match(result._formatted, /sys_hub_flow\.do\?sys_id=stable/);
 });
