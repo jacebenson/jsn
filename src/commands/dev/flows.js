@@ -1,13 +1,14 @@
 import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../../flow-context.js';
 import { declareCapabilities } from '../../capabilities.js';
-import { inspectFlow } from '../../flow-inspection.js';
+import { inspectFlow, attachCatalogResolver } from '../../flow-inspection.js';
 
 function flowInspectionAdapter(app) {
-  return {
+  const adapter = {
     inspectFlow: app.sdk.inspectFlow.bind(app.sdk),
     inspectCustomAction: app.sdk.inspectCustomAction.bind(app.sdk),
   };
+  return attachCatalogResolver(adapter, app.sdk.list.bind(app.sdk));
 }
 
 declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete'], devAlias: true });

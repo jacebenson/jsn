@@ -232,3 +232,46 @@ test('public inspection seam returns stable data and formatted output', async ()
   assert.equal(typeof result._formatted, 'string');
   assert.match(result._formatted, /sys_hub_flow\.do\?sys_id=stable/);
 });
+
+test('public seam renders variables and omits empty sections', async () => {
+  const flow = baseFlow('vars');
+  flow.flowVariables = [{ name: 'food', label: 'food', type_label: 'String', order: 1 }];
+  const { result } = await inspectPublic(flow);
+  assert.match(result._formatted, /FLOW VARIABLES/);
+  assert.match(result._formatted, /food: String/);
+  assert.doesNotMatch(result._formatted, /SUBFLOW/);
+});
+
+test('public seam preserves long values and splits encoded fields', async () => {
+  const longValue = 'x'.repeat(200);
+  const flow = baseFlow('values', { actionInstances: [{ order: 1, actionType: { fName: 'Update Record' }, inputs: [
+    { name: 'short_description', displayValue: longValue },
+    { name: 'fields', displayValue: 'state=7^work_notes=Auto-closing: No application found^priority=1' },
+  ] }] });
+  const { result } = await inspectPublic(flow);
+  assert.match(result._formatted, new RegExp(longValue));
+  assert.match(result._formatted, /state=7/);
+  assert.match(result._formatted, /work_notes=Auto-closing: No application found/);
+  assert.match(result._formatted, /priority=1/);
+});
+
+test('public seam resolves catalog and GUID pills while preserving readable refs', async () => {
+  const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
+  const guid = 'a1190b0a-ec10-45db-96b0-38f329306ed3';
+  const flow = baseFlow('pills', { labelCacheAsJsonString: JSON.stringify([{ name: `${guid}.session_title`, label: '1 - Get Catalog Variables➛session_title' }]), actionInstances: [{ order: 1, actionType: { fName: 'Get Catalog Variables' }, inputs: [
+    { name: 'catalog_variables', displayValue: `${id}:item_option_new` },
+    { name: 'fields', displayValue: `x={{${guid}.session_title}}^y={{Created_1.table_name}}` },
+  ] }] });
+  const { result } = await inspectPublic(flow, {
+    catalogVarNames: { [id]: 'Permission type' },
+  });
+  assert.match(result._formatted, /Permission type/);
+  assert.doesNotMatch(result._formatted, /item_option_new/);
+  assert.match(result._formatted, /1 - Get Catalog Variables➛session_title/);
+});
+
+test('public seam suppresses built-in action internals', async () => {
+  const flow = baseFlow('builtin', { actionInstances: [{ order: 1, actionType: { fName: 'Update Record' } }] });
+  const { result } = await inspectPublic(flow, { customAction: async () => ({ steps: [{ label: 'Update Record step' }] }) });
+  assert.doesNotMatch(result._formatted, /Internal action steps/);
+});
