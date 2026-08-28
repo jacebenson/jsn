@@ -469,6 +469,13 @@ export class AuthManager {
     return typeof this.identity.getUsername === 'function' ? this.identity.getUsername() || null : null;
   }
 
+  // An options object with a username property is an explicit identity,
+  // including `username: undefined` which intentionally selects bare creds.
+  // Omitted options retain the legacy active-user fallback.
+  _usernameForOptions(options = {}) {
+    return Object.hasOwn(options, 'username') ? options.username : this._activeUsername();
+  }
+
   loadCredentials(instance, username) {
     return this.credentialStore.load(instance, username);
   }
@@ -482,12 +489,12 @@ export class AuthManager {
   }
 
   getLastSeen(instance, options = {}) {
-    const creds = this.loadCredentials(instance, options.username ?? this._activeUsername());
+    const creds = this.loadCredentials(instance, this._usernameForOptions(options));
     return creds?.last_seen || null;
   }
 
   touchLastSeen(instance, options = {}) {
-    const username = options.username ?? this._activeUsername();
+    const username = this._usernameForOptions(options);
     const creds = this.credentialStore.load(instance, username);
     if (!creds) return;
     creds.last_seen = Math.floor(Date.now() / 1000);
@@ -505,7 +512,7 @@ export class AuthManager {
     if (!bareCreds) return false;
     // If active profile has a username, the bare key won't be found
     // by loadCredentials(instance, username). That's the legacy case.
-    const username = options.username ?? this._activeUsername();
+    const username = this._usernameForOptions(options);
     if (!username) return false; // No username set — bare key IS the active path
     const userCreds = this.credentialStore.load(instance, username);
     return !!bareCreds && !userCreds;
@@ -521,7 +528,7 @@ export class AuthManager {
     const method = this._selectedMethod(options);
     if (method !== 'gck' && method !== 'basic' && process.env.SERVICENOW_OAUTH_TOKEN) return 'env_token';
     if (method !== 'gck' && method !== 'oauth' && getBasicAuthFromEnv(instance)) return 'env_basic';
-    const creds = this.credentialStore.load(instance, options.username ?? this._activeUsername());
+    const creds = this.credentialStore.load(instance, this._usernameForOptions(options));
     if (!creds) return null;
     // A configured method is authoritative at this public boundary. Stored
     // metadata from another method must not be reported as usable source.
@@ -585,7 +592,7 @@ export class AuthManager {
         classificationMethod = 'basic';
         credentials = basicCredentials;
       } else if (instance) {
-        credentials = this.credentialStore.load(instance, options.username ?? this._activeUsername());
+        credentials = this.credentialStore.load(instance, this._usernameForOptions(options));
         if (credentials) {
           if (credentials.auth_method != null) {
             const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
@@ -666,7 +673,7 @@ export class AuthManager {
     return this.getCredentialsFor(instance);
   }
 
-  getCredentialsFor(instance, username = this._activeUsername(), options = {}) {
+  getCredentialsFor(instance, username, options = {}) {
     const method = this._selectedMethod(options);
     // With no configured method, preserve the legacy environment precedence:
     // OAuth token first, then Basic credentials, then stored credentials.
@@ -677,7 +684,8 @@ export class AuthManager {
       const basicCreds = getBasicAuthFromEnv(instance);
       if (basicCreds) return basicCreds;
     }
-    const creds = this.credentialStore.load(instance, username);
+    const credentialUsername = Object.hasOwn(options, 'username') ? options.username : (username ?? this._activeUsername());
+    const creds = this.credentialStore.load(instance, credentialUsername);
     if (!creds) {
       throw errAuth(`Not authenticated for ${instance}`);
     }
@@ -690,7 +698,7 @@ export class AuthManager {
     if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
     if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
-      if (resolved.refresh_token) return this.refreshToken(instance, resolved, username);
+      if (resolved.refresh_token) return this.refreshToken(instance, resolved, credentialUsername);
       throw errAuth('Token expired, please login again');
     }
     return resolved;

@@ -113,6 +113,20 @@ export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '', targetPr
   );
 }
 
+export function validateLoginSelectors(argv = {}, targetProfile = null) {
+  const basic = argv.basic === true || argv.password === true;
+  const gck = argv.gck === true || argv.headers !== undefined;
+  if (basic && gck) {
+    throw errUsage('Basic and browser-session selectors are mutually exclusive; choose --basic/--password or --gck/--headers.');
+  }
+  if (basic && targetProfile?.auth_method === 'gck') {
+    throw errUsage('This profile is configured for gck authentication; use --gck/--headers or change the profile method.');
+  }
+  if (gck && targetProfile?.auth_method === 'basic') {
+    throw errUsage('This profile is configured for basic authentication; use --basic/--password or change the profile method.');
+  }
+}
+
 /**
  * Pick a profile by name — interactive search picker when ambiguous,
  * auto-selects when there's exactly one, throws when none configured.
@@ -628,6 +642,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
 
             const target = resolveTargetProfile(argv, app.config, instanceURL);
             const targetProfile = target.profile;
+            validateLoginSelectors(argv, targetProfile);
             let targetUsername = targetProfile?.username || '';
             const useBasic = shouldUseBasicAuth(argv, app.config, instanceURL, targetProfile);
             const useGck = shouldUseGckAuth(argv, app.config, instanceURL, targetProfile);

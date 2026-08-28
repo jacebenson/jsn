@@ -102,6 +102,64 @@ describe('Auth Command Handlers', () => {
     assert.ok(loads > 0);
   });
 
+  it('keeps an explicit username-less profile on the bare credential identity', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const records = new Map([
+      ['https://shared.example.com\\0alice', { auth_method: 'oauth', access_token: 'alice-token', auth_source: 'file', last_seen: 11 }],
+      ['https://shared.example.com\\0', { auth_method: 'oauth', access_token: 'bare-token', auth_source: 'file', last_seen: 22 }],
+    ]);
+    const manager = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://shared.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: (url, username) => records.get(`${url}\\0${username || ''}`) || null,
+      save: () => {},
+      delete: () => {},
+    } });
+    const options = { authMethod: 'oauth', username: undefined };
+    assert.strictEqual(manager.getLastSeen('https://shared.example.com', options), 22);
+    assert.strictEqual(manager.getAuthSource('https://shared.example.com', options), 'file');
+    assert.strictEqual(manager.hasLegacyCredentials('https://shared.example.com', options), false);
+    assert.strictEqual(manager.isAuthenticatedFor('https://shared.example.com', options), true);
+    assert.strictEqual(manager.createProfileProvider('https://shared.example.com', options).getCredentials().access_token, 'bare-token');
+  });
+
+  it('rejects conflicting login selectors and configured auth methods', async () => {
+    const { validateLoginSelectors } = await import('../src/commands/auth.js');
+    assert.throws(() => validateLoginSelectors({ basic: true, gck: true }), /mutually exclusive/i);
+    assert.throws(() => validateLoginSelectors({ password: true, headers: 'Cookie: sid=x' }), /mutually exclusive/i);
+    assert.throws(() => validateLoginSelectors({ basic: true }, { auth_method: 'gck' }), /configured for gck/i);
+    assert.throws(() => validateLoginSelectors({ gck: true }, { auth_method: 'basic' }), /configured for basic/i);
+    assert.doesNotThrow(() => validateLoginSelectors({ basic: true }, { auth_method: 'basic' }));
+    assert.doesNotThrow(() => validateLoginSelectors({ gck: true }, { auth_method: 'gck' }));
+  });
+
+  it('rejects conflicting selectors at the login command boundary before auth starts', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    let started = false;
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: {} },
+      isInteractive: () => false,
+      auth: {
+        ...mockApp.auth,
+        loginWithPassword: async () => { started = true; },
+        loginWithGck: async () => { started = true; },
+      },
+    };
+    const subcommands = [];
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    const login = subcommands.find(s => s.def.startsWith('login')).handler;
+    await assert.rejects(login({ app, instance: 'shared', basic: true, headers: 'Cookie: sid=x', _: ['login'] }), /mutually exclusive/i);
+    assert.strictEqual(started, false);
+  });
+
   it('dispatches normal browser-session login and preserves its configured method', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const calls = [];
