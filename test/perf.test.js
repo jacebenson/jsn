@@ -89,7 +89,8 @@ describe('performance formatter', () => {
       ],
     });
     assert.match(output, /tx\[rest\]\.avg_ms\s+71\.15\s+71\.16\s+0\.00/);
-    assert.match(output, /node\[12345678\]\.sem\[Default\] \[avail borrow max qd qlim\].*16 0 16 2 50.*15 1 16 3 50.*-1 1 0 1 0/);
+    assert.match(output, /node\[12345678\]\.sem\[Default\]\s+16 0 16 2 50\s+\|\s+15 1 16 3 50\s+\|\s+-1 1 0 1 0/);
+    assert.match(output, /BASELINE \[avail borrow max qd qlim\] \| NEW \[avail borrow max qd qlim\] \| DELTA \[avail borrow max qd qlim\]/);
     assert.equal(output.match(/node\[12345678\]\.sem\[Default\]/g).length, 1);
   });
 });

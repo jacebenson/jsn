@@ -364,6 +364,10 @@ export function formatComparisonDetailed(result) {
     .replace('.min_response_time_ms', '.min_ms')
     .replace('.max_response_time_ms', '.max_ms')
     .replace('.stats.', '.');
+  const displayMetric = metric => {
+    const label = shortMetric(metric);
+    return label.replace(/^(logs\[)(.{1,30}?)(,sev=)/, (_, prefix, source, suffix) => `${prefix}${source.slice(0, 27)}${source.length > 27 ? '…' : ''}${suffix}`);
+  };
   const displayValue = value => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(2) : String(value);
   const semaphoreFields = ['available', 'borrowed', 'maximum_concurrency', 'queue_depth', 'queue_depth_limit'];
   const semaphoreLabels = ['avail', 'borrow', 'max', 'qd', 'qlim'];
@@ -383,22 +387,44 @@ export function formatComparisonDetailed(result) {
   const formatSemaphore = (name, fields) => {
     const values = side => semaphoreFields.map(field => formatValue(fields.get(field)?.[side])).join(' ');
     const delta = semaphoreFields.map(field => formatValue(fields.get(field)?.delta)).join(' ');
-    return `${shortMetric(name)} [${semaphoreLabels.join(' ')}]`.padEnd(42) + ` ${values('baseline').padStart(16)} | ${values('new').padStart(16)} | ${delta.padStart(16)}`;
+    const label = shortMetric(name).replace(/^platform\./, '');
+    return `${label.padEnd(36)} ${values('baseline').padStart(16)} | ${values('new').padStart(16)} | ${delta.padStart(16)}`;
+  };
+  const sectionFor = metric => {
+    if (metric.startsWith('ecc_queue.')) return 'ECC queue';
+    if (metric.startsWith('logs[')) return 'Logs';
+    if (metric.startsWith('flows.')) return 'Flows';
+    if (metric.startsWith('platform.')) return 'Platform';
+    if (metric.startsWith('records.')) return 'Records';
+    if (metric.startsWith('scheduled.')) return 'Scheduled';
+    if (metric.startsWith('tx[')) return 'Transactions';
+    return 'Other';
   };
   const lines = [
     `Performance comparison: ${result.status}`,
     `Baseline: ${result.baseline?.profile || 'default'} @ ${result.baseline?.instance || 'unknown'} (${result.baseline_run_id})`,
     `New:      ${result.new?.profile || 'default'} @ ${result.new?.instance || 'unknown'} (${result.new_run_id})`,
-    '',
-    'METRIC                                      BASELINE          NEW       DELTA',
   ];
-  for (const m of regular) {
-    const metric = shortMetric(m.metric);
-    if (m.availability === 'missing_from_baseline') lines.push(`${metric.padEnd(42)} Unavailable: missing from baseline`);
-    else if (m.availability === 'missing_from_new') lines.push(`${metric.padEnd(42)} Unavailable: missing from new result`);
-    else lines.push(`${metric.padEnd(42)} ${displayValue(m.baseline).padStart(16)} ${displayValue(m.new).padStart(12)} ${displayValue(m.delta).padStart(12)}`);
+  const addMetric = m => {
+    const metric = displayMetric(m.metric);
+    if (m.availability === 'missing_from_baseline') lines.push(`${metric.padEnd(34)} Unavailable: missing from baseline`);
+    else if (m.availability === 'missing_from_new') lines.push(`${metric.padEnd(34)} Unavailable: missing from new result`);
+    else lines.push(`${metric.padEnd(34)} ${displayValue(m.baseline).padStart(12)} ${displayValue(m.new).padStart(12)} ${displayValue(m.delta).padStart(12)}`);
+  };
+  const sections = new Map();
+  for (const metric of regular) {
+    const section = sectionFor(displayMetric(metric.metric));
+    if (!sections.has(section)) sections.set(section, []);
+    sections.get(section).push(metric);
   }
-  for (const [name, fields] of grouped) lines.push(formatSemaphore(name, fields));
+  for (const [section, metrics] of sections) {
+    lines.push('', section.toUpperCase(), 'METRIC                             BASELINE         NEW       DELTA');
+    for (const metric of metrics) addMetric(metric);
+  }
+  if (grouped.size) {
+    lines.push('', 'SEMAPHORES', `NAME                                 BASELINE [${semaphoreLabels.join(' ')}] | NEW [${semaphoreLabels.join(' ')}] | DELTA [${semaphoreLabels.join(' ')}]`);
+    for (const [name, fields] of grouped) lines.push(formatSemaphore(name, fields));
+  }
   const newline = String.fromCharCode(10);
   return lines.join(newline) + newline;
 }
