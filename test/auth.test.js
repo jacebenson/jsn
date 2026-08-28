@@ -298,7 +298,7 @@ describe('AuthManager safe auth state seam', () => {
       });
       const state = auth.getAuthState(instance);
       assert.strictEqual(state.auth_method, 'gck');
-      assert.ok(['file', 'keyring'].includes(state.auth_source));
+      assert.strictEqual(state.auth_source, 'gck');
       assert.strictEqual(state.state, 'available');
       assert.strictEqual(JSON.stringify(state).includes('secret-cookie'), false);
     } finally {
@@ -306,12 +306,50 @@ describe('AuthManager safe auth state seam', () => {
     }
   });
 
-  it('distinguishes missing, expired, refreshable, and malformed OAuth state', async () => {
+  it('does not report OAuth when no authentication method is configured', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://unconfigured-${Date.now()}.service-now.com`;
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => null,
+    });
+    const state = auth.getAuthState(instance);
+    assert.strictEqual(state.auth_method, 'unconfigured');
+    assert.strictEqual(state.state, 'missing');
+  });
+
+  it('does not create credential storage while reading auth state', async () => {
+    const { mkdtempSync, existsSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const previousXdg = process.env.XDG_CONFIG_HOME;
+    const xdg = mkdtempSync(path.join(tmpdir(), 'jsn-auth-readonly-'));
+    process.env.XDG_CONFIG_HOME = xdg;
+    try {
+      const { AuthManager } = await import('../src/auth.js');
+      const instance = 'https://readonly-missing.service-now.com';
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      });
+      auth.getAuthState(instance);
+      assert.strictEqual(existsSync(path.join(xdg, 'servicenow', 'credentials')), false);
+    } finally {
+      if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousXdg;
+    }
+  });
+
+  it('classifies malformed OAuth token fields as malformed', async () => {
     const { classifyCredentialState } = await import('../src/auth.js');
     assert.strictEqual(classifyCredentialState(null, 'oauth'), 'missing');
     assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 1 }, 'oauth'), 'expired');
     assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 1, refresh_token: 'refresh' }, 'oauth'), 'refreshable');
     assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 'not-a-time' }, 'oauth'), 'malformed');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', refresh_token: {} }, 'oauth'), 'malformed');
+    assert.strictEqual(classifyCredentialState({ access_token: {} }, 'oauth'), 'malformed');
   });
 });
 

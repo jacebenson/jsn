@@ -112,12 +112,17 @@ const KEYRING_SERVICE = 'servicenow-cli';
 const KEYRING_ATTR_SERVICE = 'service';
 const KEYRING_ATTR_USERNAME = 'username';
 
-function credentialsPath(key) {
+function credentialsFilePath(key) {
   const dir = path.join(globalConfigDir(), 'credentials');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Match Go's filename encoding: replace :// and / and : with _
   const filename = key + '.json';
   return path.join(dir, filename);
+}
+
+function credentialsPath(key) {
+  const filePath = credentialsFilePath(key);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  return filePath;
 }
 
 function getOAuthClientID() {
@@ -210,12 +215,18 @@ function loadCredentials(instance, username) {
   const key = username ? credKey(instance, username) : credKey(instance);
   const keyringCreds = keyringLookup(key);
   if (keyringCreds) {
-    return { ...keyringCreds, auth_source: 'keyring' };
+    return {
+      ...keyringCreds,
+      auth_source: keyringCreds.auth_source || (keyringCreds.auth_method === 'gck' ? 'gck' : 'keyring'),
+    };
   }
   try {
-    const data = fs.readFileSync(credentialsPath(key), 'utf-8');
+    const data = fs.readFileSync(credentialsFilePath(key), 'utf-8');
     const creds = JSON.parse(data);
-    return { ...creds, auth_source: 'file' };
+    return {
+      ...creds,
+      auth_source: creds.auth_source || (creds.auth_method === 'gck' ? 'gck' : 'file'),
+    };
   } catch {
     return null;
   }
@@ -311,6 +322,9 @@ export function classifyCredentialState(credentials, method, now = Date.now()) {
     const hasCookies = typeof credentials.cookies === 'string' && credentials.cookies.length > 0;
     return hasToken && hasCookies ? 'available' : 'malformed';
   }
+
+  if (credentials.access_token !== undefined && typeof credentials.access_token !== 'string') return 'malformed';
+  if (credentials.refresh_token !== undefined && typeof credentials.refresh_token !== 'string') return 'malformed';
 
   const hasToken = typeof credentials.access_token === 'string' && credentials.access_token.length > 0;
   if (!hasToken) return credentials.refresh_token ? 'refreshable' : 'missing';
@@ -411,7 +425,7 @@ export class AuthManager {
   getAuthState(instance = this.identity.getEffectiveInstance()) {
     const configuredMethod = typeof this.identity.getAuthMethod === 'function'
       ? this.identity.getAuthMethod() : null;
-    let method = configuredMethod || 'oauth';
+    let method = configuredMethod || 'unconfigured';
     let source = 'unavailable';
     let credentials = null;
 
