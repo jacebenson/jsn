@@ -214,7 +214,8 @@ function keyringDelete(key) {
  * When username is omitted (legacy configs without profile user), uses
  * bare instance key for lookup.
  */
-function loadCredentials(instance, username) {
+function loadCredentials(instance, username, injectedStore) {
+  if (injectedStore) return injectedStore.load(instance, username);
   const key = username ? credKey(instance, username) : credKey(instance);
   const keyringCreds = keyringLookup(key);
   if (keyringCreds) {
@@ -241,7 +242,11 @@ function loadCredentials(instance, username) {
  * Save credentials for an instance.
  * Uses <username>@<instance> key when username is available.
  */
-function saveCredentials(instance, creds, username) {
+function saveCredentials(instance, creds, username, injectedStore) {
+  if (injectedStore) {
+    creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
+    return injectedStore.save(instance, creds, username);
+  }
   const key = username ? credKey(instance, username) : credKey(instance);
   // Stamp last_seen on every credential save
   creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
@@ -254,7 +259,8 @@ function saveCredentials(instance, creds, username) {
 /**
  * Delete credentials for an instance keyed by <username>@<instance>.
  */
-function deleteCredentials(instance, username) {
+function deleteCredentials(instance, username, injectedStore) {
+  if (injectedStore) return injectedStore.delete(instance, username);
   const key = username ? credKey(instance, username) : credKey(instance);
   keyringDelete(key);
   try {
@@ -438,34 +444,33 @@ export class AuthManager {
     const configuredValue = typeof this.identity.getAuthMethod === 'function'
       ? this.identity.getAuthMethod() : null;
     const configuredMethod = normalizeAuthMethod(configuredValue);
+    const isConfigured = configuredMethod !== 'unconfigured';
     let method = configuredMethod;
+    let classificationMethod = isConfigured ? configuredMethod : null;
     let source = 'unavailable';
     let credentials = null;
-    let malformedMetadata = configuredValue != null && configuredMethod === 'unconfigured';
+    let malformedMetadata = configuredValue != null && !isConfigured;
 
     if (process.env.SERVICENOW_OAUTH_TOKEN) {
-      method = 'oauth';
       source = 'env_token';
+      if (isConfigured && configuredMethod !== 'oauth') malformedMetadata = true;
+      else classificationMethod = 'oauth';
       credentials = { access_token: process.env.SERVICENOW_OAUTH_TOKEN };
     } else {
       const basicCredentials = getBasicAuthFromEnv(instance);
       if (basicCredentials) {
-        method = 'basic';
         source = 'env_basic';
+        if (isConfigured && configuredMethod !== 'basic') malformedMetadata = true;
+        else classificationMethod = 'basic';
         credentials = basicCredentials;
       } else if (instance) {
         credentials = this.credentialStore.load(instance, this._activeUsername());
         if (credentials) {
           if (credentials.auth_method != null) {
             const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
-            if (storedMethod) {
-              if (configuredMethod !== 'unconfigured' && storedMethod !== configuredMethod) {
-                malformedMetadata = true;
-              } else if (configuredMethod === 'unconfigured') {
-                method = storedMethod;
-              }
-            }
-            else malformedMetadata = true;
+            if (!storedMethod) malformedMetadata = true;
+            else if (isConfigured && storedMethod !== configuredMethod) malformedMetadata = true;
+            else if (!isConfigured) classificationMethod = storedMethod;
           }
           if (credentials.auth_source != null) {
             const storedSource = normalizeAuthSource(credentials.auth_source, '');
@@ -474,17 +479,20 @@ export class AuthManager {
               source = 'unavailable';
               malformedMetadata = true;
             }
-          } else {
-            source = 'unavailable';
           }
         }
       }
     }
 
+    const state = malformedMetadata
+      ? 'malformed'
+      : classificationMethod
+        ? classifyCredentialState(credentials, classificationMethod)
+        : credentials ? 'malformed' : 'missing';
     return {
       auth_method: method,
       auth_source: normalizeAuthSource(source, 'unavailable'),
-      state: malformedMetadata ? 'malformed' : classifyCredentialState(credentials, method),
+      state,
     };
   }
 

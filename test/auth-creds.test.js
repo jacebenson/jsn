@@ -12,6 +12,7 @@ let testCounter = 0;
 let originalPath;
 let originalConfigHome;
 let testConfigHome;
+let credentialStore;
 
 function hermeticizeCredentialBackend() {
   originalPath = process.env.PATH;
@@ -22,6 +23,21 @@ function hermeticizeCredentialBackend() {
   // isolated in a temporary XDG config directory.
   process.env.PATH = testConfigHome;
   process.env.XDG_CONFIG_HOME = testConfigHome;
+  credentialStore = {
+    data: new Map(),
+    load(instance, username) {
+      const value = this.data.get(`${instance}\\0${username || ''}`);
+      return value ? { ...value } : null;
+    },
+    save(instance, creds, username) {
+      this.data.set(`${instance}\\0${username || ''}`, {
+        ...creds, auth_source: creds.auth_source || 'file',
+      });
+    },
+    delete(instance, username) {
+      this.data.delete(`${instance}\\0${username || ''}`);
+    },
+  };
 }
 
 function restoreCredentialBackend() {
@@ -39,6 +55,18 @@ function uniqueInstance() {
   return `https://jsn-test-${testCounter}-${Date.now()}.service-now.com`;
 }
 
+function save(auth, ...args) {
+  return auth.saveCredentials(args[0], args[1], args[2], credentialStore);
+}
+
+function load(auth, ...args) {
+  return auth.loadCredentials(args[0], args[1], credentialStore);
+}
+
+function remove(auth, ...args) {
+  return auth.deleteCredentials(args[0], args[1], credentialStore);
+}
+
 describe('saveCredentials / loadCredentials — round-trips', () => {
   let auth;
 
@@ -48,11 +76,11 @@ describe('saveCredentials / loadCredentials — round-trips', () => {
 
   it('save then load under bare key (no username)', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'admin', password: 'sekret',
     });
 
-    const loaded = auth.loadCredentials(inst);
+    const loaded = load(auth, inst);
     assert.ok(loaded, 'should load saved creds');
     assert.strictEqual(loaded.auth_method, 'basic');
     assert.strictEqual(loaded.username, 'admin');
@@ -60,82 +88,82 @@ describe('saveCredentials / loadCredentials — round-trips', () => {
     assert.ok(loaded.last_seen, 'should have last_seen timestamp');
     assert.ok(loaded.auth_source, 'should have auth_source');
 
-    auth.deleteCredentials(inst);
+    remove(auth, inst);
   });
 
   it('save under compound key, load with correct username', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'alice', password: 'a-pass',
     }, 'alice');
 
-    const withUser = auth.loadCredentials(inst, 'alice');
+    const withUser = load(auth, inst, 'alice');
     assert.ok(withUser, 'should find compound-key creds');
     assert.strictEqual(withUser.username, 'alice');
 
     // Bare key should NOT have it
-    const bare = auth.loadCredentials(inst);
+    const bare = load(auth, inst);
     assert.strictEqual(bare, null, 'bare key should not resolve compound creds');
 
-    auth.deleteCredentials(inst, 'alice');
+    remove(auth, inst, 'alice');
   });
 
   it('isolates different users on the same instance', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'alice', password: 'a-pass',
     }, 'alice');
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'bob', password: 'b-pass',
     }, 'bob');
 
-    const alice = auth.loadCredentials(inst, 'alice');
-    const bob = auth.loadCredentials(inst, 'bob');
+    const alice = load(auth, inst, 'alice');
+    const bob = load(auth, inst, 'bob');
     assert.ok(alice);
     assert.ok(bob);
     assert.strictEqual(alice.password, 'a-pass');
     assert.strictEqual(bob.password, 'b-pass');
 
-    auth.deleteCredentials(inst, 'alice');
-    auth.deleteCredentials(inst, 'bob');
+    remove(auth, inst, 'alice');
+    remove(auth, inst, 'bob');
   });
 
   it('returns a copy, not the stored object directly', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'admin', password: 'x',
     });
 
-    const first = auth.loadCredentials(inst);
-    const second = auth.loadCredentials(inst);
+    const first = load(auth, inst);
+    const second = load(auth, inst);
     assert.notStrictEqual(first, second);
     assert.deepStrictEqual(first, second);
 
-    auth.deleteCredentials(inst);
+    remove(auth, inst);
   });
 
   it('returns null for unknown instance', () => {
-    const loaded = auth.loadCredentials('https://nope.service-now.com');
+    const loaded = load(auth,'https://nope.service-now.com');
     assert.strictEqual(loaded, null);
   });
 
   it('loadCredentials without username does not find compound-keyed creds', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'oauth', access_token: 'compound-only',
     }, 'admin');
 
     // Without username: should not find the compound key
     assert.strictEqual(
-      auth.loadCredentials(inst),
+      load(auth, inst),
       null,
       'bare key should not resolve compound-keyed creds'
     );
 
     // With username: should find it
-    assert.ok(auth.loadCredentials(inst, 'admin'));
+    assert.ok(load(auth, inst, 'admin'));
 
-    auth.deleteCredentials(inst, 'admin');
+    remove(auth, inst, 'admin');
   });
 });
 
@@ -148,38 +176,38 @@ describe('deleteCredentials', () => {
 
   it('deletes bare-key creds', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'admin', password: 'x',
     });
-    assert.ok(auth.loadCredentials(inst));
+    assert.ok(load(auth, inst));
 
-    auth.deleteCredentials(inst);
-    assert.strictEqual(auth.loadCredentials(inst), null);
+    remove(auth, inst);
+    assert.strictEqual(load(auth, inst), null);
   });
 
   it('deletes compound-key creds', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'charlie', password: 'x',
     }, 'charlie');
-    assert.ok(auth.loadCredentials(inst, 'charlie'));
+    assert.ok(load(auth, inst, 'charlie'));
 
-    auth.deleteCredentials(inst, 'charlie');
-    assert.strictEqual(auth.loadCredentials(inst, 'charlie'), null);
+    remove(auth, inst, 'charlie');
+    assert.strictEqual(load(auth, inst, 'charlie'), null);
   });
 
   it('delete without username does not affect compound-keyed creds', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'basic', username: 'dave', password: 'x',
     }, 'dave');
-    assert.ok(auth.loadCredentials(inst, 'dave'));
+    assert.ok(load(auth, inst, 'dave'));
 
     // Delete bare key only — compound key should survive
-    auth.deleteCredentials(inst);
-    assert.ok(auth.loadCredentials(inst, 'dave'));
+    remove(auth, inst);
+    assert.ok(load(auth, inst, 'dave'));
 
-    auth.deleteCredentials(inst, 'dave');
+    remove(auth, inst, 'dave');
   });
 });
 
@@ -195,13 +223,13 @@ describe('hasLegacyCredentials', () => {
     const mgr = new AuthManager({
       config: { profiles: {}, activeProfile: null, defaultProfile: null },
       getEffectiveInstance() { return ''; },
-    });
+    }, { credentialStore });
     assert.strictEqual(mgr.hasLegacyCredentials('https://dev328604.service-now.com'), false);
   });
 
   it('returns false when bare key has creds but profile has no username', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'oauth', access_token: 'tok',
     });
 
@@ -212,15 +240,15 @@ describe('hasLegacyCredentials', () => {
         activeProfile: 'dev', defaultProfile: 'dev',
       },
       getEffectiveInstance() { return inst; },
-    });
+    }, { credentialStore });
     assert.strictEqual(mgr.hasLegacyCredentials(inst), false);
 
-    auth.deleteCredentials(inst);
+    remove(auth, inst);
   });
 
   it('returns true when bare key has creds but profile has username', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'oauth', access_token: 'old-tok',
     });
 
@@ -231,21 +259,21 @@ describe('hasLegacyCredentials', () => {
         activeProfile: 'dev', defaultProfile: 'dev',
       },
       getEffectiveInstance() { return inst; },
-    });
+    }, { credentialStore });
     assert.strictEqual(mgr.hasLegacyCredentials(inst), true);
 
-    auth.deleteCredentials(inst);
+    remove(auth, inst);
   });
 
   it('returns false after migration (re-save under compound + delete bare)', () => {
     const inst = uniqueInstance();
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'oauth', access_token: 'old-tok',
     });
-    auth.saveCredentials(inst, {
+    save(auth, inst, {
       auth_method: 'oauth', access_token: 'old-tok', username: 'admin',
     }, 'admin');
-    auth.deleteCredentials(inst); // remove bare key
+    remove(auth, inst); // remove bare key
 
     const { AuthManager } = auth;
     const mgr = new AuthManager({
@@ -254,9 +282,9 @@ describe('hasLegacyCredentials', () => {
         activeProfile: 'dev', defaultProfile: 'dev',
       },
       getEffectiveInstance() { return inst; },
-    });
+    }, { credentialStore });
     assert.strictEqual(mgr.hasLegacyCredentials(inst), false);
 
-    auth.deleteCredentials(inst, 'admin');
+    remove(auth, inst, 'admin');
   });
 });

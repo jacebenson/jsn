@@ -399,7 +399,7 @@ describe('AuthManager safe auth state seam', () => {
       }, { credentialStore });
       const state = auth.getAuthState('https://oauth.example.com');
       assert.deepStrictEqual(state, {
-        auth_method: 'oauth',
+        auth_method: 'unconfigured',
         auth_source: 'env_token',
         state: 'available',
       });
@@ -423,7 +423,7 @@ describe('AuthManager safe auth state seam', () => {
       }, { credentialStore });
       const state = auth.getAuthState('https://basic.example.com');
       assert.deepStrictEqual(state, {
-        auth_method: 'basic',
+        auth_method: 'unconfigured',
         auth_source: 'env_basic',
         state: 'available',
       });
@@ -561,25 +561,73 @@ describe('AuthManager safe auth state seam', () => {
       });
   });
 
-  it('keeps the configured method authoritative over disagreeing stored metadata', async () => {
+  it('keeps the configured method authoritative over environment credentials', async () => {
     const { AuthManager } = await import('../src/auth.js');
-    const instance = `https://configured-method-${Date.now()}.service-now.com`;
+    const instance = `https://configured-env-${Date.now()}.service-now.com`;
+    const previousToken = process.env.SERVICENOW_OAUTH_TOKEN;
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'oauth-token';
+    process.env.SN_USERNAME = 'admin';
+    process.env.SN_PASSWORD = 'basic-password';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'gck',
+      }, { credentialStore });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'gck', auth_source: 'env_token', state: 'malformed',
+      });
+    } finally {
+      if (previousToken === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN;
+      else process.env.SERVICENOW_OAUTH_TOKEN = previousToken;
+      if (previousUser === undefined) delete process.env.SN_USERNAME;
+      else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD;
+      else process.env.SN_PASSWORD = previousPassword;
+    }
+  });
+
+  it('keeps an unconfigured method unconfigured despite stored credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://unconfigured-stored-${Date.now()}.service-now.com`;
     credentialStore.load = () => ({
-      auth_method: 'basic',
-      username: 'admin',
-      password: 'secret-password',
-      auth_source: 'file',
+      auth_method: 'basic', username: 'admin', password: 'secret', auth_source: 'file',
     });
     const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => null,
+    }, { credentialStore });
+    assert.deepStrictEqual(auth.getAuthState(instance), {
+      auth_method: 'unconfigured', auth_source: 'file', state: 'available',
+    });
+  });
+
+  it('keeps configured OAuth authoritative over Basic environment credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://configured-basic-${Date.now()}.service-now.com`;
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    delete process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SN_USERNAME = 'admin';
+    process.env.SN_PASSWORD = 'basic-password';
+    try {
+      const auth = new AuthManager({
         getUsername: () => null,
         getEffectiveInstance: () => instance,
         getAuthMethod: () => 'oauth',
       }, { credentialStore });
       assert.deepStrictEqual(auth.getAuthState(instance), {
-        auth_method: 'oauth',
-        auth_source: 'file',
-        state: 'malformed',
+        auth_method: 'oauth', auth_source: 'env_basic', state: 'malformed',
       });
+    } finally {
+      if (previousUser === undefined) delete process.env.SN_USERNAME;
+      else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD;
+      else process.env.SN_PASSWORD = previousPassword;
+    }
   });
 });
 
