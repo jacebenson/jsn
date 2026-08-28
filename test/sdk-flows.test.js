@@ -206,6 +206,32 @@ test('public seam degrades malformed payload arrays through action fallback', as
   assert.doesNotMatch(result._formatted, /no steps found/);
 });
 
+test('public seam uses structure fallback when malformed actions accompany valid variables', async () => {
+  const flow = baseFlow('mixed-malformed-payload', {
+    actionInstances: [null],
+    flowVariables: [{ order: 1, name: 'Payload variable', type_label: 'String' }],
+  });
+  flow.actionInstances = [{ order: 1, name: 'Fallback action' }];
+  flow.flowVariables = flow.payload.flowVariables;
+  const { result } = await inspectPublic(flow);
+  assert.match(result._formatted, /Fallback action/);
+  assert.match(result._formatted, /Payload variable: String/);
+  assert.doesNotMatch(result._formatted, /no steps found/);
+});
+
+test('public seam uses nested structure fallback for malformed mixed payloads', async () => {
+  const parent = baseFlow('parent', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
+  const child = baseFlow('child', {
+    actionInstances: [null],
+    flowVariables: [{ order: 1, name: 'Nested variable', type_label: 'String' }],
+  });
+  child.actionInstances = [{ order: 1, name: 'Nested fallback action' }];
+  child.flowVariables = child.payload.flowVariables;
+  const { result } = await inspectPublic(parent, { nested: new Map([['child', child]]) });
+  assert.match(result._formatted, /Nested fallback action/);
+  assert.doesNotMatch(result._formatted, /no steps found/);
+});
+
 test('public seam degrades malformed nested inspection payloads through fallback', async () => {
   const parent = baseFlow('parent', { subFlowInstances: [{ order: 1, subFlow: { parentFlow: 'child', name: 'Child' } }] });
   const { result } = await inspectPublic(parent, { nested: new Map([['child', null]]) });
