@@ -146,14 +146,14 @@ describe('Auth Command Handlers', () => {
     cmd.builder(mockYargs);
     await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
     assert.deepStrictEqual(calls.filter(([kind]) => kind !== 'probe'), [
-      ['authenticated', 'https://first.example.com', { username: 'alice' }],
-      ['last_seen', 'https://first.example.com', { username: 'alice' }],
+      ['authenticated', 'https://first.example.com', { username: 'alice', authMethod: 'oauth' }],
+      ['last_seen', 'https://first.example.com', { username: 'alice', authMethod: 'oauth' }],
       ['state', 'https://first.example.com', { authMethod: 'oauth', username: 'alice' }],
-      ['legacy', 'https://first.example.com', { username: 'alice' }],
-      ['authenticated', 'https://second.example.com', { username: 'bob' }],
-      ['last_seen', 'https://second.example.com', { username: 'bob' }],
+      ['legacy', 'https://first.example.com', { username: 'alice', authMethod: 'oauth' }],
+      ['authenticated', 'https://second.example.com', { username: 'bob', authMethod: 'basic' }],
+      ['last_seen', 'https://second.example.com', { username: 'bob', authMethod: 'basic' }],
       ['state', 'https://second.example.com', { authMethod: 'basic', username: 'bob' }],
-      ['legacy', 'https://second.example.com', { username: 'bob' }],
+      ['legacy', 'https://second.example.com', { username: 'bob', authMethod: 'basic' }],
     ]);
     assert.deepStrictEqual(calls.filter(([kind]) => kind === 'probe').map(([, instance, , options]) => [instance, options]), [
       ['https://first.example.com', { authMethod: 'oauth', username: 'alice' }],
@@ -997,7 +997,7 @@ describe('AuthManager safe auth state seam', () => {
         getAuthMethod: () => 'gck',
       }, { credentialStore });
       assert.deepStrictEqual(auth.getAuthState(instance), {
-        auth_method: 'gck', auth_source: 'env_token', state: 'malformed',
+        auth_method: 'gck', auth_source: 'unavailable', state: 'missing',
       });
     } finally {
       if (previousToken === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN;
@@ -1040,7 +1040,7 @@ describe('AuthManager safe auth state seam', () => {
         getAuthMethod: () => 'oauth',
       }, { credentialStore });
       assert.deepStrictEqual(auth.getAuthState(instance), {
-        auth_method: 'oauth', auth_source: 'env_basic', state: 'malformed',
+        auth_method: 'oauth', auth_source: 'unavailable', state: 'missing',
       });
     } finally {
       if (previousUser === undefined) delete process.env.SN_USERNAME;
@@ -1075,6 +1075,64 @@ describe('AuthManager review blocker regressions', () => {
     assert.throws(() => auth.getCredentialsFor('https://method.example.com', 'alice', { authMethod: 'gck' }));
   });
 
+  it('keeps configured GCK authoritative over conflicting OAuth and Basic env credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previousOAuth = process.env.SERVICENOW_OAUTH_TOKEN;
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'wrong-oauth';
+    process.env.SN_USERNAME = 'wrong-basic';
+    process.env.SN_PASSWORD = 'wrong-password';
+    const instance = 'https://configured-gck.example.com';
+    const store = {
+      load: () => ({ auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=browser' }),
+      save() {}, delete() {},
+    };
+    try {
+      const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => instance, getAuthMethod: () => 'gck' }, { credentialStore: store });
+      assert.deepStrictEqual(await auth.getCredentials(), { auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=browser' });
+      assert.strictEqual(auth.isAuthenticated(), true);
+      assert.strictEqual(auth.isAuthenticatedFor(instance, { username: 'alice', authMethod: 'gck' }), true);
+    } finally {
+      if (previousOAuth === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN; else process.env.SERVICENOW_OAUTH_TOKEN = previousOAuth;
+      if (previousUser === undefined) delete process.env.SN_USERNAME; else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD; else process.env.SN_PASSWORD = previousPassword;
+    }
+  });
+
+  it('keeps configured Basic authoritative over conflicting OAuth env credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previousOAuth = process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'wrong-oauth';
+    const instance = 'https://configured-basic.example.com';
+    const store = {
+      load: () => ({ auth_method: 'basic', username: 'stored-user', password: 'stored-password' }),
+      save() {}, delete() {},
+    };
+    try {
+      const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => instance, getAuthMethod: () => 'basic' }, { credentialStore: store });
+      assert.deepStrictEqual(await auth.getCredentials(), { auth_method: 'basic', username: 'stored-user', password: 'stored-password' });
+      assert.strictEqual(auth.isAuthenticated(), true);
+    } finally {
+      if (previousOAuth === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN; else process.env.SERVICENOW_OAUTH_TOKEN = previousOAuth;
+    }
+  });
+
+  it('isolates same instance and username credential resolution by selected method', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = 'https://same-identity.example.com';
+    const store = {
+      load: () => ({ auth_method: 'oauth', access_token: 'oauth-token' }),
+      save() {}, delete() {},
+    };
+    const identity = { getUsername: () => 'alice', getEffectiveInstance: () => instance };
+    const oauth = new AuthManager({ ...identity, getAuthMethod: () => 'oauth' }, { credentialStore: store });
+    const gck = new AuthManager({ ...identity, getAuthMethod: () => 'gck' }, { credentialStore: store });
+    assert.strictEqual(oauth.isAuthenticatedFor(instance, { username: 'alice', authMethod: 'oauth' }), true);
+    assert.strictEqual(gck.isAuthenticatedFor(instance, { username: 'alice', authMethod: 'gck' }), false);
+    assert.throws(() => gck.getCredentialsFor(instance, 'alice', { authMethod: 'gck' }));
+  });
+
   it('builds profile SDK/auth transport without command-owned credential closures', async () => {
     const { App } = await import('../src/app.js');
     const app = new App({ profiles: { first: { instance_url: 'https://first.example.com', username: 'alice', auth_method: 'gck' } }, activeProfile: 'first', defaultProfile: 'first' });
@@ -1082,6 +1140,25 @@ describe('AuthManager review blocker regressions', () => {
     assert.strictEqual(sdk.baseURL, 'https://first.example.com');
     assert.strictEqual(typeof sdk.authProvider.getCredentials, 'function');
     assert.notStrictEqual(sdk.authProvider, app.auth);
+  });
+
+  it('uses the selected method through both active and profile SDK credential resolution', async () => {
+    const { App } = await import('../src/app.js');
+    const previousOAuth = process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'wrong-oauth';
+    const instance = 'https://sdk-method.example.com';
+    try {
+      const app = new App({ profiles: { first: { instance_url: instance, username: 'alice', auth_method: 'gck' } }, activeProfile: 'first', defaultProfile: 'first' });
+      app.auth.credentialStore = {
+        load: () => ({ auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=browser' }),
+        save() {}, delete() {},
+      };
+      const profileSdk = app.getSDKForProfile(instance, { username: 'alice', authMethod: 'gck' });
+      assert.deepStrictEqual(await app.sdk.authProvider.getCredentials(), { auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=browser' });
+      assert.deepStrictEqual(await profileSdk.authProvider.getCredentials(), { auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=browser' });
+    } finally {
+      if (previousOAuth === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN; else process.env.SERVICENOW_OAUTH_TOKEN = previousOAuth;
+    }
   });
 
   it('never falls back to bearer for browser-session credentials', async () => {

@@ -717,7 +717,7 @@ Examples:
             for (const [name, profile] of selectedProfiles) {
               const instance = profile.instance_url;
               const authOptions = { authMethod: profile.auth_method, username: profile.username };
-              const identityOptions = { username: profile.username };
+              const identityOptions = { username: profile.username, authMethod: profile.auth_method };
               const isAuth = app.auth.isAuthenticatedFor(instance, identityOptions);
               const lastSeen = app.auth.getLastSeen(instance, identityOptions);
               const authState = app.auth.getAuthState(instance, authOptions);

@@ -513,10 +513,11 @@ export class AuthManager {
    * For older stored credentials without auth_source, falls back
    * to the saved auth_method field.
    */
-  getAuthSource(instance) {
-    if (process.env.SERVICENOW_OAUTH_TOKEN) return 'env_token';
-    if (getBasicAuthFromEnv(instance)) return 'env_basic';
-    const creds = this.credentialStore.load(instance, this._activeUsername());
+  getAuthSource(instance, options = {}) {
+    const method = this._selectedMethod(options);
+    if (method !== 'gck' && method !== 'basic' && process.env.SERVICENOW_OAUTH_TOKEN) return 'env_token';
+    if (method !== 'gck' && method !== 'oauth' && getBasicAuthFromEnv(instance)) return 'env_basic';
+    const creds = this.credentialStore.load(instance, options.username ?? this._activeUsername());
     if (!creds) return null;
     // New creds have auth_source; older ones only have auth_method
     const source = normalizeAuthSource(creds.auth_source, '');
@@ -558,17 +559,15 @@ export class AuthManager {
     let credentials = null;
     let malformedMetadata = configuredValue != null && !isConfigured;
 
-    if (process.env.SERVICENOW_OAUTH_TOKEN) {
+    if (process.env.SERVICENOW_OAUTH_TOKEN && (!isConfigured || configuredMethod === 'oauth')) {
       source = 'env_token';
-      if (isConfigured && configuredMethod !== 'oauth') malformedMetadata = true;
-      else classificationMethod = 'oauth';
+      classificationMethod = 'oauth';
       credentials = { access_token: process.env.SERVICENOW_OAUTH_TOKEN };
     } else {
       const basicCredentials = getBasicAuthFromEnv(instance);
-      if (basicCredentials) {
+      if (basicCredentials && (!isConfigured || configuredMethod === 'basic')) {
         source = 'env_basic';
-        if (isConfigured && configuredMethod !== 'basic') malformedMetadata = true;
-        else classificationMethod = 'basic';
+        classificationMethod = 'basic';
         credentials = basicCredentials;
       } else if (instance) {
         credentials = this.credentialStore.load(instance, options.username ?? this._activeUsername());
@@ -629,8 +628,6 @@ export class AuthManager {
   }
 
   isAuthenticated() {
-    if (process.env.SERVICENOW_OAUTH_TOKEN) return true;
-    if (getBasicAuthFromEnv()) return true;
     const instance = this.identity.getEffectiveInstance();
     if (!instance) return false;
     try {
@@ -647,16 +644,10 @@ export class AuthManager {
   }
 
   async getCredentials() {
-    if (process.env.SERVICENOW_OAUTH_TOKEN) {
-      return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN, auth_source: 'env_token' };
-    }
     const instance = this.identity.getEffectiveInstance();
     if (!instance) {
       throw errAuth('No instance configured');
     }
-    // Check basic auth from env vars first
-    const basicCreds = getBasicAuthFromEnv(instance);
-    if (basicCreds) return basicCreds;
     return this.getCredentialsFor(instance);
   }
 
