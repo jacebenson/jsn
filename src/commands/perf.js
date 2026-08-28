@@ -116,7 +116,9 @@ export function perfCmd(wrap) {
             if (!baseline) return;
             const newer = await pickRun(app, { exclude: new Set([baseline.run_id]), message: 'Select the new capture' });
             if (!newer) return;
-            const result = compareRuns(baseline, newer);
+            const baselineRun = getRun(baseline.run_id);
+            const newerRun = getRun(newer.run_id);
+            const result = compareRuns(baselineRun, newerRun);
             app.ok({ ...result, _formatted: formatComparison(result) }, {
               summary: `Performance comparison: ${result.status}`,
               breadcrumbs: [listHint(), showHint(baseline.run_id), showHint(newer.run_id)],
