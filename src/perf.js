@@ -364,10 +364,7 @@ export function formatComparisonDetailed(result) {
     .replace('.min_response_time_ms', '.min_ms')
     .replace('.max_response_time_ms', '.max_ms')
     .replace('.stats.', '.');
-  const displayMetric = metric => {
-    const label = shortMetric(metric);
-    return label.replace(/^(logs\[)(.{1,30}?)(,sev=)/, (_, prefix, source, suffix) => `${prefix}${source.slice(0, 27)}${source.length > 27 ? '…' : ''}${suffix}`);
-  };
+  const displayMetric = metric => shortMetric(metric);
   const displayValue = value => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(2) : String(value);
   const semaphoreFields = ['available', 'borrowed', 'maximum_concurrency', 'queue_depth', 'queue_depth_limit'];
   const semaphoreLabels = ['avail', 'borrow', 'max', 'qd', 'qlim'];
@@ -384,11 +381,11 @@ export function formatComparisonDetailed(result) {
     grouped.get(match[1]).set(match[2], metric);
   }
   const formatValue = value => value == null ? '?' : displayValue(value);
-  const formatSemaphore = (name, fields) => {
+  const formatSemaphore = (name, fields, width) => {
     const values = side => semaphoreFields.map(field => formatValue(fields.get(field)?.[side])).join(' ');
     const delta = semaphoreFields.map(field => formatValue(fields.get(field)?.delta)).join(' ');
     const label = shortMetric(name).replace(/^platform\./, '');
-    return `${label.padEnd(36)} ${values('baseline').padStart(16)} | ${values('new').padStart(16)} | ${delta.padStart(16)}`;
+    return `${label.padEnd(width)} ${values('baseline').padStart(16)} | ${values('new').padStart(16)} | ${delta.padStart(16)}`;
   };
   const sectionFor = metric => {
     if (metric.startsWith('ecc_queue.')) return 'ECC queue';
@@ -405,11 +402,11 @@ export function formatComparisonDetailed(result) {
     `Baseline: ${result.baseline?.profile || 'default'} @ ${result.baseline?.instance || 'unknown'} (${result.baseline_run_id})`,
     `New:      ${result.new?.profile || 'default'} @ ${result.new?.instance || 'unknown'} (${result.new_run_id})`,
   ];
-  const addMetric = m => {
+  const addMetric = (m, width) => {
     const metric = displayMetric(m.metric);
-    if (m.availability === 'missing_from_baseline') lines.push(`${metric.padEnd(34)} Unavailable: missing from baseline`);
-    else if (m.availability === 'missing_from_new') lines.push(`${metric.padEnd(34)} Unavailable: missing from new result`);
-    else lines.push(`${metric.padEnd(34)} ${displayValue(m.baseline).padStart(12)} ${displayValue(m.new).padStart(12)} ${displayValue(m.delta).padStart(12)}`);
+    if (m.availability === 'missing_from_baseline') lines.push(`${metric.padEnd(width)} Unavailable: missing from baseline`);
+    else if (m.availability === 'missing_from_new') lines.push(`${metric.padEnd(width)} Unavailable: missing from new result`);
+    else lines.push(`${metric.padEnd(width)} ${displayValue(m.baseline).padStart(12)} ${displayValue(m.new).padStart(12)} ${displayValue(m.delta).padStart(12)}`);
   };
   const sections = new Map();
   for (const metric of regular) {
@@ -418,12 +415,15 @@ export function formatComparisonDetailed(result) {
     sections.get(section).push(metric);
   }
   for (const [section, metrics] of sections) {
-    lines.push('', section.toUpperCase(), 'METRIC                             BASELINE         NEW       DELTA');
-    for (const metric of metrics) addMetric(metric);
+    const width = Math.max(34, ...metrics.map(metric => displayMetric(metric.metric).length));
+    lines.push('', section.toUpperCase(), `${'METRIC'.padEnd(width)} BASELINE         NEW       DELTA`);
+    for (const metric of metrics) addMetric(metric, width);
   }
   if (grouped.size) {
-    lines.push('', 'SEMAPHORES', `NAME                                 BASELINE [${semaphoreLabels.join(' ')}] | NEW [${semaphoreLabels.join(' ')}] | DELTA [${semaphoreLabels.join(' ')}]`);
-    for (const [name, fields] of grouped) lines.push(formatSemaphore(name, fields));
+    const semaphoreNames = [...grouped.keys()].map(name => shortMetric(name).replace(/^platform\./, ''));
+    const width = Math.max(36, ...semaphoreNames.map(name => name.length));
+    lines.push('', 'SEMAPHORES', `${'NAME'.padEnd(width)} BASELINE [${semaphoreLabels.join(' ')}] | NEW [${semaphoreLabels.join(' ')}] | DELTA [${semaphoreLabels.join(' ')}]`);
+    for (const [name, fields] of grouped) lines.push(formatSemaphore(name, fields, width));
   }
   const newline = String.fromCharCode(10);
   return lines.join(newline) + newline;
