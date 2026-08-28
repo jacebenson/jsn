@@ -98,7 +98,8 @@ function valueOf(value) {
 }
 
 function numeric(value) {
-  const n = Number(String(value ?? '').replaceAll(',', ''));
+  if (value == null || String(value).trim() === '') return null;
+  const n = Number(String(value).replaceAll(',', ''));
   return Number.isFinite(n) ? n : null;
 }
 
