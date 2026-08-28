@@ -30,7 +30,7 @@ import { groupMembersCmd } from './commands/groupmembers.js';
 import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
 import { transactionsCmd } from './commands/transactions.js';
-import { instanceCmd } from './commands/instance.js';
+
 import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
@@ -69,6 +69,7 @@ import { scrapiCmd } from './commands/dev/scrapi.js';
 import { b4rulesCmd } from './commands/dev/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { approvalsCmd } from './commands/approvals.js';
+import { perfCmd } from './commands/perf.js';
 
 function wrap(handler) {
   return async (argv) => {
@@ -358,7 +359,7 @@ export function buildCLI() {
     .command(cmdbCmd(wrap))
     .command(recordsCmd(wrap))
     .command(transactionsCmd(wrap))
-    .command(instanceCmd(wrap))
+
     .command(platformCmd(wrap))
     .command(snippetsCmd(wrap))
     .command(ticketsCmd(wrap))
@@ -366,6 +367,7 @@ export function buildCLI() {
     // DEVELOPER
     .command(atfCmd(wrap))
     .command(approvalsCmd(wrap))
+    .command(perfCmd(wrap))
     .command(evalCmd(wrap))
     .command(restCmd(wrap))
     .command(skillCmd(wrap))
