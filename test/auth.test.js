@@ -351,6 +351,54 @@ describe('AuthManager safe auth state seam', () => {
     assert.strictEqual(classifyCredentialState({ access_token: 'token', refresh_token: {} }, 'oauth'), 'malformed');
     assert.strictEqual(classifyCredentialState({ access_token: {} }, 'oauth'), 'malformed');
   });
+
+  it('does not expose or accept an untrusted stored auth method', async () => {
+    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const instance = `https://untrusted-method-${Date.now()}.service-now.com`;
+    saveCredentials(instance, {
+      auth_method: 'password-secret',
+      auth_source: 'token-secret',
+      access_token: 'secret-access-token',
+    });
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'oauth',
+        auth_source: 'stored',
+        state: 'malformed',
+      });
+    } finally {
+      deleteCredentials(instance);
+    }
+  });
+
+  it('normalizes an untrusted stored auth source without affecting classification', async () => {
+    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const instance = `https://untrusted-source-${Date.now()}.service-now.com`;
+    saveCredentials(instance, {
+      auth_method: 'oauth',
+      auth_source: 'token-secret',
+      access_token: 'secret-access-token',
+    });
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'oauth',
+        auth_source: 'stored',
+        state: 'available',
+      });
+    } finally {
+      deleteCredentials(instance);
+    }
+  });
 });
 
 // ─── auth switch handler ───

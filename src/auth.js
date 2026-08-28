@@ -302,6 +302,15 @@ export function parseBrowserSessionInput(input) {
 }
 
 const AUTH_METHODS = new Set(['oauth', 'basic', 'gck']);
+const AUTH_SOURCES = new Set(['env_token', 'env_basic', 'gck', 'oauth', 'keyring', 'file', 'stored', 'unavailable']);
+
+function normalizeAuthMethod(value, fallback = 'unconfigured') {
+  return AUTH_METHODS.has(value) ? value : fallback;
+}
+
+function normalizeAuthSource(value, fallback = 'stored') {
+  return AUTH_SOURCES.has(value) ? value : fallback;
+}
 
 /**
  * Classify credentials without returning or logging any credential material.
@@ -415,7 +424,9 @@ export class AuthManager {
     const creds = loadCredentials(instance, this._activeUsername());
     if (!creds) return null;
     // New creds have auth_source; older ones only have auth_method
-    return creds.auth_source || creds.auth_method || 'stored';
+    const source = normalizeAuthSource(creds.auth_source, '');
+    if (source) return source;
+    return normalizeAuthMethod(creds.auth_method, '') || 'stored';
   }
 
   /**
@@ -423,11 +434,13 @@ export class AuthManager {
    * Unlike getCredentialsFor(), this never refreshes or mutates credentials.
    */
   getAuthState(instance = this.identity.getEffectiveInstance()) {
-    const configuredMethod = typeof this.identity.getAuthMethod === 'function'
+    const configuredValue = typeof this.identity.getAuthMethod === 'function'
       ? this.identity.getAuthMethod() : null;
-    let method = configuredMethod || 'unconfigured';
+    const configuredMethod = normalizeAuthMethod(configuredValue);
+    let method = configuredMethod;
     let source = 'unavailable';
     let credentials = null;
+    let malformedMetadata = configuredValue != null && configuredMethod === 'unconfigured';
 
     if (process.env.SERVICENOW_OAUTH_TOKEN) {
       method = 'oauth';
@@ -442,16 +455,26 @@ export class AuthManager {
       } else if (instance) {
         credentials = loadCredentials(instance, this._activeUsername());
         if (credentials) {
-          method = credentials.auth_method || method;
-          source = credentials.auth_source || 'stored';
+          if (credentials.auth_method != null) {
+            const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
+            if (storedMethod) method = storedMethod;
+            else malformedMetadata = true;
+          }
+          if (credentials.auth_source != null) {
+            const storedSource = normalizeAuthSource(credentials.auth_source, '');
+            if (storedSource) source = storedSource;
+            else source = 'stored';
+          } else {
+            source = 'stored';
+          }
         }
       }
     }
 
     return {
       auth_method: method,
-      auth_source: source,
-      state: classifyCredentialState(credentials, method),
+      auth_source: normalizeAuthSource(source, 'unavailable'),
+      state: malformedMetadata ? 'malformed' : classifyCredentialState(credentials, method),
     };
   }
 
