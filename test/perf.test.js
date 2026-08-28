@@ -74,14 +74,18 @@ describe('performance capture storage', () => {
 });
 
 describe('performance formatter', () => {
-  it('shows captured metric details in the default view', async () => {
-    const { formatRunDetailed } = await import('../src/perf.js');
-    const output = formatRunDetailed({
-      run_id: 'RUN1', label: 'before', status: 'complete', instance: 'https://dev.example', profile: 'admin', start_time: '2026-08-28T00:00:00Z',
-      collectors: [{ name: 'transactions', status: 'success', reason: null, data: { metrics: { transaction_types: [{ type: 'rest', count: 4, avg_response_time_ms: 12, max_response_time_ms: 30 }] } } }],
+  it('rounds human values and shortens named metric paths', async () => {
+    const { formatComparisonDetailed } = await import('../src/perf.js');
+    const output = formatComparisonDetailed({
+      status: 'complete', baseline_run_id: 'A', new_run_id: 'B',
+      baseline: { profile: 'dev', instance: 'https://a.example' }, new: { profile: 'dev', instance: 'https://b.example' },
+      metrics: [
+        { metric: 'transactions.transaction_types[type=rest].avg_response_time_ms', availability: 'available', baseline: 71.1538, new: 71.156, delta: 0.0022 },
+        { metric: 'platform_health.nodes[sys_id=123456789].stats.semaphores[name=Default].available', availability: 'available', baseline: 16, new: 15, delta: -1 },
+      ],
     });
-    assert.match(output, /CAPTURED DETAILS/);
-    assert.match(output, /rest: 4 requests, avg 12 ms, max 30 ms/);
+    assert.match(output, /tx\[rest\]\.avg_ms\s+71\.15\s+71\.16\s+0\.00/);
+    assert.match(output, /node\[12345678\]\.sem\[Default\]\.available/);
   });
 });
 

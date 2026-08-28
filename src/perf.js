@@ -345,17 +345,38 @@ export function formatRunList(runs) {
 }
 
 export function formatComparisonDetailed(result) {
+  const shortMetric = (metric) => metric
+    .replace(/error_warning_summary\.log_groups\[source=([^,\]]+),severity=([^\]]+)\]/g, 'logs[$1,sev=$2]')
+    .replace(/transactions\.transaction_types\[type=([^\]]+)\]/g, 'tx[$1]')
+    .replace('error_warning_summary', 'logs')
+    .replace('platform_health', 'platform')
+    .replace('flow_executions', 'flows')
+    .replace('scheduled_and_cleanup', 'scheduled')
+    .replace('record_counts', 'records')
+    .replace(/nodes\[sys_id=([^\]]+)\]/g, (_, id) => `node[${id.slice(0, 8)}]`)
+    .replace(/semaphores\[name=([^\]]+)\]/g, 'sem[$1]')
+    .replace('.stats.active_sessions', '.sessions')
+    .replace('.stats.queue.length', '.queue')
+    .replace('.stats.queue.age', '.queue_age')
+    .replace('.stats.semaphores', '.semaphores')
+    .replace('.stats.transactions.daily', '.daily_tx')
+    .replace('.avg_response_time_ms', '.avg_ms')
+    .replace('.min_response_time_ms', '.min_ms')
+    .replace('.max_response_time_ms', '.max_ms')
+    .replace('.stats.', '.');
+  const displayValue = value => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(2) : String(value);
   const lines = [
     `Performance comparison: ${result.status}`,
     `Baseline: ${result.baseline?.profile || 'default'} @ ${result.baseline?.instance || 'unknown'} (${result.baseline_run_id})`,
     `New:      ${result.new?.profile || 'default'} @ ${result.new?.instance || 'unknown'} (${result.new_run_id})`,
     '',
-    'METRIC                                                                  BASELINE          NEW       DELTA',
+    'METRIC                                      BASELINE          NEW       DELTA',
   ];
   for (const m of result.metrics) {
-    if (m.availability === 'missing_from_baseline') lines.push(`${m.metric.padEnd(72)} Unavailable: missing from baseline`);
-    else if (m.availability === 'missing_from_new') lines.push(`${m.metric.padEnd(72)} Unavailable: missing from new result`);
-    else lines.push(`${m.metric.padEnd(72)} ${String(m.baseline).padStart(16)} ${String(m.new).padStart(12)} ${String(m.delta).padStart(12)}`);
+    const metric = shortMetric(m.metric);
+    if (m.availability === 'missing_from_baseline') lines.push(`${metric.padEnd(42)} Unavailable: missing from baseline`);
+    else if (m.availability === 'missing_from_new') lines.push(`${metric.padEnd(42)} Unavailable: missing from new result`);
+    else lines.push(`${metric.padEnd(42)} ${displayValue(m.baseline).padStart(16)} ${displayValue(m.new).padStart(12)} ${displayValue(m.delta).padStart(12)}`);
   }
   const newline = String.fromCharCode(10);
   return lines.join(newline) + newline;
