@@ -5,15 +5,73 @@ import path from 'node:path';
 import os from 'node:os';
 import Database from 'better-sqlite3';
 
-const DOCS_DIR_NAME = 'servicenow-cli/docs';
+const LEGACY_DOCS_DIR_NAME = 'servicenow-cli/docs';
+const DOCS_DIR_NAME = 'docs';
 
 function xdgCacheHome() {
   if (process.env.XDG_CACHE_HOME) return process.env.XDG_CACHE_HOME;
   return path.join(os.homedir(), '.cache');
 }
 
+function jsnDataHome() {
+  // JSN_DATA_HOME is an internal test override and useful for isolated runs.
+  if (process.env.JSN_DATA_HOME) return process.env.JSN_DATA_HOME;
+  return path.join(os.homedir(), '.jsn');
+}
+
+function legacyDocsDir() {
+  return path.join(xdgCacheHome(), LEGACY_DOCS_DIR_NAME);
+}
+
+function verifyMovedFile(sourceStat, destination) {
+  const destinationStat = fs.statSync(destination);
+  return destinationStat.isFile() && destinationStat.size === sourceStat.size;
+}
+
+function migrateLegacyDocs() {
+  const sourceDir = legacyDocsDir();
+  const destinationDir = path.join(jsnDataHome(), DOCS_DIR_NAME);
+  const sourceDb = path.join(sourceDir, 'docs.db');
+  const destinationDb = path.join(destinationDir, 'docs.db');
+
+  if (fs.existsSync(destinationDb) || !fs.existsSync(sourceDb)) return;
+
+  const sourceDbStat = fs.statSync(sourceDb);
+  const moved = [];
+  try {
+    fs.mkdirSync(destinationDir, { recursive: true });
+    for (const entry of fs.readdirSync(sourceDir)) {
+      const source = path.join(sourceDir, entry);
+      const destination = path.join(destinationDir, entry);
+      if (fs.existsSync(destination)) {
+        throw new Error(`Cannot migrate docs data: destination already exists: ${destination}`);
+      }
+      fs.renameSync(source, destination);
+      moved.push({ source, destination });
+    }
+
+    if (!fs.existsSync(destinationDb) || !verifyMovedFile(sourceDbStat, destinationDb)) {
+      throw new Error('Cannot migrate docs data: destination verification failed');
+    }
+
+    // The source directory should now be empty. Removing only this known docs
+    // directory leaves unrelated cache entries alone.
+    fs.rmdirSync(sourceDir);
+  } catch (err) {
+    // Put every moved entry back so a failed migration leaves the old copy
+    // usable. The destination directory may already have existed.
+    for (const { source, destination } of moved.reverse()) {
+      if (fs.existsSync(destination) && !fs.existsSync(source)) {
+        fs.renameSync(destination, source);
+      }
+    }
+    throw err;
+  }
+}
+
 export function getDocsCacheDir() {
-  return path.join(xdgCacheHome(), DOCS_DIR_NAME);
+  migrateLegacyDocs();
+  return path.join(jsnDataHome(), DOCS_DIR_NAME);
 }
 
 export function getDocsDbPath() {

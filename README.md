@@ -159,6 +159,18 @@ export SERVICENOW_OAUTH_TOKEN="***"
 jsn incidents list
 ```
 
+## Local data
+
+JSN stores durable local data under `~/.jsn/`. Documentation lives in
+`~/.jsn/docs/`, including `docs.db`, the ServiceNowDocs source checkout, and
+community markdown. Configuration stays under `~/.config/servicenow/` and
+credentials stay under `~/.config/servicenow/credentials/`.
+
+Existing installations migrate documentation from
+`~/.cache/servicenow-cli/docs/` automatically the first time the docs data is
+accessed. The old directory is removed only after the destination is verified.
+
+
 ## AI Agents
 
 jsn ships with a skill file that tells AI agents how to use it. Installed automatically to `~/.agents/skills/servicenow/SKILL.md`.

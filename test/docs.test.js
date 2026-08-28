@@ -1,5 +1,6 @@
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { docsCmd } from '../src/commands/docs/docs.js';
 import {
   tokenize, encodeText, phasesToBytes, bytesToPhases, similarity,
@@ -44,9 +45,9 @@ describe('Docs Command', () => {
 });
 
 describe('Docs DB paths', () => {
-  it('should resolve docs DB path under XDG cache home', () => {
+  it('should resolve docs DB path under the JSN data home', () => {
     const dbPath = getDocsDbPath();
-    assert.ok(dbPath.includes('servicenow-cli/docs/docs.db'));
+    assert.ok(dbPath.endsWith('.jsn/docs/docs.db'));
   });
 
   it('should resolve source markdown dir under source dir', () => {
@@ -54,6 +55,68 @@ describe('Docs DB paths', () => {
     const md = getDocsSourceMarkdownDir();
     assert.ok(md.startsWith(src));
     assert.ok(md.endsWith('/markdown'));
+  });
+});
+
+describe('Docs data migration', () => {
+  const originalDataHome = process.env.JSN_DATA_HOME;
+  const originalCacheHome = process.env.XDG_CACHE_HOME;
+
+  afterEach(() => {
+    if (originalDataHome === undefined) delete process.env.JSN_DATA_HOME;
+    else process.env.JSN_DATA_HOME = originalDataHome;
+    if (originalCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = originalCacheHome;
+  });
+
+  it('keeps fresh installs in the new data root', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-fresh-'));
+    process.env.JSN_DATA_HOME = path.join(root, 'data');
+    process.env.XDG_CACHE_HOME = path.join(root, 'cache');
+
+    assert.strictEqual(getDocsDbPath(), path.join(root, 'data', 'docs', 'docs.db'));
+    assert.ok(!fs.existsSync(path.join(root, 'cache', 'servicenow-cli', 'docs')));
+  });
+
+  it('migrates the database and source directories once', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-migrate-'));
+    const legacy = path.join(root, 'cache', 'servicenow-cli', 'docs');
+    process.env.JSN_DATA_HOME = path.join(root, 'data');
+    process.env.XDG_CACHE_HOME = path.join(root, 'cache');
+    mkdirSync(path.join(legacy, 'source', 'markdown'), { recursive: true });
+    mkdirSync(path.join(legacy, 'community'), { recursive: true });
+    writeFileSync(path.join(legacy, 'docs.db'), 'database');
+    writeFileSync(path.join(legacy, 'source', 'markdown', 'guide.md'), '# Guide');
+
+    assert.strictEqual(getDocsDbPath(), path.join(root, 'data', 'docs', 'docs.db'));
+    assert.strictEqual(fs.readFileSync(path.join(root, 'data', 'docs', 'source', 'markdown', 'guide.md'), 'utf8'), '# Guide');
+    assert.ok(!fs.existsSync(legacy));
+    assert.strictEqual(getDocsDbPath(), path.join(root, 'data', 'docs', 'docs.db'));
+  });
+
+  it('leaves legacy data intact when migration cannot complete', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-failed-migrate-'));
+    const legacy = path.join(root, 'cache', 'servicenow-cli', 'docs');
+    const destination = path.join(root, 'data', 'docs');
+    process.env.JSN_DATA_HOME = path.join(root, 'data');
+    process.env.XDG_CACHE_HOME = path.join(root, 'cache');
+    mkdirSync(legacy, { recursive: true });
+    mkdirSync(path.join(legacy, 'source'), { recursive: true });
+    mkdirSync(destination, { recursive: true });
+    mkdirSync(path.join(destination, 'source'), { recursive: true });
+    writeFileSync(path.join(legacy, 'docs.db'), 'database');
+
+    assert.throws(() => getDocsDbPath(), /destination already exists/);
+    assert.strictEqual(fs.readFileSync(path.join(legacy, 'docs.db'), 'utf8'), 'database');
   });
 });
 
