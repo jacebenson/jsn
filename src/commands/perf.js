@@ -1,5 +1,5 @@
 import { errUsageHint, errUsage } from '../errors.js';
-import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparison } from '../perf.js';
+import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparisonDetailed } from '../perf.js';
 import { paginatedSearch } from '../paginated-search.js';
 
 function pickerEnabled(app) {
@@ -119,7 +119,7 @@ export function perfCmd(wrap) {
             const baselineRun = getRun(baseline.run_id);
             const newerRun = getRun(newer.run_id);
             const result = compareRuns(baselineRun, newerRun);
-            app.ok({ ...result, _formatted: formatComparison(result) }, {
+            app.ok({ ...result, _formatted: formatComparisonDetailed(result) }, {
               summary: `Performance comparison: ${result.status}`,
               breadcrumbs: [listHint(), showHint(baseline.run_id), showHint(newer.run_id)],
             });
@@ -130,7 +130,7 @@ export function perfCmd(wrap) {
           const baseline = requireRun(argv.baseline, 'baseline');
           const newer = requireRun(argv.new, 'new');
           const result = compareRuns(baseline, newer);
-          app.ok({ ...result, _formatted: formatComparison(result) }, {
+          app.ok({ ...result, _formatted: formatComparisonDetailed(result) }, {
             summary: `Performance comparison: ${result.status}`,
             breadcrumbs: [listHint(), showHint(baseline.run_id), showHint(newer.run_id)],
           });

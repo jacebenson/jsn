@@ -161,7 +161,11 @@ async function flows(sdk) {
 
 async function eventQueue(sdk) {
   const result = await sdk.aggregate('sysevent', { query: 'stateINready,processing,error^sys_created_on>=javascript:gs.daysAgoStart(1)', groupBy: ['state'], count: true });
-  return { query: 'stateINready,processing,error^sys_created_on>=javascript:gs.daysAgoStart(1)', metrics: { event_queue: result?.groups || [] } };
+  const states = (result?.groups || []).map(group => ({
+    state: group.groupby_fields?.find(f => f.field === 'state')?.value || 'unknown',
+    count: numeric(group.stats?.count),
+  }));
+  return { query: 'stateINready,processing,error^sys_created_on>=javascript:gs.daysAgoStart(1)', metrics: { event_queue: states } };
 }
 
 const COLLECTORS = [
@@ -250,12 +254,30 @@ export function listRuns({ profile, instance, limit = 50 } = {}) {
   } finally { closePerfDb(db); }
 }
 
+function arrayIdentity(item, index) {
+  if (!item || typeof item !== 'object') return String(index);
+  if (item.source != null || item.severity != null) return `source=${item.source ?? 'unknown'},severity=${item.severity ?? 'unknown'}`;
+  for (const field of ['type', 'state', 'name', 'sys_id']) if (item[field] != null) return `${field}=${item[field]}`;
+  return String(index);
+}
+
 function flatten(value, prefix = '', out = new Map()) {
   if (value == null) return out;
   if (typeof value === 'number' && Number.isFinite(value)) out.set(prefix, value);
-  else if (Array.isArray(value)) value.forEach((v, i) => flatten(v, `${prefix}[${i}]`, out));
+  else if (Array.isArray(value)) value.forEach((v, i) => flatten(v, `${prefix}[${arrayIdentity(v, i)}]`, out));
   else if (typeof value === 'object') Object.entries(value).forEach(([k, v]) => flatten(v, prefix ? `${prefix}.${k}` : k, out));
   return out;
+}
+
+function runContext(run) {
+  return {
+    run_id: run.run_id,
+    label: run.label,
+    instance: run.instance,
+    profile: run.profile,
+    start_time: run.start_time,
+    finish_time: run.finish_time,
+  };
 }
 
 export function compareRuns(baseline, newer) {
@@ -270,7 +292,7 @@ export function compareRuns(baseline, newer) {
     const delta = b.get(metric) - a.get(metric);
     return { metric, availability: 'available', baseline: a.get(metric), new: b.get(metric), delta, percent_change: a.get(metric) === 0 ? null : (delta / a.get(metric)) * 100 };
   });
-  return { baseline_run_id: baseline.run_id, new_run_id: newer.run_id, status: metrics.some(m => m.availability !== 'available') ? 'incomplete' : 'complete', metrics };
+  return { baseline: runContext(baseline), new: runContext(newer), baseline_run_id: baseline.run_id, new_run_id: newer.run_id, status: metrics.some(m => m.availability !== 'available') ? 'incomplete' : 'complete', metrics };
 }
 
 export function formatRun(run) {
@@ -320,6 +342,23 @@ export function formatRunList(runs) {
   for (const run of runs) lines.push(`${run.run_id.padEnd(25)}  ${run.status.padEnd(10)}  ${String(run.label || '').slice(0, 20).padEnd(20)}  ${run.instance}`);
   if (runs.length === 0) lines.push('(no performance captures)');
   return `${lines.join('\n')}\n`;
+}
+
+export function formatComparisonDetailed(result) {
+  const lines = [
+    `Performance comparison: ${result.status}`,
+    `Baseline: ${result.baseline?.profile || 'default'} @ ${result.baseline?.instance || 'unknown'} (${result.baseline_run_id})`,
+    `New:      ${result.new?.profile || 'default'} @ ${result.new?.instance || 'unknown'} (${result.new_run_id})`,
+    '',
+    'METRIC                                                                  BASELINE          NEW       DELTA',
+  ];
+  for (const m of result.metrics) {
+    if (m.availability === 'missing_from_baseline') lines.push(`${m.metric.padEnd(72)} Unavailable: missing from baseline`);
+    else if (m.availability === 'missing_from_new') lines.push(`${m.metric.padEnd(72)} Unavailable: missing from new result`);
+    else lines.push(`${m.metric.padEnd(72)} ${String(m.baseline).padStart(16)} ${String(m.new).padStart(12)} ${String(m.delta).padStart(12)}`);
+  }
+  const newline = String.fromCharCode(10);
+  return lines.join(newline) + newline;
 }
 
 export function formatComparison(result) {
