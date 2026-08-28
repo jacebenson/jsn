@@ -35,6 +35,24 @@ function sdkFor({ failTable } = {}) {
   };
 }
 
+describe('performance capture execution seam', () => {
+  it('returns all eight collectors and isolates a failed collector', async () => {
+    const { capturePerformance } = await import('../src/perf-capture.js');
+    const result = await capturePerformance({ sdk: sdkFor({ failTable: 'syslog' }) });
+
+    assert.deepEqual(result.collectors.map(c => c.name), [
+      'platform_health', 'transactions', 'error_warning_summary', 'event_queue',
+      'ecc_queue', 'flow_executions', 'record_counts', 'scheduled_and_cleanup',
+    ]);
+    assert.equal(result.status, 'incomplete');
+    assert.ok(result.collectors.filter(c => c.status === 'success').length >= 7);
+    const failed = result.collectors.find(c => c.name === 'error_warning_summary');
+    assert.equal(failed.status, 'permission_denied');
+    assert.match(failed.reason, /permission denied/);
+    assert.equal(failed.data, null);
+  });
+});
+
 describe('performance capture storage', () => {
   it('creates a durable complete run with metadata and independent collectors', async () => {
     const { captureRun, getRun, listRuns } = await import('../src/perf.js');
