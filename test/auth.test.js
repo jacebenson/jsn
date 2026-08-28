@@ -239,6 +239,90 @@ describe('Auth Command Handlers', () => {
     assert.strictEqual(output[0].profiles[0].diagnostics.probe.status, 'succeeded');
   });
 
+  it('migrates GCK credentials to the verified username key without touching another profile', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const instance = 'https://gck-migration.example.com';
+    const otherInstance = 'https://other-gck.example.com';
+    const records = new Map([
+      [`${instance}\\0`, { auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=cookie' }],
+      [`${otherInstance}\\0bob`, { auth_method: 'gck', access_token: 'other-token', cookies: 'sid=other' }],
+    ]);
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => instance, getAuthMethod: () => 'gck' }, {
+      credentialStore: {
+        load: (url, username) => records.get(`${url}\\0${username || ''}`) || null,
+        save: (url, credentials, username) => records.set(`${url}\\0${username || ''}`, { ...credentials }),
+        delete: (url, username) => records.delete(`${url}\\0${username || ''}`),
+      },
+    });
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { browser: { instance_url: instance, auth_method: 'gck' } } },
+      auth,
+      getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'alice' }) }),
+      sdk: null,
+      ok: () => {},
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def.startsWith('login')).handler({
+      app, instance, headers: 'curl -H "X-UserToken: token" -H "Cookie: sid=cookie"', _: ['login'],
+    });
+    assert.deepStrictEqual(records.get(`${instance}\\0alice`).username, 'alice');
+    assert.strictEqual(records.has(`${instance}\\0`), false);
+    assert.deepStrictEqual(records.get(`${otherInstance}\\0bob`), { auth_method: 'gck', access_token: 'other-token', cookies: 'sid=other' });
+  });
+
+  it('focused auth status keeps configured default instance semantics', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        activeProfile: 'second',
+        defaultProfile: 'first',
+        profiles: {
+          first: { instance_url: 'https://default.example.com', auth_method: 'oauth' },
+          second: { instance_url: 'https://focused.example.com', auth_method: 'basic' },
+        },
+      },
+      auth: { ...mockApp.auth, isAuthenticatedFor: () => false, hasLegacyCredentials: () => false },
+      ok: (data) => output.push(data),
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', _: ['status'] });
+    assert.strictEqual(output[0].default_instance, 'https://default.example.com');
+    assert.strictEqual(output[0].profiles[0].default, false);
+  });
+
+  it('username-less non-active refresh saves under the bare target identity', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const originalFetch = globalThis.fetch;
+    const saves = [];
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ access_token: 'new-token', refresh_token: 'new-refresh' }) });
+    try {
+      const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://active.example.com', getAuthMethod: () => 'oauth' }, {
+        credentialStore: { load: () => null, save: (...args) => saves.push(args), delete: () => {} },
+      });
+      await auth.refreshToken('https://target.example.com', { auth_method: 'oauth', refresh_token: 'old-refresh' }, null);
+      assert.strictEqual(saves[0][2], null);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('probe results classify success without exposing credential material', async () => {
     const { AuthManager } = await import('../src/auth.js');
     const manager = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://probe.example.com', getAuthMethod: () => 'oauth' }, {

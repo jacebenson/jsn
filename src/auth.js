@@ -864,7 +864,12 @@ export class AuthManager {
     }
 
     const tokenResp = await resp.json();
-    const username = targetUsername || creds.username || this._activeUsername();
+    // An explicitly supplied target (including null for a username-less
+    // non-active target) must not fall back to the active identity. Preserve
+    // the legacy fallback only for callers that omit the third argument.
+    const username = targetUsername !== undefined
+      ? (targetUsername || creds.username || null)
+      : (creds.username || this._activeUsername());
     const newCreds = {
       auth_method: 'oauth',
       access_token: tokenResp.access_token,

@@ -681,8 +681,8 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // so they're keyed by <user>@<instance> for per-user isolation.
             // The legacy bare-instance key is cleaned up behind the
             // AuthManager seam (credential-store internals don't leak here).
-            if (!useBasic && !useGck && username) {
-              app.auth.migrateLegacyCredential(instanceURL, username);
+            if (!useBasic && username) {
+              app.auth.migrateLegacyCredential?.(instanceURL, username);
             }
 
             // Set as default if this is the first one
@@ -733,7 +733,8 @@ Examples:
           command: 'status',
           describe: 'Show detailed authentication status',
           handler: wrap(async (argv, app) => {
-            const defaultInstance = getEffectiveInstance(app.config);
+            const configuredDefault = app.config.profiles?.[app.config.defaultProfile];
+            const defaultInstance = configuredDefault?.instance_url || app.config.instanceURL || '';
 
             // Check environment auth
             const envToken = process.env.SERVICENOW_OAUTH_TOKEN || '';
@@ -875,7 +876,7 @@ Examples:
               targetProfile?.username,
               targetAuthOptions
             );
-            const refreshed = await app.auth.refreshToken(instanceURL, creds, targetProfile?.username);
+            const refreshed = await app.auth.refreshToken(instanceURL, creds, targetProfile?.username ?? null);
 
             // Re-probe domain separation on refresh so the capability flag
             // stays in sync if the plugin was installed/removed since setup.
