@@ -351,6 +351,14 @@ const PROBE_FAILURES = {
     message: 'The authenticated probe failed for an unknown reason.',
     hint: 'Retry the probe; if it persists, check the instance logs.',
   },
+  missing_instance: {
+    message: 'No instance is configured for this profile.',
+    hint: 'Set an instance URL and run: jsn auth login',
+  },
+  sdk_construction_failed: {
+    message: 'The authenticated probe could not be initialized for this profile.',
+    hint: 'Check the profile configuration and run: jsn auth status again',
+  },
 };
 
 const PROBE_CLASSIFICATIONS = {
@@ -358,6 +366,7 @@ const PROBE_CLASSIFICATIONS = {
   refresh_failed: 'refresh_failed', invalid_browser_session: 'browser_session_invalid',
   malformed_credentials: 'malformed', permission_denied: 'permission_denied', unauthorized: 'unauthorized',
   network: 'network_error', unknown: 'unknown',
+  missing_instance: 'unavailable', sdk_construction_failed: 'configuration_error',
 };
 
 function probeFailure(code, status = 'failed') {
@@ -473,8 +482,8 @@ export class AuthManager {
     return creds?.last_seen || null;
   }
 
-  touchLastSeen(instance) {
-    const username = this._activeUsername();
+  touchLastSeen(instance, options = {}) {
+    const username = options.username ?? this._activeUsername();
     const creds = this.credentialStore.load(instance, username);
     if (!creds) return;
     creds.last_seen = Math.floor(Date.now() / 1000);
@@ -513,6 +522,23 @@ export class AuthManager {
     const source = normalizeAuthSource(creds.auth_source, '');
     if (source) return source;
     return normalizeAuthMethod(creds.auth_method, '') || 'unavailable';
+  }
+
+  probeUnavailable(code) {
+    return probeFailure(code, 'not_attempted');
+  }
+
+  _selectedMethod(options = {}) {
+    const value = options.authMethod !== undefined ? options.authMethod
+      : typeof this.identity.getAuthMethod === 'function' ? this.identity.getAuthMethod() : null;
+    return normalizeAuthMethod(value, 'unconfigured');
+  }
+
+  createProfileProvider(instance, options = {}) {
+    return {
+      getCredentials: () => this.getCredentialsFor(instance, options.username, options),
+      touchLastSeen: () => this.touchLastSeen(instance, options),
+    };
   }
 
   /**
@@ -617,17 +643,7 @@ export class AuthManager {
 
   isAuthenticatedFor(instance, options = {}) {
     if (!instance) return false;
-    if (getBasicAuthFromEnv(instance)) return true;
-    const creds = this.credentialStore.load(instance, options.username ?? this._activeUsername());
-    if (!creds) return false;
-    if (creds.auth_method === 'basic') {
-      return Boolean(creds.username && creds.password);
-    }
-    if (creds.auth_method === 'gck') {
-      return Boolean(creds.access_token && creds.cookies);
-    }
-    if (creds.expires_at && Date.now() >= creds.expires_at * 1000) return false;
-    return !!creds.access_token;
+    return this.getAuthState(instance, options).state === 'available';
   }
 
   async getCredentials() {
@@ -644,22 +660,32 @@ export class AuthManager {
     return this.getCredentialsFor(instance);
   }
 
-  getCredentialsFor(instance, username = this._activeUsername()) {
-    // Check basic auth from env vars first
-    const basicCreds = getBasicAuthFromEnv(instance);
-    if (basicCreds) return basicCreds;
+  getCredentialsFor(instance, username = this._activeUsername(), options = {}) {
+    const method = this._selectedMethod(options);
+    if (method === 'oauth' && process.env.SERVICENOW_OAUTH_TOKEN) {
+      return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN, auth_source: 'env_token' };
+    }
+    if (method === 'basic') {
+      const basicCreds = getBasicAuthFromEnv(instance);
+      if (basicCreds) return basicCreds;
+    }
     const creds = this.credentialStore.load(instance, username);
     if (!creds) {
       throw errAuth(`Not authenticated for ${instance}`);
     }
+    if (method !== 'unconfigured' && creds.auth_method != null && creds.auth_method !== method) {
+      throw errAuth(`Stored credentials do not match configured ${method} authentication`);
+    }
+    const resolved = method !== 'unconfigured' && !creds.auth_method ? { ...creds, auth_method: method } : creds;
+    if (method === 'gck' && (!resolved.access_token || !resolved.cookies)) throw errAuth('Invalid browser session credentials');
+    if (method === 'basic' && (!resolved.username || !resolved.password)) throw errAuth('Invalid basic auth credentials');
+    if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
-    if (creds.expires_at && Date.now() >= (creds.expires_at - 300) * 1000) {
-      if (creds.refresh_token) {
-        return this.refreshToken(instance, creds);
-      }
+    if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
+      if (resolved.refresh_token) return this.refreshToken(instance, resolved);
       throw errAuth('Token expired, please login again');
     }
-    return creds;
+    return resolved;
   }
 
   async login(instanceURL) {

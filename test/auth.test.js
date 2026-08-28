@@ -1053,6 +1053,55 @@ describe('AuthManager safe auth state seam', () => {
 
 // ─── auth switch handler ───
 
+describe('AuthManager review blocker regressions', () => {
+  it('resolves OAuth environment credentials for the selected profile', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previous = process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'profile-oauth-token';
+    try {
+      const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://profile-oauth.example.com', getAuthMethod: () => 'oauth' }, { credentialStore: { load: () => null, save() {}, delete() {} } });
+      assert.deepStrictEqual(auth.getCredentialsFor('https://profile-oauth.example.com', 'alice', { authMethod: 'oauth' }), { auth_method: 'oauth', access_token: 'profile-oauth-token', auth_source: 'env_token' });
+      assert.strictEqual(auth.isAuthenticatedFor('https://profile-oauth.example.com', { username: 'alice', authMethod: 'oauth' }), true);
+    } finally {
+      if (previous === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN;
+      else process.env.SERVICENOW_OAUTH_TOKEN = previous;
+    }
+  });
+
+  it('does not authenticate a configured method through another method', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://method.example.com', getAuthMethod: () => 'gck' }, { credentialStore: { load: () => ({ access_token: 'oauth-token' }), save() {}, delete() {} } });
+    assert.strictEqual(auth.isAuthenticatedFor('https://method.example.com', { username: 'alice', authMethod: 'gck' }), false);
+    assert.throws(() => auth.getCredentialsFor('https://method.example.com', 'alice', { authMethod: 'gck' }));
+  });
+
+  it('builds profile SDK/auth transport without command-owned credential closures', async () => {
+    const { App } = await import('../src/app.js');
+    const app = new App({ profiles: { first: { instance_url: 'https://first.example.com', username: 'alice', auth_method: 'gck' } }, activeProfile: 'first', defaultProfile: 'first' });
+    const sdk = app.getSDKForProfile('https://first.example.com', { username: 'alice', authMethod: 'gck' });
+    assert.strictEqual(sdk.baseURL, 'https://first.example.com');
+    assert.strictEqual(typeof sdk.authProvider.getCredentials, 'function');
+    assert.notStrictEqual(sdk.authProvider, app.auth);
+  });
+
+  it('never falls back to bearer for browser-session credentials', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const headers = new Headers();
+    const sdk = new SDKClient('https://gck.example.com', { getCredentials: async () => ({ auth_method: 'gck', access_token: 'browser', cookies: 'sid=cookie' }) });
+    await sdk._setAuth({ headers });
+    assert.strictEqual(headers.get('X-UserToken'), 'browser');
+    assert.strictEqual(headers.get('Cookie'), 'sid=cookie');
+    assert.strictEqual(headers.get('Authorization'), null);
+  });
+
+  it('classifies missing-instance and SDK construction probe outcomes', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => '', getAuthMethod: () => 'oauth' }, { credentialStore: { load: () => null, save() {}, delete() {} } });
+    assert.deepStrictEqual(auth.probeUnavailable('missing_instance'), { status: 'not_attempted', code: 'missing_instance', classification: 'unavailable', message: 'No instance is configured for this profile.', hint: 'Set an instance URL and run: jsn auth login' });
+    assert.deepStrictEqual(auth.probeUnavailable('sdk_construction_failed'), { status: 'not_attempted', code: 'sdk_construction_failed', classification: 'configuration_error', message: 'The authenticated probe could not be initialized for this profile.', hint: 'Check the profile configuration and run: jsn auth status again' });
+  });
+});
+
 describe('Auth Command Switch Handler', () => {
   it('should set the active profile via setActiveProfile', async () => {
     // setActiveProfile calls saveConfig() which writes the REAL global config.

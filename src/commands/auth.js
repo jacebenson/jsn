@@ -283,8 +283,9 @@ export async function loginWizard(app, argv = {}) {
       await app.auth.login(instance);
       // Re-save credentials under <user>@<instance> after verifying username
       try {
-        const { SDKClient } = await import('../sdk.js');
-        const sdk = new SDKClient(instance, app.auth);
+        const sdk = app.getSDKForProfile
+          ? app.getSDKForProfile(instance, { authMethod: 'oauth' })
+          : app.sdk;
         const user = await sdk.getCurrentUser();
         if (user && user.user_name) {
           app.auth.migrateLegacyCredential(instance, user.user_name);
@@ -299,9 +300,10 @@ export async function loginWizard(app, argv = {}) {
       // Probe domain separation capability once and stamp the profile, so
       // `jsn domains` (and its help entry) only appear on instances with it.
       try {
-        const { SDKClient } = await import('../sdk.js');
         const domainsMod = await import('./dev/domains.js');
-        const sdk = new SDKClient(instance, app.auth);
+        const sdk = app.getSDKForProfile
+          ? app.getSDKForProfile(instance, { profile })
+          : app.sdk;
         profile.domain_separation = await domainsMod.isDomainSeparationInstalled({ sdk });
         await setProfile(app.config, profileName, profile);
 
@@ -405,8 +407,9 @@ export async function modifyProfile(app, argv = {}) {
       return;
     }
     const { isDomainSeparationInstalled } = await import('./dev/domains.js');
-    const { SDKClient } = await import('../sdk.js');
-    const sdk = new SDKClient(profile.instance_url, app.auth);
+    const sdk = app.getSDKForProfile
+      ? app.getSDKForProfile(profile.instance_url, { profile, authMethod: profile.auth_method, username: profile.username })
+      : app.sdk;
     if (!(await isDomainSeparationInstalled({ sdk }))) {
       throw new Error(`Domain separation is not installed on ${profile.instance_url}`);
     }
@@ -431,8 +434,9 @@ export async function modifyProfile(app, argv = {}) {
         value: 'domain',
       });
     }
-    const { SDKClient } = await import('../sdk.js');
-    const sdk = new SDKClient(profile.instance_url, app.auth);
+    const sdk = app.getSDKForProfile
+      ? app.getSDKForProfile(profile.instance_url, { profile, authMethod: profile.auth_method, username: profile.username })
+      : app.sdk;
     flag = await select({
       message: `Modify ${name} (${profile.instance_url})`,
       choices,
@@ -605,11 +609,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             let username = '';
             try {
               if (!app.sdk || targetUsername) {
-                const { SDKClient } = await import('../sdk.js');
-                const authProvider = targetUsername
-                  ? { getCredentials: () => app.auth.getCredentialsFor(instanceURL, targetUsername) }
-                  : app.auth;
-                app.sdk = new SDKClient(instanceURL, authProvider);
+                app.sdk = app.getSDKForProfile
+                  ? app.getSDKForProfile(instanceURL, { authMethod: useBasic ? 'basic' : 'oauth', username: targetUsername })
+                  : app.sdk;
               }
               const user = await app.sdk.getCurrentUser();
               username = user?.user_name || user?.name || '';
@@ -729,19 +731,14 @@ Examples:
               // Try live verification through AuthManager's read-only probe seam.
               let verified = null;
               let verifiedAt = null;
-              let probe = { status: 'not_attempted' };
-              if (instance) {
+              let probe;
+              if (!instance) {
+                probe = app.auth.probeUnavailable?.('missing_instance') || { status: 'not_attempted', code: 'missing_instance', classification: 'unavailable' };
+              } else {
                 try {
-                  const { SDKClient } = await import('../sdk.js');
-                  const activeProfile = app.config.activeProfile || app.config.defaultProfile;
-                  const activeUsername = app.config.profiles?.[activeProfile]?.username;
-                  const sdk = app.sdk && app.getEffectiveInstance?.() === instance && activeUsername === profile.username
-                    ? app.sdk
-                    : new SDKClient(instance, {
-                      ...app.auth,
-                      getCredentials: () => app.auth.getCredentialsFor(instance, profile.username),
-                      touchLastSeen: () => app.auth.touchLastSeen(instance, identityOptions),
-                    });
+                  const sdk = app.getSDKForProfile
+                    ? app.getSDKForProfile(instance, { ...authOptions, profile })
+                    : app.sdk || { getCurrentUser: async () => null };
                   let user;
                   probe = await app.auth.probeCurrentUser(instance, {
                     getCurrentUser: async (options) => {
@@ -756,6 +753,7 @@ Examples:
                     verified = false;
                   }
                 } catch {
+                  probe = app.auth.probeUnavailable?.('sdk_construction_failed') || { status: 'not_attempted', code: 'sdk_construction_failed', classification: 'configuration_error' };
                   verified = false;
                 }
               }
@@ -843,9 +841,10 @@ Examples:
             // Re-probe domain separation on refresh so the capability flag
             // stays in sync if the plugin was installed/removed since setup.
             try {
-              const { SDKClient } = await import('../sdk.js');
               const { isDomainSeparationInstalled } = await import('./dev/domains.js');
-              const sdk = new SDKClient(instanceURL, app.auth);
+              const sdk = app.getSDKForProfile
+                ? app.getSDKForProfile(instanceURL, { authMethod: 'oauth' })
+                : app.sdk;
               const hasDS = await isDomainSeparationInstalled({ sdk });
               const name = app.config.activeProfile || app.config.defaultProfile;
               if (name && app.config.profiles[name] && app.config.profiles[name].instance_url === instanceURL) {

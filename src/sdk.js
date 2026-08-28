@@ -52,13 +52,7 @@ export class SDKClient {
         if (creds.cookies) req.headers.set('Cookie', creds.cookies);
         break;
       default:
-        if (creds.username && creds.password) {
-          req.headers.set('Authorization', 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`).toString('base64'));
-        } else if (creds.access_token) {
-          req.headers.set('Authorization', `Bearer ${creds.access_token}`);
-        } else {
-          throw errAuth('No valid credentials');
-        }
+        throw errAuth('Unsupported authentication method');
     }
   }
 

@@ -57,6 +57,14 @@ export class App {
     });
   }
 
+  /** Build a profile-scoped SDK without leaking auth construction to commands. */
+  getSDKForProfile(instance, options = {}) {
+    const profile = options.profile || {};
+    return new SDKClient(instance, this.auth.createProfileProvider(instance, options), {
+      domain: options.domain ?? profile.domain ?? '',
+    });
+  }
+
   loadContext() {
     this.context = contextFromSession(this.session, this.config);
   }
