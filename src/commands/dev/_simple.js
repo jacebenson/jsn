@@ -1,5 +1,6 @@
 import { buildDevCmd } from './_generic.js';
 import { getStringField } from '../../helpers.js';
+export { decisiontablesCmd } from './decisiontables.js';
 
 // Simple table-based dev commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
@@ -109,7 +110,7 @@ export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', [
 export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register', ['trigger'], ['name', 'event_name', 'active', 'sys_scope'], wrap, { singular: 'event trigger', scopeValidation: true, devAlias: false });
 
 // ── Automation: In Memory ──
-export const decisiontablesCmd = (wrap) => buildDevCmd('decisiontables', 'sys_ws_definition', ['decisiontable'], ['name', 'active', 'sys_scope'], wrap, { singular: 'decision table', scopeValidation: true, readOnly: true, devAlias: false });
+
 export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assignment', ['assignment'], ['name', 'active', 'sys_scope'], wrap, { singular: 'assignment rule', scopeValidation: true, readOnly: true, devAlias: false });
 
 // ── Automation: Inbound ──
