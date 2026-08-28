@@ -1,5 +1,5 @@
 import { errUsageHint, errUsage } from '../errors.js';
-import { captureRun, listRuns, getRun, compareRuns, formatRun, formatRunList, formatComparison } from '../perf.js';
+import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparison } from '../perf.js';
 import { paginatedSearch } from '../paginated-search.js';
 
 function pickerEnabled(app) {
@@ -32,6 +32,18 @@ function requireRun(runId, side) {
   return run;
 }
 
+function listHint() {
+  return { action: 'list', cmd: 'jsn perf list', description: 'Browse saved performance captures' };
+}
+
+function showHint(runId) {
+  return { action: 'show', cmd: `jsn perf show ${runId}`, description: 'View this capture again' };
+}
+
+function compareHint(runId) {
+  return { action: 'compare', cmd: `jsn perf compare ${runId} OTHER_RUN_ID`, description: 'Compare this capture with another run' };
+}
+
 export function perfCmd(wrap) {
   return {
     command: 'perf [subcommand]',
@@ -52,7 +64,10 @@ export function perfCmd(wrap) {
             label: argv.label || '',
             options: { label: argv.label || '' },
           });
-          app.ok({ ...run, _formatted: formatRun(run) }, { summary: `Performance capture ${run.run_id}: ${run.status}` });
+          app.ok({ ...run, _formatted: formatRunDetailed(run) }, {
+            summary: `Performance capture ${run.run_id}: ${run.status}`,
+            breadcrumbs: [listHint(), showHint(run.run_id), compareHint(run.run_id)],
+          });
         }),
       })
       .command({
@@ -64,10 +79,20 @@ export function perfCmd(wrap) {
           const runs = listRuns({ limit: argv.limit });
           const picked = await pickRun(app, { message: 'Select a performance capture' });
           if (picked) {
-            app.ok({ ...getRun(picked.run_id), _formatted: formatRun(getRun(picked.run_id)) }, { summary: `Performance capture ${picked.run_id}` });
+            const run = getRun(picked.run_id);
+            app.ok({ ...run, _formatted: formatRunDetailed(run) }, {
+              summary: `Performance capture ${picked.run_id}`,
+              breadcrumbs: [listHint(), compareHint(run.run_id)],
+            });
             return;
           }
-          app.ok({ runs, count: runs.length, _formatted: formatRunList(runs) }, { summary: `${runs.length} performance capture(s)` });
+          app.ok({ runs, count: runs.length, _formatted: formatRunList(runs) }, {
+            summary: `${runs.length} performance capture(s)`,
+            breadcrumbs: [
+              { action: 'capture', cmd: 'jsn perf capture --label LABEL', description: 'Create another read-only capture' },
+              ...(runs[0] ? [showHint(runs[0].run_id)] : []),
+            ],
+          });
         }),
       })
       .command({
@@ -76,7 +101,10 @@ export function perfCmd(wrap) {
         handler: wrap(async (argv, app) => {
           const run = argv.run_id ? requireRun(argv.run_id, 'target') : await pickRun(app);
           if (!run) return;
-          app.ok({ ...run, _formatted: formatRun(run) }, { summary: `Performance capture ${run.run_id}` });
+          app.ok({ ...run, _formatted: formatRunDetailed(run) }, {
+            summary: `Performance capture ${run.run_id}`,
+            breadcrumbs: [listHint(), compareHint(run.run_id)],
+          });
         }),
       })
       .command({
@@ -89,7 +117,10 @@ export function perfCmd(wrap) {
             const newer = await pickRun(app, { exclude: new Set([baseline.run_id]), message: 'Select the new capture' });
             if (!newer) return;
             const result = compareRuns(baseline, newer);
-            app.ok({ ...result, _formatted: formatComparison(result) }, { summary: `Performance comparison: ${result.status}` });
+            app.ok({ ...result, _formatted: formatComparison(result) }, {
+              summary: `Performance comparison: ${result.status}`,
+              breadcrumbs: [listHint(), showHint(baseline.run_id), showHint(newer.run_id)],
+            });
             return;
           }
           if (!argv.baseline || !argv.new) throw errUsage('Compare requires exactly two run IDs');
@@ -97,7 +128,10 @@ export function perfCmd(wrap) {
           const baseline = requireRun(argv.baseline, 'baseline');
           const newer = requireRun(argv.new, 'new');
           const result = compareRuns(baseline, newer);
-          app.ok({ ...result, _formatted: formatComparison(result) }, { summary: `Performance comparison: ${result.status}` });
+          app.ok({ ...result, _formatted: formatComparison(result) }, {
+            summary: `Performance comparison: ${result.status}`,
+            breadcrumbs: [listHint(), showHint(baseline.run_id), showHint(newer.run_id)],
+          });
         }),
       }),
     handler: wrap(async (_argv, app) => {
