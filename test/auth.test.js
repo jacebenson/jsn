@@ -68,6 +68,8 @@ describe('Auth Command Handlers', () => {
         isAuthenticatedFor: () => true,
         getLastSeen: () => null,
         touchLastSeen: () => {},
+        probeCurrentUser: async () => ({ status: 'failed' }),
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'file', state: 'available' }),
         refreshToken: async () => ({ auth_method: 'oauth', access_token: 'new-tok', refresh_token: 'new-rtok', expires_at: 9999999999 }),
         logout: () => {},
       },
@@ -101,6 +103,66 @@ describe('Auth Command Handlers', () => {
     await statusCmd.handler({ app: mockApp, _: ['status'] });
     // Should not throw
     assert.ok(true);
+  });
+
+  it('auth status probes through AuthManager and keeps the SDK probe read-only', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = 'https://probe-status.example.com';
+    const output = [];
+    const sdkOptions = [];
+    const probeCalls = [];
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => 'oauth',
+    }, {
+      credentialStore: {
+        load: () => ({ auth_method: 'oauth', access_token: 'tok', expires_at: 9999999999 }),
+        save: () => {},
+        delete: () => {},
+      },
+    });
+    const originalProbe = auth.probeCurrentUser.bind(auth);
+    auth.probeCurrentUser = async (probeInstance, sdk) => {
+      probeCalls.push({ instance: probeInstance, sdk });
+      return originalProbe(probeInstance, sdk);
+    };
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { probe: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      sdk: {
+        getCurrentUser: async (options) => {
+          sdkOptions.push(options);
+          return { user_name: 'probe-user' };
+        },
+      },
+      auth,
+      getEffectiveInstance: () => instance,
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+
+    assert.strictEqual(probeCalls.length, 1);
+    assert.strictEqual(probeCalls[0].instance, instance);
+    assert.deepStrictEqual(sdkOptions, [{ touchLastSeen: false }]);
+    assert.strictEqual(output[0].profiles[0].verified, true);
+    assert.strictEqual(output[0].profiles[0].verified_as, 'probe-user');
   });
 
   it('auth status uses the safe source vocabulary at the command boundary', async () => {

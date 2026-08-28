@@ -720,17 +720,27 @@ Examples:
               // safe metadata seam for authenticated profiles.
               const authSource = isAuth ? authState.auth_source : (legacy ? 'legacy' : undefined);
 
-              // Try live verification
+              // Try live verification through AuthManager's read-only probe seam.
               let verified = null;
               let verifiedAt = null;
               if (isAuth && instance) {
                 try {
                   const { SDKClient } = await import('../sdk.js');
-                  const sdk = new SDKClient(instance, app.auth);
-                  const user = await sdk.getCurrentUser();
-                  if (user && user.user_name) {
+                  const sdk = app.sdk && app.getEffectiveInstance?.() === instance
+                    ? app.sdk
+                    : new SDKClient(instance, app.auth);
+                  let user;
+                  const probe = await app.auth.probeCurrentUser(instance, {
+                    getCurrentUser: async (options) => {
+                      user = await sdk.getCurrentUser(options);
+                      return user;
+                    },
+                  });
+                  if (probe.status === 'succeeded' && user?.user_name) {
                     verified = true;
                     verifiedAt = user.user_name;
+                  } else if (probe.status !== 'not_attempted') {
+                    verified = false;
                   }
                 } catch {
                   verified = false;
