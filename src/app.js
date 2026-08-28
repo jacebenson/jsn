@@ -39,6 +39,7 @@ export class App {
     this.auth = new AuthManager({
       getUsername: () => this.session?.username || null,
       getEffectiveInstance: () => this.session?.instance || '',
+      getAuthMethod: () => this.session?.profile?.auth_method || null,
     });
 
     if (this.session.instance) {

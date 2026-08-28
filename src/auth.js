@@ -290,6 +290,38 @@ export function parseBrowserSessionInput(input) {
   return { auth_method: 'gck', access_token: token, cookies, auth_source: 'gck' };
 }
 
+const AUTH_METHODS = new Set(['oauth', 'basic', 'gck']);
+
+/**
+ * Classify credentials without returning or logging any credential material.
+ * This is deliberately pure so diagnostics cannot refresh, persist, or probe.
+ */
+export function classifyCredentialState(credentials, method, now = Date.now()) {
+  if (!credentials) return 'missing';
+  if (!AUTH_METHODS.has(method)) return 'malformed';
+
+  if (method === 'basic') {
+    const hasUser = typeof credentials.username === 'string' && credentials.username.length > 0;
+    const hasPassword = typeof credentials.password === 'string' && credentials.password.length > 0;
+    return hasUser && hasPassword ? 'available' : 'malformed';
+  }
+
+  if (method === 'gck') {
+    const hasToken = typeof credentials.access_token === 'string' && credentials.access_token.length > 0;
+    const hasCookies = typeof credentials.cookies === 'string' && credentials.cookies.length > 0;
+    return hasToken && hasCookies ? 'available' : 'malformed';
+  }
+
+  const hasToken = typeof credentials.access_token === 'string' && credentials.access_token.length > 0;
+  if (!hasToken) return credentials.refresh_token ? 'refreshable' : 'missing';
+  if (credentials.expires_at !== undefined && credentials.expires_at !== null && credentials.expires_at !== 0) {
+    const expiresAt = Number(credentials.expires_at);
+    if (!Number.isFinite(expiresAt)) return 'malformed';
+    if (now >= expiresAt * 1000) return credentials.refresh_token ? 'refreshable' : 'expired';
+  }
+  return 'available';
+}
+
 export class AuthManager {
   /**
    * @param {object} identity — the resolved-identity provider. Production
@@ -311,6 +343,11 @@ export class AuthManager {
           return (name && cfg.profiles?.[name]?.username) || null;
         },
         getEffectiveInstance: () => provider.getEffectiveInstance(),
+        getAuthMethod: () => {
+          const cfg = provider.config;
+          const name = cfg.activeProfile || cfg.defaultProfile;
+          return cfg.profiles?.[name]?.auth_method || null;
+        },
       };
     } else {
       this.identity = identity;
@@ -365,6 +402,43 @@ export class AuthManager {
     if (!creds) return null;
     // New creds have auth_source; older ones only have auth_method
     return creds.auth_source || creds.auth_method || 'stored';
+  }
+
+  /**
+   * Return only safe metadata about the selected auth method and credentials.
+   * Unlike getCredentialsFor(), this never refreshes or mutates credentials.
+   */
+  getAuthState(instance = this.identity.getEffectiveInstance()) {
+    const configuredMethod = typeof this.identity.getAuthMethod === 'function'
+      ? this.identity.getAuthMethod() : null;
+    let method = configuredMethod || 'oauth';
+    let source = 'unavailable';
+    let credentials = null;
+
+    if (process.env.SERVICENOW_OAUTH_TOKEN) {
+      method = 'oauth';
+      source = 'env_token';
+      credentials = { access_token: process.env.SERVICENOW_OAUTH_TOKEN };
+    } else {
+      const basicCredentials = getBasicAuthFromEnv(instance);
+      if (basicCredentials) {
+        method = 'basic';
+        source = 'env_basic';
+        credentials = basicCredentials;
+      } else if (instance) {
+        credentials = loadCredentials(instance, this._activeUsername());
+        if (credentials) {
+          method = credentials.auth_method || method;
+          source = credentials.auth_source || 'stored';
+        }
+      }
+    }
+
+    return {
+      auth_method: method,
+      auth_source: source,
+      state: classifyCredentialState(credentials, method),
+    };
   }
 
   isAuthenticated() {

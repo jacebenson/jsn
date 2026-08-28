@@ -233,6 +233,88 @@ describe('auth login method selection', () => {
   });
 });
 
+describe('AuthManager safe auth state seam', () => {
+  it('classifies OAuth environment credentials without exposing the token', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previous = process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'secret-access-token';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => 'https://oauth.example.com',
+      });
+      const state = auth.getAuthState('https://oauth.example.com');
+      assert.deepStrictEqual(state, {
+        auth_method: 'oauth',
+        auth_source: 'env_token',
+        state: 'available',
+      });
+      assert.strictEqual(JSON.stringify(state).includes('secret-access-token'), false);
+    } finally {
+      if (previous === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN;
+      else process.env.SERVICENOW_OAUTH_TOKEN = previous;
+    }
+  });
+
+  it('classifies Basic Auth environment credentials without exposing the password', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    process.env.SN_USERNAME = 'admin';
+    process.env.SN_PASSWORD = 'secret-password';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => 'https://basic.example.com',
+      });
+      const state = auth.getAuthState('https://basic.example.com');
+      assert.deepStrictEqual(state, {
+        auth_method: 'basic',
+        auth_source: 'env_basic',
+        state: 'available',
+      });
+      assert.strictEqual(JSON.stringify(state).includes('secret-password'), false);
+    } finally {
+      if (previousUser === undefined) delete process.env.SN_USERNAME;
+      else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD;
+      else process.env.SN_PASSWORD = previousPassword;
+    }
+  });
+
+  it('reports configured browser-session credentials as available without secrets', async () => {
+    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const instance = `https://gck-state-${Date.now()}.service-now.com`;
+    saveCredentials(instance, {
+      auth_method: 'gck',
+      access_token: 'secret-user-token',
+      cookies: 'JSESSIONID=secret-cookie',
+    });
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'gck',
+      });
+      const state = auth.getAuthState(instance);
+      assert.strictEqual(state.auth_method, 'gck');
+      assert.ok(['file', 'keyring'].includes(state.auth_source));
+      assert.strictEqual(state.state, 'available');
+      assert.strictEqual(JSON.stringify(state).includes('secret-cookie'), false);
+    } finally {
+      deleteCredentials(instance);
+    }
+  });
+
+  it('distinguishes missing, expired, refreshable, and malformed OAuth state', async () => {
+    const { classifyCredentialState } = await import('../src/auth.js');
+    assert.strictEqual(classifyCredentialState(null, 'oauth'), 'missing');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 1 }, 'oauth'), 'expired');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 1, refresh_token: 'refresh' }, 'oauth'), 'refreshable');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 'not-a-time' }, 'oauth'), 'malformed');
+  });
+});
+
 // ─── auth switch handler ───
 
 describe('Auth Command Switch Handler', () => {
