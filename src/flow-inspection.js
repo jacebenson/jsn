@@ -37,6 +37,13 @@ function normalizeInspection(value) {
     flowOutputs: Array.isArray(inspection.flowOutputs) ? inspection.flowOutputs : [],
     flowVariables: Array.isArray(inspection.flowVariables) ? inspection.flowVariables : [],
   };
+  if (Object.prototype.hasOwnProperty.call(inspection, 'catalogRecords')) {
+    Object.defineProperty(normalized, 'catalogRecords', {
+      value: inspection.catalogRecords,
+      enumerable: false,
+      configurable: true,
+    });
+  }
   return normalized;
 }
 

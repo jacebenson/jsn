@@ -41,6 +41,7 @@ export function flowsCmd(wrap) {
             const picked = await interactiveList({
               app, table: 'sys_hub_flow', singular: 'flow', columns, limit: argv.limit, query, labelField: 'name',
               formatLabel: r => `${getStringField(r, 'active') === 'true' ? '🟢' : '🔴'} ${getStringField(r, 'name')}`,
+              promptFn: app.promptFn,
             });
             if (picked === undefined) return; // user cancelled
             if (picked) {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { decodeGzipJson, hydrateFlowBlocks } from '../src/sdk.js';
+import { SDKClient, decodeGzipJson, hydrateFlowBlocks } from '../src/sdk.js';
 import { normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../src/flow-context.js';
 
 test('normalizeFlowContext maps runtime timestamps and derives duration', () => {
@@ -311,4 +311,18 @@ test('public seam resolves repeated catalog references', async () => {
 test('flow inspection exports only inspectFlow', async () => {
   const module = await import('../src/flow-inspection.js');
   assert.deepEqual(Object.keys(module), ['inspectFlow']);
+});
+
+test('SDK flow inspection keeps catalog records out of the public JSON schema', async () => {
+  const client = new SDKClient('https://example.service-now.com', {});
+  client.request = async () => { throw new Error('ProcessFlow API unavailable'); };
+  client.list = async (table) => table === 'sys_hub_flow'
+    ? [{ sys_id: 'flow-1', name: 'Production flow', active: 'true', version: '2', type: 'Flow' }]
+    : [];
+
+  const result = await client.inspectFlow('flow-1');
+
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'catalogRecords'), true);
+  assert.equal(Object.keys(result).includes('catalogRecords'), false);
+  assert.equal(JSON.stringify(result).includes('catalogRecords'), false);
 });

@@ -490,7 +490,12 @@ export class SDKClient {
     walk(inspection.actionInstances);
     walk(inspection.flowLogicInstances);
     for (const logic of inspection.flowLogicInstances) addInputs(logic?._decodedValues?.inputs);
-    inspection.catalogRecords = [];
+    Object.defineProperty(inspection, 'catalogRecords', {
+      value: [],
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
     for (const { id, table } of refs.values()) {
       try {
         const params = new URLSearchParams({ sysparm_query: `sys_id=${id}`, sysparm_fields: 'sys_id,name,question_text', sysparm_display_value: 'all', sysparm_limit: '1' });
