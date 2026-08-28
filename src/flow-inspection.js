@@ -1,5 +1,4 @@
 import { getStringField } from './helpers.js';
-import { catalogResolver } from './flow-inspection-internals.js';
 
 /**
  * Inspect a flow through the narrow remote adapter and render its deep view.
@@ -38,9 +37,6 @@ function normalizeInspection(value) {
     flowOutputs: Array.isArray(inspection.flowOutputs) ? inspection.flowOutputs : [],
     flowVariables: Array.isArray(inspection.flowVariables) ? inspection.flowVariables : [],
   };
-  if (typeof inspection[catalogResolver] === 'function') {
-    Object.defineProperty(normalized, catalogResolver, { value: inspection[catalogResolver] });
-  }
   return normalized;
 }
 
@@ -206,7 +202,7 @@ function inferFlowVersion(inspection) {
   return 'Unset';
 }
 
-async function collectCatalogVarNames(list, inspection, ctx) {
+async function collectCatalogVarNames(inspection, ctx) {
   const names = new Map();
   const refs = new Map();
   const tokenRe = /([0-9a-f]{32}):([a-z_]+)/g;
@@ -239,18 +235,14 @@ async function collectCatalogVarNames(list, inspection, ctx) {
   walk(inspection.actionInstances);
   for (const logic of inspection.flowLogicInstances) addInputs(logic?._decodedValues?.inputs);
   for (const [table, ids] of refs) {
-    const pending = [];
     for (const id of ids) {
       const key = `${table}:${id}`;
       if (!ctx.catalogLookupCache.has(key)) {
-        const request = Promise.resolve().then(() => list(table, id)).catch(() => []);
-        ctx.catalogLookupCache.set(key, request);
+        const record = (inspection.catalogRecords || []).find(item => getStringField(item, 'sys_id') === id
+          && (!getStringField(item, 'table') || getStringField(item, 'table') === table));
+        ctx.catalogLookupCache.set(key, record || null);
       }
-      pending.push([id, ctx.catalogLookupCache.get(key)]);
-    }
-    for (const [id, request] of pending) {
-      const records = await request;
-      const record = records?.[0];
+      const record = await ctx.catalogLookupCache.get(key);
       const label = record && firstNonEmpty(getStringField(record, 'question_text'), getStringField(record, 'name'));
       if (label) names.set(id, label);
     }
@@ -259,8 +251,8 @@ async function collectCatalogVarNames(list, inspection, ctx) {
 }
 
 async function formatFlowStructure(inspection, ctx) {
-  const supplied = typeof inspection[catalogResolver] === 'function'
-    ? await collectCatalogVarNames(inspection[catalogResolver], inspection, ctx)
+  const supplied = Array.isArray(inspection.catalogRecords)
+    ? await collectCatalogVarNames(inspection, ctx)
     : null;
   const names = supplied instanceof Map
     ? supplied
