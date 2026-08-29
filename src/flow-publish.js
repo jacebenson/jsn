@@ -43,9 +43,9 @@ export async function publishFlows(sdk, flowIDs = [], actionIDs = []) {
     actions: actionIDs.map(sys_id => ({ sys_id, active: 'true', state: '' })),
   });
 
-  // _fetchWithAuth rather than request(): request() throws on any non-2xx, which
+  // fetchResponse rather than request(): request() throws on any non-2xx, which
   // would discard the 422 body we specifically want to report.
-  const resp = await sdk._fetchWithAuth(`${sdk.baseURL}${ACTIVATE_PATH}`, {
+  const resp = await sdk.fetchResponse(`${sdk.baseURL}${ACTIVATE_PATH}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body,

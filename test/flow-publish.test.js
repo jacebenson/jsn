@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 function buildSdk({ fetchResponse, tables = {}, records = {}, scriptOutput = '' } = {}) {
   return {
     baseURL: 'https://dev.example.service-now.com',
-    async _fetchWithAuth() {
+    async fetchResponse() {
       return fetchResponse;
     },
     async list(table) {

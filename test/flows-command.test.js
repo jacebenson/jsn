@@ -107,11 +107,11 @@ test('publish handler resolves a named flow, declares mutation, and emits JSON',
   const calls = [];
   const sdk = {
     baseURL: 'https://example.service-now.com',
-    async get(table, identifier) {
-      calls.push(['get', table, identifier]);
-      return { sys_id: 'flow-1', name: 'Named flow' };
+    async list(table, params) {
+      calls.push(['list', table, Object.fromEntries(params)]);
+      return [{ sys_id: 'flow-1', name: 'Named flow' }];
     },
-    async _fetchWithAuth(url, options) {
+    async fetchResponse(url, options) {
       calls.push(['publish', url, JSON.parse(options.body)]);
       return {
         status: 200,
@@ -128,7 +128,11 @@ test('publish handler resolves a named flow, declares mutation, and emits JSON',
 
   await handler('publish <identifier>').handler({ identifier: 'flow-name', action: false }, app);
 
-  assert.deepEqual(calls[0], ['get', 'sys_hub_flow', 'flow-name']);
+  assert.deepEqual(calls[0], ['list', 'sys_hub_flow', {
+    sysparm_query: 'name=flow-name',
+    sysparm_limit: '1',
+    sysparm_display_value: 'all',
+  }]);
   assert.deepEqual(calls[1][2].flows, [{ sys_id: 'flow-1', active: 'true', state: '' }]);
   assert.deepEqual(calls[1][2].actions, []);
   assert.ok(mutationPaths(collectCapabilities()).some(path =>
@@ -137,6 +141,26 @@ test('publish handler resolves a named flow, declares mutation, and emits JSON',
   assert.equal(out.ok, true);
   assert.equal(out.data.results[0].sys_id, 'flow-1');
   assert.match(out.summary, /Published 1\/1/);
+});
+
+test('publish --action skips flow lookup and publishes the supplied action sys_id', async () => {
+  let flowLookup = false;
+  let published;
+  const sdk = {
+    baseURL: 'https://example.service-now.com',
+    async list() { flowLookup = true; return []; },
+    async fetchResponse(_url, options) {
+      published = JSON.parse(options.body);
+      return { status: 200, async text() { return JSON.stringify({ result: {
+        summary: { total: 1, succeeded: 1, failed: 0 }, results: [{ sys_id: 'action-1', status: 'success' }],
+      } }); } };
+    },
+  };
+  const { app } = jsonApp(sdk);
+  await handler('publish <identifier>').handler({ identifier: 'action-1', action: true }, app);
+  assert.equal(flowLookup, false);
+  assert.deepEqual(published.actions, [{ sys_id: 'action-1', active: 'true', state: '' }]);
+  assert.deepEqual(published.flows, []);
 });
 
 test('status handler resolves the flow and uses flow status SDK seams', async () => {
@@ -148,6 +172,7 @@ test('status handler resolves the flow and uses flow status SDK seams', async ()
     },
     async list(table, params) {
       calls.push(['list', table, Object.fromEntries(params)]);
+      if (table === 'sys_hub_flow') return [{ sys_id: 'flow-1', name: 'Named flow' }];
       if (table === 'sys_hub_trigger_instance_v2') return [{ trigger_type: 'service_catalog', trigger_inputs: '' }];
       return [];
     },
@@ -157,10 +182,11 @@ test('status handler resolves the flow and uses flow status SDK seams', async ()
   await handler('status <identifier>').handler({ identifier: 'flow-name' }, app);
 
   assert.deepEqual(calls.map(call => call.slice(0, 3)), [
-    ['get', 'sys_hub_flow', 'flow-name'],
+    ['list', 'sys_hub_flow', calls[0][2]],
     ['get', 'sys_hub_flow', 'flow-1'],
     ['list', 'sys_hub_trigger_instance_v2', calls[2][2]],
   ]);
+  assert.equal(calls[0][2].sysparm_query, 'name=flow-name');
   assert.equal(calls[2][2].sysparm_query, 'flow=flow-1');
   const out = envelope();
   assert.equal(out.ok, true);

@@ -120,8 +120,11 @@ export class SDKClient {
     }
   }
 
-  // rawRequest is like request() but returns the response text as-is (no JSON parsing).
-  // Used for non-JSON endpoints like sys.scripts.do (returns HTML).
+  // Public raw-response seam for callers that must inspect non-2xx bodies.
+  async fetchResponse(endpoint, opts = {}) {
+    return this._fetchWithAuth(endpoint, opts);
+  }
+
   async rawRequest(endpoint, opts = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
