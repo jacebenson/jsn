@@ -140,18 +140,35 @@ export async function publishDoctor(sdk) {
     detail: op ? `${str(op, 'http_method')} ${str(op, 'relative_path')}` : 'not found',
   });
 
-  const plugins = await sdk.list('sys_plugins', qs({
-    sysparm_query: 'nameSTARTSWITHServiceNow IDE',
-    sysparm_fields: 'name,active',
-    sysparm_limit: '20',
-  }));
-  for (const wanted of ['ServiceNow IDE Platform', 'ServiceNow IDE Runtime Services']) {
-    const p = plugins.find(x => str(x, 'name') === wanted);
+  // sys_plugins is commonly blocked by an API-level ACL even for admins, so
+  // treat this as supporting evidence: report it when readable, skip it when
+  // not. The endpoint checks above are the load-bearing ones -- if they pass,
+  // publishing works regardless of what we can see here.
+  let plugins = null;
+  try {
+    plugins = await sdk.list('sys_plugins', qs({
+      sysparm_query: 'nameSTARTSWITHServiceNow IDE',
+      sysparm_fields: 'name,active',
+      sysparm_limit: '20',
+    }));
+  } catch {
     checks.push({
-      name: wanted,
-      ok: Boolean(p) && str(p, 'active') === 'true',
-      detail: p ? (str(p, 'active') === 'true' ? 'active' : 'inactive') : 'not found',
+      name: 'ServiceNow IDE plugins',
+      ok: true,
+      skipped: true,
+      detail: 'not checked — no read access to sys_plugins',
     });
+  }
+
+  if (plugins) {
+    for (const wanted of ['ServiceNow IDE Platform', 'ServiceNow IDE Runtime Services']) {
+      const p = plugins.find(x => str(x, 'name') === wanted);
+      checks.push({
+        name: wanted,
+        ok: Boolean(p) && str(p, 'active') === 'true',
+        detail: p ? (str(p, 'active') === 'true' ? 'active' : 'inactive') : 'not found',
+      });
+    }
   }
 
   return { ok: checks.every(c => c.ok), checks };
@@ -214,10 +231,17 @@ export async function flowStatus(sdk, sysID) {
     sysparm_limit: '100',
   }));
 
+  // NOTE: sys_flow_record_trigger has no column linking a row back to its
+  // flow, so these two checks are necessarily table-level, not flow-level.
+  // Say so rather than implying per-flow precision.
+  const scope = `${table} (table-wide — registrations cannot be attributed to a single flow)`;
+
   checks.push({
     name: 'Trigger registered',
     ok: regs.length > 0,
-    detail: regs.length ? `${regs.length} registration(s) on ${table}` : `no registration on ${table} -- the flow is inert`,
+    detail: regs.length
+      ? `${regs.length} registration(s) on ${scope}`
+      : `no registration on ${table} — nothing on this table is registered, so this flow is inert`,
   });
 
   // An empty/null condition is never matched -- it does not mean "always".
@@ -229,8 +253,8 @@ export async function flowStatus(sdk, sysID) {
       name: 'Trigger condition',
       ok: nullCondition.length === 0,
       detail: nullCondition.length === 0
-        ? 'condition set'
-        : `${nullCondition.length} registration(s) on ${table} have an empty condition -- these never fire (expected "^EQ" for "no condition")`,
+        ? `all ${regs.length} registration(s) on ${table} have a condition set`
+        : `${nullCondition.length} of ${regs.length} registration(s) on ${scope} have an empty condition — those never fire (expected "^EQ" for "no condition")`,
     });
   }
 

@@ -14,7 +14,10 @@ function flowInspectionAdapter(app) {
 declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish'], devAlias: true });
 
 function renderChecks(checks) {
-  return checks.map(c => `  ${c.ok ? '✅' : '❌'} ${c.name}: ${c.detail}`).join('\n');
+  return checks.map((c) => {
+    const mark = c.skipped ? '➖' : (c.ok ? '✅' : '❌');
+    return `  ${mark} ${c.name}: ${c.detail}`;
+  }).join('\n');
 }
 
 export function flowsCmd(wrap) {
