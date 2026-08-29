@@ -120,18 +120,22 @@ describe('flows status', () => {
     master_snapshot: 'snap1', version: '2', active: 'true', ...over,
   });
 
-  it('passes a healthy record-triggered flow', async () => {
+  it('does not treat table-wide registration evidence as proof this flow is healthy', async () => {
     const { flowStatus } = await import('../src/flow-publish.js');
     const sdk = buildSdk({
       records: { 'sys_hub_flow:f1': flow() },
       tables: {
         sys_hub_trigger_instance_v2: [{ trigger_type: 'record_create', trigger_inputs: triggerInputs('incident') }],
+        // This row may belong to a different flow using the same table.
         sys_flow_record_trigger: [{ condition: '^EQ', active: 'true' }],
       },
     });
 
     const out = await flowStatus(sdk, 'f1');
-    assert.strictEqual(out.ok, true, JSON.stringify(out.checks));
+    assert.strictEqual(out.ok, false, JSON.stringify(out.checks));
+    assert.strictEqual(out.checks.find(c => c.name === 'Trigger registered').ok, false);
+    assert.strictEqual(out.checks.find(c => c.name === 'Table registrations').ok, true);
+    assert.match(out.checks.find(c => c.name === 'Trigger registered').detail, /cannot verify.*this flow/i);
   });
 
   // version 1 makes the publisher read the (empty) v1 instance tables and fail

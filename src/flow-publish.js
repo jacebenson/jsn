@@ -251,16 +251,23 @@ export async function flowStatus(sdk, sysID) {
   }));
 
   // NOTE: sys_flow_record_trigger has no column linking a row back to its
-  // flow, so these two checks are necessarily table-level, not flow-level.
-  // Say so rather than implying per-flow precision.
+  // flow. Keep the table-level evidence useful, but never report it as proof
+  // that this particular flow is registered.
   const scope = `${table} (table-wide — registrations cannot be attributed to a single flow)`;
 
   checks.push({
-    name: 'Trigger registered',
+    name: 'Table registrations',
     ok: regs.length > 0,
     detail: regs.length
       ? `${regs.length} registration(s) on ${scope}`
-      : `no registration on ${table} — nothing on this table is registered, so this flow is inert`,
+      : `no registration on ${table}`,
+  });
+  checks.push({
+    name: 'Trigger registered',
+    ok: false,
+    detail: regs.length
+      ? `cannot verify registration for this flow: ${regs.length} registration(s) found on ${scope}`
+      : `cannot verify registration for this flow: no registration on ${table}`,
   });
 
   // An empty/null condition is never matched -- it does not mean "always".
