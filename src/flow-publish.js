@@ -219,10 +219,29 @@ export async function flowStatus(sdk, sysID) {
     return { flow: { sysID, name, type }, ok: checks.every(c => c.ok), checks };
   }
 
-  const table = await triggerTable(sdk, sysID);
-  if (!table) {
-    checks.push({ name: 'Trigger registration', ok: false, detail: 'no trigger instance found on the flow' });
+  const trig = await triggerInfo(sdk, sysID);
+  if (!trig) {
+    checks.push({ name: 'Trigger', ok: false, detail: 'no trigger instance found — a flow needs exactly one' });
     return { flow: { sysID, name, type }, ok: false, checks };
+  }
+
+  // Only record triggers register a row in sys_flow_record_trigger. Scheduled
+  // and application triggers (service_catalog, inbound_email, sla_task,
+  // knowledge_management, ...) are dispatched elsewhere, so the registration
+  // and condition checks below simply do not apply to them.
+  if (!trig.type.startsWith('record_')) {
+    checks.push({
+      name: 'Trigger',
+      ok: true,
+      detail: `${trig.type} — not a record trigger, no sys_flow_record_trigger registration expected`,
+    });
+    return { flow: { sysID, name, type, triggerType: trig.type }, ok: checks.every(c => c.ok), checks };
+  }
+
+  const table = trig.table;
+  if (!table) {
+    checks.push({ name: 'Trigger', ok: false, detail: `${trig.type} trigger has no table set` });
+    return { flow: { sysID, name, type, triggerType: trig.type }, ok: false, checks };
   }
 
   const regs = await sdk.list('sys_flow_record_trigger', qs({
@@ -261,22 +280,28 @@ export async function flowStatus(sdk, sysID) {
   return { flow: { sysID, name, type, table }, ok: checks.every(c => c.ok), checks };
 }
 
-async function triggerTable(sdk, flowSysID) {
+/**
+ * The flow's trigger type, and its table when it is a record trigger.
+ * Returns null when the flow has no trigger instance at all.
+ */
+async function triggerInfo(sdk, flowSysID) {
   for (const tbl of ['sys_hub_trigger_instance_v2', 'sys_hub_trigger_instance']) {
     let rows;
     try {
       rows = await sdk.list(tbl, qs({
         sysparm_query: `flow=${flowSysID}`,
-        sysparm_fields: 'sys_id,trigger_inputs',
+        sysparm_fields: 'sys_id,trigger_type,trigger_inputs',
         sysparm_limit: '5',
       }));
     } catch { continue; } // table may not exist on this release
     for (const row of rows) {
+      const type = str(row, 'trigger_type');
+      if (!type) continue;
       // trigger_inputs is gzip+base64 JSON: the full denormalized input list
       // for the trigger type, of which we only want the "table" entry.
       const inputs = decodeGzipJson(row?.trigger_inputs);
       const t = Array.isArray(inputs) ? inputs.find(i => i?.name === 'table') : null;
-      if (t?.value) return String(t.value);
+      return { type, table: t?.value ? String(t.value) : null };
     }
   }
   return null;
