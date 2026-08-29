@@ -108,6 +108,12 @@ describe('flows publish', () => {
     await assert.rejects(() => publishFlows(sdk, ['abc']), /boom/);
   });
 
+  it('rejects a malformed success body', async () => {
+    const { publishFlows } = await import('../src/flow-publish.js');
+    const sdk = buildSdk({ fetchResponse: jsonResponse(200, { result: {} }) });
+    await assert.rejects(() => publishFlows(sdk, ['abc']), /malformed result body/);
+  });
+
   it('refuses an empty publish', async () => {
     const { publishFlows } = await import('../src/flow-publish.js');
     await assert.rejects(() => publishFlows(buildSdk(), [], []), /Nothing to publish/);
@@ -295,5 +301,21 @@ describe('flows doctor', () => {
     const out = await publishDoctor(sdk);
     assert.strictEqual(out.ok, false);
     assert.strictEqual(out.checks.find(c => c.name === 'wfa_fluent REST API').ok, false);
+  });
+
+  it('fails when endpoint metadata is inactive or points at the wrong operation', async () => {
+    const { publishDoctor } = await import('../src/flow-publish.js');
+    const sdk = buildSdk({
+      tables: {
+        sys_ws_definition: [{ ...wsDef[0], base_uri: '/wrong' }],
+        sys_ws_operation: [{ ...wsOp[0], http_method: 'GET' }],
+        sys_plugins: [],
+      },
+    });
+
+    const out = await publishDoctor(sdk);
+    assert.strictEqual(out.ok, false);
+    assert.strictEqual(out.checks.find(c => c.name === 'wfa_fluent REST API').ok, false);
+    assert.strictEqual(out.checks.find(c => c.name === 'POST /activate_flows operation').ok, false);
   });
 });

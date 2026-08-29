@@ -57,7 +57,10 @@ export async function publishFlows(sdk, flowIDs = [], actionIDs = []) {
 
   if (RESULT_STATUSES.has(resp.status) && parsed?.result) {
     const { summary, results } = parsed.result;
-    return { summary, results: results ?? [], via: 'wfa_fluent' };
+    if (summary && typeof summary === 'object' && Array.isArray(results)) {
+      return { summary, results, via: 'wfa_fluent' };
+    }
+    throw new Error(`Publish failed (HTTP ${resp.status}): malformed result body`);
   }
 
   const message = parsed?.result?.error?.message
@@ -122,9 +125,12 @@ export async function publishDoctor(sdk) {
     sysparm_limit: '5',
   }));
   const def = defs[0];
+  const defUsable = Boolean(def)
+    && str(def, 'active') === 'true'
+    && str(def, 'base_uri') === '/api/now/wfa_fluent';
   checks.push({
     name: 'wfa_fluent REST API',
-    ok: Boolean(def) && str(def, 'active') === 'true',
+    ok: defUsable,
     detail: def ? `${str(def, 'name')} at ${str(def, 'base_uri')}` : 'not found',
   });
 
@@ -134,9 +140,13 @@ export async function publishDoctor(sdk) {
     sysparm_limit: '5',
   }));
   const op = ops[0];
+  const opUsable = Boolean(op)
+    && str(op, 'active') === 'true'
+    && str(op, 'http_method').toUpperCase() === 'POST'
+    && str(op, 'relative_path') === '/activate_flows';
   checks.push({
     name: 'POST /activate_flows operation',
-    ok: Boolean(op) && str(op, 'active') === 'true',
+    ok: opUsable,
     detail: op ? `${str(op, 'http_method')} ${str(op, 'relative_path')}` : 'not found',
   });
 
