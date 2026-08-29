@@ -171,8 +171,15 @@ export function flowsCmd(wrap) {
             .option('action', { type: 'boolean', default: false, describe: 'Treat the identifier as a custom action rather than a flow' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const record = await app.sdk.get('sys_hub_flow', argv.identifier);
-            const sysID = record ? getStringField(record, 'sys_id') : argv.identifier;
+            // --action points at sys_hub_action_type_definition, not sys_hub_flow.
+            // sdk.get() throws a 404 rather than returning null, so the lookup is
+            // best-effort: fall back to treating the argument as a sys_id.
+            const table = argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow';
+            let sysID = argv.identifier;
+            try {
+              const record = await app.sdk.get(table, argv.identifier);
+              if (record) sysID = getStringField(record, 'sys_id');
+            } catch { /* not a sys_id on that table -- use the argument as given */ }
 
             const result = argv.action
               ? await publishFlows(app.sdk, [], [sysID])
