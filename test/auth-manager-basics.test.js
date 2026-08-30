@@ -27,10 +27,17 @@ describe('Auth', () => {
   });
 
   it('isAuthenticatedFor recognizes stored basic auth credentials', async () => {
-    const { AuthManager, saveCredentials, deleteCredentials } = await import('../src/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
     const instance = `https://basic-auth-${Date.now()}.service-now.com`;
-    saveCredentials(instance, {
+    const stored = new Map();
+    const credentialStore = {
+      load: (target, username) => stored.get(`${target}\0${username || ''}`) || null,
+      save: (target, credentials, username) => stored.set(`${target}\0${username || ''}`, credentials),
+      delete: (target, username) => stored.delete(`${target}\0${username || ''}`),
+    };
+    credentialStore.save(instance, {
       auth_method: 'basic',
+      auth_source: 'keyring',
       username: 'admin',
       password: 'secret',
     }, 'admin');
@@ -39,7 +46,7 @@ describe('Auth', () => {
       const auth = new AuthManager({
         getUsername: () => 'admin',
         getEffectiveInstance: () => instance,
-      });
+      }, { credentialStore });
       assert.strictEqual(auth.isAuthenticatedFor(instance), true);
       const credentials = await auth.getCredentials();
       assert.strictEqual(credentials.auth_method, 'basic');
@@ -50,7 +57,7 @@ describe('Auth', () => {
       assert.strictEqual(relogged.auth_method, 'basic');
       assert.strictEqual(relogged.username, 'admin');
     } finally {
-      deleteCredentials(instance, 'admin');
+      credentialStore.delete(instance, 'admin');
     }
   });
 

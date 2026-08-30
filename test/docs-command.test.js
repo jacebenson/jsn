@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { docsCmd } from '../src/commands/docs/docs.js';
+import { closeDocsDb, initDocsSchema, openDocsDb } from '../src/commands/docs/db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 function fakeWrap(handler) {
   return async (...args) => handler(...args);
@@ -112,27 +116,23 @@ describe('Docs sync — incremental path', () => {
 });
 
 describe('Docs serve — port fallback guard', () => {
-  it('should resolve only once even if server emits multiple listening events', async () => {
-    // This tests the `resolved` guard in serveDocs. We simulate a server that
-    // emits 'listening' twice — the guard should prevent double-resolve.
+  it('should start a server on an assigned port', async () => {
     const { serveDocs } = await import('../src/commands/docs/serve.js');
-
-    // Skip if no DB exists (serveDocs requires it).
-    const { docsDbExists } = await import('../src/commands/docs/db.js');
-    if (!docsDbExists()) {
-      return;
-    }
+    const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-serve-'));
+    const dbPath = path.join(root, 'docs.db');
+    const db = openDocsDb({ dbPath });
+    initDocsSchema(db);
+    closeDocsDb(db);
 
     try {
-      const { server } = await serveDocs({ port: 0, host: '127.0.0.1' });
-      // If we get here without throwing, the promise resolved once.
-      // Port 0 means the OS assigns a free port.
+      const { server } = await serveDocs({ dbPath, port: 0, host: '127.0.0.1' });
       assert.ok(server);
       assert.ok(server.address().port > 0);
       server.close();
     } catch (err) {
-      // EADDRINUSE on port 0 is nearly impossible — if it happens, fail informatively.
       assert.fail(`serveDocs failed: ${err.message}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

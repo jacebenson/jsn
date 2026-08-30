@@ -1,5 +1,11 @@
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
+
+const tempRoots = [];
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 describe('Docs search — bundle filter (regression)', () => {
   const INTEG = process.env.JSN_INTEGRATION_TESTS === 'true';
@@ -20,6 +26,7 @@ describe('Docs show — id/path/FTS fallback (temp DB)', () => {
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
     const tmpDir = mkdtempSync(path.join(tmpdir(), 'jsn-docs-test-'));
+    tempRoots.push(tmpDir);
     const dbPath = path.join(tmpDir, 'docs.db');
 
     const { openDocsDb, closeDocsDb, initDocsSchema } = await import('../src/commands/docs/db.js');

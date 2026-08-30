@@ -173,11 +173,14 @@ describe('Config - getActiveProfile', () => {
 
 describe('Config - saveConfig', () => {
   let tmpDir;
+  let originalCwd;
 
   before(() => {
     originalEnv = { ...process.env };
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-save-test-'));
     process.env.XDG_CONFIG_HOME = tmpDir;
+    originalCwd = process.cwd();
+    process.chdir(tmpDir);
   });
 
   after(() => {
@@ -185,6 +188,7 @@ describe('Config - saveConfig', () => {
       if (!(key in originalEnv)) delete process.env[key];
     }
     Object.assign(process.env, originalEnv);
+    process.chdir(originalCwd);
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

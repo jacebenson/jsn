@@ -1,6 +1,6 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import fs, { rmSync } from 'node:fs';
 import { getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir } from '../src/commands/docs/db.js';
 
 describe('Docs DB paths', () => {
@@ -20,12 +20,14 @@ describe('Docs DB paths', () => {
 describe('Docs data migration', () => {
   const originalDataHome = process.env.JSN_DATA_HOME;
   const originalCacheHome = process.env.XDG_CACHE_HOME;
+  const tempRoots = [];
 
   afterEach(() => {
     if (originalDataHome === undefined) delete process.env.JSN_DATA_HOME;
     else process.env.JSN_DATA_HOME = originalDataHome;
     if (originalCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
     else process.env.XDG_CACHE_HOME = originalCacheHome;
+    for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
   it('keeps fresh installs in the new data root', async () => {
@@ -33,6 +35,7 @@ describe('Docs data migration', () => {
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
     const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-fresh-'));
+    tempRoots.push(root);
     process.env.JSN_DATA_HOME = path.join(root, 'data');
     process.env.XDG_CACHE_HOME = path.join(root, 'cache');
 
@@ -45,6 +48,7 @@ describe('Docs data migration', () => {
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
     const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-migrate-'));
+    tempRoots.push(root);
     const legacy = path.join(root, 'cache', 'servicenow-cli', 'docs');
     process.env.JSN_DATA_HOME = path.join(root, 'data');
     process.env.XDG_CACHE_HOME = path.join(root, 'cache');
@@ -64,6 +68,7 @@ describe('Docs data migration', () => {
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
     const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-failed-migrate-'));
+    tempRoots.push(root);
     const legacy = path.join(root, 'cache', 'servicenow-cli', 'docs');
     const destination = path.join(root, 'data', 'docs');
     process.env.JSN_DATA_HOME = path.join(root, 'data');
@@ -91,23 +96,27 @@ describe('Docs index statistics (temp DB)', () => {
     const { getDocsIndexStats } = await import('../src/commands/docs/db.js');
 
     const db = openDocsDb({ dbPath });
-    initDocsSchema(db);
-    setMeta(db, 'synced_at', '1700000000000');
-    db.prepare(
-      `INSERT INTO docs (path, title, bundle, doc_type, frontmatter, body, hrr_vector)
-       VALUES ('a.md', 'A', 'b1', 'docs', '{}', 'alpha body', x'00')`
-    ).run();
-    db.prepare(
-      `INSERT INTO docs (path, title, bundle, doc_type, frontmatter, body)
-       VALUES ('b.md', 'B', 'b2', 'community', '{}', 'beta body')`
-    ).run();
+    try {
+      initDocsSchema(db);
+      setMeta(db, 'synced_at', '1700000000000');
+      db.prepare(
+        `INSERT INTO docs (path, title, bundle, doc_type, frontmatter, body, hrr_vector)
+         VALUES ('a.md', 'A', 'b1', 'docs', '{}', 'alpha body', x'00')`
+      ).run();
+      db.prepare(
+        `INSERT INTO docs (path, title, bundle, doc_type, frontmatter, body)
+         VALUES ('b.md', 'B', 'b2', 'community', '{}', 'beta body')`
+      ).run();
 
-    const stats = getDocsIndexStats(db);
-    assert.strictEqual(stats.documents, 2);
-    assert.strictEqual(stats.bundles, 2);
-    assert.strictEqual(stats.docTypes, 2);
-    assert.strictEqual(stats.embeddedCount, 1);
-    assert.strictEqual(stats.syncedAt, '1700000000000');
-    closeDocsDb(db);
+      const stats = getDocsIndexStats(db);
+      assert.strictEqual(stats.documents, 2);
+      assert.strictEqual(stats.bundles, 2);
+      assert.strictEqual(stats.docTypes, 2);
+      assert.strictEqual(stats.embeddedCount, 1);
+      assert.strictEqual(stats.syncedAt, '1700000000000');
+    } finally {
+      closeDocsDb(db);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
