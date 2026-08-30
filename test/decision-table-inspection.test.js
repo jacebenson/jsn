@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseConditionBranches, formatDecisionValue, inspectDecisionTable, renderDecisionMatrix } from '../src/decision-table-inspection.js';
-import { decisiontablesCmd } from '../src/commands/dev/decisiontables.js';
+import { decisiontablesCmd } from '../src/commands/decisiontables.js';
 import { assertSafeExactMatch } from '../src/helpers.js';
 
 describe('decision table condition parsing', () => {

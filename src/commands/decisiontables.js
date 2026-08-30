@@ -1,9 +1,9 @@
 import fs from 'node:fs';
-import { getStringField, formatRecordForDisplay, interactiveList, assertSafeExactMatch, confirmDelete } from '../../helpers.js';
-import { resolveRecord, unwrapSysId, isSysId } from '../../resolve-record.js';
-import { inspectDecisionTable } from '../../decision-table-inspection.js';
-import { DecisionTableCRUD } from '../../decision-table-crud.js';
-import { declareCapabilities } from '../../capabilities.js';
+import { getStringField, formatRecordForDisplay, interactiveList, assertSafeExactMatch, confirmDelete } from '../helpers.js';
+import { resolveRecord, unwrapSysId, isSysId } from '../resolve-record.js';
+import { inspectDecisionTable } from '../decision-table-inspection.js';
+import { DecisionTableCRUD } from '../decision-table-crud.js';
+import { declareCapabilities } from '../capabilities.js';
 
 export const decisiontablesCmd = (wrap) => {
   const name = 'decisiontables';

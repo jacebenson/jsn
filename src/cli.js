@@ -51,11 +51,12 @@ import {
   catalogscriptsCmd, cataloguipoliciesCmd,
   uipoliciesCmd,
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
-  decisiontablesCmd, assignmentsCmd,
+  assignmentsCmd,
   emailCmd,
   restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/dev/_simple.js';
+import { decisiontablesCmd } from './commands/decisiontables.js';
 import { flowsCmd } from './commands/dev/flows.js';
 import { formsCmd } from './commands/dev/forms.js';
 import { listsCmd } from './commands/dev/lists.js';

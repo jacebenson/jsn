@@ -1,7 +1,5 @@
 import { buildDevCmd } from './_generic.js';
 import { getStringField } from '../../helpers.js';
-export { decisiontablesCmd } from './decisiontables.js';
-
 // Simple table-based dev commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
