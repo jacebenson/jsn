@@ -2,8 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseConditionBranches, formatDecisionValue, inspectDecisionTable, renderDecisionMatrix } from '../src/decision-table-inspection.js';
 import { decisiontablesCmd } from '../src/commands/dev/decisiontables.js';
+import { assertSafeExactMatch } from '../src/helpers.js';
 
 describe('decision table condition parsing', () => {
+  it('rejects wildcard exact-match identifiers without weakening existing guards', () => {
+    assert.throws(() => assertSafeExactMatch('name*'), /Unsafe identifier for exact-match lookup: contains wildcard \(\*\)/);
+    assert.throws(() => assertSafeExactMatch('name^ORactive=true'), /ServiceNow query characters/);
+  });
   it('preserves AND tokens and technical values', () => {
     const result = parseConditionBranches('priority=4^state=-3');
     assert.deepStrictEqual(result, [{
@@ -369,19 +374,227 @@ describe('decisiontables command wiring', () => {
     assert.equal(outputCalls, 0);
   });
 
-  it('registers only read-only list and show commands', () => {
+  it('registers list, inspection, and CRUD commands', () => {
     const commands = [];
     const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
     const cmd = decisiontablesCmd((handler) => handler);
     cmd.builder(yargs);
-    assert.deepEqual(commands.map((c) => c.command), ['list', 'show <identifier>']);
+    assert.deepEqual(commands.map((c) => c.command), ['list', 'show <identifier>', 'create', 'update <identifier>', 'delete <identifier>']);
   });
 
   it('uses the output wrapper for bare command guidance', () => {
     let result;
     const cmd = decisiontablesCmd((handler) => handler);
     cmd.handler({}, { ok: (data, meta) => { result = { data, meta }; } });
-    assert.deepEqual(result.data.guidance, ['jsn decisiontables list', 'jsn decisiontables show <name_or_sys_id>']);
-    assert.equal(result.meta.summary, 'Decision tables: choose list or show');
+    assert.deepEqual(result.data.guidance, [
+      'jsn decisiontables list',
+      'jsn decisiontables show <name_or_sys_id>',
+      "jsn decisiontables create --data '<json>' (or --data-file <path>)",
+      "jsn decisiontables update <sys_id> --data '<json>' (or --data-file <path>)",
+      'jsn decisiontables delete <name_or_sys_id>',
+    ]);
+    assert.equal(result.meta.summary, 'Manage decision tables');
+  });
+
+  it('resolves active scope before CRUD execution and preserves delete guards', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const calls = [];
+    const app = { context: { scope: 'x_demo' }, config: { profiles: {} }, requireInstance() {}, sdk: {
+      list: async (table, params) => { calls.push([table, params.get('sysparm_query')]); return table === 'sys_decision' ? [{ sys_id: '0123456789abcdef0123456789abcdef', name: 'A' }] : []; },
+      resolveScope: async (scope) => { calls.push(['resolveScope', scope]); return 'scope-sys-id'; },
+      async delete(table, id) { calls.push(['delete', table, id]); },
+      async get(table, id) { calls.push(['get', table, id]); return null; },
+    }, ok() {} };
+    await commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: '0123456789abcdef0123456789abcdef', force: true }, app);
+    assert.deepEqual(calls.at(-3), ['resolveScope', 'x_demo']);
+    assert.deepEqual(calls.at(-2), ['delete', 'sys_decision', '0123456789abcdef0123456789abcdef']);
+    assert.deepEqual(calls.at(-1), ['get', 'sys_decision', '0123456789abcdef0123456789abcdef']);
+    assert.ok(calls.some(([table, query]) => table === 'sys_decision_input' && query === 'model=0123456789abcdef0123456789abcdef'));
+    assert.ok(!calls.some(([table]) => table === 'sys_choice'));
+  });
+
+  it('uses REST methods for create and fails closed before update mutation', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const calls = [];
+    const app = { context: { scope: 'x_demo' }, requireInstance() {}, sdk: {
+      resolveScope: async (scope) => { calls.push(['resolveScope', scope]); return 'scope-sys-id'; },
+      list: async (table, params) => { calls.push([table, params.get('sysparm_query')]); return [{ sys_id: '0123456789abcdef0123456789abcdef', name: 'A' }]; },
+      create: async (table, body) => { calls.push(['create', table, body]); return { sys_id: '0123456789abcdef0123456789abcdef', ...body }; },
+      get: async (table, id) => { calls.push(['get', table, id]); return { sys_id: id, name: 'A', access: 'package_private', sys_scope: 'scope-sys-id' }; },
+    }, ok() {} };
+    await commands.find((c) => c.command === 'create').handler({ data: JSON.stringify({ parent: { name: 'A' }, inputs: [], questions: [] }) }, app);
+    assert.deepEqual(calls.slice(0, 3), [['resolveScope', 'x_demo'], ['create', 'sys_decision', { name: 'A', access: 'package_private', sys_scope: 'scope-sys-id' }], ['get', 'sys_decision', '0123456789abcdef0123456789abcdef']]);
+    await assert.rejects(() => commands.find((c) => c.command === 'update <identifier>').handler({ identifier: '0123456789abcdef0123456789abcdef', data: JSON.stringify({ parent: {}, inputs: [], questions: [] }) }, app), /intentionally unsupported over REST/);
+    assert.equal(calls.filter(([method]) => method === 'create').length, 1);
+  });
+
+  it('verifies an update target is in the active scope before mutation', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const calls = [];
+    const app = {
+      context: { scope: 'x_demo' },
+      requireInstance() {},
+      sdk: {
+        resolveScope: async () => 'scope-sys-id',
+        list: async (table, params) => { calls.push([table, params.toString()]); return []; },
+        executeScript: async () => { calls.push(['script']); return 'JSN_DECISION_TABLE_RESULT:{"status":"Success"}'; },
+      },
+      ok() {},
+    };
+    await assert.rejects(
+      () => commands.find((c) => c.command === 'update <identifier>').handler({ identifier: '0123456789abcdef0123456789abcdef', data: '{"parent":{}}' }, app),
+      /not found in active scope/i,
+    );
+    assert.equal(calls.filter(([table]) => table === 'sys_decision').length, 1);
+    assert.match(decodeURIComponent(calls.find(([table]) => table === 'sys_decision')[1]), /sys_id=0123456789abcdef0123456789abcdef\^sys_scope=scope-sys-id/);
+    assert.equal(calls.filter(([table]) => table === 'script').length, 0);
+  });
+
+  it('fails closed for global update when the exact target cannot be resolved', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    let scriptCalls = 0;
+    const app = {
+      requireInstance() {},
+      sdk: {
+        list: async () => [],
+        executeScript: async () => { scriptCalls += 1; return 'JSN_DECISION_TABLE_RESULT:{"status":"Success"}'; },
+      },
+      ok() {},
+    };
+    await assert.rejects(
+      () => commands.find((c) => c.command === 'update <identifier>').handler({ identifier: '0123456789abcdef0123456789abcdef', data: '{"parent":{}}' }, app),
+      /not found/i,
+    );
+    assert.equal(scriptCalls, 0);
+  });
+
+  it('uses global scope when no active scope exists', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const calls = [];
+    const app = {
+      requireInstance() {},
+      sdk: {
+        resolveScope: async () => { calls.push('resolveScope'); return 'unexpected'; },
+        create: async (table) => { calls.push(['create', table]); return { sys_id: '0123456789abcdef0123456789abcdef' }; },
+        get: async (table, id) => { calls.push(['get', table, id]); return { sys_id: id, name: 'A', access: 'package_private' }; },
+        executeScript: async (_script, scope) => { calls.push(['script', scope]); return 'JSN_DECISION_TABLE_RESULT:{"status":"Success"}'; },
+      },
+      ok() {},
+    };
+    await commands.find((c) => c.command === 'create').handler({ data: JSON.stringify({ parent: { name: 'A' }, inputs: [], questions: [] }) }, app);
+    assert.deepEqual(calls, [['create', 'sys_decision'], ['get', 'sys_decision', '0123456789abcdef0123456789abcdef']]);
+  });
+
+  it('fails closed when generated choice relationship values contain query metacharacters', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const id = '0123456789abcdef0123456789abcdef';
+    const calls = [];
+    const app = {
+      requireInstance() {},
+      sdk: {
+        list: async (table, params) => {
+          calls.push([table, params?.get('sysparm_query')]);
+          if (table === 'sys_decision') return [{ sys_id: id, name: 'A' }];
+          if (table === 'sys_decision_input') return [{ sys_id: 'abcdef0123456789abcdef0123456789', name: 'state^ORactive=true', element: 'state' }];
+          return [];
+        },
+        delete: async () => { calls.push(['delete']); },
+      },
+      ok() {},
+    };
+
+    await assert.rejects(
+      () => commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: id, force: true }, app),
+      /Cannot prove that the decision table is empty; refusing deletion/i,
+    );
+    assert.equal(calls.filter(([table]) => table === 'sys_choice').length, 0);
+    assert.equal(calls.filter(([table]) => table === 'delete').length, 0);
+  });
+
+  it('queries the valid multi-result element table in the delete guard', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const id = '0123456789abcdef0123456789abcdef';
+    const calls = [];
+    const app = {
+      config: { profiles: {} },
+      requireInstance() {},
+      sdk: {
+        list: async (table, params) => {
+          calls.push([table, params?.get('sysparm_query')]);
+          if (table === 'sys_decision') return [{ sys_id: id, name: 'A' }];
+          if (table === 'sn_decision_multi_result_element') throw new Error('Invalid table');
+          return [];
+        },
+        executeScript: async () => 'JSN_DECISION_TABLE_RESULT:{"status":"Success"}',
+        delete: async () => {},
+        get: async () => null,
+      },
+      ok() {},
+    };
+
+    await commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: id, force: true }, app);
+
+    assert.ok(calls.some(([table, query]) => table === 'sys_decision_multi_result_element' && query === `decision_table=${id}`));
+    assert.ok(!calls.some(([table]) => table === 'sn_decision_multi_result_element'));
+  });
+
+  it('requires delete confirmation after exact child guards pass', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    let resolved = 0;
+    let executed = 0;
+    const app = {
+      config: { profiles: {} },
+      requireInstance() {},
+      sdk: {
+        list: async (table) => table === 'sys_decision' ? [{ sys_id: '0123456789abcdef0123456789abcdef', name: 'A' }] : [],
+        resolveScope: async () => { resolved += 1; return 'scope-sys-id'; },
+        executeScript: async () => { executed += 1; return 'JSN_DECISION_TABLE_RESULT:{"status":"Success"}'; },
+      },
+      ok() {},
+    };
+    await assert.rejects(
+      () => commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: '0123456789abcdef0123456789abcdef' }, app),
+      /confirmation required/i,
+    );
+    assert.equal(resolved, 0);
+    assert.equal(executed, 0);
+  });
+
+  it('constrains delete-by-name resolution to active scope and refuses collisions', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const queries = [];
+    const app = { context: { scope: 'x_demo' }, requireInstance() {}, sdk: {
+      resolveScope: async () => 'scope-id',
+      list: async (table, params) => { if (table === 'sys_decision') { queries.push(params); return [{ sys_id: 'dt1', name: 'A' }, { sys_id: 'dt2', name: 'A' }]; } return []; },
+    } };
+    await assert.rejects(() => commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: 'A', force: true }, app), /ambiguous/i);
+    assert.equal(queries.length, 1);
+    assert.match(queries[0].get('sysparm_query'), /name=A\^sys_scope=scope-id/);
+  });
+
+  it('fails safely when scoped delete resolution returns an unusable record', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const app = { context: { scope: 'x_demo' }, requireInstance() {}, sdk: { resolveScope: async () => 'scope-id', list: async (table) => table === 'sys_decision' ? [{ name: 'A' }] : [] } };
+    await assert.rejects(() => commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: 'A', force: true }, app), /not found|identifier/i);
   });
 });

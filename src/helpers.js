@@ -224,7 +224,7 @@ export function resolveFieldsParam(columns) {
 // silently broadens an exact-match lookup — with sysparm_limit=1 the
 // wrong record wins (issue #143 finding #5). Exact-match identifiers
 // (numbers, sys_ids, names) never legitimately contain them.
-const QUERY_METACHARS = /[\^=<>~!,]/;
+const QUERY_METACHARS = /[\\^=<>~!,]/;
 
 /**
  * Validate that an identifier is safe to use in an exact-match encoded
@@ -233,6 +233,12 @@ const QUERY_METACHARS = /[\^=<>~!,]/;
  * @param {string} value — identifier (number, sys_id, name)
  */
 export function assertSafeExactMatch(value) {
+  if (typeof value === 'string' && value.includes('*')) {
+    throw new Error(
+      'Unsafe identifier for exact-match lookup: contains wildcard (*). ' +
+      'Refusing to build a query that could match more than the named record.'
+    );
+  }
   if (value && QUERY_METACHARS.test(value)) {
     throw new Error(
       `Unsafe identifier for exact-match lookup: contains ServiceNow query characters (^ = < > ~ ! ,). ` +
