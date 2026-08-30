@@ -1,0 +1,1003 @@
+// Tests for auth command structure and handler logic
+
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+// Auth commands persist profile changes through saveConfig(). Keep every auth
+// test away from the developer's real ~/.config/servicenow/config.json,
+// including tests that call helpers directly instead of going through a
+// deliberately isolated fixture.
+let originalAuthTestXdg;
+let originalAuthTestCwd;
+let authTestConfigHome;
+
+before(() => {
+  originalAuthTestXdg = process.env.XDG_CONFIG_HOME;
+  originalAuthTestCwd = process.cwd();
+  authTestConfigHome = mkdtempSync(path.join(tmpdir(), 'jsn-auth-file-test-'));
+  process.env.XDG_CONFIG_HOME = authTestConfigHome;
+  process.chdir(authTestConfigHome);
+});
+
+after(() => {
+  process.chdir(originalAuthTestCwd);
+  if (originalAuthTestXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = originalAuthTestXdg;
+  rmSync(authTestConfigHome, { recursive: true, force: true });
+});
+
+describe('Auth command handlers', () => {
+
+  let mockApp;
+
+  before(() => {
+    mockApp = {
+      config: {
+        instance_url: 'https://test-instance.service-now.com',
+        profiles: {},
+        format: 'json',
+      },
+      auth: {
+        getCredentials: async () => ({ auth_method: 'oauth', access_token: 'tok', expires_at: 9999999999 }),
+        getCredentialsFor: async () => ({ auth_method: 'oauth', access_token: 'tok', refresh_token: 'rtok', expires_at: 9999999999 }),
+        isAuthenticated: () => true,
+        isAuthenticatedFor: () => true,
+        getLastSeen: () => null,
+        touchLastSeen: () => {},
+        probeCurrentUser: async () => ({ status: 'failed' }),
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'file', state: 'available' }),
+        refreshToken: async () => ({ auth_method: 'oauth', access_token: 'new-tok', refresh_token: 'new-rtok', expires_at: 9999999999 }),
+        logout: () => {},
+      },
+      getEffectiveInstance: () => 'https://test-instance.service-now.com',
+      ok: () => {},
+      err: () => {},
+    };
+  });
+
+  after(() => {
+    // cleanup
+  });
+it('auth status authentication checks never refresh or persist credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    let saves = 0;
+    let loads = 0;
+    const manager = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://readonly-status.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: () => { loads++; return { auth_method: 'oauth', access_token: 'old', refresh_token: 'refresh', expires_at: Math.floor(Date.now() / 1000) + 60 }; },
+      save: () => { saves++; },
+      delete: () => {},
+    } });
+    assert.strictEqual(manager.isAuthenticated(), false);
+    assert.strictEqual(manager.isAuthenticatedFor('https://readonly-status.example.com', { authMethod: 'oauth', username: 'alice' }), false);
+    assert.strictEqual(saves, 0);
+    assert.ok(loads > 0);
+  });
+
+it('auth status should include structured diagnostics in the JSON envelope', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const chunks = [];
+    const instance = 'https://diagnostic-status.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, instance_url: instance, profiles: {
+        diagnostic: { instance_url: instance, auth_method: 'oauth' },
+      } },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'file', state: 'available' }),
+        probeCurrentUser: async () => ({
+          status: 'failed', code: 'permission_denied', message: 'safe message', hint: 'safe hint',
+        }),
+      },
+      ok: (data, opts) => new OutputWriter({ format: 'json', writer: { write: (text) => chunks.push(text) } }).ok(data, opts),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    const envelope = JSON.parse(chunks.join(''));
+    assert.strictEqual(envelope.ok, true);
+    assert.strictEqual(envelope.data.profiles[0].diagnostics.auth_method, 'oauth');
+    assert.strictEqual(envelope.data.profiles[0].diagnostics.probe.code, 'permission_denied');
+    assert.strictEqual(envelope.data.profiles[0].diagnostics.probe.message, 'safe message');
+  });
+
+it('auth status passes each profile instance and identity to every auth path', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const profiles = {
+      first: { instance_url: 'https://first.example.com', username: 'alice', auth_method: 'oauth' },
+      second: { instance_url: 'https://second.example.com', username: 'bob', auth_method: 'basic' },
+    };
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticated: () => true,
+        isAuthenticatedFor: (...args) => { calls.push(['authenticated', ...args]); return false; },
+        getLastSeen: (...args) => { calls.push(['last_seen', ...args]); return null; },
+        getAuthState: (...args) => { calls.push(['state', ...args]); return { auth_method: args[1].authMethod, auth_source: 'unavailable', state: 'missing' }; },
+        hasLegacyCredentials: (...args) => { calls.push(['legacy', ...args]); return false; },
+        probeCurrentUser: async (...args) => { calls.push(['probe', ...args.slice(0, 3)]); return { status: 'not_attempted', code: 'missing_credentials', classification: 'unavailable' }; },
+      },
+      ok: () => {},
+    };
+    const subcommands = [];
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const mockYargs = { command: (c, ...rest) => { subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] }); return mockYargs; } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.deepStrictEqual(calls.filter(([kind]) => kind !== 'probe'), [
+      ['authenticated', 'https://first.example.com', { username: 'alice', authMethod: 'oauth' }],
+      ['last_seen', 'https://first.example.com', { username: 'alice', authMethod: 'oauth' }],
+      ['state', 'https://first.example.com', { authMethod: 'oauth', username: 'alice' }],
+      ['legacy', 'https://first.example.com', { username: 'alice', authMethod: 'oauth' }],
+      ['authenticated', 'https://second.example.com', { username: 'bob', authMethod: 'basic' }],
+      ['last_seen', 'https://second.example.com', { username: 'bob', authMethod: 'basic' }],
+      ['state', 'https://second.example.com', { authMethod: 'basic', username: 'bob' }],
+      ['legacy', 'https://second.example.com', { username: 'bob', authMethod: 'basic' }],
+    ]);
+    assert.deepStrictEqual(calls.filter(([kind]) => kind === 'probe').map(([, instance, , options]) => [instance, options]), [
+      ['https://first.example.com', { authMethod: 'oauth', username: 'alice' }],
+      ['https://second.example.com', { authMethod: 'basic', username: 'bob' }],
+    ]);
+  });
+
+it('auth status focuses diagnostics with --profile while preserving profile fields', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const profiles = {
+      first: { instance_url: 'https://first.example.com', auth_method: 'oauth' },
+      second: { instance_url: 'https://second.example.com', auth_method: 'basic' },
+    };
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        getAuthState: (instance) => ({ auth_method: instance.includes('second') ? 'basic' : 'oauth', auth_source: 'file', state: 'available' }),
+        probeCurrentUser: async () => ({ status: 'succeeded' }),
+      },
+      ok: (data) => output.push(data),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', _: ['status'] });
+    assert.deepStrictEqual(output[0].profiles.map(p => p.name), ['second']);
+    assert.strictEqual(output[0].profiles[0].authenticated, true);
+    assert.strictEqual(output[0].profiles[0].diagnostics.probe.status, 'succeeded');
+  });
+
+it('migrates GCK credentials to the verified username key without touching another profile', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const instance = 'https://gck-migration.example.com';
+    const otherInstance = 'https://other-gck.example.com';
+    const records = new Map([
+      [`${instance}\\0`, { auth_method: 'gck', access_token: 'browser-token', cookies: 'sid=cookie' }],
+      [`${otherInstance}\\0bob`, { auth_method: 'gck', access_token: 'other-token', cookies: 'sid=other' }],
+    ]);
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({ getUsername: () => null, getEffectiveInstance: () => instance, getAuthMethod: () => 'gck' }, {
+      credentialStore: {
+        load: (url, username) => records.get(`${url}\\0${username || ''}`) || null,
+        save: (url, credentials, username) => records.set(`${url}\\0${username || ''}`, { ...credentials }),
+        delete: (url, username) => records.delete(`${url}\\0${username || ''}`),
+      },
+    });
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { browser: { instance_url: instance, auth_method: 'gck' } } },
+      auth,
+      getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'alice' }) }),
+      sdk: null,
+      ok: () => {},
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def.startsWith('login')).handler({
+      app, instance, headers: 'curl -H "X-UserToken: token" -H "Cookie: sid=cookie"', _: ['login'],
+    });
+    assert.deepStrictEqual(records.get(`${instance}\\0alice`).username, 'alice');
+    assert.strictEqual(records.has(`${instance}\\0`), false);
+    assert.deepStrictEqual(records.get(`${otherInstance}\\0bob`), { auth_method: 'gck', access_token: 'other-token', cookies: 'sid=other' });
+  });
+
+it('focused auth status keeps configured default instance semantics', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        activeProfile: 'second',
+        defaultProfile: 'first',
+        profiles: {
+          first: { instance_url: 'https://default.example.com', auth_method: 'oauth' },
+          second: { instance_url: 'https://focused.example.com', auth_method: 'basic' },
+        },
+      },
+      auth: { ...mockApp.auth, isAuthenticatedFor: () => false, hasLegacyCredentials: () => false },
+      ok: (data) => output.push(data),
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', _: ['status'] });
+    assert.strictEqual(output[0].default_instance, 'https://default.example.com');
+    assert.strictEqual(output[0].profiles[0].default, false);
+  });
+
+it('marks only the configured default profile when profiles share an instance URL', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const instance = 'https://shared-default.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, defaultProfile: 'first', profiles: {
+        first: { instance_url: instance, auth_method: 'oauth' },
+        second: { instance_url: instance, auth_method: 'oauth' },
+      } },
+      auth: { ...mockApp.auth, isAuthenticatedFor: () => false, hasLegacyCredentials: () => false },
+      ok: (data) => output.push(data),
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.deepStrictEqual(output[0].profiles.map(profile => profile.default), [true, false]);
+  });
+
+it('username-less non-active refresh saves under the bare target identity', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const originalFetch = globalThis.fetch;
+    const saves = [];
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ access_token: 'new-token', refresh_token: 'new-refresh' }) });
+    try {
+      const auth = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://active.example.com', getAuthMethod: () => 'oauth' }, {
+        credentialStore: { load: () => null, save: (...args) => saves.push(args), delete: () => {} },
+      });
+      await auth.refreshToken('https://target.example.com', { auth_method: 'oauth', refresh_token: 'old-refresh' }, null);
+      assert.strictEqual(saves[0][2], null);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+it('probe results classify success without exposing credential material', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const manager = new AuthManager({ getUsername: () => 'alice', getEffectiveInstance: () => 'https://probe.example.com', getAuthMethod: () => 'oauth' }, {
+      credentialStore: { load: () => ({ auth_method: 'oauth', access_token: 'secret', expires_at: 9999999999 }), save: () => {}, delete: () => {} },
+    });
+    const result = await manager.probeCurrentUser('https://probe.example.com', {
+      getCurrentUser: async () => ({ user_name: 'alice' }),
+    });
+    assert.deepStrictEqual(result, { status: 'succeeded', classification: 'authenticated' });
+    assert.strictEqual(JSON.stringify(result).includes('secret'), false);
+  });
+
+it('auth status diagnostics never serialize credential secrets', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const output = [];
+    const secret = 'super-secret-token-and-cookie';
+    const instance = 'https://redaction-status.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { redacted: { instance_url: instance, auth_method: 'gck' } } },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        getAuthState: () => ({ auth_method: 'gck', auth_source: 'gck', state: 'available', access_token: secret, cookies: secret }),
+        probeCurrentUser: async () => ({ status: 'failed', code: 'unauthorized', message: 'safe', hint: 'safe' }),
+      },
+      ok: (data) => output.push(data),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.doesNotMatch(JSON.stringify(output[0]), new RegExp(secret));
+  });
+
+it('auth status supports --get-compatible diagnostics paths', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const chunks = [];
+    const instance = 'https://get-status.example.com';
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles: { getme: { instance_url: instance, auth_method: 'oauth' } } },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => false,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'unavailable', state: 'missing' }),
+        hasLegacyCredentials: () => false,
+        probeCurrentUser: async () => ({ status: 'not_attempted', code: 'missing_credentials', message: 'safe', hint: 'safe' }),
+      },
+      ok: (data, opts) => new OutputWriter({ format: 'json', jqFilter: 'data.profiles[0].diagnostics.probe.code', writer: { write: (text) => chunks.push(text) } }).ok(data, opts),
+    };
+    const wrap = (fn) => async (argv) => fn(argv, argv.app);
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = { command: (c, ...rest) => {
+      subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+      return mockYargs;
+    } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, _: ['status'] });
+    assert.strictEqual(JSON.parse(chunks.join('')), 'missing_credentials');
+  });
+
+it('auth status should not throw', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, builder: typeof c === 'object' ? c.builder : rest[0], handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+
+    const statusCmd = subcommands.find(s => s.def.startsWith('status'));
+    assert.ok(statusCmd, 'status subcommand not found');
+
+    await statusCmd.handler({ app: mockApp, _: ['status'] });
+    // Should not throw
+    assert.ok(true);
+  });
+
+it('auth status probes through AuthManager and keeps the SDK probe read-only', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = 'https://probe-status.example.com';
+    const output = [];
+    const sdkOptions = [];
+    const probeCalls = [];
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => 'oauth',
+    }, {
+      credentialStore: {
+        load: () => ({ auth_method: 'oauth', access_token: 'tok', expires_at: 9999999999 }),
+        save: () => {},
+        delete: () => {},
+      },
+    });
+    const originalProbe = auth.probeCurrentUser.bind(auth);
+    auth.probeCurrentUser = async (probeInstance, sdk) => {
+      probeCalls.push({ instance: probeInstance, sdk });
+      return originalProbe(probeInstance, sdk);
+    };
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { probe: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      sdk: {
+        getCurrentUser: async (options) => {
+          sdkOptions.push(options);
+          return { user_name: 'probe-user' };
+        },
+      },
+      auth,
+      getEffectiveInstance: () => instance,
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+
+    assert.strictEqual(probeCalls.length, 1);
+    assert.strictEqual(probeCalls[0].instance, instance);
+    assert.deepStrictEqual(sdkOptions, [{ touchLastSeen: false }]);
+    assert.strictEqual(output[0].profiles[0].verified, true);
+    assert.strictEqual(output[0].profiles[0].verified_as, 'probe-user');
+  });
+
+it('auth status uses the safe source vocabulary at the command boundary', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const instance = 'https://safe-source.example.com';
+    const output = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { safe: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => true,
+        isAuthenticated: () => true,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'unavailable', state: 'available' }),
+        getAuthSource: () => { throw new Error('legacy source seam must not be called'); },
+      },
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+    assert.strictEqual(output[0].profiles[0].auth_source, 'unavailable');
+    assert.strictEqual(JSON.stringify(output[0]).includes('legacy'), false);
+  });
+
+it('auth status keeps legacy detection separate from the source vocabulary', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const instance = 'https://legacy-status.example.com';
+    const output = [];
+    let authStateCalls = 0;
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { legacy: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => false,
+        isAuthenticated: () => false,
+        getAuthState: () => {
+          authStateCalls += 1;
+          return { auth_method: 'oauth', auth_source: 'unavailable', state: 'missing' };
+        },
+        getAuthSource: () => { throw new Error('legacy source seam must not be called'); },
+        hasLegacyCredentials: () => true,
+      },
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+    assert.strictEqual(authStateCalls, 1);
+    assert.strictEqual(output[0].profiles[0].legacy, true);
+    assert.strictEqual(output[0].profiles[0].auth_source, 'legacy');
+  });
+
+it('auth status omits auth_source for unauthenticated non-legacy profiles', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
+    const instance = 'https://missing-status.example.com';
+    const output = [];
+    const app = {
+      ...mockApp,
+      config: {
+        ...mockApp.config,
+        instance_url: instance,
+        profiles: { missing: { instance_url: instance, auth_method: 'oauth' } },
+      },
+      auth: {
+        ...mockApp.auth,
+        isAuthenticatedFor: () => false,
+        getAuthState: () => ({ auth_method: 'oauth', auth_source: 'unavailable', state: 'missing' }),
+        hasLegacyCredentials: () => false,
+      },
+      ok: (result) => output.push(result),
+    };
+    const cmd = authCmd(wrap);
+    const subcommands = [];
+    const mockYargs = {
+      command: (c, ...rest) => {
+        subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] });
+        return mockYargs;
+      },
+    };
+    cmd.builder(mockYargs);
+    const statusCmd = subcommands.find(s => s.def === 'status');
+    await statusCmd.handler({ app, _: ['status'] });
+    const { diagnostics: _diagnostics, ...legacyProfile } = output[0].profiles[0];
+    assert.strictEqual(JSON.stringify(legacyProfile).includes('auth_source'), false);
+  });
+
+});
+
+describe('AuthManager authenticated probe seam', () => {
+  it('reports a successful read-only probe without exposing the current user', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const calls = [];
+    const auth = new AuthManager({
+      getUsername: () => 'admin',
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'oauth', access_token: 'token', auth_source: 'keyring' }),
+      save: () => { throw new Error('probe must not save credentials'); },
+      delete: () => { throw new Error('probe must not delete credentials'); },
+    } });
+    const sdk = {
+      getCurrentUser: async (options) => {
+        calls.push(options);
+        return { user_name: 'admin', name: 'Administrator', sys_id: 'secret-id' };
+      },
+    };
+
+    const result = await auth.probeCurrentUser('https://probe.example.com', sdk);
+
+    assert.deepStrictEqual(result, { status: 'succeeded', classification: 'authenticated' });
+    assert.deepStrictEqual(calls, [{ touchLastSeen: false }]);
+    assert.strictEqual(JSON.stringify(result).includes('admin'), false);
+  });
+
+  it('does not attempt a probe when credentials are unavailable', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: { load: () => null, save() {}, delete() {} } });
+    let attempts = 0;
+    const sdk = { getCurrentUser: async () => { attempts += 1; } };
+
+    const result = await auth.probeCurrentUser('https://probe.example.com', sdk);
+
+    assert.deepStrictEqual(result, {
+      status: 'not_attempted',
+      code: 'missing_credentials',
+      classification: 'unavailable',
+      message: 'Credentials are not available for this profile.',
+      hint: 'Run: jsn auth login',
+    });
+    assert.strictEqual(attempts, 0);
+  });
+
+  it('classifies safe permission, unauthorized, network, and unknown probe failures', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'admin',
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'oauth', access_token: 'token' }), save() {}, delete() {},
+    } });
+    const cases = [
+      [{ code: 'api_error', status: 403, message: 'API error (status 403): secret detail' }, 'permission_denied'],
+      [{ code: 'api_error', status: 401, message: 'API error (status 401): secret detail' }, 'unauthorized'],
+      [{ code: 'network_error', message: 'Network error: secret host' }, 'network'],
+      [{ code: 'some_other_error', message: 'contains secret-token' }, 'unknown'],
+    ];
+
+    for (const [error, code] of cases) {
+      const result = await auth.probeCurrentUser('https://probe.example.com', {
+        getCurrentUser: async () => { throw error; },
+      });
+      assert.strictEqual(result.status, 'failed');
+      assert.strictEqual(result.code, code);
+      assert.strictEqual(result.classification, {
+        permission_denied: 'permission_denied', unauthorized: 'unauthorized', network: 'network_error', unknown: 'unknown',
+      }[code]);
+      assert.strictEqual(JSON.stringify(result).includes('secret'), false);
+      assert.ok(result.message);
+      assert.ok(result.hint);
+    }
+  });
+
+  it('keeps refresh and browser-session failures distinct without fallback', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const makeAuth = (method, credentials) => new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://probe.example.com',
+      getAuthMethod: () => method,
+    }, { credentialStore: { load: () => credentials, save() {}, delete() {} } });
+
+    const refreshable = await makeAuth('oauth', {
+      auth_method: 'oauth', access_token: 'old-token', refresh_token: 'refresh-token', expires_at: 1,
+    }).probeCurrentUser('https://probe.example.com', { getCurrentUser: async () => { throw new Error('should not run'); } });
+    assert.deepStrictEqual(refreshable, {
+      status: 'not_attempted', code: 'refresh_required', classification: 'refresh_required',
+      message: 'Credentials require refresh before probing.',
+      hint: 'Run: jsn auth refresh',
+    });
+
+    const browser = await makeAuth('gck', { auth_method: 'gck', access_token: 'browser-token', cookies: '' })
+      .probeCurrentUser('https://probe.example.com', { getCurrentUser: async () => { throw new Error('should not run'); } });
+    assert.deepStrictEqual(browser, {
+      status: 'not_attempted', code: 'invalid_browser_session', classification: 'browser_session_invalid',
+      message: 'Browser session credentials are incomplete or invalid.',
+      hint: 'Capture a fresh ServiceNow browser request and run: jsn auth login --gck',
+    });
+  });
+});
+
+describe('AuthManager configured auth source precedence', () => {
+  it('marks a stored source from another method unavailable and malformed', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://configured-basic-source.example.com',
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'basic', auth_source: 'gck', username: 'alice', password: 'password' }),
+      save() {}, delete() {},
+    } });
+
+    assert.deepStrictEqual(auth.getAuthState('https://configured-basic-source.example.com'), {
+      auth_method: 'basic', auth_source: 'unavailable', state: 'malformed',
+    });
+  });
+
+  it('does not report stored OAuth source when basic is explicitly configured', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://configured-basic.example.com',
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'oauth', auth_source: 'file', access_token: 'token' }),
+      save: () => {},
+      delete: () => {},
+    } });
+
+    assert.strictEqual(auth.getAuthSource('https://configured-basic.example.com'), 'unavailable');
+  });
+
+  it('reports a stored source only when it matches the configured method', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const auth = new AuthManager({
+      getUsername: () => 'alice',
+      getEffectiveInstance: () => 'https://configured-basic.example.com',
+      getAuthMethod: () => 'basic',
+    }, { credentialStore: {
+      load: () => ({ auth_method: 'basic', auth_source: 'file', username: 'alice', password: 'secret' }),
+      save: () => {},
+      delete: () => {},
+    } });
+
+    assert.strictEqual(auth.getAuthSource('https://configured-basic.example.com'), 'file');
+  });
+});
+
+describe('AuthManager safe auth state seam', () => {
+  let previousXdgConfigHome;
+  let isolatedXdgConfigHome;
+  let credentialStore;
+
+  beforeEach(() => {
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    isolatedXdgConfigHome = mkdtempSync(path.join(tmpdir(), 'jsn-auth-diagnostics-'));
+    process.env.XDG_CONFIG_HOME = isolatedXdgConfigHome;
+    credentialStore = {
+      load: () => null,
+      save: () => { throw new Error('credential store save must not be called'); },
+      delete: () => { throw new Error('credential store delete must not be called'); },
+    };
+  });
+
+  afterEach(() => {
+    if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    rmSync(isolatedXdgConfigHome, { recursive: true, force: true });
+  });
+
+  it('uses the injected credential store instead of the OS keyring backend', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    let loads = 0;
+    credentialStore.load = () => {
+      loads += 1;
+      return { auth_method: 'oauth', access_token: 'test-token', auth_source: 'keyring' };
+    };
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => 'https://injected-store.example.com',
+      getAuthMethod: () => 'oauth',
+    }, { credentialStore });
+    assert.deepStrictEqual(auth.getAuthState('https://injected-store.example.com'), {
+      auth_method: 'oauth', auth_source: 'keyring', state: 'available',
+    });
+    assert.strictEqual(loads, 1);
+  });
+
+  it('classifies OAuth environment credentials without exposing the token', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previous = process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'secret-access-token';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => 'https://oauth.example.com',
+      }, { credentialStore });
+      const state = auth.getAuthState('https://oauth.example.com');
+      assert.deepStrictEqual(state, {
+        auth_method: 'unconfigured',
+        auth_source: 'env_token',
+        state: 'available',
+      });
+      assert.strictEqual(JSON.stringify(state).includes('secret-access-token'), false);
+    } finally {
+      if (previous === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN;
+      else process.env.SERVICENOW_OAUTH_TOKEN = previous;
+    }
+  });
+
+  it('classifies Basic Auth environment credentials without exposing the password', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    process.env.SN_USERNAME = 'admin';
+    process.env.SN_PASSWORD = 'secret-password';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => 'https://basic.example.com',
+      }, { credentialStore });
+      const state = auth.getAuthState('https://basic.example.com');
+      assert.deepStrictEqual(state, {
+        auth_method: 'unconfigured',
+        auth_source: 'env_basic',
+        state: 'available',
+      });
+      assert.strictEqual(JSON.stringify(state).includes('secret-password'), false);
+    } finally {
+      if (previousUser === undefined) delete process.env.SN_USERNAME;
+      else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD;
+      else process.env.SN_PASSWORD = previousPassword;
+    }
+  });
+
+  it('reports configured browser-session credentials as available without secrets', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://gck-state-${Date.now()}.service-now.com`;
+    credentialStore.load = () => ({
+      auth_method: 'gck',
+      auth_source: 'gck',
+      access_token: 'secret-user-token',
+      cookies: 'JSESSIONID=secret-cookie',
+    });
+    const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'gck',
+      }, { credentialStore });
+      const state = auth.getAuthState(instance);
+      assert.strictEqual(state.auth_method, 'gck');
+      assert.strictEqual(state.auth_source, 'gck');
+      assert.strictEqual(state.state, 'available');
+      assert.strictEqual(JSON.stringify(state).includes('secret-cookie'), false);
+  });
+
+  it('does not report OAuth when no authentication method is configured', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://unconfigured-${Date.now()}.service-now.com`;
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => null,
+    }, { credentialStore });
+    const state = auth.getAuthState(instance);
+    assert.strictEqual(state.auth_method, 'unconfigured');
+    assert.strictEqual(state.state, 'missing');
+  });
+
+  it('does not create credential storage while reading auth state', async () => {
+    const { mkdtempSync, existsSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+    const previousXdg = process.env.XDG_CONFIG_HOME;
+    const xdg = mkdtempSync(path.join(tmpdir(), 'jsn-auth-readonly-'));
+    process.env.XDG_CONFIG_HOME = xdg;
+    try {
+      const { AuthManager } = await import('../src/auth.js');
+      const instance = 'https://readonly-missing.service-now.com';
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      }, { credentialStore });
+      auth.getAuthState(instance);
+      assert.strictEqual(existsSync(path.join(xdg, 'servicenow', 'credentials')), false);
+    } finally {
+      if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousXdg;
+    }
+  });
+
+  it('classifies malformed OAuth token fields as malformed', async () => {
+    const { classifyCredentialState } = await import('../src/auth.js');
+    assert.strictEqual(classifyCredentialState(null, 'oauth'), 'missing');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 1 }, 'oauth'), 'expired');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 1, refresh_token: 'refresh' }, 'oauth'), 'refreshable');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', expires_at: 'not-a-time' }, 'oauth'), 'malformed');
+    assert.strictEqual(classifyCredentialState({ access_token: 'token', refresh_token: {} }, 'oauth'), 'malformed');
+    assert.strictEqual(classifyCredentialState({ access_token: {} }, 'oauth'), 'malformed');
+  });
+
+  it('does not expose or accept an untrusted stored auth method', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://untrusted-method-${Date.now()}.service-now.com`;
+    credentialStore.load = () => ({
+      auth_method: 'password-secret',
+      auth_source: 'token-secret',
+      access_token: 'secret-access-token',
+    });
+    const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      }, { credentialStore });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'oauth',
+        auth_source: 'unavailable',
+        state: 'malformed',
+      });
+  });
+
+  it('maps legacy credentials without a stored source to an allowlisted source', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://legacy-source-${Date.now()}.service-now.com`;
+    credentialStore.load = () => ({
+      auth_method: 'oauth',
+      access_token: 'secret-access-token',
+    });
+    const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      }, { credentialStore });
+      const state = auth.getAuthState(instance);
+      assert.ok(['keyring', 'file', 'unavailable'].includes(state.auth_source));
+      assert.notStrictEqual(state.auth_source, 'stored');
+      assert.strictEqual(state.state, 'available');
+  });
+
+  it('normalizes an untrusted stored auth source as malformed', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://untrusted-source-${Date.now()}.service-now.com`;
+    credentialStore.load = () => ({
+      auth_method: 'oauth',
+      auth_source: 'token-secret',
+      access_token: 'secret-access-token',
+    });
+    const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      }, { credentialStore });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'oauth',
+        auth_source: 'unavailable',
+        state: 'malformed',
+      });
+  });
+
+  it('keeps the configured method authoritative over environment credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://configured-env-${Date.now()}.service-now.com`;
+    const previousToken = process.env.SERVICENOW_OAUTH_TOKEN;
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    process.env.SERVICENOW_OAUTH_TOKEN = 'oauth-token';
+    process.env.SN_USERNAME = 'admin';
+    process.env.SN_PASSWORD = 'basic-password';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'gck',
+      }, { credentialStore });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'gck', auth_source: 'unavailable', state: 'missing',
+      });
+    } finally {
+      if (previousToken === undefined) delete process.env.SERVICENOW_OAUTH_TOKEN;
+      else process.env.SERVICENOW_OAUTH_TOKEN = previousToken;
+      if (previousUser === undefined) delete process.env.SN_USERNAME;
+      else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD;
+      else process.env.SN_PASSWORD = previousPassword;
+    }
+  });
+
+  it('keeps an unconfigured method unconfigured despite stored credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://unconfigured-stored-${Date.now()}.service-now.com`;
+    credentialStore.load = () => ({
+      auth_method: 'basic', username: 'admin', password: 'secret', auth_source: 'file',
+    });
+    const auth = new AuthManager({
+      getUsername: () => null,
+      getEffectiveInstance: () => instance,
+      getAuthMethod: () => null,
+    }, { credentialStore });
+    assert.deepStrictEqual(auth.getAuthState(instance), {
+      auth_method: 'unconfigured', auth_source: 'file', state: 'available',
+    });
+  });
+
+  it('keeps configured OAuth authoritative over Basic environment credentials', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const instance = `https://configured-basic-${Date.now()}.service-now.com`;
+    const previousUser = process.env.SN_USERNAME;
+    const previousPassword = process.env.SN_PASSWORD;
+    delete process.env.SERVICENOW_OAUTH_TOKEN;
+    process.env.SN_USERNAME = 'admin';
+    process.env.SN_PASSWORD = 'basic-password';
+    try {
+      const auth = new AuthManager({
+        getUsername: () => null,
+        getEffectiveInstance: () => instance,
+        getAuthMethod: () => 'oauth',
+      }, { credentialStore });
+      assert.deepStrictEqual(auth.getAuthState(instance), {
+        auth_method: 'oauth', auth_source: 'unavailable', state: 'missing',
+      });
+    } finally {
+      if (previousUser === undefined) delete process.env.SN_USERNAME;
+      else process.env.SN_USERNAME = previousUser;
+      if (previousPassword === undefined) delete process.env.SN_PASSWORD;
+      else process.env.SN_PASSWORD = previousPassword;
+    }
+  });
+});
