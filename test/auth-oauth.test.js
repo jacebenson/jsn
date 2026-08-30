@@ -84,13 +84,4 @@ describe('OAuth URL', () => {
     assert.ok(url.startsWith('https://dev12345.service-now.com/'));
   });
 
-  
-
-  
-
-  
-
-  
-
-  
 });
