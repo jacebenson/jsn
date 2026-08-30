@@ -1,28 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-
-function collectSubcommands(cmd) {
-  const subs = [];
-  const mockYargs = {
-    command: (c) => { subs.push(typeof c === 'string' ? { command: c } : c); return mockYargs; },
-    option: () => mockYargs,
-    positional: () => mockYargs,
-    demandCommand: () => mockYargs,
-  };
-  cmd.builder(mockYargs);
-  return subs;
-}
-
-function buildApp(sdk) {
-  const app = {
-    sdk,
-    config: { profiles: {}, activeProfile: null },
-    requireInstance() {},
-    getEffectiveInstance: () => 'https://dev.example.service-now.com',
-    ok: (data, opts) => { app.lastOk = { data, opts }; },
-  };
-  return app;
-}
+import { captureSubcommands, findCommand, wrapHandler } from './support/command-test-helpers.js';
+import { makeApp } from './support/app-test-helpers.js';
 
 describe('Aggregate API', () => {
   it('builds a grouped Stats API request', async () => {
@@ -81,8 +60,8 @@ describe('Aggregate API', () => {
 
   it('exposes records aggregate as a grouped command', async () => {
     const { recordsCmd } = await import('../src/commands/records.js');
-    const cmd = recordsCmd((fn) => fn);
-    const aggregate = collectSubcommands(cmd).find((s) => s.command === 'aggregate');
+    const cmd = recordsCmd(wrapHandler);
+    const aggregate = findCommand(captureSubcommands(cmd), 'aggregate');
     assert.ok(aggregate, 'aggregate subcommand exists');
 
     const sdk = {
@@ -92,8 +71,8 @@ describe('Aggregate API', () => {
         return { stats: [{ count: '3' }] };
       },
     };
-    const app = buildApp(sdk);
-    await aggregate.handler({ app, table: 'incident', query: 'active=true', 'group-by': 'priority,state', count: true }, app);
+    const app = makeApp({ sdk });
+    await aggregate.handler({ app, table: 'incident', query: 'active=true', 'group-by': 'priority,state', count: true });
     assert.deepStrictEqual(app.lastOk.data.stats, [{ count: '3' }]);
     assert.deepStrictEqual(app.lastOk.data.group_by, ['priority', 'state']);
   });

@@ -104,6 +104,25 @@ describe('decision table inspection', () => {
     assert.equal(formatDecisionValue({ value: 'u1', display_value: 'Alex' }), 'Alex (u1)');
   });
 
+  it('uses the raw sys_id and readable name from wrapped table fields', async () => {
+    const queries = [];
+    const app = { sdk: { list: async (table, params) => {
+      queries.push([table, params.get('sysparm_query')]);
+      if (table === 'sys_decision_input') return [{ name: 'priority', label: 'Priority', source_table: 'task' }];
+      if (table === 'sys_decision_question') return [{ condition: 'priority=1', answer: 'yes' }];
+      return [];
+    } }, getEffectiveInstance: () => 'https://dev265639.service-now.com' };
+    const detail = await inspectDecisionTable(app, {
+      sys_id: { value: 'dt1', display_value: 'Approval' },
+      name: { value: 'Approval', display_value: 'Approval' },
+    });
+    assert.equal(queries[0][1], 'model=dt1^ORDERBYorder');
+    assert.equal(queries[1][1], 'decision_table=dt1^ORDERBYorder');
+    assert.match(detail._formatted, /^Decision table: Approval\n/);
+    assert.match(detail._formatted, /https:\/\/dev265639\.service-now\.com\/now\/workflow-studio\/builder\?table=sys_decision&sysId=dt1/);
+    assert.doesNotMatch(detail._formatted, /\[object Object\]/);
+  });
+
   it('renders structured multi-result answers without losing their JSON shape', async () => {
     const app = { sdk: { list: async (table) => {
       if (table === 'sys_decision_input') return [{ name: 'priority', label: 'Priority', source_table: 'task' }];
@@ -282,6 +301,74 @@ describe('decision table inspection', () => {
 });
 
 describe('decisiontables command wiring', () => {
+  it('uses the interactive picker with name and scope labels', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    const cmd = decisiontablesCmd((handler) => handler);
+    cmd.builder(yargs);
+
+    let promptConfig;
+    let promptChoices;
+    let pickerFields;
+    let output;
+    const app = {
+      requireInstance() {},
+      output: { getFormat: () => 'auto' },
+      sdk: {
+        aggregateCount: async () => 1,
+        list: async (_table, params) => {
+          const fields = params?.get('sysparm_fields');
+          if (fields) pickerFields = fields;
+          return [
+            { sys_id: 'dt1', name: 'Approval', sys_scope: { value: 'x', display_value: 'x_app' } },
+            { sys_id: 'dt2', name: 'Global approval', sys_scope: { value: 'global', display_value: 'Global' } },
+          ];
+        },
+      },
+      promptFn: async (config) => {
+        promptConfig = config;
+        promptChoices = await config.source(undefined, 0, {});
+        return { name: 'Approval [x_app]', value: { sys_id: 'dt1', name: 'Approval', sys_scope: { value: 'x', display_value: 'x_app' } } };
+      },
+      getEffectiveInstance: () => 'https://example.service-now.com',
+      ok(data, meta) { output = { data, meta }; },
+    };
+
+    await commands[0].handler({ limit: 20 }, app);
+
+    assert.equal(promptChoices[0].name, 'Approval [x_app]');
+    assert.equal(promptChoices[1].name, 'Global approval');
+    assert.equal(pickerFields, 'sys_id,name,sys_scope');
+    assert.doesNotMatch(pickerFields, /order/);
+    assert.equal(promptConfig.message, 'Select a decision table');
+    assert.equal(output.data.table.name, 'Approval');
+  });
+
+  it('does not fall back to listing when the picker is cancelled', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    const cmd = decisiontablesCmd((handler) => handler);
+    cmd.builder(yargs);
+
+    let listCalls = 0;
+    let outputCalls = 0;
+    const app = {
+      requireInstance() {},
+      output: { getFormat: () => 'auto' },
+      sdk: {
+        aggregateCount: async () => 1,
+        list: async () => { listCalls += 1; return []; },
+      },
+      promptFn: async () => undefined,
+      ok() { outputCalls += 1; },
+    };
+
+    await commands[0].handler({ limit: 20 }, app);
+
+    assert.equal(listCalls, 0);
+    assert.equal(outputCalls, 0);
+  });
+
   it('registers only read-only list and show commands', () => {
     const commands = [];
     const yargs = { command: (definition) => { commands.push(definition); return yargs; } };

@@ -5,34 +5,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { captureSubcommands, findCommand, wrapHandler } from './support/command-test-helpers.js';
+import { makeApp } from './support/app-test-helpers.js';
+
 
 import { resolveItemOptionType } from '../src/helpers.js';
 import { enrichCatalogItem, buildCatalogFormatted } from '../src/commands/catalog/enrich.js';
-
-// ─── helpers to navigate the yargs command tree (mirrors features.test.js) ───
-function collectSubcommands(cmd) {
-  const subs = [];
-  const mockYargs = {
-    command: (c) => { subs.push(typeof c === 'string' ? { command: c } : c); return mockYargs; },
-    option: () => mockYargs,
-    positional: () => mockYargs,
-    demandCommand: () => mockYargs,
-  };
-  cmd.builder(mockYargs);
-  return subs;
-}
-
-function buildApp(sdk) {
-  const app = {
-    sdk,
-    config: { profiles: {}, activeProfile: null },
-    requireInstance() {},
-    getEffectiveInstance: () => 'https://dev.example.service-now.com',
-    output: { getFormat: () => 'json' }, // non-auto → interactiveList short-circuits
-    ok: (data, opts) => { app.lastOk = { data, opts }; },
-  };
-  return app;
-}
 
 // ─── Canonical item_option_new type values ───
 // Source of truth: ServiceNow's documented choice values for
@@ -78,8 +56,8 @@ describe('resolveItemOptionType (canonical ServiceNow item_option_new.type value
 describe('catalog create --variable type resolution', () => {
   it('creates variables with canonical type IDs (not the old inline map)', async () => {
     const { catalogCmd } = await import('../src/commands/catalog.js');
-    const cmd = catalogCmd((fn) => fn);
-    const create = collectSubcommands(cmd).find((s) => s.command === 'create');
+    const cmd = catalogCmd(wrapHandler);
+    const create = findCommand(captureSubcommands(cmd), 'create');
     assert.ok(create, 'create subcommand exists');
 
     const created = [];
@@ -89,7 +67,7 @@ describe('catalog create --variable type resolution', () => {
         return { sys_id: 'item123' };
       },
     };
-    const app = buildApp(sdk);
+    const app = makeApp({ sdk });
     await create.handler(
       {
         app,
@@ -295,13 +273,13 @@ describe('buildCatalogFormatted', () => {
 describe('catalog show handler', () => {
   it('emits the enriched envelope with _formatted and breadcrumbs', async () => {
     const { catalogCmd } = await import('../src/commands/catalog.js');
-    const cmd = catalogCmd((fn) => fn);
-    const show = collectSubcommands(cmd).find((s) => s.command === 'show <id>');
+    const cmd = catalogCmd(wrapHandler);
+    const show = findCommand(captureSubcommands(cmd), 'show <id>');
     assert.ok(show, 'show subcommand exists');
 
     const sdk = buildEnrichSdk();
-    const app = buildApp(sdk);
-    await show.handler({ app, id: 'abc123def456abc123def456abc12345' }, app);
+    const app = makeApp({ sdk });
+    await show.handler({ app, id: 'abc123def456abc123def456abc12345' });
 
     const { data, opts } = app.lastOk;
     assert.strictEqual(data.name, 'Test Item');
@@ -318,8 +296,8 @@ describe('catalog show handler', () => {
 
   it('resolves a name to sys_id before enriching', async () => {
     const { catalogCmd } = await import('../src/commands/catalog.js');
-    const cmd = catalogCmd((fn) => fn);
-    const show = collectSubcommands(cmd).find((s) => s.command === 'show <id>');
+    const cmd = catalogCmd(wrapHandler);
+    const show = findCommand(captureSubcommands(cmd), 'show <id>');
 
     const sdk = buildEnrichSdk();
     const seen = [];
@@ -331,8 +309,8 @@ describe('catalog show handler', () => {
       seen.push(table);
       return origList(table, params);
     };
-    const app = buildApp(sdk);
-    await show.handler({ app, id: 'Test Item' }, app);
+    const app = makeApp({ sdk });
+    await show.handler({ app, id: 'Test Item' });
     assert.strictEqual(app.lastOk.data.name, 'Test Item');
   });
 });

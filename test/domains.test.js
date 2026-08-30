@@ -2,13 +2,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-
-function collectSubcommands(cmd) {
-  const subcommands = [];
-  const mockYargs = { command: (c) => { subcommands.push(typeof c === 'string' ? c : c.command); return mockYargs; } };
-  cmd.builder(mockYargs);
-  return subcommands;
-}
+import { captureSubcommands } from './support/command-test-helpers.js';
 
 describe('Domains Command Structure', () => {
   it('should export domainsCmd', async () => {
@@ -19,7 +13,7 @@ describe('Domains Command Structure', () => {
   it('defines list, show, current, set subcommands', async () => {
     const { domainsCmd } = await import('../src/commands/dev/domains.js');
     const wrap = (fn) => fn;
-    const names = collectSubcommands(domainsCmd(wrap)).map((s) => s.split(' ')[0]);
+    const names = captureSubcommands(domainsCmd(wrap)).map((s) => s.command.split(' ')[0]);
     assert.ok(names.includes('list'));
     assert.ok(names.includes('show'));
     assert.ok(names.includes('current'));
