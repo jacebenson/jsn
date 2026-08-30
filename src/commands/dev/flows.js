@@ -4,7 +4,6 @@ import { declareCapabilities } from '../../capabilities.js';
 import { inspectFlow } from '../../flow-inspection.js';
 import { publishFlows, publishDoctor, flowStatus } from '../../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../../resolve-record.js';
-import { assertSafeExactMatch } from '../../helpers.js';
 
 function flowInspectionAdapter(app) {
   return {
@@ -173,10 +172,11 @@ export function flowsCmd(wrap) {
             .option('action', { type: 'boolean', default: false, describe: 'Treat the identifier as a custom action rather than a flow' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const sysID = argv.action
-              ? (assertSafeExactMatch(argv.identifier), argv.identifier)
-              : unwrapSysId(await resolveRecord(app.sdk, {
-                table: 'sys_hub_flow', identifier: argv.identifier, matchField: 'name', resource: 'Flow',
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+                table: argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow',
+                identifier: argv.identifier,
+                matchField: 'name',
+                resource: argv.action ? 'Custom action' : 'Flow',
               }));
 
             const result = argv.action

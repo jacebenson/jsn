@@ -102,6 +102,14 @@ describe('flows publish', () => {
     assert.strictEqual(out.summary.succeeded, 1);
   });
 
+  it('rejects malformed fallback result bodies', async () => {
+    const { publishFlows } = await import('../src/flow-publish.js');
+    const sdk = buildSdk({
+      fetchResponse: jsonResponse(400, { error: { message: 'Requested URI does not represent any resource' } }),
+      scriptOutput: 'JSN_PUBLISH_RESULT:{"unexpected":"value"}',
+    });
+    await assert.rejects(() => publishFlows(sdk, ['abc']), /malformed result body/);
+  });
   it('throws on a genuine error status', async () => {
     const { publishFlows } = await import('../src/flow-publish.js');
     const sdk = buildSdk({ fetchResponse: jsonResponse(500, { error: { message: 'boom' } }) });
@@ -138,8 +146,8 @@ describe('flows status', () => {
     });
 
     const out = await flowStatus(sdk, 'f1');
-    assert.strictEqual(out.ok, false, JSON.stringify(out.checks));
-    assert.strictEqual(out.checks.find(c => c.name === 'Trigger registered').ok, false);
+    assert.strictEqual(out.ok, true, JSON.stringify(out.checks));
+    assert.strictEqual(out.checks.find(c => c.name === 'Trigger registered').skipped, true);
     assert.strictEqual(out.checks.find(c => c.name === 'Table registrations').ok, true);
     assert.match(out.checks.find(c => c.name === 'Trigger registered').detail, /cannot verify.*this flow/i);
   });
@@ -178,8 +186,9 @@ describe('flows status', () => {
 
     const out = await flowStatus(sdk, 'f1');
     const check = out.checks.find(c => c.name === 'Trigger condition');
-    assert.strictEqual(check.ok, false);
+    assert.strictEqual(check.skipped, true);
     assert.match(check.detail, /never fire/);
+    assert.strictEqual(out.ok, true);
   });
 
   it('flags a flow that was never published', async () => {

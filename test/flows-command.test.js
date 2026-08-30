@@ -148,7 +148,11 @@ test('publish --action skips flow lookup and publishes the supplied action sys_i
   let published;
   const sdk = {
     baseURL: 'https://example.service-now.com',
-    async list() { flowLookup = true; return []; },
+    async list(table) {
+      if (table === 'sys_hub_flow') flowLookup = true;
+      if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-1', name: 'Named action' }];
+      return [];
+    },
     async fetchResponse(_url, options) {
       published = JSON.parse(options.body);
       return { status: 200, async text() { return JSON.stringify({ result: {
@@ -157,7 +161,7 @@ test('publish --action skips flow lookup and publishes the supplied action sys_i
     },
   };
   const { app } = jsonApp(sdk);
-  await handler('publish <identifier>').handler({ identifier: 'action-1', action: true }, app);
+  await handler('publish <identifier>').handler({ identifier: 'action-name', action: true }, app);
   assert.equal(flowLookup, false);
   assert.deepEqual(published.actions, [{ sys_id: 'action-1', active: 'true', state: '' }]);
   assert.deepEqual(published.flows, []);
