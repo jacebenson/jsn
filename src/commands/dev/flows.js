@@ -2,6 +2,8 @@ import { formatRecordForDisplay, getStringField, interactiveList } from '../../h
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../../flow-context.js';
 import { declareCapabilities } from '../../capabilities.js';
 import { inspectFlow } from '../../flow-inspection.js';
+import { publishFlows, publishDoctor, flowStatus } from '../../flow-publish.js';
+import { resolveRecord, unwrapSysId } from '../../resolve-record.js';
 
 function flowInspectionAdapter(app) {
   return {
@@ -10,7 +12,14 @@ function flowInspectionAdapter(app) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete'], devAlias: true });
+declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish'], devAlias: true });
+
+function renderChecks(checks) {
+  return checks.map((c) => {
+    const mark = c.skipped ? '➖' : (c.ok ? '✅' : '❌');
+    return `  ${mark} ${c.name}: ${c.detail}`;
+  }).join('\n');
+}
 
 export function flowsCmd(wrap) {
   return {
@@ -156,6 +165,64 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
+          command: 'publish <identifier>',
+          aliases: ['activate'],
+          describe: 'Publish (activate) a flow so it can actually run',
+          builder: (y) => y
+            .option('action', { type: 'boolean', default: false, describe: 'Treat the identifier as a custom action rather than a flow' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+                table: argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow',
+                identifier: argv.identifier,
+                matchField: 'name',
+                resource: argv.action ? 'Custom action' : 'Flow',
+              }));
+
+            const result = argv.action
+              ? await publishFlows(app.sdk, [], [sysID])
+              : await publishFlows(app.sdk, [sysID], []);
+
+            const { summary, results, via } = result;
+            const lines = results.map(r => `  ${r.status === 'success' ? '✅' : '❌'} ${r.flow_name ?? r.sys_id}: ${r.message ?? r.status}${r.errorMessage ? ` — ${r.errorMessage}` : ''}`);
+
+            return app.ok({ summary, results, via }, {
+              summary: `Published ${summary.succeeded}/${summary.total} (via ${via})\n${lines.join('\n')}`,
+              breadcrumbs: [{ action: 'status', cmd: `jsn flows status ${sysID}`, description: 'Verify the flow will run' }],
+            });
+          }),
+        })
+        .command({
+          command: 'status <identifier>',
+          describe: 'Check whether a flow is actually able to run',
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+              table: 'sys_hub_flow', identifier: argv.identifier, matchField: 'name', resource: 'Flow',
+            }));
+            const status = await flowStatus(app.sdk, sysID);
+
+            return app.ok(status, {
+              summary: `${status.ok ? '✅' : '❌'} ${status.flow.name} (${status.flow.type})\n${renderChecks(status.checks)}`,
+              breadcrumbs: status.ok ? [] : [{ action: 'publish', cmd: `jsn flows publish ${sysID}`, description: 'Publish this flow' }],
+            });
+          }),
+        })
+        .command({
+          command: 'doctor',
+          describe: 'Check whether this instance can publish flows at all',
+          handler: wrap(async (_argv, app) => {
+            app.requireInstance();
+            const report = await publishDoctor(app.sdk);
+            const hint = report.ok
+              ? ''
+              : '\n\nFlow publishing is unavailable. Deploys may report success while leaving flows inert.';
+            return app.ok(report, {
+              summary: `${report.ok ? '✅' : '❌'} Flow publishing\n${renderChecks(report.checks)}${hint}`,
+            });
+          }),
+        })
+        .command({
           command: 'create',
           describe: 'Create a new flow (not yet implemented)',
           builder: (y) => y
@@ -191,6 +258,9 @@ export function flowsCmd(wrap) {
       console.log('  list                  List flows');
       console.log('  executions            Show flow executions from sys_flow_context');
       console.log('  show <identifier>     Show flow details by name or sys_id');
+      console.log('  status <identifier>   Check whether a flow is actually able to run');
+      console.log('  publish <identifier>  Publish (activate) a flow');
+      console.log('  doctor                Check whether this instance can publish flows');
       console.log('  create                Create a new flow (not yet implemented)');
       console.log('  update <identifier>   Update a flow (not yet implemented)');
       console.log('  delete <identifier>   Delete a flow (not yet implemented)');
