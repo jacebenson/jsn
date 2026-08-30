@@ -1,4 +1,4 @@
-import { getStringField, formatRecordForDisplay } from '../../helpers.js';
+import { getStringField, formatRecordForDisplay, interactiveList } from '../../helpers.js';
 import { resolveRecord } from '../../resolve-record.js';
 import { inspectDecisionTable } from '../../decision-table-inspection.js';
 import { declareCapabilities } from '../../capabilities.js';
@@ -18,14 +18,39 @@ export const decisiontablesCmd = (wrap) => {
           .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
+
+          const picked = await interactiveList({
+            app,
+            table: 'sys_decision',
+            singular,
+            columns: ['name', 'sys_scope'],
+            limit: argv.limit,
+            query: argv.query || '',
+            labelField: 'name',
+            message: 'Select a decision table',
+            formatLabel: (record) => {
+              const recordName = getStringField(record, 'name') || getStringField(record, 'sys_id');
+              const scope = getStringField(record, 'sys_scope') || '';
+              return (scope && scope.toLowerCase() !== 'global') ? `${recordName} [${scope}]` : recordName;
+            },
+            promptFn: app.promptFn,
+          });
+          if (picked === undefined) return;
+          if (picked !== null && picked !== undefined) {
+            const detail = await inspectDecisionTable(app, picked);
+            detail._context = { instance_url: app.getEffectiveInstance(), table: 'sys_decision' };
+            app.ok(detail, { summary: `Decision table: ${getStringField(picked, 'name') || getStringField(picked, 'sys_id')}` });
+            return;
+          }
+
           const params = new URLSearchParams({
             sysparm_query: argv.query || 'ORDERBYDESCsys_updated_on',
             sysparm_limit: String(argv.limit),
             sysparm_display_value: 'all',
-            sysparm_fields: 'sys_id,name,description,active,order,sys_scope,sys_updated_on',
+            sysparm_fields: 'sys_id,name,description,active,sys_scope,sys_updated_on',
           });
           const records = await app.sdk.list('sys_decision', params);
-          app.ok({ table: 'sys_decision', count: records.length, columns: ['name', 'active', 'order', 'sys_scope'], records: records.map((record) => formatRecordForDisplay(record, ['name', 'active', 'order', 'sys_scope'])) }, { summary: `${records.length} decision table(s)` });
+          app.ok({ table: 'sys_decision', count: records.length, columns: ['name', 'active', 'sys_scope'], records: records.map((record) => formatRecordForDisplay(record, ['name', 'active', 'sys_scope'])) }, { summary: `${records.length} decision table(s)` });
         }),
       })
       .command({

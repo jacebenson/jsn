@@ -1,4 +1,6 @@
 import { getStringField, assertSafeExactMatch } from './helpers.js';
+import { unwrapSysId } from './resolve-record.js';
+import { getTableURL, hyperlink } from './output.js';
 
 const FIELD_OPERATORS = /^(.*?)(NOT LIKE|NOT IN|ISNOTEMPTY|INSTANCEOF|STARTSWITH|ENDSWITH|BETWEEN|DATEPART|DYNAMIC|SAMEAS|NSAMEAS|GT_FIELD|LT_FIELD|GT_OR_EQUALS_FIELD|LT_OR_EQUALS_FIELD|VALCHANGES|CHANGES|CHANGEDFROM|CHANGEDTO|LIKE|ISEMPTY|IN|!=|>=|<=|=|>|<)(.*)$/;
 
@@ -111,16 +113,21 @@ function addFormatted(data, text) {
   return data;
 }
 
-export function renderDecisionMatrix(detail) {
+export function renderDecisionMatrix(detail, instanceURL = '') {
   const labels = detail.inputs.map(inputLabel);
   const hasUnparseable = detail.matrix.some((row) => row.unparseable);
   const headers = [...labels, ...(hasUnparseable ? ['Unparsed'] : []), 'Answer', 'Default', 'Active', 'Order'];
-  const lines = [`Decision table: ${detail.table.name || detail.table.sys_id || ''}`, headers.join(' | '), headers.map(() => '---').join(' | ')];
+  const lines = [`Decision table: ${getStringField(detail.table, 'name') || getStringField(detail.table, 'sys_id') || ''}`, headers.join(' | '), headers.map(() => '---').join(' | ')];
   for (const row of detail.matrix) {
     lines.push(row.values.concat([...(hasUnparseable ? [row.unparseable] : []), row.answer, row.default, row.active, row.order]).map((v) => String(v ?? '')).join(' | '));
   }
   if (detail.matrix.length === 0) lines.push('(no decision rows)');
   if (detail.questions.some((q) => q.parsed_branches.length > 1)) lines.push('OR branches are shown as separate rows (NQ).');
+  const tableId = unwrapSysId(detail.table);
+  if (instanceURL && tableId) {
+    const url = getTableURL(instanceURL, 'sys_decision', tableId);
+    lines.push(`Open in Workflow Studio: ${hyperlink(url, url)}`);
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -156,7 +163,7 @@ function assertSafeReferenceTable(value) {
 }
 
 export async function inspectDecisionTable(app, table) {
-  const sysId = getStringField(table, 'sys_id');
+  const sysId = unwrapSysId(table);
   const [inputs, questions] = await Promise.all([
     app.sdk.list('sys_decision_input', new URLSearchParams({ sysparm_query: `model=${sysId}^ORDERBYorder`, sysparm_display_value: 'all' })),
     app.sdk.list('sys_decision_question', new URLSearchParams({ sysparm_query: `decision_table=${sysId}^ORDERBYorder`, sysparm_display_value: 'all' })),
@@ -249,5 +256,5 @@ export async function inspectDecisionTable(app, table) {
     }
   }
   const detail = { table, inputs, questions: normalizedQuestions, matrix };
-  return addFormatted(detail, renderDecisionMatrix(detail));
+  return addFormatted(detail, renderDecisionMatrix(detail, app.getEffectiveInstance?.() || ''));
 }
