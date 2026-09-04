@@ -28,7 +28,7 @@ describe('resolveUpdateSetByName fallbacks (#168)', () => {
   afterEach(() => mock.reset());
 
   it('falls back to the current update set sys_id when apps.current_app pref is missing', async () => {
-    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const { resolveUpdateSetByName } = await import('../src/commands/updatesets.js');
     const app = { sdk: { list: async () => [SETS.setA, SETS.setB, SETS.setC] } };
     const resolved = await resolveUpdateSetByName(app, 'Default');
     assert.strictEqual(resolved.sys_id, 'set-B');
@@ -36,7 +36,7 @@ describe('resolveUpdateSetByName fallbacks (#168)', () => {
 
   it('falls back to a unique Global-scope set when no current set is known', async () => {
     state.currentSysId = null;
-    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const { resolveUpdateSetByName } = await import('../src/commands/updatesets.js');
     const app = { sdk: { list: async () => [SETS.setA, SETS.setB] } };
     const resolved = await resolveUpdateSetByName(app, 'Default');
     assert.strictEqual(resolved.sys_id, 'set-A');
@@ -45,7 +45,7 @@ describe('resolveUpdateSetByName fallbacks (#168)', () => {
   it('prefers the current-scope set when the preference exists (unchanged behavior)', async () => {
     state.appSysId = 'x_my_app'; // pref set → scope match wins over current-set id
     state.currentSysId = 'set-C';
-    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const { resolveUpdateSetByName } = await import('../src/commands/updatesets.js');
     const app = { sdk: { list: async () => [SETS.setA, SETS.setB, SETS.setC] } };
     const resolved = await resolveUpdateSetByName(app, 'Default');
     assert.strictEqual(resolved.sys_id, 'set-B');

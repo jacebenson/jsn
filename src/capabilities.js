@@ -8,8 +8,6 @@
 //     // Subcommand verbs that mutate instance state. The mutation guard
 //     // (src/mutations.js) derives its command-path list from these.
 //     mutationSubcommands: ['create', 'update', 'delete'],
-//     // Also registered under `jsn dev <name>` — derive both spellings.
-//     devAlias: true,
 //     // Command runs without a configured instance (joins the middleware
 //     // skip-list for the instance guard).
 //     noInstance: true,
@@ -42,7 +40,7 @@ const REGISTRY = new Map();
  * @returns {object} the caps object (for convenient inline use)
  */
 export function declareCapabilities(name, caps) {
-  REGISTRY.set(name, { devAlias: false, ...caps });
+  REGISTRY.set(name, { ...caps });
   return caps;
 }
 
@@ -99,9 +97,6 @@ export function dailyCheckSkipCommands(caps = collectCapabilities()) {
  * begins with the pattern IS that mutation (trailing positionals like a
  * sys_id don't change intent).
  *
- * Commands with `devAlias: true` are also registered under `jsn dev <name>`,
- * so both spellings are emitted.
- *
  * A whole-command mutation surface (e.g. `jsn eval`, `jsn rest` — the
  * command itself is the mutation, there is no mutating sub-verb) declares
  * `mutationSubcommands: ['']`.
@@ -116,7 +111,6 @@ export function mutationPaths(caps = collectCapabilities()) {
     for (const sub of c.mutationSubcommands) {
       const parts = sub === '' ? [] : sub.split(' ');
       paths.push([name, ...parts]);
-      if (c.devAlias) paths.push(['dev', name, ...parts]);
     }
   }
   return paths;

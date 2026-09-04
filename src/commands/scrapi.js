@@ -8,13 +8,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatRecordForDisplay, getStringField, isHexString } from '../../helpers.js';
-import { errUsageHint } from '../../errors.js';
-import { declareCapabilities } from '../../capabilities.js';
+import { formatRecordForDisplay, getStringField, isHexString } from '../helpers.js';
+import { errUsageHint } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
 
 // `scrapi create` builds a full Scripted REST API in one call (list/show are
-// reads). Registered at root and under `jsn dev`.
-declareCapabilities('scrapi', { mutationSubcommands: ['create'], devAlias: true });
+// reads). Registered at the root.
+declareCapabilities('scrapi', { mutationSubcommands: ['create'] });
 
 /**
  * Parse a --resource flag value of the form:

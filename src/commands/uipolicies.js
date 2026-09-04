@@ -1,5 +1,5 @@
 import { buildDevCmd } from './_generic.js';
-import { getStringField } from '../../helpers.js';
+import { getStringField } from '../helpers.js';
 
 export const uipoliciesCmd = (wrap) => buildDevCmd('uipolicies', 'sys_ui_policy', ['uipolicy', 'up'],
   ['short_description', 'table', 'sys_class_name', 'active'], wrap, {

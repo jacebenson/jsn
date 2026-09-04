@@ -1,4 +1,4 @@
-import { getStringField, interactiveList } from '../../helpers.js';
+import { getStringField, interactiveList } from '../helpers.js';
 
 export function listsCmd(wrap) {
   return {

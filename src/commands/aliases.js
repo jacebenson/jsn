@@ -1,5 +1,5 @@
 import { buildDevCmd } from './_generic.js';
-import { getStringField } from '../../helpers.js';
+import { getStringField } from '../helpers.js';
 
 export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias', 'als'],
   ['name', 'table', 'sys_scope'], wrap, {

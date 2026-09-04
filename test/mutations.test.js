@@ -22,19 +22,14 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['incidents', 'list'] }), false);
   });
 
-  it('should detect dev eval as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'eval'] }), true);
-  });
-
   // Read-only bypass regression (issue #143): root `jsn eval` and
-  // `jsn rest` were NOT in the registry — only the legacy dev forms were.
+  // `jsn rest` must be in the registry.
   it('should detect root eval as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['eval'] }), true);
   });
 
-  it('should detect rest as mutation in both forms', () => {
+  it('should detect rest as a mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['rest'] }), true);
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'rest'] }), true);
   });
 
   it('should not detect auth switch as mutation', () => {
@@ -53,19 +48,19 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['setup'] }), false);
   });
 
-  it('should detect dev updatesets set as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'updatesets', 'set'] }), true);
+  it('should detect updatesets set as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['updatesets', 'set'] }), true);
   });
 
-  it('should not detect dev updatesets list as mutation', () => {
+  it('should not detect removed dev updatesets list as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'updatesets', 'list'] }), false);
   });
 
-  it('should detect dev scopes set as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'scopes', 'set'] }), true);
+  it('should detect scopes set as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['scopes', 'set'] }), true);
   });
 
-  it('should not detect dev scopes list as mutation', () => {
+  it('should not detect removed dev scopes list as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'scopes', 'list'] }), false);
   });
 
@@ -141,16 +136,16 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['restmethods', 'create'] }, paths), false);
   });
 
-  it('should detect dev flows create as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'flows', 'create'] }), true);
+  it('should detect flows create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['flows', 'create'] }), true);
   });
 
-  it('should not detect dev flows list as mutation', () => {
+  it('should not detect removed dev flows list as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'flows', 'list'] }), false);
   });
 
-  it('should detect dev scopes create as mutation', () => {
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'scopes', 'create'] }), true);
+  it('should detect scopes create as mutation', () => {
+    assert.strictEqual(isMutationCommand({ _: ['scopes', 'create'] }), true);
   });
 
   // Dev CRUD registry expansion (read_only enforcement coverage)
@@ -160,17 +155,16 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['acls', 'create'] }), true);
   });
 
-  it('should detect dev-prefixed CRUD create/update/delete as mutations', () => {
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'includes', 'update'] }), true);
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'rules', 'delete'] }), true);
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'clientscripts', 'update'] }), true);
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'uiactions', 'create'] }), true);
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'acls', 'delete'] }), true);
+  it('does not detect removed dev-prefixed CRUD paths', () => {
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'includes', 'update'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'rules', 'delete'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'clientscripts', 'update'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'uiactions', 'create'] }), false);
+    assert.strictEqual(isMutationCommand({ _: ['dev', 'acls', 'delete'] }), false);
   });
 
   it('should not detect read-only dev commands as mutations', () => {
     assert.strictEqual(isMutationCommand({ _: ['sppages', 'create'] }), false);
-    assert.strictEqual(isMutationCommand({ _: ['dev', 'sppages', 'create'] }), false);
     assert.strictEqual(isMutationCommand({ _: ['import', 'create'] }), false);
   });
 

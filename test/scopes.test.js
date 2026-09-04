@@ -5,12 +5,12 @@ import assert from 'node:assert';
 
 describe('Scopes Command Structure', () => {
   it('should export scopesCmd', async () => {
-    const { scopesCmd } = await import('../src/commands/dev/scopes.js');
+    const { scopesCmd } = await import('../src/commands/scopes.js');
     assert.strictEqual(typeof scopesCmd, 'function');
   });
 
   it('should define all subcommands', async () => {
-    const { scopesCmd } = await import('../src/commands/dev/scopes.js');
+    const { scopesCmd } = await import('../src/commands/scopes.js');
     const wrap = (fn) => fn;
     const cmd = scopesCmd(wrap);
     const subcommands = [];
@@ -25,7 +25,7 @@ describe('Scopes Command Structure', () => {
 
 describe('formatScopeDetail', () => {
   it('renders scope fields and a record link', async () => {
-    const { formatScopeDetail } = await import('../src/commands/dev/scopes.js');
+    const { formatScopeDetail } = await import('../src/commands/scopes.js');
     const app = {
       getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
@@ -63,7 +63,7 @@ describe('formatScopeDetail', () => {
   });
 
   it('omits the store link for custom (non-store) applications', async () => {
-    const { formatScopeDetail } = await import('../src/commands/dev/scopes.js');
+    const { formatScopeDetail } = await import('../src/commands/scopes.js');
     const app = {
       getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
@@ -78,7 +78,7 @@ describe('formatScopeDetail', () => {
   });
 
   it('falls back to the passed record when the fetch fails', async () => {
-    const { formatScopeDetail } = await import('../src/commands/dev/scopes.js');
+    const { formatScopeDetail } = await import('../src/commands/scopes.js');
     const app = {
       getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
@@ -113,7 +113,7 @@ describe('resolveScope', () => {
   }
 
   it('prefers the canonical sys_id=global record when scope=global has duplicates', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     // sys_id=global misses (no such literal row query match in this mock's
     // routing shape), scope=global returns BOTH records — resolver must pick
     // the canonical one, not records[0].
@@ -123,21 +123,21 @@ describe('resolveScope', () => {
   });
 
   it('resolves the literal sys_id "global" via sys_id query (issue 190)', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     const sdk = mockSdk({ 'sys_id=global': [GLOBAL] });
     const rec = await resolveScope(sdk, 'global');
     assert.strictEqual(rec.sys_id, 'global');
   });
 
   it('resolves an explicit 32-hex sys_id (issue 190)', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     const sdk = mockSdk({ 'sys_id=0f6ab99a0f36060094f3c09ce1050ee8': [XPLORE] });
     const rec = await resolveScope(sdk, '0f6ab99a0f36060094f3c09ce1050ee8');
     assert.strictEqual(rec.sys_id, '0f6ab99a0f36060094f3c09ce1050ee8');
   });
 
   it('resolves by scope value when unambiguous', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     const app = { sys_id: 'abc', name: 'My App', scope: 'x_my_app' };
     const sdk = mockSdk({ 'sys_id=x_my_app': [], 'scope=x_my_app': [app] });
     const rec = await resolveScope(sdk, 'x_my_app');
@@ -145,7 +145,7 @@ describe('resolveScope', () => {
   });
 
   it('falls back to name when sys_id and scope both miss', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     const app = { sys_id: 'abc', name: 'My App', scope: 'x_my_app' };
     const sdk = mockSdk({ 'name=My App': [app] });
     const rec = await resolveScope(sdk, 'My App');
@@ -153,13 +153,13 @@ describe('resolveScope', () => {
   });
 
   it('throws Scope not found when nothing matches', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     const sdk = mockSdk({});
     await assert.rejects(() => resolveScope(sdk, 'nope'), /Scope not found: nope/);
   });
 
   it('throws an ambiguous error naming the candidates when a non-global scope value ties', async () => {
-    const { resolveScope } = await import('../src/commands/dev/scopes.js');
+    const { resolveScope } = await import('../src/commands/scopes.js');
     const a = { sys_id: 'aaa', name: 'App A', scope: 'x_dup' };
     const b = { sys_id: 'bbb', name: 'App B', scope: 'x_dup' };
     const sdk = mockSdk({ 'sys_id=x_dup': [], 'scope=x_dup': [a, b], 'name=x_dup': [] });

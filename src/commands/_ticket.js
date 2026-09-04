@@ -8,7 +8,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
-  // Root-level only (no `jsn dev` spelling).
+  // Root-level command only.
   declareCapabilities(displayName, { mutationSubcommands: ['create', 'update', 'delete'] });
   return {
     command: `${displayName} [subcommand]`,

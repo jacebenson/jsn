@@ -27,7 +27,7 @@ Tests: `node:test` runner + eslint.
 - `src/cli.js` — `buildCLI()`: global options, middleware, command registration
 - `src/app.js` — `App`: instance resolution, SDK handle, output controller
 - `src/config.js` — profile config (XDG config dir)
-- `src/commands/` — one file per command family; `dev/_simple.js` builds the
+- `src/commands/` — one file per command family; `_simple.js` builds the
   many simple table CRUD commands, `commands/_ticket.js` builds ticket-style
   CRUD (incidents/changes/requests/tasks)
 - `src/helpers.js`, `src/output.js`, `src/errors.js`, `src/mutations.js`
@@ -50,14 +50,14 @@ Tests: `node:test` runner + eslint.
    section grouping. Aliases go on the command module.
 3. All handlers must go through `wrap(handler)` — it injects `app` and
    converts thrown errors (`err.code`) into clean exits with hints.
-4. Simple table CRUD? Don't hand-roll: extend `dev/_simple.js` or use
+4. Simple table CRUD? Don't hand-roll: extend `_simple.js` or use
    `buildTicketCommands` (`_ticket.js`).
 
 ## Rules that will bite you
 
 - **Command capabilities are declared, not listed.** `src/capabilities.js`
   (`declareCapabilities`) is the source of truth for `noInstance` /
-  `skipDailyChecks` / `mutationSubcommands` / `devAlias`. Middleware derives
+  `skipDailyChecks` / `mutationSubcommands`. Middleware derives
   the skip-lists and the mutation guard from it — never add a command name to
   a hand-written string list. Factories (`buildDevCmd`, `buildTicketCommands`)
   declare automatically from flags like `readOnly`.

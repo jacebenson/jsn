@@ -1,5 +1,5 @@
 import { buildDevCmd } from './_generic.js';
-import { getStringField } from '../../helpers.js';
+import { getStringField } from '../helpers.js';
 
 export const importCmd = (wrap) => buildDevCmd('import', 'sys_import_set', ['imports', 'imp'],
   ['name', 'sys_target_table', 'state', 'sys_created_on'], wrap, {

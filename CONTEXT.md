@@ -18,7 +18,7 @@ A yargs command module — one file in `src/commands/`, exported as
 one. Commands are the unit the CLI registers, guards, and renders output for.
 
 - **Factory-built command** — a Command produced by a builder rather than
-  hand-written: `buildDevCmd` (`src/commands/dev/_generic.js`) covers most
+  hand-written: `buildDevCmd` (`src/commands/_generic.js`) covers most
   simple table CRUD, `buildTicketCommands` (`src/commands/_ticket.js`) covers
   incidents/changes/requests/tasks. One line of config → a full command family
   (list/show/create/update/delete, aliases, scope validation, pickers).
@@ -40,8 +40,7 @@ The middleware **derives** the skip-lists (instance guard, daily checks,
 context header) and the mutation-guard path list from this registry — it never
 matches `argv._[0]` against hand-written string lists.
 
-Capabilities: `mutationSubcommands`, `devAlias`, `noInstance`,
-`skipDailyChecks`.
+Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`.
 
 > Replaced: hand-maintained skip-lists in `cli.js` + the hand-written mutation
 > registry in `mutations.js` (see `docs/adr/0001-architecture-deepening.md`).
@@ -110,7 +109,7 @@ interactive flow picker. `inspectFlow({ adapter, identifier, instanceURL,
 depth })` delegates remote flow/custom-action inspection through the narrow
 adapter, then owns depth normalization, recursive subflow traversal, custom
 action expansion, caches, cycle handling, nested failures, and `_formatted`
-rendering. `src/commands/dev/flows.js` only adapts yargs/App output to this seam.
+rendering. `src/commands/flows.js` only adapts yargs/App output to this seam.
 
 ## Flow execution
 

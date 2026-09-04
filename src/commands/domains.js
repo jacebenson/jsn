@@ -10,11 +10,11 @@
 // via the `X-Now-Domain` header — the same scoping the platform applies
 // to its own picker sessions.
 
-import { getStringField, interactiveList, assertSafeExactMatch } from '../../helpers.js';
-import { declareCapabilities } from '../../capabilities.js';
+import { getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
 
 // `domains set` writes the chosen domain into the profile config.
-declareCapabilities('domains', { mutationSubcommands: ['set'], devAlias: true });
+declareCapabilities('domains', { mutationSubcommands: ['set'] });
 
 const DETAIL_FIELDS = 'sys_id,name,parent,sys_domain_path,description,active,sys_created_on,sys_updated_on';
 

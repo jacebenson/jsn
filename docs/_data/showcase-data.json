@@ -244,11 +244,11 @@
     "tagline": "List, set, complete, ignore — and export any set to XML.",
     "commands": [
       {
-        "cmd": "jsn dev updatesets list",
+        "cmd": "jsn updatesets list",
         "what": "See every set and its state"
       },
       {
-        "cmd": "jsn dev updatesets export \"My Set\" --out set.xml",
+        "cmd": "jsn updatesets export \"My Set\" --out set.xml",
         "what": "Export to XML via the fluent endpoint"
       }
     ],
@@ -276,7 +276,7 @@
     "tagline": "Run GlideScript on the instance from your terminal.",
     "commands": [
       {
-        "cmd": "jsn dev eval --script 'gs.info(\"hello\");'",
+        "cmd": "jsn eval --script 'gs.info(\"hello\");'",
         "what": "Execute on the instance, session + CSRF handled"
       }
     ],

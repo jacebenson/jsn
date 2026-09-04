@@ -1,9 +1,9 @@
-import { formatRecordForDisplay, getStringField, interactiveList } from '../../helpers.js';
-import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../../flow-context.js';
-import { declareCapabilities } from '../../capabilities.js';
-import { inspectFlow } from '../../flow-inspection.js';
-import { publishFlows, publishDoctor, flowStatus } from '../../flow-publish.js';
-import { resolveRecord, unwrapSysId } from '../../resolve-record.js';
+import { formatRecordForDisplay, getStringField, interactiveList } from '../helpers.js';
+import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
+import { declareCapabilities } from '../capabilities.js';
+import { inspectFlow } from '../flow-inspection.js';
+import { publishFlows, publishDoctor, flowStatus } from '../flow-publish.js';
+import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 
 function flowInspectionAdapter(app) {
   return {
@@ -12,7 +12,7 @@ function flowInspectionAdapter(app) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish'], devAlias: true });
+declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {

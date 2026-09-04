@@ -1,10 +1,10 @@
-// Generic dev subcommand builder for table-based CRUD
+// Generic table-based CRUD command builder
 
-import { formatRecordForDisplay, getStringField, parseDataArg, confirmDelete, interactiveList, canPrompt } from '../../helpers.js';
-import { resolveRecord, unwrapSysId } from '../../resolve-record.js';
-import { getCurrentUser, getCurrentApplication } from '../../context.js';
-import { FormatAuto } from '../../output.js';
-import { declareCapabilities } from '../../capabilities.js';
+import { formatRecordForDisplay, getStringField, parseDataArg, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
+import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { getCurrentUser, getCurrentApplication } from '../context.js';
+import { FormatAuto } from '../output.js';
+import { declareCapabilities } from '../capabilities.js';
 
 function vowelArticle(word) {
   const first = word.charAt(0).toLowerCase();
@@ -95,11 +95,8 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const singular = toSingular(name, opts.singular);
   const readOnly = opts.readOnly || false;
   // Capability declaration: the readOnly flag drives the mutation registry.
-  // buildDevCmd commands are registered both at root and under `jsn dev`
-  // unless opts.devAlias says otherwise (root-only commands pass false).
   declareCapabilities(name, {
     mutationSubcommands: readOnly ? [] : ['create', 'update', 'delete'],
-    devAlias: opts.devAlias !== false,
   });
   const scopeValidation = opts.scopeValidation || false;
   const extraQuery = opts.extraQuery || '';

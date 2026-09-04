@@ -22,15 +22,14 @@ describe('capabilities registry', () => {
     // Spot-check a factory-built CRUD command
     assert.deepStrictEqual(caps.get('incidents'), {
       mutationSubcommands: ['create', 'update', 'delete'],
-      devAlias: false,
     });
     // A read-only factory command declares no mutations
-    assert.deepStrictEqual(caps.get('sppages'), { mutationSubcommands: [], devAlias: true });
+    assert.deepStrictEqual(caps.get('sppages'), { mutationSubcommands: [] });
     // No-instance commands declare themselves
-    assert.deepStrictEqual(caps.get('auth'), { noInstance: true, devAlias: false });
-    assert.deepStrictEqual(caps.get('setup'), { noInstance: true, devAlias: false });
-    assert.deepStrictEqual(caps.get('skill'), { noInstance: true, skipDailyChecks: true, devAlias: false });
-    assert.deepStrictEqual(caps.get('docs'), { noInstance: true, skipDailyChecks: true, devAlias: false });
+    assert.deepStrictEqual(caps.get('auth'), { noInstance: true });
+    assert.deepStrictEqual(caps.get('setup'), { noInstance: true });
+    assert.deepStrictEqual(caps.get('skill'), { noInstance: true, skipDailyChecks: true });
+    assert.deepStrictEqual(caps.get('docs'), { noInstance: true, skipDailyChecks: true });
     // Built-ins
     assert.deepStrictEqual(caps.get('help'), { noInstance: true, skipDailyChecks: true });
     assert.deepStrictEqual(caps.get('completion'), { noInstance: true, skipDailyChecks: true });
@@ -61,7 +60,6 @@ describe('capabilities registry', () => {
     const caps = collectCapabilities();
     assert.deepStrictEqual(caps.get('uipolicies'), {
       mutationSubcommands: ['create', 'update', 'delete'],
-      devAlias: true,
     });
   });
 
@@ -80,30 +78,22 @@ describe('capabilities registry', () => {
     assert.deepStrictEqual([...skip].sort(), ['completion', 'docs', 'help', 'skill', 'version']);
   });
 
-  it('derives mutation paths covering root and dev-prefixed dev CRUD commands', () => {
+  it('derives mutation paths for root CRUD commands', () => {
     const mutations = mutationPaths();
     const has = (path) => mutations.some((p) => p.join('') === path.join(''));
-    // Factory CRUD: root + dev-prefixed
+    // Factory CRUD: root
     assert.ok(has(['includes', 'create']));
-    assert.ok(has(['dev', 'includes', 'delete']));
     assert.ok(has(['rules', 'update']));
-    assert.ok(has(['dev', 'rules', 'update']));
     // Read-only factory commands are absent
     assert.ok(!has(['sppages', 'create']));
-    assert.ok(!has(['dev', 'sppages', 'create']));
     assert.ok(!has(['import', 'create']));
-    // eval + rest, both spellings
+    // eval + rest
     assert.ok(has(['eval']));
-    assert.ok(has(['dev', 'eval']));
     assert.ok(has(['rest']));
-    assert.ok(has(['dev', 'rest']));
     // scopes / domains / updatesets specials
     assert.ok(has(['scopes', 'set']));
-    assert.ok(has(['dev', 'scopes', 'set']));
     assert.ok(has(['domains', 'set']));
-    assert.ok(has(['dev', 'domains', 'set']));
     assert.ok(has(['updatesets', 'complete']));
-    assert.ok(has(['dev', 'updatesets', 'complete']));
     // tickets, users, groups, catalogitems
     assert.ok(has(['tickets', 'create']));
     assert.ok(has(['users', 'delete']));

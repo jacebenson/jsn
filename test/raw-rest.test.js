@@ -12,7 +12,7 @@ function appFor(sdk) {
 
 describe('raw REST command', () => {
   it('uses rawRequest and preserves XML text when --raw is set', async () => {
-    const { restCmd } = await import('../src/commands/dev/rest.js');
+    const { restCmd } = await import('../src/commands/rest.js');
     let called;
     const app = appFor({
       rawRequest: async (url, options) => {

@@ -56,6 +56,6 @@ else
     echo ""
     echo "⚠️  Architecture violations found!"
     echo "   Remember: Commands should call app.SDK.List() directly with local types."
-    echo "   See internal/commands/dev/forms.go for the correct pattern."
+    echo "   See internal/commands/forms.go for the correct pattern."
     exit 1
 fi

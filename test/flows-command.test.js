@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
-import { flowsCmd } from '../src/commands/dev/flows.js';
+import { flowsCmd } from '../src/commands/flows.js';
 import { OutputWriter, FormatJSON } from '../src/output.js';
 import { collectCapabilities, mutationPaths } from '../src/capabilities.js';
 

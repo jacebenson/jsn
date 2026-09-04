@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, interactiveList, getStringField } from '../../helpers.js';
+import { formatRecordForDisplay, interactiveList, getStringField } from '../helpers.js';
 
 function logIcon(level) {
   level = (level || '').toLowerCase();

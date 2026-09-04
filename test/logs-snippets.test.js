@@ -71,7 +71,7 @@ describe('query snippets', () => {
 
 describe('logs follow', () => {
   it('registers the follow subcommand', async () => {
-    const { logsCmd } = await import('../src/commands/dev/logs.js');
+    const { logsCmd } = await import('../src/commands/logs.js');
     const cmd = logsCmd(wrapHandler);
     const follow = findCommand(captureSubcommands(cmd), 'follow');
     assert.ok(follow, 'logs follow subcommand exists');

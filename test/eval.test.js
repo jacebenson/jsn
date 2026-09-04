@@ -41,7 +41,7 @@ describe('eval scope resolution (issue #161)', () => {
         getCurrentApplication: async () => ({ scope: state.activeScope, appSysId: 'app123' }),
       },
     });
-    ({ evalCmd } = await import('../src/commands/dev/eval.js'));
+    ({ evalCmd } = await import('../src/commands/eval.js'));
   });
 
   afterEach(() => {

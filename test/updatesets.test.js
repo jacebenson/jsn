@@ -7,12 +7,12 @@ import assert from 'node:assert';
 
 describe('UpdateSets Command Structure', () => {
   it('should export updateSetsCmd', async () => {
-    const { updateSetsCmd } = await import('../src/commands/dev/updatesets.js');
+    const { updateSetsCmd } = await import('../src/commands/updatesets.js');
     assert.strictEqual(typeof updateSetsCmd, 'function');
   });
 
   it('should define all subcommands', async () => {
-    const { updateSetsCmd } = await import('../src/commands/dev/updatesets.js');
+    const { updateSetsCmd } = await import('../src/commands/updatesets.js');
     const wrap = (fn) => fn;
     const cmd = updateSetsCmd(wrap);
     const subcommands = [];
@@ -29,7 +29,7 @@ describe('UpdateSets Command Structure', () => {
 
 describe('formatUpdateSetDetail', () => {
   it('renders header fields plus children filenames newest-first', async () => {
-    const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
+    const { formatUpdateSetDetail } = await import('../src/commands/updatesets.js');
 
     const calls = [];
     const app = {
@@ -75,7 +75,7 @@ describe('formatUpdateSetDetail', () => {
   });
 
   it('closed sets get a cannot-set hint and no complete hint', async () => {
-    const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
+    const { formatUpdateSetDetail } = await import('../src/commands/updatesets.js');
     const app = {
       getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
@@ -90,7 +90,7 @@ describe('formatUpdateSetDetail', () => {
   });
 
   it('classes children by type (name fallback) and flags risky items', async () => {
-    const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
+    const { formatUpdateSetDetail } = await import('../src/commands/updatesets.js');
     const H = (x) => x.repeat(32);
     const app = {
       getEffectiveInstance: () => 'https://dev.service-now.com',
@@ -120,7 +120,7 @@ describe('formatUpdateSetDetail', () => {
   });
 
   it('shows Updates: 0 when a set has no children', async () => {
-    const { formatUpdateSetDetail } = await import('../src/commands/dev/updatesets.js');
+    const { formatUpdateSetDetail } = await import('../src/commands/updatesets.js');
     const app = {
       getEffectiveInstance: () => 'https://dev.service-now.com',
       sdk: {
@@ -139,7 +139,7 @@ describe('formatUpdateSetDetail', () => {
 
 describe('formatUpdateSetLabel', () => {
   it('shows app/system scope names together', async () => {
-    const { formatUpdateSetLabel } = await import('../src/commands/dev/updatesets.js');
+    const { formatUpdateSetLabel } = await import('../src/commands/updatesets.js');
     const label = formatUpdateSetLabel({
       name: 'Default',
       state: 'In progress',
@@ -150,7 +150,7 @@ describe('formatUpdateSetLabel', () => {
   });
 
   it('falls back to display name when scope is unavailable', async () => {
-    const { formatUpdateSetLabel } = await import('../src/commands/dev/updatesets.js');
+    const { formatUpdateSetLabel } = await import('../src/commands/updatesets.js');
     const label = formatUpdateSetLabel({
       name: 'Global Set',
       state: 'Complete',
@@ -164,7 +164,7 @@ describe('formatUpdateSetLabel', () => {
 
 describe('scopeMismatchWarning', () => {
   it('returns empty when the update set is in the current app (same sys_id)', async () => {
-    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const { scopeMismatchWarning } = await import('../src/commands/updatesets.js');
     const warn = scopeMismatchWarning(
       { display_value: 'test', value: '0fbc46c58335c314f7bfc670ceaad3dc' },
       { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' },
@@ -173,7 +173,7 @@ describe('scopeMismatchWarning', () => {
   });
 
   it('warns when the update set is in a different app', async () => {
-    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const { scopeMismatchWarning } = await import('../src/commands/updatesets.js');
     const warn = scopeMismatchWarning(
       { display_value: 'Global', value: 'abc123' },
       { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' },
@@ -183,13 +183,13 @@ describe('scopeMismatchWarning', () => {
   });
 
   it('handles a plain-string application field (non-display-value path)', async () => {
-    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const { scopeMismatchWarning } = await import('../src/commands/updatesets.js');
     const warn = scopeMismatchWarning('global', { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' });
     assert.ok(warn.includes('in app "global"'));
   });
 
   it('returns empty when either side is missing', async () => {
-    const { scopeMismatchWarning } = await import('../src/commands/dev/updatesets.js');
+    const { scopeMismatchWarning } = await import('../src/commands/updatesets.js');
     assert.strictEqual(scopeMismatchWarning(null, { scope: 'x_8821_test', appSysId: 'x' }), '');
     assert.strictEqual(scopeMismatchWarning({ display_value: 'test', value: 'x' }, null), '');
     assert.strictEqual(scopeMismatchWarning({ display_value: 'test' }, { scope: 'x_8821_test', appSysId: '' }), '');
@@ -224,7 +224,7 @@ describe('resolveUpdateSetByName', () => {
   });
 
   it('prefers the set in the current scope when names collide', async () => {
-    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const { resolveUpdateSetByName } = await import('../src/commands/updatesets.js');
     const app = buildApp([
       { sys_id: 'global-default', name: 'Default', application: { display_value: 'Global', value: 'global' }, state: 'in progress' },
       { sys_id: 'test-default', name: 'Default', application: { display_value: 'test', value: CURRENT_APP_ID }, state: 'in progress' },
@@ -235,7 +235,7 @@ describe('resolveUpdateSetByName', () => {
   });
 
   it('returns the only match when the name is unique', async () => {
-    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const { resolveUpdateSetByName } = await import('../src/commands/updatesets.js');
     const app = buildApp([
       { sys_id: 'only-one', name: 'AI in a Box 3.1.6', application: { display_value: 'Global', value: 'global' }, state: 'complete' },
     ]);
@@ -244,7 +244,7 @@ describe('resolveUpdateSetByName', () => {
   });
 
   it('throws when the name is not found', async () => {
-    const { resolveUpdateSetByName } = await import('../src/commands/dev/updatesets.js');
+    const { resolveUpdateSetByName } = await import('../src/commands/updatesets.js');
     const app = buildApp([]);
     await assert.rejects(() => resolveUpdateSetByName(app, 'Nope'), /not found/);
   });
@@ -262,7 +262,7 @@ describe('updatesets export', () => {
   // Pull the export subcommand object out of the yargs chain so its handler
   // can be invoked directly with a mocked app.
   async function findExportCmd() {
-    const { updateSetsCmd } = await import('../src/commands/dev/updatesets.js');
+    const { updateSetsCmd } = await import('../src/commands/updatesets.js');
     const cmd = updateSetsCmd((fn) => fn);
     let found = null;
     const mockYargs = {

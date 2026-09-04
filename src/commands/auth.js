@@ -326,7 +326,7 @@ export async function loginWizard(app, argv = {}) {
       // Probe domain separation capability once and stamp the profile, so
       // `jsn domains` (and its help entry) only appear on instances with it.
       try {
-        const domainsMod = await import('./dev/domains.js');
+        const domainsMod = await import('./domains.js');
         const sdk = app.getSDKForProfile
           ? app.getSDKForProfile(instance, {
             profile,
@@ -436,14 +436,14 @@ export async function modifyProfile(app, argv = {}) {
       app.ok({ profile: name, domain: '' }, { summary: `Domain cleared for ${name}` });
       return;
     }
-    const { isDomainSeparationInstalled } = await import('./dev/domains.js');
+    const { isDomainSeparationInstalled } = await import('./domains.js');
     const sdk = app.getSDKForProfile
       ? app.getSDKForProfile(profile.instance_url, { profile, authMethod: profile.auth_method, username: profile.username })
       : app.sdk;
     if (!(await isDomainSeparationInstalled({ sdk }))) {
       throw new Error(`Domain separation is not installed on ${profile.instance_url}`);
     }
-    const { resolveDomainSysId } = await import('./dev/domains.js');
+    const { resolveDomainSysId } = await import('./domains.js');
     const sysID = await resolveDomainSysId({ sdk }, argv.domain);
     profile.domain = sysID;
     await saveConfig(app.config);
@@ -472,7 +472,7 @@ export async function modifyProfile(app, argv = {}) {
       choices,
     });
     if (flag === 'domain') {
-      const domainsMod = await import('./dev/domains.js');
+      const domainsMod = await import('./domains.js');
       const installed = await domainsMod.isDomainSeparationInstalled({ sdk });
       if (!installed) {
         throw new Error(`Domain separation is not installed on ${profile.instance_url}`);
@@ -948,7 +948,7 @@ Examples:
             // Re-probe domain separation on refresh so the capability flag
             // stays in sync if the plugin was installed/removed since setup.
             try {
-              const { isDomainSeparationInstalled } = await import('./dev/domains.js');
+              const { isDomainSeparationInstalled } = await import('./domains.js');
               const sdk = app.getSDKForProfile
                 ? app.getSDKForProfile(instanceURL, {
                   ...targetAuthOptions,

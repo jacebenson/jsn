@@ -34,12 +34,11 @@ import { transactionsCmd } from './commands/transactions.js';
 import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
-import { devCmd } from './commands/dev.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest } from './commands/version.js';
 import { docsCmd } from './commands/docs/docs.js';
 
-// Dev subcommands promoted to root level for progressive disclosure
+// Table and platform commands registered at root level for progressive disclosure
 import {
   actionsCmd, includesCmd, rulesCmd,
   clientScriptsCmd, uiActionsCmd,
@@ -55,19 +54,19 @@ import {
   emailCmd,
   restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
-} from './commands/dev/_simple.js';
+} from './commands/_simple.js';
 import { decisiontablesCmd } from './commands/decisiontables.js';
-import { flowsCmd } from './commands/dev/flows.js';
-import { formsCmd } from './commands/dev/forms.js';
-import { listsCmd } from './commands/dev/lists.js';
-import { updateSetsCmd } from './commands/dev/updatesets.js';
-import { scopesCmd } from './commands/dev/scopes.js';
-import { domainsCmd } from './commands/dev/domains.js';
-import { evalCmd } from './commands/dev/eval.js';
-import { restCmd } from './commands/dev/rest.js';
-import { logsCmd } from './commands/dev/logs.js';
-import { scrapiCmd } from './commands/dev/scrapi.js';
-import { b4rulesCmd } from './commands/dev/b4rules.js';
+import { flowsCmd } from './commands/flows.js';
+import { formsCmd } from './commands/forms.js';
+import { listsCmd } from './commands/lists.js';
+import { updateSetsCmd } from './commands/updatesets.js';
+import { scopesCmd } from './commands/scopes.js';
+import { domainsCmd } from './commands/domains.js';
+import { evalCmd } from './commands/eval.js';
+import { restCmd } from './commands/rest.js';
+import { logsCmd } from './commands/logs.js';
+import { scrapiCmd } from './commands/scrapi.js';
+import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { perfCmd } from './commands/perf.js';
@@ -378,8 +377,6 @@ export function buildCLI() {
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
-    // Legacy
-    .command(devCmd(wrap))
     .demandCommand(1, 'You must specify a command')
     // Completion plumbing under a hidden command name, so the explicit
     // 'completion' command below owns the UX. (#176)

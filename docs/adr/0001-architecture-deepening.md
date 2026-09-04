@@ -39,7 +39,7 @@ Deepen, don't layer. Each fix moves a fact to the module that actually owns it,
 behind a small interface:
 
 - **Capability registry** (`src/capabilities.js`) — Commands declare
-  `mutationSubcommands` / `noInstance` / `skipDailyChecks` / `devAlias` once at
+  `mutationSubcommands` / `noInstance` / `skipDailyChecks` once at
   the definition site; factories emit declarations from flags they already take
   (`readOnly`). Middleware **derives** skip-lists and mutation paths from the
   registry. `mutations.js` keeps `isMutationCommand(argv)` as the public face;

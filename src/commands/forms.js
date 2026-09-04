@@ -1,4 +1,4 @@
-import { getStringField, interactiveList } from '../../helpers.js';
+import { getStringField, interactiveList } from '../helpers.js';
 
 function getDisplayValue(record, key) {
   if (!record || typeof record !== 'object') return '';
