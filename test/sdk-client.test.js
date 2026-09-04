@@ -102,6 +102,68 @@ describe('SDKClient', () => {
     assert.strictEqual(output, '<test> & "quoted"');
   });
 
+  it('uploads attachments through authenticated eval with safe encoded arguments', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+    });
+    let executedScript;
+    client.executeScript = async (script) => {
+      executedScript = script;
+      return '*** Script: {"sys_id":"attachment-123"}';
+    };
+    client.request = async () => assert.fail('attachment upload must not POST to the attachment REST route');
+
+    const table = 'incident";gs.info("injected")//';
+    const sysID = 'record\\\\"\\\\n';
+    const fileName = 'report";gs.info("injected")\\n.txt';
+    const content = Buffer.from([0, 255, 1, 2, 128]);
+    const created = await client.addAttachment(table, sysID, content, fileName);
+
+    assert.deepStrictEqual(created, { sys_id: 'attachment-123' });
+    assert.match(executedScript, /new GlideRecord\(/);
+    assert.match(executedScript, /record\.get\(/);
+    assert.match(executedScript, /writeBase64\(record,/);
+    assert.match(executedScript, /typeof attachment\.writeBase64/);
+    assert.match(executedScript, /new Attachment\(\)\.write/);
+    assert.match(executedScript, /application\/octet-stream/);
+    assert.ok(executedScript.includes(JSON.stringify(table)));
+    assert.ok(executedScript.includes(JSON.stringify(sysID)));
+    assert.ok(executedScript.includes(JSON.stringify(fileName)));
+    assert.ok(executedScript.includes(Buffer.from(content).toString('base64')));
+    assert.ok(!executedScript.includes('FormData'));
+    assert.ok(!executedScript.includes('multipart'));
+    assert.ok(!executedScript.includes('/api/now/attachment'));
+  });
+
+  it('rejects an attachment upload without a returned sys_id', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+    });
+    client.executeScript = async () => '*** Script: Attachment was not created';
+
+    await assert.rejects(
+      () => client.addAttachment('incident', 'record-1', Buffer.from('hello'), 'hello.txt'),
+      /returned no attachment sys_id/,
+    );
+  });
+
+  it('rejects known server-side script failures instead of returning output', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+    });
+    client._warmSession = async () => '';
+    client._getScriptsPageCSRF = async () => 'csrf-token';
+    client.rawRequest = async () => '<PRE>*** Script: undefined is not a function.</PRE>';
+
+    await assert.rejects(
+      () => client.executeScript('gs.print("test")', ''),
+      /Background script failed: \*\*\* Script: undefined is not a function\./,
+    );
+  });
+
   it('has core CRUD methods', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const coreMethods = ['list', 'get', 'create', 'update', 'delete', 'request', 'rawRequest', 'aggregateCount', 'executeScript', 'exportUpdateSet'];

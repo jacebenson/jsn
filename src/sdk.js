@@ -237,12 +237,30 @@ export class SDKClient {
    * @returns {Promise<object>} created attachment row
    */
   async addAttachment(table, sysID, content, fileName) {
-    const form = new FormData();
-    const blob = Buffer.isBuffer(content) ? new Blob([content]) : new Blob([String(content)]);
-    form.append('file', blob, fileName);
-    const endpoint = `${this.baseURL}/api/now/attachment?table_name=${encodeURIComponent(table)}&table_sys_id=${encodeURIComponent(sysID)}`;
-    const result = await this.request(endpoint, { method: 'POST', body: form });
-    return result?.result || null;
+    const contentBuffer = Buffer.isBuffer(content) ? content : Buffer.from(String(content));
+    const script = [
+      '(function() {',
+      `  var record = new GlideRecord(${scriptString(table)});`,
+      `  if (!record.get(${scriptString(sysID)})) throw new Error('Record not found');`,
+      '  var attachment = new GlideSysAttachment();',
+      `  var fileName = ${scriptString(fileName)};`,
+      `  var content = ${scriptString(contentBuffer.toString('base64'))};`,
+      '  var sysId;',
+      "  if (typeof attachment.writeBase64 === 'function') {",
+      "    sysId = attachment.writeBase64(record, fileName, 'application/octet-stream', content);",
+      '  } else {',
+      "    sysId = new Attachment().write(record.getTableName(), record.getUniqueValue(), fileName, 'application/octet-stream', GlideStringUtil.base64DecodeAsBytes(content));",
+      '  }',
+      "  if (!sysId) throw new Error('Attachment was not created');",
+      "  gs.print('JSN_ATTACHMENT_RESULT:' + JSON.stringify({ sys_id: sysId }));",
+      '}());',
+    ].join('\n');
+    const output = await this.executeScript(script, '');
+    const result = parseAttachmentResult(output);
+    if (!result?.sys_id) {
+      throw new Error('Attachment upload returned no attachment sys_id');
+    }
+    return result;
   }
 
   async getCurrentUser({ touchLastSeen = true } = {}) {
@@ -676,7 +694,10 @@ export class SDKClient {
       body: formBody.toString(),
     });
 
-    return this._extractScriptOutput(html);
+    const output = this._extractScriptOutput(html);
+    const scriptError = detectScriptError(output);
+    if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
+    return output;
   }
 
   /**
@@ -827,6 +848,33 @@ export class SDKClient {
     const lines = out.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     return lines.join('\n');
   }
+}
+
+function scriptString(value) {
+  return JSON.stringify(String(value)).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+
+function parseAttachmentResult(output) {
+  if (!output) return null;
+  const lines = String(output).split(/\r?\n/).reverse();
+  for (const line of lines) {
+    const candidate = line.replace(/^\*\*\* Script:\s*/, '').trim();
+    const markerCandidate = candidate.replace(/^JSN_ATTACHMENT_RESULT:\s*/, '');
+    if (!markerCandidate.startsWith('{')) continue;
+    try {
+      const result = JSON.parse(markerCandidate);
+      if (result && typeof result === 'object') return result;
+    } catch {
+      // Ignore unrelated script output and keep looking for the result marker.
+    }
+  }
+  return null;
+}
+
+function detectScriptError(output) {
+  const lines = String(output || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const errorLine = lines.find(line => /(?:ReferenceError|TypeError|RhinoEcmaError|Script execution error|undefined is not a function|is not defined)/i.test(line));
+  return errorLine || '';
 }
 
 function getBoolField(record, field) {
