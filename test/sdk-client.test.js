@@ -30,6 +30,69 @@ describe('SDKClient', () => {
     assert.strictEqual(client.timeout, 60000);
   });
 
+  it('replaces rotated OAuth cookies instead of sending duplicate cookie names', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const responses = [
+      ['JSESSIONID=old; Path=/'],
+      ['JSESSIONID=new; Path=/'],
+      ['glide_user=abc; Path=/'],
+    ];
+    const calls = [];
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (request) => {
+      calls.push({ url: request.url, cookie: request.headers.get('cookie') });
+      return {
+        ok: true,
+        headers: { getSetCookie: () => responses.shift() },
+        text: async () => '{"result":[]}',
+      };
+    };
+    try {
+      const client = new SDKClient('https://test.service-now.com', {
+        getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+      });
+      const cookies = await client._warmSession();
+      assert.strictEqual(cookies, 'JSESSIONID=new; glide_user=abc');
+      assert.strictEqual(calls[1].cookie, 'JSESSIONID=old');
+      assert.strictEqual(calls[2].cookie, 'JSESSIONID=new');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  it('keeps cookies rotated during Basic session bootstrap', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const responses = [
+      ['JSESSIONID=old; Path=/'],
+      ['JSESSIONID=rotated; Path=/'],
+    ];
+    const calls = [];
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (request) => {
+      calls.push({ url: request.url, cookie: request.headers.get('cookie') });
+      const setCookie = responses.shift();
+      return {
+        ok: true,
+        headers: {
+          getSetCookie: () => setCookie,
+          get: (name) => name === 'x-usertoken-response' ? 'user-token' : null,
+        },
+        text: async () => '{"result":[]}',
+      };
+    };
+    try {
+      const client = new SDKClient('https://test.service-now.com', {
+        getCredentials: async () => ({ auth_method: 'basic', username: 'admin', password: 'secret' }),
+      });
+      const cookies = await client._warmSession();
+      assert.strictEqual(cookies, 'JSESSIONID=rotated');
+      assert.strictEqual(calls[1].cookie, 'JSESSIONID=old');
+      assert.strictEqual(client.sessionUserToken, 'user-token');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   it('uses persisted Basic Auth credentials for requests', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const auth = {

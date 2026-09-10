@@ -6,6 +6,24 @@ import { getStringField } from './helpers.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
+function collectSetCookies(cookieJar, response) {
+  const values = response.headers.getSetCookie?.() || [];
+  const raw = Array.isArray(values) && values.length
+    ? values
+    : [response.headers.get('set-cookie')].filter(Boolean);
+  for (const value of raw) {
+    const pair = value.split(';', 1)[0].trim();
+    const separator = pair.indexOf('=');
+    if (separator > 0) {
+      cookieJar.set(pair.slice(0, separator), pair.slice(separator + 1));
+    }
+  }
+}
+
+function serializeCookies(cookieJar) {
+  return [...cookieJar].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
 // Build the sys.scripts.do POST body for background script execution.
 // Extracted for testability (issue #177): maps script-mode options to the
 // form fields on ServiceNow's Script Background form. Defaults preserve the
@@ -798,28 +816,24 @@ export class SDKClient {
     try {
       const creds = await this.authProvider.getCredentials();
       if (creds.auth_method === 'oauth') {
-        let cookies = '';
-        const collectCookies = (resp) => {
-          const values = resp.headers.getSetCookie?.() || [];
-          const raw = Array.isArray(values) ? values : [resp.headers.get('set-cookie')].filter(Boolean);
-          const next = raw.map(value => value.split(';', 1)[0]).filter(Boolean);
-          if (next.length) cookies = [...new Set(`${cookies}; ${next.join('; ')}`.split(';').map(v => v.trim()).filter(Boolean))].join('; ');
-        };
+        const cookieJar = new Map();
         const login = `${this.baseURL}/angular.do?sysparm_type=get_user`;
-        collectCookies(await fetch(new Request(login, { method: 'POST' })));
+        collectSetCookies(cookieJar, await fetch(new Request(login, { method: 'POST' })));
         const scopeEndpoint = `${this.baseURL}/api/now/table/sys_scope?sysparm_fields=sys_id%2Csys_class_name&sysparm_limit=1`;
-        collectCookies(await this._fetchWithAuth(scopeEndpoint, {
+        collectSetCookies(cookieJar, await this._fetchWithAuth(scopeEndpoint, {
           method: 'GET',
-          headers: cookies ? { Cookie: cookies } : {},
+          headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
-        collectCookies(await this._fetchWithAuth(login, {
+        collectSetCookies(cookieJar, await this._fetchWithAuth(login, {
           method: 'POST',
-          headers: cookies ? { Cookie: cookies } : {},
+          headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
+        const cookies = serializeCookies(cookieJar);
         this.oauthCookies = cookies;
         return cookies;
       }
       const endpoint = `${this.baseURL}/angular.do`;
+      const cookieJar = new Map();
       const loginResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=view_form.login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -830,14 +844,14 @@ export class SDKClient {
           user_password: creds.password,
         }).toString(),
       });
-      const values = loginResp.headers.getSetCookie?.() || [];
-      const raw = Array.isArray(values) ? values : [loginResp.headers.get('set-cookie')].filter(Boolean);
-      const cookies = raw.map(value => value.split(';', 1)[0]).filter(Boolean).join('; ');
+      collectSetCookies(cookieJar, loginResp);
       const refreshResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=get_user`, {
         method: 'POST',
-        headers: cookies ? { Cookie: cookies } : {},
+        headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
       });
+      collectSetCookies(cookieJar, refreshResp);
       this.sessionUserToken = refreshResp.headers.get('x-usertoken-response') || '';
+      const cookies = serializeCookies(cookieJar);
       this.oauthCookies = cookies;
       return cookies;
     } catch {
