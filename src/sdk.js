@@ -29,9 +29,11 @@ export class SDKClient {
     this.authProvider = authProvider;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
+    this.oauthCookies = null;
+    this.sessionUserToken = '';
   }
 
-  async _setAuth(req) {
+  async _setAuth(req, { skipOAuthSession = false } = {}) {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
@@ -41,10 +43,22 @@ export class SDKClient {
     }
     switch (creds.auth_method) {
       case 'basic':
+        if (!skipOAuthSession) {
+          const cookies = await this._warmSession();
+          if (cookies) {
+            req.headers.set('Cookie', cookies);
+            if (this.sessionUserToken) req.headers.set('X-UserToken', this.sessionUserToken);
+            break;
+          }
+        }
         req.headers.set('Authorization', 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`).toString('base64'));
         break;
       case 'token':
       case 'oauth':
+        if (!skipOAuthSession) {
+          const cookies = await this._warmSession();
+          if (cookies) req.headers.set('Cookie', cookies);
+        }
         req.headers.set('Authorization', `Bearer ${creds.access_token}`);
         break;
       case 'gck':
@@ -113,7 +127,7 @@ export class SDKClient {
     const timer = setTimeout(() => controller.abort(), this.timeout);
     try {
       const req = new Request(endpoint, { ...opts, signal: controller.signal });
-      await this._setAuth(req);
+      await this._setAuth(req, { skipOAuthSession: true });
       return await fetch(req);
     } finally {
       clearTimeout(timer);
@@ -780,15 +794,52 @@ export class SDKClient {
   }
 
   async _warmSession() {
+    if (this.oauthCookies) return this.oauthCookies;
     try {
-      const endpoint = `${this.baseURL}/api/now/table/sys_user?sysparm_limit=1`;
-      const resp = await this._fetchWithAuth(endpoint, { method: 'GET', headers: { Accept: 'application/json' } });
-      // Extract cookies for subsequent UI page requests
-      const setCookie = resp.headers.getSetCookie?.() || resp.headers.get('set-cookie');
-      if (setCookie) {
-        return Array.isArray(setCookie) ? setCookie.join('; ') : setCookie;
+      const creds = await this.authProvider.getCredentials();
+      if (creds.auth_method === 'oauth') {
+        let cookies = '';
+        const collectCookies = (resp) => {
+          const values = resp.headers.getSetCookie?.() || [];
+          const raw = Array.isArray(values) ? values : [resp.headers.get('set-cookie')].filter(Boolean);
+          const next = raw.map(value => value.split(';', 1)[0]).filter(Boolean);
+          if (next.length) cookies = [...new Set(`${cookies}; ${next.join('; ')}`.split(';').map(v => v.trim()).filter(Boolean))].join('; ');
+        };
+        const login = `${this.baseURL}/angular.do?sysparm_type=get_user`;
+        collectCookies(await fetch(new Request(login, { method: 'POST' })));
+        const scopeEndpoint = `${this.baseURL}/api/now/table/sys_scope?sysparm_fields=sys_id%2Csys_class_name&sysparm_limit=1`;
+        collectCookies(await this._fetchWithAuth(scopeEndpoint, {
+          method: 'GET',
+          headers: cookies ? { Cookie: cookies } : {},
+        }));
+        collectCookies(await this._fetchWithAuth(login, {
+          method: 'POST',
+          headers: cookies ? { Cookie: cookies } : {},
+        }));
+        this.oauthCookies = cookies;
+        return cookies;
       }
-      return '';
+      const endpoint = `${this.baseURL}/angular.do`;
+      const loginResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=view_form.login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          sysparm_type: 'login',
+          'ni.nolog.user_password': 'true',
+          user_name: creds.username,
+          user_password: creds.password,
+        }).toString(),
+      });
+      const values = loginResp.headers.getSetCookie?.() || [];
+      const raw = Array.isArray(values) ? values : [loginResp.headers.get('set-cookie')].filter(Boolean);
+      const cookies = raw.map(value => value.split(';', 1)[0]).filter(Boolean).join('; ');
+      const refreshResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=get_user`, {
+        method: 'POST',
+        headers: cookies ? { Cookie: cookies } : {},
+      });
+      this.sessionUserToken = refreshResp.headers.get('x-usertoken-response') || '';
+      this.oauthCookies = cookies;
+      return cookies;
     } catch {
       return '';
     }
