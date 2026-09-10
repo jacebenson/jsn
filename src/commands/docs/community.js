@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import TurndownService from 'turndown';
-import matter from 'gray-matter';
+import { parseFrontmatter, stringifyFrontmatter } from '../../frontmatter.js';
 import Database from 'better-sqlite3';
 import { getDocsCommunityDir, getDocsDbPath, docsDbExists } from './db.js';
 import { refreshDocs } from './refresh.js';
@@ -166,7 +166,7 @@ export function slugify(title, fallback = 'untitled') {
 }
 
 function frontmatter(body, data) {
-  return matter.stringify(body, data);
+  return stringifyFrontmatter(body, data);
 }
 
 // --- Write a community doc to disk ---
@@ -311,7 +311,7 @@ function buildUrlIndex() {
       if (entry.isDirectory()) walk(full);
       else if (entry.name.toLowerCase().endsWith('.md')) {
         try {
-          const parsed = matter(fs.readFileSync(full, 'utf8'));
+          const parsed = parseFrontmatter(fs.readFileSync(full, 'utf8'));
           if (parsed.data.canonical_url) index.set(parsed.data.canonical_url, full);
         } catch { /* ignore */ }
       }

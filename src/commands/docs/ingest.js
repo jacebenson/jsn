@@ -2,7 +2,7 @@
 
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import matter from 'gray-matter';
+import { parseFrontmatter } from '../../frontmatter.js';
 import { openDocsDb, closeDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
@@ -35,7 +35,7 @@ export function ingestDocs(opts = {}) {
       let data = {};
       let body = raw;
       try {
-        const parsed = matter(raw);
+        const parsed = parseFrontmatter(raw);
         data = parsed.data || {};
         body = parsed.content || '';
       } catch {

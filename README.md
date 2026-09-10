@@ -10,7 +10,7 @@ Works standalone or with AI agents (Claude Code, OpenCode, Hermes, Cursor, Copil
 npm install -g @jacebenson/jsn
 ```
 
-Node.js (see `engines` in package.json). macOS, Linux, Windows.
+Node.js 22.5.0 or newer. macOS, Linux, Windows.
 
 The install also copies an AI agent skill file to `~/.agents/skills/servicenow/SKILL.md`.
 
@@ -63,7 +63,7 @@ jsn rules list --query "collection=incident"
 jsn updatesets set "My Feature"
 
 # Generic table access
-jsn records list --table incident --limit 50 --json | jq '.[].number'
+jsn records list --table incident --limit 50 --json | jq '.data.records[].number'
 jsn records create --table incident --data '{"short_description":"test"}'
 jsn records list --table incident --limit 50 --get "data.records.0.number"   # no jq needed
 jsn records list --table incident --query "active=true"                       # totals included by default
@@ -145,11 +145,14 @@ jsn auth modify dev12345                          # Toggle read-only / skip conf
 
 ## Authentication
 
-OAuth 2.0 with PKCE. Credentials in `~/.config/servicenow/credentials/`.
+JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth. Credentials are stored in the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/` when the keyring is unavailable.
 
 ```bash
 jsn auth login https://dev12345.service-now.com
 ```
+
+For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
+For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
 
 For CI/CD, set environment variables:
 
@@ -164,7 +167,7 @@ jsn incidents list
 JSN stores durable local data under `~/.jsn/`. Documentation lives in
 `~/.jsn/docs/`, including `docs.db`, the ServiceNowDocs source checkout, and
 community markdown. Configuration stays under `~/.config/servicenow/` and
-credentials stay under `~/.config/servicenow/credentials/`.
+credentials use the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/`.
 
 Existing installations migrate documentation from
 `~/.cache/servicenow-cli/docs/` automatically the first time the docs data is
@@ -190,7 +193,7 @@ npm install
 npm test
 ```
 
-Releases: `npm run release -- patch` (or `minor`, `major`). Tags, pushes, and publishes to npm via GitHub Actions.
+Releases are manual. After changes land on `main`, run `npm run release -- patch` (or `minor`, `major`) to test, bump the version, and push the commit and tag. When ready, publish to npm with `npm publish --access public`. Git tags mark releases; GitHub Release entries are not required.
 
 ## License
 
