@@ -75,7 +75,11 @@ export class SDKClient {
       case 'oauth':
         if (!skipOAuthSession) {
           const cookies = await this._warmSession();
-          if (cookies) req.headers.set('Cookie', cookies);
+          if (cookies && this.sessionUserToken) {
+            req.headers.set('Cookie', cookies);
+            req.headers.set('X-UserToken', this.sessionUserToken);
+            break;
+          }
         }
         req.headers.set('Authorization', `Bearer ${creds.access_token}`);
         break;
@@ -824,10 +828,12 @@ export class SDKClient {
           method: 'GET',
           headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
-        collectSetCookies(cookieJar, await this._fetchWithAuth(login, {
+        const finalLogin = await fetch(new Request(login, {
           method: 'POST',
           headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
+        collectSetCookies(cookieJar, finalLogin);
+        this.sessionUserToken = finalLogin.headers.get('x-usertoken-response') || '';
         const cookies = serializeCookies(cookieJar);
         this.oauthCookies = cookies;
         return cookies;

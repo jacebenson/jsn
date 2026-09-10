@@ -43,7 +43,10 @@ describe('SDKClient', () => {
       calls.push({ url: request.url, cookie: request.headers.get('cookie') });
       return {
         ok: true,
-        headers: { getSetCookie: () => responses.shift() },
+        headers: {
+          getSetCookie: () => responses.shift(),
+          get: (name) => name === 'x-usertoken-response' ? 'user-token' : null,
+        },
         text: async () => '{"result":[]}',
       };
     };
