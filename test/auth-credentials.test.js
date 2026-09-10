@@ -215,10 +215,16 @@ describe('AuthManager credential store boundary', () => {
       },
       delete() {},
     } });
-    await gckAuth.loginWithGck(
-      'https://injected.example.com',
-      'curl -H "X-UserToken: token" -H "Cookie: JSESSIONID=cookie"'
-    );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ result: [{ user_name: 'admin' }] }) });
+    try {
+      await gckAuth.loginWithGck(
+        'https://injected.example.com',
+        'curl -H "X-UserToken: token" -H "Cookie: JSESSIONID=cookie"'
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
     assert.strictEqual(calls[0][0], 'save');
     assert.strictEqual(calls[0][1], 'https://injected.example.com');
   });

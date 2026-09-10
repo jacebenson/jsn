@@ -221,9 +221,15 @@ it('migrates GCK credentials to the verified username key without touching anoth
       return mockYargs;
     } };
     cmd.builder(mockYargs);
-    await subcommands.find(s => s.def.startsWith('login')).handler({
-      app, instance, headers: 'curl -H "X-UserToken: token" -H "Cookie: sid=cookie"', _: ['login'],
-    });
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ result: [{ user_name: 'alice' }] }) });
+    try {
+      await subcommands.find(s => s.def.startsWith('login')).handler({
+        app, instance, headers: 'curl -H "X-UserToken: token" -H "Cookie: sid=cookie"', _: ['login'],
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
     assert.deepStrictEqual(records.get(`${instance}\\0alice`).username, 'alice');
     assert.strictEqual(records.has(`${instance}\\0`), false);
     assert.deepStrictEqual(records.get(`${otherInstance}\\0bob`), { auth_method: 'gck', access_token: 'other-token', cookies: 'sid=other' });

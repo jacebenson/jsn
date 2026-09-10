@@ -812,8 +812,27 @@ export class AuthManager {
   async loginWithGck(instanceURL, input, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const creds = parseBrowserSessionInput(input);
-    this.saveCredentials(instanceURL, { ...creds, username: username || undefined }, username || undefined);
-    return { ...creds, username: username || undefined };
+    let response;
+    try {
+      response = await fetch(`${instanceURL}/api/now/table/sys_user?sysparm_limit=1`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'X-UserToken': creds.access_token,
+          Cookie: creds.cookies,
+        },
+      });
+    } catch (error) {
+      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck (${error.message})`);
+    }
+    if (!response.ok) {
+      throw errAuth(`Browser session rejected by ${instanceURL} (HTTP ${response.status}). Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck`);
+    }
+    const body = await response.json();
+    const user = body?.result?.[0];
+    const verifiedUsername = typeof user?.user_name === 'string' ? user.user_name : username;
+    this.saveCredentials(instanceURL, { ...creds, username: verifiedUsername || undefined }, verifiedUsername || undefined);
+    return { ...creds, username: verifiedUsername || undefined };
   }
 
   async loginWithCode(instanceURL, code, username = this._activeUsername()) {
