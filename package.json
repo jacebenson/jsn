@@ -31,14 +31,11 @@
     "@inquirer/core": "^10.1.0",
     "@inquirer/prompts": "^7.5.1",
     "better-sqlite3": "^13.0.3",
-    "gray-matter": "^4.0.3",
-    "turndown": "^7.2.4",
-    "yargs": "^17.7.2"
+    "js-yaml": "^4.1.1",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
-    "@11ty/eleventy": "^3.1.6",
     "@eslint/js": "^10.0.1",
-    "@inquirer/search": "^4.2.1",
     "globals": "^17.6.0"
   },
   "files": [

@@ -1,7 +1,6 @@
-// Root CLI using yargs
+// Root CLI using the local yargs-compatible adapter
 
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
+import yargs, { hideBin } from './cli-adapter.js';
 import process from 'node:process';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -387,14 +386,13 @@ export function buildCLI() {
     // 2. When the current word is an exact ALIAS (e.g. "inc" for incidents),
     //    yargs descends into that command's subcommands, so a still-being-
     //    typed "jsn inc<TAB>" offers subcommands that can't match the prefix.
-    //    When completing the FIRST word (depth 1, the command slot), merge
-    //    in the root command list — the shell's compgen prefix-filters the
-    //    final list anyway.
+    //    When completing the FIRST word, merge in the root command list — the
+    //    shell's compgen prefix-filters the final list anyway.
     .completion('__completion', false, (current, argv, completionFilter, done) => {
       completionFilter((err, completions) => {
         let out = completions || [];
         const depth = (argv._ || []).length;
-        if (current && !current.startsWith('-') && depth <= 2) {
+        if (current && !current.startsWith('-') && depth === 0) {
           out = [...new Set([...out, ...rootCommands])];
         }
         done([...new Set(out)]);

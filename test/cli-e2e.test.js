@@ -60,6 +60,40 @@ after(async () => {
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+describe('CLI adapter production probes', () => {
+  it('parses boolean equals syntax in the real binary', () => {
+    const result = spawnSync(process.execPath, [CLI, 'version', '--json=false'], {
+      encoding: 'utf-8',
+      cwd: path.resolve('.'),
+      env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /jsn /);
+    assert.doesNotMatch(result.stdout, /ERR_INVALID_ARG_TYPE/);
+  });
+
+  it('parses repeated catalog item variables before reaching instance handling', () => {
+    const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-cli-probe-'));
+    try {
+      const result = spawnSync(process.execPath, [CLI, 'catalogitems', 'create', '--name', 'Probe', '--variable', 'model:string:Model', '-v', 'serial:string:Serial'], {
+        encoding: 'utf-8',
+        cwd: path.resolve('.'),
+        env: {
+          ...process.env,
+          XDG_CONFIG_HOME: configHome,
+          SERVICENOW_INSTANCE_URL: '',
+          JSN_NO_VERSION_CHECK: '1',
+          JSN_NO_SKILL_CHECK: '1',
+        },
+      });
+      assert.doesNotMatch(result.stdout + result.stderr, /ERR_INVALID_ARG_TYPE/);
+      assert.match(result.stdout + result.stderr, /instance|auth|profile/i);
+    } finally {
+      fs.rmSync(configHome, { recursive: true, force: true });
+    }
+  });
+});
+
 // ─── Helpers ───
 
 /**

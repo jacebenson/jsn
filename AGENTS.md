@@ -13,11 +13,14 @@ Runtime deps — keep this list short, every addition needs a reason:
 
 | Package | Why it's here |
 |---------|---------------|
-| `yargs` | CLI framework — commands, options, help, shell completion |
+| `src/cli-adapter.js` | Local yargs-compatible command API backed by Node's `node:util` argument parser |
 | `@inquirer/prompts` + `@inquirer/core` | Interactive pickers (TTY list views, setup wizard) |
 | `better-sqlite3` | `jsn docs` search index — native module, needs build tools on git installs (node:sqlite lacks FTS5 on some platforms) |
-| `gray-matter` | Frontmatter parsing for docs markdown |
+| `js-yaml` | YAML frontmatter parsing and serialization for docs markdown |
 | `turndown` | HTML → markdown for docs ingestion |
+
+The docs site is a separate npm project in `docs/`; its Eleventy dependency
+belongs in `docs/package.json`, not this project.
 
 Tests: `node:test` runner + eslint.
 
@@ -45,7 +48,7 @@ Tests: `node:test` runner + eslint.
 
 ## Adding a command
 
-1. Create `src/commands/<name>.js` exporting `export const <name>Cmd = (wrap) => ({...yargs command module})`.
+1. Create `src/commands/<name>.js` exporting `export const <name>Cmd = (wrap) => ({...CLI adapter command module})`.
 2. Register in `src/cli.js` with `.command(<name>Cmd(wrap))` — keep the
    section grouping. Aliases go on the command module.
 3. All handlers must go through `wrap(handler)` — it injects `app` and
@@ -61,9 +64,9 @@ Tests: `node:test` runner + eslint.
   the skip-lists and the mutation guard from it — never add a command name to
   a hand-written string list. Factories (`buildDevCmd`, `buildTicketCommands`)
   declare automatically from flags like `readOnly`.
-- **strictCommands() is on.** This breaks yargs' default shell-completion
-  handler — see the custom filter in `cli.js` and the comment there before
-  touching `.completion()`.
+- **Strict command handling is on.** The local CLI adapter owns command
+  parsing and completion — see the custom filter in `cli.js` and the comment
+  there before touching `.completion()`.
 - **Mutations are guarded.** `src/mutations.js` (`isMutationCommand`) drives
   the require-instance + read-only-profile + confirmation flow, with its path
   list derived from the capability registry. Declare a mutation via

@@ -330,7 +330,7 @@ export function skillCmd(wrap) {
                 ? `Where should the jsn skill be installed? (${outdated.length} outdated)`
                 : 'Where should the jsn skill be installed?';
 
-              const { default: checkbox } = await import('@inquirer/checkbox');
+              const { checkbox } = await import('@inquirer/prompts');
               const choices = Object.entries(TARGET_NAMES).map(([key, label]) => {
                 const dir = AGENT_SKILL_DIRS[key];
                 const targetPath = key === 'cursor'
