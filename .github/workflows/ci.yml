@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate package metadata
+        run: node -e "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')); console.log('package.json is valid JSON')"
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -28,3 +31,6 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Run lint
+        run: npm run lint
