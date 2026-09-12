@@ -16,11 +16,11 @@
     "screens": [
       {
         "cmd": "jsn setup",
-        "text": "# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\nPROFILE   USER      [SCOPE]           UPDATE SET\ndev227772 System... [x_8821_test]     Default\n\n? What would you like to do?\n❯ Add a new instance\n  Switch to a different instance\n  Remove an instance\n  Modify an instance\n\n↑↓ navigate • ⏎ select"
+        "text": "# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\nPROFILE   USER      [SCOPE]           UPDATE SET\ndev227772 System... [x_8821_test]     Default\n\n? What would you like to do?\n\u276f Add a new instance\n  Switch to a different instance\n  Remove an instance\n  Modify an instance\n\n\u2191\u2193 navigate \u2022 \u23ce select"
       },
       {
         "cmd": "jsn setup",
-        "text": "✔ What would you like to do? Add a new instance\nWelcome to JSN - ServiceNow CLI\n\nServiceNow instance URL (e.g., dev12345.service-now.com): "
+        "text": "\u2714 What would you like to do? Add a new instance\nWelcome to JSN - ServiceNow CLI\n\nServiceNow instance URL (e.g., dev12345.service-now.com): "
       },
       {
         "cmd": "jsn setup",
@@ -28,7 +28,7 @@
       },
       {
         "cmd": "jsn setup",
-        "text": "Authentication method (OAuth/Basic) [OAuth]: \n\nOAuth is recommended — token-based, auto-refreshed.\nBasic sends username/password on every request."
+        "text": "Authentication method (OAuth/Basic) [OAuth]: \n\nOAuth is recommended \u2014 token-based, auto-refreshed.\nBasic sends username/password on every request."
       },
       {
         "cmd": "jsn setup",
@@ -36,22 +36,22 @@
       },
       {
         "cmd": "jsn setup",
-        "text": "✔ Read-only profile (blocks mutation commands)? No\n? Skip confirmations (deletes run without prompting)? (y/N)"
+        "text": "\u2714 Read-only profile (blocks mutation commands)? No\n? Skip confirmations (deletes run without prompting)? (y/N)"
       },
       {
         "cmd": "jsn setup",
-        "text": "✔ Skip confirmations (deletes run without prompting)? No\n? Include result totals on list commands? (Y/n)"
+        "text": "\u2714 Skip confirmations (deletes run without prompting)? No\n? Include result totals on list commands? (Y/n)"
       },
       {
         "cmd": "jsn setup",
-        "text": "✔ Include result totals on list commands? Yes\n\nLogin now? [Y/n]: "
+        "text": "\u2714 Include result totals on list commands? Yes\n\nLogin now? [Y/n]: "
       }
     ]
   },
   {
     "id": "skill",
     "title": "Agent skill installer",
-    "tagline": "One command drops the full playbook into any AI agent — no MCP server to stand up.",
+    "tagline": "One command drops the full playbook into any AI agent \u2014 no MCP server to stand up.",
     "commands": [
       {
         "cmd": "jsn skill install",
@@ -63,7 +63,7 @@
   {
     "id": "docs-cli",
     "title": "The docs, from the terminal",
-    "tagline": "49,180 ServiceNow docs searchable in the CLI — for you and for your agents.",
+    "tagline": "49,180 ServiceNow docs searchable in the CLI \u2014 for you and for your agents.",
     "commands": [
       {
         "cmd": "jsn docs sync",
@@ -81,22 +81,22 @@
     "screens": [
       {
         "cmd": "jsn docs sync",
-        "text": "Updating existing clone at /home/jace/.cache/servicenow-cli/docs/source ...\nAlready up to date.\nDocs DB found — running incremental refresh...\nDocs sync complete"
+        "text": "Updating existing clone at /home/jace/.cache/servicenow-cli/docs/source ...\nAlready up to date.\nDocs DB found \u2014 running incremental refresh...\nDocs sync complete"
       },
       {
         "cmd": "jsn docs search \"bill mcdermott\"",
-        "text": "[2635] Design considerations for prompting\n  … Update caller to [Bill] [McDermott], impact and urgency categories to \"2- Medium …\n\n[49002] Administration: Security &amp; Data Privacy || Knowledge &amp; Troubleshooting Resources\n  … on what they do best.\"_ **[Bill] [McDermott]** Chief Executive Officer, ServiceNow ServiceNow …"
+        "text": "[2635] Design considerations for prompting\n  \u2026 Update caller to [Bill] [McDermott], impact and urgency categories to \"2- Medium \u2026\n\n[49002] Administration: Security &amp; Data Privacy || Knowledge &amp; Troubleshooting Resources\n  \u2026 on what they do best.\"_ **[Bill] [McDermott]** Chief Executive Officer, ServiceNow ServiceNow \u2026"
       },
       {
         "cmd": "jsn docs show 2635",
-        "text": "Design considerations for prompting\n───────────────────────────────────\n\n\n# Design considerations for prompting\n\nGenerate your desired test by following the guided principles of effective prompting.\n\nStarting with the Australia release, Test generation is being prepared for future deprecation. It will be hidden and no longer installed on new instances but will continue to be supported. For details, see the [Deprecation Process [KB0867184]](https://support.servicenow.com/kb_view.do?sysparm_article=KB0867184) article in the Now Support Knowledge Base.\n\n-   Clear and concise ATF prompts that describes test steps\n-   Consider the scope and capability of Test generation"
+        "text": "Design considerations for prompting\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n\n# Design considerations for prompting\n\nGenerate your desired test by following the guided principles of effective prompting.\n\nStarting with the Australia release, Test generation is being prepared for future deprecation. It will be hidden and no longer installed on new instances but will continue to be supported. For details, see the [Deprecation Process [KB0867184]](https://support.servicenow.com/kb_view.do?sysparm_article=KB0867184) article in the Now Support Knowledge Base.\n\n-   Clear and concise ATF prompts that describes test steps\n-   Consider the scope and capability of Test generation"
       }
     ]
   },
   {
     "id": "docs-web",
     "title": "The docs, in the browser",
-    "tagline": "The same index as a local web UI — search, filter by bundle, read in a viewer.",
+    "tagline": "The same index as a local web UI \u2014 search, filter by bundle, read in a viewer.",
     "commands": [
       {
         "cmd": "jsn docs serve",
@@ -114,8 +114,14 @@
       }
     ],
     "screenshots": [
-      { "src": "/assets/jsn-docs-search-1.png", "alt": "jsn docs serve — search results for \"bill mcdermott\"" },
-      { "src": "/assets/jsn-docs-search-2.png", "alt": "jsn docs serve — the doc viewer showing \"Design considerations for prompting\"" }
+      {
+        "src": "/assets/jsn-docs-search-1.png",
+        "alt": "jsn docs serve \u2014 search results for \"bill mcdermott\""
+      },
+      {
+        "src": "/assets/jsn-docs-search-2.png",
+        "alt": "jsn docs serve \u2014 the doc viewer showing \"Design considerations for prompting\""
+      }
     ]
   },
   {
@@ -185,7 +191,7 @@
   {
     "id": "bulk",
     "title": "Bulk operations",
-    "tagline": "Update thousands of records by query. Dry-run by default — preview before you commit.",
+    "tagline": "Update thousands of records by query. Dry-run by default \u2014 preview before you commit.",
     "commands": [
       {
         "cmd": "jsn records bulk --table incident --query \"active=true\" --set '{\"state\":\"2\"}'",
@@ -217,7 +223,7 @@
   {
     "id": "flows",
     "title": "Flow subflow context",
-    "tagline": "See the whole flow structure — triggers, actions, nested subflows.",
+    "tagline": "See the whole flow structure \u2014 triggers, actions, nested subflows.",
     "commands": [
       {
         "cmd": "jsn flows show \"Service Catalog item request\"",
@@ -229,7 +235,7 @@
   {
     "id": "catalog",
     "title": "Catalog variables",
-    "tagline": "A request item with its variables resolved — plain REST doesn't do this.",
+    "tagline": "A request item with its variables resolved \u2014 plain REST doesn't do this.",
     "commands": [
       {
         "cmd": "jsn requests show RITM0010001",
@@ -241,7 +247,7 @@
   {
     "id": "updatesets",
     "title": "Update set handling",
-    "tagline": "List, set, complete, ignore — and export any set to XML.",
+    "tagline": "List, set, complete, ignore \u2014 and export any set to XML.",
     "commands": [
       {
         "cmd": "jsn updatesets list",
@@ -281,5 +287,346 @@
       }
     ],
     "demo": "scripts"
+  },
+  {
+    "id": "performance",
+    "title": "Performance capture and comparison",
+    "tagline": "Save read-only performance snapshots locally, then compare two runs.",
+    "commands": [
+      {
+        "cmd": "jsn perf capture --label baseline",
+        "what": "Capture a read-only performance snapshot"
+      },
+      {
+        "cmd": "jsn perf show RUN_ID",
+        "what": "Display the saved capture and its collectors"
+      },
+      {
+        "cmd": "jsn perf compare RUN_A RUN_B",
+        "what": "Compare two saved captures"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn perf capture --label baseline",
+        "text": "Performance capture 20260912T003811Z: complete\nStatus: complete\njsn version: 4.3.3\nCollectors: ecc_queue, error_warning_summary, event_queue, flow_executions, platform_health, record_counts, scheduled_and_cleanup, transactions\nECC queue: 385"
+      },
+      {
+        "cmd": "jsn perf show 20260912T003811Z --json",
+        "text": "Performance capture 20260912T003811Z\nRun: baseline\nStatus: complete\nProfile: pdi\nCollectors: all successful\nPlatform: 1 online node, queue 0, active sessions 9\nTransactions: 810,337 daily, mean 44.28 ms, median 18 ms, p90 50 ms"
+      },
+      {
+        "cmd": "jsn perf compare 20260912T003811Z 20260912T003107Z --json",
+        "text": "Performance comparison: incomplete\nBaseline: 20260912T003811Z\nNew: 20260912T003107Z\n\nECC queue: 385 \u2192 384  (-1)\nPlatform mean transaction time: 44.28 ms \u2192 44.28 ms  (0 ms)\nForm average response: 114.38 ms \u2192 114.38 ms  (0 ms)"
+      }
+    ]
+  },
+  {
+    "id": "platform-health",
+    "title": "Platform health",
+    "tagline": "Inspect cluster nodes, queues, semaphores, sessions, memory pressure, and transaction health.",
+    "commands": [
+      {
+        "cmd": "jsn platform health --all-nodes",
+        "what": "Read node and platform health"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn platform health --all-nodes --json",
+        "text": "Platform health: 1 node(s)\n\nNODE STATUS  TYPE             QUEUE  AGE  SESSIONS  DEFAULT SEM  DB\n-----------  ---------------  -----  ---  --------  -----------  --\nonline       db272e3277020010bf05d4082b106185      0    0         9         0/16  44.28071283922618 ms\n\nSecurity: raw XML excluded, sensitive fields excluded"
+      }
+    ]
+  },
+  {
+    "id": "transactions",
+    "title": "Transaction summaries",
+    "tagline": "Group transaction counts and response times by transaction type.",
+    "commands": [
+      {
+        "cmd": "jsn transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)'",
+        "what": "Summarize count, average, minimum, and maximum response time"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)' --json",
+        "text": "Transactions by type: 8 type(s)\n\nCLASS       TYPE           COUNT  AVG       MIN       MAX\n----------  -------------  -----  --------  --------  --------\napi         batch_rest        21  60 ms     20 ms     308 ms\nui          form            1018  114.38 ms  6 ms      6133 ms\napi         rest            2554  62.42 ms   8 ms     7383 ms\njob         scheduler        602  24548.24 ms 36 ms     234718 ms"
+      }
+    ]
+  },
+  {
+    "id": "logs",
+    "title": "System log monitoring",
+    "tagline": "Query system logs or follow new entries from the terminal.",
+    "commands": [
+      {
+        "cmd": "jsn logs list --limit 3",
+        "what": "Find matching log entries"
+      },
+      {
+        "cmd": "jsn logs follow --level error --tail 3 --interval 500",
+        "what": "Tail new errors until stopped"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn logs list --limit 3 --json",
+        "text": "3 log entry(s)\n\nWarning  QueryEventLogger  Invalid query detected, please check logs for details [Unknown field name in table sys_ui_policy]\nError    sn_codesearch     Search table record for null in search group sn_devstudio.Studio Search Group\nWarning  QueryEventLogger  Invalid query detected, please check logs for details [Unknown field duration in table sys_flow_context]"
+      },
+      {
+        "cmd": "jsn logs follow --level error --tail 3 --interval 500",
+        "text": "[jsn logs follow] watching syslog every 500ms \u2014 Ctrl+C to stop"
+      }
+    ]
+  },
+  {
+    "id": "codesearch",
+    "title": "ServiceNow code search",
+    "tagline": "Search code across ServiceNow artifacts and application scopes.",
+    "commands": [
+      {
+        "cmd": "jsn codesearch search GlideAjax --limit 5",
+        "what": "Search script and client-side artifacts"
+      },
+      {
+        "cmd": "jsn codesearch search approval --scope x_my_app --limit 5",
+        "what": "Restrict a search to an application scope"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn codesearch search GlideAjax --limit 5 --json",
+        "text": "5 code match(es) for \"GlideAjax\"\n\nsys_ui_page  $pwd_change  .client_script\n    var ga = new GlideAjax('PwdAjaxChangePassword');\nsys_ui_page  $pwd_enrollment_form_container  .client_script\n    function sendRequest() {"
+      },
+      {
+        "cmd": "jsn codesearch search approval --scope x_my_app --limit 5 --json",
+        "text": "10 code match(es) for \"approval\"\n\nsys_ui_page  approval_engines  .name\n    approval_engines\nsys_ui_page  approval_engines  .client_script\n    var hasEngine = false;"
+      }
+    ]
+  },
+  {
+    "id": "snippets",
+    "title": "Saved query snippets",
+    "tagline": "Save a table query locally and run it again against the active profile.",
+    "commands": [
+      {
+        "cmd": "jsn snippets save docs-open-inc --table incident --query 'active=true'",
+        "what": "Save a named query locally"
+      },
+      {
+        "cmd": "jsn snippets run docs-open-inc",
+        "what": "Run the saved query against ServiceNow"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn snippets save docs-open-inc --table incident --query 'active=true' --json",
+        "text": "Saved snippet \"docs-open-inc\""
+      },
+      {
+        "cmd": "jsn snippets run docs-open-inc --profile pdi --json",
+        "text": "20 record(s) from incident (snippet \"docs-open-inc\")\nQuery: active=true"
+      }
+    ]
+  },
+  {
+    "id": "record-tools",
+    "title": "Record tools beyond CRUD",
+    "tagline": "Work with attachments, aggregates, and table inspection alongside normal record queries.",
+    "commands": [
+      {
+        "cmd": "jsn records attachments --help",
+        "what": "List, inspect, and add record attachments"
+      },
+      {
+        "cmd": "jsn records aggregate --table incident --count",
+        "what": "Aggregate records without downloading every row"
+      },
+      {
+        "cmd": "jsn records inspect incident INC0000060",
+        "what": "Inspect a record and its table context"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn records attachments --help",
+        "text": "Work with attachments on a record\n\nCommands:\n  list  List attachments on a record\n  get <attachment-id>  Download an attachment to a local file\n  add <file>  Upload a file as a new attachment on a record (mutation)"
+      },
+      {
+        "cmd": "jsn records aggregate --table incident --count --json",
+        "text": "Aggregated incident\nTable: incident\nCount: 70"
+      },
+      {
+        "cmd": "jsn records inspect incident INC0000060 --json",
+        "text": "Inspected incident INC0000060\nAudit history, business rules, and running flows returned"
+      }
+    ]
+  },
+  {
+    "id": "scopes-domains",
+    "title": "Scopes and domain separation",
+    "tagline": "Control application scope and domain context alongside update sets.",
+    "commands": [
+      {
+        "cmd": "jsn scopes list --limit 3",
+        "what": "List application scopes"
+      },
+      {
+        "cmd": "jsn domains current",
+        "what": "Show the current domain context"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn scopes list --limit 3 --json",
+        "text": "3 scope(s)\n\nContact card component       sn_contact_card       active\nAsset Management for mobile  sn_me_assets           active\n@servicenow/sn-cb-slide-modal sn_cb_slide_modal      active"
+      },
+      {
+        "cmd": "jsn domains current --json",
+        "text": "Error: Domain separation is not installed on this instance. The domain table does not exist."
+      }
+    ]
+  },
+  {
+    "id": "flow-operations",
+    "title": "Flow operations and diagnostics",
+    "tagline": "Inspect executions, check status, diagnose flows, and manage their lifecycle.",
+    "commands": [
+      {
+        "cmd": "jsn flows executions --limit 3",
+        "what": "Inspect flow executions"
+      },
+      {
+        "cmd": "jsn flows doctor",
+        "what": "Run flow diagnostics"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn flows executions --limit 3 --json",
+        "text": "3 flow execution(s)\n\nFLOW                            STATUS    DURATION\nsend_notifications               Complete  92 seconds\nsend_notifications               Complete  104 seconds\nScheduled Document Collaboration Complete 67 seconds"
+      },
+      {
+        "cmd": "jsn flows doctor --json",
+        "text": "\u2705 Flow publishing\n\u2705 wfa_fluent REST API\n\u2705 POST /activate_flows operation\n\u2705 ServiceNow IDE Platform: active\n\u2705 ServiceNow IDE Runtime Services: active"
+      }
+    ]
+  },
+  {
+    "id": "form-behavior",
+    "title": "Form and UI behavior inspection",
+    "tagline": "Inspect form layouts, client scripts, and UI policies from the terminal.",
+    "commands": [
+      {
+        "cmd": "jsn forms show incident",
+        "what": "Inspect sections and form elements"
+      },
+      {
+        "cmd": "jsn clientscripts list --query 'nameLIKEincident' --limit 3",
+        "what": "Find client scripts affecting a table"
+      },
+      {
+        "cmd": "jsn uipolicies list --query 'nameLIKEincident' --limit 3",
+        "what": "Find UI policies affecting a table"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn forms show incident",
+        "text": "Form: incident \u2192 Default view\n\n\u2500\u2500 Notes \u2500\u2500\n  watch_list\n  work_notes_list\n  comments\n  work_notes\n\n\u2500\u2500 Related Records \u2500\u2500\n  parent_incident\n  problem_id\n  rfc\n  caused_by"
+      },
+      {
+        "cmd": "jsn clientscripts list --query 'nameLIKEincident' --limit 3 --json",
+        "text": "2 clientscripts(s)\nSet Resolution notes for Parent Incident  incident  true  onChange\nCreateChildIncident                       incident  true  onLoad"
+      },
+      {
+        "cmd": "jsn uipolicies list --query 'nameLIKEincident' --limit 3 --json",
+        "text": "3 uipolicies(s)\nMake assignment group mandatory  task  true"
+      }
+    ]
+  },
+  {
+    "id": "integrations",
+    "title": "Integration artifacts",
+    "tagline": "Inspect scripted REST APIs, REST messages, SOAP messages, email, and import definitions.",
+    "commands": [
+      {
+        "cmd": "jsn scrapi list --limit 3",
+        "what": "List scripted REST API operations"
+      },
+      {
+        "cmd": "jsn restmessage list --limit 3",
+        "what": "List REST message definitions"
+      },
+      {
+        "cmd": "jsn soapmessages list --limit 3",
+        "what": "List SOAP message definitions"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn scrapi list --limit 3 --json",
+        "text": "3 operation(s)\nGet Conversations          GET    /conversations\nGet Is Generated By AI     GET    /{scopeId}/getIsGeneratedByAI\nUpdate Message             PATCH  /conversations/{conversationId}/messages/{messageId}"
+      },
+      {
+        "cmd": "jsn restmessage list --limit 3 --json",
+        "text": "3 restmessage(s)\nAI Provider Call\nModels.dev Pricing Lookup\nFirebase Cloud Messaging Send"
+      },
+      {
+        "cmd": "jsn soapmessages list --limit 3 --json",
+        "text": "3 soapmessages(s)\nInstance Clone Schedule\nProvision ServiceNow Accounts\nServiceNow getRecords"
+      }
+    ]
+  },
+  {
+    "id": "metadata",
+    "title": "Schema and platform metadata",
+    "tagline": "Inspect tables, columns, relationships, script includes, and instance properties.",
+    "commands": [
+      {
+        "cmd": "jsn tables list --limit 3",
+        "what": "Discover tables"
+      },
+      {
+        "cmd": "jsn columns list --query 'name=incident' --limit 5",
+        "what": "Inspect a table's columns"
+      },
+      {
+        "cmd": "jsn includes list --limit 3",
+        "what": "List script includes"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn tables list --limit 3 --json",
+        "text": "3 tables(s)\nsn_build_agent_conversation  Build Agent Conversation\nsn_build_agent_message       Build Agent Message\nevent telemetry              Event telemetry"
+      },
+      {
+        "cmd": "jsn columns list --query 'name=incident' --limit 5 --json",
+        "text": "5 columns(s)\nclose_code       Resolution code    String\ncause            Probable cause     String\nbusiness_impact  Business impact    String\nhold_reason      On hold reason     Integer"
+      },
+      {
+        "cmd": "jsn includes list --limit 3 --json",
+        "text": "3 includes(s)\nBuildAgentUtil\nBuildAgentEngine\nBuildAgentLogger"
+      }
+    ]
+  },
+  {
+    "id": "rest",
+    "title": "Raw REST escape hatch",
+    "tagline": "Call a ServiceNow REST endpoint when no specific command exists.",
+    "commands": [
+      {
+        "cmd": "jsn rest --table incident --query 'sysparm_limit=3'",
+        "what": "Make a raw REST API request"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn rest --table incident --query 'sysparm_limit=3' --json",
+        "text": "GET api/now/table/incident\nReturned incident: INC0000060\nShort description: Unable to connect to email\nState: 7\nPriority: 3"
+      }
+    ]
   }
 ]

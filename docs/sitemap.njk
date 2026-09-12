@@ -8,6 +8,9 @@ layout: false
   <url><loc>{{ site.url }}/</loc></url>
   <url><loc>{{ site.url }}/features/</loc></url>
 {% for s in showcases %}
-  <url><loc>{{ site.url }}/features/{{ s.id }}/</loc></url>
+  <url><loc>{{ site.url }}/features/{{ s.canonicalSlug }}/</loc></url>
+{% endfor %}
+{% for d in ["install", "setup", "safety", "agents", "output"] %}
+  <url><loc>{{ site.url }}/docs/{{ d }}/</loc></url>
 {% endfor %}
 </urlset>

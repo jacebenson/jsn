@@ -37,7 +37,12 @@ export default function (eleventyConfig) {
     return parts.join(" \\\n    ");
   });
 
-  // Short label for the terminal title bar: first three tokens.
+  // Remove shell prompts from displayed commands so copied text is clean.
+  eleventyConfig.addFilter("stripPrompt", (text) => {
+    if (typeof text !== "string") return text;
+    return text.replace(/(^|\n)\s*\$ /g, "$1");
+  });
+
   eleventyConfig.addFilter("cmdName", (cmd) => {
     if (typeof cmd !== "string") return "";
     return cmd.split(/\s+/).slice(0, 3).join(" ");

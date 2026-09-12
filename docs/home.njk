@@ -1,0 +1,80 @@
+---
+permalink: "/"
+title: JSN - ServiceNow CLI
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSN - ServiceNow CLI</title>
+  <meta name="description" content="A ServiceNow CLI for people and agents. Explore, diagnose, and change your instance from the terminal.">
+  <style>
+    :root { --ink:#f4f1ea; --paper:#121212; --paper2:#1e1e1e; --yellow:#f4b400; --red:#ff7b6d; --blue:#204e70; --muted:#aaa49a; --line:#3b3935; --terminal:#080909; --terminal-fg:#dedbd2; --green:#83d49b; --om-paper:#121212; --om-paper-2:#1e1e1e; --om-ink:#f4f1ea; --om-muted:#aaa49a; --om-line:#3b3935; --om-red:#ff7b6d; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.5 system-ui,-apple-system,sans-serif; }
+    a { color:inherit; }
+    .wrap { width:min(1180px,calc(100% - 40px)); margin:auto; }
+    header { display:flex; justify-content:space-between; align-items:center; padding:20px 0; border-bottom:1px solid var(--line); }
+    .brand { font:800 1rem monospace; letter-spacing:-.04em; text-decoration:none; }.brand span{color:var(--red)}
+    nav { display:flex; gap:20px; font:13px monospace; }.nav-cta{background:var(--ink);color:var(--paper);padding:8px 12px;text-decoration:none;border-radius:3px}
+    .hero { min-height:680px; display:grid; grid-template-columns:1.05fr .95fr; align-items:center; gap:70px; padding:82px 0 96px; }
+    .kicker { color:var(--red); font:700 12px monospace; letter-spacing:.12em; text-transform:uppercase; }
+    h1 { max-width:680px; margin:16px 0 22px; font:800 clamp(3.4rem,8vw,7.5rem)/.88 system-ui,sans-serif; letter-spacing:-.095em; }
+    .hero-copy { max-width:570px; color:#4f4b44; font-size:1.25rem; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:30px; }.button{display:inline-block;padding:13px 17px;border-radius:3px;text-decoration:none;font-weight:750}.primary{background:var(--red);color:#fff}.secondary{border:1px solid var(--ink)}
+    .hero-note { margin-top:24px; color:var(--muted); font:12px monospace; }
+    .terminal { background:var(--terminal); color:var(--terminal-fg); border:1px solid #000; border-radius:6px; box-shadow:14px 14px 0 #d7d0c2; overflow:hidden; transform:rotate(1deg); }
+    .term-top { display:flex; gap:7px; padding:12px 15px; border-bottom:1px solid #343638; color:#777; font:12px monospace; }.dot{width:9px;height:9px;border-radius:50%;background:#555}.dot.r{background:#e85b4e}.dot.y{background:#e7b63e}.dot.g{background:#65be78}.term-body{padding:22px;min-height:325px;font:13px/1.7 monospace;white-space:pre-wrap}.prompt{color:var(--yellow)}.good{color:var(--green)}.fade{color:#777}
+    .ticker { border-block:1px solid var(--ink); background:var(--yellow); overflow:hidden; white-space:nowrap; }.ticker p{margin:0;padding:11px 0;font:700 12px monospace;letter-spacing:.08em;word-spacing:1.2em}
+    section { padding:105px 0; border-bottom:1px solid var(--line); }.section-head{display:grid;grid-template-columns:.65fr 1fr;gap:50px;margin-bottom:45px}.section-head h2{margin:0;font:800 clamp(2.5rem,5vw,5rem)/.9 system-ui,sans-serif;letter-spacing:-.08em}.section-head p{max-width:510px;margin:0;color:var(--muted);font-size:1.1rem}
+    .jobs { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }.job{min-height:250px;padding:25px;background:var(--paper2);border:1px solid var(--line)}.job:nth-child(2){background:#dfe7e9}.job:nth-child(3){background:#eee0d5}.job h3{margin:0 0 45px;font:800 1.7rem/1 monospace;letter-spacing:-.07em}.job p{margin:0;color:#514d46}.job code{display:block;margin-top:20px;color:var(--red);font:12px monospace}
+    .demo { display:grid;grid-template-columns:250px 1fr;gap:20px;align-items:start }.demo-menu{display:grid;gap:7px}.demo-menu button{padding:12px;text-align:left;border:1px solid var(--line);background:transparent;cursor:pointer;font:13px monospace}.demo-menu button.active,.demo-menu button:hover{background:var(--ink);color:var(--paper)}.demo .terminal{transform:none;box-shadow:none}.demo-screen{min-height:360px;padding:25px;font:13px/1.7 monospace;white-space:pre-wrap}.demo-screen .prompt{color:var(--yellow)}
+    .doctrine { display:grid;grid-template-columns:1fr 1fr;gap:70px;align-items:start }.doctrine h2{margin:0;font:800 clamp(2.8rem,6vw,6rem)/.88 system-ui,sans-serif;letter-spacing:-.09em}.doctrine blockquote{margin:0;padding:0 0 0 25px;border-left:4px solid var(--red);font-size:1.5rem;line-height:1.25}.doctrine p{color:var(--muted)}
+    .install { display:grid;grid-template-columns:1fr 1fr;gap:35px;align-items:center }.install h2{margin:0;font:800 clamp(2.5rem,5vw,5rem)/.9 system-ui,sans-serif;letter-spacing:-.08em}.install-box{padding:22px;background:var(--terminal);color:var(--terminal-fg);font:14px/2 monospace}.install-box strong{color:var(--yellow)}
+    @media(max-width:800px){.hero,.section-head,.doctrine,.install{grid-template-columns:1fr;gap:28px}.hero{padding:58px 0 70px;min-height:auto}.jobs{grid-template-columns:1fr}.demo{grid-template-columns:1fr}nav{gap:10px}nav a:not(.nav-cta){display:none}.terminal{transform:none}}
+  </style>
+  <link rel="stylesheet" href="/css/omarchy.css">
+</head>
+<body>
+<div class="wrap">
+  <header><a class="brand" href="/">j<span>sn</span></a><nav><a href="#why">Why jsn</a><a href="#workflows">Workflows</a><a href="/features/">All features</a><a href="/docs/install/">Docs</a><a href="#install">Install</a></nav></header>
+  <main>
+    <section class="hero" style="border:0">
+      <div><div class="kicker">The ServiceNow CLI for people and agents</div><h1>Stop clicking. Start understanding.</h1><p class="hero-copy">JSN gives your terminal the context the ServiceNow REST API leaves out. Records with relationships. Catalog items with variables. Flows with their subflows. Diagnostics you can actually use.</p><div class="actions"><a class="button primary" href="#demo">See it in action</a><a class="button secondary" href="#install">Install jsn</a></div><p class="hero-note">Open source · MIT · Runs locally · No MCP server required</p></div>
+      <div class="terminal"><div class="term-top"><i class="dot r"></i><i class="dot y"></i><i class="dot g"></i><span style="margin-left:8px">jsn · pdi</span></div><div class="term-body"><span class="prompt">jsn requests show RITM0010001</span>
+
+<span class="good">Request RITM0010001</span>
+
+short_description: Knowledge Speaking Session
+requested_for: System Administrator
+approval: Approved
+
+<span class="good">Catalog Variables</span>
+  Topic: Moveworks! What is Slate?
+  Speaker: Teo
+
+<span class="fade">→ update: jsn req update RITM0010001 --data '{...}'</span></div></div>
+    </section>
+    <div class="ticker"><p>READ CONTEXT &nbsp; · &nbsp; DIAGNOSE FASTER &nbsp; · &nbsp; CHANGE SAFELY &nbsp; · &nbsp; GIVE YOUR AGENT THE RIGHT TOOL</p></div>
+    <section id="why"><div class="section-head"><h2>REST gives you rows. JSN gives you the thing.</h2><p>Most ServiceNow work is not “get this record.” It is figuring out what the record means, what it touches, and what happens if you change it. JSN handles that context in the command.</p></div><div class="doctrine"><blockquote>“The useful part is not the request. It is the answer you can act on.”</blockquote><div><p>That is the bet. Keep the CLI small, composable, and safe. Make the output useful to a person at a terminal and predictable for an agent in a workflow.</p><p>No hosted dashboard. No telemetry. No server to maintain between your agent and the instance.</p></div></div></section>
+    <section id="workflows"><div class="section-head"><h2>Three jobs. One CLI.</h2><p>Use the specific command when JSN has one. Drop to generic records or raw REST when it does not.</p></div><div class="jobs"><article class="job"><h3>Explore</h3><p>Read records, resolve catalog variables, walk CMDB relationships, inspect forms, schemas, and application scopes.</p><code>jsn cmdb relationships --ci ID</code></article><article class="job"><h3>Diagnose</h3><p>See platform health, transaction timing, system logs, flow executions, performance captures, and code matches.</p><code>jsn perf compare BASELINE NEW</code></article><article class="job"><h3>Change</h3><p>Create and update records, manage flows and update sets, run ATF, execute scripts, and make bulk changes with guardrails.</p><code>jsn records bulk --table incident</code></article></div></section>
+    <section id="demo"><div class="section-head"><h2>Try the shape of it.</h2><p>This is sample output from real JSN commands. Pick a workflow, then install JSN to run it against your own instance.</p></div><div class="demo"><div class="demo-menu"><button class="active" data-demo="read">Read with context</button><button data-demo="flow">Understand a flow</button><button data-demo="diagnose">Compare performance</button><button data-demo="docs">Search the docs</button></div><div class="terminal"><div class="term-top"><i class="dot r"></i><i class="dot y"></i><i class="dot g"></i><span style="margin-left:8px">browser demo · sample output</span></div><div class="demo-screen" id="demo-screen"></div></div></div></section>
+    <section id="install"><div class="install"><h2>Try it on your instance.</h2><div><p>Install it globally. Authenticate once. Then use the command that fits the job.</p><div class="install-box"><strong>npm install -g @jacebenson/jsn</strong><br>jsn setup<br>jsn skill install</div><div class="actions"><a class="button primary" href="https://github.com/jacebenson/jsn">Get jsn on GitHub →</a><a class="button secondary" href="/docs/install/">Read the setup docs</a><a class="button secondary" href="/features/">Browse all features</a></div></div></div></section>
+  </main>
+  <footer><span>JSN · ServiceNow CLI</span><span>Open source · MIT</span></footer>
+</div>
+<script>
+const demos={
+ read:['jsn requests show RITM0010001','','Request RITM0010001','','short_description: Knowledge Speaking Session','requested_for: System Administrator','approval: Approved','','Catalog Variables','  Topic: Moveworks! What is Slate?','  Speaker: Teo','', '→ context resolved'],
+ flow:['jsn flows show "Service Catalog item request"','','Flow: Service Catalog item request','Status: Active | Version: 2','','TRIGGER','  Service Catalog','','FLOW STRUCTURE','  1. Requested Item Manager Approval','     1. Ask For Approval','  ↪ nested subflow context resolved'],
+ diagnose:['jsn perf compare BASELINE NEW','','Performance comparison: incomplete','Baseline: 20260912T003811Z','New:      20260912T003107Z','','Platform mean transaction time: 44.28 ms → 44.28 ms','Form average response: 114.38 ms → 114.38 ms','','Read-only capture. No instance changes.'],
+ docs:['jsn docs search "Flow Designer subflow"','','12 matching documents','','[24501] Flow Designer: Subflows','  Build reusable flow logic and pass inputs and outputs.','','[24517] Create a subflow','  Define inputs, outputs, and actions.']
+};
+const screen=document.querySelector('#demo-screen');
+function show(key){screen.innerHTML=demos[key].map((l,i)=>`<div class="${i===0?'prompt':''}">${l.replaceAll('&','&amp;').replaceAll('<','&lt;')}</div>`).join('')}
+document.querySelectorAll('[data-demo]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-demo]').forEach(x=>x.classList.remove('active'));b.classList.add('active');show(b.dataset.demo)}));show('read');
+</script>
+</body>
+</html>

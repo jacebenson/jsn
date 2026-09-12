@@ -4,10 +4,10 @@ pagination:
   data: showcases
   size: 1
   alias: feature
-permalink: "/features/{{ feature.id }}/"
+permalink: "/features/{{ feature.canonicalSlug }}/"
 eleventyComputed:
-  title: "{{ feature.title | safe }} — jsn"
-  subtitle: "{{ feature.tagline | safe }}"
+  title: "{{ feature.seoTitle | safe }} — jsn"
+  subtitle: "{{ feature.seoDescription | safe }}"
 ---
 
 <style>
@@ -30,7 +30,14 @@ eleventyComputed:
     .feat-cta a { color: var(--accent); font-size: 0.85rem; display: inline-block; margin-top: 1rem; }
     .feat-back { text-align: center; margin: 1rem 0 0; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; }
     .feat-back a { color: var(--accent); text-decoration: none; }
+    .seo-answer { border-left: 3px solid var(--accent); padding: .8rem 1rem; margin: 1.5rem 0 2rem; }
+    .seo-answer strong { display:block; color: var(--accent); font-family: 'SF Mono', Monaco, monospace; font-size:.82rem; margin-bottom:.45rem; }
 </style>
+
+<div class="seo-answer">
+    <strong>{{ feature.seoQuery }}</strong>
+    {{ feature.seoDescription }} JSN gives you a direct terminal workflow instead of requiring the ServiceNow web interface for every inspection or change.
+</div>
 
 <div class="feat-cmds">
 <table>
@@ -46,19 +53,19 @@ eleventyComputed:
 <div class="feat-screen">
     <div class="bar">
         <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-        <span style="margin-left: 0.5rem;">$ {{ feature.commands[0].cmd | cmdName }}</span>
+        <span style="margin-left: 0.5rem;">{{ feature.commands[0].cmd | cmdName | stripPrompt }}</span>
     </div>
     {% if feature.screens %}
     {% for sc in feature.screens %}
-    <div class="cscreen active"><pre><span class="cmdline">$ {{ sc.cmd | wrapCmd }}</span>
+    <div class="cscreen active"><pre><span class="cmdline">{{ sc.cmd | wrapCmd | stripPrompt }}</span>
 
-{{ sc.text }}</pre></div>
+{{ sc.text | stripPrompt }}</pre></div>
     {% if not loop.last %}<div style="padding: 0.25rem 1.2rem; border-top: 1px dashed var(--border); color: var(--muted); font-family: 'SF Mono', Monaco, monospace; font-size: 0.7rem;">▼ next screen</div>{% endif %}
     {% endfor %}
     {% else %}
-    <pre><span class="cmdline">$ {{ feature.commands[0].cmd | wrapCmd }}</span>
+    <pre><span class="cmdline">{{ feature.commands[0].cmd | wrapCmd | stripPrompt }}</span>
 
-{{ feature.demoText }}</pre>
+{{ feature.demoText | stripPrompt }}</pre>
     {% endif %}
     {% if feature.screenshots %}
     {% for sh in feature.screenshots %}
@@ -70,9 +77,9 @@ eleventyComputed:
 <div class="feat-cta">
     <h2>Get started</h2>
     <p>Install, point it at your instance, then run this feature.</p>
-    <pre><span class="cmdline">$ npm install -g @jacebenson/jsn</span>
-<span class="cmdline">$ jsn setup</span>
-<span class="cmdline">$ {{ feature.commands[0].cmd }}</span></pre>
+    <pre><span class="cmdline">npm install -g @jacebenson/jsn</span>
+<span class="cmdline">jsn setup</span>
+<span class="cmdline">{{ feature.commands[0].cmd }}</span></pre>
     <a href="https://github.com/jacebenson/jsn/blob/nodejs/skills/servicenow/SKILL.md">Full setup guide &amp; skill docs →</a>
 </div>
 

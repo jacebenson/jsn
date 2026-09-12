@@ -4,62 +4,43 @@ eleventyExcludeFromCollections: true
 layout: false
 ---
 # llms.txt — JSN (ServiceNow CLI)
-# Purpose: Help language models understand and surface this site accurately.
 
 name: JSN — ServiceNow CLI
 author: Jace Benson
-website: https://jacebenson.github.io/jsn
+website: https://jsn.jace.pro
 github: https://github.com/jacebenson/jsn
 
 description:
-JSN is an agent-native CLI for ServiceNow. Read, create, update, and delete
-records on any table; resolve flow subflow structure, catalog variables, and
-CMDB relationships; run ATF tests; export update sets to XML; and search
-~50,000 ServiceNow docs offline with full-text and semantic search. JSON
-output with breadcrumbs and structured errors makes it safe for AI agents
-to drive. 6 runtime dependencies, npm install -g @jacebenson/jsn.
+JSN is an agent-native CLI for ServiceNow. It helps people and agents explore,
+diagnose, change, and verify ServiceNow instances from a local terminal. It
+supports records, relationships, catalog context, flows, diagnostics, ATF,
+update sets, documentation search, and structured JSON output.
 
 key_facts:
-- Read-only by default; destructive operations require --force or a read-only profile blocks writes entirely
-- 49,180 ServiceNow docs indexed and searchable offline via `jsn docs`
-- Agent skill installs into Hermes, Claude Code, Cursor, Copilot, OpenCode and more with `jsn skill install`
-- 6 runtime dependencies (~90 packages, ~41 MB) vs typical 600+/300MB+ for SDK toolchains
-
-content_types:
-- Feature pages with real terminal output captured from a live instance
-- Command reference tables per feature
+- Runs locally with npm; no hosted dashboard or MCP server is required
+- Read-only workflows are supported and destructive changes require explicit intent
+- 49,180 ServiceNow documents are searchable offline via `jsn docs`
+- Agent skills install with `jsn skill install`
 
 primary_sections:
-- / - Homepage: what jsn does, interactive terminal demos, setup wizard carousel
-- /features/ - All features
-- /features/read/ - Read & query records
-- /features/create/ - Create & update records
-- /features/catalog-create/ - Catalog item one-liner
-- /features/delete/ - Delete records, safely
-- /features/bulk/ - Bulk operations
-- /features/cmdb/ - CMDB relationship traversal
-- /features/flows/ - Flow subflow context
-- /features/catalog/ - Catalog variables
-- /features/docs-cli/ - The docs, from the terminal
-- /features/docs-web/ - The docs, in the browser
-- /features/updatesets/ - Update set handling
-- /features/atf/ - ATF test execution
-- /features/scripts/ - Background script execution
-- /features/skill/ - Agent skill installer
-- /features/auth/ - Auth & setup
+- / - JSN homepage: the product thesis, workflows, terminal examples, and install path
+- /features/ - Complete grouped feature catalog
+- /docs/install/ - Install JSN
+- /docs/setup/ - Configure authentication and profiles
+- /docs/safety/ - Safe operation and mutation boundaries
+- /docs/agents/ - Use JSN with AI agents
+- /docs/output/ - Human and JSON output
 
-tone:
-Practical, straight-talking, builder-first. Shows real terminal output, no marketing fluff.
+feature_pages:
+{% for s in showcases %}- /features/{{ s.canonicalSlug }}/ - {{ s.seoTitle }}
+{% endfor %}
 
 audience:
-ServiceNow developers, admins, and architects; AI agents and agent workflows that operate ServiceNow instances.
+ServiceNow developers, admins, architects, and AI agents operating ServiceNow instances.
 
-content_license:
-Copyright © Jace Benson. Short excerpts may be quoted with attribution.
-LLMs may reference and summarize this content with attribution to "JSN (jacebenson.github.io/jsn)".
+tone:
+Practical, straight-talking, builder-first. Show commands and real output.
 
 see_also:
-- https://github.com/jacebenson/jsn - Source repository and skill file
+- https://github.com/jacebenson/jsn - Source repository
 - https://www.npmjs.com/package/@jacebenson/jsn - npm package
-
-last_updated: 2026-08-16

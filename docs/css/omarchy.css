@@ -1,0 +1,82 @@
+/* Omarchy-inspired JSN surface: dark, high-contrast, keyboard-friendly. */
+:root {
+  --om-paper: #0b0d0f;
+  --om-paper-2: #171b20;
+  --om-ink: #f5f7fa;
+  --om-muted: #c0c7d0;
+  --om-line: #46505c;
+  --om-red: #ff8a80;
+  --om-yellow: #ffd166;
+  --om-blue: #8ec5ff;
+  --om-terminal: #050607;
+  --om-terminal-fg: #f0f3f6;
+  --paper: #0b0d0f;
+  --paper2: #171b20;
+  --ink: #f5f7fa;
+  --muted: #c0c7d0;
+  --line: #46505c;
+  --red: #ff8a80;
+  --yellow: #ffd166;
+  --bg: #0b0d0f;
+  --fg: #f5f7fa;
+  --accent: #ffd166;
+  --accent-dim: #ffcf66;
+  --border: #46505c;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--om-paper) !important; color: var(--om-ink); font-size: 16px; line-height: 1.65; }
+a { color: var(--om-blue); text-underline-offset: 3px; }
+a:hover { color: var(--om-yellow); }
+:focus-visible { outline: 3px solid var(--om-yellow); outline-offset: 4px; }
+button, a { min-height: 44px; }
+
+.cmp-wrap { max-width: 1080px; padding: 0 28px 48px; }
+.cmp-nav { padding: 20px 0; border-bottom: 1px solid var(--om-line); margin-bottom: 68px; }
+.cmp-nav a { color: var(--om-ink); }
+.cmp-nav a:first-child { font-weight: 900; letter-spacing: -.08em; }
+.cmp-wrap h1 { color: var(--om-ink); font-family: system-ui, sans-serif; font-size: clamp(3rem, 7vw, 6.3rem); line-height: .95; letter-spacing: -.07em; max-width: 850px; }
+.cmp-wrap .sub { color: var(--om-muted); max-width: 680px; font-size: 1.15rem; }
+.cmp-wrap h2 { color: var(--om-ink); font-family: system-ui, sans-serif; font-size: 1.8rem; letter-spacing: -.04em; }
+.cmp-wrap p, .cmp-wrap ul, .cmp-wrap ol { color: #e1e6eb; }
+.cmp-wrap code { color: var(--om-yellow); }
+.cmp-wrap pre { background: var(--om-terminal); border: 1px solid var(--om-line); border-radius: 4px; color: var(--om-terminal-fg); box-shadow: 8px 8px 0 #171b20; }
+.cmp-wrap a { color: var(--om-blue); }
+.cmp-wrap blockquote { border-left-color: var(--om-yellow); background: #252014; color: var(--om-muted); }
+.cmp-wrap th, .cmp-wrap td { border-color: var(--om-line); }
+.cmp-wrap th { color: var(--om-yellow); }
+.cmp-footer { border-top-color: var(--om-line); color: var(--om-muted); }
+
+/* Catalog surfaces: retain hierarchy without low-contrast pastel cards. */
+.card, .card:nth-child(3n+2), .card:nth-child(3n+3), .job, .job:nth-child(2), .job:nth-child(3) { background: var(--om-paper-2) !important; border-color: var(--om-line) !important; color: var(--om-ink); }
+.card p, .job p, .section-head p, .hero-copy, .doctrine p { color: var(--om-muted) !important; }
+.command { background: #20262d !important; border-color: var(--om-line) !important; color: var(--om-yellow) !important; }
+.open, .kicker, .number { color: var(--om-yellow) !important; }
+
+.group-grid { min-width: 0; }
+.group-grid .card { min-width: 0; }
+.group-grid .command { max-width: 100%; }
+
+/* Contrast-safe homepage controls and banner. */
+.ticker { background: var(--om-yellow) !important; border-color: var(--om-yellow) !important; color: #0b0d0f !important; }
+.ticker p { color: #0b0d0f !important; }
+.demo-menu button { background: #20262d !important; color: var(--om-ink) !important; border-color: var(--om-line) !important; min-height: 48px; }
+.demo-menu button:hover, .demo-menu button.active { background: var(--om-yellow) !important; color: #0b0d0f !important; border-color: var(--om-yellow) !important; }
+.button.primary { background: var(--om-red) !important; color: #0b0d0f !important; }
+.button.secondary { background: transparent !important; color: var(--om-ink) !important; border-color: var(--om-ink) !important; }
+.button.primary:hover, .button.secondary:hover { background: var(--om-yellow) !important; color: #0b0d0f !important; border-color: var(--om-yellow) !important; }
+.job code { color: var(--om-yellow) !important; }
+.install-box strong { color: var(--om-yellow) !important; }
+
+/* Existing command-page terminal captures. */
+.feat-screen { border-color: var(--om-line) !important; border-radius: 4px !important; box-shadow: 10px 10px 0 var(--om-paper-2); }
+.feat-screen .bar { background: #171b20 !important; }
+.feat-cta { background: #252014 !important; border-color: var(--om-line) !important; border-radius: 3px !important; }
+.feat-cta h2 { color: var(--om-yellow) !important; }
+.feat-cta a, .feat-back a { color: var(--om-blue) !important; }
+
+@media (max-width: 700px) {
+  .cmp-wrap { padding-inline: 20px; }
+  .cmp-nav { margin-bottom: 42px; }
+  .cmp-wrap h1 { font-size: clamp(3rem, 16vw, 5rem); }
+}

@@ -11,6 +11,7 @@
     <meta property="og:description" content="{% if subtitle %}{{ subtitle | striptags | truncate(155) }}{% else %}JSN — the agent-native ServiceNow CLI.{% endif %}">
     <meta property="og:url" content="{{ site.url }}{{ page.url }}">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/omarchy.css">
     <style>
         .cmp-wrap { max-width: 900px; margin: 0 auto; padding: 2rem; }
         .cmp-nav { display: flex; gap: 1rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; margin-bottom: 2rem; }
@@ -33,19 +34,40 @@
         .cmp-wrap th { color: var(--accent); font-family: 'SF Mono', Monaco, monospace; font-size: 0.85rem; }
         .cmp-wrap .todo { color: var(--accent-dim); font-size: 0.9rem; }
         .cmp-footer { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+        .doc-progress { display: flex; align-items: stretch; margin: 0 0 2.5rem; border: 1px solid var(--border); background: #171b20; overflow-x: auto; }
+        .doc-step { position: relative; flex: 1 0 130px; padding: .8rem .7rem .75rem 1rem; color: var(--muted); text-decoration: none; font: 700 12px/1.2 monospace; border-right: 1px solid var(--border); }
+        .doc-step:not(:last-child)::after { content: '›'; position: absolute; right: -7px; top: 50%; z-index: 2; transform: translateY(-50%); width: 14px; height: 24px; background: #171b20; color: var(--muted); text-align: center; font: 22px/21px system-ui; }
+        .doc-step span { display: block; margin-bottom: .3rem; color: var(--muted); font-size: 10px; }
+        .doc-step.active { background: var(--om-yellow); color: #0b0d0f; }
+        .doc-step.active span { color: #0b0d0f; }
+        .doc-step.active:not(:last-child)::after { background: var(--om-yellow); color: #0b0d0f; }
+        .doc-step:hover, .doc-step:focus-visible { color: #0b0d0f; background: var(--om-yellow); }
+        .doc-step:hover span, .doc-step:focus-visible span { color: #0b0d0f; }
+        .doc-nav { display: flex; justify-content: space-between; gap: 1rem; margin: 2.5rem 0 0; padding-top: 1rem; border-top: 1px solid var(--border); font: 700 13px monospace; }
+        .doc-nav a { color: var(--om-blue); }
     </style>
+    <link rel="stylesheet" href="/css/omarchy.css">
 </head>
 <body>
     <div class="cmp-wrap">
         <nav class="cmp-nav">
             <a href="/">JSN</a>
             <a href="/features/">Features</a>
+            <a href="/docs/install/">Docs</a>
             <span class="spacer"></span>
             <a href="https://github.com/jacebenson/jsn">GitHub</a>
         </nav>
+        {% if docStep %}<nav class="doc-progress" aria-label="Documentation progress">
+            <a class="doc-step{% if docStep == 1 %} active{% endif %}" href="/docs/install/"><span>1 / 5</span>Install</a>
+            <a class="doc-step{% if docStep == 2 %} active{% endif %}" href="/docs/setup/"><span>2 / 5</span>Connect</a>
+            <a class="doc-step{% if docStep == 3 %} active{% endif %}" href="/docs/safety/"><span>3 / 5</span>Safety</a>
+            <a class="doc-step{% if docStep == 4 %} active{% endif %}" href="/docs/agents/"><span>4 / 5</span>Agents</a>
+            <a class="doc-step{% if docStep == 5 %} active{% endif %}" href="/docs/output/"><span>5 / 5</span>Output</a>
+        </nav>{% endif %}
         <h1>{{ title }}</h1>
         {% if subtitle %}<p class="sub">{{ subtitle }}</p>{% endif %}
         {{ content | safe }}
+        {% if docStep %}<nav class="doc-nav" aria-label="Documentation navigation"><span>{% if docPrev %}<a href="{{ docPrev }}">{{ docPrevLabel }}</a>{% endif %}</span><span>{% if docNext %}<a href="{{ docNext }}">{{ docNextLabel }}</a>{% endif %}</span></nav>{% endif %}
         <footer class="cmp-footer">
             <p>JSN — ServiceNow CLI · MIT · Built with Eleventy</p>
         </footer>
