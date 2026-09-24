@@ -61,6 +61,16 @@ after(async () => {
 });
 
 describe('CLI adapter production probes', () => {
+  it('exits cleanly when a downstream consumer closes the JSON pipe', () => {
+    const result = spawnSync('bash', ['-o', 'pipefail', '-c', 'node "$1" version --json | head -c 0', '_', CLI], {
+      encoding: 'utf-8',
+      cwd: path.resolve('.'),
+      env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /Unhandled ['"]error['"] event|EPIPE/);
+  });
+
   it('parses boolean equals syntax in the real binary', () => {
     const result = spawnSync(process.execPath, [CLI, 'version', '--json=false'], {
       encoding: 'utf-8',
