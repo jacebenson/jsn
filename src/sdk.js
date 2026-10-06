@@ -266,6 +266,8 @@ export class SDKClient {
 
   /**
    * Upload a file as a new attachment on a record.
+   * Uses ServiceNow's binary attachment endpoint so file bytes are not expanded
+   * into base64 or embedded in a sys.scripts.do form body.
    * @param {string} table - parent table name (e.g. 'incident')
    * @param {string} sysID - parent record sys_id
    * @param {Buffer|string} content - file bytes or path
@@ -274,29 +276,30 @@ export class SDKClient {
    */
   async addAttachment(table, sysID, content, fileName) {
     const contentBuffer = Buffer.isBuffer(content) ? content : Buffer.from(String(content));
-    const script = [
-      '(function() {',
-      `  var record = new GlideRecord(${scriptString(table)});`,
-      `  if (!record.get(${scriptString(sysID)})) throw new Error('Record not found');`,
-      '  var attachment = new GlideSysAttachment();',
-      `  var fileName = ${scriptString(fileName)};`,
-      `  var content = ${scriptString(contentBuffer.toString('base64'))};`,
-      '  var sysId;',
-      "  if (typeof attachment.writeBase64 === 'function') {",
-      "    sysId = attachment.writeBase64(record, fileName, 'application/octet-stream', content);",
-      '  } else {',
-      "    sysId = new Attachment().write(record.getTableName(), record.getUniqueValue(), fileName, 'application/octet-stream', GlideStringUtil.base64DecodeAsBytes(content));",
-      '  }',
-      "  if (!sysId) throw new Error('Attachment was not created');",
-      "  gs.print('JSN_ATTACHMENT_RESULT:' + JSON.stringify({ sys_id: sysId }));",
-      '}());',
-    ].join('\n');
-    const output = await this.executeScript(script, '');
-    const result = parseAttachmentResult(output);
-    if (!result?.sys_id) {
-      throw new Error('Attachment upload returned no attachment sys_id');
+    const params = new URLSearchParams({
+      table_name: String(table),
+      table_sys_id: String(sysID),
+      file_name: String(fileName),
+    });
+    const endpoint = `${this.baseURL}/api/now/attachment/file?${params.toString()}`;
+
+    try {
+      const response = await this.request(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: contentBuffer,
+      });
+      const result = response?.result;
+      if (!result?.sys_id) {
+        throw new Error('Attachment upload returned no attachment sys_id');
+      }
+      return result;
+    } catch (err) {
+      if (err?.status === 413) {
+        throw errAPI(413, 'Attachment is too large for the ServiceNow attachment endpoint. Reduce the file size or increase the instance attachment limit.');
+      }
+      throw err;
     }
-    return result;
   }
 
   async getCurrentUser({ touchLastSeen = true } = {}) {
@@ -919,27 +922,6 @@ export class SDKClient {
     const lines = out.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     return lines.join('\n');
   }
-}
-
-function scriptString(value) {
-  return JSON.stringify(String(value)).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-}
-
-function parseAttachmentResult(output) {
-  if (!output) return null;
-  const lines = String(output).split(/\r?\n/).reverse();
-  for (const line of lines) {
-    const candidate = line.replace(/^\*\*\* Script:\s*/, '').trim();
-    const markerCandidate = candidate.replace(/^JSN_ATTACHMENT_RESULT:\s*/, '');
-    if (!markerCandidate.startsWith('{')) continue;
-    try {
-      const result = JSON.parse(markerCandidate);
-      if (result && typeof result === 'object') return result;
-    } catch {
-      // Ignore unrelated script output and keep looking for the result marker.
-    }
-  }
-  return null;
 }
 
 function detectScriptError(output) {

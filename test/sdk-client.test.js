@@ -168,50 +168,79 @@ describe('SDKClient', () => {
     assert.strictEqual(output, '<test> & "quoted"');
   });
 
-  it('uploads attachments through authenticated eval with safe encoded arguments', async () => {
+  it('uploads binary attachments without embedding file bytes in a background script', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const client = new SDKClient('https://test.service-now.com', {
       getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
     });
-    let executedScript;
-    client.executeScript = async (script) => {
-      executedScript = script;
-      return '*** Script: {"sys_id":"attachment-123"}';
+    client.executeScript = async () => assert.fail('attachment upload must not execute a background script');
+    let call;
+    client.request = async (endpoint, opts) => {
+      call = { endpoint, opts };
+      return { result: { sys_id: 'attachment-123' } };
     };
-    client.request = async () => assert.fail('attachment upload must not POST to the attachment REST route');
 
-    const table = 'incident";gs.info("injected")//';
-    const sysID = 'record\\\\"\\\\n';
-    const fileName = 'report";gs.info("injected")\\n.txt';
+    const table = 'incident';
+    const sysID = 'record-123';
+    const fileName = 'report.bin';
     const content = Buffer.from([0, 255, 1, 2, 128]);
     const created = await client.addAttachment(table, sysID, content, fileName);
 
     assert.deepStrictEqual(created, { sys_id: 'attachment-123' });
-    assert.match(executedScript, /new GlideRecord\(/);
-    assert.match(executedScript, /record\.get\(/);
-    assert.match(executedScript, /writeBase64\(record,/);
-    assert.match(executedScript, /typeof attachment\.writeBase64/);
-    assert.match(executedScript, /new Attachment\(\)\.write/);
-    assert.match(executedScript, /application\/octet-stream/);
-    assert.ok(executedScript.includes(JSON.stringify(table)));
-    assert.ok(executedScript.includes(JSON.stringify(sysID)));
-    assert.ok(executedScript.includes(JSON.stringify(fileName)));
-    assert.ok(executedScript.includes(Buffer.from(content).toString('base64')));
-    assert.ok(!executedScript.includes('FormData'));
-    assert.ok(!executedScript.includes('multipart'));
-    assert.ok(!executedScript.includes('/api/now/attachment'));
+    assert.strictEqual(call.endpoint, 'https://test.service-now.com/api/now/attachment/file?table_name=incident&table_sys_id=record-123&file_name=report.bin');
+    assert.strictEqual(call.opts.method, 'POST');
+    assert.strictEqual(call.opts.headers['Content-Type'], 'application/octet-stream');
+    assert.deepStrictEqual(call.opts.body, content);
   });
 
-  it('rejects an attachment upload without a returned sys_id', async () => {
+  it('keeps OAuth and Basic session authentication on binary attachment uploads', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const previousFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (request) => {
+      calls.push(request);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '{"result":{"sys_id":"attachment-123"}}',
+      };
+    };
+    try {
+      for (const auth_method of ['oauth', 'basic']) {
+        const client = new SDKClient('https://test.service-now.com', {
+          getCredentials: async () => auth_method === 'oauth'
+            ? { auth_method, access_token: 'test-token' }
+            : { auth_method, username: 'admin', password: 'secret' },
+        });
+        client._warmSession = async () => 'JSESSIONID=session';
+        client.sessionUserToken = 'user-token';
+        await client.addAttachment('incident', 'record-123', Buffer.from('hello'), 'hello.txt');
+      }
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    assert.strictEqual(calls.length, 2);
+    for (const request of calls) {
+      assert.strictEqual(request.headers.get('cookie'), 'JSESSIONID=session');
+      assert.strictEqual(request.headers.get('x-usertoken'), 'user-token');
+      assert.strictEqual(request.headers.get('authorization'), null);
+      assert.strictEqual(Buffer.from(await request.arrayBuffer()).toString(), 'hello');
+    }
+  });
+
+  it('reports a clear error when the attachment endpoint rejects the file as too large', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const client = new SDKClient('https://test.service-now.com', {
       getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
     });
-    client.executeScript = async () => '*** Script: Attachment was not created';
+    client.request = async () => {
+      throw Object.assign(new Error('Request Entity Too Large'), { status: 413 });
+    };
 
     await assert.rejects(
       () => client.addAttachment('incident', 'record-1', Buffer.from('hello'), 'hello.txt'),
-      /returned no attachment sys_id/,
+      /Attachment is too large for the ServiceNow attachment endpoint/,
     );
   });
 
