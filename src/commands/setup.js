@@ -1,3 +1,4 @@
+import { createPrompt, useKeypress, usePagination, useState, isDownKey, isEnterKey, isUpKey } from '@inquirer/core';
 import { loginWizard, modifyProfile, removeProfile, pickProfile } from './auth.js';
 import { setActiveProfile } from '../config.js';
 import { errUsage } from '../errors.js';
@@ -7,18 +8,44 @@ import { declareCapabilities } from '../capabilities.js';
 // (Not in the daily-check skip-list: legacy behavior checks for updates here.)
 declareCapabilities('setup', { noInstance: true });
 
-/** Interactive hub: what do you want to do? Returns 'add' | 'switch' | 'remove' | 'modify'. */
-export async function authHubMenu() {
-  const { select } = await import('@inquirer/prompts');
-  return select({
-    message: 'What would you like to do?',
-    choices: [
-      { name: 'Add a new instance', value: 'add' },
-      { name: 'Switch to a different instance', value: 'switch' },
-      { name: 'Remove an instance', value: 'remove' },
-      { name: 'Modify an instance', value: 'modify' },
-    ],
+const HUB_CHOICES = [
+  { name: 'Add a new instance', value: 'add' },
+  { name: 'Switch to a different instance', value: 'switch' },
+  { name: 'Remove an instance', value: 'remove' },
+  { name: 'Modify an instance', value: 'modify' },
+];
+
+/** The setup hub prompt; q and Escape resolve with no selected action. */
+export const authHubPrompt = createPrompt((config, done) => {
+  const [active, setActive] = useState(0);
+  const choices = config.choices;
+
+  useKeypress((key) => {
+    if (key.name === 'q' || key.name === 'escape') {
+      done(undefined);
+      return;
+    }
+    if (isEnterKey(key)) {
+      done(choices[active].value);
+      return;
+    }
+    if (isUpKey(key) && active > 0) setActive(active - 1);
+    if (isDownKey(key) && active < choices.length - 1) setActive(active + 1);
   });
+
+  const page = usePagination({
+    items: choices,
+    active,
+    pageSize: choices.length,
+    loop: false,
+    renderItem: ({ item, isActive }) => `${isActive ? '❯' : ' '} ${item.name}`,
+  });
+  return `${config.message}\n${page}\n\n↑↓ navigate • ⏎ select • q/Esc exit`;
+});
+
+/** Interactive hub: what do you want to do? Returns an action or undefined on exit. */
+export async function authHubMenu({ promptFn = authHubPrompt, input, output } = {}) {
+  return promptFn({ message: 'What would you like to do?', choices: HUB_CHOICES }, { input, output });
 }
 
 /**
@@ -36,7 +63,7 @@ export async function dispatchSetupAction(app, argv, action) {
   } else if (action === 'remove') {
     const name = await pickProfile(app, 'Remove which instance?');
     await removeProfile(app, name);
-  } else { // modify
+  } else if (action === 'modify') {
     await modifyProfile(app, argv);
   }
 }
@@ -60,6 +87,7 @@ export function setupCmd(wrap) {
         return;
       }
       const action = await authHubMenu();
+      if (action === undefined) return;
       await dispatchSetupAction(app, argv, action);
     }),
   };
