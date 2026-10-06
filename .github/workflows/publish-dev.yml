@@ -19,6 +19,7 @@ jobs:
   publish:
     name: Publish dev package
     runs-on: ubuntu-latest
+    environment: DEV
     steps:
       - uses: actions/checkout@v4
 

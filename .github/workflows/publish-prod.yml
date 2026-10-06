@@ -18,6 +18,7 @@ jobs:
   publish:
     name: Publish production package
     runs-on: ubuntu-latest
+    environment: PROD
     steps:
       - uses: actions/checkout@v4
 
