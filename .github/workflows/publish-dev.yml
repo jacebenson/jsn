@@ -1,0 +1,49 @@
+name: Publish dev channel
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+# One-time npm setup:
+# Package settings -> Trusted Publishers -> GitHub Actions.
+# Repository: jacebenson/jsn. Workflow: publish-dev.yml.
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    name: Publish dev package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      # npm trusted publishing needs npm 11.5.1 or newer for OIDC.
+      - name: Update npm for trusted publishing
+        run: npm install --global npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Publish dev prerelease
+        run: |
+          version=$(node -p "require('./package.json').version")
+          npm version "${version}-dev.${GITHUB_RUN_NUMBER}" --no-git-tag-version
+          npm publish --access public --provenance --tag dev
