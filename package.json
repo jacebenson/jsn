@@ -23,6 +23,7 @@
     "automation"
   ],
   "author": "Jace Benson",
+  "repository": "https://github.com/jacebenson/jsn",
   "license": "MIT",
   "engines": {
     "node": ">=22.5.0"
