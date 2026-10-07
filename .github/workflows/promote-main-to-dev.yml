@@ -29,9 +29,10 @@ jobs:
       - name: Promote main to dev
         run: |
           git fetch origin main dev
+          expected_dev_sha=$(git rev-parse origin/dev)
           git checkout --force -B dev origin/dev
-          git merge --ff-only origin/main
-          git push origin dev
+          git reset --hard origin/main
+          git push origin dev --force-with-lease=refs/heads/dev:$expected_dev_sha
 
       # A GITHUB_TOKEN push does not start another workflow, so dispatch the
       # existing dev publish path explicitly after the promotion succeeds.
