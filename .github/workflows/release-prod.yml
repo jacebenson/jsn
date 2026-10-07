@@ -13,6 +13,7 @@ on:
           - major
 
 permissions:
+  actions: write
   contents: write
 
 env:
@@ -65,6 +66,12 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin HEAD:main "$TAG"
+
+      - name: Dispatch production npm publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run publish-prod.yml --ref "$TAG"
 
       - name: Create GitHub release
         env:
