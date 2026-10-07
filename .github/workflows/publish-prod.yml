@@ -4,6 +4,11 @@ on:
   push:
     tags: ['v*.*.*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish (for example v4.3.5)
+        required: true
+        type: string
 
 # One-time npm setup:
 # Package settings -> Trusted Publishers -> GitHub Actions.
@@ -22,6 +27,8 @@ jobs:
     environment: prod
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -45,7 +52,7 @@ jobs:
 
       - name: Verify tag matches package version
         env:
-          TAG_VERSION: ${{ github.ref_name }}
+          TAG_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           package_version=$(node -p "require('./package.json').version")
           tag_version="${TAG_VERSION#v}"

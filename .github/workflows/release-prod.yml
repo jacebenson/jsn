@@ -71,7 +71,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
-        run: gh workflow run publish-prod.yml --ref "$TAG"
+        run: gh workflow run publish-prod.yml --ref main -f tag="$TAG"
 
       - name: Create GitHub release
         env:
