@@ -1,0 +1,41 @@
+name: Promote main to dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: promote-main-to-dev
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Fast-forward dev from main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Promote main to dev
+        run: |
+          git fetch origin main dev
+          git checkout --force dev
+          git merge --ff-only origin/main
+          git push origin dev
+
+      # A GITHUB_TOKEN push does not start another workflow, so dispatch the
+      # existing dev publish path explicitly after the promotion succeeds.
+      - name: Publish promoted dev package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish-dev.yml --ref dev
