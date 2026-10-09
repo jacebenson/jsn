@@ -12,5 +12,6 @@ This is the product map for JSN. The verification kitchen under `.agents/skills/
 | Documentation | `docs`, including search, refresh, ingest, serve, and sync flows | `src/commands/docs/`, `docs/`, `skills/` | Local fixture search in JSON and Markdown; no instance required |
 | Output and scripting | `--json`, `--markdown`, `--csv`, `--get`, and styled output | `src/output.js`, `src/cli.js` | Output-shape and CLI tests |
 | Performance and diagnostics | `perf`, logs, transactions, snippets, and inspect commands | `src/commands/perf.js`, related command modules | Read-only command checks and focused tests |
+| GraphQL | `graphql` with positional, `--query`, `--query-file`, or `--stdin` documents | `src/commands/graphql.js`, `src/sdk.js` | Bounded authenticated query plus command/transport tests |
 
 For proof details, start with `.agents/skills/verify/SKILL.md` and `.agents/skills/verify/features/README.md`. Add a feature here only when the command exists in the source and its user-visible behavior is understood.

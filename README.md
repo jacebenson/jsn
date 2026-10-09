@@ -81,6 +81,10 @@ jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b p
 jsn eval "gs.info('Hello World')"
 cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
 
+# Now GraphQL (documents may contain mutations; read-only profiles are blocked)
+jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
+cat incident.graphql | jsn graphql --stdin --variables '{"limit":2}'
+
 # Saved query snippets (stored locally, run against the active profile)
 jsn snippets save open-inc --table incident --query "active=true"
 jsn snippets run open-inc
@@ -168,6 +172,8 @@ jsn incidents list
 ```
 
 For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`docs/AUTH_LIFECYCLE.md`](docs/AUTH_LIFECYCLE.md).
+
+GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`; introspection and available namespaces depend on the target instance.
 
 ## Local data
 

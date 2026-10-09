@@ -70,6 +70,7 @@ import { atfCmd } from './commands/atf.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { perfCmd } from './commands/perf.js';
 import { diffCmd } from './commands/diff.js';
+import { graphqlCmd } from './commands/graphql.js';
 
 function wrap(handler) {
   return async (argv) => {
@@ -373,6 +374,7 @@ export function buildCLI() {
     .command(approvalsCmd(wrap))
     .command(perfCmd(wrap))
     .command(diffCmd(wrap))
+    .command(graphqlCmd(wrap))
     .command(evalCmd(wrap))
     .command(restCmd(wrap))
     .command(skillCmd(wrap))
