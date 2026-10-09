@@ -72,6 +72,11 @@ jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # 
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
 jsn records list --table incident --limit 10 --csv                            # output CSV
 
+# Read-only cross-profile record diff
+jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
+jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --ignore state
+jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --no-ignore
+
 # Script execution
 jsn eval "gs.info('Hello World')"
 cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
@@ -110,7 +115,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 Every command supports `--json`, `--query`, and `--help`.
 
