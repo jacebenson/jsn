@@ -93,6 +93,87 @@ jsn snippets run open-inc
 jsn logs follow --level error --tail 10
 ```
 
+### Flow Designer actions
+
+`actions` and `action` are the same command. `list`, `show`, and explicit
+`delete` remain available. Create and edit use full Process Flow JSON, not
+ordinary table-field updates.
+
+```bash
+jsn actions step-types --scope <scope_sys_id> --get data > step-types.json
+jsn actions create --scope <scope_sys_id> --data-file new-action.json --json
+jsn actions definition <action_sys_id> --get data > action.json
+# Edit action.json, retaining its ID, scope, lifecycle fields and all arrays.
+jsn actions update <action_sys_id> --data-file action.json --json
+jsn action edit <action_sys_id> --data-file action.json --json  # same operation
+jsn actions test <action_sys_id> --force --output-map '{"response":"hello"}' --wait --timeout 60 --json
+jsn actions test <action_sys_id> --force --data-file action.json --output-map '{"response":"hello"}' --wait --get data.outputs.response.value
+jsn actions delete <action_sys_id> --force  # explicit cleanup, never automatic
+```
+
+Existing targets infer their exact transaction scope from the action record.
+An explicit `--scope` must match that record byte-for-byte and exist in
+`sys_scope`. For Global, use the literal sys_id `global`.
+
+This **illustrative create document** shows an input/script/output mapping.
+Replace `<SCRIPT_STEP_TYPE_SYS_ID>` with the target's `step-types` result.
+Start from that step type's full input/output schemas, preserving runtime
+settings, status outputs and any other required fields. The shortened example
+is not a captured or instance-verified template. New steps/variables need their
+own identifiers; do not clone another action's record IDs. Leave new steps'
+`step_id` and `action` blank or omitted. Create binds their `action` to the newly
+allocated parent; persisted step IDs or parent bindings are rejected before creation.
+
+```json
+{
+  "name": "Echo response",
+  "description": "Return the supplied response",
+  "internal_name": "echo_response",
+  "inputs": [{"name": "response", "label": "Response", "type": "string", "mandatory": true}],
+  "outputs": [{"name": "response", "label": "Response", "type": "string", "value": "{{step[11111111-2222-4333-8444-555555555555].response}}"}],
+  "steps": [{
+    "cid": "11111111-2222-4333-8444-555555555555",
+    "step_type": "SCRIPT",
+    "step_type_id": "<SCRIPT_STEP_TYPE_SYS_ID>",
+    "label": "Echo script",
+    "order": 1,
+    "inputs": [
+      {"name": "required_run_time", "type": "choice", "value": "instance"},
+      {"name": "script", "type": "script", "value": "(function execute(inputs, outputs) { outputs.response = inputs.response; })(inputs, outputs);"}
+    ],
+    "outputs": [],
+    "extended_inputs": [{"name": "response", "type": "string", "value": "{{inputs.response}}", "extended": true}],
+    "extended_outputs": [{"name": "response", "type": "string", "extended": true}]
+  }]
+}
+```
+
+Create first inserts the parent in `sys_hub_action_type_definition`, reads that
+parent's own Process Flow defaults, then saves the inputs, outputs and nonempty
+steps with the internal `/api/now/processflow/action/action_types/{id}` PUT.
+It retains fresh lifecycle/status metadata instead of copying source snapshot
+or status IDs. A subsequent definition GET plus `/step_instances` GET verifies
+scripts, mappings and schemas. Update requires a complete document from
+`definition`, including target-owned lifecycle fields. Omitted fields are
+rejected before mutation. A PUT timeout triggers readback, not another PUT;
+`persisted_after_timeout` means persistence was verified, not that HTTP success
+was received. Failed creation reports the parent ID and leaves cleanup to you.
+
+Test sends `action`, `outputMap`, `runOnThread` and `tracingEnabled` to `/test`.
+Despite its wire name, `--output-map` supplies **action inputs**. Without
+`--wait`, success means dispatch only, with `status: dispatched` and no outputs.
+With `--wait`, JSN requires a `COMPLETE` context, blank `error_message`, and each
+declared user output's actual value from `sys_flow_runtime_value`. Output entries
+have `value`, `displayValue` and `hasValue`; false, zero and empty strings count.
+Failures, denied/missing outputs and timeouts exit nonzero. The wait budget
+starts after dispatch, defaults to 60 seconds, and is capped at 3600 seconds.
+Timeout does not cancel the server execution. Draft actions can be tested without
+publication. Testing runs their scripts and can have side effects. It requires
+interactive confirmation or `--force`, unless the profile explicitly skips
+confirmations. Read-only profiles block create/update/delete/test. No publish
+or snapshot command is added.
+These internal endpoints and runtime-table permissions can vary by instance.
+
 ### Flow execution fields
 
 `jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:

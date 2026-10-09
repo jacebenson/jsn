@@ -3,6 +3,7 @@
 import { gunzipSync } from 'node:zlib';
 import { errAuth, errAPI, errNetwork } from './errors.js';
 import { getStringField } from './helpers.js';
+import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -231,6 +232,13 @@ export class SDKClient {
     const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
     await this.request(endpoint, { method: 'DELETE' });
   }
+
+  // Flow Designer actions use full Process Flow documents, not table CRUD.
+  getProcessFlowAction(id, scope, opts) { return getAction(this, id, scope, opts); }
+  getProcessFlowStepTypes(scope) { return getStepTypes(this, scope); }
+  createProcessFlowAction(scope, definition) { return createAction(this, scope, definition); }
+  updateProcessFlowAction(id, scope, definition) { return updateAction(this, id, scope, definition); }
+  testProcessFlowAction(id, scope, definition, outputMap, opts) { return testAction(this, id, scope, definition, outputMap, opts); }
 
   // ─── Attachments ───
 

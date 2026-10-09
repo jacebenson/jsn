@@ -109,6 +109,22 @@ adapter, then owns depth normalization, recursive subflow traversal, custom
 action expansion, caches, cycle handling, nested failures, and `_formatted`
 rendering. `src/commands/flows.js` only adapts yargs/App output to this seam.
 
+## Flow Designer action definition
+
+`src/processflow-actions.js` owns the resource-specific action lifecycle.
+A complete **action definition** is Process Flow metadata plus executable
+`steps` from `/step_instances`, including inputs, outputs, scripts and mappings.
+The `sys_hub_action_type_definition` row alone is only the **parent**, not proof
+of an executable action. Create combines a source document's executable fields
+with the new parent's own defaults and binds new steps to that parent. Create
+rejects persisted step IDs and parent bindings before allocating a parent.
+Update requires a full target document, preserving state and reserved output IDs.
+A **verified save** compares persisted executable fields after the PUT in both
+directions. Only known empty defaults and server UI metadata are normalized. A
+**test dispatch** only returns a context ID; a **completed action test** also
+requires `COMPLETE`, blank error fields and actual declared runtime outputs.
+Neither operation implies publication.
+
 ## Flow execution
 
 `src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.
