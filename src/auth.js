@@ -41,30 +41,32 @@ function credKey(instance, username) {
 
 // ─── PKCE state persistence (shared with Go version) ───
 
-function pkceStatePath(instance) {
+function pkceStatePath(instance, username) {
   const dir = path.join(globalConfigDir(), 'pkce');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const filename = sanitizeKeyPart(instance) + '.json';
+  // A known profile identity gets its own pending-login slot. Keep the bare
+  // instance slot for legacy/no-profile flows, where no identity exists yet.
+  const filename = credKey(instance, username) + '.json';
   return path.join(dir, filename);
 }
 
-function savePKCEState(instance, pkce) {
-  const filePath = pkceStatePath(instance);
+function savePKCEState(instance, pkce, username) {
+  const filePath = pkceStatePath(instance, username);
   fs.writeFileSync(filePath, JSON.stringify(pkce, null, 2), { mode: 0o600 });
 }
 
-function loadPKCEState(instance) {
+function loadPKCEState(instance, username) {
   try {
-    const data = fs.readFileSync(pkceStatePath(instance), 'utf-8');
+    const data = fs.readFileSync(pkceStatePath(instance, username), 'utf-8');
     return JSON.parse(data);
   } catch {
     return null;
   }
 }
 
-function removePKCEState(instance) {
+function removePKCEState(instance, username) {
   try {
-    fs.unlinkSync(pkceStatePath(instance));
+    fs.unlinkSync(pkceStatePath(instance, username));
   } catch {
     // ignore
   }
@@ -746,7 +748,7 @@ export class AuthManager {
     instanceURL = normalizeInstanceURL(instanceURL);
     const clientID = getOAuthClientID();
     const pkce = generatePKCE();
-    savePKCEState(instanceURL, pkce);
+    savePKCEState(instanceURL, pkce, username);
     const url = buildAuthURL(instanceURL, clientID, pkce);
     if (waitFile) {
       console.log(url);
@@ -766,7 +768,7 @@ export class AuthManager {
         const code = fs.readFileSync(filePath, 'utf-8').trim();
         if (code) {
           console.log(`\nAuthorization code found in ${filePath}`);
-          removePKCEState(instanceURL);
+          removePKCEState(instanceURL, username);
           const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
           this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
           console.log('Token exchange successful!\n');
@@ -838,7 +840,7 @@ export class AuthManager {
   async loginWithCode(instanceURL, code, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const clientID = getOAuthClientID();
-    const pkce = loadPKCEState(instanceURL);
+    const pkce = loadPKCEState(instanceURL, username);
     if (!pkce) {
       throw errAuth(
         `No pending login session for ${instanceURL}.\n\n` +
@@ -848,7 +850,7 @@ export class AuthManager {
         `  jsn auth login ${instanceURL} --code CODE`
       );
     }
-    removePKCEState(instanceURL);
+    removePKCEState(instanceURL, username);
 
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
     this.saveCredentials(instanceURL, newCreds, username || newCreds.username);

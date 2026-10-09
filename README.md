@@ -162,6 +162,8 @@ export SERVICENOW_OAUTH_TOKEN="***"
 jsn incidents list
 ```
 
+For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`docs/AUTH_LIFECYCLE.md`](docs/AUTH_LIFECYCLE.md).
+
 ## Local data
 
 JSN stores durable local data under `~/.jsn/`. Documentation lives in

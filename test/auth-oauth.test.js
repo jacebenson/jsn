@@ -84,4 +84,43 @@ describe('OAuth URL', () => {
     assert.ok(url.startsWith('https://dev12345.service-now.com/'));
   });
 
+  it('keeps pending PKCE state separate for concurrent same-instance profiles', async () => {
+    const { AuthManager } = await import('../src/auth.js');
+    const originalXdg = process.env.XDG_CONFIG_HOME;
+    const tempConfigHome = mkdtempSync(path.join(tmpdir(), 'jsn-auth-pkce-concurrent-'));
+    process.env.XDG_CONFIG_HOME = tempConfigHome;
+    const saves = [];
+    const auth = new AuthManager({ config: {} }, {
+      credentialStore: {
+        load: () => null,
+        save: (instance, credentials, username) => saves.push({ instance, credentials, username }),
+        delete: () => {},
+      },
+    });
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+      const token = options.body.includes('alice-code') ? 'alice-token' : 'bob-token';
+      const body = JSON.stringify({ access_token: token, refresh_token: 'refresh', expires_in: 3600 });
+      return { ok: true, json: async () => JSON.parse(body), text: async () => body };
+    };
+    try {
+      const instance = 'https://shared-pkce.example.com';
+      auth.buildAuthURL(instance, undefined, 'alice');
+      auth.buildAuthURL(instance, undefined, 'bob');
+
+      await auth.loginWithCode(instance, 'alice-code', 'alice');
+      await auth.loginWithCode(instance, 'bob-code', 'bob');
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (originalXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdg;
+      rmSync(tempConfigHome, { recursive: true, force: true });
+    }
+
+    assert.deepStrictEqual(saves.map(({ username, credentials }) => [username, credentials.access_token]), [
+      ['alice', 'alice-token'],
+      ['bob', 'bob-token'],
+    ]);
+  });
+
 });
