@@ -126,6 +126,20 @@ describe('parseDataArg', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('preserves multiline script strings and object types from JSON files exactly', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-test-'));
+    tmpFile = path.join(tmpDir, 'script-payload.json');
+    const script = 'var Example = Class.create();\nExample.prototype = {\n  type: "Example"\n};\n';
+    const payload = { script, description: 'multiline source' };
+    fs.writeFileSync(tmpFile, JSON.stringify(payload), 'utf8');
+    const { parseDataArg } = await import('../src/helpers.js');
+    const result = parseDataArg({ 'data-file': tmpFile });
+    assert.strictEqual(typeof result.script, 'string');
+    assert.strictEqual(result.script, script);
+    assert.deepStrictEqual(result, payload);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it('throws when no data or data-file', async () => {
     const { parseDataArg } = await import('../src/helpers.js');
     assert.throws(() => parseDataArg({}), /--data, --data-file, or --data-stdin is required/);

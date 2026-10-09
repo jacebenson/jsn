@@ -30,6 +30,26 @@ describe('SDKClient', () => {
     assert.strictEqual(client.timeout, 60000);
   });
 
+  it('serializes parsed multiline script fields without changing their type or contents', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const auth = { getCredentials: () => ({ auth_method: 'oauth', access_token: 'test-token' }) };
+    const client = new SDKClient('https://test.service-now.com', auth);
+    const payload = { script: 'var Example = Class.create();\nExample.prototype = {};\n' };
+    const previousFetch = globalThis.fetch;
+    let requestBody;
+    globalThis.fetch = async (request) => {
+      requestBody = await request.text();
+      return { ok: true, status: 200, text: async () => JSON.stringify({ result: payload }) };
+    };
+    try {
+      await client.update('sys_script_include', 'record-123', payload);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+    assert.deepStrictEqual(JSON.parse(requestBody), payload);
+    assert.strictEqual(JSON.parse(requestBody).script, payload.script);
+  });
+
   it('replaces rotated OAuth cookies instead of sending duplicate cookie names', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const responses = [

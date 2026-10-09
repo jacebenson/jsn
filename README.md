@@ -125,6 +125,25 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 Every command supports `--json`, `--query`, and `--help`.
 
+For multiline script fields, `--data-file` parses the file as UTF-8 JSON and
+passes the resulting values through unchanged. On Windows PowerShell, generate
+the payload as JSON text and inspect it before invoking JSN, for example:
+
+```powershell
+$script = [string](Get-Content -Path .\Example.script.js -Raw)
+$payload = @{ script = $script; description = 'Example' } |
+  ConvertTo-Json -Depth 5 -Compress
+Set-Content -Path .\Example.update.json -Value $payload -Encoding UTF8
+Get-Content .\Example.update.json -Raw | ConvertFrom-Json | Select-Object -ExpandProperty script
+jsn includes update Example --data-file .\Example.update.json --json
+```
+
+`JSON.parse` preserves a JSON string as a JavaScript string, and the SDK
+serializes update payloads with `JSON.stringify`. If the file already contains
+a `{value=...}` or FileSystem-provider representation, that text is external
+to JSN and must be corrected before the update. Use a read-back command or
+`records update --strict` where applicable to verify persisted fields.
+
 ## Instances
 
 Switch between instances without re-authenticating.
