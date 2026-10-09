@@ -121,6 +121,8 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
+**Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
+
 Every command supports `--json`, `--query`, and `--help`.
 
 ## Instances
@@ -174,6 +176,8 @@ jsn incidents list
 For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`docs/AUTH_LIFECYCLE.md`](docs/AUTH_LIFECYCLE.md).
 
 GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`; introspection and available namespaces depend on the target instance.
+
+`jsn platform stats` uses a fixed `GET /xmlstats.do` request. It never accepts a processor path, query parameters, or request body, and it does not emit raw XML, cookies, credentials, or full node identifiers. Oversized, HTML/login, permission, unsupported, timeout, and malformed responses are reported with bounded collector statuses; missing metrics remain unavailable rather than being reported as zero.
 
 ## Local data
 
