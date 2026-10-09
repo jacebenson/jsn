@@ -85,4 +85,38 @@ describe('transactions command', () => {
     assert.strictEqual(app.lastOk.data.types[0].avg_response_time_ms, 73.5);
     assert.strictEqual(app.lastOk.data.types[0].max_response_time_ms, 236659);
   });
+
+  it('builds bounded Client Transaction Timings groups with filters and unavailable metrics', async () => {
+    const { topTransactionsCmd } = await import('../src/commands/transactions.js');
+    let call;
+    const sdk = {
+      aggregate: async (table, options) => {
+        call = { table, options };
+        return { groups: [{
+          stats: { count: '12', avg: { response_time: '41.5' }, max: { response_time: '99' } },
+          groupby_fields: [
+            { field: 'type', value: 'form' },
+            { field: 'table', value: 'incident' },
+            { field: 'view', value: 'ess' },
+          ],
+        }, {
+          stats: { count: '2' },
+          groupby_fields: [{ field: 'type', value: 'list' }],
+        }] };
+      },
+    };
+    const app = buildApp(sdk);
+    await topTransactionsCmd((fn) => fn).handler({
+      type: 'form', table: 'incident', view: 'ess', query: 'active=true', limit: 1, window: 2, app,
+    }, app);
+
+    assert.equal(call.table, 'syslog_transaction');
+    assert.deepEqual(call.options.groupBy, ['type', 'table', 'view']);
+    assert.match(call.options.query, /active=true/);
+    assert.match(call.options.query, /sys_created_on>=javascript:gs.daysAgoStart\(2\)/);
+    assert.equal(app.lastOk.data.groups.length, 1);
+    assert.equal(app.lastOk.data.groups[0].count, 12);
+    assert.equal(app.lastOk.data.groups[0].min_response_time_ms, null);
+    assert.match(app.lastOk.data._formatted, /TYPE\s+TABLE\s+VIEW/);
+  });
 });

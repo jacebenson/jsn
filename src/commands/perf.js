@@ -1,5 +1,6 @@
 import { errUsageHint, errUsage } from '../errors.js';
 import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparisonDetailed } from '../perf.js';
+import { topTransactionsCmd } from './transactions.js';
 import { paginatedSearch } from '../paginated-search.js';
 
 function pickerEnabled(app) {
@@ -106,6 +107,11 @@ export function perfCmd(wrap) {
             breadcrumbs: [listHint(), compareHint(run.run_id)],
           });
         }),
+      })
+      .command({
+        command: 'transactions [subcommand]',
+        describe: 'Inspect Client Transaction Timings',
+        builder: (b) => b.command(topTransactionsCmd(wrap)),
       })
       .command({
         command: 'compare [baseline] [new]',

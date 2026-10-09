@@ -58,6 +58,16 @@ function command(name) {
   return definition;
 }
 
+function nestedCommand(parent, name) {
+  const definition = commandTree().find(item => item.command === parent);
+  assert.ok(definition, `missing perf ${parent} command`);
+  const commands = [];
+  definition.builder({ command(item) { commands.push(item); return this; }, option() { return this; } });
+  const child = commands.find(item => item.command === name);
+  assert.ok(child, `missing perf ${parent} ${name} command`);
+  return child;
+}
+
 let dataHome;
 
 test.beforeEach(() => {
@@ -138,4 +148,21 @@ test('perf compare preserves the JSON envelope and comparison _formatted field',
   assert.match(result.data._formatted, /Performance comparison:/);
   assert.equal(result.summary, `Performance comparison: ${result.data.status}`);
   assert.deepEqual(result.breadcrumbs.map(item => item.action), ['list', 'show', 'show']);
+});
+
+test('perf transactions top is discoverable and preserves the JSON envelope', async () => {
+  const top = nestedCommand('transactions [subcommand]', 'top');
+  const sdk = {
+    async aggregate() {
+      return { groups: [{ stats: { count: '3' }, groupby_fields: [{ field: 'type', value: 'form' }] }] };
+    },
+  };
+  const { app, envelope } = appFor(sdk);
+  await top.handler({ limit: 10 }, app);
+  const result = envelope();
+  assert.equal(result.ok, true);
+  assert.equal(result.data.groups[0].type, 'form');
+  assert.equal(result.data.groups[0].avg_response_time_ms, null);
+  assert.equal(result.data._formatted.includes('unavailable'), true);
+  assert.match(result.summary, /Top transaction groups/);
 });

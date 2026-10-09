@@ -39,6 +39,7 @@ export function classifyTransactionType(type, url = '') {
 }
 
 function numericValue(value) {
+  if (value == null || String(value).trim() === '') return null;
   const n = Number(String(value ?? '').replaceAll(',', ''));
   return Number.isFinite(n) ? n : null;
 }
@@ -62,6 +63,83 @@ function summarizeGroup(group) {
     avg_response_time_ms: metricValue(stats, 'avg', 'response_time'),
     min_response_time_ms: metricValue(stats, 'min', 'response_time'),
     max_response_time_ms: metricValue(stats, 'max', 'response_time'),
+  };
+}
+
+function topQuery(argv = {}) {
+  const parts = [];
+  if (argv.query) parts.push(String(argv.query));
+  for (const field of ['type', 'table', 'view']) if (argv[field]) parts.push(`${field}=${argv[field]}`);
+  if (argv.window != null && String(argv.window) !== '') {
+    const days = Math.max(1, Math.min(30, Number(argv.window) || 1));
+    parts.push(`sys_created_on>=javascript:gs.daysAgoStart(${days})`);
+  }
+  if (argv.since) parts.push(`sys_created_on>=${argv.since}`);
+  if (argv.until) parts.push(`sys_created_on<=${argv.until}`);
+  return normalizeTransactionQuery(parts.join('^'));
+}
+
+function topGroup(group) {
+  const stats = group?.stats || {};
+  return {
+    type: groupValue(group, 'type') || 'unavailable',
+    table: groupValue(group, 'table') || 'unavailable',
+    view: groupValue(group, 'view') || 'unavailable',
+    count: numericValue(stats.count) ?? 0,
+    avg_response_time_ms: metricValue(stats, 'avg', 'response_time'),
+    min_response_time_ms: metricValue(stats, 'min', 'response_time'),
+    max_response_time_ms: metricValue(stats, 'max', 'response_time'),
+  };
+}
+
+function formatTopTransactions(groups) {
+  const value = metric => metric == null ? 'unavailable' : `${Math.round(metric * 100) / 100} ms`;
+  const lines = [
+    'TYPE         TABLE              VIEW             COUNT  AVG          MIN          MAX',
+    '-----------  -----------------  ---------------  -----  -----------  -----------  -----------',
+  ];
+  for (const row of groups) lines.push(`${String(row.type).slice(0, 11).padEnd(11)}  ${String(row.table).slice(0, 17).padEnd(17)}  ${String(row.view).slice(0, 15).padEnd(15)}  ${String(row.count).padStart(5)}  ${value(row.avg_response_time_ms).padEnd(11)}  ${value(row.min_response_time_ms).padEnd(11)}  ${value(row.max_response_time_ms)}`);
+  if (groups.length === 0) lines.push('(no transaction groups)');
+  return `${lines.join('\\n')}\\n`;
+}
+
+export function topTransactionsCmd(wrap) {
+  return {
+    command: 'top',
+    describe: 'Rank Client Transaction Timings by type, table, and view',
+    builder: (y) => y
+      .option('type', { type: 'string', describe: 'Filter transaction type' })
+      .option('table', { type: 'string', describe: 'Filter transaction table' })
+      .option('view', { type: 'string', describe: 'Filter transaction view' })
+      .option('query', { type: 'string', describe: 'Additional encoded query' })
+      .option('window', { type: 'number', default: 1, describe: 'Look back this many days (max 30)' })
+      .option('since', { type: 'string', describe: 'Only records on or after this timestamp' })
+      .option('until', { type: 'string', describe: 'Only records on or before this timestamp' })
+      .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Maximum groups to return' }),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      const query = topQuery(argv);
+      const limit = Math.max(1, Math.min(100, Number(argv.limit) || 20));
+      const result = await app.sdk.aggregate('syslog_transaction', {
+        query,
+        groupBy: ['type', 'table', 'view'],
+        count: true,
+        averageFields: ['response_time'],
+        minimumFields: ['response_time'],
+        maximumFields: ['response_time'],
+        orderBy: 'countDESC',
+      });
+      const groups = (Array.isArray(result.groups) ? result.groups : []).map(topGroup).slice(0, limit);
+      app.ok({
+        table: 'syslog_transaction',
+        query,
+        group_by: ['type', 'table', 'view'],
+        response_time_unit: 'ms',
+        groups,
+        _formatted: formatTopTransactions(groups),
+        context: { instance_url: app.getEffectiveInstance() },
+      }, { summary: `Top transaction groups: ${groups.length}` });
+    }),
   };
 }
 
