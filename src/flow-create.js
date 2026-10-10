@@ -303,6 +303,70 @@ function buildPredicateMetadata(condition, descriptor) {
   };
 }
 
+function predicateMetadataMatches(metadata, condition) {
+  const expected = parseSimpleCondition(condition);
+  if (!expected) return true;
+  const parsed = parseMaybeJson(metadata, null);
+  const comparisons = [];
+  walk(parsed, object => {
+    if (stringValue(object.type).toLowerCase() !== 'comparison') return;
+    comparisons.push({
+      field: stringValue(object.field),
+      operator: stringValue(object.operator),
+      term: stringValue(object.term ?? object.value),
+    });
+  });
+  return comparisons.some(comparison => comparison.field === expected.field
+    && comparison.operator === expected.operator
+    && comparison.term === expected.term);
+}
+
+function assertPredicateMetadataMatches(metadata, condition, label) {
+  if (!predicateMetadataMatches(metadata, condition)) throw new Error(`${label} predicate metadata did not match the requested field, operator, and term`);
+}
+
+function actionTypeIdOf(action) {
+  return idValue(action?.actionTypeSysId || action?.action_type_sys_id || action?.actionType?.sys_id || action?.actionType?.sysId);
+}
+
+function verifyCreatedFlowReadback({ flowId, processflow, trigger, manifest, actionInstances, inserted }) {
+  const returnedFlowId = stringValue(processflow.flowId || processflow.flow_id || processflow.sysId || processflow.sys_id);
+  if (returnedFlowId && returnedFlowId !== flowId) throw new Error(`ProcessFlow read-back returned a different flow ID (${returnedFlowId})`);
+
+  const triggers = findArray(processflow, 'triggerInstances');
+  if (triggers.length !== 1) throw new Error(`ProcessFlow read-back returned ${triggers.length} trigger instances; expected one`);
+  const savedTrigger = triggers[0];
+  if (findId(savedTrigger, ['sysId', 'sys_id', 'id', 'triggerId']) !== trigger.id) throw new Error('Created trigger identity was not preserved in ProcessFlow read-back');
+  const savedTriggerInputs = inputList(savedTrigger);
+  for (const expected of trigger.inputs) {
+    const actual = savedTriggerInputs.find(input => input.name === expected.name);
+    if (!actual || inputRawValue(actual) !== inputRawValue(expected)) throw new Error(`Created trigger ${expected.name} did not match the requested value in ProcessFlow read-back`);
+  }
+  assertPredicateMetadataMatches(savedTrigger.metadata, manifest.trigger.condition || '', 'Created trigger');
+
+  const savedActions = findExistingActions(processflow);
+  if (savedActions.length !== actionInstances.length) throw new Error(`ProcessFlow read-back returned ${savedActions.length} Actions; expected ${actionInstances.length}`);
+  const insertedByUiId = new Map(inserted.map(action => [stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier), action]));
+  for (const expected of actionInstances) {
+    const insertedAction = insertedByUiId.get(expected.uiUniqueIdentifier);
+    if (!insertedAction) throw new Error(`Created Action ${expected.uiUniqueIdentifier} was not returned by the GraphQL mutation`);
+    const savedMatches = savedActions.filter(action => stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier) === expected.uiUniqueIdentifier);
+    if (savedMatches.length !== 1) throw new Error(`Created Action ${expected.uiUniqueIdentifier} was not uniquely present in ProcessFlow read-back`);
+    const savedAction = savedMatches[0];
+    const insertedId = findId(insertedAction, ['sysId', 'sys_id', 'id']);
+    const savedId = findId(savedAction, ['sysId', 'sys_id', 'id']);
+    if (!insertedId || savedId !== insertedId) throw new Error(`Created Action ${expected.uiUniqueIdentifier} identity did not match the GraphQL mutation read-back`);
+    if (actionTypeIdOf(savedAction) !== expected.actionTypeSysId) throw new Error(`Created Action ${expected.uiUniqueIdentifier} type did not match the requested Action`);
+    if (String(savedAction.order) !== String(expected.order)) throw new Error(`Created Action ${expected.uiUniqueIdentifier} order did not match the requested order`);
+    const savedInputs = inputList(savedAction);
+    if (savedInputs.length !== expected.inputs.length) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input count did not match the installed schema`);
+    for (const expectedInput of expected.inputs) {
+      const actualInput = savedInputs.find(input => input.name === expectedInput.name);
+      if (!actualInput || inputRawValue(actualInput) !== inputRawValue(expectedInput)) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input ${expectedInput.name} did not match the requested value`);
+    }
+  }
+}
+
 function makeTriggerPatch(flow, manifest, descriptor) {
   const trigger = findArray(flow, 'triggerInstances')[0];
   if (!trigger) throw new Error('Created flow did not return its default record trigger instance');
@@ -569,6 +633,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     if (inserted.length !== actionInstances.length) throw new Error(`Flow action patch returned ${inserted.length} inserted action identities; expected ${actionInstances.length}`);
 
     const processflow = await readProcessFlow(sdk, instance, flowId, scope);
+    verifyCreatedFlowReadback({ flowId, processflow, trigger, manifest, actionInstances, inserted });
     const { version } = await mutationContext('autosave_version', readUpdateSet, snapshots, () => createVerifiedFlowVersion(sdk, {
       instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow create',
     }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
@@ -653,7 +718,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       if (manifest.trigger.table !== undefined && inputRawValue(readbackInputs.find(input => input.name === 'table')) !== manifest.trigger.table) throw new Error(`Flow ${flowId} trigger table readback did not match the requested value`);
       if (manifest.trigger.condition !== undefined) {
         if (inputRawValue(readbackInputs.find(input => input.name === 'condition')) !== manifest.trigger.condition) throw new Error(`Flow ${flowId} trigger condition readback did not match the requested value`);
-        if (!JSON.stringify(parseMaybeJson(readbackTrigger.metadata, {})).includes(manifest.trigger.condition)) throw new Error(`Flow ${flowId} trigger metadata readback did not retain the requested predicate`);
+        assertPredicateMetadataMatches(readbackTrigger.metadata, manifest.trigger.condition, `Flow ${flowId} trigger`);
         const beforeMetadata = parseMaybeJson(beforeTrigger.metadata, {});
         const afterMetadata = parseMaybeJson(readbackTrigger.metadata, {});
         delete beforeMetadata.predicates;

@@ -61,6 +61,31 @@ test('testFlow rejects encoded-query operators in flow names before lookup', asy
   assert.equal(lists, 0);
 });
 
+test('testFlow honors explicit failure and does not treat string false as completed', async () => {
+  const run = async (dispatchResponse) => {
+    const sdk = {
+      async list(table) {
+        if (table === 'sys_hub_flow') return [{ sys_id: FLOW, name: 'Draft flow', scope: 'scope-1' }];
+        if (table === 'ticket') return [{ sys_id: RECORD }];
+        return [];
+      },
+      async request(_url, options = {}) {
+        if (options.method === 'GET') return { result: { data: definition } };
+        return dispatchResponse;
+      },
+    };
+    return testFlow(sdk, INSTANCE, FLOW, RECORD);
+  };
+
+  const explicitFailure = await run({ result: { completed: true, success: false } });
+  assert.equal(explicitFailure.status, 'completed');
+  assert.equal(explicitFailure.success, false);
+
+  const stringFalse = await run({ result: { completed: 'false' } });
+  assert.equal(stringFalse.status, 'accepted');
+  assert.equal(stringFalse.success, undefined);
+});
+
 test('testFlow never dispatches for a missing record or transport failure', async () => {
   let posts = 0;
   const sdk = {

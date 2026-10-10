@@ -67,6 +67,25 @@ describe('flow creation request shapes', () => {
     const { createFlowFromManifest } = await import('../src/flow-create.js');
     const calls = [];
     let versionReads = 0;
+    let processFlowReads = 0;
+    const createdDefinition = {
+      triggerInstances: [{
+        sysId: 'trigger-123',
+        triggerType: 'record_create_or_update',
+        metadata: JSON.stringify({ predicates: [{ type: 'compound', subpredicates: [{ type: 'compound', subpredicates: [{ type: 'compound', subpredicates: [{ type: 'comparison', field: 'short_description', operator: 'STARTSWITH', term: 'JSN-STUDY-' }] }] }] }] }),
+        inputs: [
+          { name: 'table', value: { value: 'ticket' } },
+          { name: 'condition', value: { value: 'short_descriptionSTARTSWITHJSN-STUDY-' } },
+        ],
+      }],
+      actionInstances: [{
+        id: 'action-123', uiUniqueIdentifier: 'generated-1', actionTypeSysId: 'action-type-123', order: '1',
+        inputs: [
+          { name: 'log_level', value: { value: 'info' } },
+          { name: 'log_message', value: { value: manifest.actions[0].inputs.log_message } },
+        ],
+      }],
+    };
     const sdk = {
       async list(table, params) {
         calls.push({ kind: 'list', table, params: String(params) });
@@ -78,10 +97,13 @@ describe('flow creation request shapes', () => {
       async request(endpoint, options = {}) {
         calls.push({ kind: 'request', endpoint, options });
         if (options.method === 'POST' && endpoint.includes('/processflow/flow?')) return { result: { sys_id: 'flow-123' } };
-        if (options.method === 'GET' && endpoint.includes('/processflow/flow/flow-123?sysparm_transaction_scope=')) return { result: { data: { triggerInstances: [{ sysId: 'trigger-123', uiUniqueIdentifier: 'trigger-ui-123', metadata: '{}' }] } } };
+        if (options.method === 'GET' && endpoint.includes('/processflow/flow/flow-123?sysparm_transaction_scope=')) {
+          processFlowReads += 1;
+          return { result: { data: processFlowReads === 1 ? { triggerInstances: [{ sysId: 'trigger-123' }] } : createdDefinition } };
+        }
         if (options.method === 'GET' && endpoint.includes('/trigger/record/table')) return { result: { label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] } };
         if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: [{ id: 'input-1', name: 'log_level', type: 'choice', default: 'info', choices: ['info', 'error'], parameter: { name: 'log_level', type: 'choice' } }, { id: 'input-2', name: 'log_message', type: 'string', mandatory: true, parameter: { name: 'log_message', type: 'string' } }] } };
-        if (endpoint === 'https://example.service-now.com/api/now/graphql') return { data: { global: { snFlowDesigner: { flow: { actions: { inserts: [{ sysId: 'action-123', uiUniqueIdentifier: 'action-ui-123' }] } } } } } };
+        if (endpoint === 'https://example.service-now.com/api/now/graphql') return { data: { global: { snFlowDesigner: { flow: { actions: { inserts: [{ sysId: 'action-123', uiUniqueIdentifier: 'generated-1' }] } } } } } };
         if (options.method === 'POST' && endpoint.includes('/versioning/create_version?sysparm_transaction_scope=')) return { result: { sys_id: 'version-1', type: 'Autosave' } };
         throw new Error(`unexpected request ${endpoint}`);
       },
@@ -93,7 +115,7 @@ describe('flow creation request shapes', () => {
     });
     assert.equal(result.flow.id, 'flow-123');
     assert.equal(result.trigger.id, 'trigger-123');
-    assert.deepEqual(result.actions, [{ sysId: 'action-123', uiUniqueIdentifier: 'action-ui-123' }]);
+    assert.deepEqual(result.actions, [{ sysId: 'action-123', uiUniqueIdentifier: 'generated-1' }]);
     assert.deepEqual(result.definition_readback, { available: true, status: 'read_back', flow_id: 'flow-123' });
     assert.equal(result.version.type, 'Autosave');
     assert.equal(result.update_set_capture.available, true);
@@ -128,6 +150,84 @@ describe('flow creation request shapes', () => {
     assert.ok(calls.some(call => call.kind === 'request' && call.options.method === 'GET' && call.endpoint.includes('/processflow/flow/flow-123?sysparm_transaction_scope=1169a246933f8f9087b0f14fdd03d627')));
     assert.ok(calls.some(call => call.kind === 'request' && call.endpoint.includes('/versioning/create_version?sysparm_transaction_scope=1169a246933f8f9087b0f14fdd03d627')));
     assert.ok(calls.every(call => !String(call.options?.body || '').includes('c215135293bf03d087b0f14fdd03d652')));
+  });
+
+  it('refuses to report creation success when saved Actions are missing', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    let versionReads = 0;
+    let versionPosts = 0;
+    let processFlowReads = 0;
+    const initialDefinition = { triggerInstances: [{ sysId: 'trigger-created-1' }] };
+    const savedDefinition = {
+      triggerInstances: [{
+        sysId: 'trigger-created-1',
+        metadata: JSON.stringify({ predicates: [{ type: 'compound', subpredicates: [{ type: 'compound', subpredicates: [{ type: 'compound', subpredicates: [{ type: 'comparison', field: 'short_description', operator: 'STARTSWITH', term: 'JSN-STUDY-' }] }] }] }] }),
+        inputs: [
+          { name: 'table', value: { value: 'ticket' } },
+          { name: 'condition', value: { value: 'short_descriptionSTARTSWITHJSN-STUDY-' } },
+        ],
+      }],
+      actionInstances: [],
+    };
+    const sdk = {
+      async list(table) {
+        if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
+        if (table === 'sys_hub_flow_version') return versionReads++ === 0 ? [] : [{ sys_id: 'version-1', flow: 'flow-123', type: 'Autosave' }];
+        return [];
+      },
+      async request(endpoint, options = {}) {
+        if (options.method === 'POST' && endpoint.includes('/processflow/flow?')) return { result: { sys_id: 'flow-123' } };
+        if (options.method === 'GET' && endpoint.includes('/processflow/flow/flow-123?')) {
+          processFlowReads += 1;
+          return { result: { data: processFlowReads === 1 ? initialDefinition : savedDefinition } };
+        }
+        if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: [
+          { id: 'input-1', name: 'log_level', type: 'choice', default: 'info', parameter: { name: 'log_level', type: 'choice' } },
+          { id: 'input-2', name: 'log_message', type: 'string', mandatory: true, parameter: { name: 'log_message', type: 'string' } },
+        ] } };
+        if (endpoint.endsWith('/api/now/graphql')) return {
+          data: {
+            global: {
+              snFlowDesigner: {
+                flow: { actions: { inserts: [{ sysId: 'action-1', uiUniqueIdentifier: 'generated-2' }] } },
+              },
+            },
+          },
+        };
+        if (options.method === 'POST' && endpoint.includes('/versioning/create_version')) {
+          versionPosts += 1;
+          return { result: { sys_id: 'version-1' } };
+        }
+        throw new Error(`unexpected request ${endpoint}`);
+      },
+    };
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', manifest, {
+      readUpdateSet: async () => null,
+      readTableDescriptor: async () => ({ label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] }),
+      idFactory: () => 'generated-2',
+    }), /Actions; expected 1/i);
+    savedDefinition.triggerInstances[0].inputs[0].value.value = 'incident';
+    processFlowReads = 0;
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', manifest, {
+      readUpdateSet: async () => null,
+      readTableDescriptor: async () => ({ label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] }),
+      idFactory: () => 'generated-2',
+    }), /trigger table did not match the requested value/i);
+    savedDefinition.triggerInstances[0].inputs[0].value.value = 'ticket';
+    savedDefinition.actionInstances = [{
+      id: 'action-1', uiUniqueIdentifier: 'generated-2', actionTypeSysId: 'action-type-123', order: '1',
+      inputs: [
+        { name: 'log_level', value: { value: 'info' } },
+        { name: 'log_message', value: { value: 'wrong value' } },
+      ],
+    }];
+    processFlowReads = 0;
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', manifest, {
+      readUpdateSet: async () => null,
+      readTableDescriptor: async () => ({ label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] }),
+      idFactory: () => 'generated-2',
+    }), /Action generated-2 input log_message did not match/i);
+    assert.equal(versionPosts, 0);
   });
 
   it('surfaces a partial patch with the created Flow ID and does not retry', async () => {
@@ -180,7 +280,10 @@ describe('flow update request shapes', () => {
     const calls = [];
     let versionReads = 0;
     const afterDefinition = structuredClone(baseDefinition);
-    afterDefinition.triggerInstances[0].metadata = JSON.stringify({ ...JSON.parse(baseDefinition.triggerInstances[0].metadata), predicates: [{ term: 'short_descriptionSTARTSWITHnew-' }] });
+    afterDefinition.triggerInstances[0].metadata = JSON.stringify({
+      ...JSON.parse(baseDefinition.triggerInstances[0].metadata),
+      predicates: [{ compound_type: 'or', subpredicates: [{ compound_type: 'and', subpredicates: [{ compound_type: 'and', subpredicates: [{ field: 'short_description', operator: 'STARTSWITH', term: 'new-', type: 'comparison' }], type: 'compound' }], type: 'compound' }], type: 'compound' }],
+    });
     afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], displayField: 'short_description', displayValue: { schemaless: false, schemalessValue: '', value: 'short_descriptionSTARTSWITHnew-' }, value: { schemaless: false, schemalessValue: '', value: 'short_descriptionSTARTSWITHnew-' } };
     afterDefinition.actionInstances[0].inputs[1] = { ...afterDefinition.actionInstances[0].inputs[1], value: { schemaless: false, schemalessValue: '', value: 'new message' }, displayValue: { schemaless: false, schemalessValue: '', value: 'new message' } };
     const sdk = {

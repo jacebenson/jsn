@@ -44,12 +44,27 @@ export function deriveRecordTrigger(definition) {
   return { trigger, type, table };
 }
 
+function booleanFlag(value) {
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return undefined;
+}
+
 function classifyResponse(response) {
   const data = flowData(response);
   const contextId = data?.contextId || data?.context_id || data?.sys_id || data?.execution_id || '';
-  const state = valueOf(data?.state || data?.status);
-  const completed = Boolean(data?.completed || data?.finished || ['success', 'complete', 'completed', 'failed', 'error'].includes(state.toLowerCase()));
-  const success = completed ? !['failed', 'error'].includes(state.toLowerCase()) : undefined;
+  const state = valueOf(data?.state ?? data?.status).toLowerCase();
+  const succeeded = ['success', 'succeeded'].includes(state);
+  const failed = ['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(state);
+  const completed = booleanFlag(data?.completed) === true
+    || booleanFlag(data?.finished) === true
+    || succeeded
+    || failed
+    || ['complete', 'completed'].includes(state);
+  const explicitSuccess = booleanFlag(data?.success ?? data?.successful);
+  const success = failed || explicitSuccess === false
+    ? false
+    : completed && (succeeded || explicitSuccess === true) ? true : undefined;
   return {
     accepted: true,
     status: completed ? 'completed' : 'accepted',
