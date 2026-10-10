@@ -5,7 +5,7 @@ import { declareCapabilities } from '../capabilities.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { createFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
+import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
 import { testFlow } from '../flow-test.js';
 
 function flowInspectionAdapter(app) {
@@ -275,12 +275,30 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'update <identifier>',
-          describe: 'Update a flow (not yet implemented)',
+          describe: 'Safely update supported fields of an existing inactive Draft flow',
           builder: (y) => y
-            .option('data', { type: 'string', describe: 'JSON data to update' }),
-          handler: wrap(async (_argv, _app) => {
-            throw new Error('Flow updates require the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to update flows, then use "jsn flows list" to view them.');
+            .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
+            .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const dataFile = argv.dataFile ?? argv['data-file'];
+            if (!dataFile && argv.data === undefined) throw new Error('Provide --data-file or --data for the flow update manifest');
+            let manifest;
+            try {
+              const raw = dataFile ? fs.readFileSync(dataFile, 'utf8') : argv.data;
+              manifest = JSON.parse(raw.charCodeAt?.(0) === 0xFEFF ? raw.slice(1) : raw);
+            } catch (error) {
+              throw new Error(`Invalid flow update manifest JSON: ${error.message}`, { cause: error });
+            }
+            await confirmDelete(app, argv, `Update draft flow ${argv.identifier}; unspecified components and inputs are preserved`);
+            const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
+              readUpdateSet: () => readCurrentUpdateSet(app.sdk),
+            });
+            return app.ok(result, {
+              summary: `Updated draft flow "${result.flow.name}" (${result.flow.id}) without activation`,
+              breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the updated draft flow' }],
+            });
           }),
         })
         .command({
@@ -304,7 +322,7 @@ export function flowsCmd(wrap) {
       console.log('  test <identifier>    Execute a record-triggered flow against one record');
       console.log('  doctor                Check whether this instance can publish flows');
       console.log('  create                Create a draft flow from a JSON manifest');
-      console.log('  update <identifier>   Update a flow (not yet implemented)');
+      console.log('  update <identifier>   Safely update supported fields of an existing Draft flow');
       console.log('  delete <identifier>   Delete a flow (not yet implemented)');
       console.log('');
       console.log('Run "jsn flows <command> --help" for details.');

@@ -223,6 +223,20 @@ side effects; this slice does not execute test flows during development.
 Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
 and rejected by this slice rather than silently ignored.
 
+`jsn flows update <identifier> --data-file update.json` is the safe narrow update
+slice for existing inactive Draft flows. The manifest may contain only `trigger`
+(with `table` and/or `condition`) and `actions`. Each action must identify one
+existing instance by exact `id` or `uiUniqueIdentifier`; its `inputs` object may
+change only inputs already present in that saved Action. Omitted trigger fields,
+Action inputs, metadata, component fields, and other flow components are
+preserved. Names must resolve to exactly one flow, and the protected
+`jace-test-flow` is rejected. Update performs the GraphQL
+`triggerInstances.update`/`actions.update` patch, reads the full ProcessFlow
+definition back, and creates an Autosave version. It never publishes or
+activates the flow. Unsupported Flow Logic, subflows, variables, error handling,
+new Action inputs, ambiguous identities, active flows, and non-Draft flows are
+rejected before mutation.
+
 `jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:
 
 - `started`: `started`, `start_time`, `started_at`, then `sys_created_on`

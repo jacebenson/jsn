@@ -123,6 +123,26 @@ test('flows test is registered as a mutation, requires --record and confirmation
   }
 });
 
+test('flows update is a manifest mutation with confirmation and exact manifest options', async () => {
+  const command = handler('update <identifier>');
+  assert.ok(command);
+  const options = [];
+  command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
+  assert.deepEqual(options.map(([name]) => name), ['data', 'data-file', 'force']);
+  assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('update'), true);
+
+  const previous = process.env.JSN_NO_PROMPTS;
+  process.env.JSN_NO_PROMPTS = '1';
+  try {
+    const { app } = jsonApp({});
+    app.config = { activeProfile: 'test', profiles: { test: { skip_confirmations: false } } };
+    await assert.rejects(command.handler({ identifier: 'flow-1', data: '{}', force: false }, app), error => error.code === 'confirmation_required');
+  } finally {
+    if (previous === undefined) delete process.env.JSN_NO_PROMPTS;
+    else process.env.JSN_NO_PROMPTS = previous;
+  }
+});
+
 test('publish handler resolves a named flow, declares mutation, and emits JSON', async () => {
   const calls = [];
   const sdk = {
