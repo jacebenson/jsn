@@ -66,22 +66,23 @@ describe('flow creation request shapes', () => {
   it('creates, patches, versions, and verifies a flow without activation', async () => {
     const { createFlowFromManifest } = await import('../src/flow-create.js');
     const calls = [];
+    let versionReads = 0;
     const sdk = {
       async list(table, params) {
         calls.push({ kind: 'list', table, params: String(params) });
         if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
-        if (table === 'sys_hub_flow_version') return [{ sys_id: 'version-1', flow: 'flow-123', type: 'Autosave', payload: '{"flowId":"flow-123"}' }];
+        if (table === 'sys_hub_flow_version') return versionReads++ === 0 ? [] : [{ sys_id: 'version-1', flow: 'flow-123', type: 'Autosave', payload: '{"flowId":"flow-123"}' }];
         if (table === 'sys_update_xml') return [{ sys_id: 'xml-1', payload: 'flow-123' }];
         return [];
       },
       async request(endpoint, options = {}) {
         calls.push({ kind: 'request', endpoint, options });
         if (options.method === 'POST' && endpoint.includes('/processflow/flow?')) return { result: { sys_id: 'flow-123' } };
-        if (options.method === 'GET' && endpoint.endsWith('/processflow/flow/flow-123')) return { result: { data: { triggerInstances: [{ sysId: 'trigger-123', uiUniqueIdentifier: 'trigger-ui-123', metadata: '{}' }] } } };
+        if (options.method === 'GET' && endpoint.includes('/processflow/flow/flow-123?sysparm_transaction_scope=')) return { result: { data: { triggerInstances: [{ sysId: 'trigger-123', uiUniqueIdentifier: 'trigger-ui-123', metadata: '{}' }] } } };
         if (options.method === 'GET' && endpoint.includes('/trigger/record/table')) return { result: { label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] } };
         if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: [{ id: 'input-1', name: 'log_level', type: 'choice', default: 'info', choices: ['info', 'error'], parameter: { name: 'log_level', type: 'choice' } }, { id: 'input-2', name: 'log_message', type: 'string', mandatory: true, parameter: { name: 'log_message', type: 'string' } }] } };
         if (endpoint === 'https://example.service-now.com/api/now/graphql') return { data: { global: { snFlowDesigner: { flow: { actions: { inserts: [{ sysId: 'action-123', uiUniqueIdentifier: 'action-ui-123' }] } } } } } };
-        if (options.method === 'POST' && endpoint.endsWith('/versioning/create_version')) return { result: { sys_id: 'version-1', type: 'Autosave' } };
+        if (options.method === 'POST' && endpoint.includes('/versioning/create_version?sysparm_transaction_scope=')) return { result: { sys_id: 'version-1', type: 'Autosave' } };
         throw new Error(`unexpected request ${endpoint}`);
       },
     };
@@ -124,7 +125,8 @@ describe('flow creation request shapes', () => {
     assert.match(patchBody.query, /schemalessValue: ""/);
     assert.doesNotMatch(patchBody.query, /triggerType/);
     assert.equal(calls.filter(call => call.kind === 'request' && call.options.method === 'POST').length, 3);
-    assert.ok(calls.some(call => call.kind === 'request' && call.endpoint.endsWith('/versioning/create_version')));
+    assert.ok(calls.some(call => call.kind === 'request' && call.options.method === 'GET' && call.endpoint.includes('/processflow/flow/flow-123?sysparm_transaction_scope=1169a246933f8f9087b0f14fdd03d627')));
+    assert.ok(calls.some(call => call.kind === 'request' && call.endpoint.includes('/versioning/create_version?sysparm_transaction_scope=1169a246933f8f9087b0f14fdd03d627')));
     assert.ok(calls.every(call => !String(call.options?.body || '').includes('c215135293bf03d087b0f14fdd03d652')));
   });
 
@@ -133,13 +135,13 @@ describe('flow creation request shapes', () => {
     let patchAttempts = 0;
     const sdk = {
       async list(table) {
-        if (table === 'sys_hub_flow') return [{ sys_id: 'flow-123', name: manifest.name, active: false, status: 'draft' }];
+        if (table === 'sys_hub_flow') return [{ sys_id: 'flow-123', name: manifest.name, scope: manifest.scope, active: false, status: 'draft' }];
         if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
         return [];
       },
       async request(endpoint, options = {}) {
         if (options.method === 'POST' && endpoint.includes('/processflow/flow?')) return { result: { sys_id: 'flow-123' } };
-        if (options.method === 'GET' && endpoint.endsWith('/processflow/flow/flow-123')) return { result: { data: { triggerInstances: [{ sysId: 'trigger-123', metadata: '{}' }] } } };
+        if (options.method === 'GET' && endpoint.includes('/processflow/flow/flow-123?sysparm_transaction_scope=')) return { result: { data: { triggerInstances: [{ sysId: 'trigger-123', metadata: '{}' }] } } };
         if (options.method === 'GET' && endpoint.includes('/trigger/record/table')) return { result: { label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] } };
         if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: [{ id: 'input-1', name: 'log_level', type: 'choice', parameter: { name: 'log_level', type: 'choice' } }, { id: 'input-2', name: 'log_message', type: 'string', parameter: { name: 'log_message', type: 'string' } }] } };
         if (endpoint.endsWith('/api/now/graphql')) { patchAttempts += 1; throw new Error('GraphQL transport timeout'); }
@@ -160,11 +162,14 @@ describe('flow update request shapes', () => {
   const triggerId = 'trigger-update-123';
   const baseDefinition = {
     flowId,
-    triggerInstances: [{ sysId: triggerId, triggerType: 'record_create_or_update', metadata: '{"old":"kept"}', inputs: [
-      { name: 'table', id: 'table-input', displayField: 'number', displayValue: { schemaless: false, schemalessValue: '', value: 'Ticket' }, value: { schemaless: false, schemalessValue: '', value: 'ticket' } },
+    triggerInstances: [{ sysId: triggerId, triggerType: 'record_create_or_update', metadata: '{"predicates": [], "order_by": ["short_description"], "group_by": [], "has_rlq_conditions": false, "custom": "preserve"}', inputs: [
+      { name: 'table', id: 'table-input', marker: 'table-preserve', displayField: 'number', displayValue: { schemaless: false, schemalessValue: '', value: 'Ticket' }, value: { schemaless: false, schemalessValue: '', value: 'ticket' } },
       { name: 'condition', id: 'condition-input', extra: 'preserve', displayField: 'old', displayValue: { schemaless: false, schemalessValue: '', value: 'old' }, value: { schemaless: false, schemalessValue: '', value: 'old' } },
+      { name: 'trigger_strategy', value: { value: 'after' } },
+      { name: 'run_on_extended', value: { value: true } },
+      { name: 'run_flow_in', value: { value: 'foreground' } },
     ], extraTriggerField: 'preserve' }],
-    actionInstances: [{ id: actionId, uiUniqueIdentifier: 'action-ui-123', actionTypeSysId: 'action-type-123', order: '1', metadata: '{"keep":true}', inputs: [
+    actionInstances: [{ id: actionId, uiUniqueIdentifier: 'action-ui-123', actionTypeSysId: 'action-type-123', actionType: { sys_id: 'action-type-123', name: 'Log' }, order: '1', metadata: '{"keep":true}', inputs: [
       { id: 'input-1', name: 'log_level', parameter: { name: 'log_level', type: 'choice', keep: true }, children: ['child-1'], value: { schemaless: false, schemalessValue: '', value: 'info' }, displayValue: { schemaless: false, schemalessValue: '', value: 'info' } },
       { id: 'input-2', name: 'log_message', parameter: { name: 'log_message', type: 'string', keep: true }, children: ['child-2'], value: { schemaless: false, schemalessValue: '', value: 'old message' }, displayValue: { schemaless: false, schemalessValue: '', value: 'old message' } },
     ] }],
@@ -173,54 +178,137 @@ describe('flow update request shapes', () => {
   it('updates only requested trigger/action values, preserves omitted fields, versions, and captures', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const calls = [];
+    let versionReads = 0;
     const afterDefinition = structuredClone(baseDefinition);
-    afterDefinition.triggerInstances[0].metadata = JSON.stringify({ predicates: [{ term: 'short_descriptionSTARTSWITHnew-' }], order_by: [], group_by: [], has_rlq_conditions: false });
+    afterDefinition.triggerInstances[0].metadata = JSON.stringify({ ...JSON.parse(baseDefinition.triggerInstances[0].metadata), predicates: [{ term: 'short_descriptionSTARTSWITHnew-' }] });
     afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], displayField: 'short_description', displayValue: { schemaless: false, schemalessValue: '', value: 'short_descriptionSTARTSWITHnew-' }, value: { schemaless: false, schemalessValue: '', value: 'short_descriptionSTARTSWITHnew-' } };
     afterDefinition.actionInstances[0].inputs[1] = { ...afterDefinition.actionInstances[0].inputs[1], value: { schemaless: false, schemalessValue: '', value: 'new message' }, displayValue: { schemaless: false, schemalessValue: '', value: 'new message' } };
     const sdk = {
       async list(table, params) {
         calls.push({ kind: 'list', table, params: String(params) });
         if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
-        if (table === 'sys_hub_flow_version') return [{ sys_id: 'version-update-1', type: 'Autosave', flow: flowId }];
+        if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
+        if (table === 'sys_hub_flow_version') return versionReads++ === 0 ? [] : [{ sys_id: 'version-update-1', type: 'Autosave', flow: flowId }];
         if (table === 'sys_update_xml') return [{ sys_id: 'xml-update-1', payload: flowId }];
         return [];
       },
       async request(endpoint, options = {}) {
         calls.push({ kind: 'request', endpoint, options });
         if (options.method === 'GET') return { result: { data: calls.some(call => call.kind === 'request' && call.options.method === 'POST') ? afterDefinition : baseDefinition } };
-        if (endpoint.endsWith('/versioning/create_version')) return { result: { sys_id: 'version-update-1', type: 'Autosave' } };
+        if (endpoint.includes('/versioning/create_version?sysparm_transaction_scope=')) return { result: { sys_id: 'version-update-1', type: 'Autosave' } };
         return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [{ sysId: triggerId }] }, actions: { updates: [{ sysId: actionId }] } } } } } };
       },
     };
     const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
       trigger: { type: 'record_create_or_update', condition: 'short_descriptionSTARTSWITHnew-' },
-      actions: [{ id: actionId, inputs: { log_message: 'new message' } }],
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
     }, {
       readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
       readTableDescriptor: async () => ({ label: 'Ticket', displayField: 'number', fields: [{ name: 'short_description', label: 'Short description', type: 'string' }] }),
     });
     assert.equal(result.flow.id, flowId);
     assert.equal(result.version.type, 'Autosave');
+    assert.ok(calls.some(call => call.kind === 'request' && call.options.method === 'GET' && call.endpoint.includes(`/processflow/flow/${flowId}?sysparm_transaction_scope=scope-1`)));
+    assert.ok(calls.some(call => call.kind === 'request' && call.endpoint.includes('/versioning/create_version?sysparm_transaction_scope=scope-1')));
     assert.deepEqual(result.update_set_mutations.map(snapshot => snapshot.label), ['trigger_and_actions_update', 'autosave_version']);
     assert.ok(result.update_set_mutations.every(snapshot => snapshot.capture_after.status === 'captured'));
     const patch = calls.find(call => call.kind === 'request' && call.endpoint.endsWith('/graphql'));
     const query = JSON.parse(patch.options.body).query;
     assert.match(query, /triggerInstances: \{update:/);
     assert.match(query, /actions: \{update:/);
+    assert.match(query, /triggerInstances \{ updates \}/);
+    assert.match(query, /actions \{ updates \}/);
+    assert.doesNotMatch(query, /updates \{/);
+    assert.match(query, /name: "condition"/);
+    assert.match(query, /table-input/);
     assert.match(query, /condition-input/);
-    assert.match(query, /action-update-123/);
+    assert.match(query, /trigger_strategy/);
+    assert.match(query, /run_on_extended/);
+    assert.match(query, /run_flow_in/);
+    assert.match(query, /custom/);
+    assert.match(query, /uiUniqueIdentifier: "action-ui-123"/);
+    assert.match(query, /type: "action"/);
     assert.match(query, /new message/);
-    assert.match(query, /keep/);
+    assert.doesNotMatch(query, /id: "action-update-123"/);
+    assert.doesNotMatch(query, /log_level/);
+    assert.doesNotMatch(query, /parameter:/);
     assert.doesNotMatch(query, /actions: \{insert:/);
+  });
+
+  it('keeps trigger condition and metadata byte-for-byte when only the table changes', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.triggerInstances[0].inputs[0] = {
+      ...afterDefinition.triggerInstances[0].inputs[0],
+      displayField: 'number',
+      displayValue: { schemaless: false, schemalessValue: '', value: 'Task' },
+      value: { schemaless: false, schemalessValue: '', value: 'task' },
+    };
+    const beforeMetadata = baseDefinition.triggerInstances[0].metadata;
+    const beforeCondition = JSON.stringify(baseDefinition.triggerInstances[0].inputs[1]);
+    let versionReads = 0;
+    let wrote = false;
+    const calls = [];
+    const sdk = {
+      async list(table) {
+        if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
+        if (table === 'sys_hub_flow_version') return versionReads++ === 0 ? [] : [{ sys_id: 'table-version-1', type: 'Autosave', flow: flowId }];
+        if (table === 'sys_update_xml') return [{ sys_id: 'xml-table-1', payload: flowId }];
+        return [];
+      },
+      async request(endpoint, options = {}) {
+        calls.push({ endpoint, options });
+        if (options.method === 'GET') return { result: { data: wrote ? afterDefinition : baseDefinition } };
+        if (endpoint.endsWith('/graphql')) {
+          wrote = true;
+          return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [{ sysId: triggerId }] } } } } } };
+        }
+        if (endpoint.includes('/versioning/create_version')) return { result: { sys_id: 'table-version-1' } };
+        throw new Error(`unexpected request ${endpoint}`);
+      },
+    };
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { table: 'task' } }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+      readTableDescriptor: async () => ({ label: 'Task', displayField: 'number', fields: [] }),
+    });
+    assert.equal(result.version.sys_id, 'table-version-1');
+    const patch = calls.find(call => call.endpoint.endsWith('/graphql'));
+    const query = JSON.parse(patch.options.body).query;
+    assert.match(query, /trigger_strategy/);
+    assert.match(query, /run_on_extended/);
+    assert.match(query, /run_flow_in/);
+    assert.match(query, /condition-input/);
+    assert.match(query, /custom/);
+    assert.ok(query.includes(`metadata: ${JSON.stringify(beforeMetadata)}`));
+    assert.doesNotMatch(query, /short_descriptionSTARTSWITHnew-/);
+    assert.equal(JSON.stringify(afterDefinition.triggerInstances[0].inputs[1]), beforeCondition);
+    assert.equal(afterDefinition.triggerInstances[0].metadata, beforeMetadata);
+  });
+
+  it('rejects unsafe flow-name query characters before lookup', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    let lookups = 0;
+    const sdk = {
+      async list() { lookups += 1; return []; },
+      async request() { throw new Error('must not request'); },
+    };
+    for (const identifier of ['Flow*', 'Flow^name', 'Flow=name', 'Flow,name', 'Flow!', 'Flow<', 'Flow>', 'Flow~', 'Flow\\name']) {
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', identifier, {
+        actions: [{ order: 1, type: 'Log', inputs: { log_message: 'x' } }],
+      }), /unsafe identifier.*(wildcard|query characters)/i);
+    }
+    assert.equal(lookups, 0);
   });
 
   it('rejects unsupported fields, ambiguous actions, and protected targets before mutation', async () => {
     const { validateFlowUpdateManifest, updateFlowFromManifest } = await import('../src/flow-create.js');
     assert.throws(() => validateFlowUpdateManifest({ logic: [] }), /unsupported/i);
-    assert.throws(() => validateFlowUpdateManifest({ actions: [{ inputs: { x: 'y' } }] }), /exact id|uiUniqueIdentifier/i);
+    assert.throws(() => validateFlowUpdateManifest({ actions: [{ inputs: { x: 'y' } }] }), /order and type/i);
+    assert.throws(() => validateFlowUpdateManifest({ actions: [{ order: 1, type: 'Log', uiUniqueIdentifier: 'caller-id', inputs: { x: 'y' } }] }), /unsupported.*field|caller-supplied identities/i);
     const sdk = {
       async list(table) {
         if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
+        if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
         return [];
       },
       async request(endpoint, options = {}) {
@@ -228,12 +316,13 @@ describe('flow update request shapes', () => {
         throw new Error('must not write');
       },
     };
-    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ id: 'missing-action', inputs: { x: 'y' } }] }), /did not match/);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 9, type: 'Log', inputs: { x: 'y' } }] }), /did not match/);
     const ambiguousDefinition = structuredClone(baseDefinition);
     ambiguousDefinition.actionInstances.push(structuredClone(baseDefinition.actionInstances[0]));
     const ambiguousSdk = {
       async list(table) {
         if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
+        if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
         return [];
       },
       async request(_endpoint, options = {}) {
@@ -241,7 +330,7 @@ describe('flow update request shapes', () => {
         throw new Error('must not write');
       },
     };
-    await assert.rejects(updateFlowFromManifest(ambiguousSdk, 'https://example.service-now.com', flowId, { actions: [{ id: actionId, inputs: { log_message: 'x' } }] }), /multiple Action instances/);
+    await assert.rejects(updateFlowFromManifest(ambiguousSdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'x' } }] }), /multiple Action instances/);
     const protectedSdk = {
       async list(table) {
         if (table === 'sys_hub_flow') return [{ sys_id: 'c215135293bf03d087b0f14fdd03d652', name: 'jace-test-flow', scope: 'scope-1', active: 'false', status: 'draft' }];
@@ -249,7 +338,7 @@ describe('flow update request shapes', () => {
       },
       async request() { throw new Error('must not write'); },
     };
-    await assert.rejects(updateFlowFromManifest(protectedSdk, 'https://example.service-now.com', 'c215135293bf03d087b0f14fdd03d652', { actions: [{ id: actionId, inputs: { x: 'y' } }] }), /Protected flow/);
+    await assert.rejects(updateFlowFromManifest(protectedSdk, 'https://example.service-now.com', 'c215135293bf03d087b0f14fdd03d652', { actions: [{ order: 1, type: 'Log', inputs: { x: 'y' } }] }), /Protected flow/);
   });
 
   it('retains target ID and does not retry after a partial GraphQL failure', async () => {
@@ -258,6 +347,7 @@ describe('flow update request shapes', () => {
     const sdk = {
       async list(table) {
         if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
+        if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
         return [];
       },
       async request(endpoint, options = {}) {
@@ -266,7 +356,7 @@ describe('flow update request shapes', () => {
         throw new Error(`unexpected ${endpoint}`);
       },
     };
-    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ id: actionId, inputs: { log_message: 'new' } }] }), error => /flow-update-123.*incomplete|GraphQL timeout/i.test(error.message) && /reconciliation/.test(error.message));
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new' } }] }), error => /flow-update-123.*incomplete|GraphQL timeout/i.test(error.message) && /reconciliation/.test(error.message));
     assert.equal(writes, 1);
   });
 });

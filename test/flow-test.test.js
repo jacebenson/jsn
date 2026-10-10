@@ -43,9 +43,22 @@ test('testFlow validates record before dispatch and posts exact saved definition
     },
   };
   const result = await testFlow(sdk, INSTANCE, FLOW, RECORD);
+  assert.equal(calls[0][1], 'sys_hub_flow');
+  assert.equal(calls[0][2].sysparm_query, `sys_id=${FLOW}`);
+  assert.ok(calls.some(call => call[0] === 'request' && call[1] === `${INSTANCE}/api/now/processflow/flow/${FLOW}?sysparm_transaction_scope=scope-1`));
   assert.equal(result.status, 'accepted');
   assert.equal(result.context_id, 'context-1');
   assert.equal(calls.filter(call => call[0] === 'request' && call[2]?.method === 'POST').length, 1);
+});
+
+test('testFlow rejects encoded-query operators in flow names before lookup', async () => {
+  let lists = 0;
+  const sdk = {
+    async list() { lists += 1; return []; },
+    async request() { throw new Error('must not request'); },
+  };
+  await assert.rejects(testFlow(sdk, INSTANCE, 'flow^ORactive=true', RECORD), /unsafe.*exact-match|query characters/i);
+  assert.equal(lists, 0);
 });
 
 test('testFlow never dispatches for a missing record or transport failure', async () => {

@@ -1,3 +1,5 @@
+import { assertSafeExactMatch } from './helpers.js';
+
 const FLOW_ENDPOINT = '/api/now/processflow/flow';
 
 function valueOf(value) {
@@ -60,8 +62,11 @@ function classifyResponse(response) {
 export async function testFlow(sdk, instance, identifier, recordId) {
   if (!recordId || !String(recordId).trim()) throw new Error('Flow test requires --record <sys_id>');
   if (!/^[0-9a-f]{32}$/i.test(String(recordId))) throw new Error(`--record must be a 32-character sys_id; flow was not dispatched`);
+  const flowIdentifier = String(identifier);
+  assertSafeExactMatch(flowIdentifier);
+  const isId = /^[0-9a-f]{32}$/i.test(flowIdentifier);
   const flowRows = await sdk.list('sys_hub_flow', new URLSearchParams({
-    sysparm_query: `sys_id=${identifier}^ORname=${identifier}`,
+    sysparm_query: `${isId ? 'sys_id' : 'name'}=${flowIdentifier}`,
     sysparm_limit: '2',
     sysparm_display_value: 'all',
     sysparm_fields: 'sys_id,name,scope',
@@ -70,7 +75,9 @@ export async function testFlow(sdk, instance, identifier, recordId) {
   if (flowRows.length > 1) throw new Error(`Flow identifier is ambiguous: ${identifier}`);
   const flow = flowRows[0];
   const flowId = valueOf(flow.sys_id);
-  const response = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}`, { method: 'GET' });
+  const scope = valueOf(flow.scope);
+  if (!scope) throw new Error(`Flow ${flowId} has no transaction scope; flow was not dispatched`);
+  const response = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`, { method: 'GET' });
   const definition = flowData(response);
   const trigger = deriveRecordTrigger(definition);
   const records = await sdk.list(trigger.table, new URLSearchParams({
@@ -79,8 +86,8 @@ export async function testFlow(sdk, instance, identifier, recordId) {
     sysparm_fields: 'sys_id',
   }));
   if (!records.length) throw new Error(`Record ${recordId} was not found in trigger table ${trigger.table}; flow was not dispatched`);
-  const scope = valueOf(definition.scope || flow.scope);
-  if (!scope) throw new Error(`Flow ${flowId} has no transaction scope; flow was not dispatched`);
+  const definitionScope = valueOf(definition.scope);
+  if (definitionScope && definitionScope !== scope) throw new Error(`Flow ${flowId} definition scope did not match the saved record; flow was not dispatched`);
   const body = {
     ...definition,
     outputMap: { current: recordId, table_name: trigger.table },
