@@ -59,6 +59,7 @@ jsn flows executions --since "2026-08-25 00:00:00" --until "2026-08-26 00:00:00"
 jsn flows executions --summary                 # Server totals + sampled duration metrics by flow
 jsn flows executions --limit 100               # Inspect more rows from the matching population
 jsn flows executions --record <sys_id>        # Executions for one source record
+jsn flows create --data-file flow.manifest.json # Create a draft record-triggered flow
 jsn rules list --query "collection=incident"
 jsn updatesets set "My Feature"
 
@@ -175,6 +176,67 @@ or snapshot command is added.
 These internal endpoints and runtime-table permissions can vary by instance.
 
 ### Flow execution fields
+
+### Flow creation manifest
+
+`jsn flows create` accepts `--data-file` or inline `--data`. The first slice
+supports one `record_create_or_update` trigger and published Action types whose
+input schemas are available from the instance. JSN resolves action metadata,
+defaults, and typed inputs from ServiceNow; callers do not provide GraphQL or
+editor-generated identifiers.
+
+```json
+{
+  "name": "JSN-STUDY-ticket-log",
+  "description": "Log JSN study tickets",
+  "scope": "<SCOPE_SYS_ID>",
+  "trigger": {
+    "type": "record_create_or_update",
+    "table": "ticket",
+    "condition": "short_descriptionSTARTSWITHJSN-STUDY-"
+  },
+  "actions": [
+    { "type": "Log", "inputs": { "log_level": "info", "log_message": "Ticket received" } }
+  ]
+}
+```
+
+`scope` is required; JSN never defaults it to a tenant-specific or captured
+scope. The record-trigger condition currently accepts one simple encoded-query
+predicate (`fieldSTARTSWITHvalue`, `field=value`, `fieldLIKEvalue`, and the
+equivalent single-predicate operators). Compound `^`/`^OR` expressions are
+rejected until their predicate AST mapping is proven against the instance.
+
+Creation leaves the flow in Draft and inactive, then creates and reads back an
+Autosave version. `flows publish` remains a separate lifecycle operation: it
+reads the saved ProcessFlow definition, POSTs `/snapshot`, creates an
+`Activate/Publish` version, reads version history, and verifies `active=true`.
+Do not use it in a dry-run: publishing activates the flow.
+
+`jsn flows test <identifier> --record <sys_id>` is also a mutating operation.
+It requires confirmation (or `--force`), reads the saved definition, verifies
+that the supplied record exists in the record-trigger table, and POSTs the full
+definition to the ProcessFlow test endpoint. A response with only a context ID
+is reported as accepted, not completed. Test runs execute actions and can have
+side effects; this slice does not execute test flows during development.
+
+Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
+and rejected by this slice rather than silently ignored.
+
+`jsn flows update <identifier> --data-file update.json` updates supported fields
+of existing inactive Draft flows. The manifest may contain only `trigger` (with
+`table` and/or `condition`) and `actions`. Each action selects one saved instance
+by its one-based `order` and reusable action `type` (name or sys_id). Its `inputs`
+object may change only inputs already present in that saved Action. The CLI reads
+the saved component identities itself; manifests never carry UI UUIDs. Omitted
+trigger fields, Action inputs, metadata, and other flow components are preserved.
+Names must resolve to exactly one flow, and the protected `jace-test-flow` is
+rejected. Update sends the captured GraphQL `triggerInstances.update` and/or
+`actions.update` shapes, reads the full ProcessFlow definition back, creates an
+Autosave version, and reports update-set captures. It never publishes or
+activates the flow. Unsupported Flow Logic, subflows, variables, error handling,
+new Action inputs, ambiguous selectors, active flows, and non-Draft flows are
+rejected before mutation.
 
 `jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:
 
