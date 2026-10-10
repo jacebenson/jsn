@@ -1,9 +1,11 @@
+import fs from 'node:fs';
 import { formatRecordForDisplay, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { createFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
 
 function flowInspectionAdapter(app) {
   return {
@@ -224,12 +226,28 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'create',
-          describe: 'Create a new flow (not yet implemented)',
+          describe: 'Create a draft flow from a schema-driven JSON manifest',
           builder: (y) => y
-            .option('data', { type: 'string', describe: 'JSON data for the flow' }),
-          handler: wrap(async (_argv, _app) => {
-            throw new Error('Flow creation requires the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to create flows, then use "jsn flows list" to view them.');
+            .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
+            .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const dataFile = argv.dataFile ?? argv['data-file'];
+            if (!dataFile && argv.data === undefined) throw new Error('Provide --data-file or --data for the flow manifest');
+            let manifest;
+            try {
+              const raw = dataFile ? fs.readFileSync(dataFile, 'utf8') : argv.data;
+              manifest = JSON.parse(raw.charCodeAt?.(0) === 0xFEFF ? raw.slice(1) : raw);
+            } catch (error) {
+              throw new Error(`Invalid flow manifest JSON: ${error.message}`, { cause: error });
+            }
+            const result = await createFlowFromManifest(app.sdk, app.getEffectiveInstance(), manifest, {
+              readUpdateSet: () => readCurrentUpdateSet(app.sdk),
+            });
+            app.ok(result, {
+              summary: `Created draft flow "${result.flow.name}" (${result.flow.id}) without activation`,
+              breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the draft flow' }],
+            });
           }),
         })
         .command({
@@ -261,7 +279,7 @@ export function flowsCmd(wrap) {
       console.log('  status <identifier>   Check whether a flow is actually able to run');
       console.log('  publish <identifier>  Publish (activate) a flow');
       console.log('  doctor                Check whether this instance can publish flows');
-      console.log('  create                Create a new flow (not yet implemented)');
+      console.log('  create                Create a draft flow from a JSON manifest');
       console.log('  update <identifier>   Update a flow (not yet implemented)');
       console.log('  delete <identifier>   Delete a flow (not yet implemented)');
       console.log('');

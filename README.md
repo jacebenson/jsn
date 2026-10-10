@@ -59,6 +59,7 @@ jsn flows executions --since "2026-08-25 00:00:00" --until "2026-08-26 00:00:00"
 jsn flows executions --summary                 # Server totals + sampled duration metrics by flow
 jsn flows executions --limit 100               # Inspect more rows from the matching population
 jsn flows executions --record <sys_id>        # Executions for one source record
+jsn flows create --data-file flow.manifest.json # Create a draft record-triggered flow
 jsn rules list --query "collection=incident"
 jsn updatesets set "My Feature"
 
@@ -175,6 +176,35 @@ or snapshot command is added.
 These internal endpoints and runtime-table permissions can vary by instance.
 
 ### Flow execution fields
+
+### Flow creation manifest
+
+`jsn flows create` accepts `--data-file` or inline `--data`. The first slice
+supports one `record_create_or_update` trigger and published Action types whose
+input schemas are available from the instance. JSN resolves action metadata,
+defaults, and typed inputs from ServiceNow; callers do not provide GraphQL or
+editor-generated identifiers.
+
+```json
+{
+  "name": "JSN-STUDY-ticket-log",
+  "description": "Log JSN study tickets",
+  "scope": "1169a246933f8f9087b0f14fdd03d627",
+  "trigger": {
+    "type": "record_create_or_update",
+    "table": "ticket",
+    "condition": "short_descriptionSTARTSWITHJSN-STUDY-"
+  },
+  "actions": [
+    { "type": "Log", "inputs": { "log_level": "info", "log_message": "Ticket received" } }
+  ]
+}
+```
+
+Creation leaves the flow in Draft and inactive, then creates and reads back an
+Autosave version. `flows publish` remains a separate lifecycle operation.
+Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
+and rejected by this slice rather than silently ignored.
 
 `jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:
 
