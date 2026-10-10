@@ -71,6 +71,7 @@ describe('flow creation request shapes', () => {
         calls.push({ kind: 'list', table, params: String(params) });
         if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
         if (table === 'sys_hub_flow_version') return [{ sys_id: 'version-1', flow: 'flow-123', type: 'Autosave', payload: '{"flowId":"flow-123"}' }];
+        if (table === 'sys_update_xml') return [{ sys_id: 'xml-1', payload: 'flow-123' }];
         return [];
       },
       async request(endpoint, options = {}) {
@@ -90,8 +91,12 @@ describe('flow creation request shapes', () => {
     assert.equal(result.flow.id, 'flow-123');
     assert.equal(result.trigger.id, 'trigger-123');
     assert.deepEqual(result.actions, [{ sysId: 'action-123', uiUniqueIdentifier: 'action-ui-123' }]);
+    assert.deepEqual(result.definition_readback, { available: true, status: 'read_back', flow_id: 'flow-123' });
     assert.equal(result.version.type, 'Autosave');
     assert.equal(result.update_set_capture.available, true);
+    assert.equal(result.update_set_capture.status, 'captured');
+    assert.deepEqual(result.update_set_mutations.map(snapshot => snapshot.label), ['parent_create', 'trigger_and_actions_patch', 'autosave_version']);
+    assert.ok(result.update_set_mutations.every(snapshot => snapshot.capture_after?.status === 'captured'));
     const patchCall = calls.find(call => call.kind === 'request' && call.endpoint === 'https://example.service-now.com/api/now/graphql');
     const patchBody = JSON.parse(patchCall.options.body);
     const parentCall = calls.find(call => call.kind === 'request' && call.endpoint.includes('/processflow/flow?'));
@@ -137,7 +142,7 @@ describe('flow creation request shapes', () => {
     };
     await assert.rejects(
       createFlowFromManifest(sdk, 'https://example.service-now.com', manifest, { readUpdateSet: async () => ({ name: 'Default', sys_id: 'update-set-1' }) }),
-      error => /flow-123.*incomplete|GraphQL transport timeout/i.test(error.message) && /reconciliation/i.test(error.message),
+      error => /flow-123.*incomplete|GraphQL transport timeout/i.test(error.message) && /reconciliation/i.test(error.message) && /capture_after.*missing/i.test(error.message),
     );
     assert.equal(patchAttempts, 1);
   });

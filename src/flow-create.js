@@ -265,24 +265,40 @@ async function reconcileAmbiguousCreate(sdk, manifest) {
   throw new Error(`Flow parent creation was ambiguous; reconciliation found ${records.length} flow(s) named "${manifest.name}". No retry was attempted.`);
 }
 
-async function mutationContext(label, readUpdateSet, snapshots, operation) {
+async function mutationContext(label, readUpdateSet, snapshots, operation, capture) {
   const before = await readUpdateSet();
+  const captureBefore = capture ? await capture(before) : undefined;
   try {
     const result = await operation();
     const after = await readUpdateSet();
-    snapshots.push({ label, before, after });
+    const captureAfter = capture ? await capture(after) : undefined;
+    snapshots.push({ label, before, after, ...(capture ? { capture_before: captureBefore, capture_after: captureAfter } : {}) });
     return result;
   } catch (error) {
     let after;
     try { after = await readUpdateSet(); } catch (readError) { after = { unavailable: true, reason: readError.message }; }
-    snapshots.push({ label, before, after, error: error.message });
+    let captureAfter;
+    if (capture) {
+      try { captureAfter = await capture(after); } catch (readError) { captureAfter = unavailableCapture(`capture read failed: ${readError.message}`); }
+    }
+    snapshots.push({ label, before, after, ...(capture ? { capture_before: captureBefore, capture_after: captureAfter } : {}), error: error.message });
     throw error;
   }
 }
 
+function unavailableCapture(reason) {
+  return { available: false, status: 'unavailable', reason };
+}
+
+async function addPostMutationCapture(snapshot, sdk, readUpdateSet, flowId) {
+  const updateSet = await readUpdateSet();
+  snapshot.after = updateSet;
+  snapshot.capture_after = await readUpdateSetCapture(sdk, updateSet, flowId);
+}
+
 export async function readUpdateSetCapture(sdk, updateSet, flowId) {
   const updateSetId = idValue(updateSet?.sys_id || updateSet?.sysId);
-  if (!updateSetId) return { available: false, reason: 'current update set has no selected sys_id (likely Default)' };
+  if (!updateSetId) return unavailableCapture('current update set has no selected sys_id (likely Default)');
   const rows = await sdk.list('sys_update_xml', new URLSearchParams({
     sysparm_query: `update_set=${updateSetId}`,
     sysparm_limit: '200',
@@ -290,7 +306,13 @@ export async function readUpdateSetCapture(sdk, updateSet, flowId) {
     sysparm_fields: 'sys_id,name,type,action,target_name,update_set,payload,xml',
   }));
   const matches = rows.filter(row => JSON.stringify(row).includes(flowId));
-  return { available: true, update_set: updateSet, count: matches.length, records: matches };
+  return {
+    available: true,
+    status: matches.length ? 'captured' : 'missing',
+    update_set: updateSet,
+    count: matches.length,
+    records: matches,
+  };
 }
 
 export async function createFlowFromManifest(sdk, instance, inputManifest, options = {}) {
@@ -313,6 +335,11 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
   const flowId = findId(parentResponse, ['sys_id', 'sysId', 'flowId', 'id']);
   if (!flowId) throw new Error('Flow creation response did not include a Flow ID');
   try {
+    const parentSnapshot = snapshots.find(snapshot => snapshot.label === 'parent_create');
+    if (parentSnapshot) {
+      parentSnapshot.capture_before = unavailableCapture('flow ID was not known before parent creation');
+      await addPostMutationCapture(parentSnapshot, sdk, readUpdateSet, flowId);
+    }
     const initialDefinition = await readProcessFlow(sdk, instance, flowId);
     const trigger = makeTriggerPatch(initialDefinition, manifest);
 
@@ -337,7 +364,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     const patchResponse = await mutationContext('trigger_and_actions_patch', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
       body: JSON.stringify({ query: buildFlowPatchMutation({ flowId, trigger, actions: actionInstances }), variables: {} }),
-    }));
+    }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
     assertGraphQLSuccess(patchResponse, 'Flow trigger/action patch');
     const inserted = insertedActions(patchResponse);
     if (inserted.length !== actionInstances.length) throw new Error(`Flow action patch returned ${inserted.length} inserted action identities; expected ${actionInstances.length}`);
@@ -346,7 +373,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     const versionResponse = await mutationContext('autosave_version', readUpdateSet, snapshots, () => sdk.request(`${instance}${VERSION_ENDPOINT}`, {
       method: 'POST',
       body: JSON.stringify({ item_sys_id: flowId, type: 'Autosave', annotation: 'JSN flow create', favorite: false }),
-    }));
+    }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
     const versions = await sdk.list('sys_hub_flow_version', new URLSearchParams({ sysparm_query: `flow=${flowId}^ORDERBYDESCsys_updated_on`, sysparm_limit: '1', sysparm_display_value: 'all' }));
     if (!versions.length && !versionResponse?.result) throw new Error(`Autosave version was not readable for flow ${flowId}`);
     const selectedUpdateSet = await readUpdateSet();
@@ -358,6 +385,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       trigger: { ...triggerReadback, id: findId(triggerReadback, ['sysId', 'sys_id', 'id']) || trigger.id },
       actions: inserted,
       processflow,
+      definition_readback: { available: true, status: 'read_back', flow_id: flowId },
       version: versions[0] || versionResponse?.result,
       update_set_capture: updateSetCapture,
       update_set_mutations: snapshots,
