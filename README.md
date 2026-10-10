@@ -189,7 +189,7 @@ editor-generated identifiers.
 {
   "name": "JSN-STUDY-ticket-log",
   "description": "Log JSN study tickets",
-  "scope": "1169a246933f8f9087b0f14fdd03d627",
+  "scope": "<SCOPE_SYS_ID>",
   "trigger": {
     "type": "record_create_or_update",
     "table": "ticket",
@@ -200,6 +200,12 @@ editor-generated identifiers.
   ]
 }
 ```
+
+`scope` is required; JSN never defaults it to a tenant-specific or captured
+scope. The record-trigger condition currently accepts one simple encoded-query
+predicate (`fieldSTARTSWITHvalue`, `field=value`, `fieldLIKEvalue`, and the
+equivalent single-predicate operators). Compound `^`/`^OR` expressions are
+rejected until their predicate AST mapping is proven against the instance.
 
 Creation leaves the flow in Draft and inactive, then creates and reads back an
 Autosave version. `flows publish` remains a separate lifecycle operation.
