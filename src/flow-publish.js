@@ -16,6 +16,8 @@
 import { decodeGzipJson } from './sdk.js';
 
 const ACTIVATE_PATH = '/api/now/wfa_fluent/activate_flows';
+const PROCESSFLOW_PATH = '/api/now/processflow/flow';
+const VERSION_PATH = '/api/now/processflow/versioning/create_version';
 
 // The endpoint returns 200 (all published), 207 (partial) or 422 (all failed).
 // 422 is NOT an error case -- it carries a per-flow result body that is the
@@ -73,6 +75,38 @@ export async function publishFlows(sdk, flowIDs = [], actionIDs = []) {
   }
 
   throw new Error(`Publish failed (HTTP ${resp.status}): ${message}`);
+}
+
+/** Publish one flow through the ProcessFlow snapshot/version lifecycle. */
+export async function publishFlowLifecycle(sdk, instance, flowId) {
+  const definitionResponse = await sdk.request(`${instance}${PROCESSFLOW_PATH}/${encodeURIComponent(flowId)}`, { method: 'GET' });
+  const definition = definitionResponse?.result?.data ?? definitionResponse?.data?.result?.data ?? definitionResponse?.data ?? definitionResponse?.result ?? definitionResponse;
+  if (!definition || typeof definition !== 'object') throw new Error(`Flow definition could not be read for ${flowId}`);
+  const snapshot = await sdk.request(`${instance}${PROCESSFLOW_PATH}/${encodeURIComponent(flowId)}/snapshot`, {
+    method: 'POST',
+    body: JSON.stringify(definition),
+  });
+  if (snapshot?.errors?.length || snapshot?.result?.errorMessage) throw new Error(`Flow snapshot failed for ${flowId}`);
+  const versionResponse = await sdk.request(`${instance}${VERSION_PATH}`, {
+    method: 'POST',
+    body: JSON.stringify({ item_sys_id: flowId, type: 'Activate/Publish', annotation: 'JSN flow publish', favorite: false }),
+  });
+  const versions = await sdk.list('sys_hub_flow_version', new URLSearchParams({
+    sysparm_query: `flow=${flowId}^ORDERBYDESCsys_updated_on`,
+    sysparm_limit: '10',
+    sysparm_display_value: 'all',
+  }));
+  const activeFlow = sdk.get ? await sdk.get('sys_hub_flow', flowId) : null;
+  const active = String(activeFlow?.active?.value ?? activeFlow?.active ?? '').toLowerCase() === 'true';
+  if (!active) throw new Error(`Flow ${flowId} publish did not persist active=true`);
+  return {
+    flow_id: flowId,
+    active,
+    snapshot: snapshot?.result ?? snapshot,
+    version: versions[0] || versionResponse?.result,
+    versions,
+    lifecycle: 'Activate/Publish',
+  };
 }
 
 /**

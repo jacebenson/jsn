@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 const FLOW_ENDPOINT = '/api/now/processflow/flow';
 const GRAPHQL_ENDPOINT = '/api/now/graphql';
 const VERSION_ENDPOINT = '/api/now/processflow/versioning/create_version';
+const TABLE_DESCRIPTOR_ENDPOINT = '/api/now/processflow/trigger/record/table';
 
 function isSysId(value) {
   return typeof value === 'string' && /^[0-9a-f]{32}$/i.test(value);
@@ -153,7 +154,7 @@ export function buildFlowProperties(manifest) {
     flowPriority: 'MEDIUM',
     access: 'public',
     protection: '',
-    runWithRoles: { read: [], write: [] },
+    runWithRoles: { value: '', displayValue: '' },
     deleted: false,
     security: { can_read: true, can_write: true },
   };
@@ -218,34 +219,86 @@ function buildTypedInputs(action, schema) {
   const allowed = new Set(schema.map(field => field.name));
   for (const key of Object.keys(supplied)) if (!allowed.has(key)) throw new Error(`Unsupported input "${key}" for action ${action.type}`);
   return schema.map(field => {
+    if (!field || typeof field !== 'object' || !field.id || !field.parameter || typeof field.parameter !== 'object') {
+      throw new Error(`Action ${action.type} returned an incomplete input schema; refusing to invent input metadata for "${field?.name || 'unknown'}"`);
+    }
     const suppliedValue = Object.prototype.hasOwnProperty.call(supplied, field.name) ? supplied[field.name] : field.default;
     if ((suppliedValue === undefined || suppliedValue === null) && (field.mandatory === true || field.required === true)) throw new Error(`Missing required input "${field.name}" for action ${action.type}`);
     const value = suppliedValue ?? null;
     const displayValue = field.displayValue ?? field.display_value ?? value;
     return {
+      ...field,
       name: field.name,
-      label: field.label || field.name,
-      type: field.type,
-      mandatory: field.mandatory === true || field.required === true,
-      parameter: { ...field, default: undefined },
       value: { schemaless: false, schemalessValue: '', value },
       displayValue: { schemaless: false, schemalessValue: '', value: displayValue },
     };
   });
 }
 
-function makeTriggerPatch(flow, manifest) {
+function parseSimpleCondition(condition) {
+  if (!condition) return null;
+  const match = condition.match(/^([A-Za-z_][A-Za-z0-9_.]*)(STARTSWITH|ENDSWITH|LIKE|NOT LIKE|=|!=|IN|ISEMPTY|ISNOTEMPTY)([^,^]*)$/);
+  if (!match) throw new Error('Record trigger condition cannot be encoded as a single supported predicate');
+  return { field: match[1], operator: match[2], term: match[3] };
+}
+
+async function readTableDescriptor(sdk, instance, scope, table, override) {
+  if (override) return override(table);
+  const endpoint = `${instance}${TABLE_DESCRIPTOR_ENDPOINT}?table=${encodeURIComponent(table)}&sysparm_transaction_scope=${encodeURIComponent(scope)}`;
+  const response = await sdk.request(endpoint, { method: 'GET' });
+  const descriptor = response?.result ?? response?.data?.result ?? response?.data ?? response;
+  if (!descriptor || typeof descriptor !== 'object') throw new Error(`ProcessFlow table descriptor was unavailable for ${table}`);
+  const label = stringValue(descriptor.label || descriptor.displayValue || descriptor.display_value || descriptor.name);
+  const displayField = stringValue(descriptor.displayField || descriptor.display_field || descriptor.displayColumn || descriptor.display_column);
+  if (!label || !displayField) throw new Error(`ProcessFlow table descriptor for ${table} lacks label/display field`);
+  return { ...descriptor, label, displayField };
+}
+
+function buildPredicateMetadata(condition, descriptor) {
+  const predicate = parseSimpleCondition(condition);
+  if (!predicate) return { predicates: [], order_by: [], group_by: [], has_rlq_conditions: false };
+  const field = descriptor.fields?.find(item => stringValue(item.name || item.element || item.field) === predicate.field)
+    || descriptor.schema?.find(item => stringValue(item.name || item.element || item.field) === predicate.field);
+  const fieldLabel = stringValue(field?.label || field?.column_label || predicate.field);
+  const operatorLabel = stringValue(field?.operators?.[predicate.operator] || predicate.operator);
+  const comparison = {
+    field_type: stringValue(field?.field_type || field?.type || 'string'),
+    operator: predicate.operator,
+    term_label: predicate.term,
+    or_query: false,
+    field_label: fieldLabel,
+    column_type: stringValue(field?.column_type || 'element'),
+    term: predicate.term,
+    display_value: '',
+    new_query: false,
+    goto_query: false,
+    is_pre_evaluated: false,
+    rlqc_query: false,
+    operator_label: operatorLabel,
+    value: predicate.term,
+    field: predicate.field,
+    type: 'comparison',
+  };
+  return {
+    predicates: [{ compound_type: 'or', subpredicates: [{ compound_type: 'and', subpredicates: [{ compound_type: 'and', subpredicates: [comparison], type: 'compound' }], type: 'compound' }], type: 'compound' }],
+    order_by: [],
+    group_by: [],
+    has_rlq_conditions: false,
+  };
+}
+
+function makeTriggerPatch(flow, manifest, descriptor) {
   const trigger = findArray(flow, 'triggerInstances')[0];
   if (!trigger) throw new Error('Created flow did not return its default record trigger instance');
   const id = findId(trigger, ['sysId', 'sys_id', 'id', 'triggerId']);
   if (!id) throw new Error('Created flow trigger has no usable identity');
-  const metadata = parseMaybeJson(trigger.metadata, {});
+  const metadata = buildPredicateMetadata(manifest.trigger.condition || '', descriptor);
   const wrapped = value => ({ schemaless: false, schemalessValue: '', value });
   return {
     id,
-    metadata: typeof trigger.metadata === 'string' ? trigger.metadata : JSON.stringify(metadata),
+    metadata: JSON.stringify(metadata),
     inputs: [
-      { name: 'table', displayField: manifest.trigger.table, displayValue: wrapped(manifest.trigger.table), value: wrapped(manifest.trigger.table) },
+      { name: 'table', displayField: descriptor.displayField, displayValue: wrapped(descriptor.label), value: wrapped(manifest.trigger.table) },
       { name: 'condition', displayField: manifest.trigger.condition || '', displayValue: wrapped(manifest.trigger.condition || ''), value: wrapped(manifest.trigger.condition || '') },
     ],
   };
@@ -341,7 +394,8 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       await addPostMutationCapture(parentSnapshot, sdk, readUpdateSet, flowId);
     }
     const initialDefinition = await readProcessFlow(sdk, instance, flowId);
-    const trigger = makeTriggerPatch(initialDefinition, manifest);
+    const tableDescriptor = await readTableDescriptor(sdk, instance, scope, manifest.trigger.table, options.readTableDescriptor);
+    const trigger = makeTriggerPatch(initialDefinition, manifest, tableDescriptor);
 
     const actionInstances = [];
     for (const [index, action] of manifest.actions.entries()) {
@@ -350,7 +404,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       actionInstances.push({
         actionTypeSysId: resolved.id,
         flowSysId: flowId,
-        generationSource: 'manual',
+        generationSource: '',
         type: 'action',
         order: String(index + 1),
         parent: '',

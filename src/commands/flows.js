@@ -1,11 +1,12 @@
 import fs from 'node:fs';
-import { formatRecordForDisplay, getStringField, interactiveList } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, confirmDelete } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { inspectFlow } from '../flow-inspection.js';
-import { publishFlows, publishDoctor, flowStatus } from '../flow-publish.js';
+import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
+import { testFlow } from '../flow-test.js';
 
 function flowInspectionAdapter(app) {
   return {
@@ -14,7 +15,7 @@ function flowInspectionAdapter(app) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish'] });
+declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish', 'test'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -181,9 +182,14 @@ export function flowsCmd(wrap) {
                 resource: argv.action ? 'Custom action' : 'Flow',
               }));
 
-            const result = argv.action
-              ? await publishFlows(app.sdk, [], [sysID])
-              : await publishFlows(app.sdk, [sysID], []);
+            if (!argv.action) {
+              const lifecycle = await publishFlowLifecycle(app.sdk, app.getEffectiveInstance(), sysID);
+              return app.ok(lifecycle, {
+                summary: `Published ${sysID}; active=${lifecycle.active}; version=${lifecycle.version?.sys_id ?? lifecycle.version?.id ?? 'read back'}`,
+                breadcrumbs: [{ action: 'status', cmd: `jsn flows status ${sysID}`, description: 'Verify the flow will run' }],
+              });
+            }
+            const result = await publishFlows(app.sdk, [], [sysID]);
 
             const { summary, results, via } = result;
             const lines = results.map(r => `  ${r.status === 'success' ? '✅' : '❌'} ${r.flow_name ?? r.sys_id}: ${r.message ?? r.status}${r.errorMessage ? ` — ${r.errorMessage}` : ''}`);
@@ -207,6 +213,23 @@ export function flowsCmd(wrap) {
             return app.ok(status, {
               summary: `${status.ok ? '✅' : '❌'} ${status.flow.name} (${status.flow.type})\n${renderChecks(status.checks)}`,
               breadcrumbs: status.ok ? [] : [{ action: 'publish', cmd: `jsn flows publish ${sysID}`, description: 'Publish this flow' }],
+            });
+          }),
+        })
+        .command({
+          command: 'test <identifier>',
+          describe: 'Execute a record-triggered flow against one record (may cause side effects)',
+          builder: (y) => y
+            .option('record', { type: 'string', demandOption: true, describe: 'Trigger record sys_id to test against' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            await confirmDelete(app, argv, `Execute flow test for ${argv.identifier} against record ${argv.record}; actions may cause side effects`);
+            const result = await testFlow(app.sdk, app.getEffectiveInstance(), argv.identifier, argv.record);
+            return app.ok(result, {
+              summary: result.status === 'completed'
+                ? `Flow test completed (${result.success ? 'success' : 'failed'})`
+                : 'Flow test accepted for execution',
             });
           }),
         })
@@ -278,6 +301,7 @@ export function flowsCmd(wrap) {
       console.log('  show <identifier>     Show flow details by name or sys_id');
       console.log('  status <identifier>   Check whether a flow is actually able to run');
       console.log('  publish <identifier>  Publish (activate) a flow');
+      console.log('  test <identifier>    Execute a record-triggered flow against one record');
       console.log('  doctor                Check whether this instance can publish flows');
       console.log('  create                Create a draft flow from a JSON manifest');
       console.log('  update <identifier>   Update a flow (not yet implemented)');

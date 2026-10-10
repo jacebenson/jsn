@@ -208,7 +208,18 @@ equivalent single-predicate operators). Compound `^`/`^OR` expressions are
 rejected until their predicate AST mapping is proven against the instance.
 
 Creation leaves the flow in Draft and inactive, then creates and reads back an
-Autosave version. `flows publish` remains a separate lifecycle operation.
+Autosave version. `flows publish` remains a separate lifecycle operation: it
+reads the saved ProcessFlow definition, POSTs `/snapshot`, creates an
+`Activate/Publish` version, reads version history, and verifies `active=true`.
+Do not use it in a dry-run: publishing activates the flow.
+
+`jsn flows test <identifier> --record <sys_id>` is also a mutating operation.
+It requires confirmation (or `--force`), reads the saved definition, verifies
+that the supplied record exists in the record-trigger table, and POSTs the full
+definition to the ProcessFlow test endpoint. A response with only a context ID
+is reported as accepted, not completed. Test runs execute actions and can have
+side effects; this slice does not execute test flows during development.
+
 Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
 and rejected by this slice rather than silently ignored.
 

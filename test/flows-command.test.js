@@ -103,26 +103,41 @@ test('publish, status, and doctor handlers require an instance', async () => {
   }
 });
 
+test('flows test is registered as a mutation, requires --record and confirmation', async () => {
+  const command = handler('test <identifier>');
+  assert.ok(command);
+  const options = [];
+  command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
+  assert.deepEqual(options.map(([name]) => name), ['record', 'force']);
+  assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('test'), true);
+
+  const previous = process.env.JSN_NO_PROMPTS;
+  process.env.JSN_NO_PROMPTS = '1';
+  try {
+    const { app } = jsonApp({});
+    app.config = { activeProfile: 'test', profiles: { test: { skip_confirmations: false } } };
+    await assert.rejects(command.handler({ identifier: 'flow-1', record: 'record-1', force: false }, app), error => error.code === 'confirmation_required');
+  } finally {
+    if (previous === undefined) delete process.env.JSN_NO_PROMPTS;
+    else process.env.JSN_NO_PROMPTS = previous;
+  }
+});
+
 test('publish handler resolves a named flow, declares mutation, and emits JSON', async () => {
   const calls = [];
   const sdk = {
     baseURL: 'https://example.service-now.com',
     async list(table, params) {
       calls.push(['list', table, Object.fromEntries(params)]);
-      return [{ sys_id: 'flow-1', name: 'Named flow' }];
+      if (table === 'sys_hub_flow') return [{ sys_id: 'flow-1', name: 'Named flow' }];
+      return [{ sys_id: 'version-1', type: 'Activate/Publish', flow: 'flow-1' }];
     },
-    async fetchResponse(url, options) {
-      calls.push(['publish', url, JSON.parse(options.body)]);
-      return {
-        status: 200,
-        async text() {
-          return JSON.stringify({ result: {
-            summary: { total: 1, succeeded: 1, failed: 0 },
-            results: [{ sys_id: 'flow-1', status: 'success', flow_name: 'Named flow' }],
-          } });
-        },
-      };
+    async request(url, options) {
+      calls.push(['request', url, options.method, options.body ? JSON.parse(options.body) : undefined]);
+      if (options.method === 'GET') return { result: { data: { flowId: 'flow-1', triggerInstances: [] } } };
+      return { result: { sys_id: 'version-1' } };
     },
+    async get() { return { sys_id: 'flow-1', active: 'true' }; },
   };
   const { app, envelope } = jsonApp(sdk);
 
@@ -133,14 +148,16 @@ test('publish handler resolves a named flow, declares mutation, and emits JSON',
     sysparm_limit: '1',
     sysparm_display_value: 'all',
   }]);
-  assert.deepEqual(calls[1][2].flows, [{ sys_id: 'flow-1', active: 'true', state: '' }]);
-  assert.deepEqual(calls[1][2].actions, []);
+  assert.equal(calls[1][1], 'https://example.service-now.com/api/now/processflow/flow/flow-1');
+  assert.equal(calls[2][1], 'https://example.service-now.com/api/now/processflow/flow/flow-1/snapshot');
+  assert.equal(calls[3][1], 'https://example.service-now.com/api/now/processflow/versioning/create_version');
+  assert.deepEqual(calls[3][3], { item_sys_id: 'flow-1', type: 'Activate/Publish', annotation: 'JSN flow publish', favorite: false });
   assert.ok(mutationPaths(collectCapabilities()).some(path =>
     path.length === 2 && path[0] === 'flows' && path[1] === 'publish'));
   const out = envelope();
   assert.equal(out.ok, true);
-  assert.equal(out.data.results[0].sys_id, 'flow-1');
-  assert.match(out.summary, /Published 1\/1/);
+  assert.equal(out.data.active, true);
+  assert.match(out.summary, /active=true/);
 });
 
 test('publish --action skips flow lookup and publishes the supplied action sys_id', async () => {
