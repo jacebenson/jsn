@@ -48,6 +48,13 @@ export default function (eleventyConfig) {
     return cmd.split(/\s+/).slice(0, 3).join(" ");
   });
 
+  // Add read-only WebMCP tools to every generated HTML documentation page.
+  // Browsers without the early-preview API ignore the script entirely.
+  eleventyConfig.addTransform("webmcp-tools", function (content) {
+    if (!this.outputPath?.endsWith(".html") || !content.includes("</body>")) return content;
+    return content.replace("</body>", '  <script src="/assets/webmcp.js" defer></script>\n</body>');
+  });
+
   return {
     dir: {
       input: ".",
