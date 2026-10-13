@@ -28,7 +28,8 @@ export function normalizeMidName(name) {
 }
 
 export function buildMidRecipeUrl(releaseName) {
-  const match = String(releaseName).match(/(\d{4})-(\d{2})-(\d{2})|(\d{2})-(\d{2})-(\d{4})/);
+  const matches = [...String(releaseName).matchAll(/(\d{4})-(\d{2})-(\d{2})|(\d{2})-(\d{2})-(\d{4})/g)];
+  const match = matches.at(-1);
   if (!match) throw new Error(`MID release name has no build date: ${releaseName}`);
   const year = match[1] || match[6];
   const month = match[2] || match[4];
@@ -131,7 +132,10 @@ export async function installDockerMidServer({
     fs.rmSync(persistedRecipeDir, { recursive: true, force: true });
     fs.cpSync(recipeDir, persistedRecipeDir, { recursive: true });
     fs.writeFileSync(composePath, composeFile({ serviceName }), { mode: 0o600 });
-    fs.writeFileSync(path.join(installDir, '.env'), envFile({ instanceURL, username, password, displayName, releaseName }), { mode: 0o600 });
+    fs.chmodSync(composePath, 0o600);
+    const envPath = path.join(installDir, '.env');
+    fs.writeFileSync(envPath, envFile({ instanceURL, username, password, displayName, releaseName }), { mode: 0o600 });
+    fs.chmodSync(envPath, 0o600);
     if (!dockerAvailable || !runNow) {
       return {
         name: displayName,
