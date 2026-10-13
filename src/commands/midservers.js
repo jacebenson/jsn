@@ -397,22 +397,48 @@ export function midserversCmd(wrap) {
         }),
       })
       .command({
-        command: 'execute <identifier>',
+        command: 'execute [identifier]',
         describe: 'Execute a shell command through a MID Server',
         builder: (b) => b
-          .option('command', { alias: 'c', type: 'string', demandOption: true, describe: 'Command line to execute on the MID Server host' })
+          .option('command', { alias: 'c', type: 'string', describe: 'Command line to execute on the MID Server host' })
           .option('timeout', { type: 'number', default: DEFAULT_TIMEOUT, describe: 'Response timeout in milliseconds' })
           .option('interval', { type: 'number', default: DEFAULT_INTERVAL, describe: 'Polling interval in milliseconds' }),
         handler: wrap(async (argv, app) => {
-          const record = await resolveMidServer(app.sdk, argv.identifier);
+          let record;
+          if (argv.identifier) {
+            record = await resolveMidServer(app.sdk, argv.identifier);
+          } else {
+            if (!canPrompt() || app.output.getFormat() !== FormatAuto) {
+              throw new Error('An identifier and --command are required outside an interactive terminal');
+            }
+            record = await interactiveList({
+              app,
+              table: AGENT_TABLE,
+              singular: 'MID Server',
+              columns: LIST_FIELDS,
+              limit: 50,
+              labelField: 'name',
+              message: 'Select a MID Server to execute on',
+              formatLabel: (candidate) => {
+                const name = getStringField(candidate, 'name') || getStringField(candidate, 'sys_id');
+                const status = getStringField(candidate, 'status');
+                return status ? `${name} [${status}]` : name;
+              },
+            });
+            if (!record) return;
+          }
+          const command = argv.command || await input({
+            message: 'Command to execute:',
+            validate: value => value.trim() ? true : 'Command is required',
+          });
           assertMidServerUp(record);
           const agent = agentName(record);
           const output = await app.sdk.create(QUEUE_TABLE, {
             agent,
             topic: 'Command',
             queue: 'output',
-            name: argv.command,
-            payload: buildCommandPayload(argv.command),
+            name: command,
+            payload: buildCommandPayload(command),
           });
           const outputSysId = unwrapSysId(output);
           if (!outputSysId) throw new Error('ServiceNow did not return the ECC Queue sys_id for the command');
@@ -422,7 +448,7 @@ export function midserversCmd(wrap) {
           const result = parseCommandResult(queueValue(response.payload));
           app.ok({
             mid_server: getStringField(record, 'name'),
-            command: argv.command,
+            command,
             output: { sys_id: outputSysId, ...output },
             response: { ...response, ...result },
           }, { summary: `Executed command on MID Server '${getStringField(record, 'name')}'` });
