@@ -114,7 +114,8 @@ export async function installDockerMidServer({
   const installDir = directory || midInstallDirectory(instanceURL, name);
   fs.mkdirSync(installDir, { recursive: true, mode: 0o700 });
   const exportDir = path.join(installDir, 'export');
-  fs.mkdirSync(exportDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(exportDir, { recursive: true, mode: 0o777 });
+  fs.chmodSync(exportDir, 0o777);
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-mid-'));
   const filename = path.basename(recipeURL);
   const archive = path.join(workDir, filename);
@@ -148,18 +149,18 @@ export async function installDockerMidServer({
         composePath,
         serviceName,
         prepared: true,
-        runCommand: `docker compose -f ${composePath} up -d`,
+        runCommand: `docker compose --env-file ${envPath} -f ${composePath} up -d`,
       };
     }
     run('docker', ['build', '--tag', `${serviceName}:${releaseName}`, persistedRecipeDir]);
-    run('docker', ['compose', '-f', composePath, 'up', '-d'], { cwd: installDir, env });
+    run('docker', ['compose', '--env-file', envPath, '-f', composePath, 'up', '-d'], { cwd: installDir, env });
     return {
       name: displayName,
       releaseName,
       installDir,
       composePath,
       serviceName,
-      rollback: () => run('docker', ['compose', '-f', composePath, 'down'], { cwd: installDir, env }),
+      rollback: () => run('docker', ['compose', '--env-file', envPath, '-f', composePath, 'down'], { cwd: installDir, env }),
     };
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
