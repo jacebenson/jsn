@@ -77,7 +77,16 @@ export function dockerComposeAvailable(run = defaultRun) {
 }
 
 function composeFile({ serviceName }) {
-  return `services:\n  ${serviceName}:\n    container_name: ${serviceName}\n    image: ${serviceName}:\${MID_RELEASE}\n    restart: unless-stopped\n    volumes:\n      - ./export:/opt/snc_mid_server/agent/export\n    environment:\n      MID_INSTANCE_URL: \${MID_INSTANCE_URL}\n      MID_INSTANCE_USERNAME: \${MID_INSTANCE_USERNAME}\n      MID_INSTANCE_PASSWORD: \${MID_INSTANCE_PASSWORD}\n      MID_SERVER_NAME: \${MID_SERVER_NAME}\n`;
+  return `services:\n  ${serviceName}:\n    container_name: ${serviceName}\n    build: ./recipe\n    image: ${serviceName}:\${MID_RELEASE}\n    restart: unless-stopped\n    volumes:\n      - ./export:/opt/snc_mid_server/agent/export\n    environment:\n      MID_INSTANCE_URL: \${MID_INSTANCE_URL}\n      MID_INSTANCE_USERNAME: \${MID_INSTANCE_USERNAME}\n      MID_INSTANCE_PASSWORD: \${MID_INSTANCE_PASSWORD}\n      MID_SERVER_NAME: \${MID_SERVER_NAME}\n`;
+}
+
+function envFile({ instanceURL, username, password, displayName, releaseName }) {
+  return `MID_RELEASE=${releaseName}\nMID_INSTANCE_URL=${String(instanceURL).replace(/\/$/, '')}/\nMID_INSTANCE_USERNAME=${username}\nMID_INSTANCE_PASSWORD=${password}\nMID_SERVER_NAME=${displayName}\n`;
+}
+
+function instanceName(instanceURL) {
+  const hostname = new URL(instanceURL).hostname;
+  return hostname.replace(/\.service-now\.com$|\.servicenowservices\.com$/i, '').replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
 export async function installDockerMidServer({
@@ -87,17 +96,17 @@ export async function installDockerMidServer({
   name,
   directory,
   releaseName: suppliedReleaseName,
+  runNow = true,
   fetchImpl = fetch,
   run = defaultRun,
 }) {
-  if (!dockerComposeAvailable(run)) {
-    throw new Error('Docker and Docker Compose are required for Docker MID Server installation');
-  }
+  const dockerAvailable = detectDocker(run).available;
   const shortName = normalizeMidName(name);
   const displayName = `mid.server.${shortName}`;
   const releaseName = suppliedReleaseName || (await validateMidCredentials(instanceURL, username, password, fetchImpl)).releaseName;
   const recipeURL = buildMidRecipeUrl(releaseName);
-  const installDir = directory || path.join(os.homedir(), '.local', 'share', 'jsn', 'midservers', shortName);
+  const serviceNowInstance = instanceName(instanceURL);
+  const installDir = directory || path.join(os.homedir(), '.servicenow', 'mids', serviceNowInstance, shortName);
   fs.mkdirSync(installDir, { recursive: true, mode: 0o700 });
   const exportDir = path.join(installDir, 'export');
   fs.mkdirSync(exportDir, { recursive: true, mode: 0o700 });
@@ -110,9 +119,8 @@ export async function installDockerMidServer({
     fs.mkdirSync(recipeDir, { recursive: true, mode: 0o700 });
     run('unzip', ['-q', archive, '-d', recipeDir]);
     const composePath = path.join(installDir, 'docker-compose.yaml');
+    const persistedRecipeDir = path.join(installDir, 'recipe');
     const serviceName = `jsn_mid_${shortName.replace(/[^A-Za-z0-9_.-]/g, '_')}`;
-    run('docker', ['build', '--tag', `${serviceName}:${releaseName}`, recipeDir]);
-    fs.writeFileSync(composePath, composeFile({ serviceName, instanceURL, displayName }), { mode: 0o600 });
     const env = {
       MID_RELEASE: releaseName,
       MID_INSTANCE_URL: `${String(instanceURL).replace(/\/$/, '')}/`,
@@ -120,6 +128,22 @@ export async function installDockerMidServer({
       MID_INSTANCE_PASSWORD: password,
       MID_SERVER_NAME: displayName,
     };
+    fs.rmSync(persistedRecipeDir, { recursive: true, force: true });
+    fs.cpSync(recipeDir, persistedRecipeDir, { recursive: true });
+    fs.writeFileSync(composePath, composeFile({ serviceName }), { mode: 0o600 });
+    fs.writeFileSync(path.join(installDir, '.env'), envFile({ instanceURL, username, password, displayName, releaseName }), { mode: 0o600 });
+    if (!dockerAvailable || !runNow) {
+      return {
+        name: displayName,
+        releaseName,
+        installDir,
+        composePath,
+        serviceName,
+        prepared: true,
+        runCommand: `docker compose -f ${composePath} up -d`,
+      };
+    }
+    run('docker', ['build', '--tag', `${serviceName}:${releaseName}`, persistedRecipeDir]);
     run('docker', ['compose', '-f', composePath, 'up', '-d'], { cwd: installDir, env });
     return {
       name: displayName,

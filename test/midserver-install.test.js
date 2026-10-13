@@ -75,6 +75,7 @@ describe('MID Server installer', () => {
     const composeRun = calls.find(call => call.args.includes('up'));
     assert.equal(composeRun.options.env.MID_INSTANCE_PASSWORD, 'super-secret');
     assert.equal(result.name, 'mid.server.oct12');
+    assert.equal(path.basename(result.composePath), 'docker-compose.yaml');
     assert.ok(calls.some(call => call.command === 'docker' && call.args[0] === 'build' && call.args[2] === 'jsn_mid_oct12:mid-linux-2026-05-19'));
   });
 });
