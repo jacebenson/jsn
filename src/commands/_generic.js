@@ -181,11 +181,12 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         }),
       })
       .command({
-        command: 'show <identifier>',
+        command: opts.resolveIdentifier ? 'show [identifier]' : 'show <identifier>',
         aliases: ['get'],
         describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
         handler: wrap(async (argv, app) => {
-          const id = argv.identifier;
+          const id = opts.resolveIdentifier ? await opts.resolveIdentifier(argv, app) : argv.identifier;
+          if (id === undefined) return;
           // Only restrict sysparm_fields if showFields is explicitly set.
           // Go version fetches all fields for show unless explicitly restricted.
           const fields = (showFields && showFields.length > 0)

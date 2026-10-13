@@ -163,6 +163,25 @@ test('real binary help describes complete JSON and bounded wait without publish/
   }
 });
 
+test('real binary omitted targets and manifests produce structured noninteractive usage errors without authentication', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-flow-usage-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'servicenow'));
+    fs.writeFileSync(path.join(dir, 'servicenow', 'config.json'), JSON.stringify({ active_profile: 'test', profiles: { test: { instance_url: 'https://example.invalid', auth_method: 'gck' } } }));
+    const cases = [
+      ...['show', 'definition', 'update', 'edit', 'test', 'delete', 'step-types', 'create'].map(verb => ['actions', verb]),
+      ...['show', 'status', 'publish', 'activate', 'update', 'edit', 'test', 'delete', 'create'].map(verb => ['flows', verb]),
+    ];
+    for (const args of cases) {
+      const result = spawnSync(process.execPath, [binary, ...args, '--json'], { encoding: 'utf8', env: { ...baseEnv, XDG_CONFIG_HOME: dir }, timeout: 5000 });
+      assert.equal(result.status, 2, `${args.join(' ')}: ${result.stdout} ${result.stderr}`);
+      const envelope = JSON.parse(result.stdout);
+      assert.equal(envelope.ok, false);
+      assert.equal(envelope.code, 'usage_error');
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('real binary read-only profiles block every mutation including aliases before authentication', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-actions-readonly-'));
   try {
@@ -176,6 +195,14 @@ test('real binary read-only profiles block every mutation including aliases befo
         const envelope = JSON.parse(r.stdout);
         assert.equal(envelope.ok, false);
         assert.match(envelope.error, /read.only/i);
+      }
+    }
+    for (const root of ['flows', 'flow']) {
+      for (const verb of ['create', 'update', 'edit', 'delete', 'test', 'publish', 'activate']) {
+        const result = spawnSync(process.execPath, [binary, root, verb, '--json'], { encoding: 'utf8', env: { ...baseEnv, XDG_CONFIG_HOME: dir }, timeout: 5000 });
+        assert.equal(result.status, 1, `${root} ${verb}: ${result.stdout} ${result.stderr}`);
+        const envelope = JSON.parse(result.stdout);
+        assert.equal(envelope.code, 'read_only');
       }
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

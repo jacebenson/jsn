@@ -91,7 +91,7 @@ function assertGraphQLSuccess(response, operation) {
   if (response?.result?.errorMessage) throw new Error(`${operation} failed: ${response.result.errorMessage}`);
 }
 
-function schemaEntries(definition) {
+function schemaEntries(definition, requireTypes = false) {
   const entries = [];
   const seen = new Set();
   walk(definition, object => {
@@ -102,6 +102,7 @@ function schemaEntries(definition) {
         const name = stringValue(field.name || field.key || field.element || field.parameter);
         if (!name || seen.has(name)) continue;
         seen.add(name);
+        if (requireTypes && !stringValue(field.type || field.inputType || field.valueType)) throw new Error(`Input ${name} has no provider type; refusing to invent a guided schema`);
         entries.push({
           ...field,
           name,
@@ -193,7 +194,7 @@ export function buildFlowUpdateMutation({ flowId, triggerUpdates = [], actionUpd
   return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { updates } actions { updates } } } } }`;
 }
 
-async function readProcessFlow(sdk, instance, flowId, scope) {
+export async function readProcessFlow(sdk, instance, flowId, scope) {
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope for ProcessFlow read`);
   const endpoint = `${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`;
   const response = await sdk.request(endpoint, { method: 'GET' });
@@ -220,11 +221,11 @@ async function resolveActionType(sdk, actionType) {
   return { id: actionTypeId(record), record };
 }
 
-async function readActionDefinition(sdk, instance, actionTypeId, scope) {
+export async function readActionDefinition(sdk, instance, actionTypeId, scope, { requireTypes = false } = {}) {
   const endpoint = `${instance}/api/now/processflow/action/action_types/${encodeURIComponent(actionTypeId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`;
   const response = await sdk.request(endpoint, { method: 'GET' });
   const definition = response?.result ?? response?.data?.result ?? response?.data ?? response;
-  const schema = schemaEntries(definition);
+  const schema = schemaEntries(definition, requireTypes);
   if (schema.length === 0) throw new Error(`Action type ${actionTypeId} returned no input schema`);
   return { definition, schema };
 }
@@ -257,7 +258,7 @@ function parseSimpleCondition(condition) {
   return { field: match[1], operator: match[2], term: match[3] };
 }
 
-async function readTableDescriptor(sdk, instance, scope, table, override) {
+export async function readTableDescriptor(sdk, instance, scope, table, override) {
   if (override) return override(table);
   const endpoint = `${instance}${TABLE_DESCRIPTOR_ENDPOINT}?table=${encodeURIComponent(table)}&sysparm_transaction_scope=${encodeURIComponent(scope)}`;
   const response = await sdk.request(endpoint, { method: 'GET' });

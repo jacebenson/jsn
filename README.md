@@ -97,8 +97,27 @@ jsn logs follow --level error --tail 10
 ### Flow Designer actions
 
 `actions` and `action` are the same command. `list`, `show`, and explicit
-`delete` remain available. Create and edit use full Process Flow JSON, not
-ordinary table-field updates.
+`delete` remain available. In a human terminal, omit the target to open a
+searchable picker. Create and edit guide you through provider schemas and save
+full Process Flow definitions, not ordinary table-field updates.
+
+```bash
+jsn actions create                 # Guided scope, name, schemas, inputs and script
+jsn actions edit                   # Pick an action, edit its saved definition
+jsn actions definition             # Pick and inspect a complete definition
+jsn actions test --wait            # Pick an action, supply saved-schema inputs, confirm
+jsn actions step-types             # Pick the exact transaction scope
+```
+
+Script inputs offer a file path or your `$VISUAL`/`$EDITOR`. New script steps can
+declare outputs and map them to action outputs. Variable declarations reuse
+provider schema templates and receive fresh UI identities. Unknown nested
+schema fields are retained. Unsupported input types stop with instructions to
+use `--data-file`; JSN does not silently omit them or invent schema defaults.
+Creation waits for an explicit final confirmation before allocating a parent.
+It saves a draft only and never publishes or runs it automatically.
+
+For automation, keep using explicit identifiers and full JSON:
 
 ```bash
 jsn actions step-types --scope <scope_sys_id> --get data > step-types.json
@@ -177,9 +196,43 @@ These internal endpoints and runtime-table permissions can vary by instance.
 
 ### Flow execution fields
 
+### Flow Designer terminal workflows
+
+```bash
+jsn flows create         # Guided record trigger and published action inputs
+jsn flows edit           # Pick an inactive Draft, edit condition or existing inputs
+jsn flows show           # Pick a flow to inspect
+jsn flows status         # Pick a flow to diagnose
+jsn flows test           # Pick flow and a record from its actual trigger table, confirm
+jsn flows publish        # Pick a flow, explicitly confirm activation
+# Automation must explicitly confirm publication too:
+jsn flows publish <flow_sys_id> --force --json
+```
+
+Wizards and omitted-target pickers require both a prompt-capable terminal and
+`auto` output. `--json`, explicit formats, `--get`, `--data`, `--data-file`,
+`--output-map`, pipes, `CI`, `NONINTERACTIVE` and `JSN_NO_PROMPTS=1` never open a
+wizard. In those modes provide identifiers and required scope/record/data
+explicitly. Tests, publish and deletion require `--force` or the profile's
+existing explicit skip-confirmations setting when prompting is unavailable.
+Read-only profiles still block mutations before authentication or prompting.
+Press Escape in record pickers or Ctrl+C in any wizard to cancel. Refusing a
+final confirmation leaves the instance untouched.
+
+Existing action/flow scopes come from saved raw identifiers. New scopes offer
+the active application preference if available, then a searchable scope picker.
+No scope name is guessed. Input pills are passed through unchanged.
+
+Flow edits are limited to the existing manifest contract. They do not rename
+flows, add/remove steps, implement Flow Logic, subflows, variables or error
+handling. Flow deletion remains unsupported. Action deletion retains its
+existing explicit parent-record cleanup and absence readback, not a new native
+builder deletion lifecycle. See [command coverage and local proof](docs/flow-designer-interactive.md).
+
 ### Flow creation manifest
 
-`jsn flows create` accepts `--data-file` or inline `--data`. The first slice
+`jsn flows create` accepts `--data-file` or inline `--data`, or guides human
+terminal users without those options. The supported slice
 supports one `record_create_or_update` trigger and published Action types whose
 input schemas are available from the instance. JSN resolves action metadata,
 defaults, and typed inputs from ServiceNow; callers do not provide GraphQL or
