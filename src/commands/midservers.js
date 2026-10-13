@@ -286,14 +286,36 @@ export function midserversCmd(wrap) {
         }),
       })
       .command({
-        command: 'remove <identifier>',
+        command: 'remove [identifier]',
         aliases: ['delete'],
-        describe: 'Remove a MID Server record',
+        describe: 'Remove a MID Server record (interactive when no identifier is given)',
         builder: (b) => b.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
         handler: wrap(async (argv, app) => {
-          const record = await resolveMidServer(app.sdk, argv.identifier);
+          let record;
+          if (argv.identifier) {
+            record = await resolveMidServer(app.sdk, argv.identifier);
+          } else {
+            if (!canPrompt() || app.output.getFormat() !== FormatAuto) {
+              throw new Error('An identifier is required outside an interactive terminal');
+            }
+            record = await interactiveList({
+              app,
+              table: AGENT_TABLE,
+              singular: 'MID Server',
+              columns: LIST_FIELDS,
+              limit: 50,
+              labelField: 'name',
+              message: 'Select a MID Server to remove',
+              formatLabel: (candidate) => {
+                const name = getStringField(candidate, 'name') || getStringField(candidate, 'sys_id');
+                const status = getStringField(candidate, 'status');
+                return status ? `${name} [${status}]` : name;
+              },
+            });
+            if (!record) return;
+          }
           const sysId = unwrapSysId(record);
-          const name = getStringField(record, 'name') || argv.identifier;
+          const name = getStringField(record, 'name') || argv.identifier || sysId;
           await confirmDelete(app, argv, `Remove MID Server '${name}'`);
           await app.sdk.delete(AGENT_TABLE, sysId);
           app.ok({ name, sys_id: sysId, deleted: true }, { summary: `Removed MID Server '${name}'` });
