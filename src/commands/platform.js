@@ -1,4 +1,5 @@
 import { declareCapabilities } from '../capabilities.js';
+import { formatCommandList } from '../helpers.js';
 
 function numberOrString(value) {
   const n = Number(value);
@@ -270,6 +271,22 @@ export function platformCmd(wrap) {
   return {
     command: 'platform',
     describe: 'Inspect read-only platform health and node statistics',
+    // Parent discovery. This parent had no handler, so `jsn platform` and
+    // `jsn platform --json` exited 0 with no output at all — silent success.
+    // Children come from the registry, not a second hand-written list.
+    handler: wrap(async (argv, app) => {
+      const subcommands = argv.subcommands || [];
+      const summary = 'Inspect read-only platform health and node statistics.';
+      app.ok({
+        command: 'platform',
+        subcommands,
+        _formatted: formatCommandList({
+          title: summary,
+          commands: subcommands,
+          footer: 'Run "jsn platform <command> --help" for details.',
+        }),
+      }, { summary });
+    }),
     builder: (y) => y.command({
       command: 'health',
       describe: 'Show cluster, queue, semaphore, and node health',

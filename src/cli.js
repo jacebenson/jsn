@@ -10,7 +10,8 @@ import { resolveSession, applySession } from './session.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
-import { guardExit, exitWithError } from './errors.js';
+import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
+import { formatCommandList } from './helpers.js';
 
 // Command modules
 import { setupCmd } from './commands/setup.js';
@@ -72,6 +73,53 @@ import { perfCmd } from './commands/perf.js';
 import { midserversCmd } from './commands/midservers.js';
 import { diffCmd } from './commands/diff.js';
 import { graphqlCmd } from './commands/graphql.js';
+
+/**
+ * Did the caller explicitly ask for machine output?
+ *
+ * Read from the raw argv because parse-time failures happen BEFORE the format
+ * middleware can run, so `--json`/`--format=json` had not reached the output
+ * controller yet — which is exactly why the structured failure envelope was
+ * unreachable for the mistakes scripts and agents hit most (a missing required
+ * flag, a bad choice, an unknown command).
+ */
+function explicitJsonRequest(args) {
+  return args.some((arg, i) => {
+    if (arg === '--json') return true;
+    if (arg.startsWith('--json=')) return arg !== '--json=false';
+    if (arg === '--format=json') return true;
+    return arg === '--format' && args[i + 1] === 'json';
+  });
+}
+
+/**
+ * The output format the caller explicitly asked for, read from the raw argv.
+ *
+ * Same reason as explicitJsonRequest: the format middleware never runs for a
+ * parse-time failure, so an explicit `--format=styled` (human) or
+ * `--format=json` (machine) was silently ignored and the failure was rendered
+ * by the pipe/TTY default instead of what was asked for.
+ */
+function explicitFormat(args) {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--json') return 'json';
+    if (arg === '--quiet' || arg === '-q') return 'quiet';
+    if (arg === '--styled') return 'styled';
+    if (arg === '--markdown') return 'markdown';
+    if (arg === '--csv') return 'csv';
+    if (arg.startsWith('--format=')) return arg.slice('--format='.length);
+    if (arg === '--format' && args[i + 1]) return args[i + 1];
+  }
+  return '';
+}
+
+/**
+ * Parent commands owned by another change. The adapter's discovery fallback
+ * (which gives a handler-less parent its child list instead of a silent exit 0)
+ * is skipped for these families so their own fix owns the behavior.
+ */
+const DISCOVERY_OWNED_ELSEWHERE = new Set(['auth', 'perf', 'skill', 'groupmembers', 'grouproles']);
 
 function wrap(handler) {
   return async (argv) => {
@@ -435,14 +483,33 @@ export function buildCLI() {
         cliInstance.showCompletionScript();
       },
     })
+    .onParentDiscovery((argv, { path, subcommands }) => {
+      // Reached only for a parent command that declares no default handler of
+      // its own (cmdb, platform, and any future parent) — the adapter used to
+      // fall through and exit 0 having printed nothing. Children come from the
+      // registry, description included, so this list cannot drift from the
+      // registrations the way a hand-written one did.
+      if (DISCOVERY_OWNED_ELSEWHERE.has(path[0])) return;
+      const canonical = path.join(' ');
+      const summary = `jsn ${canonical} — available subcommands.`;
+      (argv.app || app).ok({
+        command: canonical,
+        subcommands,
+        _formatted: formatCommandList({
+          title: `jsn ${canonical}`,
+          commands: subcommands,
+          footer: `Run "jsn ${canonical} <command> --help" for details.`,
+        }),
+      }, { summary });
+    })
     .help('help', 'Show help')
     .version(false)
     .strictCommands()
     .strictOptions(false)
     .fail((msg, err) => {
       if (err) throw err;
+      const raw = process.argv.slice(2);
       if (msg === 'You must specify a command') {
-        const raw = process.argv.slice(2);
         const hasLoneProfile = raw.some((a, i, arr) => {
           if (a !== '--profile' && a !== '-p') return false;
           const next = arr[i + 1];
@@ -458,11 +525,40 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp(loadConfig()) + '\n');
+        // No command is a discovery request, not a failure: the human view
+        // stays exactly as it was (exit 0 + grouped help), and an explicit
+        // --json gets the same surface as machine-readable data instead of
+        // prose that a parser cannot read.
+        if (explicitJsonRequest(raw)) {
+          app.output.setFormat('json');
+          const { commands } = cliInstance.commandRegistry();
+          app.ok({ commands }, {
+            summary: `${commands.length} registered commands — run "jsn <command> --json" for a command's subcommands.`,
+          });
+          process.exit(0);
+        }
+        process.stdout.write(renderHelp(loadConfig(), cliInstance.commandRegistry()) + '\n');
         process.exit(0);
       }
-      process.stderr.write(msg + '\n');
-      process.exit(1);
+      // Every other failure here (unknown command, missing required argument,
+      // invalid choice/number) is a usage failure. Route it through the same
+      // renderer as handler and guard failures: exit 2, and the documented
+      // error envelope on stdout when the caller is in JSON mode. Previously
+      // this wrote raw prose to stderr and exited 1, so the exit code and the
+      // output shape depended on which layer rejected the command.
+      if (explicitJsonRequest(raw)) app.output.setFormat('json');
+      else {
+        const requestedFormat = explicitFormat(raw);
+        if (requestedFormat) app.output.setFormat(requestedFormat);
+      }
+      let hint;
+      try {
+        const path = cliInstance._findPath(raw).path.map((n) => n.name).join(' ');
+        hint = `Run "jsn ${path ? `${path} ` : ''}--help" for usage.`;
+      } catch {
+        hint = 'Run "jsn --help" for the command list.';
+      }
+      exitWithError(new AppError(CodeUsage, msg, hint), { app });
     });
 
   // Snapshot the root command names (plus aliases) for the completion

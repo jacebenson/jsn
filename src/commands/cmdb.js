@@ -8,6 +8,7 @@
 import {
   assertSafeExactMatch,
   buildQuerySuffix,
+  formatCommandList,
   formatRecordForDisplay,
   getStringField,
   interactiveList,
@@ -351,6 +352,23 @@ export function cmdbCmd(wrap) {
   return {
     command: 'cmdb [subcommand]',
     describe: 'Query the Configuration Management Database (CMDB) — CIs and relationship traversal (read-only)',
+    // Parent discovery. Without a handler `jsn cmdb` exited 0 having printed
+    // nothing: a script reads that as success and a human as a hang. The child
+    // list comes from the registry (argv.subcommands), so it cannot drift from
+    // what is registered; the styled view is a side channel that JSON ignores.
+    handler: wrap(async (argv, app) => {
+      const subcommands = argv.subcommands || [];
+      const summary = 'Query the Configuration Management Database (CMDB): CI lookup and relationship traversal. Read-only.';
+      app.ok({
+        command: 'cmdb',
+        subcommands,
+        _formatted: formatCommandList({
+          title: summary,
+          commands: subcommands,
+          footer: 'Run "jsn cmdb <command> --help" for details.',
+        }),
+      }, { summary });
+    }),
     builder: (yargs) => {
       return yargs
         .command({

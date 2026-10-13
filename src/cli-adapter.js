@@ -24,11 +24,38 @@ class CommandNode {
     if (typeof this.definition.builder === 'function') this.definition.builder(this.api());
   }
 
+  /**
+   * Register a child, replacing any existing registration that claims the same
+   * canonical name (or that the new child claims as an alias).
+   *
+   * yargs semantics are last-registration-wins: a command module re-registers a
+   * subcommand to layer a specialized handler over the base one (see
+   * `requests show`). Appending instead of replacing left the base registration
+   * first in the list and reachable by dispatch/help while the duplicate was
+   * invisible to the registry (child counts, inventory, completion).
+   *
+   * Registration order is preserved (the slot is replaced in place) and the
+   * replaced node's aliases are carried over so layered commands keep resolving
+   * through the alias that the base registration published.
+   */
+  register(child) {
+    const index = this.children.findIndex((existing) => existing.name === child.name
+      || existing.aliases.includes(child.name)
+      || child.aliases.includes(existing.name));
+    if (index === -1) {
+      this.children.push(child);
+      return child;
+    }
+    child.aliases = [...new Set([...child.aliases, ...this.children[index].aliases])];
+    this.children[index] = child;
+    return child;
+  }
+
   api() {
     const node = this;
     return {
       command(definition, builder, handler) {
-        node.children.push(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
+        node.register(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
         return this;
       },
       option(name, config = {}) { node.options.set(name, { ...config, name }); return this; },
@@ -63,10 +90,16 @@ export class LocalCLI {
   option(name, config) { this.root.options.set(name, { ...config, name }); return this; }
   options(config) { for (const [name, value] of Object.entries(config)) this.option(name, value); return this; }
   command(definition, builder, handler) {
-    const node = new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition);
-    this.root.children.push(node);
+    this.root.register(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
     return this;
   }
+  /**
+   * Register the fallback used when a parent command (a node with children) is
+   * invoked with no subcommand and declares no handler of its own. Without it
+   * those parents exited 0 having printed nothing, which reads as success to a
+   * script and as a hang to a human.
+   */
+  onParentDiscovery(fn) { this.parentDiscovery = fn; return this; }
   demandCommand(count, message) { this.root.demand = { count, message }; return this; }
   completion(name, _description, handler) { this.completionCommand = name; this.completionHandler = handler; return this; }
   help() { this.helpEnabled = true; return this; }
@@ -175,6 +208,54 @@ export class LocalCLI {
     if (this.failHandler) return this.failHandler(message, error);
     throw error || new Error(message);
   }
+  /**
+   * Describe the registered command surface: root commands (canonical name,
+   * aliases, describe, child names) and the global option declarations.
+   *
+   * This is the single source both the grouped root help and the machine
+   * discovery output are generated from, so neither can drift away from the
+   * commands that actually exist. Builders run here (idempotently) because a
+   * parent's children are only registered when its builder is invoked.
+   */
+  commandRegistry() {
+    const visible = (node) => node.name !== this.completionCommand;
+    const serialize = (node) => {
+      node.build();
+      return {
+        name: node.name,
+        command: node.definition.command || node.name,
+        aliases: [...node.aliases],
+        description: node.definition.describe || '',
+        subcommands: node.children.filter(visible).map((child) => child.name),
+      };
+    };
+    return {
+      commands: this.root.children.filter(visible).map(serialize),
+      options: [...this.root.options.values()].map((spec) => ({
+        name: spec.name,
+        alias: names(spec.alias),
+        description: spec.description || spec.describe || '',
+        choices: spec.choices || [],
+        type: spec.type || 'boolean',
+      })),
+    };
+  }
+
+  /** Structured child signatures for a parent node, built on demand. */
+  subcommandsOf(node) {
+    return node.children
+      .filter((child) => child.name !== this.completionCommand)
+      .map((child) => {
+        child.build();
+        return {
+          name: child.name,
+          command: child.definition.command || child.name,
+          aliases: [...child.aliases],
+          description: child.definition.describe || '',
+        };
+      });
+  }
+
   _help(node, path = []) {
     const lines = [node.usageText || `Usage: ${this.script} ${path.join(' ') || '<command>'}`];
     if (node.definition.describe) lines.push(`\n${node.definition.describe}`);
@@ -232,6 +313,11 @@ export class LocalCLI {
     const parsed = this._parseOptions(commandArgs, path);
     if (!parsed) return;
     const argv = parsed.values;
+    // A parent command's own children are registry-derived, so a default
+    // handler can list exactly what is registered instead of repeating a
+    // hand-written list that drifts (see the records parent, which advertised
+    // an `inspect` description the registration disagreed with).
+    if (node.children.length) argv.subcommands = this.subcommandsOf(node);
     const specs = [...this._optionConfig(path).values()];
     const positions = positionSpec(node.definition.command || '').map((position) => ({
       ...position, ...node.positionals.get(position.name), name: position.name,
@@ -242,7 +328,13 @@ export class LocalCLI {
     for (const middleware of this.middlewares) await middleware(argv);
     for (const commandNode of path) for (const middleware of commandNode.middlewares) await middleware(argv);
     if (node.definition.handler) await node.definition.handler(argv);
-    else if (node.demand?.count && !path.length) return this._fail(node.demand.message);
+    // A parent with no handler of its own used to fall through and exit 0
+    // with no output — indistinguishable from a command that ran and found
+    // nothing. The registered discovery hook (cli.js) prints the child
+    // surface instead: a JSON envelope in machine mode, a list for humans.
+    else if (path.length && argv.subcommands?.length && this.parentDiscovery) {
+      await this.parentDiscovery(argv, { path: path.map((n) => n.name), subcommands: argv.subcommands });
+    } else if (node.demand?.count && !path.length) return this._fail(node.demand.message);
   }
 }
 

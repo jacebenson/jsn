@@ -15,6 +15,7 @@ import { searchDocs, getDocByIdOrPath } from './search.js';
 import { serveDocs } from './serve.js';
 import { syncCommunity, listCommunityDocs } from './community.js';
 import { declareCapabilities } from '../../capabilities.js';
+import { formatCommandList } from '../../helpers.js';
 
 declareCapabilities('docs', { noInstance: true, skipDailyChecks: true });
 
@@ -256,21 +257,22 @@ export function docsCmd(wrap) {
             .demandCommand(1, 'Specify an action: sync or list'),
         });
     },
-    handler: () => {
-      process.stdout.write('jsn docs — ServiceNow documentation search\n\n');
-      process.stdout.write('Available subcommands:\n');
-      process.stdout.write('  sync      Download docs and build a searchable index (handles updates too)\n');
-      process.stdout.write('  status    Show whether docs are downloaded, indexed, embedded, or served\n');
-      process.stdout.write('  search    Full-text + semantic search across the local docs index\n');
-      process.stdout.write('  show      Display a full documentation page by id or path\n');
-      process.stdout.write('  serve     Start a local web UI for browsing and searching docs\n');
-      process.stdout.write('  community Sync ServiceNow Community articles (hubs + linked posts) into the index\n');
-      process.stdout.write('\n');
-      process.stdout.write('Tip: use "jsn docs serve --expose" to bind to 0.0.0.0 and share on your network.\n');
-      process.stdout.write('\n');
-      const dbPath = getDocsDbPath();
-      process.stdout.write(`Docs DB: ${dbPath} (run "jsn docs status" for details, or query directly with sqlite3)\n`);
-      process.stdout.write('\nRun "jsn docs <command> --help" for details.\n');
-    },
+    handler: wrap(async (argv, app) => {
+      const subcommands = argv.subcommands || [];
+      const summary = 'jsn docs — ServiceNow documentation search (sync, status, search, show, serve).';
+      app.ok({
+        command: 'docs',
+        subcommands,
+        _formatted: formatCommandList({
+          title: summary,
+          commands: subcommands,
+          footer: [
+            'Tip: use "jsn docs serve --expose" to bind to 0.0.0.0 and share on your network.',
+            `Docs DB: ${getDocsDbPath()} (run "jsn docs status" for details, or query directly with sqlite3)`,
+            'Run "jsn docs <command> --help" for details.',
+          ].join('\n'),
+        }),
+      }, { summary });
+    }),
   };
 }
