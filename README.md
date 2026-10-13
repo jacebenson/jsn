@@ -31,6 +31,19 @@ npm install -g @jacebenson/jsn
 
 **Note:** git installs build `better-sqlite3` (docs search) from source, so the machine needs build tools (Python, make, a C++ compiler).
 
+## Direct MID installation
+
+```sh
+jsn midservers add --install-method direct --name worker1
+```
+
+Official x86-64 ZIPs for Linux and Windows, selected from the instance's
+`mid.version`. Credentials are prompted and validated before installation.
+Linux supports a user-owned background runtime. Windows currently prepares
+private files and offers a foreground console, not native service registration.
+See [direct MID installation](docs/mid-direct-install.md) for security boundaries,
+lifecycle commands and the untested Windows host phases. Docker remains available.
+
 ## Quick Start
 
 ```bash

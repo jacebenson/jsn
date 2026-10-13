@@ -125,7 +125,7 @@ describe('midservers command', () => {
   it('exposes list, show, add, remove, and execute', () => {
     const command = midserversCmd((handler) => handler);
     assert.deepEqual(collectCommands(command).map(child => child.command), [
-      'issues [identifier]', 'events [identifier]', 'list', 'show <identifier>', 'logs <identifier>', '<identifier> logs', 'add', 'remove [identifier]', 'execute [identifier]',
+      'issues [identifier]', 'events [identifier]', 'list', 'show <identifier>', 'logs <identifier>', '<identifier> logs', 'start <identifier>', 'stop <identifier>', 'add', 'remove [identifier]', 'execute [identifier]',
     ]);
     assert.ok(mutationPaths().some(path => path.join(' ') === 'midservers add'));
     assert.ok(mutationPaths().some(path => path.join(' ') === 'midservers remove'));
