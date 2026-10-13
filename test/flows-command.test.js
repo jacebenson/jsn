@@ -35,10 +35,36 @@ function handler(name) {
   return commandTree().find(command => command.command === name);
 }
 
+function styledApp() {
+  let text = '';
+  const writer = new Writable({ write(chunk, _encoding, callback) { text += chunk.toString(); callback(); } });
+  const output = new OutputWriter({ format: 'styled', writer });
+  return {
+    app: {
+      output,
+      requireInstance: () => {},
+      ok(data, opts) { this.output.ok(data, opts); },
+      getEffectiveInstance: () => 'https://example.service-now.com',
+    },
+    text: () => text,
+  };
+}
+
 test('flows root summary uses the normal output envelope without a provider call', async () => {
   const { app, envelope } = jsonApp({});
   await flowsCmd(fn => fn).handler({}, app);
-  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show', 'status', 'publish', 'test', 'doctor', 'create', 'update', 'delete']);
+  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'delete [identifier]']);
+});
+
+test('flows root renders every subcommand in a terminal, not just the summary', async () => {
+  const { app, text } = styledApp();
+  await flowsCmd(fn => fn).handler({}, app);
+  const rendered = text();
+  for (const name of ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'delete [identifier]']) {
+    assert.ok(rendered.includes(name), `terminal output is missing ${name}`);
+  }
+  assert.match(rendered, /Available subcommands:/);
+  assert.match(rendered, /--help/);
 });
 
 test('flows show handler emits the normal Output envelope and formatted data', async () => {

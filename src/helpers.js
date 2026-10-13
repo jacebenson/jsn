@@ -33,6 +33,21 @@ export function canPrompt() {
 }
 
 /**
+ * Render a parent command's subcommand list for its default handler.
+ *
+ * Returned through the `_formatted` side channel so a terminal prints the list
+ * while `--json`/`--quiet` keep the structured envelope. A parent command that
+ * only sets a summary leaves terminal users with no way to discover children.
+ */
+export function formatCommandList({ title, commands, footer }) {
+  const width = Math.max(...commands.map(command => command.name.length));
+  const lines = [title, '', 'Available subcommands:'];
+  for (const command of commands) lines.push(`  ${command.name.padEnd(width)}  ${command.description}`);
+  if (footer) lines.push('', footer);
+  return `${lines.join('\n')}\n`;
+}
+
+/**
  * Confirm a destructive action before executing.
  *
  * Default posture is ASK: interactive terminals get a y/N prompt;

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { formatRecordForDisplay, getStringField, interactiveList } from '../helpers.js';
+import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { inspectFlow } from '../flow-inspection.js';
@@ -11,6 +11,19 @@ import { errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
 
 const pickFlow = (argv, app, query = '') => pickDesignerRecord(argv, app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', argv.action ? 'action' : 'flow', query);
+
+const FLOW_COMMANDS = [
+  { name: 'list', description: 'List flows' },
+  { name: 'executions', description: 'Show flow executions from sys_flow_context' },
+  { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
+  { name: 'status [identifier]', description: 'Check whether a flow is actually able to run' },
+  { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
+  { name: 'test [identifier]', description: 'Execute a record-triggered flow against one record' },
+  { name: 'create', description: 'Create a draft flow: guided in a terminal, JSON manifest in scripts' },
+  { name: 'update [identifier]', description: 'Update a draft flow (alias: edit)' },
+  { name: 'doctor', description: 'Check whether this instance can publish flows at all' },
+  { name: 'delete [identifier]', description: 'Delete a flow (not implemented: use the Flow Designer UI)' },
+];
 
 function flowInspectionAdapter(app) {
   return {
@@ -336,9 +349,15 @@ export function flowsCmd(wrap) {
         });
     },
     handler: wrap(async (_argv, app) => {
-      app.ok({ commands: ['list', 'executions', 'show', 'status', 'publish', 'test', 'doctor', 'create', 'update', 'delete'] }, {
-        summary: 'Use jsn flows <command> --help. Human terminals can omit targets and guide create/edit; automation uses explicit identifiers and manifests.',
-      });
+      const summary = 'Manage Flow Designer flows from the sys_hub_flow table. Flow structure comes from the ProcessFlow API, so V1, V2 and subflow definitions all render in full.';
+      app.ok({
+        commands: FLOW_COMMANDS.map(command => command.name),
+        _formatted: formatCommandList({
+          title: summary,
+          commands: FLOW_COMMANDS,
+          footer: 'Run "jsn flows <command> --help" for details. In a terminal you can omit the target and pick one; scripts use explicit identifiers and manifests.',
+        }),
+      }, { summary });
     }),
   };
 }
