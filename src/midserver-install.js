@@ -105,7 +105,8 @@ export async function installDockerMidServer({
   const displayName = `mid.server.${shortName}`;
   const releaseName = suppliedReleaseName || (await validateMidCredentials(instanceURL, username, password, fetchImpl)).releaseName;
   const recipeURL = buildMidRecipeUrl(releaseName);
-  const installDir = directory || path.join(os.homedir(), '.servicenow', 'mids', shortName);
+  const serviceNowInstance = instanceName(instanceURL);
+  const installDir = directory || path.join(os.homedir(), '.servicenow', 'mids', serviceNowInstance, shortName);
   fs.mkdirSync(installDir, { recursive: true, mode: 0o700 });
   const exportDir = path.join(installDir, 'export');
   fs.mkdirSync(exportDir, { recursive: true, mode: 0o700 });
@@ -117,7 +118,7 @@ export async function installDockerMidServer({
     run('curl', ['-fSL', '--connect-timeout', '10', '--max-time', '300', recipeURL, '-o', archive]);
     fs.mkdirSync(recipeDir, { recursive: true, mode: 0o700 });
     run('unzip', ['-q', archive, '-d', recipeDir]);
-    const composePath = path.join(installDir, `${instanceName(instanceURL)}-${shortName}.yaml`);
+    const composePath = path.join(installDir, 'docker-compose.yaml');
     const persistedRecipeDir = path.join(installDir, 'recipe');
     const serviceName = `jsn_mid_${shortName.replace(/[^A-Za-z0-9_.-]/g, '_')}`;
     const env = {
