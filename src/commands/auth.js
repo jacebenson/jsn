@@ -1,5 +1,6 @@
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile, setProfile } from '../config.js';
-import { errUsage } from '../errors.js';
+import { errUsage, errUsageHint } from '../errors.js';
+import { canUsePicker } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
 
@@ -128,14 +129,16 @@ export function validateLoginSelectors(argv = {}, targetProfile = null) {
 }
 
 /**
- * Pick a profile by name — interactive search picker when ambiguous,
- * auto-selects when there's exactly one, throws when none configured.
+ * Pick a profile by name — interactive search picker when ambiguous and a
+ * human is available, auto-selects when there's exactly one, throws when
+ * none configured. A non-interactive caller (agent, pipe, --json/--get)
+ * never opens a picker; it falls back to the single/default profile.
  */
 export async function pickProfile(app, message) {
   const { search } = await import('@inquirer/prompts');
   const profileNames = Object.keys(app.config.profiles || {});
   if (profileNames.length === 0) throw errUsage('No profiles configured. Run "jsn setup" first.');
-  if (profileNames.length === 1 || !app.isInteractive()) return profileNames[0];
+  if (profileNames.length === 1 || !canUsePicker(app, {})) return profileNames[0];
   const choices = profileNames.map(name => ({
     name: `${name} — ${app.config.profiles[name].instance_url}`,
     value: name,
@@ -281,10 +284,9 @@ export async function loginWizard(app, argv = {}) {
   app.config.activeProfile = profileName;
   app.config.defaultProfile = profileName;
 
-  // Present all connection-level options during setup. Gated on interactivity
-  // so a piped/scripted call never blocks on prompts.
-  const { canPrompt } = await import('../helpers.js');
-  if (canPrompt()) {
+  // Present all connection-level options during setup. Gated on
+  // interactivity so a piped/scripted call never blocks on prompts.
+  if (canUsePicker(app, argv)) {
     // @inquirer/prompts owns stdin while these confirmations run. Close the
     // older readline interface before handing stdin to Inquirer. This matters
     // on Windows Git Bash: leaving both readers attached can make the later
@@ -604,7 +606,7 @@ export function authCmd(wrap) {
               instanceURL = normalizeInstanceURL(namedProfile.instance_url);
             } else if (argv.instance) {
               instanceURL = resolveInstanceArg(argv.instance, app.config);
-            } else if (app.isInteractive()) {
+            } else if (canUsePicker(app, argv)) {
               // gh-faithful: interactive terminals always get a picker —
               // existing profiles plus "＋ Add a new instance". Zero profiles
               // goes straight to the setup wizard.
@@ -987,7 +989,9 @@ Examples:
               if (profileNames.length === 0) {
                 throw errUsage('No profiles configured. Run "jsn auth login" first.');
               }
-              if (profileNames.length > 1 && app.isInteractive()) {
+              if (profileNames.length === 1) {
+                name = profileNames[0];
+              } else if (canUsePicker(app, argv)) {
                 const { search } = await import('@inquirer/prompts');
                 const choices = profileNames.map(profileName => ({
                   name: `${profileName} — ${app.config.profiles[profileName].instance_url}`,
@@ -1002,7 +1006,13 @@ Examples:
                 });
                 name = selected;
               } else {
-                name = profileNames[0];
+                // Never silently switch the active profile for a
+                // non-interactive caller: picking one for them is a
+                // config write they did not ask for.
+                throw errUsageHint(
+                  `Which profile? ${profileNames.length} profiles are configured: ${profileNames.join(', ')}`,
+                  'Pass the profile name: jsn auth switch <name>'
+                );
               }
             }
             await setActiveProfile(app.config, name);

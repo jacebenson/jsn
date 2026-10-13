@@ -2,14 +2,21 @@ import { errUsageHint, errUsage } from '../errors.js';
 import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparisonDetailed } from '../perf.js';
 import { topTransactionsCmd } from './transactions.js';
 import { paginatedSearch } from '../paginated-search.js';
+import { canUsePicker } from '../helpers.js';
 
-function pickerEnabled(app) {
-  return Boolean(process.stdin.isTTY && process.stdout.isTTY && app.output?.effectiveFormat?.() !== 'json' && app.output?.effectiveFormat?.() !== 'quiet');
+/**
+ * A picker is only safe when a human is reachable AND the invocation did
+ * not ask for machine output (`--json`/`--quiet`) or a one-shot extraction
+ * (`--get`). canUsePicker() owns that rule so CI/agent markers and
+ * JSN_NO_PROMPTS are honored too.
+ */
+function pickerEnabled(app, argv = {}) {
+  return canUsePicker(app, argv);
 }
 
-async function pickRun(app, { exclude = new Set(), message = 'Select a performance capture' } = {}) {
+async function pickRun(app, { exclude = new Set(), message = 'Select a performance capture', argv = {} } = {}) {
   const runs = listRuns({ limit: 1000 }).filter(run => !exclude.has(run.run_id));
-  if (!pickerEnabled(app) || runs.length === 0) return null;
+  if (!pickerEnabled(app, argv) || runs.length === 0) return null;
   const selected = await paginatedSearch({
     message,
     totalCount: runs.length,
@@ -78,7 +85,7 @@ export function perfCmd(wrap) {
         builder: (b) => b.option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Maximum runs to show' }),
         handler: wrap(async (argv, app) => {
           const runs = listRuns({ limit: argv.limit });
-          const picked = await pickRun(app, { message: 'Select a performance capture' });
+          const picked = await pickRun(app, { message: 'Select a performance capture', argv });
           if (picked) {
             const run = getRun(picked.run_id);
             app.ok({ ...run, _formatted: formatRunDetailed(run) }, {
@@ -100,8 +107,16 @@ export function perfCmd(wrap) {
         command: 'show [run_id]',
         describe: 'Show one saved performance capture',
         handler: wrap(async (argv, app) => {
-          const run = argv.run_id ? requireRun(argv.run_id, 'target') : await pickRun(app);
-          if (!run) return;
+          // No run ID and no human to pick one: fail with a usable error
+          // instead of exiting 0 with no output at all.
+          if (!argv.run_id && !pickerEnabled(app, argv)) {
+            throw errUsageHint(
+              'Missing run ID: `jsn perf show` needs a run ID when prompts are unavailable.',
+              'Find a capture with `jsn perf list`, then run `jsn perf show <run_id>`.'
+            );
+          }
+          const run = argv.run_id ? requireRun(argv.run_id, 'target') : await pickRun(app, { argv });
+          if (!run) return; // cancelled at the picker
           app.ok({ ...run, _formatted: formatRunDetailed(run) }, {
             summary: `Performance capture ${run.run_id}`,
             breadcrumbs: [listHint(), compareHint(run.run_id)],
@@ -118,9 +133,15 @@ export function perfCmd(wrap) {
         describe: 'Compare exactly two saved captures',
         handler: wrap(async (argv, app) => {
           if (!argv.baseline && !argv.new) {
-            const baseline = await pickRun(app, { message: 'Select the baseline capture' });
+            if (!pickerEnabled(app, argv)) {
+              throw errUsageHint(
+                'Compare requires exactly two run IDs when prompts are unavailable.',
+                'Run `jsn perf compare <baseline> <new>` with two run IDs from `jsn perf list`.'
+              );
+            }
+            const baseline = await pickRun(app, { message: 'Select the baseline capture', argv });
             if (!baseline) return;
-            const newer = await pickRun(app, { exclude: new Set([baseline.run_id]), message: 'Select the new capture' });
+            const newer = await pickRun(app, { exclude: new Set([baseline.run_id]), message: 'Select the new capture', argv });
             if (!newer) return;
             const baselineRun = getRun(baseline.run_id);
             const newerRun = getRun(newer.run_id);

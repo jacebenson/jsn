@@ -1,4 +1,9 @@
-import { formatRecordForDisplay, getStringField, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+
+// add/remove write sys_user_grmember; the mutation guard (instance +
+// read-only profile) and the delete confirmation both key off this.
+declareCapabilities('groupmembers', { mutationSubcommands: ['add', 'remove'] });
 
 export function groupMembersCmd(wrap) {
   return {
@@ -42,6 +47,8 @@ export function groupMembersCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const groupName = argv.group;
             const userName = argv.user;
+            assertSafeExactMatch(groupName);
+            assertSafeExactMatch(userName);
 
             // Resolve group sys_id
             const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
@@ -86,7 +93,7 @@ export function groupMembersCmd(wrap) {
               summary: `Added ${userName} to ${groupName}`,
               breadcrumbs: [
                 { action: 'list', cmd: `jsn groupmembers list --query "group.name=${groupName}"`, description: 'List group members' },
-                { action: 'remove', cmd: `jsn groupmembers remove --group "${groupName}" --user "${userName}"`, description: 'Remove this member' },
+                { action: 'remove', cmd: `jsn groupmembers remove --group ${quoteShellArg(groupName)} --user ${quoteShellArg(userName)}`, description: 'Remove this member' },
               ],
             });
           }),
@@ -96,10 +103,18 @@ export function groupMembersCmd(wrap) {
           describe: 'Remove a user from a group',
           builder: (y) => y
             .option('group', { alias: 'g', type: 'string', demandOption: true, describe: 'Group name or sys_id (required)' })
-            .option('user', { alias: 'u', type: 'string', demandOption: true, describe: 'Username or sys_id (required)' }),
+            .option('user', { alias: 'u', type: 'string', demandOption: true, describe: 'Username or sys_id (required)' })
+            .option('force', { type: 'boolean', describe: 'Skip the confirmation prompt (removal)' }),
           handler: wrap(async (argv, app) => {
             const groupName = argv.group;
             const userName = argv.user;
+            assertSafeExactMatch(groupName);
+            assertSafeExactMatch(userName);
+            // Confirm before any lookup: a refused confirmation must not
+            // touch the instance at all.
+            await confirmDelete(app, argv, `Remove ${userName} from group ${groupName}`, {
+              rerun: ['groupmembers', 'remove', '--group', groupName, '--user', userName],
+            });
 
             // Resolve group sys_id
             const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
@@ -142,7 +157,7 @@ export function groupMembersCmd(wrap) {
               summary: `Removed ${userName} from ${groupName}`,
               breadcrumbs: [
                 { action: 'list', cmd: `jsn groupmembers list --query "group.name=${groupName}"`, description: 'List group members' },
-                { action: 'add', cmd: `jsn groupmembers add --group "${groupName}" --user "${userName}"`, description: 'Add user back to group' },
+                { action: 'add', cmd: `jsn groupmembers add --group ${quoteShellArg(groupName)} --user ${quoteShellArg(userName)}`, description: 'Add user back to group' },
               ],
             });
           }),

@@ -140,14 +140,27 @@ export function errExtractionNotFound(path) {
 /**
  * Structured error for a destructive action that requires confirmation
  * but no human is available to answer (non-TTY, pipes, or AI agents).
+ *
  * The hint is written to be machine-parseable: an agent can read the
- * re-run command and either present it to its user or execute it.
+ * exact re-run command — target, table, pinned profile/instance — and
+ * present it to its user for approval before executing. It deliberately
+ * does NOT recommend permanently disabling confirmations: an approval for
+ * one destructive action is not consent to disarm the guard for every
+ * future action.
+ *
+ * @param {string} question — e.g. `Delete incident INC0010001?`
+ * @param {string} [rerunCmd] — complete re-run command WITHOUT --force,
+ *   already shell-quoted. Empty when the caller cannot reconstruct it.
  */
-export function errConfirmationRequired(question, rerunCmd) {
+export function errConfirmationRequired(question, rerunCmd = '') {
+  const cmd = String(rerunCmd || '').trim();
+  const hint = cmd
+    ? `This is a destructive action. Ask your user to approve this exact command, then re-run:\n  ${cmd} --force`
+    : 'This is a destructive action. Ask your user to approve it, then re-run the same command with --force.';
   return new AppError(
     CodeConfirmationRequired,
-    `${question} — confirmation required. Pass --force to skip, or set skip_confirmations on the profile to disable prompts.`,
-    `This is a destructive action. Ask your user to confirm, then re-run:\n  ${rerunCmd} --force\nOr set skip_confirmations on the profile to disable prompts:\n  jsn auth login <instance> --skip-confirmations`
+    `${question} — confirmation required. Pass --force only after your user approves this operation.`,
+    hint
   );
 }
 

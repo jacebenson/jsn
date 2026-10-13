@@ -1,4 +1,9 @@
-import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+
+// add/remove write sys_group_has_role; the mutation guard (instance +
+// read-only profile) and the delete confirmation both key off this.
+declareCapabilities('grouproles', { mutationSubcommands: ['add', 'remove'] });
 
 export function groupRolesCmd(wrap) {
   return {
@@ -88,7 +93,7 @@ export function groupRolesCmd(wrap) {
               summary: `Added role ${roleName} to ${groupName}`,
               breadcrumbs: [
                 { action: 'list', cmd: `jsn grouproles list --query "group.name=${groupName}"`, description: 'List group roles' },
-                { action: 'remove', cmd: `jsn grouproles remove --group "${groupName}" --role "${roleName}"`, description: 'Remove this role' },
+                { action: 'remove', cmd: `jsn grouproles remove --group ${quoteShellArg(groupName)} --role ${quoteShellArg(roleName)}`, description: 'Remove this role' },
               ],
             });
           }),
@@ -98,12 +103,18 @@ export function groupRolesCmd(wrap) {
           describe: 'Remove a role from a group',
           builder: (y) => y
             .option('group', { alias: 'g', type: 'string', demandOption: true, describe: 'Group name or sys_id (required)' })
-            .option('role', { alias: 'r', type: 'string', demandOption: true, describe: 'Role name or sys_id (required)' }),
+            .option('role', { alias: 'r', type: 'string', demandOption: true, describe: 'Role name or sys_id (required)' })
+            .option('force', { type: 'boolean', describe: 'Skip the confirmation prompt (removal)' }),
           handler: wrap(async (argv, app) => {
             const groupName = argv.group;
             const roleName = argv.role;
             assertSafeExactMatch(groupName);
             assertSafeExactMatch(roleName);
+            // Confirm before any lookup: a refused confirmation must not
+            // touch the instance at all.
+            await confirmDelete(app, argv, `Remove role ${roleName} from group ${groupName}`, {
+              rerun: ['grouproles', 'remove', '--group', groupName, '--role', roleName],
+            });
 
             // Resolve group sys_id
             const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
@@ -146,7 +157,7 @@ export function groupRolesCmd(wrap) {
               summary: `Removed role ${roleName} from ${groupName}`,
               breadcrumbs: [
                 { action: 'list', cmd: `jsn grouproles list --query "group.name=${groupName}"`, description: 'List group roles' },
-                { action: 'add', cmd: `jsn grouproles add --group "${groupName}" --role "${roleName}"`, description: 'Add role back to group' },
+                { action: 'add', cmd: `jsn grouproles add --group ${quoteShellArg(groupName)} --role ${quoteShellArg(roleName)}`, description: 'Add role back to group' },
               ],
             });
           }),
