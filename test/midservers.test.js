@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCommandPayload, midserversCmd, parseCommandResult } from '../src/commands/midservers.js';
+import { buildCommandPayload, midserversCmd, parseCommandResult, assertMidServerUp } from '../src/commands/midservers.js';
 import { mutationPaths } from '../src/capabilities.js';
 
 function collectCommands(command) {
@@ -28,6 +28,14 @@ describe('midservers command', () => {
       stdout: 'ok & done',
       stderr: 'nope',
     });
+  });
+
+  it('rejects command execution unless the MID Server is Up', () => {
+    assert.doesNotThrow(() => assertMidServerUp({ name: 'mid.server.oct12-mid', status: 'Up' }));
+    assert.throws(
+      () => assertMidServerUp({ name: 'mid.server.oct12-mid', status: 'Down' }),
+      /is not Up \(status: Down\).*Start or install it/,
+    );
   });
 
   it('exposes list, show, add, remove, and execute', () => {

@@ -1,4 +1,5 @@
-import { confirmDelete, getStringField, parseDataArg } from '../helpers.js';
+import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, parseDataArg, canPrompt } from '../helpers.js';
+import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 
@@ -87,19 +88,59 @@ async function resolveMidServer(sdk, identifier) {
 }
 
 async function listAgents(app, argv) {
+  const columns = argv.columns
+    ? [...new Set(argv.columns.split(',').map(column => column.trim()).filter(Boolean))]
+    : LIST_FIELDS;
+  const query = argv.query || '';
+
+  if (canPrompt() && app.output.getFormat() === FormatAuto && !query) {
+    const picked = await interactiveList({
+      app,
+      table: AGENT_TABLE,
+      singular: 'MID Server',
+      columns,
+      limit: argv.limit,
+      labelField: 'name',
+      message: 'Select a MID Server',
+      formatLabel: (record) => {
+        const name = getStringField(record, 'name') || getStringField(record, 'sys_id');
+        const status = getStringField(record, 'status');
+        return status ? `${name} [${status}]` : name;
+      },
+    });
+    if (picked === undefined || picked === null) return;
+    picked._context = { instance_url: app.getEffectiveInstance(), table: AGENT_TABLE };
+    app.ok(picked, {
+      summary: `MID Server: ${getStringField(picked, 'name') || getStringField(picked, 'sys_id')}`,
+      breadcrumbs: [{ action: 'list', cmd: 'jsn midservers list', description: 'Back to all MID Servers' }],
+    });
+    return;
+  }
+
   const params = new URLSearchParams({
     sysparm_limit: String(argv.limit),
     sysparm_display_value: 'all',
-    sysparm_fields: (argv.columns ? [...new Set(['sys_id', ...argv.columns.split(',')])] : LIST_FIELDS).join(','),
-    sysparm_query: argv.query || 'ORDERBYname',
+    sysparm_fields: ['sys_id', ...columns.filter(column => column !== 'sys_id')].join(','),
+    sysparm_query: query ? `${query}^ORDERBYDESCsys_updated_on` : 'ORDERBYname',
   });
   const records = await app.sdk.list(AGENT_TABLE, params);
   app.ok({
     table: AGENT_TABLE,
     count: records.length,
-    records,
+    columns,
+    records: records.map(record => formatRecordForDisplay(record, columns)),
     context: { instance_url: app.getEffectiveInstance() },
   }, { summary: `${records.length} MID Server(s)` });
+}
+
+export function assertMidServerUp(record) {
+  const name = getStringField(record, 'name') || getStringField(record, 'sys_id') || 'MID Server';
+  const status = getStringField(record, 'status');
+  if (status.toLowerCase() !== 'up') {
+    const error = new Error(`MID Server '${name}' is not Up (status: ${status || 'unknown'}). Start or install it before executing a command.`);
+    error.code = 'midserver_not_up';
+    throw error;
+  }
 }
 
 export function midserversCmd(wrap) {
@@ -173,6 +214,7 @@ export function midserversCmd(wrap) {
           .option('interval', { type: 'number', default: DEFAULT_INTERVAL, describe: 'Polling interval in milliseconds' }),
         handler: wrap(async (argv, app) => {
           const record = await resolveMidServer(app.sdk, argv.identifier);
+          assertMidServerUp(record);
           const agent = agentName(record);
           const output = await app.sdk.create(QUEUE_TABLE, {
             agent,
