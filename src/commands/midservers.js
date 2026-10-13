@@ -250,17 +250,15 @@ export function midserversCmd(wrap) {
               ]
               : dockerStatus.installed && dockerStatus.compose
                 ? [
-                  { name: 'Fix Docker daemon access first', value: 'docker-unavailable' },
+                  { name: 'Prepare files now, run Docker later', value: 'prepare' },
                   { name: 'Direct install (not available yet)', value: 'direct' },
                 ]
               : [
-                { name: 'Install Docker first', value: 'install-docker' },
+                { name: 'Prepare files now, run Docker later', value: 'prepare' },
                 { name: 'Direct install (not available yet)', value: 'direct' },
               ],
           });
           if (installMethod === 'direct') throw new Error('Direct MID Server installation is not implemented yet. Choose Docker.');
-          if (installMethod === 'docker-unavailable') throw new Error('Docker is installed, but this user cannot access the Docker daemon. Start Docker and grant this user access to /var/run/docker.sock, then run this command again.');
-          if (installMethod === 'install-docker') throw new Error('Automatic Docker installation is not implemented yet. Install Docker and Compose, then run this command again.');
 
           const installation = await installDockerMidServer({
             instanceURL: app.getEffectiveInstance(),
@@ -269,7 +267,12 @@ export function midserversCmd(wrap) {
             name,
             releaseName: credentials.releaseName,
             directory: argv.directory,
+            runNow: installMethod !== 'prepare',
           });
+          if (installation.prepared) {
+            app.ok(installation, { summary: `Prepared MID Server files in ${installation.installDir}. Run: ${installation.runCommand}` });
+            return;
+          }
           let record;
           try {
             record = await waitForMidServerUp(app, installation.name, Math.max(1, argv['wait-timeout']), Math.max(500, argv['wait-interval']));
