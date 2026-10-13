@@ -37,6 +37,18 @@ describe('resolveRecord', () => {
     assert.strictEqual(capture.query, 'name=My Rule');
   });
 
+  it('queries the human field for a real 32-character non-hex identifier', async () => {
+    const { resolveRecord, isSysId } = await import('../src/resolve-record.js');
+    const identifier = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+    const capture = {};
+    const record = { sys_id: SYS_ID, name: identifier };
+    const sdk = makeSdk([record], capture);
+    assert.strictEqual(identifier.length, 32);
+    assert.strictEqual(isSysId(identifier), false);
+    assert.deepStrictEqual(await resolveRecord(sdk, { table: 'sys_script', identifier, matchField: 'name' }), record);
+    assert.strictEqual(capture.query, 'name=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz');
+  });
+
   it('always requests display values and limit=1', async () => {
     const { resolveRecord } = await import('../src/resolve-record.js');
     const capture = {};
