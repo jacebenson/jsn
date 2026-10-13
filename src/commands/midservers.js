@@ -7,7 +7,7 @@ import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, normalizeMidName, validateMidCredentials } from '../midserver-install.js';
-import { detectDirectPlatform, installDirectMidServer, readDirectInstallation, removeDirectInstallation, runDirectInstallation } from '../midserver-direct.js';
+import { detectDirectPlatform, followDirectLog, installDirectMidServer, readDirectInstallation, removeDirectInstallation, resolveDirectLogFile, runDirectInstallation } from '../midserver-direct.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -344,14 +344,13 @@ function removeLocalMidServer(instanceURL, name, directory) {
   return true;
 }
 
-function showMidServerLogs(app, identifier, argv) {
+async function showMidServerLogs(app, identifier, argv) {
   const installDir = argv.directory || midInstallDirectory(app.getEffectiveInstance(), identifier);
   const direct = readDirectInstallation(app.getEffectiveInstance(), identifier, argv.directory);
   if (direct) {
     if (!Number.isInteger(argv.tail) || argv.tail < 1 || argv.tail > 10000) throw new Error('Use --tail between 1 and 10000');
-    if (argv.follow) throw new Error('Direct log follow is not supported; read logs again or use the native host log viewer');
-    const logfile = path.join(installDir, 'agent', 'logs', 'agent0.log');
-    if (!fs.existsSync(logfile)) throw new Error('No MID agent log yet; the installation may only be prepared');
+    const logfile = resolveDirectLogFile(installDir);
+    if (!logfile) throw new Error('No MID agent log yet; the installation may only be prepared');
     const stat = fs.lstatSync(logfile);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Untrusted MID log path');
     const fd = fs.openSync(logfile, 'r');
@@ -360,8 +359,15 @@ function showMidServerLogs(app, identifier, argv) {
       const length = Math.min(stat.size, 1024 * 1024);
       const buffer = Buffer.alloc(length);
       fs.readSync(fd, buffer, 0, length, stat.size - length);
-      text = buffer.toString('utf8').split('\n').slice(-argv.tail).join('\n');
+      const all = buffer.toString('utf8').split('\n');
+      if (all.length && all[all.length - 1] === '') all.pop();
+      text = all.slice(-argv.tail).join('\n');
     } finally { fs.closeSync(fd); }
+    if (argv.follow) {
+      // Following streams new lines directly; the JSON envelope would be unreachable.
+      process.stdout.write(`Tailing ${logfile} (Ctrl+C to stop)\n${text}\n`);
+      return followDirectLog(installDir);
+    }
     app.ok({ installation: 'direct', logfile, text, _formatted: `${text}\n` }, { summary: 'Local MID agent log (last 1 MiB maximum)' });
     return;
   }
@@ -413,10 +419,10 @@ export function midserversCmd(wrap) {
         describe: 'Show local native or Docker Compose MID logs',
         builder: (b) => b
           .option('tail', { type: 'number', default: 100, describe: 'Number of log lines' })
-          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs (Compose only)' })
+          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs' })
           .option('directory', { type: 'string', describe: 'Local installation directory override' }),
         handler: wrap(async (argv, app) => {
-          showMidServerLogs(app, argv.identifier, argv);
+          await showMidServerLogs(app, argv.identifier, argv);
         }),
       })
       .command({
@@ -424,10 +430,10 @@ export function midserversCmd(wrap) {
         describe: 'Show local native or Docker Compose MID logs',
         builder: (b) => b
           .option('tail', { type: 'number', default: 100, describe: 'Number of log lines' })
-          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs (Compose only)' })
+          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs' })
           .option('directory', { type: 'string', describe: 'Local installation directory override' }),
         handler: wrap(async (argv, app) => {
-          showMidServerLogs(app, argv.identifier, argv);
+          await showMidServerLogs(app, argv.identifier, argv);
         }),
       })
       .command({

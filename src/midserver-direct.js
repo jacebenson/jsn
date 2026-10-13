@@ -153,6 +153,55 @@ export function readDirectInstallation(instanceURL, name, directory) {
   return metadata;
 }
 
+// The vendor rotates agent0.log to agent0.log.0 (and upward), so the plain
+// name may not exist on a healthy install. Newest real file wins; links and
+// non-files are never followed.
+export function resolveDirectLogFile(installDir) {
+  const directory = path.join(installDir, 'agent', 'logs');
+  let names;
+  try { names = fs.readdirSync(directory); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  const candidates = [];
+  for (const name of names) {
+    const agent = /^agent0\.log(\.\d+)?$/.test(name);
+    if (!agent && name !== 'wrapper.log') continue;
+    const full = path.join(directory, name);
+    const stat = fs.lstatSync(full);
+    if (!stat.isFile() || stat.isSymbolicLink()) continue;
+    candidates.push({ full, agent, mtime: stat.mtimeMs });
+  }
+  candidates.sort((a, b) => (b.agent - a.agent) || (b.mtime - a.mtime));
+  return candidates.length ? candidates[0].full : null;
+}
+
+/**
+ * Tail a direct install's agent log, following rotation.
+ *
+ * The vendor rotates by creating a new file, so the followed path can change
+ * between polls; a shrinking file is treated as truncation and re-read from
+ * the start. Each appended chunk is handed to `writer` unchanged.
+ */
+export async function followDirectLog(installDir, { writer = chunk => process.stdout.write(chunk), intervalMs = 1000, iterations = Infinity, sleep } = {}) {
+  const pause = sleep || (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  let file = resolveDirectLogFile(installDir);
+  if (!file) throw new Error('No MID agent log yet; the installation may only be prepared');
+  let offset = fs.statSync(file).size;
+  for (let seen = 0; seen < iterations; seen++) {
+    await pause(intervalMs);
+    const next = resolveDirectLogFile(installDir) || file;
+    if (next !== file) { file = next; offset = 0; }
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) return;
+    if (stat.size < offset) offset = 0;
+    if (stat.size === offset) continue;
+    const length = stat.size - offset;
+    const buffer = Buffer.alloc(length);
+    const fd = fs.openSync(file, 'r');
+    try { fs.readSync(fd, buffer, 0, length, offset); } finally { fs.closeSync(fd); }
+    offset = stat.size;
+    writer(buffer.toString('utf8'));
+  }
+}
+
 function uncertainState(metadata) {
   return `MID '${metadata.name}' runtime state is uncertain after an interrupted lifecycle command. Confirm no vendor MID process from ${metadata.installDir} is running, then rerun; installed files are kept.`;
 }
