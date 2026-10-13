@@ -35,8 +35,14 @@ function handler(name) {
   return commandTree().find(command => command.command === name);
 }
 
+test('flows root summary uses the normal output envelope without a provider call', async () => {
+  const { app, envelope } = jsonApp({});
+  await flowsCmd(fn => fn).handler({}, app);
+  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show', 'status', 'publish', 'test', 'doctor', 'create', 'update', 'delete']);
+});
+
 test('flows show handler emits the normal Output envelope and formatted data', async () => {
-  const show = commandTree().find(command => command.command === 'show <identifier>');
+  const show = commandTree().find(command => command.command === 'show [identifier]');
   assert.ok(show);
   const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
   const inspection = { flow: { name: 'Production flow', active: true, version: '2', type: 'Flow', sysID: 'flow-1' }, version: {}, payload: {
@@ -89,8 +95,8 @@ test('flows list handler emits the normal JSON envelope for an interactive selec
 
 test('publish, status, and doctor handlers require an instance', async () => {
   const cases = [
-    ['publish <identifier>', { identifier: 'flow-name' }],
-    ['status <identifier>', { identifier: 'flow-name' }],
+    ['publish [identifier]', { identifier: 'flow-name' }],
+    ['status [identifier]', { identifier: 'flow-name' }],
     ['doctor', {}],
   ];
 
@@ -103,8 +109,8 @@ test('publish, status, and doctor handlers require an instance', async () => {
   }
 });
 
-test('flows test is registered as a mutation, requires --record and confirmation', async () => {
-  const command = handler('test <identifier>');
+test('flows test is registered as a mutation, offers --record and requires confirmation', async () => {
+  const command = handler('test [identifier]');
   assert.ok(command);
   const options = [];
   command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
@@ -124,7 +130,7 @@ test('flows test is registered as a mutation, requires --record and confirmation
 });
 
 test('flows update is a manifest mutation with confirmation and exact manifest options', async () => {
-  const command = handler('update <identifier>');
+  const command = handler('update [identifier]');
   assert.ok(command);
   const options = [];
   command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
@@ -164,7 +170,7 @@ test('publish handler resolves a named flow, declares mutation, and emits JSON',
   };
   const { app, envelope } = jsonApp(sdk);
 
-  await handler('publish <identifier>').handler({ identifier: 'flow-name', action: false }, app);
+  await handler('publish [identifier]').handler({ identifier: 'flow-name', action: false, force: true }, app);
 
   assert.deepEqual(calls[0], ['list', 'sys_hub_flow', {
     sysparm_query: 'name=flow-name',
@@ -204,7 +210,7 @@ test('publish --action skips flow lookup and publishes the supplied action sys_i
     },
   };
   const { app } = jsonApp(sdk);
-  await handler('publish <identifier>').handler({ identifier: 'action-name', action: true }, app);
+  await handler('publish [identifier]').handler({ identifier: 'action-name', action: true, force: true }, app);
   assert.equal(flowLookup, false);
   assert.deepEqual(published.actions, [{ sys_id: 'action-1', active: 'true', state: '' }]);
   assert.deepEqual(published.flows, []);
@@ -226,7 +232,7 @@ test('status handler resolves the flow and uses flow status SDK seams', async ()
   };
   const { app, envelope } = jsonApp(sdk);
 
-  await handler('status <identifier>').handler({ identifier: 'flow-name' }, app);
+  await handler('status [identifier]').handler({ identifier: 'flow-name' }, app);
 
   assert.deepEqual(calls.map(call => call.slice(0, 3)), [
     ['list', 'sys_hub_flow', calls[0][2]],

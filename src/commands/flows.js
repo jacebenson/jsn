@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { formatRecordForDisplay, getStringField, interactiveList, confirmDelete } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { inspectFlow } from '../flow-inspection.js';
@@ -7,6 +7,10 @@ import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '.
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
 import { testFlow } from '../flow-test.js';
+import { errUsage } from '../errors.js';
+import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
+
+const pickFlow = (argv, app, query = '') => pickDesignerRecord(argv, app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', argv.action ? 'action' : 'flow', query);
 
 function flowInspectionAdapter(app) {
   return {
@@ -15,7 +19,7 @@ function flowInspectionAdapter(app) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'delete', 'publish', 'test'] });
+declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'publish', 'test'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -25,6 +29,8 @@ function renderChecks(checks) {
 }
 
 export function flowsCmd(wrap) {
+  const originalWrap = wrap;
+  wrap = handler => originalWrap((argv, app) => cancelled(() => handler(argv, app)));
   return {
     command: 'flows [subcommand]',
     aliases: ['flow'],
@@ -143,7 +149,7 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'show <identifier>',
+          command: 'show [identifier]',
           aliases: ['get'],
           describe: 'Show flow details by name or sys_id',
           builder: (y) => y
@@ -153,9 +159,11 @@ export function flowsCmd(wrap) {
               describe: 'Expand nested subflows to this depth (1 = subflow names only, 2 = one level, 3+ = deeper)',
             }),
           handler: wrap(async (argv, app) => {
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
             const inspection = await inspectFlow({
               adapter: flowInspectionAdapter(app),
-              identifier: argv.identifier,
+              identifier,
               instanceURL: app.getEffectiveInstance(),
               depth: argv.depth,
             });
@@ -168,20 +176,24 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'publish <identifier>',
+          command: 'publish [identifier]',
           aliases: ['activate'],
           describe: 'Publish (activate) a flow so it can actually run',
           builder: (y) => y
-            .option('action', { type: 'boolean', default: false, describe: 'Treat the identifier as a custom action rather than a flow' }),
+            .option('action', { type: 'boolean', default: false, describe: 'Treat the identifier as a custom action rather than a flow' })
+            .option('force', { type: 'boolean', default: false, describe: 'Confirm publication and activation' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
             const sysID = unwrapSysId(await resolveRecord(app.sdk, {
                 table: argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow',
-                identifier: argv.identifier,
+                identifier,
                 matchField: 'name',
                 resource: argv.action ? 'Custom action' : 'Flow',
               }));
 
+            await confirmDesignerMutation(argv, app, `Publish and activate ${argv.action ? 'action' : 'flow'} ${sysID}?`);
             if (!argv.action) {
               const lifecycle = await publishFlowLifecycle(app.sdk, app.getEffectiveInstance(), sysID);
               return app.ok(lifecycle, {
@@ -201,12 +213,14 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'status <identifier>',
+          command: 'status [identifier]',
           describe: 'Check whether a flow is actually able to run',
           handler: wrap(async (argv, app) => {
             app.requireInstance();
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
             const sysID = unwrapSysId(await resolveRecord(app.sdk, {
-              table: 'sys_hub_flow', identifier: argv.identifier, matchField: 'name', resource: 'Flow',
+              table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow',
             }));
             const status = await flowStatus(app.sdk, sysID);
 
@@ -217,15 +231,20 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'test <identifier>',
+          command: 'test [identifier]',
           describe: 'Execute a record-triggered flow against one record (may cause side effects)',
           builder: (y) => y
-            .option('record', { type: 'string', demandOption: true, describe: 'Trigger record sys_id to test against' })
+            .option('record', { type: 'string', describe: 'Trigger record sys_id to test against' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            await confirmDelete(app, argv, `Execute flow test for ${argv.identifier} against record ${argv.record}; actions may cause side effects`);
-            const result = await testFlow(app.sdk, app.getEffectiveInstance(), argv.identifier, argv.record);
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            argv = { ...argv, identifier };
+            const record = await guidedFlowTestRecord(argv, app);
+            if (record === undefined) return;
+            await confirmDesignerMutation(argv, app, `Execute flow test for ${identifier} against record ${record}; actions may cause side effects`);
+            const result = await testFlow(app.sdk, app.getEffectiveInstance(), identifier, record);
             return app.ok(result, {
               summary: result.status === 'completed'
                 ? `Flow test completed (${result.success ? 'success' : 'failed'})`
@@ -249,16 +268,16 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'create',
-          describe: 'Create a draft flow from a schema-driven JSON manifest',
+          describe: 'Guide draft flow creation in a terminal, or use a schema-driven JSON manifest',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
-            if (!dataFile && argv.data === undefined) throw new Error('Provide --data-file or --data for the flow manifest');
             let manifest;
-            try {
+            if (!hasDefinitionData(argv)) manifest = await guidedFlowCreate(argv, app);
+            else try {
               const raw = dataFile ? fs.readFileSync(dataFile, 'utf8') : argv.data;
               manifest = JSON.parse(raw.charCodeAt?.(0) === 0xFEFF ? raw.slice(1) : raw);
             } catch (error) {
@@ -274,7 +293,8 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'update <identifier>',
+          command: 'update [identifier]',
+          aliases: ['edit'],
           describe: 'Safely update supported fields of an existing inactive Draft flow',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
@@ -283,15 +303,18 @@ export function flowsCmd(wrap) {
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
-            if (!dataFile && argv.data === undefined) throw new Error('Provide --data-file or --data for the flow update manifest');
+            const identifier = await pickFlow(argv, app, !hasDefinitionData(argv) ? 'active=false^status=draft' : '');
+            if (identifier === undefined) return;
+            argv = { ...argv, identifier };
             let manifest;
-            try {
+            if (!hasDefinitionData(argv)) manifest = await guidedFlowEdit(argv, app);
+            else try {
               const raw = dataFile ? fs.readFileSync(dataFile, 'utf8') : argv.data;
               manifest = JSON.parse(raw.charCodeAt?.(0) === 0xFEFF ? raw.slice(1) : raw);
             } catch (error) {
               throw new Error(`Invalid flow update manifest JSON: ${error.message}`, { cause: error });
             }
-            await confirmDelete(app, argv, `Update draft flow ${argv.identifier}; unspecified components and inputs are preserved`);
+            await confirmDesignerMutation(argv, app, `Update draft flow ${identifier}; unspecified components and inputs are preserved`);
             const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
             });
@@ -302,34 +325,20 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'delete <identifier>',
+          command: 'delete [identifier]',
           describe: 'Delete a flow (not yet implemented)',
-          handler: wrap(async (_argv, _app) => {
-            throw new Error('Flow deletion requires the Flow Designer GraphQL API - not yet implemented.\n'
+          handler: wrap(async (argv, app) => {
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            throw errUsage('Flow deletion requires the Flow Designer GraphQL API - not yet implemented.\n'
               + 'Use the ServiceNow web UI to delete flows.');
           }),
         });
     },
-    handler: () => {
-      console.log('Manage Flow Designer flows from the sys_hub_flow table.');
-      console.log('');
-      console.log('Available subcommands:');
-      console.log('  list                  List flows');
-      console.log('  executions            Show flow executions from sys_flow_context');
-      console.log('  show <identifier>     Show flow details by name or sys_id');
-      console.log('  status <identifier>   Check whether a flow is actually able to run');
-      console.log('  publish <identifier>  Publish (activate) a flow');
-      console.log('  test <identifier>    Execute a record-triggered flow against one record');
-      console.log('  doctor                Check whether this instance can publish flows');
-      console.log('  create                Create a draft flow from a JSON manifest');
-      console.log('  update <identifier>   Safely update supported fields of an existing Draft flow');
-      console.log('  delete <identifier>   Delete a flow (not yet implemented)');
-      console.log('');
-      console.log('Run "jsn flows <command> --help" for details.');
-      console.log('');
-      console.log('Note: Flow structure comes from the ProcessFlow API (the Flow');
-      console.log('Designer UI source), so V1, V2, and subflow definitions all');
-      console.log('render with full action inputs and conditions.');
-    },
+    handler: wrap(async (_argv, app) => {
+      app.ok({ commands: ['list', 'executions', 'show', 'status', 'publish', 'test', 'doctor', 'create', 'update', 'delete'] }, {
+        summary: 'Use jsn flows <command> --help. Human terminals can omit targets and guide create/edit; automation uses explicit identifiers and manifests.',
+      });
+    }),
   };
 }

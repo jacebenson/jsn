@@ -125,6 +125,22 @@ directions. Only known empty defaults and server UI metadata are normalized. A
 requires `COMPLETE`, blank error fields and actual declared runtime outputs.
 Neither operation implies publication.
 
+## Flow Designer terminal orchestration
+
+`src/flow-designer-interactive.js` owns guided prompts and target selection,
+not provider persistence. A guided action produces a complete executable
+source definition from discovered step schemas; a guided flow produces the
+existing create/update manifest. Both reuse the SDK/domain lifecycle and its
+readback. Editors clone saved definitions and change only selected fields.
+
+A **prompt-capable invocation** requires `canPrompt()` and `FormatAuto`, with
+no explicit definition data, output-map or `--get`. Optional parser identifiers
+are validated by handlers outside that mode. Cancellation and refused wizard
+save confirmations never allocate a parent or dispatch a mutation. Flow Designer
+usage errors opt into the shared renderer's JSON envelope with
+`error.jsonEnvelope = true`; other command families retain legacy stderr usage
+errors and all usage errors keep exit status 2.
+
 ## Flow execution
 
 `src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.

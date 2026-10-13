@@ -204,6 +204,11 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
   // 'usage' is the legacy literal; CodeUsage ('usage_error') is the
   // exported constant. Both render as the usage class.
   if (code === CodeUsage || code === 'usage') {
+    // Interactive command families can opt into machine-readable fail-fast errors
+    // without changing the legacy stderr contract for other usage errors.
+    if (err.jsonEnvelope === true && resolveJsonMode(app, argv) && app) {
+      return { stream: 'stdout', text: null, exitCode: 2, appErr: true };
+    }
     return { stream: 'stderr', text: `Error (usage): ${err.message}\n`, exitCode: 2 };
   }
 
