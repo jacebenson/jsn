@@ -75,43 +75,28 @@ import { diffCmd } from './commands/diff.js';
 import { graphqlCmd } from './commands/graphql.js';
 
 /**
- * Did the caller explicitly ask for machine output?
+ * The output format the caller asked for, resolved from PARSED argv.
  *
- * Read from the raw argv because parse-time failures happen BEFORE the format
- * middleware can run, so `--json`/`--format=json` had not reached the output
- * controller yet — which is exactly why the structured failure envelope was
- * unreachable for the mistakes scripts and agents hit most (a missing required
- * flag, a bad choice, an unknown command).
- */
-function explicitJsonRequest(args) {
-  return args.some((arg, i) => {
-    if (arg === '--json') return true;
-    if (arg.startsWith('--json=')) return arg !== '--json=false';
-    if (arg === '--format=json') return true;
-    return arg === '--format' && args[i + 1] === 'json';
-  });
-}
-
-/**
- * The output format the caller explicitly asked for, read from the raw argv.
+ * One policy, two callers: the format middleware applies it once a command
+ * parses, and the parse-time failure handler applies it when parsing fails.
+ * They used to disagree — the failure path re-scanned the raw tokens (any
+ * `--json` anywhere, first `--format` match, no option termination, no values
+ * consumed by string options, no `--no-` negation), so the stream and the shape
+ * of a failure depended on which layer rejected the command instead of on the
+ * command line the caller typed.
  *
- * Same reason as explicitJsonRequest: the format middleware never runs for a
- * parse-time failure, so an explicit `--format=styled` (human) or
- * `--format=json` (machine) was silently ignored and the failure was rendered
- * by the pipe/TTY default instead of what was asked for.
+ * Precedence is the middleware's, unchanged: the shortcut flags beat `--format`,
+ * and among the shortcuts the one applied last wins
+ * (csv > markdown > styled > quiet > json).
  */
-function explicitFormat(args) {
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === '--json') return 'json';
-    if (arg === '--quiet' || arg === '-q') return 'quiet';
-    if (arg === '--styled') return 'styled';
-    if (arg === '--markdown') return 'markdown';
-    if (arg === '--csv') return 'csv';
-    if (arg.startsWith('--format=')) return arg.slice('--format='.length);
-    if (arg === '--format' && args[i + 1]) return args[i + 1];
-  }
-  return '';
+export function resolveRequestedFormat(argv) {
+  if (!argv) return '';
+  if (argv.csv) return 'csv';
+  if (argv.markdown) return 'markdown';
+  if (argv.styled) return 'styled';
+  if (argv.quiet) return 'quiet';
+  if (argv.json) return 'json';
+  return typeof argv.format === 'string' ? argv.format : '';
 }
 
 /**
@@ -199,15 +184,14 @@ export function buildCLI() {
       },
     })
     .middleware([
-      // Apply format option overrides
+      // Apply format option overrides. The resolution lives in
+      // resolveRequestedFormat so the parse-time failure path applies the
+      // identical policy instead of approximating it from raw tokens.
       (argv) => {
-        if (argv.json) argv.format = 'json';
-        if (argv.quiet) argv.format = 'quiet';
-        if (argv.styled) argv.format = 'styled';
-        if (argv.markdown) argv.format = 'markdown';
-        if (argv.csv) argv.format = 'csv';
-        if (argv.format) {
-          app.output.setFormat(argv.format);
+        const requested = resolveRequestedFormat(argv);
+        if (requested) {
+          argv.format = requested;
+          app.output.setFormat(requested);
         }
         if (argv.get) {
           app.output.setJqFilter(argv.get);
@@ -485,22 +469,30 @@ export function buildCLI() {
     })
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of
-      // its own (cmdb, platform, and any future parent) — the adapter used to
-      // fall through and exit 0 having printed nothing. Children come from the
-      // registry, description included, so this list cannot drift from the
-      // registrations the way a hand-written one did.
+      // its own (records attachments, docs community, and any future parent) —
+      // the adapter used to fall through and exit 0 having printed nothing.
+      // Children come from the registry, description included, so this list
+      // cannot drift from the registrations the way a hand-written one did.
       if (DISCOVERY_OWNED_ELSEWHERE.has(path[0])) return;
       const canonical = path.join(' ');
       const summary = `jsn ${canonical} — available subcommands.`;
-      (argv.app || app).ok({
-        command: canonical,
-        subcommands,
-        _formatted: formatCommandList({
-          title: `jsn ${canonical}`,
-          commands: subcommands,
-          footer: `Run "jsn ${canonical} <command> --help" for details.`,
-        }),
-      }, { summary });
+      // Same error boundary as every registered handler (AGENTS.md: handlers go
+      // through wrap()). Discovery runs outside any command handler, and the
+      // shared extractor throws on a `--get` path that does not resolve — an
+      // unwrapped callback rejected parse() into an entry point with no
+      // rejection handler, so a missing path printed a Node stack instead of the
+      // extraction_not_found envelope.
+      return wrap(async () => {
+        (argv.app || app).ok({
+          command: canonical,
+          subcommands,
+          _formatted: formatCommandList({
+            title: `jsn ${canonical}`,
+            commands: subcommands,
+            footer: `Run "jsn ${canonical} <command> --help" for details.`,
+          }),
+        }, { summary });
+      })(argv);
     })
     .help('help', 'Show help')
     .version(false)
@@ -509,6 +501,13 @@ export function buildCLI() {
     .fail((msg, err) => {
       if (err) throw err;
       const raw = process.argv.slice(2);
+      // A parse-time failure never reaches the format middleware, so resolve the
+      // requested format with the adapter's OWN tokenizer (same option specs,
+      // option termination, consumed values, repeated options, `--no-`
+      // negation) instead of re-scanning raw argv — one policy, one answer for
+      // this command line no matter which layer rejects it.
+      const formatArgv = cliInstance.parseGlobalOptions(raw);
+      const requestedFormat = resolveRequestedFormat(formatArgv);
       if (msg === 'You must specify a command') {
         const hasLoneProfile = raw.some((a, i, arr) => {
           if (a !== '--profile' && a !== '-p') return false;
@@ -529,12 +528,23 @@ export function buildCLI() {
         // stays exactly as it was (exit 0 + grouped help), and an explicit
         // --json gets the same surface as machine-readable data instead of
         // prose that a parser cannot read.
-        if (explicitJsonRequest(raw)) {
+        if (requestedFormat === 'json') {
           app.output.setFormat('json');
+          // `--get` is jsn's jq substitute for every JSON shape (AGENTS.md), so
+          // the root discovery envelope honours it too: extract when the path
+          // resolves, and fail with the structured envelope when it does not,
+          // instead of always dumping the whole envelope.
+          if (typeof formatArgv?.get === 'string' && formatArgv.get) {
+            app.output.setJqFilter(formatArgv.get);
+          }
           const { commands } = cliInstance.commandRegistry();
-          app.ok({ commands }, {
-            summary: `${commands.length} registered commands — run "jsn <command> --json" for a command's subcommands.`,
-          });
+          try {
+            app.ok({ commands }, {
+              summary: `${commands.length} registered commands — run "jsn <command> --json" for a command's subcommands.`,
+            });
+          } catch (discoveryError) {
+            exitWithError(discoveryError, { app });
+          }
           process.exit(0);
         }
         process.stdout.write(renderHelp(loadConfig(), cliInstance.commandRegistry()) + '\n');
@@ -546,11 +556,7 @@ export function buildCLI() {
       // error envelope on stdout when the caller is in JSON mode. Previously
       // this wrote raw prose to stderr and exited 1, so the exit code and the
       // output shape depended on which layer rejected the command.
-      if (explicitJsonRequest(raw)) app.output.setFormat('json');
-      else {
-        const requestedFormat = explicitFormat(raw);
-        if (requestedFormat) app.output.setFormat(requestedFormat);
-      }
+      if (requestedFormat) app.output.setFormat(requestedFormat);
       let hint;
       try {
         const path = cliInstance._findPath(raw).path.map((n) => n.name).join(' ');

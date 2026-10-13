@@ -94,6 +94,14 @@ Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
   15+ commands use it. Domain-specific visuals (e.g. `auth status` badges)
   belong in the Command that owns the domain, rendered into `_formatted` —
   **not** as special cases inside `output.js`.
+- **One format resolution.** `resolveRequestedFormat(argv)` (`src/cli.js`) is
+  the single policy for which format a command line asked for, and the format
+  middleware applies it. A parse-time failure never reaches that middleware, so
+  the failure renderer calls the same function on argv from
+  `LocalCLI.parseGlobalOptions` (the adapter's own parse, in tolerant mode) —
+  never a re-scan of raw tokens. Precedence: the shortcut flags
+  (`--json`/`--quiet`/`--styled`/`--markdown`/`--csv`) beat `--format`, and the
+  last shortcut applied wins (`csv` > `markdown` > `styled` > `quiet` > `json`).
 
 ## Catalog item enrichment
 
@@ -168,3 +176,13 @@ errors and all usage errors keep exit status 2.
 - **One canonical map per domain concept.** e.g. `item_option_new` types live
   in `ITEM_OPTION_TYPE_NAMES` / `resolveItemOptionType` (helpers.js). A second
   inline copy is a bug.
+- **One owner per command token.** Registration (`CommandNode.register`) leaves
+  exactly one command answering to any name or alias: a re-registration replaces
+  the slot, a shared alias goes to the later registration, a canonical name that
+  was another command's alias replaces it, and a self-alias is dropped at the
+  node. Anything else makes dispatch order, help, completion and the registry
+  disagree about which command a token runs.
+- **Every handler and the parent-discovery callback go through `wrap()`.** The
+  discovery fallback runs outside any command, but its `app.ok` can still throw
+  (a missing `--get` path does), and an unwrapped rejection exits through a Node
+  stack instead of the structured error contract.

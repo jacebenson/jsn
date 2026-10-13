@@ -10,6 +10,15 @@
 //   #6 duplicate registration — the layered (enriched) handler wins, aliases
 //      and help follow the handler that actually dispatches
 //
+// Plus the follow-up blockers found in the post-merge review of #264:
+//   * the handler-less parent discovery callback now renders its failures
+//     through wrap() instead of rejecting parse()
+//   * the format a failure renders in is resolved ONCE (adapter tokens +
+//     resolveRequestedFormat), so the stream/shape cannot depend on whether
+//     parse-time or the handler rejected the command
+//   * root discovery (bare `jsn --json`) honours --get
+//   * a registration collision always leaves exactly one owner per token
+//
 // Everything here is offline: commands are chosen so they fail at parse time,
 // in the middleware guard, or in a local helper — no ServiceNow calls.
 
@@ -21,7 +30,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Writable } from 'node:stream';
 
-import { buildCLI } from '../src/cli.js';
+import { buildCLI, resolveRequestedFormat } from '../src/cli.js';
 import { renderHelp } from '../src/help.js';
 import { yargs } from '../src/cli-adapter.js';
 import { OutputWriter, FormatJSON, FormatStyled, resolvePath } from '../src/output.js';
@@ -342,5 +351,217 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
     assert.equal(envelopes.length, 1);
     assert.deepEqual(envelopes[0].data._attachments, [{ file_name: 'a.txt' }]);
     assert.deepEqual(envelopes[0].data._variables, [{ question: 'q', value: 'v' }]);
+  });
+});
+
+// ── Follow-up review of #264: the format a failure renders in is one policy ──
+//
+// Two layers can reject the same command line: the parser (missing required
+// option) and the handler/middleware guard (no instance configured). Same
+// formatting arguments, so the same stream and shape — the caller cannot tell
+// which layer said no.
+describe('#264 follow-up: parse-time and handler-time failures agree on formatting', () => {
+  // `records list <flags>` fails at parse time (--table is required);
+  // `records list --table incident <flags>` fails in the handler (no instance).
+  const cases = [
+    { flags: ['--json'], shape: 'json' },
+    { flags: ['--format', 'json'], shape: 'json' },
+    { flags: ['--json', '--styled'], shape: 'human' }, // styled is applied last
+    { flags: ['--styled=true'], shape: 'human' },
+    { flags: ['--format=json', '--format=styled'], shape: 'human' }, // last wins
+    { flags: ['--styled', '--', '--json'], shape: 'human' }, // --json is positional data
+    { flags: ['--styled', '--get', '--json'], shape: 'human' }, // --json is --get's value
+    { flags: ['--json', '--no-json', '--styled'], shape: 'human' }, // negated, then styled
+    { flags: ['--csv'], shape: 'human' },
+  ];
+
+  for (const { flags, shape } of cases) {
+    it(`jsn records list ${flags.join(' ')} renders the same in both layers`, () => {
+      const parseTime = run(['records', 'list', ...flags]);
+      const handlerTime = run(['records', 'list', '--table', 'incident', ...flags]);
+
+      for (const [layer, result] of [['parse-time', parseTime], ['handler-time', handlerTime]]) {
+        assert.equal(result.status, 2, `${layer}: want exit 2, got ${result.status} — ${result.stdout} ${result.stderr}`);
+        if (shape === 'json') {
+          assert.equal(result.stderr, '', `${layer}: machine mode must not write prose to stderr`);
+          const envelope = JSON.parse(result.stdout);
+          assert.equal(envelope.ok, false, `${layer}: a failure must not look like a success`);
+          assert.equal(envelope.code, 'usage_error', `${layer}: ${result.stdout}`);
+        } else {
+          assert.equal(result.stdout, '', `${layer}: human mode must not write an envelope to stdout`);
+          assert.match(result.stderr, /^Error \(usage\): /, `${layer}: ${result.stderr}`);
+        }
+      }
+
+      // The pair must be indistinguishable on the streams, not just individually valid.
+      assert.equal(parseTime.stdout === '', handlerTime.stdout === '',
+        'stdout presence must not depend on the rejecting layer');
+      assert.equal(parseTime.stderr === '', handlerTime.stderr === '',
+        'stderr presence must not depend on the rejecting layer');
+    });
+  }
+
+  it('the adapter resolves global flags with the parser, not a raw token scan', () => {
+    const cli = yargs([]).options({
+      json: { type: 'boolean' },
+      quiet: { type: 'boolean', alias: 'q' },
+      csv: { type: 'boolean' },
+      markdown: { type: 'boolean' },
+      styled: { type: 'boolean' },
+      format: { type: 'string' },
+      get: { type: 'string' },
+    });
+
+    const resolve = (args) => resolveRequestedFormat(cli.parseGlobalOptions(args));
+    assert.equal(resolve(['--json']), 'json');
+    assert.equal(resolve(['--json', '--styled']), 'styled', 'last shortcut applied wins');
+    assert.equal(resolve(['--styled=true']), 'styled');
+    assert.equal(resolve(['--format=json', '--format=styled']), 'styled', 'repeated --format: last wins');
+    assert.equal(resolve(['--styled', '--', '--json']), 'styled', '-- ends the options');
+    assert.equal(resolve(['--styled', '--get', '--json']), 'styled', '--json is --get\'s value');
+    assert.equal(resolve(['--json', '--no-json', '--styled']), 'styled', '--no-json negates');
+    assert.equal(resolve(['--json=false']), '', 'a negated boolean is not a request');
+    assert.equal(resolve(['--format', 'json']), 'json');
+    assert.equal(resolve(['-q']), 'quiet');
+
+    // A value error is the failure being rendered; it must not abort resolution.
+    const bad = cli.parseGlobalOptions(['records', 'list', '--table', 'incident', '--format', 'xml', '--json']);
+    assert.equal(resolveRequestedFormat(bad), 'json');
+  });
+});
+
+// ── Follow-up review of #264: the handler-less parent discovery is wrapped ───
+describe('#264 follow-up: discovery failures use the shared error renderer', () => {
+  it('a genuinely handler-less parent fails --get misses with the extraction envelope', () => {
+    // cmdb and platform gained explicit handlers in the reviewed change, so they
+    // no longer exercise the adapter's fallback. This parent has no handler of
+    // its own — if that stops being true the assertion below fails loudly rather
+    // than quietly testing the wrong path.
+    const { cli } = buildRegistry();
+    const records = cli.root.children.find((command) => command.name === 'records');
+    records.build();
+    const attachments = records.children.find((command) => command.name === 'attachments');
+    assert.equal(attachments.definition.handler, undefined,
+      'records attachments must stay handler-less for this regression to cover the fallback');
+    attachments.build();
+    assert.ok(attachments.children.length > 0);
+
+    const miss = run(['records', 'attachments', '--json', '--get', 'data.nope']);
+    assert.equal(miss.status, 1, `want exit 1 — ${miss.stdout} ${miss.stderr}`);
+    assert.doesNotMatch(miss.stderr, /at LocalCLI|AppError:/, 'a miss must not print a Node stack');
+    const envelope = JSON.parse(miss.stdout);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.code, CodeExtractionNotFound);
+    assert.match(envelope.error, /data\.nope/);
+
+    const hit = run(['records', 'attachments', '--json', '--get', 'data.command']);
+    assert.equal(hit.status, 0, `${hit.stdout} ${hit.stderr}`);
+    assert.equal(JSON.parse(hit.stdout), 'records attachments');
+  });
+
+  it('the handler-less parent still answers with its discovery envelope', () => {
+    const result = run(['records', 'attachments', '--json']);
+    assert.equal(result.status, 0, `${result.stdout} ${result.stderr}`);
+    const envelope = JSON.parse(result.stdout);
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.data.command, 'records attachments');
+    assert.deepEqual(envelope.data.subcommands.map((child) => child.name), ['list', 'get', 'add']);
+  });
+});
+
+// ── Follow-up review of #264: the new root discovery shape honours --get ─────
+describe('#264 follow-up: root discovery extraction', () => {
+  it('extracts a value from the root discovery envelope', () => {
+    const result = run(['--json', '--get', 'data.commands.0.name']);
+    assert.equal(result.status, 0, `${result.stdout} ${result.stderr}`);
+    assert.equal(JSON.parse(result.stdout), 'setup');
+    assert.equal(result.stderr, '');
+  });
+
+  it('a miss is an extraction failure, not the whole envelope', () => {
+    const result = run(['--json', '--get', 'data.nope']);
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr, '');
+    const envelope = JSON.parse(result.stdout);
+    assert.equal(envelope.ok, false);
+    assert.equal(envelope.code, CodeExtractionNotFound);
+    assert.match(envelope.error, /data\.nope/);
+  });
+
+  it('root discovery resolves flags with the same policy as the middleware', () => {
+    // --format=json still asks for the machine surface…
+    const viaFormat = run(['--format=json']);
+    assert.equal(viaFormat.status, 0);
+    assert.equal(JSON.parse(viaFormat.stdout).ok, true);
+    // …and a later --styled wins over --json, exactly as it would for a command.
+    const styled = run(['--json', '--styled']);
+    assert.equal(styled.status, 0);
+    assert.ok(!styled.stdout.trimStart().startsWith('{'), 'styled wins, so no envelope');
+    assert.match(styled.stdout, /Usage: jsn <command>/);
+  });
+});
+
+// ── Follow-up review of #264 (optional): one owner per command token ─────────
+describe('#264 follow-up: a command token has exactly one owner', () => {
+  const register = (argv, definitions) => {
+    let cli = yargs(argv);
+    for (const definition of definitions) cli = cli.command(definition);
+    return cli;
+  };
+  const tokensOf = (cli) => {
+    const owned = new Map();
+    for (const node of cli.root.children) {
+      owned.set(node.name, node.name);
+      for (const alias of node.aliases) owned.set(alias, node.name);
+    }
+    return owned;
+  };
+
+  it('a shared alias belongs to the later registration, and both commands stay reachable', async () => {
+    const defs = [
+      { command: 'alpha', aliases: ['x'], handler: () => {} },
+      { command: 'beta', aliases: ['x'], handler: () => {} },
+    ];
+    const owned = tokensOf(register([], defs));
+    assert.equal(owned.get('x'), 'beta', 'the later registration owns the shared alias');
+    assert.equal(owned.get('alpha'), 'alpha', 'the earlier command keeps its canonical name');
+
+    const dispatch = async (argv) => {
+      const seen = [];
+      await register(argv, defs.map((def) => ({ ...def, handler: () => seen.push(def.command) }))).parse();
+      return seen;
+    };
+    assert.deepEqual(await dispatch(['x']), ['beta']);
+    assert.deepEqual(await dispatch(['alpha']), ['alpha']);
+  });
+
+  it('a canonical name that was another command alias replaces it without self-aliasing', () => {
+    const cli = register([], [
+      { command: 'alpha', aliases: ['x'], handler: () => {} },
+      { command: 'x', handler: () => {} },
+    ]);
+    assert.deepEqual(cli.root.children.map((node) => node.name), ['x']);
+    assert.deepEqual(cli.root.children[0].aliases, [], 'x must not be its own alias');
+  });
+
+  it('a declared self-alias is dropped', () => {
+    const cli = register([], [{ command: 'widgets', aliases: ['widgets', 'w'], handler: () => {} }]);
+    assert.deepEqual(cli.root.children[0].aliases, ['w']);
+  });
+
+  it('the real registry publishes every command token exactly once', () => {
+    const { cli } = buildRegistry();
+    const tokens = [];
+    const walk = (node, prefix) => {
+      node.build();
+      for (const child of node.children.filter((c) => c.name !== '__completion')) {
+        tokens.push(prefix + child.name);
+        for (const alias of child.aliases) tokens.push(prefix + alias);
+        walk(child, `${prefix}${child.name} `);
+      }
+    };
+    walk(cli.root, '');
+    const duplicates = [...new Set(tokens.filter((token, index) => tokens.indexOf(token) !== index))];
+    assert.deepEqual(duplicates, [], 'a token that resolves to two commands is a dispatch bug');
   });
 });
