@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import process from 'node:process';
 import { input, password as passwordPrompt, select } from '@inquirer/prompts';
 import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, canPrompt, assertSafeExactMatch } from '../helpers.js';
 import { FormatAuto } from '../output.js';
@@ -171,6 +172,40 @@ function midDiagnosticsCommand(kind, wrap) {
   };
 }
 
+// Progress for long, otherwise-silent direct-install phases. Human terminals
+// only, and on stderr, so the stdout envelope and --json output stay clean.
+export function directProgress(app) {
+  const human = app.output?.getFormat() === FormatAuto && (canPrompt() || process.stderr.isTTY === true);
+  if (!human) return () => {};
+  const mib = bytes => (Number(bytes || 0) / (1024 * 1024)).toFixed(0);
+  return event => {
+    if (event.phase === 'download-start') {
+      process.stderr.write(`Downloading the official MID ZIP from ServiceNow (about 532 MiB).\n  ${event.archiveURL}\n`);
+    } else if (event.phase === 'download') {
+      const percent = event.total ? ` (${Math.floor((event.received / event.total) * 100)}%)` : '';
+      process.stderr.write(`\r  ${mib(event.received)} MiB${percent} downloaded...`);
+      if (event.done) process.stderr.write('\n');
+    } else if (event.phase === 'extract-start') {
+      process.stderr.write(`Extracting ${event.entries} files into ${event.installDir}...\n`);
+    } else if (event.phase === 'extract-done') {
+      process.stderr.write('Extraction complete. Configuring the MID Server...\n');
+    }
+  };
+}
+
+// A registration wait is minutes of silence otherwise; report elapsed progress.
+export function registrationProgress(app, timeoutMs) {
+  const human = app.output?.getFormat() === FormatAuto && (canPrompt() || process.stderr.isTTY === true);
+  if (!human) return undefined;
+  const seconds = Math.round(timeoutMs / 1000);
+  let lastReport = 0;
+  return elapsedMs => {
+    if (elapsedMs - lastReport < 15000) return;
+    lastReport = elapsedMs;
+    process.stderr.write(`Waiting for ServiceNow to register the MID Server... ${Math.round(elapsedMs / 1000)}s of ${seconds}s\n`);
+  };
+}
+
 async function listAgents(app, argv) {
   const columns = argv.columns
     ? [...new Set(argv.columns.split(',').map(column => column.trim()).filter(Boolean))]
@@ -266,10 +301,11 @@ async function promptMidCredentials(app, argv) {
   }
 }
 
-export async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
+export async function waitForMidServerUp(app, name, timeoutMs, intervalMs, onWait) {
   const started = Date.now();
   const fullName = name;
   while (Date.now() - started <= timeoutMs) {
+    onWait?.(Date.now() - started);
     const params = new URLSearchParams({
       sysparm_query: `name=${fullName}`,
       sysparm_limit: '1',
@@ -472,15 +508,24 @@ export function midserversCmd(wrap) {
             const existing = await app.sdk.list(AGENT_TABLE, new URLSearchParams({ sysparm_query: `name=${shortName}`, sysparm_fields: 'sys_id,name', sysparm_limit: '1' }));
             if (existing.length) throw new Error(`MID '${shortName}' already exists in ServiceNow; choose a new name. Existing runtime and record were not changed.`);
             const installation = await installDirectMidServer({
-              instanceURL: app.getEffectiveInstance(), ...credentials, name, directory: argv.directory, runNow: decision === 'start',
+              instanceURL: app.getEffectiveInstance(), ...credentials, name, directory: argv.directory,
+              runNow: decision === 'start', onProgress: directProgress(app),
             });
             if (installation.state === 'prepared') {
               app.ok(installation, { summary: `Prepared native MID '${installation.name}' in ${installation.installDir}; not started or registered. Start with jsn midservers start ${installation.name}${argv.directory ? ' --directory ' + JSON.stringify(installation.installDir) : ''}. Windows start runs in the foreground console; no service is installed.` });
               return;
             }
             let record;
-            try { record = await waitForMidServerUp(app, installation.name, Math.max(1, argv['wait-timeout']), Math.max(500, argv['wait-interval'])); }
+            const directWait = Math.max(1, argv['wait-timeout']);
+            const directInterval = Math.max(500, argv['wait-interval']);
+            const onWait = registrationProgress(app, directWait);
+            const started = Date.now();
+            try {
+              record = await waitForMidServerUp(app, installation.name, directWait, directInterval, onWait);
+              onWait?.(directWait);
+            }
             catch {
+              onWait?.(Math.max(directWait, Date.now() - started));
               app.ok({ ...installation, registration: 'pending', validated: false }, { summary: `Native MID start command completed; registration is pending. Runtime retained for diagnostics at ${installation.installDir}; no forced teardown.` });
               return;
             }
