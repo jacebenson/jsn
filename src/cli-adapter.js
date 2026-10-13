@@ -10,7 +10,11 @@ class CommandNode {
   constructor(definition) {
     this.definition = typeof definition === 'string' ? { command: definition } : definition;
     this.name = commandName(this.definition.command || '');
-    this.aliases = names(this.definition.aliases || this.definition.alias);
+    // A command that lists its canonical name as its own alias publishes one
+    // token twice: the registry then has two entries for it and dispatch can
+    // resolve it through the alias table instead of the command table. An alias
+    // is an ALTERNATE name, so a self-alias is dropped at the source.
+    this.aliases = names(this.definition.aliases || this.definition.alias).filter((alias) => alias !== this.name);
     this.children = [];
     this.options = new Map();
     this.positionals = new Map();
@@ -37,16 +41,34 @@ class CommandNode {
    * Registration order is preserved (the slot is replaced in place) and the
    * replaced node's aliases are carried over so layered commands keep resolving
    * through the alias that the base registration published.
+   *
+   * A token must resolve to exactly ONE command. Two registrations can also
+   * collide without sharing a canonical name: an alias that another command
+   * already published (or already claims as its alias) is the same kind of
+   * claim, and registration order decides it — the later registration owns the
+   * token and the earlier one stops advertising it. The earlier command keeps
+   * its canonical name, so nothing becomes unreachable.
    */
   register(child) {
     const index = this.children.findIndex((existing) => existing.name === child.name
       || existing.aliases.includes(child.name)
       || child.aliases.includes(existing.name));
     if (index === -1) {
+      for (const sibling of this.children) {
+        sibling.aliases = sibling.aliases.filter((alias) => !child.aliases.includes(alias));
+      }
       this.children.push(child);
       return child;
     }
-    child.aliases = [...new Set([...child.aliases, ...this.children[index].aliases])];
+    // Carry the replaced node's aliases over — minus any alias that is now the
+    // replacement's own canonical name, which would advertise the command as
+    // its own alias.
+    child.aliases = [...new Set([...child.aliases, ...this.children[index].aliases])]
+      .filter((alias) => alias !== child.name);
+    for (const sibling of this.children) {
+      if (sibling === this.children[index]) continue;
+      sibling.aliases = sibling.aliases.filter((alias) => !child.aliases.includes(alias));
+    }
     this.children[index] = child;
     return child;
   }
@@ -157,14 +179,22 @@ export class LocalCLI {
     return options.get(key) || [...options.values()].find((spec) => spec.name === key || names(spec.alias).includes(key))
       || { name: key, type: typeof value === 'boolean' ? 'boolean' : 'string' };
   }
-  _assign(argv, key, value, spec) {
+  /**
+   * Assign one parsed value to argv.
+   *
+   * `validate: false` (tolerant mode, used by parseGlobalOptions) skips the
+   * choice/number checks so a value that will be thrown away anyway cannot
+   * abort a parse whose only purpose is reading the global output flags.
+   */
+  _assign(argv, key, value, spec, opts = {}) {
+    const validate = opts.validate !== false;
     const actual = spec?.name || key;
     const values = spec?.type === 'array' ? (Array.isArray(value) ? value : [value]) : [value];
-    if (spec?.choices && values.some((item) => !spec.choices.includes(item))) {
+    if (validate && spec?.choices && values.some((item) => !spec.choices.includes(item))) {
       this._fail(`Invalid value for --${actual}: ${value}. Choose from: ${spec.choices.join(', ')}`);
       return false;
     }
-    if (spec?.type === 'number' && values.some((item) => item === '' || !Number.isFinite(Number(item)))) {
+    if (validate && spec?.type === 'number' && values.some((item) => item === '' || !Number.isFinite(Number(item)))) {
       this._fail(`Invalid number for --${actual}: ${value}`);
       return false;
     }
@@ -176,7 +206,7 @@ export class LocalCLI {
     argv[camel(actual)] = argv[actual];
     for (const alias of names(spec?.alias)) argv[alias] = argv[actual];
   }
-  _parseOptions(args, path) {
+  _parseOptions(args, path, opts = {}) {
     const options = this._optionConfig(path);
     const defs = {};
     for (const [key, spec] of options) defs[key] = {
@@ -199,10 +229,39 @@ export class LocalCLI {
     const argv = { _: path.map((n) => n.name) };
     for (const [key, value] of Object.entries(parsed.values)) {
       const spec = this._specFor(options, key, value);
-      if (this._assign(argv, key, value, spec) === false) return null;
+      if (this._assign(argv, key, value, spec, opts) === false) return null;
     }
-    for (const [key, spec] of options) if (argv[spec.name] === undefined && spec.default !== undefined) this._assign(argv, key, spec.default, spec);
+    for (const [key, spec] of options) if (argv[spec.name] === undefined && spec.default !== undefined) this._assign(argv, key, spec.default, spec, opts);
     return { values: argv, positionals: parsed.positionals };
+  }
+
+  /**
+   * Resolve the global options from raw tokens WITHOUT dispatching a command and
+   * without failing.
+   *
+   * The format middleware never runs when parsing fails, so the parse-time
+   * failure renderer has to know the format the caller asked for. Rather than
+   * re-scanning argv with a second, approximate tokenizer (any `--json`
+   * anywhere, first `--format` wins, no option termination, no value
+   * consumption, no `--no-` negation), it asks the SAME parser the successful
+   * path uses. Tolerant mode keeps a value error (`--format xml`, the very
+   * failure being rendered) from aborting the resolution.
+   *
+   * Returns null when the tokens cannot be parsed at all — the caller then
+   * falls back to the pipe/TTY default, exactly as it did before.
+   */
+  parseGlobalOptions(args) {
+    const saved = this.failHandler;
+    this.failHandler = null; // errors here are not the failure being reported
+    try {
+      const { path, commandArgs } = this._findPath(args);
+      const parsed = this._parseOptions(commandArgs, path, { validate: false });
+      return parsed ? parsed.values : null;
+    } catch {
+      return null;
+    } finally {
+      this.failHandler = saved;
+    }
   }
   _fail(message, error) {
     if (this.failHandler) return this.failHandler(message, error);
