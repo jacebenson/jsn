@@ -196,6 +196,13 @@ describe('flow creation request shapes', () => {
     assert.deepEqual(result.definition_readback, { available: true, status: 'read_back', flow_id: FLOW_ID });
     assert.equal(result.version.type, 'Autosave');
     assert.deepEqual(result.update_set_mutations.map(snapshot => snapshot.label), ['parent_create', 'trigger_and_actions_patch', 'autosave_version']);
+    // Update-set capture covers the parent POST, the trigger/action patch and the Autosave.
+    assert.equal(result.update_set_capture.available, true);
+    assert.equal(result.update_set_capture.status, 'captured');
+    assert.ok(result.update_set_mutations.every(snapshot => snapshot.capture_after?.status === 'captured'));
+    // Every read and write carries the flow's transaction scope.
+    assert.ok(sdk.calls.some(call => call.kind === 'request' && call.options.method === 'GET' && call.endpoint.includes(`/processflow/flow/${FLOW_ID}?sysparm_transaction_scope=${manifest.scope}`)));
+    assert.ok(sdk.calls.some(call => call.kind === 'request' && call.endpoint.includes(`/versioning/create_version?sysparm_transaction_scope=${manifest.scope}`)));
 
     // The parent POST body is unchanged and carries no trigger.
     const parentCall = sdk.calls.find(call => call.kind === 'request' && call.endpoint.includes('/processflow/flow?'));
@@ -279,7 +286,7 @@ describe('flow update request shapes', () => {
   const triggerId = 'trigger-update-123';
   const baseDefinition = {
     flowId,
-    triggerInstances: [{ sysId: triggerId, triggerType: 'record_create_or_update', metadata: '{"query_parse":{"predicates": [], "order_by": ["short_description"], "group_by": [], "has_rlq_conditions": false, "custom": "preserve"}}', inputs: [
+    triggerInstances: [{ sysId: triggerId, type: 'record_create_or_update', triggerType: 'Record', metadata: '{"query_parse":{"predicates": [], "order_by": ["short_description"], "group_by": [], "has_rlq_conditions": false, "custom": "preserve"}}', inputs: [
       { name: 'table', id: 'table-input', marker: 'table-preserve', displayField: 'number', displayValue: wrapped('Ticket'), value: wrapped('ticket') },
       { name: 'condition', id: 'condition-input', extra: 'preserve', displayField: 'old', displayValue: wrapped('old'), value: wrapped('old') },
       { name: 'trigger_strategy', value: { value: 'after' } },
@@ -292,7 +299,7 @@ describe('flow update request shapes', () => {
     ] }],
   };
 
-  function updateSdk(afterDefinition) {
+  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition) {
     const calls = [];
     let versionReads = 0;
     return {
@@ -308,7 +315,7 @@ describe('flow update request shapes', () => {
       },
       async request(endpoint, options = {}) {
         calls.push({ endpoint, options });
-        if (options.method === 'GET') return { result: { data: calls.some(call => call.options?.method === 'POST') ? afterDefinition : baseDefinition } };
+        if (options.method === 'GET') return { result: { data: calls.some(call => call.options?.method === 'POST') ? afterDefinition : baseDefinitionForRead } };
         if (endpoint.includes('/versioning/create_version')) return { result: { sys_id: 'version-update-1' } };
         return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId] } } } } } };
       },
@@ -332,10 +339,19 @@ describe('flow update request shapes', () => {
 
     assert.equal(result.flow.id, flowId);
     assert.deepEqual(result.update_set_mutations.map(snapshot => snapshot.label), ['trigger_and_actions_update', 'autosave_version']);
+    assert.equal(result.version.type, 'Autosave');
+    assert.ok(result.update_set_mutations.every(snapshot => snapshot.capture_after.status === 'captured'));
+    // The read and the Autosave both carry the flow's transaction scope.
+    assert.ok(sdk.calls.some(call => call.options.method === 'GET' && call.endpoint.includes(`/processflow/flow/${flowId}?sysparm_transaction_scope=scope-1`)));
+    assert.ok(sdk.calls.some(call => call.endpoint.includes('/versioning/create_version?sysparm_transaction_scope=scope-1')));
     const patch = sdk.calls.find(call => call.endpoint.endsWith('/graphql'));
     const query = JSON.parse(patch.options.body).query;
     assert.match(query, /triggerInstances: \{update:/);
     assert.match(query, /actions: \{update:/);
+    // The mutation selects only the leaves this schema exposes.
+    assert.match(query, /triggerInstances \{ updates \}/);
+    assert.match(query, /actions \{ updates \}/);
+    assert.doesNotMatch(query, /updates \{/);
     // Predicate metadata is re-derived by the instance, so the CLI sends {}.
     assert.match(query, /metadata: "\{\}"/);
     assert.doesNotMatch(query, /predicates/);
@@ -437,5 +453,45 @@ describe('flow update request shapes', () => {
     };
     await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new' } }] }), error => /flow-update-123.*incomplete|GraphQL timeout/i.test(error.message) && /reconciliation/.test(error.message));
     assert.equal(writes, 1);
+  });
+
+  // The saved instance keeps the family in `type`; older read-backs only had it
+  // in `triggerType`. Either way the record family must resolve.
+  it('resolves the legacy triggerType family when the read-back has no type', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const legacy = structuredClone(baseDefinition);
+    delete legacy.triggerInstances[0].type;
+    legacy.triggerInstances[0].triggerType = 'record_create_or_update';
+    const afterDefinition = structuredClone(legacy);
+    afterDefinition.triggerInstances[0].metadata = JSON.stringify({
+      ...JSON.parse(legacy.triggerInstances[0].metadata),
+      query_parse: { order_by: ['short_description'], group_by: [], has_rlq_conditions: false, custom: 'preserve', predicates: [{ compound_type: 'or', subpredicates: [{ field: 'short_description', operator: 'STARTSWITH', value: 'legacy-', term: 'short_descriptionSTARTSWITHlegacy-', type: 'comparison' }] }] },
+    });
+    afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], displayField: 'short_description', displayValue: wrapped('short_descriptionSTARTSWITHlegacy-'), value: wrapped('short_descriptionSTARTSWITHlegacy-') };
+    const sdk = updateSdk(afterDefinition, legacy);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'short_descriptionSTARTSWITHlegacy-' } }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    assert.equal(result.flow.id, flowId);
+    assert.equal(result.version.type, 'Autosave');
+  });
+
+  it('refuses a saved trigger whose family is not a record trigger', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const scheduled = structuredClone(baseDefinition);
+    scheduled.triggerInstances[0].type = 'daily';
+    scheduled.triggerInstances[0].triggerType = 'Scheduled';
+    const sdk = updateSdk(scheduled, scheduled);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'short_descriptionSTARTSWITHnew-' } }), /Only record_create_or_update trigger updates are supported; found daily/);
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST').length, 0, 'an unsupported family must not be written');
+  });
+
+  // A read-back that does not carry the requested value is a failure: no Autosave.
+  it('refuses a wrong saved action input and writes no Autosave version', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.actionInstances[0].inputs[1] = { ...afterDefinition.actionInstances[0].inputs[1], value: wrapped('something else'), displayValue: wrapped('something else') };
+    const sdk = updateSdk(afterDefinition);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }), /log_message did not match the requested value/);
+    assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0, 'no Autosave after a failed read-back');
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql')).length, 1);
   });
 });

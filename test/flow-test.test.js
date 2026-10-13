@@ -20,6 +20,22 @@ test('deriveRecordTrigger rejects unsupported and incomplete definitions', () =>
   assert.throws(() => deriveRecordTrigger({ triggerInstances: [{ triggerType: 'record_create_or_update', inputs: [] }] }), /no table/i);
 });
 
+// The saved instance carries the FAMILY in `type` and the picker CATEGORY in
+// `triggerType` ("Record"). Reading the category as the family rejected every
+// flow this CLI creates. Legacy instances that only have triggerType keep working.
+test('deriveRecordTrigger reads the family from type with a legacy triggerType fallback', () => {
+  const providerShape = {
+    triggerInstances: [{ type: 'record_create_or_update', triggerType: 'Record', inputs: [{ name: 'table', value: { value: 'ticket' } }] }],
+  };
+  assert.deepEqual(deriveRecordTrigger(providerShape), {
+    trigger: providerShape.triggerInstances[0], type: 'record_create_or_update', table: 'ticket',
+  });
+  const legacy = { triggerInstances: [{ triggerType: 'record_create_or_update', inputs: [{ name: 'table', value: { value: 'ticket' } }] }] };
+  assert.equal(deriveRecordTrigger(legacy).type, 'record_create_or_update');
+  assert.throws(() => deriveRecordTrigger({ triggerInstances: [{ type: 'daily', triggerType: 'Scheduled' }] }), /found daily/);
+  assert.throws(() => deriveRecordTrigger({ triggerInstances: [{ type: { value: 'record_create' }, triggerType: 'Record' }] }), /found record_create/);
+});
+
 test('testFlow validates record before dispatch and posts exact saved definition', async () => {
   const calls = [];
   const sdk = {

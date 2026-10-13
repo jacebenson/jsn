@@ -358,6 +358,59 @@ export function buildTriggerInstance({ flowId, definition, triggerType = '', inp
   };
 }
 
+export const RECORD_TRIGGER_FAMILY = 'record_create_or_update';
+
+// A trigger instance carries the FAMILY and the picker CATEGORY in two different
+// fields: `type` is the family Flow Designer executes ("record_create_or_update",
+// "daily", …) and `triggerType` is the category display name ("Record",
+// "Scheduled", …). Creation writes the family to `type` (resolveTriggerDefinition
+// reads it from sys_hub_trigger_definition), and the live ProcessFlow read-back
+// returns exactly that shape, so `type` is authoritative.
+//
+// Instances and fixtures that predate that split stored the family in
+// `triggerType` (and sometimes inside the raw metadata block), so those stay as
+// deliberate fallbacks — otherwise a real saved trigger reads as the category
+// "Record" and every consumer rejects it.
+export function triggerFamily(source) {
+  const metadata = parsedObject(source?.metadata);
+  const candidates = [
+    source?.type,
+    source?.trigger_type,
+    metadata?.type,
+    metadata?.trigger_type,
+    source?.triggerType,
+    metadata?.triggerType,
+  ];
+  for (const candidate of candidates) {
+    const family = familyValue(candidate);
+    if (family) return family;
+  }
+  return '';
+}
+
+function parsedObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function familyValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    for (const key of ['value', 'display_value', 'sys_id']) {
+      const nested = familyValue(value[key]);
+      if (nested) return nested;
+    }
+    return '';
+  }
+  return String(value).trim();
+}
+
 // The snFlowDesigner GraphQL input types take `attributes` as a String
 // ("key=value,key=value") even though the ProcessFlow read path renders it as an
 // object. Sending the object fails validation: "not a valid 'String'".

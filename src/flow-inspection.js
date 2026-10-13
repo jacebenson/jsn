@@ -298,11 +298,7 @@ function buildLabelCache(payload) {
   if (!payload || typeof payload !== 'object') return cache;
   let entries = payload.label_cache;
   if (!Array.isArray(entries)) {
-    try {
-      entries = JSON.parse(payload.labelCacheAsJsonString || '[]');
-    } catch {
-      entries = [];
-    }
+    entries = parseLabelCacheJson(payload.labelCacheAsJsonString);
   }
   for (const e of entries) {
     if (!e || typeof e !== 'object') continue;
@@ -311,6 +307,20 @@ function buildLabelCache(payload) {
     if (name && label) cache.set(name, label);
   }
   return cache;
+}
+
+// labelCacheAsJsonString is a JSON document, and JSON `null` or `{}` parses
+// successfully into something that is not iterable — that threw
+// "entries is not iterable" and broke `flows show` on real drafts whose cache is
+// empty. An empty cache simply has no labels.
+function parseLabelCacheJson(value) {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 const GUID_PILL_RE = /\{\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([^}]+)\}\}/g;

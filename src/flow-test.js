@@ -1,4 +1,5 @@
 import { assertSafeExactMatch } from './helpers.js';
+import { RECORD_TRIGGER_FAMILY, triggerFamily } from './flow-triggers.js';
 
 const FLOW_ENDPOINT = '/api/now/processflow/flow';
 
@@ -30,15 +31,14 @@ function inputValue(trigger, name) {
   return valueOf(input?.value ?? input?.displayValue);
 }
 
-function triggerType(trigger) {
-  return valueOf(trigger?.triggerType || trigger?.trigger_type || trigger?.type);
-}
-
 export function deriveRecordTrigger(definition) {
   const trigger = findTrigger(definition);
   if (!trigger) throw new Error('Flow definition has no trigger instance');
-  const type = triggerType(trigger);
-  if (type !== 'record_create_or_update') throw new Error(`Flow test supports only record_create_or_update triggers; found ${type || 'unknown'}`);
+  // `type` is the family; `triggerType` is only the picker category ("Record").
+  // triggerFamily keeps a deliberate legacy fallback for saved instances that
+  // predate the split.
+  const type = triggerFamily(trigger);
+  if (type !== RECORD_TRIGGER_FAMILY) throw new Error(`Flow test supports only ${RECORD_TRIGGER_FAMILY} triggers; found ${type || 'unknown'}`);
   const table = inputValue(trigger, 'table');
   if (!table) throw new Error('Flow definition record trigger has no table');
   return { trigger, type, table };
