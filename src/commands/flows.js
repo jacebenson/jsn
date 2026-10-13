@@ -6,6 +6,7 @@ import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
+import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
 import { errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
@@ -29,6 +30,18 @@ function flowInspectionAdapter(app) {
   return {
     inspectFlow: app.sdk.inspectFlow.bind(app.sdk),
     inspectCustomAction: app.sdk.inspectCustomAction.bind(app.sdk),
+  };
+}
+
+// The picker is driven by the instance's own trigger definitions, but this CLI
+// can only create the families it has verified. State both plainly so a created
+// flow never surprises the operator with a trigger that was not really set.
+function triggerGuidance(trigger) {
+  return {
+    supported_families: [...SUPPORTED_TRIGGER_TYPES].sort(),
+    excluded_families: [...EXCLUDED_TRIGGER_TYPES.entries()].map(([type, reason]) => ({ type, reason })).sort((a, b) => a.type.localeCompare(b.type)),
+    created_trigger: trigger ? { id: trigger.id, type: trigger.type, name: trigger.name, triggerDefinitionId: trigger.triggerDefinitionId } : null,
+    note: 'The trigger picker lists only families this CLI can create and verify. Families the picker omits are reported in excluded_families.',
   };
 }
 
@@ -281,10 +294,11 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'create',
-          describe: 'Guide draft flow creation in a terminal, or use a schema-driven JSON manifest',
+          describe: 'Create a draft flow: pick a trigger category then trigger in a terminal, or use a JSON manifest in scripts',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
-            .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' }),
+            .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' })
+            .option('scope', { type: 'string', describe: 'Transaction scope sys_id or global for the guided picker' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
@@ -299,8 +313,8 @@ export function flowsCmd(wrap) {
             const result = await createFlowFromManifest(app.sdk, app.getEffectiveInstance(), manifest, {
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
             });
-            app.ok(result, {
-              summary: `Created draft flow "${result.flow.name}" (${result.flow.id}) without activation`,
+            app.ok({ ...result, trigger_guidance: triggerGuidance(result.trigger) }, {
+              summary: `Created draft flow "${result.flow.name}" (${result.flow.id}) with trigger ${result.trigger?.type ?? 'unknown'} (${result.trigger?.id ?? 'no trigger id'}) without activation`,
               breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the draft flow' }],
             });
           }),

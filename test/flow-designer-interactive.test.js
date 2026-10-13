@@ -51,12 +51,32 @@ function fakeApp({ answers = {}, selected = {} } = {}) {
     throw new Error(`Unexpected request ${options.method} ${pathname}`);
   };
   sdk.aggregateCount = async () => 1;
+  const display = (value, shown = value) => ({ value, display_value: shown });
   sdk.list = async (table, params) => {
+    const query = decodeURIComponent(String(params));
     calls.push({ table, method: 'LIST', query: params.get('sysparm_query') });
     if (table === 'sys_user') return [];
-    if (table === 'sys_db_object') return [{ sys_id: STEP, name: 'incident' }];
+    if (table === 'sys_db_object') {
+      if (query.includes('name=incident')) return [{ name: display('incident'), label: display('Incident'), super_class: display('') }];
+      return [{ sys_id: STEP, name: display('incident'), label: display('Incident'), super_class: display('') }];
+    }
+    if (table === 'sys_dictionary') return [{ element: display('number') }];
     if (table === 'sys_scope') return [{ sys_id: { value: SCOPE, display_value: 'Do not use this name' }, name: 'Synthetic scope' }];
     if (table === 'sys_hub_flow') return [{ sys_id: ID, name: 'Synthetic flow', scope: SCOPE, active: false, status: 'draft' }];
+    // The trigger catalogue the guided picker reads: categories first, then the
+    // definitions in them, then each definition's declared inputs.
+    if (table === 'sys_hub_trigger_category') return [
+      { sys_id: display(STEP), name: display('Record') },
+      { sys_id: display(RECORD), name: display('Scheduled') },
+    ];
+    if (table === 'sys_hub_trigger_definition') return [
+      { sys_id: display(STATUS), name: display('Created or Updated'), type: display('record_create_or_update'), category: display(STEP, 'Record'), active: display('true'), description: display('') },
+      { sys_id: display(ID), name: display('Daily'), type: display('daily'), category: display(RECORD, 'Scheduled'), active: display('true'), description: display('') },
+    ];
+    if (table === 'sys_hub_trigger_input') return [
+      { sys_id: display('1'.repeat(32)), element: display('table'), label: display('Table'), internal_type: display('table_name', 'Table Name'), mandatory: display('true'), order: display('1'), max_length: display('80'), default_value: display(''), attributes: display(''), choice: display(''), reference: display(''), use_dependent_field: display('false'), dependent_on_field: display(''), read_only: display('false') },
+      { sys_id: display('2'.repeat(32)), element: display('condition'), label: display('Condition'), internal_type: display('conditions', 'Conditions'), mandatory: display('false'), order: display('100'), max_length: display('4000'), default_value: display(''), attributes: display(''), choice: display(''), reference: display(''), use_dependent_field: display('true'), dependent_on_field: display('table'), read_only: display('false') },
+    ];
     return [{ sys_id: ID, name: 'Synthetic action', sys_scope: SCOPE }];
   };
   const p = {};
@@ -215,7 +235,6 @@ function flowReads(app) {
   const request = app.sdk.request.bind(app.sdk);
   app.sdk.request = async (url, options) => {
     if (url.includes('/processflow/flow/')) return { result: { data: flowDefinition() } };
-    if (url.includes('/trigger/record/table')) return { result: { label: 'Incident', displayField: 'number', fields: [] } };
     if (url.includes('/action_types/')) return { result: { inputs: [{ name: 'request', type: 'string', id: RECORD, parameter: { type: 'string' }, mandatory: true }] } };
     return request(url, options);
   };
