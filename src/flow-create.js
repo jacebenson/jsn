@@ -396,46 +396,86 @@ function stripPredicates(value) {
 
 /**
  * The ProcessFlow read-back represents the same stored input two equivalent
- * ways depending on whether the instance re-derived it: the value as a wrapped
- * {schemaless, schemalessValue, value} object or as the bare scalar, and
- * `parameter.attributes` as an object (an empty map arrives as {"": ""}) or as
- * a string. Those are representation, not meaning, so the comparison below puts
- * every input into one canonical form — but ONLY for those two documented
- * differences plus key order. Every other key is compared exactly, so real
- * changed values, defaults, reference constraints, unknown fields and identities
- * can never hide behind the normalization.
+ * ways depending on whether the instance re-derived it: the value as the
+ * provider's ordinary wrapper {schemaless: false, schemalessValue: '', value}
+ * or as the bare scalar, and `parameter.attributes` as an object (an empty map
+ * arrives as {"": ""}) or as its string form. Those are representation, not
+ * meaning, so the comparison below canonicalizes ONLY those two documented
+ * differences plus entry order — and it does so narrowly. Every other key, every
+ * non-neutral wrapper field, every unknown wrapper property and every named
+ * attribute value (including empty, null and undefined) is compared exactly, so
+ * real changed values, defaults, reference constraints, unknown fields and
+ * identities can never hide behind the normalization.
  */
-function attributeString(value) {
-  if (value === undefined || value === null) return '';
-  // The provider serializes the same flat attribute map as an object
-  // ({"": ""}) or as the string form of it ("="), so both sides are normalized
-  // to the same key=value list, dropping empty pairs.
+function attributeEntries(value, entries = []) {
+  if (value === undefined || value === null) return entries;
   if (typeof value === 'string') {
-    return value.split(',').map(pair => {
-      const index = pair.indexOf('=');
-      if (index < 0) return pair;
-      const key = pair.slice(0, index);
-      const item = pair.slice(index + 1);
-      return key === '' && item === '' ? '' : `${key}=${item}`;
-    }).filter(pair => pair !== '').join(',');
+    for (const segment of value.split(',')) {
+      // An empty segment (an empty map arrives as '' or '=') carries nothing.
+      if (segment === '') continue;
+      const index = segment.indexOf('=');
+      if (index < 0) {
+        // No '=' — syntax this CLI does not recognize. Keep the literal text so
+        // it is still compared rather than silently discarded.
+        entries.push(segment);
+        continue;
+      }
+      const key = segment.slice(0, index);
+      const item = segment.slice(index + 1);
+      // ONLY the exact empty-key/empty-value provider sentinel means "no
+      // attributes"; '=x' is not that sentinel.
+      if (key === '' && item === '') continue;
+      entries.push(`${key}=${item}`);
+    }
+    return entries;
   }
-  if (typeof value !== 'object') return String(value);
-  if (Array.isArray(value)) return value.map(attributeString).join(',');
-  return Object.entries(value)
-    .filter(([key, item]) => key !== '' && item !== '' && item !== null && item !== undefined)
-    .map(([key, item]) => `${key}=${item}`)
-    .join(',');
+  if (Array.isArray(value)) {
+    for (const item of value) attributeEntries(item, entries);
+    return entries;
+  }
+  if (typeof value !== 'object') { entries.push(String(value)); return entries; }
+  for (const [key, item] of Object.entries(value)) {
+    // ONLY the exact {"": ""} sentinel is dropped. A NAMED attribute whose value
+    // is empty, null or undefined is a real stored field and stays in the
+    // comparison; dropping it would silently lose a schema field.
+    if (key === '' && item === '') continue;
+    entries.push(`${key}=${item}`);
+  }
+  return entries;
+}
+
+// Sorted so that key insertion order and equivalent string orderings compare
+// equal, but the entry COUNT is preserved: a dropped or added attribute still
+// fails the comparison.
+function attributeString(value) {
+  return attributeEntries(value).sort().join(',');
+}
+
+// The exact key set of the provider's ordinary neutral value wrapper. Anything
+// else on a wrapper object — a flipped `schemaless`, a nonempty
+// `schemalessValue`, a missing `value`, or any key this CLI does not know about
+// — is a real mode or payload difference, NOT a representation difference.
+const NEUTRAL_VALUE_WRAPPER_KEYS = new Set(['schemaless', 'schemalessValue', 'value']);
+
+function neutralValue(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  if (value.schemaless !== false) return value;
+  if (value.schemalessValue !== undefined && value.schemalessValue !== null && value.schemalessValue !== '') return value;
+  if (!Object.prototype.hasOwnProperty.call(value, 'value')) return value;
+  if (Object.keys(value).some(key => !NEUTRAL_VALUE_WRAPPER_KEYS.has(key))) return value;
+  return value.value;
 }
 
 export function triggerInputSemantics(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
   const semantics = {};
   for (const [key, value] of Object.entries(input)) {
-    if (key === 'value') semantics.value = inputRawValue(input);
-    else if (key === 'displayValue') semantics.displayValue = input?.displayValue?.value ?? input?.displayValue ?? null;
+    if (key === 'value') semantics.value = neutralValue(value);
+    else if (key === 'displayValue') semantics.displayValue = neutralValue(value);
     else if (key === 'parameter' && value && typeof value === 'object' && !Array.isArray(value)) {
       const parameter = { ...value };
-      // An absent attribute map, {"": ""}, and "=" all mean "no attributes".
+      // An absent attribute map, {"": ""}, and "=" all mean "no attributes";
+      // every other entry, including a named empty value, is compared.
       parameter.attributes = attributeString(parameter.attributes);
       semantics.parameter = parameter;
     } else semantics[key] = value;

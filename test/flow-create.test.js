@@ -489,6 +489,103 @@ describe('flow update request shapes', () => {
     assert.equal(result.version.type, 'Autosave');
   });
 
+  // Reviewer finding 1: ONLY the provider's ordinary neutral wrapper
+  // {schemaless:false, schemalessValue:'', value:<scalar>} is a representation
+  // difference. A flipped mode/payload (schemaless/schemalessValue) or any
+  // unknown wrapper field is a REAL change to an input the manifest never asked
+  // to change, and must fail before the Autosave is written.
+  it('refuses non-neutral or extended omitted value wrappers and writes no version', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const manifest = { trigger: { condition: 'short_descriptionSTARTSWITHnew-' } };
+    const options = { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) };
+    const withInput = (value, displayValue) => {
+      const definition = structuredClone(baseDefinition);
+      definition.triggerInstances[0].metadata = JSON.stringify({
+        ...JSON.parse(baseDefinition.triggerInstances[0].metadata),
+        query_parse: { order_by: ['short_description'], group_by: [], has_rlq_conditions: false, custom: 'preserve', predicates: [{ type: 'comparison', field: 'short_description', operator: 'STARTSWITH', value: 'new-', term: 'short_descriptionSTARTSWITHnew-' }] },
+      });
+      definition.triggerInstances[0].inputs[1] = { ...definition.triggerInstances[0].inputs[1], value: 'short_descriptionSTARTSWITHnew-', displayValue: 'short_descriptionSTARTSWITHnew-' };
+      definition.triggerInstances[0].inputs[2] = { ...definition.triggerInstances[0].inputs[2], value, displayValue };
+      return definition;
+    };
+    const neutral = { schemaless: false, schemalessValue: '', value: 'once' };
+    const versionCalls = sdk => sdk.calls.filter(call => call.endpoint.includes('/versioning/')).length;
+
+    // Control: the neutral wrapper on one side and the bare scalar on the other
+    // are the SAME stored value, so the update still succeeds and Autosaves once.
+    const controlSdk = updateSdk(withInput('once', 'once'), withInput(neutral, neutral));
+    const control = await updateFlowFromManifest(controlSdk, 'https://example.service-now.com', flowId, manifest, options);
+    assert.equal(control.version.type, 'Autosave');
+    assert.equal(controlSdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 1);
+
+    // Schemaless mode + payload flipped on an omitted input: collapsing both to
+    // the scalar `value` would hide the change entirely.
+    const modeSdk = updateSdk(withInput({ schemaless: true, schemalessValue: 'changed', value: 'once' }, neutral), withInput(neutral, neutral));
+    await assert.rejects(updateFlowFromManifest(modeSdk, 'https://example.service-now.com', flowId, manifest, options), /changed omitted input trigger_strategy/);
+    assert.equal(versionCalls(modeSdk), 0, 'no Autosave after a rejected omitted-input change');
+
+    // displayValue is restricted the same way.
+    const displaySdk = updateSdk(withInput(neutral, { schemaless: true, schemalessValue: 'changed', value: 'once' }), withInput(neutral, neutral));
+    await assert.rejects(updateFlowFromManifest(displaySdk, 'https://example.service-now.com', flowId, manifest, options), /changed omitted input trigger_strategy/);
+    assert.equal(versionCalls(displaySdk), 0, 'no Autosave after a rejected displayValue change');
+
+    // An unknown property on an otherwise ordinary wrapper is not neutral.
+    const extraSdk = updateSdk(withInput({ schemaless: false, schemalessValue: '', value: 'once', futureMode: 'x' }, neutral), withInput(neutral, neutral));
+    await assert.rejects(updateFlowFromManifest(extraSdk, 'https://example.service-now.com', flowId, manifest, options), /changed omitted input trigger_strategy/);
+    assert.equal(versionCalls(extraSdk), 0, 'no Autosave after a rejected unknown wrapper field');
+  });
+
+  // Reviewer findings 2 and 3: attribute normalization drops ONLY the exact
+  // empty-key/empty-value provider sentinel, keeps named empty values, and
+  // canonicalizes map key order plus equivalent string entries.
+  it('preserves named empty attributes and canonicalizes equivalent attribute forms', async () => {
+    const { updateFlowFromManifest, triggerInputSemantics } = await import('../src/flow-create.js');
+    const manifest = { trigger: { condition: 'short_descriptionSTARTSWITHnew-' } };
+    const options = { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) };
+    const withAttributes = (attributes) => {
+      const definition = structuredClone(baseDefinition);
+      definition.triggerInstances[0].metadata = JSON.stringify({
+        ...JSON.parse(baseDefinition.triggerInstances[0].metadata),
+        query_parse: { order_by: ['short_description'], group_by: [], has_rlq_conditions: false, custom: 'preserve', predicates: [{ type: 'comparison', field: 'short_description', operator: 'STARTSWITH', value: 'new-', term: 'short_descriptionSTARTSWITHnew-' }] },
+      });
+      definition.triggerInstances[0].inputs[1] = { ...definition.triggerInstances[0].inputs[1], value: 'short_descriptionSTARTSWITHnew-', displayValue: 'short_descriptionSTARTSWITHnew-' };
+      definition.triggerInstances[0].inputs[2] = { ...definition.triggerInstances[0].inputs[2], parameter: { ...definition.triggerInstances[0].inputs[2].parameter, attributes } };
+      return definition;
+    };
+    const versionCalls = sdk => sdk.calls.filter(call => call.endpoint.includes('/versioning/')).length;
+
+    // Adversarial regression: a NAMED attribute whose value is empty is a real
+    // stored field. Dropping it from the read-back must fail preservation.
+    const namedBefore = withAttributes({ a: '1', b: '2', empty: '' });
+    const droppedSdk = updateSdk(withAttributes({ a: '1', b: '2' }), namedBefore);
+    await assert.rejects(updateFlowFromManifest(droppedSdk, 'https://example.service-now.com', flowId, manifest, options), /changed omitted input trigger_strategy/);
+    assert.equal(versionCalls(droppedSdk), 0, 'no version when a named empty attribute is lost');
+
+    // Equivalent map, reversed key insertion order: representation only.
+    const orderedSdk = updateSdk(withAttributes({ b: '2', empty: '', a: '1' }), withAttributes({ a: '1', b: '2', empty: '' }));
+    const ordered = await updateFlowFromManifest(orderedSdk, 'https://example.service-now.com', flowId, manifest, options);
+    assert.equal(ordered.version.type, 'Autosave');
+    assert.equal(orderedSdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 1);
+
+    // The object form and the equivalent string form must agree, including the
+    // named empty value.
+    const stringSdk = updateSdk(withAttributes('a=1,b=2,empty='), withAttributes({ a: '1', b: '2', empty: '' }));
+    const stringForm = await updateFlowFromManifest(stringSdk, 'https://example.service-now.com', flowId, manifest, options);
+    assert.equal(stringForm.version.type, 'Autosave');
+    assert.equal(stringSdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 1);
+
+    // Only the EXACT {"": ""} / "=" sentinel collapses to "no attributes"; an
+    // unknown or ambiguous entry is kept for comparison, never discarded, and a
+    // named empty value is retained.
+    const attrs = attributes => triggerInputSemantics({ name: 'trigger_strategy', parameter: { attributes } }).parameter.attributes;
+    assert.equal(attrs('='), '');
+    assert.equal(attrs({ '': '' }), '');
+    assert.notEqual(attrs({ '': 'x' }), '', 'an empty key carrying a value must not become "no attributes"');
+    assert.equal(attrs('weird'), 'weird');
+    assert.equal(attrs({ a: '1', b: '' }), 'a=1,b=');
+    assert.equal(attrs('a=1,b=2'), attrs({ b: '2', a: '1' }));
+  });
+
   it('rejects unsafe flow-name query characters before lookup', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     let lookups = 0;
