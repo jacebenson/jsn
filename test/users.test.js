@@ -59,6 +59,10 @@ describe('Users command', () => {
 
   for (const [label, args, payload] of [
     ['flags',
+      { username: 'newuser', name: 'New User', email: 'new@test.com' },
+      { user_name: 'newuser', name: 'New User', email: 'new@test.com' },
+    ],
+    ['flags overriding data',
       { username: 'newuser', name: 'New User', email: 'new@test.com', data: '{"user_name":"old","active":false}' },
       { user_name: 'newuser', name: 'New User', email: 'new@test.com', active: false },
     ],
@@ -94,7 +98,7 @@ describe('Users command', () => {
         update: async (...args) => { calls.push(['update', ...args]); return updated; },
         delete: async (...args) => { calls.push(['delete', ...args]); },
       } });
-      await handler(name)({ app, identifier: 'todelete', data: '{"active":false}' });
+      await handler(name)({ app, identifier: 'todelete', ...(name === 'update' ? { data: '{"active":false}' } : {}) });
       assert.deepEqual(calls, [
         ['list', 'sys_user', { sysparm_query: 'user_name=todelete', sysparm_limit: '1', sysparm_display_value: 'all', sysparm_fields: 'sys_id' }],
         name === 'update' ? ['update', 'sys_user', 'abc123', { active: false }] : ['delete', 'sys_user', 'abc123'],
@@ -120,7 +124,7 @@ describe('Users command', () => {
         update: async (table, id) => { calls.push([table, id]); return record; },
         delete: async (table, id) => { calls.push([table, id]); },
       } });
-      await handler(name)({ app, identifier: 'target', data: '{"active":"false"}' });
+      await handler(name)({ app, identifier: 'target', ...(name === 'update' ? { data: '{"active":"false"}' } : {}) });
       assert.deepEqual(calls, name === 'show' ? [] : [['sys_user', 'raw123']]);
       if (name === 'show') assert.deepEqual(app.lastOk.data, record);
     });
@@ -136,7 +140,7 @@ describe('Users command', () => {
           update: async () => { calls.push('update'); },
           delete: async () => { calls.push('delete'); },
         } });
-        await assert.rejects(() => handler(name)({ app, identifier, data: '{}' }), expectedError);
+        await assert.rejects(() => handler(name)({ app, identifier, ...(name === 'update' ? { data: '{}' } : {}) }), expectedError);
         assert.deepEqual(calls, expectedCalls);
         assert.deepEqual(app.outputCalls, []);
       });
