@@ -90,6 +90,11 @@ function instanceName(instanceURL) {
   return hostname.replace(/\.service-now\.com$|\.servicenowservices\.com$/i, '').replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
+export function midInstallDirectory(instanceURL, name, homeDirectory = os.homedir()) {
+  const shortName = normalizeMidName(name);
+  return path.join(homeDirectory, '.servicenow', 'mids', instanceName(instanceURL), shortName);
+}
+
 export async function installDockerMidServer({
   instanceURL,
   username,
@@ -106,8 +111,7 @@ export async function installDockerMidServer({
   const displayName = `mid.server.${shortName}`;
   const releaseName = suppliedReleaseName || (await validateMidCredentials(instanceURL, username, password, fetchImpl)).releaseName;
   const recipeURL = buildMidRecipeUrl(releaseName);
-  const serviceNowInstance = instanceName(instanceURL);
-  const installDir = directory || path.join(os.homedir(), '.servicenow', 'mids', serviceNowInstance, shortName);
+  const installDir = directory || midInstallDirectory(instanceURL, name);
   fs.mkdirSync(installDir, { recursive: true, mode: 0o700 });
   const exportDir = path.join(installDir, 'export');
   fs.mkdirSync(exportDir, { recursive: true, mode: 0o700 });
