@@ -49,6 +49,41 @@ test('a synthetic `default` from schema discovery never reaches the parameter bl
   assert.equal(inputs[0].parameter.attributes, '');
 });
 
+// The earlier contract (and providers that ship one) carries the input metadata
+// in a nested `parameter` block instead of flat on the input. Narrowing must not
+// drop it: label/type/choices/attributes live only inside that block.
+test('a nested provider parameter block is kept and narrowed to the GraphQL shape', () => {
+  const schema = [{
+    name: 'message', id: 'p1',
+    parameter: {
+      id: 'p1', name: 'message', type: 'string', label: 'Message', mandatory: true,
+      order: 100, choices: [{ label: 'Info', value: 'info' }],
+      attributes: { uiUniqueId: 'nested-attr' }, unknownProviderKey: 'dropped',
+    },
+  }];
+  const inputs = buildTypedInputs({ type: 'action-1', inputs: { message: 'hello' } }, schema);
+  assert.deepEqual(inputs[0].parameter, {
+    id: 'p1', name: 'message', type: 'string', label: 'Message', mandatory: true,
+    order: 100, choices: [{ label: 'Info', value: 'info' }], attributes: 'uiUniqueId=nested-attr',
+  });
+  assert.deepEqual(inputs[0].value, { schemaless: false, schemalessValue: '', value: 'hello' });
+});
+
+test('flat provider keys fill only what the nested parameter block leaves empty', () => {
+  const schema = [{
+    name: 'message', id: 'p1', label: 'Flat message', type: 'string', attributes: { flat: 'yes' },
+    parameter: { id: 'p1', name: 'message', type: 'string', label: 'Nested message' },
+  }];
+  const inputs = buildTypedInputs({ type: 'action-1', inputs: { message: 'hello' } }, schema);
+  assert.equal(inputs[0].parameter.label, 'Nested message');
+  assert.equal(inputs[0].parameter.attributes, 'flat=yes');
+});
+
+test('a mandatory input declared only inside the nested parameter block is still required', () => {
+  const schema = [{ name: 'message', id: 'p1', parameter: { id: 'p1', name: 'message', mandatory: true } }];
+  assert.throws(() => buildTypedInputs({ type: 'action-1', inputs: {} }, schema), /Missing required input "message"/);
+});
+
 test('identity-free or malformed schemas are still refused', () => {
   assert.throws(() => buildTypedInputs({ type: 'action-1', inputs: {} }, [{ name: 'missing_id', type: 'string' }]), /incomplete input schema/);
   assert.throws(() => buildTypedInputs({ type: 'action-1', inputs: {} }, [{ id: 'only-id', type: 'string' }]), /incomplete input schema/);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { assertSafeExactMatch } from './helpers.js';
 import { createVerifiedFlowVersion } from './flow-versioning.js';
 import {
+  RECORD_TRIGGER_FAMILY,
   SUPPORTED_TRIGGER_TYPES,
   TRIGGER_DEFINITION_TABLE,
   buildTriggerInputs,
@@ -11,6 +12,7 @@ import {
   readTriggerInputDefinitions,
   tableInputFor,
   flowDesignParameter,
+  triggerFamily,
 } from './flow-triggers.js';
 
 const FLOW_ENDPOINT = '/api/now/processflow/flow';
@@ -264,7 +266,11 @@ export function buildTypedInputs(action, schema) {
       throw new Error(`Action ${action.type} input "${field.name}" has a malformed parameter block; refusing to change it`);
     }
     const suppliedValue = Object.prototype.hasOwnProperty.call(supplied, field.name) ? supplied[field.name] : field.default;
-    if ((suppliedValue === undefined || suppliedValue === null) && (field.mandatory === true || field.required === true)) throw new Error(`Missing required input "${field.name}" for action ${action.type}`);
+    const parameter = field.parameter || {};
+    if ((suppliedValue === undefined || suppliedValue === null)
+      && (field.mandatory === true || field.required === true || parameter.mandatory === true || parameter.required === true)) {
+      throw new Error(`Missing required input "${field.name}" for action ${action.type}`);
+    }
     const value = suppliedValue ?? null;
     const displayValue = field.displayValue ?? field.display_value ?? value;
     // global_snFlowDesigner_ActionInstanceValue accepts ONLY these keys. The
@@ -277,11 +283,27 @@ export function buildTypedInputs(action, schema) {
       children: Array.isArray(field.children) ? field.children : [],
       displayField: stringValue(field.displayField || field.display_field || ''),
       scriptActive: false,
-      parameter: flowDesignParameter(field),
+      parameter: actionInputParameter(field),
       value: { schemaless: false, schemalessValue: '', value },
       displayValue: { schemaless: false, schemalessValue: '', value: displayValue },
     };
   });
+}
+
+// Providers hand back the input metadata in one of two shapes: nested inside a
+// `parameter` block (the earlier contract) or FLAT on the input object (the real
+// published Log action's action_types route). The nested block wins when it
+// exists, flat keys fill in only what it leaves empty, and the result is always
+// narrowed to the fields global_snFlowDesigner_FlowDesignParameter accepts.
+export function actionInputParameter(field) {
+  if (field?.parameter === undefined) return flowDesignParameter(field);
+  const parameter = flowDesignParameter(field.parameter);
+  const flat = flowDesignParameter(field);
+  for (const key of Object.keys(flat)) {
+    if (flat[key] === undefined || flat[key] === '') continue;
+    if (parameter[key] === undefined || parameter[key] === '') parameter[key] = flat[key];
+  }
+  return parameter;
 }
 
 function parseSimpleCondition(condition) {
@@ -552,8 +574,8 @@ function updatedTrigger(flow, manifest, descriptor) {
   if (!existing) throw new Error('Saved flow has no trigger instance');
   const existingMetadata = parseMaybeJson(existing.metadata, null);
   if (existing.metadata && (!existingMetadata || typeof existingMetadata !== 'object' || Array.isArray(existingMetadata))) throw new Error('Saved record trigger metadata is unreadable; refusing to replace it');
-  const existingType = stringValue(existing.triggerType || existing.trigger_type || existingMetadata?.triggerType || existingMetadata?.trigger_type);
-  if (existingType && existingType !== 'record_create_or_update') throw new Error(`Only record_create_or_update trigger updates are supported; found ${existingType}`);
+  const existingFamily = triggerFamily(existing);
+  if (existingFamily && existingFamily !== RECORD_TRIGGER_FAMILY) throw new Error(`Only ${RECORD_TRIGGER_FAMILY} trigger updates are supported; found ${existingFamily}`);
   const inputs = clone(inputList(existing));
   const tableInput = inputs.find(input => input.name === 'table');
   const conditionInput = inputs.find(input => input.name === 'condition');

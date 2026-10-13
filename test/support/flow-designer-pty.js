@@ -44,9 +44,11 @@ const logAction = { id: LOG_ID, scope: SCOPE, name: 'Log', description: '', stat
     inputs: [{ name: 'script', type: 'script', value: 'old log script' }], outputs: [], extended_inputs: [], extended_outputs: [] }] };
 let currentSteps = action.steps;
 const value = v => ({ schemaless: false, schemalessValue: '', value: v });
-// An already-saved draft, used by `flow edit` / `flows test`.
+// An already-saved draft, used by `flow edit` / `flows test`. Shape the live
+// ProcessFlow read-back returns: the family in `type`, the picker category in
+// `triggerType`.
 let flow = { flowId: ID, scope: SCOPE, triggerInstances: [{
-  id: TRIGGER_ID, triggerType: 'record_create_or_update', triggerDefinitionId: TRIGGER_DEFINITION,
+  id: TRIGGER_ID, type: 'record_create_or_update', triggerType: 'Record', triggerDefinitionId: TRIGGER_DEFINITION,
   metadata: { query_parse: { predicates: [], order_by: [], group_by: [], has_rlq_conditions: false } },
   inputs: [{ name: 'table', value: value('incident') }, { name: 'condition', value: value('') }],
 }], actionInstances: [] };

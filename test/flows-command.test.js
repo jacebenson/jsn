@@ -91,6 +91,31 @@ test('flows show handler emits the normal Output envelope and formatted data', a
   assert.match(envelope.data._formatted, /Permission type/);
 });
 
+// The exact command boundary that failed live: a draft whose label cache is the
+// JSON string "null" (one trigger, one action) must render, not throw.
+test('flows show renders a draft whose label cache is JSON null', async () => {
+  const show = commandTree().find(command => command.command === 'show [identifier]');
+  const inspection = { flow: { name: 'Draft flow', active: false, version: 'Unset (Assumed V1)', type: 'Flow', sysID: 'flow-null-cache' }, version: {}, payload: {
+    labelCacheAsJsonString: 'null',
+    triggerInstances: [{ name: 'Created or Updated', type: 'record_create_or_update', triggerType: 'Record', inputs: [{ name: 'table', displayValue: 'ticket' }] }],
+    actionInstances: [{ order: 1, actionType: { fName: 'Log' }, inputs: [{ name: 'log_message', displayValue: 'nice!' }] }],
+  }, triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [] };
+  let serialized = '';
+  const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
+  const output = new OutputWriter({ format: FormatJSON, writer });
+  const app = {
+    sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
+    output,
+    ok(data, opts) { this.output.ok(data, opts); },
+    getEffectiveInstance: () => 'https://example.service-now.com',
+  };
+  await show.handler({ identifier: 'flow-null-cache', depth: 2 }, app);
+  const envelope = JSON.parse(serialized);
+  assert.equal(envelope.ok, true);
+  assert.match(envelope.data._formatted, /Log/);
+  assert.match(envelope.data._formatted, /nice!/);
+});
+
 test('flows list handler emits the normal JSON envelope for an interactive selection', async () => {
   const list = commandTree().find(command => command.command === 'list');
   assert.ok(list);

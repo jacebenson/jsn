@@ -313,6 +313,22 @@ test('public seam resolves catalog and GUID pills while preserving readable refs
   assert.match(result._formatted, /1 - Get Catalog Variables➛session_title/);
 });
 
+// A real draft can carry a label cache that JSON-parses to null or an object;
+// iterating that parsed value threw "entries is not iterable" and broke the show
+// view of a flow with one trigger and one action.
+test('public seam renders a flow whose label cache parses to null or an object', async () => {
+  for (const raw of ['null', '{}', '', 'not json']) {
+    const flow = baseFlow('empty-cache', {
+      labelCacheAsJsonString: raw,
+      label_cache: undefined,
+      actionInstances: [{ order: 1, actionType: { fName: 'Log' }, inputs: [{ name: 'log_message', displayValue: 'nice!' }] }],
+      triggerInstances: [{ name: 'Created or Updated', type: 'record_create_or_update', triggerType: 'Record', inputs: [{ name: 'table', displayValue: 'ticket' }] }],
+    });
+    const { result } = await inspectPublic(flow);
+    assert.match(result._formatted, /Log/, `label cache ${JSON.stringify(raw)} must still render`);
+  }
+});
+
 test('public seam suppresses built-in action internals', async () => {
   const flow = baseFlow('builtin', { actionInstances: [{ order: 1, actionType: { fName: 'Update Record' } }] });
   const { result } = await inspectPublic(flow, { customAction: async () => ({ steps: [{ label: 'Update Record step' }] }) });
