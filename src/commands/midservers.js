@@ -17,7 +17,7 @@ declareCapabilities('midservers', { mutationSubcommands: ['add', 'remove', 'exec
 
 function agentName(record) {
   const name = getStringField(record, 'name');
-  return name.startsWith('mid.server.') ? name : `mid.server.${name}`;
+  return `mid.server.${name}`;
 }
 
 function queueValue(value) {
@@ -150,8 +150,8 @@ export function assertMidServerUp(record) {
 export function assertMidServerReady(record) {
   assertMidServerUp(record);
   const name = getStringField(record, 'name') || getStringField(record, 'sys_id') || 'MID Server';
-  const validated = getStringField(record, 'validated').toLowerCase();
-  if (validated !== 'validated') {
+  const validated = queueValue(record.validated).toLowerCase();
+  if (validated !== 'true') {
     const error = new Error(`MID Server '${name}' is not validated yet (validation: ${validated || 'unknown'}). Wait for ServiceNow validation to complete before executing a command.`);
     error.code = 'midserver_not_validated';
     throw error;
@@ -186,9 +186,9 @@ async function promptMidCredentials(app, argv) {
   }
 }
 
-async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
+export async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
   const started = Date.now();
-  const fullName = `mid.server.${name.replace(/^mid\.server\./, '')}`;
+  const fullName = name;
   while (Date.now() - started <= timeoutMs) {
     const params = new URLSearchParams({
       sysparm_query: `name=${fullName}`,

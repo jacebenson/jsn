@@ -67,7 +67,20 @@ describe('MID Server installer', () => {
     assert.equal(dockerComposeAvailable(() => { throw new Error('missing'); }), false);
   });
 
-  it('builds the Compose install without writing the password to disk', async () => {
+  it('prepares a short MID name even when given an ECC-prefixed input', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-midserver-test-'));
+    tempDirs.push(directory);
+    const result = await installDockerMidServer({
+      instanceURL: 'https://example.service-now.com', username: 'mid', password: 'test-only',
+      name: 'mid.server.oct12', directory, releaseName: 'mid-linux-2026-05-19',
+      runNow: false, run: () => {},
+    });
+    assert.equal(result.name, 'oct12');
+    assert.equal(result.prepared, true);
+    assert.match(fs.readFileSync(path.join(directory, '.env'), 'utf8'), /^MID_SERVER_NAME=oct12$/m);
+  });
+
+  it('keeps the password out of Compose YAML and uses a short runtime name', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-midserver-test-'));
     tempDirs.push(directory);
     const calls = [];
@@ -84,7 +97,9 @@ describe('MID Server installer', () => {
     assert.doesNotMatch(compose, /super-secret/);
     const composeRun = calls.find(call => call.args.includes('up'));
     assert.equal(composeRun.options.env.MID_INSTANCE_PASSWORD, 'super-secret');
-    assert.equal(result.name, 'mid.server.oct12');
+    assert.equal(result.name, 'oct12');
+    assert.equal(composeRun.options.env.MID_SERVER_NAME, 'oct12');
+    assert.match(fs.readFileSync(path.join(directory, '.env'), 'utf8'), /^MID_SERVER_NAME=oct12$/m);
     assert.equal(path.basename(result.composePath), 'docker-compose.yaml');
     assert.ok(calls.some(call => call.command === 'docker' && call.args[0] === 'build' && call.args[2] === 'jsn_mid_oct12:mid-linux-2026-05-19'));
   });

@@ -108,7 +108,7 @@ export async function installDockerMidServer({
 }) {
   const dockerAvailable = detectDocker(run).available;
   const shortName = normalizeMidName(name);
-  const displayName = `mid.server.${shortName}`;
+  const displayName = shortName;
   const releaseName = suppliedReleaseName || (await validateMidCredentials(instanceURL, username, password, fetchImpl)).releaseName;
   const recipeURL = buildMidRecipeUrl(releaseName);
   const installDir = directory || midInstallDirectory(instanceURL, name);
