@@ -1,9 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { input, password as passwordPrompt, select } from '@inquirer/prompts';
 import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, canPrompt } from '../helpers.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { detectDocker, defaultRun, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
+import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, validateMidCredentials } from '../midserver-install.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -190,6 +192,24 @@ async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
   throw new Error(`MID Server '${fullName}' did not report Up within ${timeoutMs}ms`);
 }
 
+function removeLocalMidServer(instanceURL, name) {
+  const installDir = midInstallDirectory(instanceURL, name);
+  const composePath = path.join(installDir, 'docker-compose.yaml');
+  if (!fs.existsSync(composePath)) return false;
+  try {
+    defaultRun('docker', ['compose', '-f', composePath, 'down'], { cwd: installDir });
+  } catch {
+    defaultRun('sudo', ['systemctl', 'start', 'docker']);
+    defaultRun('sudo', ['docker', 'compose', '-f', composePath, 'down'], { cwd: installDir });
+  }
+  try {
+    fs.rmSync(installDir, { recursive: true, force: true });
+  } catch {
+    defaultRun('sudo', ['rm', '-rf', '--', installDir]);
+  }
+  return true;
+}
+
 export function midserversCmd(wrap) {
   return {
     command: 'midservers [subcommand]',
@@ -302,7 +322,14 @@ export function midserversCmd(wrap) {
         handler: wrap(async (argv, app) => {
           let record;
           if (argv.identifier) {
-            record = await resolveMidServer(app.sdk, argv.identifier);
+            try {
+              record = await resolveMidServer(app.sdk, argv.identifier);
+            } catch (error) {
+              if (error.code !== 'not_found') throw error;
+              const localDir = midInstallDirectory(app.getEffectiveInstance(), argv.identifier);
+              if (!fs.existsSync(path.join(localDir, 'docker-compose.yaml'))) throw error;
+              record = null;
+            }
           } else {
             if (!canPrompt() || app.output.getFormat() !== FormatAuto) {
               throw new Error('An identifier is required outside an interactive terminal');
@@ -323,11 +350,12 @@ export function midserversCmd(wrap) {
             });
             if (!record) return;
           }
-          const sysId = unwrapSysId(record);
+          const sysId = record ? unwrapSysId(record) : null;
           const name = getStringField(record, 'name') || argv.identifier || sysId;
           await confirmDelete(app, argv, `Remove MID Server '${name}'`);
-          await app.sdk.delete(AGENT_TABLE, sysId);
-          app.ok({ name, sys_id: sysId, deleted: true }, { summary: `Removed MID Server '${name}'` });
+          const localRemoved = removeLocalMidServer(app.getEffectiveInstance(), name);
+          if (record) await app.sdk.delete(AGENT_TABLE, sysId);
+          app.ok({ name, sys_id: sysId, deleted: Boolean(record), local_compose_removed: localRemoved }, { summary: `Removed MID Server '${name}'${localRemoved ? ' and its local Compose stack' : ''}` });
         }),
       })
       .command({

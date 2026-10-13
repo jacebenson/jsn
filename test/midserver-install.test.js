@@ -8,6 +8,7 @@ import {
   dockerComposeAvailable,
   detectDocker,
   installDockerMidServer,
+  midInstallDirectory,
   normalizeMidName,
   validateMidCredentials,
 } from '../src/midserver-install.js';
@@ -26,6 +27,9 @@ describe('MID Server installer', () => {
     );
   });
 
+  it('uses the instance and MID name for the install directory', () => {
+    assert.equal(midInstallDirectory('https://dev354702.service-now.com', 'oct12', '/home/jace'), '/home/jace/.servicenow/mids/dev354702/oct12');
+  });
   it('uses the final build date in a release name with multiple dates', () => {
     assert.match(
       buildMidRecipeUrl('australia-02-11-2026__patch3-05-25-2026_06-12-2026_1106'),
