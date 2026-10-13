@@ -1,194 +1,145 @@
-// Tests for users command — structure, handler logic with mock SDK
-// Patterns from Go: internal/commands/users_test.go
-
 import { describe, it } from 'node:test';
-import assert from 'node:assert';
+import assert from 'node:assert/strict';
+import { usersCmd } from '../src/commands/users.js';
+import { makeApp } from './support/app-test-helpers.js';
+import { captureCommands, findCommand, findHandler, wrapHandler } from './support/command-test-helpers.js';
 
-// ─── Command Structure Tests ───
+const command = usersCmd(wrapHandler);
+const commands = captureCommands(command);
+const handler = (name) => findHandler(commands, name);
+const instance = 'https://dev.example.service-now.com';
 
-describe('Users Command Structure', () => {
-  it('should export usersCmd function', async () => {
-    const { usersCmd } = await import('../src/commands/users.js');
-    assert.strictEqual(typeof usersCmd, 'function');
+describe('Users command', () => {
+  it('exports usersCmd and preserves command, aliases and CRUD discoverability', () => {
+    assert.equal(typeof usersCmd, 'function');
+    assert.equal(command.command, 'users [subcommand]');
+    assert.deepEqual(command.aliases, ['user']);
+    assert.equal(typeof command.builder, 'function');
+    assert.deepEqual(commands.map(c => c.command).sort(), ['create', 'delete <identifier>', 'list', 'show <identifier>', 'update <identifier>']);
+    assert.deepEqual(findCommand(commands, 'list').aliases, ['ls']);
+    assert.deepEqual(findCommand(commands, 'show').aliases, ['get']);
+    for (const c of commands) assert.equal(typeof c.handler, 'function');
   });
 
-  it('should define users command with aliases', async () => {
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => fn;
-    const cmd = usersCmd(wrap);
-    assert.ok(cmd.command.includes('users'));
-    assert.deepStrictEqual(cmd.aliases, ['user']);
-  });
-
-  it('should define create, update, delete subcommands', async () => {
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => fn;
-    const cmd = usersCmd(wrap);
-    assert.strictEqual(typeof cmd.builder, 'function');
-
-    const subcommands = [];
-    const mockYargs = {
-      command: (c) => {
-        subcommands.push(typeof c === 'string' ? c : c.command);
-        return mockYargs;
-      },
-    };
-    cmd.builder(mockYargs);
-
-    const names = subcommands.map(s => s.split(' ')[0]);
-    assert.ok(names.includes('list'), 'should have list');
-    assert.ok(names.includes('show'), 'should have show/get');
-    assert.ok(names.includes('create'), 'should have create');
-    assert.ok(names.includes('update'), 'should have update');
-    assert.ok(names.includes('delete'), 'should have delete');
-  });
-});
-
-// ─── Handler Tests ───
-
-describe('Users Command Handlers', () => {
-  function makeApp(mockSdk = {}) {
-    return {
-      config: { instance_url: 'https://test-instance.service-now.com', format: 'json' },
-      getEffectiveInstance: () => 'https://test-instance.service-now.com',
-      output: { getFormat: () => 'json' },
-      sdk: {
-        list: async () => [],
-        create: async () => ({}),
-        update: async () => ({}),
-        delete: async () => {},
-        ...mockSdk,
-      },
-      ok: (data, opts = {}) => ({ data, opts }),
-      err: (error) => { throw error; },
-      requireInstance: () => {},  // no-op for tests
-    };
+  for (const [columns, query, expectedColumns, fields] of [
+    ['', '', ['user_name', 'name', 'email', 'active'], 'sys_id,user_name,name,email,active'],
+    ['user_name,name', 'active=true', ['user_name', 'name'], 'sys_id,user_name,name'],
+    ['*', '', ['*'], undefined],
+  ]) {
+    it(`list checks request, count and output for columns ${columns || 'default'}`, async () => {
+      const rows = [{
+        sys_id: 'abc', user_name: 'testuser',
+        name: { value: 'raw-name', display_value: 'Test User' },
+        email: 'test@example.com', active: 'true',
+      }];
+      const calls = [];
+      const app = makeApp({ sdk: { list: async (table, params) => { calls.push([table, Object.fromEntries(params)]); return rows; } } });
+      await handler('list')({ app, query, columns, limit: 20 });
+      assert.deepEqual(calls, [['sys_user', {
+        sysparm_limit: '20', sysparm_display_value: 'all',
+        ...(fields ? { sysparm_fields: fields } : {}),
+        ...(query ? { sysparm_query: query } : {}),
+      }]]);
+      const records = columns === '*' ? rows : [{ sys_id: 'abc', user_name: 'testuser', name: 'Test User', ...(columns ? {} : { email: 'test@example.com', active: 'true' }) }];
+      assert.deepEqual(app.outputCalls, [{
+        data: { table: 'sys_user', count: 1, columns: expectedColumns, records, context: { instance_url: instance } },
+        opts: { summary: '1 user(s)' },
+      }]);
+    });
   }
 
-  it('list should call sdk.list with sys_user table', async () => {
-    let listCalled = false;
-    let listTable = '';
-    const app = makeApp({
-      list: async (table, _params) => {
-        listCalled = true;
-        listTable = table;
-        return [{ sys_id: 'abc', user_name: 'testuser' }];
-      },
-    });
-
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
-    const cmd = usersCmd(wrap);
-    const subcommands = [];
-    const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
-    cmd.builder(mockYargs);
-    const listHandler = subcommands[0];
-
-    await listHandler({ app, _: ['list'], query: '', columns: '', limit: 20 });
-    assert.ok(listCalled, 'sdk.list should be called');
-    assert.strictEqual(listTable, 'sys_user');
+  it('show resolves user_name and returns the record', async () => {
+    const record = { sys_id: 'abc123', user_name: 'john.doe' };
+    const calls = [];
+    const app = makeApp({ sdk: { list: async (table, params) => { calls.push([table, Object.fromEntries(params)]); return [record]; } } });
+    await handler('show')({ app, identifier: 'john.doe' });
+    assert.deepEqual(calls, [['sys_user', { sysparm_query: 'user_name=john.doe', sysparm_limit: '1', sysparm_display_value: 'all' }]]);
+    assert.deepEqual(app.outputCalls, [{ data: record, opts: { summary: 'User john.doe' } }]);
   });
 
-  it('show should find user by user_name', async () => {
-    let queriedQuery = '';
-    const app = makeApp({
-      list: async (table, _params) => {
-        queriedQuery = _params.get('sysparm_query');
-        return [{ sys_id: 'abc123', user_name: 'john.doe' }];
-      },
-    });
-
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
-    const cmd = usersCmd(wrap);
-    const subcommands = [];
-    const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
-    cmd.builder(mockYargs);
-    const showHandler = subcommands[1];
-
-    await showHandler({ app, identifier: 'john.doe', _: ['show', 'john.doe'] });
-    assert.ok(queriedQuery.includes('john.doe'), `should query for john.doe, got: ${queriedQuery}`);
-  });
-
-  it('create should require user_name', async () => {
-    let thrown = false;
-    const app = makeApp();
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => async (argv) => { try { await fn(argv, argv.app); } catch { thrown = true; } };
-    const cmd = usersCmd(wrap);
-    const subcommands = [];
-    const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
-    cmd.builder(mockYargs);
-    const createHandler = subcommands[2];
-
-    await createHandler({ app, _: ['create'] });
-    assert.ok(thrown, 'should error without username');
-  });
-
-  it('create should call sdk.create with sys_user', async () => {
-    let createTable = '';
-    const app = makeApp({
-      create: async (table, _data) => {
-        createTable = table;
-        return { sys_id: 'new123', user_name: 'newuser' };
-      },
-    });
-
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
-    const cmd = usersCmd(wrap);
-    const subcommands = [];
-    const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
-    cmd.builder(mockYargs);
-    const createHandler = subcommands[2];
-
-    await createHandler({ app, _: ['create'], username: 'newuser', name: 'New User', email: 'new@test.com' });
-    assert.strictEqual(createTable, 'sys_user');
-  });
-
-  it('delete should find by user_name and call sdk.delete', async () => {
-    let deletedSysID = '';
-    const app = makeApp({
-      list: async () => [{ sys_id: 'abc123', user_name: 'todelete' }],
-      delete: async (table, sysID) => { deletedSysID = sysID; },
-    });
-
-    const { usersCmd } = await import('../src/commands/users.js');
-    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
-    const cmd = usersCmd(wrap);
-    const subcommands = [];
-    const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
-    cmd.builder(mockYargs);
-    const delHandler = subcommands[4];
-
-    await delHandler({ app, identifier: 'todelete', _: ['delete', 'todelete'] });
-    assert.strictEqual(deletedSysID, 'abc123');
-  });
-
-  // Regression: every users resolve path (show/update/delete) must request
-  // sysparm_display_value=all — the delete lookup previously forgot it, so a
-  // wrapped sys_id could not be unwrapped for the DELETE call.
-  for (const [idx, name, extra] of [
-    [1, 'show', {}],
-    [3, 'update', { data: '{"active":"false"}' }],
-    [4, 'delete', {}],
+  for (const [label, args, payload] of [
+    ['flags',
+      { username: 'newuser', name: 'New User', email: 'new@test.com', data: '{"user_name":"old","active":false}' },
+      { user_name: 'newuser', name: 'New User', email: 'new@test.com', active: false },
+    ],
+    ['data', { data: '{"user_name":"newuser"}' }, { user_name: 'newuser' }],
   ]) {
-    it(`${name} resolve includes sysparm_display_value=all`, async () => {
-      let displayValue;
-      const app = makeApp({
-        list: async (_table, params) => {
-          displayValue = params.get('sysparm_display_value');
-          return [{ sys_id: 'abc123', user_name: 'target' }];
-        },
-      });
-      const { usersCmd } = await import('../src/commands/users.js');
-      const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
-      const cmd = usersCmd(wrap);
-      const subcommands = [];
-      const mockYargs = { command: (c, ...r) => { subcommands.push(typeof c === 'object' ? c.handler : r[1]); return mockYargs; } };
-      cmd.builder(mockYargs);
-      await subcommands[idx]({ app, identifier: 'target', _: [name, 'target'], ...extra });
-      assert.strictEqual(displayValue, 'all', `${name} lookup must set sysparm_display_value=all`);
+    it(`create sends exact payload from ${label} and reports the new user`, async () => {
+      const record = { sys_id: 'new123', user_name: 'newuser' };
+      const calls = [];
+      const app = makeApp({ sdk: { create: async (...args) => { calls.push(args); return record; } } });
+      await handler('create')({ app, ...args });
+      assert.deepEqual(calls, [['sys_user', payload]]);
+      assert.deepEqual(app.outputCalls, [{ data: record, opts: {
+        summary: 'Created user newuser',
+        breadcrumbs: [{ action: 'view', cmd: 'jsn users show newuser', description: 'View the new user' }],
+      } }]);
     });
+  }
+
+  it('create rejects missing username before writing', async () => {
+    let writes = 0;
+    const app = makeApp({ sdk: { create: async () => { writes++; return {}; } } });
+    await assert.rejects(() => handler('create')({ app }), { message: 'user_name is required (use --username or --data)' });
+    assert.equal(writes, 0);
+    assert.deepEqual(app.outputCalls, []);
+  });
+
+  for (const name of ['update', 'delete']) {
+    it(`${name} resolves user_name and sends the exact mutation destination and output`, async () => {
+      const calls = [];
+      const updated = { sys_id: 'abc123', active: false };
+      const app = makeApp({ sdk: {
+        list: async (table, params) => { calls.push(['list', table, Object.fromEntries(params)]); return [{ sys_id: 'abc123', user_name: 'todelete' }]; },
+        update: async (...args) => { calls.push(['update', ...args]); return updated; },
+        delete: async (...args) => { calls.push(['delete', ...args]); },
+      } });
+      await handler(name)({ app, identifier: 'todelete', data: '{"active":false}' });
+      assert.deepEqual(calls, [
+        ['list', 'sys_user', { sysparm_query: 'user_name=todelete', sysparm_limit: '1', sysparm_display_value: 'all', sysparm_fields: 'sys_id' }],
+        name === 'update' ? ['update', 'sys_user', 'abc123', { active: false }] : ['delete', 'sys_user', 'abc123'],
+      ]);
+      const expected = name === 'update'
+        ? { data: updated, opts: {
+          summary: 'Updated user todelete',
+          breadcrumbs: [{ action: 'view', cmd: 'jsn users show todelete', description: 'View the updated user' }],
+        } }
+        : { data: { identifier: 'todelete', message: 'User deleted' }, opts: { summary: 'Deleted user todelete' } };
+      assert.deepEqual(app.outputCalls, [expected]);
+    });
+  }
+
+  // Regression: all resolve paths request display values; mutations unwrap the
+  // raw sys_id, not its display value, before sending an SDK destination.
+  for (const name of ['show', 'update', 'delete']) {
+    it(`${name} resolve requests all display values and handles wrapped sys_id`, async () => {
+      const record = { sys_id: { value: 'raw123', display_value: 'not-the-id' }, user_name: 'target' };
+      const calls = [];
+      const app = makeApp({ sdk: {
+        list: async (_table, params) => { assert.equal(params.get('sysparm_display_value'), 'all'); return [record]; },
+        update: async (table, id) => { calls.push([table, id]); return record; },
+        delete: async (table, id) => { calls.push([table, id]); },
+      } });
+      await handler(name)({ app, identifier: 'target', data: '{"active":"false"}' });
+      assert.deepEqual(calls, name === 'show' ? [] : [['sys_user', 'raw123']]);
+      if (name === 'show') assert.deepEqual(app.lastOk.data, record);
+    });
+
+    for (const [identifier, expectedError, expectedCalls] of [
+      ['ghost', { code: 'not_found', message: 'User not found: ghost' }, ['list']],
+      ['x^OR1=1', /Unsafe identifier/, []],
+    ]) {
+      it(`${name} rejects ${identifier === 'ghost' ? 'not-found' : 'unsafe'} identifiers without mutating`, async () => {
+        const calls = [];
+        const app = makeApp({ sdk: {
+          list: async () => { calls.push('list'); return []; },
+          update: async () => { calls.push('update'); },
+          delete: async () => { calls.push('delete'); },
+        } });
+        await assert.rejects(() => handler(name)({ app, identifier, data: '{}' }), expectedError);
+        assert.deepEqual(calls, expectedCalls);
+        assert.deepEqual(app.outputCalls, []);
+      });
+    }
   }
 });

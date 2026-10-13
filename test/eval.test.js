@@ -4,6 +4,8 @@
 
 import { describe, it, mock, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import { makeApp } from './support/app-test-helpers.js';
+import { wrapHandler } from './support/command-test-helpers.js';
 
 // Mutable state the context mock closures read at call time.
 // (mock.module snapshots named exports at registration, so tests mutate
@@ -18,14 +20,6 @@ function makeSdk(overrides = {}) {
     resolveScope: async (scope) => (scope === 'global' ? null : `scope-${scope}`),
     executeScript: async () => 'ok',
     ...overrides,
-  };
-}
-
-function makeApp(sdk) {
-  return {
-    sdk,
-    getEffectiveInstance: () => 'https://dev.example.service-now.com',
-    ok: (data, opts) => ({ data, opts }),
   };
 }
 
@@ -53,8 +47,8 @@ describe('eval scope resolution (issue #161)', () => {
     const sdk = makeSdk({
       executeScript: async (_script, scope) => { execScope = scope; return 'ok'; },
     });
-    const cmd = evalCmd((fn) => fn);
-    await cmd.handler({ app: makeApp(sdk), script: 'gs.info(1);' }, makeApp(sdk));
+    const cmd = evalCmd(wrapHandler);
+    await cmd.handler({ app: makeApp({ sdk }), script: 'gs.info(1);' });
 
     assert.strictEqual(execScope, 'scope-x_myapp', 'executeScript should receive the resolved scope sys_id');
   });
@@ -64,10 +58,9 @@ describe('eval scope resolution (issue #161)', () => {
     const sdk = makeSdk({
       executeScript: async (_script, scope) => { execScope = scope; return 'ok'; },
     });
-    const cmd = evalCmd((fn) => fn);
+    const cmd = evalCmd(wrapHandler);
     await cmd.handler(
-      { app: makeApp(sdk), script: 'gs.info(1);', scope: 'x_other' },
-      makeApp(sdk)
+      { app: makeApp({ sdk }), script: 'gs.info(1);', scope: 'x_other' }
     );
 
     assert.strictEqual(execScope, 'scope-x_other', 'explicit --scope should win (resolved sys_id)');
@@ -79,8 +72,8 @@ describe('eval scope resolution (issue #161)', () => {
     const sdk = makeSdk({
       executeScript: async (_script, scope) => { execScope = scope; return 'ok'; },
     });
-    const cmd = evalCmd((fn) => fn);
-    await cmd.handler({ app: makeApp(sdk), script: 'gs.info(1);' }, makeApp(sdk));
+    const cmd = evalCmd(wrapHandler);
+    await cmd.handler({ app: makeApp({ sdk }), script: 'gs.info(1);' });
 
     assert.strictEqual(execScope, '', 'executeScript should receive empty scope → global fallback');
   });
@@ -90,18 +83,18 @@ describe('eval scope resolution (issue #161)', () => {
     const sdk = makeSdk({
       resolveScope: async () => null, // not found
     });
-    const cmd = evalCmd((fn) => fn);
+    const cmd = evalCmd(wrapHandler);
     await assert.rejects(
-      () => cmd.handler({ app: makeApp(sdk), script: 'gs.info(1);' }, makeApp(sdk)),
+      () => cmd.handler({ app: makeApp({ sdk }), script: 'gs.info(1);' }),
       /Scope not found: ghost_scope/
     );
   });
 
   it('still requires --script, --file, or --stdin', async () => {
     const sdk = makeSdk();
-    const cmd = evalCmd((fn) => fn);
+    const cmd = evalCmd(wrapHandler);
     await assert.rejects(
-      () => cmd.handler({ app: makeApp(sdk) }, makeApp(sdk)),
+      () => cmd.handler({ app: makeApp({ sdk }) }),
       /--script, --file, or --stdin is required/
     );
   });
