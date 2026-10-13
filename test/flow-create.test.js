@@ -284,14 +284,35 @@ describe('flow update request shapes', () => {
   const flowId = 'flow-update-123';
   const actionId = 'action-update-123';
   const triggerId = 'trigger-update-123';
+  // Provider trigger inputs EXACTLY as the live ProcessFlow read-back returns
+  // them: `value`/`displayValue` are BARE scalars and `parameter.attributes` is
+  // an object (an empty attribute map arrives as {"": ""}). The mutation input
+  // type only accepts the wrapped FlowDesign shape, so echoing this verbatim
+  // produced WrongType on `inputs[0].value`; the serializer under test must turn
+  // each CHANGED input into the accepted shape instead.
+  const providerInput = (name, value, extra = {}) => ({
+    name,
+    value,
+    displayValue: value,
+    parameter: { id: `${name}-param`, name, type: 'choice', label: name, order: 100, mandatory: false, attributes: { '': '' }, reference: '', ref_qual: '', defaultValue: '' },
+    displayField: '',
+    scriptActive: false,
+    label: name,
+    internalType: 'choice',
+    fromTemplate: false,
+    order: 100,
+    valueSysId: '',
+    mandatory: false,
+    ...extra,
+  });
   const baseDefinition = {
     flowId,
     triggerInstances: [{ sysId: triggerId, type: 'record_create_or_update', triggerType: 'Record', metadata: '{"query_parse":{"predicates": [], "order_by": ["short_description"], "group_by": [], "has_rlq_conditions": false, "custom": "preserve"}}', inputs: [
-      { name: 'table', id: 'table-input', marker: 'table-preserve', displayField: 'number', displayValue: wrapped('Ticket'), value: wrapped('ticket') },
-      { name: 'condition', id: 'condition-input', extra: 'preserve', displayField: 'old', displayValue: wrapped('old'), value: wrapped('old') },
-      { name: 'trigger_strategy', value: { value: 'after' } },
-      { name: 'run_on_extended', value: { value: true } },
-      { name: 'run_flow_in', value: { value: 'foreground' } },
+      providerInput('table', 'ticket', { displayField: 'number', displayValue: 'Ticket', parameter: { id: 'table-input', name: 'table', type: 'table_name', order: 1, mandatory: true, attributes: { filter_table_source: 'RECORD_WATCHER_RESTRICTED' } } }),
+      providerInput('condition', 'short_descriptionSTARTSWITHold-', { parameter: { id: 'condition-input', name: 'condition', type: 'conditions', order: 100, mandatory: false, attributes: { modelDependent: 'trigger_inputs' }, defaultValue: '' } }),
+      providerInput('trigger_strategy', 'once', { parameter: { id: 'strategy-input', name: 'trigger_strategy', type: 'choice', order: 200, mandatory: false, defaultValue: 'once' } }),
+      providerInput('run_on_extended', 'false'),
+      providerInput('run_flow_in', 'any'),
     ], extraTriggerField: 'preserve' }],
     actionInstances: [{ id: actionId, uiUniqueIdentifier: 'action-ui-123', actionTypeSysId: 'action-type-123', actionType: { sys_id: 'action-type-123', name: 'Log' }, order: '1', metadata: '{"keep":true}', inputs: [
       { id: 'input-1', name: 'log_level', parameter: { name: 'log_level', type: 'choice', keep: true }, children: ['child-1'], value: wrapped('info'), displayValue: wrapped('info') },
@@ -332,7 +353,7 @@ describe('flow update request shapes', () => {
       ...JSON.parse(baseDefinition.triggerInstances[0].metadata),
       query_parse: { order_by: ['short_description'], group_by: [], has_rlq_conditions: false, custom: 'preserve', predicates: [{ compound_type: 'or', subpredicates: [{ field: 'short_description', operator: 'STARTSWITH', value: 'new-', term: 'short_descriptionSTARTSWITHnew-', type: 'comparison' }] }] },
     });
-    afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], displayField: 'short_description', displayValue: wrapped('short_descriptionSTARTSWITHnew-'), value: wrapped('short_descriptionSTARTSWITHnew-') };
+    afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], displayField: 'short_description', displayValue: 'short_descriptionSTARTSWITHnew-', value: 'short_descriptionSTARTSWITHnew-' };
     afterDefinition.actionInstances[0].inputs[1] = { ...afterDefinition.actionInstances[0].inputs[1], value: wrapped('new message'), displayValue: wrapped('new message') };
     const sdk = updateSdk(afterDefinition);
     const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
@@ -358,28 +379,50 @@ describe('flow update request shapes', () => {
     // Predicate metadata is re-derived by the instance, so the CLI sends {}.
     assert.match(query, /metadata: "\{\}"/);
     assert.doesNotMatch(query, /predicates/);
-    assert.match(query, /table-input/);
-    assert.match(query, /condition-input/);
-    assert.match(query, /trigger_strategy/);
-    assert.match(query, /run_on_extended/);
-    assert.match(query, /run_flow_in/);
-    // `custom: "preserve"` is NOT re-sent: the omitted metadata is proven by the
-    // read-back comparison instead (the fixture keeps it in the fresh metadata).
-    assert.doesNotMatch(query, /custom/);
+    // ONLY the changed trigger input is sent, in the shape the update input type
+    // validates: the provider's bare scalar is serialized into the wrapped
+    // FlowDesign value, and `parameter` is narrowed with attributes as a string.
+    assert.match(query, /name: "condition"/);
+    assert.match(query, /value: \{schemaless: false, schemalessValue: "", value: "short_descriptionSTARTSWITHnew-"\}/);
+    assert.match(query, /displayValue: \{schemaless: false, schemalessValue: "", value: "short_descriptionSTARTSWITHnew-"\}/);
+    assert.match(query, /attributes: "modelDependent=trigger_inputs"/);
+    assert.doesNotMatch(query, /attributes: \{/);
+    assert.doesNotMatch(query, /name: "table"/);
+    // Omitted trigger inputs are never re-sent, so the instance cannot rewrite them.
+    assert.doesNotMatch(query, /trigger_strategy/);
+    assert.doesNotMatch(query, /run_on_extended/);
+    assert.doesNotMatch(query, /run_flow_in/);
+    assert.doesNotMatch(query, /uiDisplayTypeLabel/);
     assert.match(query, /uiUniqueIdentifier: "action-ui-123"/);
     assert.match(query, /new message/);
-    assert.doesNotMatch(query, /parameter:/);
+    // Action updates are name+value only; the trigger input carries its own
+    // provider parameter block, never the action shape.
+    assert.doesNotMatch(query, /actions: \{update: \[\{[^\]]*parameter:/);
     assert.doesNotMatch(query, /actions: \{insert:/);
   });
 
-  it('keeps trigger condition and metadata byte-for-byte when only the table changes', async () => {
+  it('refuses a readback whose predicate metadata does not match the requested condition', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], value: 'short_descriptionSTARTSWITHnew-', displayValue: 'short_descriptionSTARTSWITHnew-' };
+    // Condition moved but the instance kept the OLD derived predicate: the
+    // instance re-derives predicate metadata from the condition input, so this
+    // must never pass as success.
+    const sdk = updateSdk(afterDefinition);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'short_descriptionSTARTSWITHnew-' } }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+    }), /predicate metadata did not match/i);
+    assert.ok(sdk.calls.every(call => !call.endpoint.includes('/versioning/')), 'no Autosave version after a failed readback');
+  });
+
+  it('sends only the changed table input and proves the omitted condition and metadata survive', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const afterDefinition = structuredClone(baseDefinition);
     afterDefinition.triggerInstances[0].inputs[0] = {
       ...afterDefinition.triggerInstances[0].inputs[0],
       displayField: 'number',
-      displayValue: wrapped('Task'),
-      value: wrapped('task'),
+      displayValue: 'Task',
+      value: 'task',
     };
     const beforeMetadata = baseDefinition.triggerInstances[0].metadata;
     const beforeCondition = JSON.stringify(baseDefinition.triggerInstances[0].inputs[1]);
@@ -390,13 +433,60 @@ describe('flow update request shapes', () => {
     });
     const patch = sdk.calls.find(call => call.endpoint.endsWith('/graphql'));
     const query = JSON.parse(patch.options.body).query;
-    assert.match(query, /trigger_strategy/);
-    assert.match(query, /condition-input/);
+    assert.match(query, /name: "table"/);
+    assert.match(query, /value: \{schemaless: false, schemalessValue: "", value: "task"\}/);
+    assert.match(query, /displayValue: \{schemaless: false, schemalessValue: "", value: "Task"\}/);
+    assert.match(query, /attributes: "filter_table_source=RECORD_WATCHER_RESTRICTED"/);
+    // The condition is not re-sent at all, so a table-only change cannot rewrite it.
+    assert.doesNotMatch(query, /name: "condition"/);
+    assert.doesNotMatch(query, /short_descriptionSTARTSWITHold-/);
+    assert.doesNotMatch(query, /trigger_strategy/);
+    // The stored metadata is a real value, not schema display: it still travels.
     assert.match(query, /custom/);
     assert.ok(query.includes(`metadata: ${JSON.stringify(beforeMetadata)}`));
-    assert.doesNotMatch(query, /short_descriptionSTARTSWITHnew-/);
     assert.equal(JSON.stringify(afterDefinition.triggerInstances[0].inputs[1]), beforeCondition);
     assert.equal(afterDefinition.triggerInstances[0].metadata, beforeMetadata);
+  });
+
+  it('refuses a readback that really changed an omitted trigger input and writes no version', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], value: 'short_descriptionSTARTSWITHnew-', displayValue: 'short_descriptionSTARTSWITHnew-' };
+    afterDefinition.triggerInstances[0].metadata = JSON.stringify({
+      ...JSON.parse(baseDefinition.triggerInstances[0].metadata),
+      query_parse: { order_by: ['short_description'], group_by: [], has_rlq_conditions: false, custom: 'preserve', predicates: [{ type: 'comparison', field: 'short_description', operator: 'STARTSWITH', value: 'new-', term: 'short_descriptionSTARTSWITHnew-' }] },
+    });
+    // The instance rewrote trigger_strategy, an input the manifest never asked
+    // to change. Representation tolerance must never hide a real value change.
+    afterDefinition.triggerInstances[0].inputs[2] = { ...afterDefinition.triggerInstances[0].inputs[2], value: 'always', displayValue: 'always' };
+    const sdk = updateSdk(afterDefinition);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'short_descriptionSTARTSWITHnew-' } }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+    }), /changed omitted input trigger_strategy/);
+    assert.ok(sdk.calls.every(call => !call.endpoint.includes('/versioning/')), 'no Autosave version after a failed readback');
+  });
+
+  it('tolerates a re-represented omitted input while still comparing its meaning', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.triggerInstances[0].inputs[1] = { ...afterDefinition.triggerInstances[0].inputs[1], value: 'short_descriptionSTARTSWITHnew-', displayValue: 'short_descriptionSTARTSWITHnew-' };
+    afterDefinition.triggerInstances[0].metadata = JSON.stringify({
+      ...JSON.parse(baseDefinition.triggerInstances[0].metadata),
+      query_parse: { order_by: ['short_description'], group_by: [], has_rlq_conditions: false, custom: 'preserve', predicates: [{ type: 'comparison', field: 'short_description', operator: 'STARTSWITH', value: 'new-', term: 'short_descriptionSTARTSWITHnew-' }] },
+    });
+    // Same stored meaning, different representation: the instance handed the
+    // input back as a wrapped value and a stringified (empty) attribute map.
+    afterDefinition.triggerInstances[0].inputs[2] = {
+      ...afterDefinition.triggerInstances[0].inputs[2],
+      value: wrapped('once'),
+      displayValue: wrapped('once'),
+      parameter: { ...afterDefinition.triggerInstances[0].inputs[2].parameter, attributes: '=' },
+    };
+    const sdk = updateSdk(afterDefinition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'short_descriptionSTARTSWITHnew-' } }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+    });
+    assert.equal(result.version.type, 'Autosave');
   });
 
   it('rejects unsafe flow-name query characters before lookup', async () => {

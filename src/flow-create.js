@@ -394,6 +394,61 @@ function stripPredicates(value) {
   return out;
 }
 
+/**
+ * The ProcessFlow read-back represents the same stored input two equivalent
+ * ways depending on whether the instance re-derived it: the value as a wrapped
+ * {schemaless, schemalessValue, value} object or as the bare scalar, and
+ * `parameter.attributes` as an object (an empty map arrives as {"": ""}) or as
+ * a string. Those are representation, not meaning, so the comparison below puts
+ * every input into one canonical form — but ONLY for those two documented
+ * differences plus key order. Every other key is compared exactly, so real
+ * changed values, defaults, reference constraints, unknown fields and identities
+ * can never hide behind the normalization.
+ */
+function attributeString(value) {
+  if (value === undefined || value === null) return '';
+  // The provider serializes the same flat attribute map as an object
+  // ({"": ""}) or as the string form of it ("="), so both sides are normalized
+  // to the same key=value list, dropping empty pairs.
+  if (typeof value === 'string') {
+    return value.split(',').map(pair => {
+      const index = pair.indexOf('=');
+      if (index < 0) return pair;
+      const key = pair.slice(0, index);
+      const item = pair.slice(index + 1);
+      return key === '' && item === '' ? '' : `${key}=${item}`;
+    }).filter(pair => pair !== '').join(',');
+  }
+  if (typeof value !== 'object') return String(value);
+  if (Array.isArray(value)) return value.map(attributeString).join(',');
+  return Object.entries(value)
+    .filter(([key, item]) => key !== '' && item !== '' && item !== null && item !== undefined)
+    .map(([key, item]) => `${key}=${item}`)
+    .join(',');
+}
+
+export function triggerInputSemantics(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const semantics = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (key === 'value') semantics.value = inputRawValue(input);
+    else if (key === 'displayValue') semantics.displayValue = input?.displayValue?.value ?? input?.displayValue ?? null;
+    else if (key === 'parameter' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const parameter = { ...value };
+      // An absent attribute map, {"": ""}, and "=" all mean "no attributes".
+      parameter.attributes = attributeString(parameter.attributes);
+      semantics.parameter = parameter;
+    } else semantics[key] = value;
+  }
+  return semantics;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  return JSON.stringify(value) ?? 'undefined';
+}
+
 function actionTypeIdOf(action) {
   return idValue(action?.actionTypeSysId || action?.action_type_sys_id || action?.actionType?.sys_id || action?.actionType?.sysId);
 }
@@ -599,6 +654,49 @@ async function resolveDraftFlow(sdk, identifier) {
   return { flow, flowId, flowName };
 }
 
+/**
+ * Serialize one saved trigger input into the shape the snFlowDesigner update
+ * input type validates.
+ *
+ * The ProcessFlow read-back hands trigger inputs back in the FLAT provider
+ * shape: `value` is a bare scalar ("once") and `parameter.attributes` is an
+ * object (an empty attribute map arrives as {"": ""}). The mutation's input
+ * type wants the FlowDesign shape the insert path writes: a wrapped
+ * {schemaless, schemalessValue, value} value and a `parameter` narrowed to
+ * global_snFlowDesigner_FlowDesignParameter with `attributes` as a string.
+ * Echoing the read-back verbatim is exactly what produced
+ * WrongType@[global/snFlowDesigner/flow]: argument
+ * 'flowPatch.triggerInstances.update[0].inputs[0].value' (bare scalar) and
+ * unsupported parameter keys. Identity is the provider input NAME — the
+ * read-back carries no per-input sys_id, and the read-back's own flat metadata
+ * (label, order, mandatory, internalType, displayField) is carried through so
+ * the instance sees the same provider schema it stored.
+ */
+export function serializedTriggerInput(existing, value, displayValue, displayField) {
+  if (!existing || !stringValue(existing.name)) throw new Error('Saved record trigger input has no provider name');
+  const parameter = flowDesignParameter(existing.parameter || {});
+  const input = {
+    name: stringValue(existing.name),
+    value: wrappedValue(value),
+    displayValue: wrappedValue(displayValue ?? value),
+    displayField: stringValue(displayField ?? existing.displayField ?? ''),
+    scriptActive: false,
+    fromTemplate: false,
+    valueSysId: '',
+  };
+  for (const key of ['label', 'internalType', 'order', 'mandatory']) {
+    if (existing[key] !== undefined) input[key] = existing[key];
+  }
+  if (Object.keys(parameter).length) {
+    // An empty attribute map reaches the serializer as {"": ""} (or its "="
+    // string form); both mean "no attributes", which the insert path writes as
+    // an empty string.
+    if (parameter.attributes !== undefined && attributeString(parameter.attributes) === '') parameter.attributes = '';
+    input.parameter = parameter;
+  }
+  return input;
+}
+
 function updatedTrigger(flow, manifest, descriptor) {
   const existing = clone(findArray(flow, 'triggerInstances')[0]);
   if (!existing) throw new Error('Saved flow has no trigger instance');
@@ -606,23 +704,25 @@ function updatedTrigger(flow, manifest, descriptor) {
   if (existing.metadata && (!existingMetadata || typeof existingMetadata !== 'object' || Array.isArray(existingMetadata))) throw new Error('Saved record trigger metadata is unreadable; refusing to replace it');
   const existingFamily = triggerFamily(existing);
   if (existingFamily && existingFamily !== RECORD_TRIGGER_FAMILY) throw new Error(`Only ${RECORD_TRIGGER_FAMILY} trigger updates are supported; found ${existingFamily}`);
-  const inputs = clone(inputList(existing));
-  const tableInput = inputs.find(input => input.name === 'table');
-  const conditionInput = inputs.find(input => input.name === 'condition');
+  const existingInputs = inputList(existing);
+  const tableInput = existingInputs.find(input => input.name === 'table');
+  const conditionInput = existingInputs.find(input => input.name === 'condition');
   if (!tableInput || !conditionInput) throw new Error('Saved record trigger must have table and condition inputs');
   const currentTable = inputRawValue(tableInput);
-  const currentCondition = inputRawValue(conditionInput);
-  const table = manifest.trigger.table ?? currentTable;
-  const condition = manifest.trigger.condition ?? currentCondition;
+  // ONLY the inputs the manifest actually changes are sent. The instance
+  // rewrites every input it is handed, so echoing the whole read-back set
+  // mutated inputs the caller never asked to change (verified live: the
+  // instance rewrote an omitted trigger_strategy). Omitted inputs are left for
+  // the instance to keep and proven unchanged by the read-back comparison in
+  // updateFlowFromManifest.
+  const inputs = [];
   if (manifest.trigger.table !== undefined) {
-    tableInput.displayField = descriptor.displayField;
-    tableInput.displayValue = wrappedValue(descriptor.label);
-    tableInput.value = wrappedValue(table);
+    inputs.push(serializedTriggerInput(tableInput, manifest.trigger.table, descriptor.label, descriptor.displayField));
   }
   if (manifest.trigger.condition !== undefined) {
-    conditionInput.displayValue = wrappedValue(condition);
-    conditionInput.value = wrappedValue(condition);
+    inputs.push(serializedTriggerInput(conditionInput, manifest.trigger.condition, manifest.trigger.condition));
   }
+  if (!inputs.length) throw new Error('Flow update trigger must change the table and/or the condition');
   const id = findId(existing, ['sysId', 'sys_id', 'id', 'triggerId']);
   if (!id) throw new Error('Saved record trigger has no usable identity');
   const update = { id, inputs };
@@ -634,7 +734,7 @@ function updatedTrigger(flow, manifest, descriptor) {
   } else if (Object.prototype.hasOwnProperty.call(existing, 'metadata')) {
     update.metadata = existing.metadata;
   }
-  return { update, currentTable: table };
+  return { update, currentTable };
 }
 
 function insertedActions(response) {
@@ -846,17 +946,35 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       const beforeTrigger = findArray(beforeDefinition, 'triggerInstances')[0];
       const preserveBefore = { ...beforeTrigger, inputs: undefined, metadata: undefined };
       const preserveAfter = { ...readbackTrigger, inputs: undefined, metadata: undefined };
-      if (JSON.stringify(preserveBefore) !== JSON.stringify(preserveAfter)) throw new Error(`Flow ${flowId} trigger readback changed fields omitted by the manifest`);
+      // Everything the manifest did not touch is compared exactly, ignoring only
+      // key order (see stableStringify); the trigger's own identity, type,
+      // family and any field this CLI does not know about are all still covered.
+      if (stableStringify(preserveBefore) !== stableStringify(preserveAfter)) throw new Error(`Flow ${flowId} trigger readback changed fields omitted by the manifest`);
       const readbackInputs = inputList(readbackTrigger);
       const beforeInputs = inputList(beforeTrigger);
       if (readbackInputs.length !== beforeInputs.length) throw new Error(`Flow ${flowId} trigger input count changed during update`);
+      const beforeOrder = beforeInputs.map(input => stringValue(input.name)).join(',');
+      const readbackOrder = readbackInputs.map(input => stringValue(input.name)).join(',');
+      if (beforeOrder !== readbackOrder) throw new Error(`Flow ${flowId} trigger input order changed during update`);
       const requestedInputs = new Set();
       if (manifest.trigger.table !== undefined) requestedInputs.add('table');
       if (manifest.trigger.condition !== undefined) requestedInputs.add('condition');
       for (const beforeInput of beforeInputs) {
         const afterInput = readbackInputs.find(input => input.name === beforeInput.name);
         if (!afterInput) throw new Error(`Flow ${flowId} trigger lost input ${beforeInput.name} during update`);
-        if (!requestedInputs.has(beforeInput.name) && JSON.stringify(beforeInput) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} trigger changed omitted input ${beforeInput.name}`);
+        if (!requestedInputs.has(beforeInput.name)) {
+          // Representation-aware, meaning-exact comparison: see
+          // triggerInputSemantics. Real values, defaults, reference constraints,
+          // identities and unknown fields are all still compared.
+          if (stableStringify(triggerInputSemantics(beforeInput)) !== stableStringify(triggerInputSemantics(afterInput))) throw new Error(`Flow ${flowId} trigger changed omitted input ${beforeInput.name}`);
+        } else {
+          // A changed input must keep its provider identity (name and the
+          // parameter sys_id the instance stored) even though its value moved.
+          if (stringValue(afterInput.name) !== stringValue(beforeInput.name)) throw new Error(`Flow ${flowId} trigger input ${beforeInput.name} lost its identity during update`);
+          const beforeParameterId = stringValue(beforeInput?.parameter?.id);
+          const afterParameterId = stringValue(afterInput?.parameter?.id);
+          if (beforeParameterId && afterParameterId !== beforeParameterId) throw new Error(`Flow ${flowId} trigger input ${beforeInput.name} parameter identity changed during update`);
+        }
       }
       if (manifest.trigger.table !== undefined && inputRawValue(readbackInputs.find(input => input.name === 'table')) !== manifest.trigger.table) throw new Error(`Flow ${flowId} trigger table readback did not match the requested value`);
       if (manifest.trigger.condition !== undefined) {
@@ -864,8 +982,8 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
         assertPredicateMetadataMatches(readbackTrigger.metadata, manifest.trigger.condition, `Flow ${flowId} trigger`);
         const beforeMetadata = stripPredicates(parseMaybeJson(beforeTrigger.metadata, {}));
         const afterMetadata = stripPredicates(parseMaybeJson(readbackTrigger.metadata, {}));
-        if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) throw new Error(`Flow ${flowId} trigger metadata changed fields omitted by the manifest`);
-      } else if (JSON.stringify(parseMaybeJson(beforeTrigger.metadata, {})) !== JSON.stringify(parseMaybeJson(readbackTrigger.metadata, {}))) {
+        if (stableStringify(beforeMetadata) !== stableStringify(afterMetadata)) throw new Error(`Flow ${flowId} trigger metadata changed fields omitted by the manifest`);
+      } else if (stableStringify(parseMaybeJson(beforeTrigger.metadata, {})) !== stableStringify(parseMaybeJson(readbackTrigger.metadata, {}))) {
         throw new Error(`Flow ${flowId} trigger metadata changed when the condition was omitted`);
       }
     }
