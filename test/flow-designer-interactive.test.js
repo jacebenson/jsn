@@ -182,6 +182,53 @@ test('schema prompts keep typed zero/false, raw pills, object fields, unknown si
   await assert.rejects(promptSchemaValue(app, { name: 'secret', type: 'password2' }), /unsupported type password2/);
 });
 
+test('guidedFlowEdit resolves the transaction scope from the sys_scope reference', async () => {
+  const { savedFlowDefinition } = await import('../src/flow-designer-interactive.js');
+  const FLOW = 'f'.repeat(32);
+  const SCOPE_ID = '1169a246933f8f9087b0f14fdd03d627';
+  const SCOPE_NAME = 'JSN-STUDY-SCOPE-20261009-1137';
+  const listFields = [];
+  const urls = [];
+  const sdk = new SDKClient('https://example.invalid', null);
+  sdk.list = async (table, params) => {
+    assert.equal(table, 'sys_hub_flow');
+    listFields.push({ fields: params.get('sysparm_fields'), displayValue: params.get('sysparm_display_value') });
+    return [{ sys_id: FLOW, name: 'Provider flow', scope: '', active: 'false', status: 'draft',
+      sys_scope: { display_value: SCOPE_NAME, value: SCOPE_ID } }];
+  };
+  sdk.request = async (url, options = {}) => {
+    urls.push(url);
+    return { result: { data: { id: FLOW, scope: SCOPE_ID, name: 'Provider flow', triggerInstances: [], actionInstances: [] }, ...options } };
+  };
+  const app = { sdk, getEffectiveInstance: () => 'https://example.invalid' };
+  const { definition } = await savedFlowDefinition(app, FLOW);
+  assert.equal(definition.id, FLOW);
+  assert.equal(urls[0], `https://example.invalid/api/now/processflow/flow/${FLOW}?sysparm_transaction_scope=${SCOPE_ID}`);
+  assert.ok(urls.every(url => !url.includes(SCOPE_NAME)), 'the scope display name must never be sent');
+  assert.ok(listFields.some(entry => entry.displayValue === 'all'), 'the flow read must request display values so sys_scope arrives with its raw value');
+  assert.ok(listFields.some(entry => entry.fields === null), 'an unrestricted field list is what returns sys_scope');
+
+  const legacyUrls = [];
+  const legacySdk = new SDKClient('https://example.invalid', null);
+  legacySdk.list = async () => [{ sys_id: FLOW, name: 'Legacy flow', scope: 'scope-1', active: 'false', status: 'draft' }];
+  legacySdk.request = async (url, options = {}) => {
+    legacyUrls.push(url);
+    return { result: { data: { id: FLOW, scope: 'scope-1', name: 'Legacy flow' }, ...options } };
+  };
+  const legacy = await savedFlowDefinition({ sdk: legacySdk, getEffectiveInstance: () => 'https://example.invalid' }, FLOW);
+  assert.equal(legacy.definition.id, FLOW);
+  assert.equal(legacyUrls[0], `https://example.invalid/api/now/processflow/flow/${FLOW}?sysparm_transaction_scope=scope-1`);
+});
+
+test('savedFlowDefinition still refuses a flow record with no scope anywhere', async () => {
+  const { savedFlowDefinition } = await import('../src/flow-designer-interactive.js');
+  const FLOW = 'f'.repeat(32);
+  const sdk = new SDKClient('https://example.invalid', null);
+  sdk.list = async () => [{ sys_id: FLOW, name: 'Scopeless flow', scope: '', active: 'false', status: 'draft' }];
+  sdk.request = async () => { throw new Error('must not read the ProcessFlow API without a scope'); };
+  await assert.rejects(savedFlowDefinition({ sdk, getEffectiveInstance: () => 'https://example.invalid' }, FLOW), /no raw transaction scope/);
+});
+
 test('guided scope picker keeps raw ID and cancelled record selection returns no identifier', async () => human(async () => {
   const { app } = fakeApp();
   assert.equal(await designerScope({}, app), SCOPE);

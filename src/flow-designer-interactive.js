@@ -7,7 +7,7 @@ import { FormatAuto } from './output.js';
 import { errUsage, errConfirmationRequired } from './errors.js';
 import { getCurrentUser, getCurrentApplication } from './context.js';
 import { validateDefinition, validateScope, ACTION_TABLE } from './processflow-actions.js';
-import { validateFlowManifest, validateFlowUpdateManifest, readProcessFlow, readActionDefinition } from './flow-create.js';
+import { validateFlowManifest, validateFlowUpdateManifest, readProcessFlow, readActionDefinition, resolveFlowScope } from './flow-create.js';
 import {
   NUMERIC_TRIGGER_TYPES,
   PROMPTABLE_TRIGGER_TYPES,
@@ -370,7 +370,7 @@ export async function savedFlowDefinition(app, identifier) {
   const { resolveRecord, unwrapSysId } = await import('./resolve-record.js');
   const record = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'flow' });
   const id = unwrapSysId(record);
-  const scope = rawField(record.scope);
+  const scope = resolveFlowScope(record);
   if (!scope) throw errUsage('Saved flow has no raw transaction scope');
   return { record, definition: await readProcessFlow(app.sdk, app.getEffectiveInstance(), id, scope) };
 }
@@ -396,7 +396,7 @@ export async function guidedFlowEdit(argv, app) {
     const actionType = rawField(action.actionTypeSysId || action.action_type_sys_id || action.actionType?.sys_id || action.actionType?.sysId);
     let inputSchema = { ...field, type: field.type || field.parameter?.type };
     if (!inputSchema.type) {
-      const { schema } = await readActionDefinition(app.sdk, app.getEffectiveInstance(), actionType, rawField(record.scope), { requireTypes: true });
+      const { schema } = await readActionDefinition(app.sdk, app.getEffectiveInstance(), actionType, resolveFlowScope(record), { requireTypes: true });
       inputSchema = schema.find(candidate => candidate.name === field.name);
       if (!inputSchema) throw errUsage(`Saved action input ${field.name} is absent from its provider schema`);
     }

@@ -132,3 +132,68 @@ test('testFlow never dispatches for a missing record or transport failure', asyn
   };
   await assert.rejects(testFlow(timeoutSdk, INSTANCE, FLOW, RECORD), /dispatch failed.*timeout/i);
 });
+
+// sys_hub_flow has no populated scope column on current instances: the raw
+// transaction scope rides on the sys_scope reference, and the display name is a
+// label that must never be sent as sysparm_transaction_scope.
+test('testFlow reads the transaction scope from the sys_scope reference with a legacy scope fallback', async () => {
+  const SCOPE_ID = '1169a246933f8f9087b0f14fdd03d627';
+  const SCOPE_NAME = 'JSN-STUDY-SCOPE-20261009-1137';
+  const urls = [];
+  const listFields = [];
+  const providerSdk = {
+    async list(table, params) {
+      if (table === 'sys_hub_flow') {
+        listFields.push(params.get('sysparm_fields'));
+        return [{ sys_id: FLOW, name: 'Draft flow', scope: '', active: 'false', status: 'draft',
+          sys_scope: { display_value: SCOPE_NAME, value: SCOPE_ID, link: `${INSTANCE}/api/now/table/sys_scope/${SCOPE_ID}` } }];
+      }
+      if (table === 'ticket') return [{ sys_id: RECORD }];
+      return [];
+    },
+    async request(url, options = {}) {
+      urls.push(url);
+      if (options.method === 'GET') return { result: { data: { ...definition, scope: SCOPE_ID } } };
+      return { result: { data: { state: 'success' } } };
+    },
+  };
+  const result = await testFlow(providerSdk, INSTANCE, FLOW, RECORD);
+  assert.equal(result.status, 'completed');
+  assert.equal(urls[0], `${INSTANCE}/api/now/processflow/flow/${FLOW}?sysparm_transaction_scope=${SCOPE_ID}`);
+  assert.ok(urls.some(url => url === `${INSTANCE}/api/now/processflow/flow/${FLOW}/test?sysparm_transaction_scope=${SCOPE_ID}`), 'the dispatch must carry the raw sys_id');
+  assert.ok(urls.every(url => !url.includes(SCOPE_NAME)), 'the scope display name must never be sent');
+  assert.ok(listFields.some(fields => fields.includes('sys_scope')), 'the flow read must ask for sys_scope');
+  assert.ok(listFields.every(fields => fields.includes('scope')), 'the legacy scope field stays in the read');
+
+  const legacyUrls = [];
+  const legacySdk = {
+    async list(table) {
+      if (table === 'sys_hub_flow') return [{ sys_id: FLOW, name: 'Draft flow', scope: 'scope-1' }];
+      if (table === 'ticket') return [{ sys_id: RECORD }];
+      return [];
+    },
+    async request(url, options = {}) {
+      legacyUrls.push(url);
+      if (options.method === 'GET') return { result: { data: definition } };
+      return { result: { data: { state: 'success' } } };
+    },
+  };
+  await testFlow(legacySdk, INSTANCE, FLOW, RECORD);
+  assert.equal(legacyUrls[0], `${INSTANCE}/api/now/processflow/flow/${FLOW}?sysparm_transaction_scope=scope-1`);
+});
+
+test('testFlow refuses a flow record that carries neither sys_scope nor scope', async () => {
+  let posts = 0;
+  const sdk = {
+    async list(table) {
+      if (table === 'sys_hub_flow') return [{ sys_id: FLOW, name: 'Draft flow', scope: '', sys_scope: { display_value: '', value: '' } }];
+      return [];
+    },
+    async request(_url, options = {}) {
+      if (options.method === 'POST') posts += 1;
+      return { result: {} };
+    },
+  };
+  await assert.rejects(testFlow(sdk, INSTANCE, FLOW, RECORD), /no transaction scope; flow was not dispatched/);
+  assert.equal(posts, 0);
+});

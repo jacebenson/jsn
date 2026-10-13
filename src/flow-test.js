@@ -1,5 +1,6 @@
 import { assertSafeExactMatch } from './helpers.js';
 import { RECORD_TRIGGER_FAMILY, triggerFamily } from './flow-triggers.js';
+import { resolveFlowScope } from './flow-create.js';
 
 const FLOW_ENDPOINT = '/api/now/processflow/flow';
 
@@ -84,13 +85,13 @@ export async function testFlow(sdk, instance, identifier, recordId) {
     sysparm_query: `${isId ? 'sys_id' : 'name'}=${flowIdentifier}`,
     sysparm_limit: '2',
     sysparm_display_value: 'all',
-    sysparm_fields: 'sys_id,name,scope',
+    sysparm_fields: 'sys_id,name,sys_scope,scope',
   }));
   if (!flowRows.length) throw new Error(`Flow not found: ${identifier}`);
   if (flowRows.length > 1) throw new Error(`Flow identifier is ambiguous: ${identifier}`);
   const flow = flowRows[0];
   const flowId = valueOf(flow.sys_id);
-  const scope = valueOf(flow.scope);
+  const scope = resolveFlowScope(flow);
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope; flow was not dispatched`);
   const response = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`, { method: 'GET' });
   const definition = flowData(response);

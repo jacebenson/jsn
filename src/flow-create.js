@@ -33,8 +33,38 @@ function idValue(value) {
   return stringValue(value);
 }
 
+/**
+ * A saved flow's transaction scope (the sysparm_transaction_scope value) is a
+ * raw sys_id, and on current instances the record carries it on the sys_scope
+ * reference only: sys_hub_flow has no populated scope column, so reading
+ * `scope` threw before any read happened. With sysparm_display_value=all,
+ * sys_scope is { display_value: '<name>', value: '<sys_id>' } — the display
+ * name is a label and must never be sent as the transaction scope.
+ * `scope` stays as a deliberate legacy fallback for records that carry it.
+ */
+export function resolveFlowScope(record) {
+  const reference = record?.sys_scope;
+  const referenced = reference && typeof reference === 'object'
+    ? (reference.value ?? reference.sys_id ?? '')
+    : (reference ?? '');
+  return stringValue(referenced) || stringValue(record?.scope);
+}
+
 function gqlString(value) {
   return JSON.stringify(String(value));
+}
+
+// Flow Designer's provider returns empty attribute maps as {"": ""} (for
+// example a trigger input's `attributes`). An empty key is not a GraphQL Name,
+// so emitting it produced `attributes: {: ""}` and the instance rejected the
+// whole mutation with "Invalid syntax with offending token ':'" — the guided
+// record-trigger edit could never complete. Empty keys carry no data, so they
+// are dropped; every named field is still sent untouched.
+function gqlFields(value) {
+  return Object.entries(value)
+    .filter(([key]) => key !== '')
+    .map(([key, item]) => `${key}: ${gqlValue(item)}`)
+    .join(', ');
 }
 
 function gqlValue(value) {
@@ -43,12 +73,12 @@ function gqlValue(value) {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'null';
   if (Array.isArray(value)) return `[${value.map(gqlValue).join(', ')}]`;
-  if (typeof value === 'object') return `{${Object.entries(value).map(([key, item]) => `${key}: ${gqlValue(item)}`).join(', ')}}`;
+  if (typeof value === 'object') return `{${gqlFields(value)}}`;
   return gqlString(value);
 }
 
 function gqlInputObject(value) {
-  return `{${Object.entries(value).map(([key, item]) => `${key}: ${gqlValue(item)}`).join(', ')}}`;
+  return `{${gqlFields(value)}}`;
 }
 
 function parseMaybeJson(value, fallback = {}) {
@@ -555,7 +585,7 @@ function readFlowRecord(sdk, identifier) {
   if (!exactIdentifier) throw new Error('Flow identifier must be an exact sys_id or name');
   assertSafeExactMatch(exactIdentifier);
   const query = isSysId(exactIdentifier) ? `sys_id=${exactIdentifier}` : `name=${exactIdentifier}`;
-  return sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: query, sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,scope,active,status,type' }));
+  return sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: query, sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,sys_scope,scope,active,status,type' }));
 }
 
 async function resolveDraftFlow(sdk, identifier) {
@@ -771,10 +801,11 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const manifest = validateFlowUpdateManifest(inputManifest);
   const target = await resolveDraftFlow(sdk, identifier);
   const flowId = target.flowId;
-  const scope = stringValue(manifest.scope ?? target.flow.scope);
+  const recordScope = resolveFlowScope(target.flow);
+  const scope = stringValue(manifest.scope ?? recordScope);
   const readUpdateSet = options.readUpdateSet || (async () => null);
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope`);
-  if (manifest.scope !== undefined && stringValue(target.flow.scope) && manifest.scope !== stringValue(target.flow.scope)) throw new Error(`Flow ${flowId} scope does not match the update manifest`);
+  if (manifest.scope !== undefined && recordScope && manifest.scope !== recordScope) throw new Error(`Flow ${flowId} scope does not match the update manifest`);
   const beforeDefinition = await readProcessFlow(sdk, instance, flowId, scope);
   const snapshots = [];
   const triggerUpdates = [];

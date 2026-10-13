@@ -299,13 +299,16 @@ describe('flow update request shapes', () => {
     ] }],
   };
 
-  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition) {
+  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition, flowRecord = { sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }) {
     const calls = [];
+    const listCalls = [];
     let versionReads = 0;
     return {
       calls,
-      async list(table) {
-        if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
+      listCalls,
+      async list(table, params) {
+        listCalls.push({ table, fields: params?.get('sysparm_fields'), displayValue: params?.get('sysparm_display_value') });
+        if (table === 'sys_hub_flow') return [flowRecord];
         if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
         if (table === 'sys_hub_flow_version') return versionReads++ === 0 ? [] : [{ sys_id: 'version-update-1', type: 'Autosave', flow: flowId }];
         if (table === 'sys_update_xml') return [{ sys_id: 'xml-update-1', payload: flowId }];
@@ -493,5 +496,88 @@ describe('flow update request shapes', () => {
     await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }), /log_message did not match the requested value/);
     assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0, 'no Autosave after a failed read-back');
     assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql')).length, 1);
+  });
+
+  // sys_hub_flow has no populated scope column on current instances: the raw
+  // transaction scope rides on the sys_scope reference, and the display name is
+  // a label that must never be sent as sysparm_transaction_scope.
+  it('reads the transaction scope from the sys_scope reference when scope is empty', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const SCOPE_ID = '1169a246933f8f9087b0f14fdd03d627';
+    const SCOPE_NAME = 'JSN-STUDY-SCOPE-20261009-1137';
+    const providerRecord = {
+      sys_id: flowId,
+      name: 'Draft update flow',
+      scope: '',
+      sys_scope: { display_value: SCOPE_NAME, value: SCOPE_ID, link: `https://example.service-now.com/api/now/table/sys_scope/${SCOPE_ID}` },
+      active: 'false',
+      status: 'draft',
+    };
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.actionInstances[0].inputs[1] = { ...afterDefinition.actionInstances[0].inputs[1], value: wrapped('new message'), displayValue: wrapped('new message') };
+    const sdk = updateSdk(afterDefinition, baseDefinition, providerRecord);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+
+    assert.equal(result.flow.id, flowId);
+    assert.equal(result.version.sys_id, 'version-update-1');
+    const flowRead = sdk.listCalls.find(call => call.table === 'sys_hub_flow');
+    assert.match(flowRead.fields, /sys_scope/);
+    assert.match(flowRead.fields, /scope/);
+    assert.equal(flowRead.displayValue, 'all');
+    assert.ok(sdk.calls.some(call => call.options?.method === 'GET' && call.endpoint.includes(`/processflow/flow/${flowId}?sysparm_transaction_scope=${SCOPE_ID}`)), 'the read must carry the raw sys_id');
+    assert.ok(sdk.calls.some(call => call.endpoint.includes(`/versioning/create_version?sysparm_transaction_scope=${SCOPE_ID}`)), 'the Autosave must carry the raw sys_id');
+    assert.ok(!JSON.stringify(sdk.calls).includes(SCOPE_NAME), 'the scope display name must never be sent');
+  });
+
+  it('keeps the legacy scope field as the fallback when sys_scope is absent', async () => {
+    const { resolveFlowScope, updateFlowFromManifest } = await import('../src/flow-create.js');
+    assert.equal(resolveFlowScope({ scope: 'scope-1' }), 'scope-1');
+    assert.equal(resolveFlowScope({ scope: { value: 'wrapped-scope' } }), 'wrapped-scope');
+    assert.equal(resolveFlowScope({ scope: '', sys_scope: { display_value: 'Some App', value: 'scope-2' } }), 'scope-2');
+    assert.equal(resolveFlowScope({ scope: '', sys_scope: { display_value: 'Some App', value: '' } }), '');
+    assert.equal(resolveFlowScope({ scope: 'scope-1', sys_scope: { display_value: 'Some App', value: 'scope-2' } }), 'scope-2');
+
+    const afterDefinition = structuredClone(baseDefinition);
+    afterDefinition.actionInstances[0].inputs[1] = { ...afterDefinition.actionInstances[0].inputs[1], value: wrapped('legacy message'), displayValue: wrapped('legacy message') };
+    const sdk = updateSdk(afterDefinition, baseDefinition, { sys_id: flowId, name: 'Draft update flow', scope: 'scope-legacy', active: 'false', status: 'draft' });
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'legacy message' } }],
+    }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    assert.ok(sdk.calls.some(call => call.options?.method === 'GET' && call.endpoint.includes(`/processflow/flow/${flowId}?sysparm_transaction_scope=scope-legacy`)));
+    assert.ok(sdk.calls.some(call => call.endpoint.includes('/versioning/create_version?sysparm_transaction_scope=scope-legacy')));
+  });
+
+  it('refuses a flow update when neither sys_scope nor scope carries a scope', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition, baseDefinition, { sys_id: flowId, name: 'Draft update flow', scope: '', sys_scope: { display_value: 'Some App', value: '' }, active: 'false', status: 'draft' });
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'x' } }],
+    }), /flow-update-123 has no transaction scope/);
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST').length, 0, 'no write without a resolved scope');
+  });
+
+  // The provider returns empty attribute maps as {"": ""}. An empty key is not a
+  // GraphQL Name, so the mutation was rejected with "Invalid syntax with
+  // offending token ':'" and the guided record-trigger edit could never finish.
+  it('never emits an empty GraphQL field name from provider attribute maps', async () => {
+    const { buildFlowUpdateMutation } = await import('../src/flow-create.js');
+    const query = buildFlowUpdateMutation({
+      flowId,
+      triggerUpdates: [{
+        id: triggerId,
+        metadata: '{}',
+        inputs: [
+          { id: 'run-flow-in', value: { value: 'foreground' }, attributes: { '': '' }, label: 'Run Trigger' },
+          { id: 'condition-input', value: { value: 'short_descriptionSTARTSWITHnew-' }, attributes: { '': '' } },
+        ],
+      }],
+      actionUpdates: [],
+    });
+    assert.doesNotMatch(query, /\{:\s*"/);
+    assert.match(query, /attributes: \{\}/);
+    assert.match(query, /label: "Run Trigger"/);
+    assert.match(query, /short_descriptionSTARTSWITHnew-/);
   });
 });
