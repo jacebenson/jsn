@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import { buildTypedInputs, validateFlowManifest } from '../src/flow-create.js';
 
 // Shape captured from a live ServiceNow instance (Australia patch 3) for the
-// Global "Log" action: identity plus schema, with NO `parameter` block. The
-// earlier contract demanded `parameter` and rejected every real published action.
+// Global "Log" action: the ProcessFlow action_types route hands back the whole
+// UI schema FLAT on each input (label/choices/type_label/attributes/...), and
+// global_snFlowDesigner_ActionInstanceValue accepts only id/name/children/
+// displayField/scriptActive/parameter/value/displayValue. Spreading the flat
+// schema is what made every real published action fail validation, so the schema
+// is carried inside `parameter` with `attributes` stringified.
 const liveLogAction = {
   type: '0e0ae8c2531003003bf1d9109ec587c8',
   inputs: { log_level: 'info', log_message: 'hello' },
@@ -19,21 +23,30 @@ const liveLogSchema = [
   { name: 'log_message', label: 'Message', type: 'string', mandatory: false, id: 'c34aa006531003003bf1d9109ec587c4' },
 ];
 
-test('a real published action schema without a parameter block is accepted', () => {
+test('a real published action schema is narrowed to the GraphQL input type', () => {
   const inputs = buildTypedInputs(liveLogAction, liveLogSchema);
   assert.equal(inputs.length, 2);
   assert.deepEqual(inputs.map(input => input.name), ['log_level', 'log_message']);
   assert.deepEqual(inputs[0].value, { schemaless: false, schemalessValue: '', value: 'info' });
   assert.deepEqual(inputs[0].displayValue, { schemaless: false, schemalessValue: '', value: 'info' });
   assert.equal(inputs[0].id, '8f4aa006531003003bf1d9109ec587aa');
-  assert.equal(inputs[0].attributes.uiUniqueId, 'ignored-generated-metadata');
-  assert.equal(inputs[0].parameter, undefined, 'the provider omitted parameter, so it must stay omitted');
+  // Only the accepted keys survive at the top level.
+  assert.deepEqual(Object.keys(inputs[0]).sort(), ['children', 'displayField', 'displayValue', 'id', 'name', 'parameter', 'scriptActive', 'value']);
+  assert.equal(inputs[0].children.length, 0);
+  // The UI schema is carried inside `parameter`, with attributes as a String.
+  assert.equal(inputs[0].parameter.label, 'Level');
+  assert.equal(inputs[0].parameter.type, 'choice');
+  assert.deepEqual(inputs[0].parameter.choices, liveLogSchema[0].choices);
+  assert.equal(inputs[0].parameter.attributes, 'uiUniqueId=ignored-generated-metadata');
 });
 
-test('an optional parameter block is echoed back unchanged when the provider sends one', () => {
-  const schema = [{ name: 'condition', type: 'conditions', id: 'abc123', parameter: { label: 'Condition', nested: true } }];
+test('a synthetic `default` from schema discovery never reaches the parameter block', () => {
+  const schema = [{ name: 'condition', type: 'conditions', id: 'abc123', default: 'x=1', label: 'Condition' }];
   const inputs = buildTypedInputs({ type: 'action-1', inputs: { condition: 'x=1' } }, schema);
-  assert.deepEqual(inputs[0].parameter, { label: 'Condition', nested: true });
+  assert.equal(inputs[0].parameter.label, 'Condition');
+  assert.equal(inputs[0].parameter.id, 'abc123');
+  assert.equal('default' in inputs[0].parameter, false, 'global_snFlowDesigner_FlowDesignParameter has no `default` field');
+  assert.equal(inputs[0].parameter.attributes, '');
 });
 
 test('identity-free or malformed schemas are still refused', () => {

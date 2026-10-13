@@ -7,7 +7,18 @@ import { FormatAuto } from './output.js';
 import { errUsage, errConfirmationRequired } from './errors.js';
 import { getCurrentUser, getCurrentApplication } from './context.js';
 import { validateDefinition, validateScope, ACTION_TABLE } from './processflow-actions.js';
-import { validateFlowManifest, validateFlowUpdateManifest, readProcessFlow, readActionDefinition, readTableDescriptor } from './flow-create.js';
+import { validateFlowManifest, validateFlowUpdateManifest, readProcessFlow, readActionDefinition } from './flow-create.js';
+import {
+  NUMERIC_TRIGGER_TYPES,
+  PROMPTABLE_TRIGGER_TYPES,
+  conditionInputFor,
+  readTableDescriptor,
+  readTriggerCatalog,
+  readTriggerInputDefinitions,
+  selectableTriggers,
+  tableInputFor,
+  triggerChoiceLabel,
+} from './flow-triggers.js';
 import { deriveRecordTrigger } from './flow-test.js';
 import { getActiveProfile } from './config.js';
 
@@ -253,12 +264,91 @@ async function tableName(argv, app) {
   if (!name) throw errUsage('Selected trigger table has no raw name');
   return name;
 }
+
+// Prompt for one declared trigger input. Choice lists are not exposed by
+// sys_hub_trigger_input on this instance, and every supported family declares
+// its choice/boolean inputs as optional with a default, so those keep the
+// instance default instead of inventing options.
+async function promptTriggerInput(app, input) {
+  if (!input?.name || !input.type) throw errUsage('Provider returned an incomplete named, typed trigger input');
+  if (input.type === 'choice') {
+    if (input.mandatory) throw errUsage(`Trigger input ${input.name} is a mandatory choice whose options this instance does not expose; supply it through --data-file`);
+    return null;
+  }
+  if (input.type === 'boolean') return null;
+  if (!PROMPTABLE_TRIGGER_TYPES.has(input.type)) {
+    throw errUsage(`Trigger input ${input.name} has unsupported type ${input.type}; use --data-file to preserve its complete schema and value`);
+  }
+  const p = prompts(app);
+  const message = `Trigger input: ${input.label || input.name} [${input.type}]`;
+  const fallback = input.defaultValue === '' || input.defaultValue === undefined ? '' : String(input.defaultValue);
+  if (NUMERIC_TRIGGER_TYPES.has(input.type)) {
+    const answer = await p.input({ message, default: scalarDefault(fallback), validate: value => {
+      if (value === '' && input.mandatory) return 'A value is required';
+      if (value === '') return true;
+      return Number.isFinite(Number(value)) ? true : 'Enter a number';
+    } });
+    return answer === '' ? '' : Number(answer);
+  }
+  return p.input({ message, default: scalarDefault(fallback), validate: value => (input.mandatory && value === '' ? 'A value is required' : true) });
+}
+
 export async function guidedFlowCreate(argv, app) {
   if (!interactiveDesigner(argv, app)) throw errUsage('Provide --data-file or --data for the flow manifest in noninteractive mode');
-  const manifest = { name: await prompts(app).input({ message: 'Flow name', validate: required }),
-    description: await prompts(app).input({ message: 'Description' }), scope: await designerScope(argv, app),
-    trigger: { type: 'record_create_or_update', table: await tableName(argv, app),
-      condition: await prompts(app).input({ message: 'Trigger condition (single supported encoded predicate, or empty)' }) }, actions: [] };
+  const name = await prompts(app).input({ message: 'Flow name', validate: required });
+  const description = await prompts(app).input({ message: 'Description' });
+  const scope = await designerScope(argv, app);
+  const manifest = { name, description, scope, trigger: { type: '' }, actions: [] };
+
+  // Category first, then the triggers that category actually contains, both
+  // read from the instance (sys_hub_trigger_category + the definition's own
+  // `category` reference). Definitions this CLI cannot create are never offered.
+  const catalog = await readTriggerCatalog(app.sdk);
+  const pickable = catalog.categories.filter(category => selectableTriggers(category).length);
+  if (!pickable.length) {
+    throw errUsage('No supported trigger categories are available on this instance; use --data-file to supply the manifest directly');
+  }
+  const chosenCategory = await prompts(app).select({
+    message: 'Select a trigger category',
+    choices: pickable.map(category => ({ name: `${category.name} (${selectableTriggers(category).length})`, value: category })),
+  });
+  const triggers = selectableTriggers(chosenCategory);
+  const definition = await prompts(app).select({
+    message: `Select a ${chosenCategory.name} trigger`,
+    choices: triggers.map(trigger => ({ name: triggerChoiceLabel(trigger), value: trigger })),
+  });
+  manifest.trigger.type = definition.type;
+
+  const declared = await readTriggerInputDefinitions(app.sdk, definition.sysId);
+  const tableInput = tableInputFor(declared);
+  if (tableInput) {
+    manifest.trigger.table = await tableName(argv, app);
+  }
+  const conditionInput = conditionInputFor(declared);
+  if (conditionInput) {
+    manifest.trigger.condition = await prompts(app).input({ message: 'Trigger condition (single supported encoded predicate, or empty)' });
+  }
+  const optional = declared.filter(input => !tableInput || input.name !== tableInput.name)
+    .filter(input => !conditionInput || input.name !== conditionInput.name);
+  if (optional.some(input => input.mandatory)) {
+    manifest.trigger.inputs = {};
+    for (const input of optional.filter(candidate => candidate.mandatory)) {
+      const value = await promptTriggerInput(app, input);
+      if (value !== null) manifest.trigger.inputs[input.name] = value;
+    }
+  }
+  if (optional.some(input => !input.mandatory && input.type !== 'choice' && input.type !== 'boolean')
+    && await prompts(app).confirm({ message: 'Change optional trigger inputs (otherwise the instance defaults are used)?', default: false })) {
+    manifest.trigger.inputs = manifest.trigger.inputs || {};
+    for (const input of optional.filter(candidate => !candidate.mandatory)) {
+      if (input.type === 'choice' || input.type === 'boolean') continue;
+      if (!await prompts(app).confirm({ message: `Change ${input.label || input.name} [${input.type}]?`, default: false })) continue;
+      const value = await promptTriggerInput(app, input);
+      if (value !== null) manifest.trigger.inputs[input.name] = value;
+    }
+  }
+  if (manifest.trigger.inputs && !Object.keys(manifest.trigger.inputs).length) delete manifest.trigger.inputs;
+
   while (await prompts(app).confirm({ message: 'Add a published action?', default: true })) {
     const id = await pickDesignerRecord(argv, app, ACTION_TABLE, 'published action', 'active=true^published=true');
     if (id === undefined) throw CANCEL;
@@ -273,7 +363,7 @@ export async function guidedFlowCreate(argv, app) {
     manifest.actions.push({ type: id, inputs });
   }
   validateFlowManifest(manifest);
-  await confirmDesignerSave(app, `Create inactive draft flow '${manifest.name}' with ${manifest.actions.length} action(s)? No publish or execution.`);
+  await confirmDesignerSave(app, `Create inactive draft flow '${manifest.name}' with trigger ${definition.name} and ${manifest.actions.length} action(s)? No publish or execution.`);
   return manifest;
 }
 export async function savedFlowDefinition(app, identifier) {
@@ -319,9 +409,9 @@ export async function guidedFlowEdit(argv, app) {
 export async function guidedFlowTestRecord(argv, app) {
   if (argv.record !== undefined) return argv.record;
   if (!interactiveDesigner(argv, app)) throw errUsage('Provide --record <sys_id> in noninteractive mode');
-  const { record, definition } = await savedFlowDefinition(app, argv.identifier);
+  const { definition } = await savedFlowDefinition(app, argv.identifier);
   const { table } = deriveRecordTrigger(definition);
-  const descriptor = await readTableDescriptor(app.sdk, app.getEffectiveInstance(), rawField(record.scope), table);
+  const descriptor = await readTableDescriptor(app.sdk, table);
   const { identifier: _identifier, ...pickerArgs } = argv;
   return pickDesignerRecord(pickerArgs, app, table, `test record in ${table}`, '', descriptor.displayField);
 }

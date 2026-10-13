@@ -49,7 +49,7 @@ existing subcommand, including retained aliases.
 | `flows publish`, `activate` | Pick flow, or action with `--action`; explicitly confirm activation | Requires explicit force or existing profile skip-confirmations when prompts unavailable; lifecycle unchanged | PTY refusal; existing lifecycle/version readback tests with force |
 | `flows test` | Pick flow, derive actual record-trigger table and provider display field, pick a record, confirm | Explicit identifier/record supported; no guessed table; read-only and execution confirmation retained | PTY record picker and refusal; trigger-table picker unit test; existing exact test-envelope tests |
 | `flows doctor` | Existing read-only health report | No mandatory arguments added | Existing health-check tests |
-| `flows create` | Name/scope/table, supported record trigger, published action schemas and inputs, final confirmation | Existing manifest contract; inactive Draft, Autosave and readback only | Real PTY draft creation without actions; published-action manifest wizard tests; existing action/trigger patch and version tests |
+| `flows create` | Name, scope, then trigger CATEGORY and trigger, then that trigger's declared inputs, then published action schemas and inputs, final confirmation | Every declared trigger input is written from the instance's own `sys_hub_trigger_input` rows; the trigger is INSERTED by the same patch as the actions; inactive Draft, Autosave and readback only | Real PTY category-then-trigger picker for the record and scheduled families, trigger/action/value readback and version; unit tests for catalog grouping, declared-input assembly, unsupported-family exclusion and cancellation |
 | `flows update`, `edit` | Pick inactive Draft, load saved definition; change trigger condition or an existing action input, confirm | Existing trigger/table/action-input update manifest retained; domain protects `jace-test-flow`; unspecified fields preserved | Real PTY confirmed trigger edit; input/type-discovery wizard tests; existing patch-preservation/version tests |
 | `flows delete` | Pick a target, then report unsupported | Still unsupported; no GraphQL deletion invented | Omission/cancellation and read-only gates; unchanged unsupported handler |
 
@@ -75,9 +75,24 @@ schema/version differences and configured external editors still need live
 verification. Script-file UX is exercised in a real PTY; editor selection is
 not an end-to-end editor-platform test.
 
-Flow creation remains `record_create_or_update` plus published Actions. Guided
-flow editing offers the condition and existing action inputs, not every field
-that the scripted update manifest supports. Flow Logic, subflows, variables,
+Flow creation supports the trigger families this CLI has live-verified:
+`record_create` / `record_update` / `record_create_or_update`, `daily` /
+`weekly` / `monthly` / `repeat` / `run_once`, and `email` /
+`knowledge_management` / `service_catalog` / `sla_task` /
+`remote_table_query`. The picker's categories and members come from the
+instance (`sys_hub_trigger_category` and each definition's own `category`
+reference) intersected with that verified set, so a family that is offered is a
+family that can actually be created; anything else is reported in
+`trigger_guidance.excluded_families` rather than silently hidden. Each trigger's
+inputs are read from `sys_hub_trigger_input` (the owning definition is the
+`var__m_sys_hub_trigger_input_<definitionId>` name suffix) and every declared
+input is written, using the instance's own default where the operator supplies
+nothing. Predicate metadata is derived by the instance from the `condition`
+input, not rebuilt by this CLI. Trigger/action persistence, input values and the
+Autosave version have been read back from a live instance; publish/activation,
+execution and deletion remain out of scope. Guided flow editing offers the
+condition and existing action inputs, not every field that the scripted update
+manifest supports. Flow Logic, subflows, variables,
 error handling and native flow deletion remain unsupported. Action step
 insertion/removal during guided edit is not implemented; use the existing full
 JSON update path for schema-supported definition changes.

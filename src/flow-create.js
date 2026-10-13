@@ -1,10 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { assertSafeExactMatch } from './helpers.js';
 import { createVerifiedFlowVersion } from './flow-versioning.js';
+import {
+  SUPPORTED_TRIGGER_TYPES,
+  TRIGGER_DEFINITION_TABLE,
+  buildTriggerInputs,
+  buildTriggerInstance,
+  conditionInputFor,
+  readTableDescriptor,
+  readTriggerInputDefinitions,
+  tableInputFor,
+  flowDesignParameter,
+} from './flow-triggers.js';
 
 const FLOW_ENDPOINT = '/api/now/processflow/flow';
 const GRAPHQL_ENDPOINT = '/api/now/graphql';
-const TABLE_DESCRIPTOR_ENDPOINT = '/api/now/processflow/trigger/record/table';
 const PROTECTED_FLOW_ID = 'c215135293bf03d087b0f14fdd03d652';
 const PROTECTED_FLOW_NAME = 'jace-test-flow';
 
@@ -132,12 +142,15 @@ export function validateFlowManifest(manifest) {
   if (manifest.variables !== undefined || manifest.flowVariables !== undefined) throw new Error('Flow-variable lifecycle is unsupported in this creation slice');
   if (manifest.errorHandling !== undefined) throw new Error('Error handling is unsupported in this creation slice');
   const trigger = manifest.trigger;
-  if (!trigger || trigger.type !== 'record_create_or_update') throw new Error('Only trigger.type=record_create_or_update is supported');
-  if (!String(trigger.table || '').trim()) throw new Error('Record trigger requires table');
+  if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) throw new Error('Flow manifest requires a trigger object');
+  for (const key of Object.keys(trigger)) if (!['type', 'table', 'condition', 'inputs'].includes(key)) throw new Error(`Flow manifest trigger field "${key}" is unsupported`);
+  if (!SUPPORTED_TRIGGER_TYPES.has(String(trigger.type))) throw new Error(`Unsupported trigger.type "${trigger.type}"; supported families are ${[...SUPPORTED_TRIGGER_TYPES].join(', ')}`);
+  if (trigger.table !== undefined && !String(trigger.table).trim()) throw new Error('Trigger table must not be empty');
   if (trigger.condition !== undefined && typeof trigger.condition !== 'string') throw new Error('Record trigger condition must be a string');
   if (trigger.condition && !/^[A-Za-z_][A-Za-z0-9_.]*(?:STARTSWITH|ENDSWITH|LIKE|NOT LIKE|=|!=|IN|ISEMPTY|ISNOTEMPTY)[^,^]*$/.test(trigger.condition)) {
     throw new Error('Record trigger condition uses an unsupported encoded-query condition subset');
   }
+  if (trigger.inputs !== undefined && (!trigger.inputs || typeof trigger.inputs !== 'object' || Array.isArray(trigger.inputs))) throw new Error('Trigger inputs must be an object');
   if (!Array.isArray(manifest.actions)) throw new Error('Flow manifest requires an actions array');
   for (const [index, action] of manifest.actions.entries()) {
     if (!action || typeof action !== 'object' || !String(action.type || '').trim()) throw new Error(`Action ${index + 1} requires type`);
@@ -165,8 +178,12 @@ export function buildFlowProperties(manifest) {
 }
 
 export function buildFlowPatchMutation({ flowId, trigger, actions }) {
-  const triggerUpdate = {
-    id: trigger.id,
+  const triggerInsert = {
+    flowSysId: trigger.flowSysId,
+    name: trigger.name,
+    type: trigger.type,
+    triggerType: trigger.triggerType,
+    triggerDefinitionId: trigger.triggerDefinitionId,
     metadata: trigger.metadata,
     inputs: trigger.inputs,
   };
@@ -182,8 +199,10 @@ export function buildFlowPatchMutation({ flowId, trigger, actions }) {
     metadata: action.metadata,
     inputs: action.inputs,
   }));
-  const patch = `flowPatch: {flowId: ${gqlString(flowId)}, triggerInstances: {update: [${gqlInputObject(triggerUpdate)}]}, actions: {insert: [${actionInsert.map(gqlInputObject).join(', ')}]}}`;
-  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { inserts { sysId uiUniqueIdentifier } updates { sysId uiUniqueIdentifier } } actions { inserts { sysId uiUniqueIdentifier } updates { sysId uiUniqueIdentifier } } } } } }`;
+  const patch = `flowPatch: {flowId: ${gqlString(flowId)}, triggerInstances: {insert: [${gqlInputObject(triggerInsert)}]}, actions: {insert: [${actionInsert.map(gqlInputObject).join(', ')}]}}`;
+  // `triggerInstances.updates` is a leaf [String] on this schema; only `inserts`
+  // carries identities, and only for triggers does `inserts` lack a uiUniqueIdentifier.
+  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { inserts { sysId } updates } actions { inserts { sysId uiUniqueIdentifier } } } } } }`;
 }
 
 export function buildFlowUpdateMutation({ flowId, triggerUpdates = [], actionUpdates = [] }) {
@@ -236,8 +255,8 @@ export function buildTypedInputs(action, schema) {
   for (const key of Object.keys(supplied)) if (!allowed.has(key)) throw new Error(`Unsupported input "${key}" for action ${action.type}`);
   return schema.map(field => {
     // The instance's own definition is the contract: identity is required,
-    // everything else (including an optional `parameter` block) is echoed back
-    // untouched. Demanding a key the provider omits breaks real actions.
+    // everything else is echoed back untouched. Demanding a key the provider
+    // omits breaks real actions.
     if (!field || typeof field !== 'object' || !field.id || !field.name) {
       throw new Error(`Action ${action.type} returned an incomplete input schema; refusing to invent input metadata for "${field?.name || 'unknown'}"`);
     }
@@ -248,9 +267,17 @@ export function buildTypedInputs(action, schema) {
     if ((suppliedValue === undefined || suppliedValue === null) && (field.mandatory === true || field.required === true)) throw new Error(`Missing required input "${field.name}" for action ${action.type}`);
     const value = suppliedValue ?? null;
     const displayValue = field.displayValue ?? field.display_value ?? value;
+    // global_snFlowDesigner_ActionInstanceValue accepts ONLY these keys. The
+    // ProcessFlow action definition hands back the whole UI schema on the input
+    // object (uiDisplayTypeLabel, choices, type_label, …) and spreading it makes
+    // the mutation fail validation, so the schema is carried inside `parameter`.
     return {
-      ...field,
+      id: field.id,
       name: field.name,
+      children: Array.isArray(field.children) ? field.children : [],
+      displayField: stringValue(field.displayField || field.display_field || ''),
+      scriptActive: false,
+      parameter: flowDesignParameter(field),
       value: { schemaless: false, schemalessValue: '', value },
       displayValue: { schemaless: false, schemalessValue: '', value: displayValue },
     };
@@ -264,51 +291,15 @@ function parseSimpleCondition(condition) {
   return { field: match[1], operator: match[2], term: match[3] };
 }
 
-export async function readTableDescriptor(sdk, instance, scope, table, override) {
-  if (override) return override(table);
-  const endpoint = `${instance}${TABLE_DESCRIPTOR_ENDPOINT}?table=${encodeURIComponent(table)}&sysparm_transaction_scope=${encodeURIComponent(scope)}`;
-  const response = await sdk.request(endpoint, { method: 'GET' });
-  const descriptor = response?.result ?? response?.data?.result ?? response?.data ?? response;
-  if (!descriptor || typeof descriptor !== 'object') throw new Error(`ProcessFlow table descriptor was unavailable for ${table}`);
-  const label = stringValue(descriptor.label || descriptor.displayValue || descriptor.display_value || descriptor.name);
-  const displayField = stringValue(descriptor.displayField || descriptor.display_field || descriptor.displayColumn || descriptor.display_column);
-  if (!label || !displayField) throw new Error(`ProcessFlow table descriptor for ${table} lacks label/display field`);
-  return { ...descriptor, label, displayField };
-}
-
-function buildPredicateMetadata(condition, descriptor) {
-  const predicate = parseSimpleCondition(condition);
-  if (!predicate) return { predicates: [], order_by: [], group_by: [], has_rlq_conditions: false };
-  const field = descriptor.fields?.find(item => stringValue(item.name || item.element || item.field) === predicate.field)
-    || descriptor.schema?.find(item => stringValue(item.name || item.element || item.field) === predicate.field);
-  if (!field) throw new Error(`Record trigger condition field "${predicate.field}" is absent from the table descriptor`);
-  const fieldLabel = stringValue(field.label || field.column_label || predicate.field);
-  const operatorLabel = stringValue(field?.operators?.[predicate.operator] || predicate.operator);
-  const comparison = {
-    field_type: stringValue(field?.field_type || field?.type || 'string'),
-    operator: predicate.operator,
-    term_label: predicate.term,
-    or_query: false,
-    field_label: fieldLabel,
-    column_type: stringValue(field?.column_type || 'element'),
-    term: predicate.term,
-    display_value: '',
-    new_query: false,
-    goto_query: false,
-    is_pre_evaluated: false,
-    rlqc_query: false,
-    operator_label: operatorLabel,
-    value: predicate.term,
-    field: predicate.field,
-    type: 'comparison',
-  };
-  return {
-    predicates: [{ compound_type: 'or', subpredicates: [{ compound_type: 'and', subpredicates: [{ compound_type: 'and', subpredicates: [comparison], type: 'compound' }], type: 'compound' }], type: 'compound' }],
-    order_by: [],
-    group_by: [],
-    has_rlq_conditions: false,
-  };
-}
+// Trigger predicate metadata is DERIVED BY THE INSTANCE, not by this CLI: the
+// snFlowDesigner patch parses the `condition` input into
+// `metadata.query_parse.predicates` itself (verified live on insert and on
+// update — the returned field_label/operator_label/field_type match Flow
+// Designer's own output). Sending `{}` and verifying the derived predicate by
+// read-back is therefore both simpler and more faithful than rebuilding the
+// predicate tree from a table descriptor, and it removes the dependency on the
+// ProcessFlow table-descriptor route, which returns 400 on this instance.
+const DEFAULT_TRIGGER_METADATA = '{}';
 
 function predicateMetadataMatches(metadata, condition) {
   const expected = parseSimpleCondition(condition);
@@ -317,10 +308,15 @@ function predicateMetadataMatches(metadata, condition) {
   const comparisons = [];
   walk(parsed, object => {
     if (stringValue(object.type).toLowerCase() !== 'comparison') return;
+    // The instance stores the parsed predicate with `term` holding the WHOLE
+    // encoded condition and `value` holding the extracted term, so the term
+    // comparison must prefer `value` (e.g. for
+    // "short_descriptionSTARTSWITHjacetest": term = the full string,
+    // value = "jacetest").
     comparisons.push({
       field: stringValue(object.field),
       operator: stringValue(object.operator),
-      term: stringValue(object.term ?? object.value),
+      term: stringValue(object.value ?? object.term),
     });
   });
   return comparisons.some(comparison => comparison.field === expected.field
@@ -332,18 +328,39 @@ function assertPredicateMetadataMatches(metadata, condition, label) {
   if (!predicateMetadataMatches(metadata, condition)) throw new Error(`${label} predicate metadata did not match the requested field, operator, and term`);
 }
 
+// The instance stores predicate metadata as {query_parse: {predicates: [...]}},
+// so dropping only a top-level `predicates` key is not enough to compare the
+// parts of the metadata a manifest did not ask to change.
+function stripPredicates(value) {
+  if (Array.isArray(value)) return value.map(stripPredicates);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'predicates') continue;
+    out[key] = stripPredicates(item);
+  }
+  return out;
+}
+
 function actionTypeIdOf(action) {
   return idValue(action?.actionTypeSysId || action?.action_type_sys_id || action?.actionType?.sys_id || action?.actionType?.sysId);
 }
 
-function verifyCreatedFlowReadback({ flowId, processflow, trigger, manifest, actionInstances, inserted }) {
+function verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigger, manifest, actionInstances, inserted }) {
   const returnedFlowId = stringValue(processflow.flowId || processflow.flow_id || processflow.sysId || processflow.sys_id);
   if (returnedFlowId && returnedFlowId !== flowId) throw new Error(`ProcessFlow read-back returned a different flow ID (${returnedFlowId})`);
 
   const triggers = findArray(processflow, 'triggerInstances');
   if (triggers.length !== 1) throw new Error(`ProcessFlow read-back returned ${triggers.length} trigger instances; expected one`);
   const savedTrigger = triggers[0];
-  if (findId(savedTrigger, ['sysId', 'sys_id', 'id', 'triggerId']) !== trigger.id) throw new Error('Created trigger identity was not preserved in ProcessFlow read-back');
+  const savedTriggerId = findId(savedTrigger, ['sysId', 'sys_id', 'id', 'triggerId']);
+  const insertedTriggerId = findId(insertedTrigger || {}, ['sysId', 'sys_id', 'id']);
+  if (!insertedTriggerId) throw new Error('Flow trigger insert did not return a trigger identity');
+  if (savedTriggerId !== insertedTriggerId) throw new Error('Created trigger identity was not preserved in ProcessFlow read-back');
+  if (stringValue(savedTrigger.triggerDefinitionId || savedTrigger.trigger_definition_id) !== trigger.triggerDefinitionId) {
+    throw new Error(`Created trigger definition did not match the requested ${trigger.triggerDefinitionId}`);
+  }
+  if (stringValue(savedTrigger.type) !== trigger.type) throw new Error(`Created trigger type did not match the requested ${trigger.type}`);
   const savedTriggerInputs = inputList(savedTrigger);
   for (const expected of trigger.inputs) {
     const actual = savedTriggerInputs.find(input => input.name === expected.name);
@@ -374,21 +391,68 @@ function verifyCreatedFlowReadback({ flowId, processflow, trigger, manifest, act
   }
 }
 
-function makeTriggerPatch(flow, manifest, descriptor) {
-  const trigger = findArray(flow, 'triggerInstances')[0];
-  if (!trigger) throw new Error('Created flow did not return its default record trigger instance');
-  const id = findId(trigger, ['sysId', 'sys_id', 'id', 'triggerId']);
-  if (!id) throw new Error('Created flow trigger has no usable identity');
-  const metadata = buildPredicateMetadata(manifest.trigger.condition || '', descriptor);
-  const wrapped = value => ({ schemaless: false, schemalessValue: '', value });
+export async function resolveTriggerDefinition(sdk, type) {
+  if (!SUPPORTED_TRIGGER_TYPES.has(String(type))) throw new Error(`Unsupported trigger.type "${type}"`);
+  const rows = await sdk.list(TRIGGER_DEFINITION_TABLE, new URLSearchParams({
+    sysparm_query: `type=${type}^active=true`,
+    sysparm_limit: '5',
+    sysparm_display_value: 'all',
+    sysparm_fields: 'sys_id,name,type,active,category',
+  }));
+  if (rows.length !== 1) throw new Error(rows.length === 0
+    ? `Trigger definition not found or inactive: ${type}`
+    : `Trigger definition is ambiguous: ${type}`);
+  const row = rows[0];
   return {
-    id,
-    metadata: JSON.stringify(metadata),
-    inputs: [
-      { name: 'table', displayField: descriptor.displayField, displayValue: wrapped(descriptor.label), value: wrapped(manifest.trigger.table) },
-      { name: 'condition', displayField: manifest.trigger.condition || '', displayValue: wrapped(manifest.trigger.condition || ''), value: wrapped(manifest.trigger.condition || '') },
-    ],
+    sysId: idValue(row.sys_id || row.sysId),
+    name: stringValue(row.name),
+    type: stringValue(row.type),
+    // The definition's category display name is what the trigger instance stores
+    // as triggerType ("Record", "Scheduled", "Application"). The raw value is the
+    // category sys_id, so take the display value when the API returned one.
+    triggerType: categoryDisplay(row.category),
   };
+}
+
+function categoryDisplay(value) {
+  if (value && typeof value === 'object') return stringValue(value.display_value ?? value.value);
+  return stringValue(value);
+}
+
+/**
+ * Build the triggerInstances.insert payload from the definition's own declared
+ * inputs. `manifest.trigger.table` / `.condition` are shortcuts onto whichever
+ * declared input carries them; everything else goes through `trigger.inputs`.
+ */
+export async function buildCreateTrigger(sdk, flowId, manifest, definition, options = {}) {
+  const declared = await readTriggerInputDefinitions(sdk, definition.sysId);
+  if (!declared.length && options.requireInputs === true) throw new Error(`Trigger definition ${definition.type} declares no inputs`);
+  const tableInput = tableInputFor(declared);
+  const conditionInput = conditionInputFor(declared);
+  const supplied = { ...(manifest.trigger.inputs || {}) };
+
+  if (manifest.trigger.table !== undefined) {
+    if (!tableInput) throw new Error(`Trigger ${definition.type} does not declare a table input`);
+    supplied[tableInput.name] = manifest.trigger.table;
+  }
+  if (manifest.trigger.condition !== undefined) {
+    if (!conditionInput) throw new Error(`Trigger ${definition.type} does not declare a condition input`);
+    supplied[conditionInput.name] = manifest.trigger.condition;
+  }
+  let descriptor = null;
+  if (tableInput && supplied[tableInput.name]) {
+    descriptor = options.readTableDescriptor
+      ? await options.readTableDescriptor(supplied[tableInput.name])
+      : await readTableDescriptor(sdk, supplied[tableInput.name]);
+  }
+
+  return buildTriggerInstance({
+    flowId,
+    definition,
+    triggerType: definition.triggerType,
+    metadata: DEFAULT_TRIGGER_METADATA,
+    inputs: buildTriggerInputs(declared, supplied, descriptor),
+  });
 }
 
 function clone(value) {
@@ -511,9 +575,10 @@ function updatedTrigger(flow, manifest, descriptor) {
   if (!id) throw new Error('Saved record trigger has no usable identity');
   const update = { id, inputs };
   if (manifest.trigger.condition !== undefined) {
-    const generated = buildPredicateMetadata(condition, descriptor);
-    const metadata = { ...generated, ...(existingMetadata || {}), predicates: generated.predicates };
-    update.metadata = JSON.stringify(metadata);
+    // The instance re-derives predicate metadata from the condition input; see
+    // DEFAULT_TRIGGER_METADATA. The read-back check below still proves the
+    // derived predicate matches what was asked for.
+    update.metadata = DEFAULT_TRIGGER_METADATA;
   } else if (Object.prototype.hasOwnProperty.call(existing, 'metadata')) {
     update.metadata = existing.metadata;
   }
@@ -524,6 +589,14 @@ function insertedActions(response) {
   let found = [];
   walk(response, object => {
     if (!found.length && object.actions?.inserts) found = object.actions.inserts;
+  });
+  return found;
+}
+
+function insertedTriggers(response) {
+  let found = [];
+  walk(response, object => {
+    if (!found.length && object.triggerInstances?.inserts) found = object.triggerInstances.inserts;
   });
   return found;
 }
@@ -609,9 +682,12 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       parentSnapshot.capture_before = unavailableCapture('flow ID was not known before parent creation');
       await addPostMutationCapture(parentSnapshot, sdk, readUpdateSet, flowId);
     }
-    const initialDefinition = await readProcessFlow(sdk, instance, flowId, scope);
-    const tableDescriptor = await readTableDescriptor(sdk, instance, scope, manifest.trigger.table, options.readTableDescriptor);
-    const trigger = makeTriggerPatch(initialDefinition, manifest, tableDescriptor);
+    // A newly POSTed ProcessFlow has NO trigger (verified live: triggerInstances
+    // comes back empty), so the trigger is inserted by the same snFlowDesigner
+    // patch as the actions. There is nothing to read back from the parent apart
+    // from the flow identity.
+    const definition = await resolveTriggerDefinition(sdk, manifest.trigger.type);
+    const trigger = await buildCreateTrigger(sdk, flowId, manifest, definition, options);
 
     const actionInstances = [];
     for (const [index, action] of manifest.actions.entries()) {
@@ -636,11 +712,13 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       body: JSON.stringify({ query: buildFlowPatchMutation({ flowId, trigger, actions: actionInstances }), variables: {} }),
     }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
     assertGraphQLSuccess(patchResponse, 'Flow trigger/action patch');
+    const insertedTrigger = insertedTriggers(patchResponse)[0];
+    if (!insertedTrigger) throw new Error('Flow trigger insert returned no trigger identity');
     const inserted = insertedActions(patchResponse);
     if (inserted.length !== actionInstances.length) throw new Error(`Flow action patch returned ${inserted.length} inserted action identities; expected ${actionInstances.length}`);
 
     const processflow = await readProcessFlow(sdk, instance, flowId, scope);
-    verifyCreatedFlowReadback({ flowId, processflow, trigger, manifest, actionInstances, inserted });
+    verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigger, manifest, actionInstances, inserted });
     const { version } = await mutationContext('autosave_version', readUpdateSet, snapshots, () => createVerifiedFlowVersion(sdk, {
       instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow create',
     }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
@@ -650,7 +728,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     const triggerReadback = findArray(processflow, 'triggerInstances')[0] || {};
     return {
       flow: { id: flowId, name: manifest.name, status: 'draft', active: false },
-      trigger: { ...triggerReadback, id: findId(triggerReadback, ['sysId', 'sys_id', 'id']) || trigger.id },
+      trigger: { ...triggerReadback, id: findId(triggerReadback, ['sysId', 'sys_id', 'id']) || findId(insertedTrigger, ['sysId', 'sys_id', 'id']) },
       actions: inserted,
       processflow,
       definition_readback: { available: true, status: 'read_back', flow_id: flowId },
@@ -660,7 +738,10 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       lifecycle: { published: false, supported: ['draft', 'autosave'], deferred: ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'] },
     };
   } catch (error) {
-    throw new Error(`Flow ${flowId} creation incomplete: ${error.message}; reconciliation: ${JSON.stringify(snapshots)}`, { cause: error });
+    // Creation is two-stage: the parent POST leaves a real draft behind when the
+    // trigger/action patch fails. Name that orphan explicitly instead of leaving
+    // the caller to hunt for it.
+    throw new Error(`Flow ${flowId} creation incomplete and left orphan draft flow ${flowId} (delete it in Flow Designer): ${error.message}; reconciliation: ${JSON.stringify(snapshots)}`, { cause: error });
   }
 }
 
@@ -682,7 +763,9 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   if (manifest.trigger !== undefined) {
     const currentTrigger = findArray(beforeDefinition, 'triggerInstances')[0];
     const currentTable = inputRawValue(inputList(currentTrigger).find(input => input.name === 'table'));
-    const descriptor = await readTableDescriptor(sdk, instance, scope, manifest.trigger.table ?? currentTable, options.readTableDescriptor);
+    const descriptor = options.readTableDescriptor
+      ? await options.readTableDescriptor(manifest.trigger.table ?? currentTable)
+      : await readTableDescriptor(sdk, manifest.trigger.table ?? currentTable);
     triggerUpdate = updatedTrigger(beforeDefinition, manifest, descriptor).update;
     triggerUpdates.push(triggerUpdate);
   }
@@ -726,10 +809,8 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       if (manifest.trigger.condition !== undefined) {
         if (inputRawValue(readbackInputs.find(input => input.name === 'condition')) !== manifest.trigger.condition) throw new Error(`Flow ${flowId} trigger condition readback did not match the requested value`);
         assertPredicateMetadataMatches(readbackTrigger.metadata, manifest.trigger.condition, `Flow ${flowId} trigger`);
-        const beforeMetadata = parseMaybeJson(beforeTrigger.metadata, {});
-        const afterMetadata = parseMaybeJson(readbackTrigger.metadata, {});
-        delete beforeMetadata.predicates;
-        delete afterMetadata.predicates;
+        const beforeMetadata = stripPredicates(parseMaybeJson(beforeTrigger.metadata, {}));
+        const afterMetadata = stripPredicates(parseMaybeJson(readbackTrigger.metadata, {}));
         if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) throw new Error(`Flow ${flowId} trigger metadata changed fields omitted by the manifest`);
       } else if (JSON.stringify(parseMaybeJson(beforeTrigger.metadata, {})) !== JSON.stringify(parseMaybeJson(readbackTrigger.metadata, {}))) {
         throw new Error(`Flow ${flowId} trigger metadata changed when the condition was omitted`);
