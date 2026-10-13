@@ -230,13 +230,19 @@ export async function readActionDefinition(sdk, instance, actionTypeId, scope, {
   return { definition, schema };
 }
 
-function buildTypedInputs(action, schema) {
+export function buildTypedInputs(action, schema) {
   const supplied = action.inputs || {};
-  const allowed = new Set(schema.map(field => field.name));
+  const allowed = new Set(schema.map(field => field?.name).filter(Boolean));
   for (const key of Object.keys(supplied)) if (!allowed.has(key)) throw new Error(`Unsupported input "${key}" for action ${action.type}`);
   return schema.map(field => {
-    if (!field || typeof field !== 'object' || !field.id || !field.parameter || typeof field.parameter !== 'object') {
+    // The instance's own definition is the contract: identity is required,
+    // everything else (including an optional `parameter` block) is echoed back
+    // untouched. Demanding a key the provider omits breaks real actions.
+    if (!field || typeof field !== 'object' || !field.id || !field.name) {
       throw new Error(`Action ${action.type} returned an incomplete input schema; refusing to invent input metadata for "${field?.name || 'unknown'}"`);
+    }
+    if (field.parameter !== undefined && (typeof field.parameter !== 'object' || field.parameter === null || Array.isArray(field.parameter))) {
+      throw new Error(`Action ${action.type} input "${field.name}" has a malformed parameter block; refusing to change it`);
     }
     const suppliedValue = Object.prototype.hasOwnProperty.call(supplied, field.name) ? supplied[field.name] : field.default;
     if ((suppliedValue === undefined || suppliedValue === null) && (field.mandatory === true || field.required === true)) throw new Error(`Missing required input "${field.name}" for action ${action.type}`);

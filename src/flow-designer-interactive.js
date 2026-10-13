@@ -265,8 +265,8 @@ export async function guidedFlowCreate(argv, app) {
     const { schema } = await readActionDefinition(app.sdk, app.getEffectiveInstance(), id, manifest.scope, { requireTypes: true });
     const inputs = {};
     for (const field of schema) {
-      if (!field.id || !field.parameter || typeof field.parameter !== 'object' || Array.isArray(field.parameter)) {
-        throw errUsage(`Published action input ${field.name} lacks provider id/parameter metadata; no flow was allocated`);
+      if (!field.id || !field.name) {
+        throw errUsage(`Published action input ${field.name || 'unknown'} lacks the provider identity needed to bind a value; no flow was allocated`);
       }
       inputs[field.name] = await promptSchemaValue(app, field, field.default, 'Action input: ');
     }
