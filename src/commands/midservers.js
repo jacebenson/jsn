@@ -3,7 +3,7 @@ import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList,
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { detectDocker, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
+import { detectDocker, defaultRun, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -250,6 +250,7 @@ export function midserversCmd(wrap) {
               ]
               : dockerStatus.installed && dockerStatus.compose
                 ? [
+                  { name: 'Run with sudo', value: 'sudo' },
                   { name: 'Prepare files now, run Docker later', value: 'prepare' },
                   { name: 'Direct install (not available yet)', value: 'direct' },
                 ]
@@ -267,8 +268,13 @@ export function midserversCmd(wrap) {
             name,
             releaseName: credentials.releaseName,
             directory: argv.directory,
-            runNow: installMethod !== 'prepare',
+            runNow: false,
           });
+          if (installMethod === 'sudo') {
+            defaultRun('sudo', ['systemctl', 'start', 'docker']);
+            defaultRun('sudo', ['docker', 'compose', '-f', installation.composePath, 'up', '-d'], { cwd: installation.installDir });
+            installation.prepared = false;
+          }
           if (installation.prepared) {
             app.ok(installation, { summary: `Prepared MID Server files in ${installation.installDir}. Run: ${installation.runCommand}` });
             return;
