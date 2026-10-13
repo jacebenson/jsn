@@ -1,6 +1,7 @@
 // Output formatting: JSON, Markdown, Styled, Quiet
 
 import process from 'node:process';
+import { errExtractionNotFound } from './errors.js';
 
 export const FormatAuto = 'auto';
 export const FormatJSON = 'json';
@@ -125,9 +126,15 @@ export class OutputWriter {
     // --get extractor: resolve against the JSON envelope and print just that
     // value as JSON. Takes precedence over styling/table formats — a path
     // extract is inherently scriptable, not presentational.
+    //
+    // A path that does not resolve is an error, not a value. Stringifying
+    // `undefined` printed the literal token `undefined` and exited 0, so a
+    // typo looked like a successful empty result until the next tool in the
+    // pipeline failed to parse it. Present null/false/0/"" still print as-is.
     if (this.jqFilter) {
       const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
       const value = resolvePath(envelope, this.jqFilter);
+      if (value === undefined) throw errExtractionNotFound(this.jqFilter);
       this.writer.write(JSON.stringify(value, null, 2) + '\n');
       return;
     }

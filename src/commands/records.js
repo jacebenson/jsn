@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
@@ -514,20 +514,24 @@ export function recordsCmd(wrap) {
         })
 
     },
-    handler: (argv) => {
+    // Parent discovery through the output controller: the subcommand list is
+    // registry-derived (argv.subcommands), so `jsn records --json` returns a
+    // structured envelope instead of prose, and the descriptions can no longer
+    // describe a different surface than the registrations (the previous
+    // hand-written list advertised `inspect` as table schema/statistics).
+    handler: wrap(async (argv, app) => {
       if (argv._[1]) return; // a subcommand ran — its own handler handled it
-      console.log('Query and manage records in any ServiceNow table.');
-      console.log('');
-      console.log('Available subcommands:');
-      console.log('  list                  List records from a table (includes total by default)');
-      console.log('  get                   Get a single record by sys_id (--attachments to include files)');
-      console.log('  create                Create a record');
-      console.log('  update                Update a record');
-      console.log('  delete                Delete a record');
-      console.log('  aggregate              Run Stats API aggregation with optional grouping');
-      console.log('  inspect                Inspect table schema and statistics');
-      console.log('');
-      console.log('Run "jsn records <command> --help" for details.');
-    },
+      const subcommands = argv.subcommands || [];
+      const summary = 'Query and manage records in any ServiceNow table.';
+      app.ok({
+        command: 'records',
+        subcommands,
+        _formatted: formatCommandList({
+          title: summary,
+          commands: subcommands,
+          footer: 'Run "jsn records <command> --help" for details.',
+        }),
+      }, { summary });
+    }),
   };
 }

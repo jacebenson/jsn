@@ -10,6 +10,7 @@ export const CodeAPI = 'api_error';
 export const CodeAmbiguous = 'ambiguous';
 export const CodeEmptyResult = 'empty_result';
 export const CodeConfirmationRequired = 'confirmation_required';
+export const CodeExtractionNotFound = 'extraction_not_found';
 
 export class AppError extends Error {
   constructor(code, message, hint = '', status = 0, cause = null) {
@@ -119,6 +120,24 @@ export function errAmbiguous(resource, matches) {
 }
 
 /**
+ * Structured error for `--get <path>` resolving to nothing.
+ *
+ * An unresolvable path (typo, wrong envelope shape, out-of-range index) is a
+ * failure, not a value: printing `undefined` and exiting 0 made a misspelled
+ * extract look like a successful empty result until the next tool in the pipe
+ * tried to parse it. A path that resolves to a present null, false, 0, or ""
+ * is a real value and is returned unchanged — only an unresolved path errors.
+ */
+export function errExtractionNotFound(path) {
+  return new AppError(
+    CodeExtractionNotFound,
+    `No value at --get path "${path}".`,
+    'Check the path against the envelope (run the same command without --get, or with --json, to see its shape). '
+    + 'Present null, false, 0, and "" values are returned as-is; only an unresolvable path fails.'
+  );
+}
+
+/**
  * Structured error for a destructive action that requires confirmation
  * but no human is available to answer (non-TTY, pipes, or AI agents).
  * The hint is written to be machine-parseable: an agent can read the
@@ -152,11 +171,19 @@ export function isErrorCode(err, code) {
  *
  * Exit-code contract (observable behavior, pinned by tests):
  *   not_found              → 1   stderr, "Error (not_found): …" + identifier hint
- *   usage / usage_error    → 2   stderr, "Error (usage): …"
+ *   extraction_not_found   → 1   JSON envelope on stdout in JSON mode, else stderr
+ *   usage / usage_error    → 2   JSON envelope on stdout in JSON mode
+ *                                (machine consumers), else stderr "Error (usage): …"
  *   system_error           → 3   stderr, "Error (system): …"
  *   confirmation_required  → 1   JSON envelope on stdout in JSON mode
  *                                (machine consumers), else stderr + hint
  *   anything else          → 1   stderr, "Error: …"
+ *
+ * The JSON envelope is the SAME shape for every failure that a machine
+ * consumer can hit — guardError(), the mutation middleware, parse-time
+ * failures routed by cli.js, and handler-thrown AppErrors all end up here, so
+ * `--json` never yields human prose on stdout and never yields a
+ * success-shaped payload for a failed command.
  *
  * jsonMode resolution: prefer app.output.effectiveFormat() (respects
  * --json/--quiet/etc. shortcuts AND piped-stdout auto-detection); fall
@@ -201,15 +228,35 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
     return { stream: 'stderr', text, exitCode: 1 };
   }
 
+  if (code === CodeExtractionNotFound) {
+    // Same contract as every other machine-consumable failure: a parseable
+    // envelope on stdout when the caller is in JSON mode, human text on
+    // stderr otherwise. Exit 1 — the command ran, the value was absent.
+    if (resolveJsonMode(app, argv) && app) {
+      return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    }
+    let text = `Error (${code}): ${err.message}\n`;
+    if (err.hint) text += `\nHint: ${err.hint}\n`;
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
   // 'usage' is the legacy literal; CodeUsage ('usage_error') is the
   // exported constant. Both render as the usage class.
   if (code === CodeUsage || code === 'usage') {
-    // Interactive command families can opt into machine-readable fail-fast errors
-    // without changing the legacy stderr contract for other usage errors.
-    if (err.jsonEnvelope === true && resolveJsonMode(app, argv) && app) {
+    // Usage failures were the last split-brain case: a parse-time failure
+    // exited 1 with raw prose, a middleware guard exited 2 with a JSON
+    // envelope, and a handler-thrown usage error exited 2 with prose — all
+    // for the same class of mistake. One renderer, one exit code (2), and a
+    // structured envelope whenever the caller is in JSON mode.
+    if (resolveJsonMode(app, argv) && app) {
       return { stream: 'stdout', text: null, exitCode: 2, appErr: true };
     }
-    return { stream: 'stderr', text: `Error (usage): ${err.message}\n`, exitCode: 2 };
+    // Keep the actionable hint (the failing command's --help) in the human view
+    // too — it used to be dropped on this path while every other error class
+    // printed one.
+    let text = `Error (usage): ${err.message}\n`;
+    if (err.hint) text += `\nHint: ${err.hint}\n`;
+    return { stream: 'stderr', text, exitCode: 2 };
   }
 
   if (code === 'system_error') {
