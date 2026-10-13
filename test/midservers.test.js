@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildCommandPayload, midserversCmd, parseCommandResult, assertMidServerUp } from '../src/commands/midservers.js';
+import { buildCommandPayload, midserversCmd, parseCommandResult, assertMidServerUp, assertMidServerReady } from '../src/commands/midservers.js';
 import { mutationPaths } from '../src/capabilities.js';
 
 function collectCommands(command) {
@@ -35,6 +35,14 @@ describe('midservers command', () => {
     assert.throws(
       () => assertMidServerUp({ name: 'mid.server.oct12-mid', status: 'Down' }),
       /is not Up \(status: Down\).*Start or install it/,
+    );
+  });
+
+  it('rejects execution until the MID Server is validated', () => {
+    assert.doesNotThrow(() => assertMidServerReady({ name: 'mid.server.oct12-mid', status: 'Up', validated: 'validated' }));
+    assert.throws(
+      () => assertMidServerReady({ name: 'mid.server.oct12-mid', status: 'Up', validated: 'validating' }),
+      /is not validated yet.*validation: validating/,
     );
   });
 
