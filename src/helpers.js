@@ -33,6 +33,29 @@ export function canPrompt() {
 }
 
 /**
+ * True when an interactive picker may be opened for THIS invocation.
+ *
+ * canPrompt() alone answers "is a human reachable" — it does not know that
+ * the caller asked for machine output (`--json`, `--quiet`, `--csv`, …) or
+ * a one-shot extraction (`--get`). Opening a picker in either case blocks a
+ * script and corrupts the requested output shape, so every picker gate
+ * routes through here.
+ *
+ * @param {object} app — app instance (uses app.output when present)
+ * @param {object} [argv] — parsed args (checks argv.get)
+ * @returns {boolean} true when a picker may be shown
+ */
+export function canUsePicker(app, argv = {}) {
+  if (argv && argv.get) return false;
+  if (!canPrompt()) return false;
+  const writer = app?.output;
+  if (!writer) return true; // no output controller (unit-test app) — canPrompt decided
+  const format = typeof writer.getFormat === 'function' ? writer.getFormat() : undefined;
+  if (!format) return true;
+  return format === FormatAuto;
+}
+
+/**
  * Render a parent command's subcommand list for its default handler.
  *
  * Returned through the `_formatted` side channel so a terminal prints the list
@@ -48,6 +71,55 @@ export function formatCommandList({ title, commands, footer }) {
 }
 
 /**
+ * Quote one argv token so the emitted confirmation hint is copy-pasteable
+ * in a POSIX shell. Boring tokens stay bare; anything containing spaces,
+ * quotes, `$`, `;`, `&`, `*` … gets single-quoted with embedded quotes
+ * escaped. `^ = < > ~ ! ,` are ServiceNow query characters — common in
+ * encoded queries — and are shell-safe bare, so they stay bare.
+ *
+ * @param {*} value — token
+ * @returns {string} shell-safe token
+ */
+export function quoteShellArg(value) {
+  const s = value == null ? '' : String(value);
+  if (s === '') return "''";
+  if (/^[A-Za-z0-9_@%+=:,./^-]+$/.test(s)) return s;
+  return `'${s.split("'").join("'\\''")}'`;
+}
+
+/**
+ * Build the exact, safely-quoted rerun command for a confirmation hint.
+ *
+ * `argv._` holds command PATH NAMES only — the local adapter stores
+ * positionals and flags in named fields — so a hint built from `argv._`
+ * alone loses the target (`jsn incidents delete` with no number). Callers
+ * therefore pass the complete target tokens.
+ *
+ * @param {object} argv — parsed args (reads `_`, `profile`, `instance`)
+ * @param {object} [opts]
+ * @param {string|string[]} [opts.rerun] — complete rerun command: a token
+ *   array (quoted here) or a full command string (used verbatim)
+ * @returns {string} command without `--force`, or '' when unknowable
+ */
+export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
+  let parts;
+  if (Array.isArray(rerun) && rerun.length > 0) {
+    parts = ['jsn', ...rerun].map(quoteShellArg);
+  } else if (typeof rerun === 'string' && rerun.trim()) {
+    parts = [rerun.trim()];
+  } else {
+    parts = ['jsn', ...(argv?._ || [])].map(quoteShellArg);
+  }
+  if (parts.length === 1) return ''; // no path known — nothing worth repeating
+  const joined = parts.join(' ');
+  // Re-pin the profile/instance the caller was operating on, so following
+  // the hint cannot silently retarget a different instance or profile.
+  if (argv?.profile && !joined.includes('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
+  if (argv?.instance && !joined.includes('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
+  return parts.join(' ');
+}
+
+/**
  * Confirm a destructive action before executing.
  *
  * Default posture is ASK: interactive terminals get a y/N prompt;
@@ -59,10 +131,12 @@ export function formatCommandList({ title, commands, footer }) {
  * @param {object} app — app instance (reads active profile from app.config)
  * @param {object} argv — parsed args (checks argv.force)
  * @param {string} question — e.g. `Delete incident INC0010001?`
+ * @param {object} [options] — { rerun } complete rerun command or token
+ *   array for the hint (see buildRerunCommand)
  * @returns {Promise<boolean>} true when the action may proceed
  * @throws when confirmation is required but denied/unavailable
  */
-export async function confirmDelete(app, argv, question) {
+export async function confirmDelete(app, argv, question, options = {}) {
   const profile = getActiveProfile(app.config);
   if (profile?.skip_confirmations === true) return true;
   if (argv.force) return true;
@@ -80,8 +154,7 @@ export async function confirmDelete(app, argv, question) {
   }
   // No human available (pipes, scripts, AI agents). Fail fast with a
   // structured error an agent can act on — never hang waiting for stdin.
-  const cmd = ['jsn', ...(argv._ || [])].join(' ');
-  throw errConfirmationRequired(question, cmd);
+  throw errConfirmationRequired(question, buildRerunCommand(argv, options));
 }
 
 
@@ -298,14 +371,39 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   const pickerFields = pickerColumns.join(',');
   const baseQuery = query ? query + '^' : '';
 
-  // Get total count
-  let totalCount;
+  // Get total count. A FAILED count is unknown — never zero. Mapping the
+  // failure to 0 used to make callers report an invented "empty table"
+  // success (or silently return) when the real cause was a 403/network
+  // error. Only a measured 0 means empty; otherwise confirm emptiness with
+  // one bounded list request before showing the picker.
+  let totalCount = null;
+  let countError = null;
   try {
     totalCount = await app.sdk.aggregateCount(table, query || '');
-  } catch {
-    totalCount = 0;
+  } catch (err) {
+    countError = err;
   }
-  if (totalCount === 0) return null;
+  if (totalCount === 0) return null; // measured empty
+
+  if (countError) {
+    try {
+      const probeParams = new URLSearchParams();
+      probeParams.set('sysparm_limit', '1');
+      probeParams.set('sysparm_display_value', 'all');
+      probeParams.set('sysparm_fields', 'sys_id');
+      if (query) probeParams.set('sysparm_query', query);
+      const probe = await app.sdk.list(table, probeParams);
+      if (!Array.isArray(probe)) throw new Error('list returned a non-array result');
+      if (probe.length === 0) return null; // the list itself confirms empty
+    } catch (err) {
+      // Both the count and the list failed — surface the failure instead of
+      // reporting an empty result nobody measured.
+      throw new Error(
+        `Could not list ${table}: ${err.message || err} (aggregate count also failed: ${countError.message || countError})`,
+        { cause: err }
+      );
+    }
+  }
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
   async function serverSource(term, offset, { signal: _signal } = {}) {
@@ -418,7 +516,9 @@ export function parseDataArg(argv) {
   try {
     return JSON.parse(raw);
   } catch (e) {
-    throw new Error(`Invalid JSON: ${e.message}\n\nHint: Use --data-file for multiline payloads to avoid shell escaping issues.\nRaw value: ${raw.substring(0, 200)}`, { cause: e });
+    // Never echo the raw payload: real --data bodies carry personal data and
+    // secrets, and the parse position from e.message is enough to debug.
+    throw new Error(`Invalid JSON: ${e.message}\n\nHint: Use --data-file for multiline payloads to avoid shell escaping issues.`, { cause: e });
   }
 }
 

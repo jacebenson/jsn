@@ -14,6 +14,7 @@ import { saveConfig } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
+import { canPrompt } from './helpers.js';
 import { isMutationCommand } from './mutations.js';
 import process from 'node:process';
 
@@ -190,8 +191,14 @@ export class App {
     this.output.err(error);
   }
 
+  /**
+   * True only when a human can actually answer a prompt. Delegates to
+   * canPrompt() so the check is "both stdio descriptors are TTYs AND no
+   * agent/CI/opt-out marker is set" — a PTY allocated for an agent
+   * (stdout.isTTY true, JSN_NO_PROMPTS/CI set) is NOT interactive.
+   */
   isInteractive() {
-    return process.stdout.isTTY === true;
+    return canPrompt();
   }
 
   requireInstance() {

@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 
 import { globalConfigPath } from '../config.js';
 import { declareCapabilities } from '../capabilities.js';
+import { canUsePicker } from '../helpers.js';
 
 declareCapabilities('skill', { noInstance: true, skipDailyChecks: true });
 
@@ -305,8 +306,10 @@ export function skillCmd(wrap) {
                   }
                 }
               }
-            } else if (process.stdin.isTTY) {
-              // Interactive: show multi-select picker
+            } else if (canUsePicker(app, argv)) {
+              // Interactive: show multi-select picker. canUsePicker() (not a
+              // bare stdin TTY check) keeps a PTY allocated for an agent,
+              // CI, JSN_NO_PROMPTS, --json/--quiet or --get out of a prompt.
               const fetchedVersion = extractVersion(content);
               // Check if any existing installed copies are outdated
               const outdated = [];
