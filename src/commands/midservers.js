@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { input, password as passwordPrompt, select } from '@inquirer/prompts';
-import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, canPrompt } from '../helpers.js';
+import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, canPrompt, assertSafeExactMatch } from '../helpers.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
@@ -89,6 +89,85 @@ async function resolveMidServer(sdk, identifier) {
       resource: 'MID Server',
     });
   }
+}
+
+async function showMidDiagnostics(app, argv, kind) {
+  app.requireInstance();
+  let mid;
+  if (argv.identifier) {
+    mid = await resolveMidServer(app.sdk, argv.identifier);
+  } else {
+    if (!canPrompt() || app.output.getFormat() !== FormatAuto) {
+      throw new Error('An identifier is required outside an interactive terminal');
+    }
+    mid = await interactiveList({
+      app, table: AGENT_TABLE, singular: 'MID Server', columns: LIST_FIELDS,
+      limit: 50, labelField: 'name', message: `Select a MID Server for ${kind}`,
+      formatLabel: record => `${getStringField(record, 'name')} [${getStringField(record, 'status')}]`,
+    });
+    if (!mid) return;
+  }
+  const name = getStringField(mid, 'name');
+  const sysId = unwrapSysId(mid);
+  assertSafeExactMatch(name);
+  assertSafeExactMatch(sysId);
+  const issues = kind === 'issues';
+  const table = issues ? 'ecc_agent_issue' : 'mid_server_event';
+  const columns = issues
+    ? ['sys_id', 'state', 'source', 'message', 'last_detected']
+    : ['sys_id', 'event', 'source', 'message', 'sys_created_on'];
+  const query = issues
+    ? `mid_server=${sysId}${argv.all ? '' : '^state!=resolved'}^ORDERBYDESClast_detected`
+    : `agent=${name}^ORDERBYDESCsys_created_on`;
+  const limit = argv.limit ?? 50;
+  const offset = argv.offset ?? 0;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || !Number.isInteger(offset) || offset < 0) {
+    throw new Error('Use --limit between 1 and 1000 and a nonnegative --offset');
+  }
+  const records = await app.sdk.list(table, new URLSearchParams({
+    sysparm_query: query, sysparm_fields: columns.join(','), sysparm_display_value: 'all',
+    sysparm_limit: String(limit), sysparm_offset: String(offset),
+  }));
+  const instanceURL = app.getEffectiveInstance();
+  const url = new URL(`/${table}_list.do`, instanceURL);
+  url.searchParams.set('sysparm_query', query);
+  const rows = records.map(record => ({
+    ...record,
+    url: new URL(`/${table}.do?sys_id=${encodeURIComponent(unwrapSysId(record))}`, instanceURL).href,
+  }));
+  const label = issues ? (argv.all ? 'issues' : 'unresolved issues') : 'lifecycle events';
+  const summary = rows.length
+    ? `Showing ${rows.length} ${label} for MID Server '${name}' (offset ${offset})`
+    : `No ${label} returned for MID Server '${name}' (offset ${offset})`;
+  const lines = [summary, ''];
+  for (const record of rows) {
+    lines.push(`${getStringField(record, issues ? 'last_detected' : 'sys_created_on')}  ${getStringField(record, issues ? 'state' : 'event')}`);
+    const source = getStringField(record, 'source');
+    const message = getStringField(record, 'message');
+    if (source) lines.push(`  ${source}`);
+    if (message) lines.push(`  ${message}`);
+    lines.push(`  ${record.url}`, '');
+  }
+  lines.push(`View in ServiceNow: ${url.href}`);
+  app.ok({
+    mid_server: name, sys_id: sysId, table, count: rows.length, records: rows,
+    pagination: { limit, offset }, url: url.href, context: { instance_url: instanceURL },
+    _formatted: `${lines.join('\n')}\n`,
+  }, { summary });
+}
+
+function midDiagnosticsCommand(kind, wrap) {
+  return {
+    command: `${kind} [identifier]`,
+    describe: kind === 'issues' ? 'Show MID Server issues (unresolved by default)' : 'Show MID Server lifecycle history',
+    builder: b => {
+      b.option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records (1-1000)' })
+        .option('offset', { type: 'number', default: 0, describe: 'Result offset' });
+      if (kind === 'issues') b.option('all', { type: 'boolean', default: false, describe: 'Include resolved issues' });
+      return b;
+    },
+    handler: wrap(async (argv, app) => showMidDiagnostics(app, argv, kind)),
+  };
 }
 
 async function listAgents(app, argv) {
@@ -244,6 +323,8 @@ export function midserversCmd(wrap) {
     aliases: ['midserver', 'mid'],
     describe: 'Manage ServiceNow MID Servers and run commands through them',
     builder: (y) => y
+      .command(midDiagnosticsCommand('issues', wrap))
+      .command(midDiagnosticsCommand('events', wrap))
       .command({
         command: 'list',
         aliases: ['ls'],
@@ -479,6 +560,8 @@ export function midserversCmd(wrap) {
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                         List MID Servers');
+      console.log('  issues [name_or_sys_id]       Show unresolved issues (--all includes resolved)');
+      console.log('  events [name_or_sys_id]       Show lifecycle history');
       console.log('  show <name_or_sys_id>        Show a MID Server');
       console.log('  add --name <name>             Create a MID Server record');
       console.log('  remove <name_or_sys_id>       Remove a MID Server record');
