@@ -457,12 +457,21 @@ export function midserversCmd(wrap) {
           const responseError = getStringField(response, 'error');
           if (responseError) throw new Error(`MID Server command failed: ${responseError}`);
           const result = parseCommandResult(queueValue(response.payload));
+          const responseSysId = unwrapSysId(response);
+          const responseURL = responseSysId
+            ? new URL(`/ecc_queue.do?sys_id=${encodeURIComponent(responseSysId)}`, app.getEffectiveInstance()).href
+            : '';
+          const summary = `Executed command on MID Server '${getStringField(record, 'name')}'`;
+          const lines = [summary, '', result.stdout || '(no stdout)'];
+          if (result.stderr) lines.push('', 'stderr:', result.stderr);
+          if (responseURL) lines.push('', `ECC input: ${responseURL}`);
           app.ok({
             mid_server: getStringField(record, 'name'),
             command,
             output: { sys_id: outputSysId, ...output },
-            response: { ...response, ...result },
-          }, { summary: `Executed command on MID Server '${getStringField(record, 'name')}'` });
+            response: { ...response, ...result, url: responseURL },
+            _formatted: `${lines.join('\n')}\n`,
+          }, { summary });
         }),
       }),
     handler: () => {

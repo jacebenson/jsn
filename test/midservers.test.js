@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCommandPayload, midserversCmd, parseCommandResult, assertMidServerUp, assertMidServerReady, waitForMidServerUp } from '../src/commands/midservers.js';
 import { mutationPaths } from '../src/capabilities.js';
+import { OutputWriter } from '../src/output.js';
 
 function collectCommands(command) {
   const commands = [];
@@ -75,7 +76,7 @@ describe('midservers command', () => {
           ? [{ sys_id: 'agent-id', name, status: 'Up', validated: 'true' }]
           : [{ sys_id: 'response-id', payload: '<results><result><stdout>/tmp</stdout></result></results>' }],
         create: async (table, data) => { assert.equal(table, 'ecc_queue'); queued = data; return { sys_id: 'output-id' }; },
-      }, ok: () => {} };
+      }, getEffectiveInstance: () => 'https://example.service-now.com', ok: () => {} };
       await execute.handler({ identifier: name, command: 'pwd', timeout: 100, interval: 250 }, app);
       assert.equal(queued.agent, `mid.server.${name}`);
     }
@@ -89,6 +90,36 @@ describe('midservers command', () => {
       return [record];
     } } }, 'oct12', 100, 1);
     assert.equal(result, record);
+  });
+
+  it('prints stdout, stderr and an input-record link while preserving JSON', async () => {
+    const execute = collectCommands(midserversCmd(handler => handler)).find(c => c.command === 'execute [identifier]');
+    for (const format of ['auto', 'json']) {
+      let text = '';
+      const output = new OutputWriter({ format, writer: { isTTY: true, write: chunk => { text += chunk; } } });
+      const app = {
+        getEffectiveInstance: () => 'https://example.service-now.com',
+        ok: (data, options) => output.ok(data, options),
+        sdk: {
+          list: async table => table === 'ecc_agent'
+            ? [{ name: 'oct12', status: 'Up', validated: 'true' }]
+            : [{ sys_id: { value: 'input-id', display_value: 'Command' }, payload: '<results><result><stdout>/opt/snc_mid_server/agent</stdout><stderr>warning</stderr></result></results>' }],
+          create: async () => ({ sys_id: 'output-id' }),
+        },
+      };
+      await execute.handler({ identifier: 'oct12', command: 'pwd', timeout: 100, interval: 250 }, app);
+      const url = 'https://example.service-now.com/ecc_queue.do?sys_id=input-id';
+      if (format === 'auto') {
+        assert.match(text, /\/opt\/snc_mid_server\/agent/);
+        assert.match(text, /stderr:\nwarning/);
+        assert.ok(text.includes(url));
+      } else {
+        const data = JSON.parse(text).data;
+        assert.equal(data.response.stdout, '/opt/snc_mid_server/agent');
+        assert.equal(data.response.stderr, 'warning');
+        assert.equal(data.response.url, url);
+      }
+    }
   });
 
   it('exposes list, show, add, remove, and execute', () => {
