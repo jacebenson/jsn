@@ -3,7 +3,7 @@ import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList,
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { dockerComposeAvailable, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
+import { detectDocker, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -235,22 +235,31 @@ export function midserversCmd(wrap) {
             message: 'MID Server name:',
             validate: value => value.trim() ? true : 'MID Server name is required',
           })).trim();
-          const dockerAvailable = dockerComposeAvailable();
+          const dockerStatus = detectDocker();
+          const dockerAvailable = dockerStatus.available;
           const installMethod = argv['install-method'] || await select({
             message: dockerAvailable
-              ? 'Docker and Docker Compose detected. How should the MID Server be installed?'
-              : 'Docker was not detected. How should the MID Server be installed?',
+              ? 'Docker and Docker Compose are ready. How should the MID Server be installed?'
+              : dockerStatus.installed && dockerStatus.compose
+                ? 'Docker is installed, but this user cannot access the Docker daemon. How should the MID Server be installed?'
+                : 'Docker was not detected. How should the MID Server be installed?',
             choices: dockerAvailable
               ? [
                 { name: 'Docker (recommended)', value: 'docker' },
                 { name: 'Direct install (not available yet)', value: 'direct' },
               ]
+              : dockerStatus.installed && dockerStatus.compose
+                ? [
+                  { name: 'Fix Docker daemon access first', value: 'docker-unavailable' },
+                  { name: 'Direct install (not available yet)', value: 'direct' },
+                ]
               : [
                 { name: 'Install Docker first', value: 'install-docker' },
                 { name: 'Direct install (not available yet)', value: 'direct' },
               ],
           });
           if (installMethod === 'direct') throw new Error('Direct MID Server installation is not implemented yet. Choose Docker.');
+          if (installMethod === 'docker-unavailable') throw new Error('Docker is installed, but this user cannot access the Docker daemon. Start Docker and grant this user access to /var/run/docker.sock, then run this command again.');
           if (installMethod === 'install-docker') throw new Error('Automatic Docker installation is not implemented yet. Install Docker and Compose, then run this command again.');
 
           const installation = await installDockerMidServer({
