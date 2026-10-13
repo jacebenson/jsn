@@ -1,10 +1,21 @@
 import { buildDevCmd } from './_generic.js';
-import { parseDataArg } from '../helpers.js';
+import { formatCommandList, parseDataArg } from '../helpers.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 import { ACTION_TABLE, actionScope } from '../processflow-actions.js';
 import { errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, designerScope, guidedActionCreate, guidedActionEdit, guidedActionTestInputs, interactiveDesigner, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
+
+const ACTION_COMMANDS = [
+  { name: 'list', description: 'List actions' },
+  { name: 'show [identifier]', description: 'Show an action by name or sys_id' },
+  { name: 'definition [identifier]', description: 'Read the full JSON definition including executable step_instances' },
+  { name: 'step-types', description: 'Read step schema templates for a target scope' },
+  { name: 'create', description: 'Create an action: guided in a terminal, full JSON definition in scripts' },
+  { name: 'update [identifier]', description: 'Save a full definition through Process Flow (alias: edit)' },
+  { name: 'test [identifier]', description: 'Execute an action and optionally wait for actual outputs' },
+  { name: 'delete [identifier]', description: 'Delete an action parent explicitly' },
+];
 
 const scopeOption = y => y.option('scope', { type: 'string', describe: 'Exact transaction scope sys_id; inferred from existing action when omitted' });
 const dataOptions = y => y
@@ -131,9 +142,15 @@ export const actionsCmd = wrap => {
         }),
       }),
     handler: wrap(async (_argv, app) => {
-      app.ok({ commands: ['list', 'show', 'definition', 'step-types', 'create', 'update', 'test', 'delete'] }, {
-        summary: 'Use jsn actions <command> --help. Create/update guide terminal users; automation uses full JSON definitions, not table fields.',
-      });
+      const summary = 'Manage Flow Designer actions from the sys_hub_action_type_definition table. Create and update guide terminal users; automation passes full JSON definitions, not table fields.';
+      app.ok({
+        commands: ACTION_COMMANDS.map(command => command.name),
+        _formatted: formatCommandList({
+          title: summary,
+          commands: ACTION_COMMANDS,
+          footer: 'Run "jsn actions <command> --help" for details. In a terminal you can omit the target and pick one.',
+        }),
+      }, { summary });
     }),
   };
 };
