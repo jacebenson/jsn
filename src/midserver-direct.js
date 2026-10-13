@@ -71,20 +71,28 @@ function checkParents(directory, platform) {
   }
 }
 
-export async function downloadMidZip(url, archive, fetchImpl = fetch) {
+export async function downloadMidZip(url, archive, fetchImpl = fetch, onProgress) {
   const response = await fetchImpl(url, { redirect: 'error', signal: AbortSignal.timeout(600000) });
   if (!response.ok || !response.body) throw new Error(`MID ZIP download failed (HTTP ${response.status})`);
   const length = Number(response.headers.get('content-length'));
   if (length > MAX_ARCHIVE) throw new Error('MID ZIP exceeds 1 GiB download limit');
+  onProgress?.({ phase: 'download', received: 0, total: Number.isFinite(length) ? length : 0 });
   const fd = fs.openSync(archive, 'wx', 0o600);
   let size = 0;
+  let reported = 0;
+  const step = Math.max(4 * 1024 * 1024, Math.floor((Number.isFinite(length) ? length : MAX_ARCHIVE) / 100));
   try {
     for await (const chunk of response.body) {
       size += chunk.length;
       if (size > MAX_ARCHIVE) throw new Error('MID ZIP exceeds 1 GiB download limit');
       fs.writeSync(fd, chunk);
+      if (onProgress && size - reported >= step) {
+        reported = size;
+        onProgress({ phase: 'download', received: size, total: Number.isFinite(length) ? length : 0 });
+      }
     }
     if (length && size !== length) throw new Error('Incomplete MID ZIP download');
+    onProgress?.({ phase: 'download', received: size, total: size, done: true });
   } finally { fs.closeSync(fd); }
 }
 
@@ -189,7 +197,7 @@ export function removeDirectInstallation(metadata, run = defaultRun) {
 }
 
 export async function installDirectMidServer({ instanceURL, username, password, name, directory, releaseName: suppliedRelease,
-  runNow = false, platform = process.platform, arch = process.arch, fetchImpl = fetch, download = downloadMidZip,
+  runNow = false, platform = process.platform, arch = process.arch, fetchImpl = fetch, download = downloadMidZip, onProgress,
   protect = protectDirectory, run = defaultRun }) {
   const native = detectDirectPlatform(platform, arch);
   if (native === 'linux' && process.getuid?.() === 0) throw new Error('Run direct MID installation as a non-root user');
@@ -216,9 +224,12 @@ export async function installDirectMidServer({ instanceURL, username, password, 
   let prepared = false;
   try {
     protect(installDir, native);
-    await download(archiveURL, archive, fetchImpl);
+    onProgress?.({ phase: 'download-start', archiveURL, platform: native, installDir, name: shortName });
+    await download(archiveURL, archive, fetchImpl, onProgress);
     const entries = inspectMidZip(archive);
+    onProgress?.({ phase: 'extract-start', entries: entries.length, installDir });
     await extractMidZip(archive, installDir, entries);
+    onProgress?.({ phase: 'extract-done', entries: entries.length, installDir });
     const agent = path.join(installDir, 'agent');
     for (const filename of ['config.xml', 'conf/wrapper-override.conf', native === 'linux' ? 'bin/mid.sh' : 'bin/mid.bat']) {
       if (!fs.statSync(path.join(agent, filename)).isFile()) throw new Error(`Vendor ZIP missing ${filename}`);
