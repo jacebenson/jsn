@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   buildMidRecipeUrl,
   dockerComposeAvailable,
+  detectDocker,
   installDockerMidServer,
   normalizeMidName,
   validateMidCredentials,
@@ -49,7 +50,10 @@ describe('MID Server installer', () => {
   it('detects Docker and Compose through injected commands', () => {
     const calls = [];
     assert.equal(dockerComposeAvailable((command, args) => calls.push([command, args])), true);
-    assert.deepEqual(calls, [['docker', ['info']], ['docker', ['compose', 'version']]]);
+    assert.deepEqual(calls, [['docker', ['--version']], ['docker', ['compose', 'version']], ['docker', ['info']]]);
+    assert.deepEqual(detectDocker(() => { throw new Error('missing'); }), {
+      installed: false, compose: false, daemon: false, available: false,
+    });
     assert.equal(dockerComposeAvailable(() => { throw new Error('missing'); }), false);
   });
 

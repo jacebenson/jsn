@@ -63,14 +63,17 @@ export async function validateMidCredentials(instanceURL, username, password, fe
   return { releaseName };
 }
 
+export function detectDocker(run = defaultRun) {
+  const status = { installed: false, compose: false, daemon: false, available: false };
+  try { run('docker', ['--version'], { stdio: 'ignore' }); status.installed = true; } catch { return status; }
+  try { run('docker', ['compose', 'version'], { stdio: 'ignore' }); status.compose = true; } catch { return status; }
+  try { run('docker', ['info'], { stdio: 'ignore' }); status.daemon = true; } catch { return status; }
+  status.available = true;
+  return status;
+}
+
 export function dockerComposeAvailable(run = defaultRun) {
-  try {
-    run('docker', ['info'], { stdio: 'ignore' });
-    run('docker', ['compose', 'version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  return detectDocker(run).available;
 }
 
 function composeFile({ serviceName }) {

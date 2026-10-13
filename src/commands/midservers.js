@@ -3,7 +3,7 @@ import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList,
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { dockerComposeAvailable, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
+import { detectDocker, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -235,22 +235,31 @@ export function midserversCmd(wrap) {
             message: 'MID Server name:',
             validate: value => value.trim() ? true : 'MID Server name is required',
           })).trim();
-          const dockerAvailable = dockerComposeAvailable();
+          const dockerStatus = detectDocker();
+          const dockerAvailable = dockerStatus.available;
           const installMethod = argv['install-method'] || await select({
             message: dockerAvailable
-              ? 'Docker and Docker Compose detected. How should the MID Server be installed?'
-              : 'Docker was not detected. How should the MID Server be installed?',
+              ? 'Docker and Docker Compose are ready. How should the MID Server be installed?'
+              : dockerStatus.installed && dockerStatus.compose
+                ? 'Docker is installed, but this user cannot access the Docker daemon. How should the MID Server be installed?'
+                : 'Docker was not detected. How should the MID Server be installed?',
             choices: dockerAvailable
               ? [
                 { name: 'Docker (recommended)', value: 'docker' },
                 { name: 'Direct install (not available yet)', value: 'direct' },
               ]
+              : dockerStatus.installed && dockerStatus.compose
+                ? [
+                  { name: 'Fix Docker daemon access first', value: 'docker-unavailable' },
+                  { name: 'Direct install (not available yet)', value: 'direct' },
+                ]
               : [
                 { name: 'Install Docker first', value: 'install-docker' },
                 { name: 'Direct install (not available yet)', value: 'direct' },
               ],
           });
           if (installMethod === 'direct') throw new Error('Direct MID Server installation is not implemented yet. Choose Docker.');
+          if (installMethod === 'docker-unavailable') throw new Error('Docker is installed, but this user cannot access the Docker daemon. Start Docker and grant this user access to /var/run/docker.sock, then run this command again.');
           if (installMethod === 'install-docker') throw new Error('Automatic Docker installation is not implemented yet. Install Docker and Compose, then run this command again.');
 
           const installation = await installDockerMidServer({
@@ -277,14 +286,36 @@ export function midserversCmd(wrap) {
         }),
       })
       .command({
-        command: 'remove <identifier>',
+        command: 'remove [identifier]',
         aliases: ['delete'],
-        describe: 'Remove a MID Server record',
+        describe: 'Remove a MID Server record (interactive when no identifier is given)',
         builder: (b) => b.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
         handler: wrap(async (argv, app) => {
-          const record = await resolveMidServer(app.sdk, argv.identifier);
+          let record;
+          if (argv.identifier) {
+            record = await resolveMidServer(app.sdk, argv.identifier);
+          } else {
+            if (!canPrompt() || app.output.getFormat() !== FormatAuto) {
+              throw new Error('An identifier is required outside an interactive terminal');
+            }
+            record = await interactiveList({
+              app,
+              table: AGENT_TABLE,
+              singular: 'MID Server',
+              columns: LIST_FIELDS,
+              limit: 50,
+              labelField: 'name',
+              message: 'Select a MID Server to remove',
+              formatLabel: (candidate) => {
+                const name = getStringField(candidate, 'name') || getStringField(candidate, 'sys_id');
+                const status = getStringField(candidate, 'status');
+                return status ? `${name} [${status}]` : name;
+              },
+            });
+            if (!record) return;
+          }
           const sysId = unwrapSysId(record);
-          const name = getStringField(record, 'name') || argv.identifier;
+          const name = getStringField(record, 'name') || argv.identifier || sysId;
           await confirmDelete(app, argv, `Remove MID Server '${name}'`);
           await app.sdk.delete(AGENT_TABLE, sysId);
           app.ok({ name, sys_id: sysId, deleted: true }, { summary: `Removed MID Server '${name}'` });
