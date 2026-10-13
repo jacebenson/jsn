@@ -145,28 +145,36 @@ export function readDirectInstallation(instanceURL, name, directory) {
   return metadata;
 }
 
+function uncertainState(metadata) {
+  return `MID '${metadata.name}' runtime state is uncertain after an interrupted lifecycle command. Confirm no vendor MID process from ${metadata.installDir} is running, then rerun; installed files are kept.`;
+}
+
 export function runDirectInstallation(metadata, action, run = defaultRun) {
   const cwd = path.join(metadata.installDir, 'agent');
   if (!['start', 'stop'].includes(action)) throw new Error('Unsupported MID runtime action');
-  // A crash between launch and verification leaves the true state unknown. Reconcile
-  // once, then refuse further operations until the operator inspects the runtime.
-  if (metadata.state === 'starting' || metadata.state === 'console-running') {
-    metadata.state = 'uncertain'; save(metadata);
-    throw new Error(`MID '${metadata.name}' was left in an uncertain runtime state by an interrupted start. Confirm no vendor MID process is running, then rerun; installed files are kept.`);
-  }
+  if (metadata.state === 'uncertain') throw new Error(uncertainState(metadata));
   if (metadata.runtime !== 'user-background') {
-    if (action === 'stop') throw new Error('Windows console MID: stop with Ctrl+C in its owning terminal before removal');
+    // Windows console runtime: never register a service, never guess at a state.
+    if (action === 'stop') {
+      throw new Error(metadata.state === 'console-running' ? 'Windows console MID: stop with Ctrl+C in its owning terminal before removal' : 'Windows console MID is not running');
+    }
+    if (metadata.state !== 'prepared') throw new Error('MID is already started; stop it before starting again');
     metadata.state = 'console-running'; save(metadata);
     try { run('cmd.exe', ['/d', '/s', '/c', 'bin\\mid.bat console'], { cwd }); }
     catch { throw new Error('Windows MID console failed or was interrupted; runtime state is uncertain. Stop in its owning terminal; files retained.'); }
     metadata.state = 'prepared'; save(metadata);
     return metadata;
   }
+  // Never guess at a state an interrupted Linux command left behind; make it explicit.
+  if (['starting', 'stopping', 'console-running'].includes(metadata.state)) {
+    metadata.state = 'uncertain'; save(metadata);
+    throw new Error(uncertainState(metadata));
+  }
   // Call the native user-owned launcher, never install/register a system service.
   if (process.getuid?.() === 0) throw new Error('Run native MID lifecycle commands as a non-root user');
   refuseNativeService(nativeToken(metadata.instanceURL, metadata.name, metadata.installDir));
-  if (action === 'start' && !['prepared', 'uncertain'].includes(metadata.state)) throw new Error('MID is already started; stop it before starting again');
-  if (action === 'stop' && metadata.state === 'prepared') throw new Error('MID is not running');
+  if (action === 'start' && metadata.state !== 'prepared') throw new Error('MID is already started; stop it before starting again');
+  if (action === 'stop' && metadata.state !== 'started') throw new Error('MID is not running');
   metadata.state = action === 'start' ? 'starting' : 'stopping'; save(metadata);
   try { run('sh', ['bin/mid.sh', action], { cwd, stdio: 'ignore' }); }
   catch { throw new Error(`MID ${action} failed; installation retained at ${metadata.installDir}. Inspect local logs.`); }
@@ -175,6 +183,7 @@ export function runDirectInstallation(metadata, action, run = defaultRun) {
 }
 
 export function removeDirectInstallation(metadata, run = defaultRun) {
+  if (metadata.state === 'uncertain') throw new Error(`Refusing to remove '${metadata.name}': runtime state is uncertain. Inspect ${metadata.installDir} and stop any vendor MID process first.`);
   if (metadata.state !== 'prepared') runDirectInstallation(metadata, 'stop', run);
   fs.rmSync(metadata.installDir, { recursive: true });
 }

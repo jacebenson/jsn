@@ -14,6 +14,9 @@ function disposable(t) {
 }
 const options = { instanceURL: 'https://example.service-now.com', username: 'isolated-user', password: 'test-only<&"', name: 'mid.server.oct12', releaseName: 'australia-06-12-2026', runNow: false };
 const download = async (_url, filename) => writeZip(filename, inertAgent);
+// readDirectInstallation is bound to the host platform, so a Windows-simulated
+// installation on Linux is inspected through its own metadata file.
+const stateOf = directory => JSON.parse(fs.readFileSync(path.join(directory, '.jsn-mid-direct.json'), 'utf8')).state;
 
 test('real isolated Linux launcher prepares private XML, starts, stops and removes only its owned directory', { skip: process.platform !== 'linux' }, async t => {
   const parent = disposable(t), directory = path.join(parent, 'oct12');
@@ -94,10 +97,14 @@ test('a crash between start and verification reconciles state instead of reporti
   const metadata = await installDirectMidServer({ ...options, directory, download });
   metadata.state = 'starting';
   fs.writeFileSync(path.join(directory, '.jsn-mid-direct.json'), JSON.stringify(metadata, null, 2), { mode: 0o600 });
-  delete metadata.state;
-  assert.throws(() => runDirectInstallation(metadata, 'start'), /uncertain/);
-  assert.throws(() => runDirectInstallation(readDirectInstallation(options.instanceURL, 'oct12', directory), 'stop'), /uncertain/);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(directory, '.jsn-mid-direct.json'), 'utf8')).state, 'uncertain');
+  // The persisted state is mid-flight, as it would be after a crash during start.
+  const crashed = readDirectInstallation(options.instanceURL, 'oct12', directory);
+  assert.equal(crashed.state, 'starting');
+  assert.throws(() => runDirectInstallation(crashed, 'start'), /uncertain/);
+  assert.equal(readDirectInstallation(options.instanceURL, 'oct12', directory).state, 'uncertain');
+  for (const action of ['start', 'stop']) assert.throws(() => runDirectInstallation(readDirectInstallation(options.instanceURL, 'oct12', directory), action), /uncertain/);
+  assert.throws(() => removeDirectInstallation(readDirectInstallation(options.instanceURL, 'oct12', directory)), /uncertain/);
+  assert.equal(fs.existsSync(directory), true);
 });
 
 test('failed native start retains an uncertain runtime and refuses cleanup when stop fails', { skip: process.platform !== 'linux' }, async t => {
@@ -105,8 +112,10 @@ test('failed native start retains an uncertain runtime and refuses cleanup when 
   const metadata = await installDirectMidServer({ ...options, directory, download });
   const fail = () => { throw new Error('test-only secret must never escape'); };
   assert.throws(() => runDirectInstallation(metadata, 'start', fail), /MID start failed/);
-  assert.equal(metadata.state, 'starting');
-  assert.throws(() => removeDirectInstallation(metadata, fail), /MID stop failed/);
+  // A failed start leaves the runtime uncertain: record it and refuse cleanup.
+  assert.equal(readDirectInstallation(options.instanceURL, 'oct12', directory).state, 'starting');
+  assert.throws(() => removeDirectInstallation(metadata, fail), /uncertain/);
+  assert.throws(() => runDirectInstallation(metadata, 'start', fail), /uncertain/);
   assert.equal(fs.existsSync(directory), true);
 });
 
@@ -117,14 +126,20 @@ test('Windows invocation seam selects console, never installstart or LocalSystem
   runDirectInstallation(metadata, 'start', (command, args, opts) => calls.push({ command, args, cwd: opts.cwd }));
   assert.deepEqual(calls, [{ command: 'cmd.exe', args: ['/d', '/s', '/c', 'bin\\mid.bat console'], cwd: path.join(directory, 'agent') }]);
   assert.equal(metadata.serviceRegistered, false);
-  assert.doesNotMatch(JSON.stringify(calls), /test-only|installstart/);
+  assert.equal(stateOf(directory), 'prepared');
+  assert.throws(() => runDirectInstallation(metadata, 'stop'), /is not running/);
+  // A clean console exit returns to prepared, so a later console start is allowed again.
+  runDirectInstallation(metadata, 'start', (command, args, opts) => calls.push({ command, args, cwd: opts.cwd }));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(call => call.args), [['/d', '/s', '/c', 'bin\\mid.bat console'], ['/d', '/s', '/c', 'bin\\mid.bat console']]);
+  assert.doesNotMatch(JSON.stringify(calls), /test-only|installstart|start\.bat/);
 });
 
 test('Windows console errors retain uncertain state and do not leak process error output', async t => {
   const directory = path.join(disposable(t), 'windows-failed');
   const metadata = await installDirectMidServer({ ...options, directory, platform: 'win32', arch: 'x64', download, protect: () => {} });
   assert.throws(() => runDirectInstallation(metadata, 'start', () => { throw new Error('sensitive-process-output'); }), /Windows MID console failed/);
-  assert.equal(metadata.state, 'console-running');
+  assert.equal(stateOf(directory), 'console-running');
   assert.throws(() => removeDirectInstallation(metadata), /owning terminal/);
   assert.equal(fs.existsSync(directory), true);
 });
