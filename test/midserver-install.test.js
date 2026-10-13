@@ -26,6 +26,12 @@ describe('MID Server installer', () => {
     );
   });
 
+  it('uses the final build date in a release name with multiple dates', () => {
+    assert.match(
+      buildMidRecipeUrl('australia-02-11-2026__patch3-05-25-2026_06-12-2026_1106'),
+      /\/2026\/06\/12\//,
+    );
+  });
   it('normalizes the mid.server prefix and rejects unsafe names', () => {
     assert.equal(normalizeMidName('mid.server.oct12'), 'oct12');
     assert.throws(() => normalizeMidName('oct12/evil'), /may contain only/);
