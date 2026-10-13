@@ -195,12 +195,14 @@ async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
 function removeLocalMidServer(instanceURL, name) {
   const installDir = midInstallDirectory(instanceURL, name);
   const composePath = path.join(installDir, 'docker-compose.yaml');
+  const envPath = path.join(installDir, '.env');
   if (!fs.existsSync(composePath)) return false;
+  const composeArgs = ['compose', ...(fs.existsSync(envPath) ? ['--env-file', envPath] : []), '-f', composePath, 'down'];
   try {
-    defaultRun('docker', ['compose', '-f', composePath, 'down'], { cwd: installDir });
+    defaultRun('docker', composeArgs, { cwd: installDir });
   } catch {
     defaultRun('sudo', ['systemctl', 'start', 'docker']);
-    defaultRun('sudo', ['docker', 'compose', '-f', composePath, 'down'], { cwd: installDir });
+    defaultRun('sudo', ['docker', ...composeArgs], { cwd: installDir });
   }
   try {
     fs.rmSync(installDir, { recursive: true, force: true });
@@ -208,6 +210,21 @@ function removeLocalMidServer(instanceURL, name) {
     defaultRun('sudo', ['rm', '-rf', '--', installDir]);
   }
   return true;
+}
+
+function showMidServerLogs(app, identifier, argv) {
+  const installDir = midInstallDirectory(app.getEffectiveInstance(), identifier);
+  const composePath = path.join(installDir, 'docker-compose.yaml');
+  const envPath = path.join(installDir, '.env');
+  if (!fs.existsSync(composePath)) throw new Error(`No local Compose installation found for MID Server '${identifier}'`);
+  const args = ['compose', ...(fs.existsSync(envPath) ? ['--env-file', envPath] : []), '-f', composePath, 'logs', '--tail', String(argv.tail)];
+  if (argv.follow) args.push('--follow');
+  try {
+    defaultRun('docker', args, { cwd: installDir });
+  } catch {
+    defaultRun('sudo', ['systemctl', 'start', 'docker']);
+    defaultRun('sudo', ['docker', ...args], { cwd: installDir });
+  }
 }
 
 export function midserversCmd(wrap) {
@@ -239,6 +256,26 @@ export function midserversCmd(wrap) {
         }),
       })
       .command({
+        command: 'logs <identifier>',
+        describe: 'Show local Docker Compose logs for a MID Server',
+        builder: (b) => b
+          .option('tail', { type: 'number', default: 100, describe: 'Number of log lines' })
+          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs' }),
+        handler: wrap(async (argv, app) => {
+          showMidServerLogs(app, argv.identifier, argv);
+        }),
+      })
+      .command({
+        command: '<identifier> logs',
+        describe: 'Show local Docker Compose logs for a MID Server',
+        builder: (b) => b
+          .option('tail', { type: 'number', default: 100, describe: 'Number of log lines' })
+          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs' }),
+        handler: wrap(async (argv, app) => {
+          showMidServerLogs(app, argv.identifier, argv);
+        }),
+      })
+      .command({
         command: 'add',
         describe: 'Install and verify a MID Server',
         builder: (b) => b
@@ -246,7 +283,7 @@ export function midserversCmd(wrap) {
           .option('username', { type: 'string', describe: 'MID Server username (password is always prompted)' })
           .option('install-method', { type: 'string', choices: ['docker', 'direct'], describe: 'Installation method (prompted when omitted)' })
           .option('directory', { type: 'string', describe: 'Docker installation directory' })
-          .option('wait-timeout', { type: 'number', default: 120000, describe: 'How long to wait for the MID Server to report Up' })
+          .option('wait-timeout', { type: 'number', default: 300000, describe: 'How long to wait for the MID Server to report Up' })
           .option('wait-interval', { type: 'number', default: 3000, describe: 'MID Server status polling interval in milliseconds' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
@@ -292,13 +329,14 @@ export function midserversCmd(wrap) {
           });
           if (installMethod === 'sudo') {
             defaultRun('sudo', ['systemctl', 'start', 'docker']);
-            defaultRun('sudo', ['docker', 'compose', '-f', installation.composePath, 'up', '-d'], { cwd: installation.installDir });
+            defaultRun('sudo', ['docker', 'compose', '--env-file', path.join(installation.installDir, '.env'), '-f', installation.composePath, 'up', '-d'], { cwd: installation.installDir });
             installation.prepared = false;
           }
           if (installation.prepared) {
             app.ok(installation, { summary: `Prepared MID Server files in ${installation.installDir}. Run: ${installation.runCommand}` });
             return;
           }
+          console.log('MID Server container started. ServiceNow may take a few minutes to register it and report Up.');
           let record;
           try {
             record = await waitForMidServerUp(app, installation.name, Math.max(1, argv['wait-timeout']), Math.max(500, argv['wait-interval']));
