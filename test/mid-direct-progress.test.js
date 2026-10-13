@@ -72,6 +72,62 @@ test('progress stays silent for structured output and non-terminal stderr', () =
   } finally { process.stderr.write = original; }
 });
 
+test('direct log discovery finds the rotated vendor log and refuses links', async t => {
+  const { resolveDirectLogFile } = await import('../src/midserver-direct.js');
+  const directory = disposable(t);
+  const logs = path.join(directory, 'agent', 'logs');
+  assert.equal(resolveDirectLogFile(directory), null, 'missing logs directory yields null');
+  fs.mkdirSync(logs, { recursive: true });
+  // An interrupted install with an empty logs dir must not be reported as having a log.
+  assert.equal(resolveDirectLogFile(directory), null);
+  fs.writeFileSync(path.join(logs, 'wrapper.log'), 'wrapper\n');
+  fs.writeFileSync(path.join(logs, 'agent0.log.0.lck'), '');
+  assert.equal(path.basename(resolveDirectLogFile(directory)), 'wrapper.log', 'a lock file is not a log');
+  fs.writeFileSync(path.join(logs, 'agent0.log.0'), 'rotated\n');
+  fs.utimesSync(path.join(logs, 'agent0.log.0'), new Date(Date.now() - 60000), new Date(Date.now() - 60000));
+  assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log.0', 'rotated agent log wins over wrapper.log');
+  fs.writeFileSync(path.join(logs, 'agent0.log'), 'current\n');
+  assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log', 'the most recently written agent log wins');
+  fs.utimesSync(path.join(logs, 'agent0.log'), new Date(Date.now() - 60000), new Date(Date.now() - 60000));
+  fs.utimesSync(path.join(logs, 'agent0.log.0'), new Date(), new Date());
+  assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log.0', 'a newer rotated file takes over after rotation');
+  // A symlinked log must never be followed or returned.
+  fs.rmSync(path.join(logs, 'agent0.log'));
+  fs.symlinkSync('/etc/hostname', path.join(logs, 'agent0.log'));
+  assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log.0', 'a symlink is never selected');
+});
+
+test('follow streams appended lines and survives log rotation', async t => {
+  const { followDirectLog, resolveDirectLogFile } = await import('../src/midserver-direct.js');
+  const directory = disposable(t);
+  const logs = path.join(directory, 'agent', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  const active = path.join(logs, 'agent0.log.0');
+  fs.writeFileSync(active, 'first\n');
+  const chunks = [];
+  let step = 0;
+  const sleep = async () => {
+    step += 1;
+    if (step === 1) fs.appendFileSync(active, 'second\n');
+    if (step === 2) {
+      // Rotate: the retired file goes quiet and a new file becomes the newest agent log.
+      fs.writeFileSync(active, 'rotated-away\n');
+      fs.utimesSync(active, new Date(Date.now() - 120000), new Date(Date.now() - 120000));
+      fs.writeFileSync(path.join(logs, 'agent0.log.1'), '');
+    }
+    if (step === 3) fs.appendFileSync(path.join(logs, 'agent0.log.1'), 'after rotation\n');
+  };
+  await followDirectLog(directory, { writer: chunk => chunks.push(chunk), intervalMs: 1, iterations: 3, sleep });
+  const output = chunks.join('');
+  assert.match(output, /second/);
+  assert.match(output, /after rotation/);
+  assert.ok(!output.includes('rotated-away'), 'lines written to the retired file are not replayed');
+  assert.equal(fs.existsSync(resolveDirectLogFile(directory)), true);
+
+  // A missing log is a clear error, not a hang.
+  await assert.rejects(followDirectLog(path.join(directory, 'absent'), { iterations: 1 }), /No MID agent log yet/);
+});
+
 test('registration progress reports elapsed time at a bounded cadence', () => {
   const writes = [];
   const originalWrite = process.stderr.write;
