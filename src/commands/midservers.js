@@ -1,7 +1,9 @@
-import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, parseDataArg, canPrompt } from '../helpers.js';
+import { input, password as passwordPrompt, select } from '@inquirer/prompts';
+import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, canPrompt } from '../helpers.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { dockerComposeAvailable, installDockerMidServer, validateMidCredentials } from '../midserver-install.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -143,6 +145,51 @@ export function assertMidServerUp(record) {
   }
 }
 
+async function promptMidCredentials(app, argv) {
+  if (!canPrompt()) throw new Error('MID Server installation is interactive. Run it from a terminal.');
+  let username = argv.username || '';
+  while (true) {
+    username = username || (await input({
+      message: 'MID Server username:',
+      validate: value => value.trim() ? true : 'Username is required',
+    })).trim();
+    const password = await passwordPrompt({
+      message: 'MID Server password:',
+      mask: '*',
+      validate: value => value ? true : 'Password is required',
+    });
+    try {
+      const validation = await validateMidCredentials(app.getEffectiveInstance(), username, password);
+      return { username, password, releaseName: validation.releaseName };
+    } catch (error) {
+      const answer = await input({ message: `${error.message}. Press Enter to retry or Q to quit:` });
+      if (answer.trim().toLowerCase() === 'q') {
+        const quit = new Error('MID Server installation cancelled');
+        quit.code = 'cancelled';
+        throw quit;
+      }
+      username = argv.username || '';
+    }
+  }
+}
+
+async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
+  const started = Date.now();
+  const fullName = `mid.server.${name.replace(/^mid\.server\./, '')}`;
+  while (Date.now() - started <= timeoutMs) {
+    const params = new URLSearchParams({
+      sysparm_query: `name=${fullName}`,
+      sysparm_limit: '1',
+      sysparm_display_value: 'all',
+      sysparm_fields: 'sys_id,name,status,host_name,version,last_heartbeat',
+    });
+    const records = await app.sdk.list(AGENT_TABLE, params);
+    if (records[0] && getStringField(records[0], 'status').toLowerCase() === 'up') return records[0];
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`MID Server '${fullName}' did not report Up within ${timeoutMs}ms`);
+}
+
 export function midserversCmd(wrap) {
   return {
     command: 'midservers [subcommand]',
@@ -173,22 +220,60 @@ export function midserversCmd(wrap) {
       })
       .command({
         command: 'add',
-        describe: 'Create a MID Server record',
+        describe: 'Install and verify a MID Server',
         builder: (b) => b
-          .option('name', { type: 'string', describe: 'MID Server name (without the mid.server. prefix)' })
-          .option('host-name', { type: 'string', describe: 'MID Server host name' })
-          .option('ip-address', { type: 'string', describe: 'MID Server IP address' })
-          .option('data', { type: 'string', describe: 'JSON fields for the ecc_agent record' })
-          .option('data-file', { type: 'string', describe: 'Read JSON fields from a file' }),
+          .option('name', { type: 'string', describe: 'MID Server name (prompted when omitted)' })
+          .option('username', { type: 'string', describe: 'MID Server username (password is always prompted)' })
+          .option('install-method', { type: 'string', choices: ['docker', 'direct'], describe: 'Installation method (prompted when omitted)' })
+          .option('directory', { type: 'string', describe: 'Docker installation directory' })
+          .option('wait-timeout', { type: 'number', default: 120000, describe: 'How long to wait for the MID Server to report Up' })
+          .option('wait-interval', { type: 'number', default: 3000, describe: 'MID Server status polling interval in milliseconds' }),
         handler: wrap(async (argv, app) => {
-          let data = argv.data || argv['data-file'] ? parseDataArg(argv) : {};
-          if (argv.name) data.name = argv.name;
-          if (!data.name) throw new Error('--name or --data with a name is required');
-          data.name = String(data.name).startsWith('mid.server.') ? data.name : `mid.server.${data.name}`;
-          if (argv['host-name']) data.host_name = argv['host-name'];
-          if (argv['ip-address']) data.ip_address = argv['ip-address'];
-          const record = await app.sdk.create(AGENT_TABLE, data);
-          app.ok(record, { summary: `Created MID Server '${getStringField(record, 'name') || data.name}'` });
+          app.requireInstance();
+          const credentials = await promptMidCredentials(app, argv);
+          const name = argv.name || (await input({
+            message: 'MID Server name:',
+            validate: value => value.trim() ? true : 'MID Server name is required',
+          })).trim();
+          const dockerAvailable = dockerComposeAvailable();
+          const installMethod = argv['install-method'] || await select({
+            message: dockerAvailable
+              ? 'Docker and Docker Compose detected. How should the MID Server be installed?'
+              : 'Docker was not detected. How should the MID Server be installed?',
+            choices: dockerAvailable
+              ? [
+                { name: 'Docker (recommended)', value: 'docker' },
+                { name: 'Direct install (not available yet)', value: 'direct' },
+              ]
+              : [
+                { name: 'Install Docker first', value: 'install-docker' },
+                { name: 'Direct install (not available yet)', value: 'direct' },
+              ],
+          });
+          if (installMethod === 'direct') throw new Error('Direct MID Server installation is not implemented yet. Choose Docker.');
+          if (installMethod === 'install-docker') throw new Error('Automatic Docker installation is not implemented yet. Install Docker and Compose, then run this command again.');
+
+          const installation = await installDockerMidServer({
+            instanceURL: app.getEffectiveInstance(),
+            username: credentials.username,
+            password: credentials.password,
+            name,
+            releaseName: credentials.releaseName,
+            directory: argv.directory,
+          });
+          let record;
+          try {
+            record = await waitForMidServerUp(app, installation.name, Math.max(1, argv['wait-timeout']), Math.max(500, argv['wait-interval']));
+          } catch (error) {
+            try { installation.rollback(); } catch { /* preserve the verification error */ }
+            throw error;
+          }
+          app.ok({
+            installation: 'docker',
+            directory: installation.installDir,
+            release: installation.releaseName,
+            record,
+          }, { summary: `Installed MID Server '${installation.name}' and verified it is Up` });
         }),
       })
       .command({
