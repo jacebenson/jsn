@@ -11,6 +11,15 @@ jsn uses those terms exactly.
 
 ---
 
+## Direct MID installation
+
+An owned native ZIP installation, identified by `.jsn-mid-direct.json`, separate
+from a Docker Compose installation. Prepared means extracted and configured but
+not started. Started means the native launcher completed; registration requires
+an instance read showing Up. Readiness additionally requires raw `validated=true`
+after the user performs the manual Validate trust operation. Windows currently
+uses a foreground console and does not register a system service.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as

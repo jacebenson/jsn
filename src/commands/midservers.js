@@ -5,7 +5,8 @@ import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList,
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, validateMidCredentials } from '../midserver-install.js';
+import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, normalizeMidName, validateMidCredentials } from '../midserver-install.js';
+import { detectDirectPlatform, installDirectMidServer, readDirectInstallation, removeDirectInstallation, runDirectInstallation } from '../midserver-direct.js';
 
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
@@ -13,7 +14,7 @@ const LIST_FIELDS = ['sys_id', 'name', 'status', 'host_name', 'ip_address', 'ver
 const DEFAULT_TIMEOUT = 120000;
 const DEFAULT_INTERVAL = 2000;
 
-declareCapabilities('midservers', { mutationSubcommands: ['add', 'remove', 'execute'] });
+declareCapabilities('midservers', { mutationSubcommands: ['add', 'remove', 'execute', 'start', 'stop'] });
 
 function agentName(record) {
   const name = getStringField(record, 'name');
@@ -231,7 +232,7 @@ export function assertMidServerReady(record) {
   const name = getStringField(record, 'name') || getStringField(record, 'sys_id') || 'MID Server';
   const validated = queueValue(record.validated).toLowerCase();
   if (validated !== 'true') {
-    const error = new Error(`MID Server '${name}' is not validated yet (validation: ${validated || 'unknown'}). Wait for ServiceNow validation to complete before executing a command.`);
+    const error = new Error(`MID Server '${name}' is not validated yet (validation: ${validated || 'unknown'}). Use the manual Validate action in ServiceNow before executing a command.`);
     error.code = 'midserver_not_validated';
     throw error;
   }
@@ -273,7 +274,7 @@ export async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
       sysparm_query: `name=${fullName}`,
       sysparm_limit: '1',
       sysparm_display_value: 'all',
-      sysparm_fields: 'sys_id,name,status,host_name,version,last_heartbeat',
+      sysparm_fields: 'sys_id,name,status,validated,host_name,version,last_heartbeat',
     });
     const records = await app.sdk.list(AGENT_TABLE, params);
     if (records[0] && getStringField(records[0], 'status').toLowerCase() === 'up') return records[0];
@@ -282,11 +283,16 @@ export async function waitForMidServerUp(app, name, timeoutMs, intervalMs) {
   throw new Error(`MID Server '${fullName}' did not report Up within ${timeoutMs}ms`);
 }
 
-function removeLocalMidServer(instanceURL, name) {
-  const installDir = midInstallDirectory(instanceURL, name);
+function removeLocalMidServer(instanceURL, name, directory) {
+  const direct = readDirectInstallation(instanceURL, name, directory);
+  if (direct) { removeDirectInstallation(direct); return true; }
+  const installDir = directory || midInstallDirectory(instanceURL, name);
   const composePath = path.join(installDir, 'docker-compose.yaml');
   const envPath = path.join(installDir, '.env');
-  if (!fs.existsSync(composePath)) return false;
+  if (!fs.existsSync(composePath)) {
+    if (fs.existsSync(path.join(installDir, 'agent'))) throw new Error('Native MID directory exists without trustworthy ownership metadata; refusing removal');
+    return false;
+  }
   const composeArgs = ['compose', ...(fs.existsSync(envPath) ? ['--env-file', envPath] : []), '-f', composePath, 'down'];
   try {
     defaultRun('docker', composeArgs, { cwd: installDir });
@@ -303,7 +309,26 @@ function removeLocalMidServer(instanceURL, name) {
 }
 
 function showMidServerLogs(app, identifier, argv) {
-  const installDir = midInstallDirectory(app.getEffectiveInstance(), identifier);
+  const installDir = argv.directory || midInstallDirectory(app.getEffectiveInstance(), identifier);
+  const direct = readDirectInstallation(app.getEffectiveInstance(), identifier, argv.directory);
+  if (direct) {
+    if (!Number.isInteger(argv.tail) || argv.tail < 1 || argv.tail > 10000) throw new Error('Use --tail between 1 and 10000');
+    if (argv.follow) throw new Error('Direct log follow is not supported; read logs again or use the native host log viewer');
+    const logfile = path.join(installDir, 'agent', 'logs', 'agent0.log');
+    if (!fs.existsSync(logfile)) throw new Error('No MID agent log yet; the installation may only be prepared');
+    const stat = fs.lstatSync(logfile);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Untrusted MID log path');
+    const fd = fs.openSync(logfile, 'r');
+    let text;
+    try {
+      const length = Math.min(stat.size, 1024 * 1024);
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, stat.size - length);
+      text = buffer.toString('utf8').split('\n').slice(-argv.tail).join('\n');
+    } finally { fs.closeSync(fd); }
+    app.ok({ installation: 'direct', logfile, text, _formatted: `${text}\n` }, { summary: 'Local MID agent log (last 1 MiB maximum)' });
+    return;
+  }
   const composePath = path.join(installDir, 'docker-compose.yaml');
   const envPath = path.join(installDir, '.env');
   if (!fs.existsSync(composePath)) throw new Error(`No local Compose installation found for MID Server '${identifier}'`);
@@ -349,22 +374,46 @@ export function midserversCmd(wrap) {
       })
       .command({
         command: 'logs <identifier>',
-        describe: 'Show local Docker Compose logs for a MID Server',
+        describe: 'Show local native or Docker Compose MID logs',
         builder: (b) => b
           .option('tail', { type: 'number', default: 100, describe: 'Number of log lines' })
-          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs' }),
+          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs (Compose only)' })
+          .option('directory', { type: 'string', describe: 'Local installation directory override' }),
         handler: wrap(async (argv, app) => {
           showMidServerLogs(app, argv.identifier, argv);
         }),
       })
       .command({
         command: '<identifier> logs',
-        describe: 'Show local Docker Compose logs for a MID Server',
+        describe: 'Show local native or Docker Compose MID logs',
         builder: (b) => b
           .option('tail', { type: 'number', default: 100, describe: 'Number of log lines' })
-          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs' }),
+          .option('follow', { type: 'boolean', default: false, describe: 'Follow the logs (Compose only)' })
+          .option('directory', { type: 'string', describe: 'Local installation directory override' }),
         handler: wrap(async (argv, app) => {
           showMidServerLogs(app, argv.identifier, argv);
+        }),
+      })
+      .command({
+        command: 'start <identifier>',
+        describe: 'Start an owned direct MID (Windows: foreground console, no service)',
+        builder: b => b.option('directory', { type: 'string', describe: 'Installation directory override' }),
+        handler: wrap(async (argv, app) => {
+          const metadata = readDirectInstallation(app.getEffectiveInstance(), argv.identifier, argv.directory);
+          if (!metadata) throw new Error('No owned direct MID installation found');
+          if (metadata.state !== 'prepared') throw new Error('MID is already started or has an uncertain runtime state; stop it first');
+          const result = runDirectInstallation(metadata, 'start');
+          app.ok(result, { summary: result.platform === 'windows' ? 'Windows MID console exited; no service was registered' : 'MID start command completed; registration and manual validation must be checked in ServiceNow' });
+        }),
+      })
+      .command({
+        command: 'stop <identifier>',
+        describe: 'Stop an owned Linux direct MID; Windows console uses Ctrl+C',
+        builder: b => b.option('directory', { type: 'string', describe: 'Installation directory override' }),
+        handler: wrap(async (argv, app) => {
+          const metadata = readDirectInstallation(app.getEffectiveInstance(), argv.identifier, argv.directory);
+          if (!metadata) throw new Error('No owned direct MID installation found');
+          app.ok(runDirectInstallation(metadata, 'stop'), { summary: 'Owned native MID stop command completed' });
         }),
       })
       .command({
@@ -374,7 +423,7 @@ export function midserversCmd(wrap) {
           .option('name', { type: 'string', describe: 'MID Server name (prompted when omitted)' })
           .option('username', { type: 'string', describe: 'MID Server username (password is always prompted)' })
           .option('install-method', { type: 'string', choices: ['docker', 'direct'], describe: 'Installation method (prompted when omitted)' })
-          .option('directory', { type: 'string', describe: 'Docker installation directory' })
+          .option('directory', { type: 'string', describe: 'Installation directory (must not exist for direct ZIP)' })
           .option('wait-timeout', { type: 'number', default: 300000, describe: 'How long to wait for the MID Server to report Up' })
           .option('wait-interval', { type: 'number', default: 3000, describe: 'MID Server status polling interval in milliseconds' }),
         handler: wrap(async (argv, app) => {
@@ -395,20 +444,51 @@ export function midserversCmd(wrap) {
             choices: dockerAvailable
               ? [
                 { name: 'Docker (recommended)', value: 'docker' },
-                { name: 'Direct install (not available yet)', value: 'direct' },
+                { name: 'Direct ZIP install (native user-owned runtime)', value: 'direct' },
               ]
               : dockerStatus.installed && dockerStatus.compose
                 ? [
                   { name: 'Run with sudo', value: 'sudo' },
                   { name: 'Prepare files now, run Docker later', value: 'prepare' },
-                  { name: 'Direct install (not available yet)', value: 'direct' },
+                  { name: 'Direct ZIP install (native user-owned runtime)', value: 'direct' },
                 ]
               : [
                 { name: 'Prepare files now, run Docker later', value: 'prepare' },
-                { name: 'Direct install (not available yet)', value: 'direct' },
+                { name: 'Direct ZIP install (native user-owned runtime)', value: 'direct' },
               ],
           });
-          if (installMethod === 'direct') throw new Error('Direct MID Server installation is not implemented yet. Choose Docker.');
+          if (installMethod === 'direct') {
+            const native = detectDirectPlatform();
+            const decision = await select({
+              message: native === 'linux' ? 'No system service or elevation will be used. Choose runtime:' : 'Windows console runtime only; native service registration is not supported. Choose:',
+              choices: [
+                ...(native === 'linux' ? [{ name: 'Start user-owned background MID', value: 'start' }] : []),
+                { name: 'Prepare private files only (do not start)', value: 'prepare' },
+                { name: 'Cancel without downloading', value: 'cancel' },
+              ],
+            });
+            if (decision === 'cancel') return;
+            const shortName = normalizeMidName(name);
+            const existing = await app.sdk.list(AGENT_TABLE, new URLSearchParams({ sysparm_query: `name=${shortName}`, sysparm_fields: 'sys_id,name', sysparm_limit: '1' }));
+            if (existing.length) throw new Error(`MID '${shortName}' already exists in ServiceNow; choose a new name. Existing runtime and record were not changed.`);
+            const installation = await installDirectMidServer({
+              instanceURL: app.getEffectiveInstance(), ...credentials, name, directory: argv.directory, runNow: decision === 'start',
+            });
+            if (installation.state === 'prepared') {
+              app.ok(installation, { summary: `Prepared native MID '${installation.name}' in ${installation.installDir}; not started or registered. Start with jsn midservers start ${installation.name}${argv.directory ? ' --directory ' + JSON.stringify(installation.installDir) : ''}. Windows start runs in the foreground console; no service is installed.` });
+              return;
+            }
+            let record;
+            try { record = await waitForMidServerUp(app, installation.name, Math.max(1, argv['wait-timeout']), Math.max(500, argv['wait-interval'])); }
+            catch {
+              app.ok({ ...installation, registration: 'pending', validated: false }, { summary: `Native MID start command completed; registration is pending. Runtime retained for diagnostics at ${installation.installDir}; no forced teardown.` });
+              return;
+            }
+            const validated = queueValue(record.validated).toLowerCase() === 'true';
+            const url = new URL(`/ecc_agent.do?sys_id=${encodeURIComponent(unwrapSysId(record))}`, app.getEffectiveInstance()).href;
+            app.ok({ ...installation, registration: 'up', validated, record, url }, { summary: validated ? `MID '${installation.name}' is Up and manually validated` : `MID '${installation.name}' is Up but pending manual validation. Use Validate in ServiceNow: ${url}` });
+            return;
+          }
 
           const installation = await installDockerMidServer({
             instanceURL: app.getEffectiveInstance(),
@@ -448,7 +528,8 @@ export function midserversCmd(wrap) {
         command: 'remove [identifier]',
         aliases: ['delete'],
         describe: 'Remove a MID Server record (interactive when no identifier is given)',
-        builder: (b) => b.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+        builder: (b) => b.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+          .option('directory', { type: 'string', describe: 'Local installation directory override' }),
         handler: wrap(async (argv, app) => {
           let record;
           if (argv.identifier) {
@@ -456,8 +537,8 @@ export function midserversCmd(wrap) {
               record = await resolveMidServer(app.sdk, argv.identifier);
             } catch (error) {
               if (error.code !== 'not_found') throw error;
-              const localDir = midInstallDirectory(app.getEffectiveInstance(), argv.identifier);
-              if (!fs.existsSync(path.join(localDir, 'docker-compose.yaml'))) throw error;
+              const localDir = argv.directory || midInstallDirectory(app.getEffectiveInstance(), argv.identifier);
+              if (!readDirectInstallation(app.getEffectiveInstance(), argv.identifier, argv.directory) && !fs.existsSync(path.join(localDir, 'docker-compose.yaml'))) throw error;
               record = null;
             }
           } else {
@@ -483,9 +564,10 @@ export function midserversCmd(wrap) {
           const sysId = record ? unwrapSysId(record) : null;
           const name = getStringField(record, 'name') || argv.identifier || sysId;
           await confirmDelete(app, argv, `Remove MID Server '${name}'`);
-          const localRemoved = removeLocalMidServer(app.getEffectiveInstance(), name);
+          const direct = readDirectInstallation(app.getEffectiveInstance(), name, argv.directory);
+          const localRemoved = removeLocalMidServer(app.getEffectiveInstance(), name, argv.directory);
           if (record) await app.sdk.delete(AGENT_TABLE, sysId);
-          app.ok({ name, sys_id: sysId, deleted: Boolean(record), local_compose_removed: localRemoved }, { summary: `Removed MID Server '${name}'${localRemoved ? ' and its local Compose stack' : ''}` });
+          app.ok({ name, sys_id: sysId, deleted: Boolean(record), local_compose_removed: localRemoved && !direct, local_installation_removed: localRemoved, local_installation_type: direct ? 'direct' : 'docker' }, { summary: `Removed MID Server '${name}'${localRemoved ? ' and its owned local runtime' : ''}` });
         }),
       })
       .command({
@@ -563,7 +645,7 @@ export function midserversCmd(wrap) {
       console.log('  issues [name_or_sys_id]       Show unresolved issues (--all includes resolved)');
       console.log('  events [name_or_sys_id]       Show lifecycle history');
       console.log('  show <name_or_sys_id>        Show a MID Server');
-      console.log('  add --name <name>             Create a MID Server record');
+      console.log('  add --name <name>             Install a MID Server (Docker or direct ZIP)');
       console.log('  remove <name_or_sys_id>       Remove a MID Server record');
       console.log('  execute <name_or_sys_id>      Execute a shell command');
       console.log('');
