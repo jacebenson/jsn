@@ -147,6 +147,17 @@ export function assertMidServerUp(record) {
   }
 }
 
+export function assertMidServerReady(record) {
+  assertMidServerUp(record);
+  const name = getStringField(record, 'name') || getStringField(record, 'sys_id') || 'MID Server';
+  const validated = getStringField(record, 'validated').toLowerCase();
+  if (validated !== 'validated') {
+    const error = new Error(`MID Server '${name}' is not validated yet (validation: ${validated || 'unknown'}). Wait for ServiceNow validation to complete before executing a command.`);
+    error.code = 'midserver_not_validated';
+    throw error;
+  }
+}
+
 async function promptMidCredentials(app, argv) {
   if (!canPrompt()) throw new Error('MID Server installation is interactive. Run it from a terminal.');
   let username = argv.username || '';
@@ -431,7 +442,7 @@ export function midserversCmd(wrap) {
             message: 'Command to execute:',
             validate: value => value.trim() ? true : 'Command is required',
           });
-          assertMidServerUp(record);
+          assertMidServerReady(record);
           const agent = agentName(record);
           const output = await app.sdk.create(QUEUE_TABLE, {
             agent,
