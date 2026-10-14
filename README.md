@@ -44,6 +44,96 @@ private files and offers a foreground console, not native service registration.
 See [direct MID installation](docs/mid-direct-install.md) for security boundaries,
 lifecycle commands and the untested Windows host phases. Docker remains available.
 
+## Customization reports
+
+```sh
+jsn customizations capture --label before-upgrade --customer-scope x_acme_app
+jsn customizations list
+jsn customizations show <run_id>
+jsn customizations compare <baseline_id> <new_id> --json
+jsn customizations show <run_id> --get data.coverage
+```
+
+Capture data access uses Table API GET requests only. Captures never run
+background scripts or create, update or delete instance records. Standard
+authentication still applies, including OAuth refresh, local refreshed-credential
+storage and session/GCK bootstrap, which can make authentication POST requests.
+Expired credentials without a usable refresh token require login. Reports are private local JSON files in
+`$JSN_DATA_HOME/customizations`, defaulting to `~/.jsn/customizations`. List,
+show and compare work offline. Interactive terminals offer local report pickers;
+pass explicit IDs with JSON, pipes or `--get`.
+
+The bounded inventory joins visible `sys_metadata`, `sys_scope` and
+`sys_upgrade_history_log` records. `ootb_modifications` contains artifacts
+with historical skipped-upgrade evidence, not a verified current OOTB diff.
+Because the broad `sys_metadata` read is an arbitrary `sys_id`-ordered slice
+(994 of 621972 rows on a large instance), it is reported as a **bounded sample,
+not an inventory**: it only ever describes the rows the page budget reached.
+The skipped-upgrade artifacts are inventoried separately and completely for the
+observed history: after the filtered upgrade-history read, every observed
+`sys_update_name` is resolved with chunked GET-only
+`sys_update_nameIN<chunk of names>` lookups on `sys_metadata`, so an artifact
+with skipped-upgrade evidence appears in `ootb_modifications` even when it falls
+far outside the sample. `coverage.upgrade_evidence` reports the skipped rows
+observed, the distinct update names, how many resolved by direct lookup, the
+unresolved name list and any failed lookup chunks.
+`customer_app_artifacts` contains only scopes explicitly declared with repeatable
+`--customer-scope` values or sys_ids. The instance verifies the scope identity,
+not its ownership. Installed/vendor scopes are never automatically called
+customer-built. Other visible artifacts remain `unclassified`, and both those
+categories cover only what the bounded sample read.
+
+Each item reports identity, scope, evidence, unknown risk with rationale and a
+review recommendation. Historical OOTB findings include the known skipped-upgrade
+impact and explicit unknown baseline, runtime impact and dependencies. No
+reversion is performed or recommended as safe without further investigation.
+
+Defaults are 100 records per page and 10 pages per source. Adjust `--page-size`
+and `--max-pages` within the documented limits. Source coverage compares the rows
+fetched with the Stats API count for the same query and reports both. A page
+shorter than the requested size never implies exhaustion; `exhausted` is reported
+only when the fetched rows account for the available total, and an unavailable
+count is reported as unknown rather than implied completeness. Other statuses
+distinguish missing fields, unstable pagination and read failures. Both the count
+and the rows reflect visible ACL-filtered records, so hidden rows cannot be ruled
+out and reports remain `incomplete`. An empty category does not prove that no
+customizations exist. A 2xx table body without a `result` array is treated as an
+unavailable source, never as an empty table.
+
+Comparisons show newly observed, no-longer-observed and changed metadata/evidence.
+They ignore local capture IDs, labels, timestamps and enumeration order.
+They do not prove record creation/deletion or detect source-body changes without
+captured metadata changes. Changed entries render the concrete before/after field
+values, and additions/removals list the artifact's name, table, scope, category
+and evidence basis. When either report has an unavailable or empty source, the
+comparison status is `unreliable` and those differences are labelled as missing
+coverage instead of mass creation or deletion. Compare only reports from the same
+instance.
+
+Provider contract: [ServiceNow Customizations Unchanged](https://www.servicenow.com/docs/r/xanadu/platform-administration/customizations-unchanged-related-list.html)
+explains that the `Skipped` disposition preserves customizations. Other skip
+reasons are not treated as equivalent evidence. This command cannot establish a
+trusted baseline from that history alone.
+
+The verified provider join is `sys_upgrade_history_log.file_name` to
+`sys_metadata.sys_update_name`, not the log's nonexistent `name` field. Capture
+uses raw values from `sysparm_display_value=all`: disposition `4` or `104`
+means Skipped or Skipped (second pass). Resolution `reviewed_reverted` excludes
+that history row; a present empty resolution is distinct from a missing field.
+The upgrade-history read is filtered server-side to those dispositions so a
+bounded capture spends its pages on preserved-customization evidence instead of
+arbitrary history rows, and `unmatched_upgrade_records` counts only that filtered
+population, not all upgrade history. The filtered history is the unit of the
+inventory claim: every observed `file_name` is then resolved against visible
+`sys_metadata` with chunked GET-only `sys_update_nameIN<chunk>` lookups, so
+skipped artifacts are inventoried from the history instead of from the arbitrary
+`sys_id`-ordered metadata sample. `unmatched_upgrade_records` and
+`coverage.upgrade_evidence.unresolved_update_names` describe only names no
+visible metadata row matched; a failed lookup chunk is reported rather than
+treated as an absent artifact.
+These values were checked against the PDI dictionary, choices and actual joined
+rows. Display labels are not used for classification.
+
 ## Quick Start
 
 ```bash

@@ -73,9 +73,15 @@ describe('capabilities registry', () => {
     assert.ok(!skip.has('records'));
   });
 
-  it('derives dailyCheckSkipCommands with the exact legacy 5-item semantics', () => {
+  it('declares customization local review and read-only data capture capabilities', () => {
+    assert.deepStrictEqual(collectCapabilities().get('customizations'), { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
+    assert.ok(noInstanceCommands().has('customizations'));
+    assert.ok(!mutationPaths().some(path => path[0] === 'customizations'));
+  });
+
+  it('derives dailyCheckSkipCommands including offline customization reports', () => {
     const skip = dailyCheckSkipCommands();
-    assert.deepStrictEqual([...skip].sort(), ['completion', 'docs', 'help', 'skill', 'version']);
+    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'docs', 'help', 'skill', 'version']);
   });
 
   it('derives mutation paths for root CRUD commands', () => {

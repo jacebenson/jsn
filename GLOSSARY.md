@@ -20,6 +20,43 @@ an instance read showing Up. Readiness additionally requires raw `validated=true
 after the user performs the manual Validate trust operation. Windows currently
 uses a foreground console and does not register a system service.
 
+## Customization capture
+
+A private local schema-versioned JSON report produced by bounded GET-only reads
+of application metadata, scopes and upgrade history. Historical OOTB evidence,
+caller-declared customer scope artifacts and unclassified metadata stay separate.
+An upgrade skip is evidence of a past preserved customization, not a trusted
+current OOTB baseline. The upgrade-history read is filtered server-side to the
+preserved-customization dispositions, so a bounded budget reaches the evidence
+and unmatched counts describe that filtered population. Every observed skipped
+`file_name` is then resolved against visible `sys_metadata` with chunked
+`sys_update_nameIN<chunk>` lookups, so the OOTB inventory covers the observed
+skipped artifacts even though the broad `sys_metadata` read is an arbitrary
+`sys_id`-ordered slice reported as a bounded sample rather than an inventory;
+unresolved names and failed lookup chunks stay explicit. The bounded sample
+describes only the unclassified and declared-customer categories. Non-global
+scope is never ownership evidence. Coverage never infers exhaustion from a short
+page: it compares the rows fetched with the Stats API count for the same query,
+reports both, and reports `exhausted` only when the fetched rows account for the
+available total. An unavailable count is reported as unknown. A 2xx table body
+without a `result` array is a malformed envelope and makes that source
+unavailable, never empty; comparing a report that has an unavailable or empty
+source yields `unreliable` status so missing coverage is never read as mass
+creation/deletion.
+Missing ACL visibility, baseline and dependency analysis keep reports incomplete.
+Comparisons use artifact table/sys_id identity and captured evidence, ignoring
+local capture metadata and ordering. Observed additions/removals do not prove
+creation/deletion. Saved review commands require no instance.
+
+The SDK `readOnly` request option requires GET for the data request and
+suppresses local credential last-seen writes unconditionally — a caller cannot
+re-enable them by passing `touchLastSeen`. It preserves standard authentication,
+including OAuth refresh and session/GCK bootstrap. Authentication POSTs and local
+refreshed-credential storage are allowed; instance-record mutations and eval are not.
+Upgrade history joins `file_name` to metadata `sys_update_name`. Raw dispositions
+`4` and `104` identify preserved-customization skips; `reviewed_reverted` resolution
+excludes that row. Display labels and other skip reasons are not equivalent evidence.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as

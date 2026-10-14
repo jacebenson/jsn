@@ -94,7 +94,8 @@ export class SDKClient {
   }
 
   async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, touchLastSeen = true, ...requestOptions } = opts;
+    const { timeout = this.timeout, readOnly = false, touchLastSeen, ...requestOptions } = opts;
+    if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -110,6 +111,8 @@ export class SDKClient {
       if (this.domain) {
         req.headers.set('X-Now-Domain', this.domain);
       }
+      // readOnly guards the data request, not standard authentication bootstrap.
+      // OAuth refresh and session/GCK negotiation are not instance-record writes.
       await this._setAuth(req);
 
       const resp = await fetch(req);
@@ -125,7 +128,10 @@ export class SDKClient {
 
       // Stamp last_seen on successful API call
       try {
-        if (touchLastSeen && this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
+        // readOnly suppresses the credential last-seen write unconditionally: a
+        // caller passing touchLastSeen cannot override it (GLOSSARY contract).
+        const shouldTouch = readOnly ? false : (touchLastSeen ?? true);
+        if (shouldTouch && this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
           this.authProvider.touchLastSeen(this.baseURL);
         }
       } catch { /* non-fatal */ }
@@ -202,6 +208,22 @@ export class SDKClient {
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
     const result = await this.request(endpoint, { method: 'GET', ...opts });
     return result?.result || [];
+  }
+
+  // Strict Table API seam. `list` stays best-effort for legacy callers, but a
+  // 2xx response without a result array is a malformed envelope, not an empty
+  // table. Capture paths use this so an unexpected body becomes an unavailable
+  // source instead of a complete-looking empty inventory.
+  async listStrict(table, params = {}, opts = {}) {
+    const query = new URLSearchParams(params).toString();
+    const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
+    const response = await this.request(endpoint, { method: 'GET', ...opts });
+    if (!response || typeof response !== 'object' || !Array.isArray(response.result)) {
+      const error = new Error(`Malformed table response for ${table}: expected a JSON envelope with a result array`);
+      error.code = 'malformed_response';
+      throw error;
+    }
+    return response.result;
   }
 
   async get(table, sysID) {
