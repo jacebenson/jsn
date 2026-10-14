@@ -66,10 +66,23 @@ const metadata = [
   { sys_id: 'c', sys_update_name: 'sys_script_c', sys_name: 'Store rule', sys_scope: 'store', sys_class_name: 'sys_script' },
 ];
 function readOnlySdk(rows = {}) {
-  return new Proxy({ async list(table, params) {
-    const all = rows[table] || [];
-    return all.slice(Number(params.sysparm_offset), Number(params.sysparm_offset) + Number(params.sysparm_limit));
-  } }, { get(target, key) { if (key === 'list') return target.list; throw new Error(`Forbidden SDK operation: ${String(key)}`); } });
+  // The Stats API count is the completeness evidence a capture relies on; the
+  // mock answers it for the same visible population it pages through.
+  const target = {
+    async list(table, params) {
+      const all = rows[table] || [];
+      return all.slice(Number(params.sysparm_offset), Number(params.sysparm_offset) + Number(params.sysparm_limit));
+    },
+    async aggregateCount(table) { return (rows[table] || []).length; },
+  };
+  return new Proxy(target, {
+    get(t, key) {
+      if (key === 'list') return t.list;
+      if (key === 'aggregateCount') return t.aggregateCount;
+      if (key === 'listStrict') return undefined;
+      throw new Error(`Forbidden SDK operation: ${String(key)}`);
+    },
+  });
 }
 
 test('capture uses only table reads and separates evidenced historical OOTB changes from declared customer scopes', async () => {
@@ -164,4 +177,143 @@ test('ACL failures retain prior pages and bounded pagination never implies compl
   assert.equal(result.coverage.sources.sys_metadata.status, 'permission_denied');
   assert.equal(result.categories.unclassified.length, 1);
   assert.equal(result.coverage.complete, false);
+});
+
+// Defect 1: a page shorter than the requested size is not proof of exhaustion.
+// Live pdi returns short offset pages while 621969 sys_metadata rows are visible.
+const captureRows = ids => ids.map(id => ({ sys_id: id, sys_class_name: 'sys_script', sys_scope: 'global', sys_update_name: `sys_script_${id}` }));
+function shortPageSdk({ rows, count }) {
+  return {
+    async list(table, params) {
+      if (table !== 'sys_metadata') return [];
+      return Number(params.sysparm_offset) === 0 ? rows : [];
+    },
+    ...(count === undefined ? {} : { async aggregateCount(table) { return table === 'sys_metadata' ? count : 0; } }),
+  };
+}
+
+test('a short page never implies exhaustion and coverage reports rows fetched against the Stats API count', async () => {
+  const { captureCustomizations } = await import('../src/customizations.js');
+  const rows = captureRows(['a', 'b', 'c']);
+  const partial = await captureCustomizations({ sdk: shortPageSdk({ rows, count: 621969 }), pageSize: 100, maxPages: 10 });
+  const coverage = partial.coverage.sources.sys_metadata;
+  assert.notEqual(coverage.status, 'exhausted');
+  assert.equal(coverage.status, 'limited');
+  assert.equal(coverage.fetched, 3);
+  assert.equal(coverage.available, 621969);
+  assert.match(coverage.reason, /3 of 621969/);
+  const complete = await captureCustomizations({ sdk: shortPageSdk({ rows, count: rows.length }), pageSize: 100, maxPages: 10 });
+  assert.equal(complete.coverage.sources.sys_metadata.status, 'exhausted');
+  assert.equal(complete.coverage.sources.sys_metadata.available, rows.length);
+  const uncounted = await captureCustomizations({ sdk: shortPageSdk({ rows }), pageSize: 100, maxPages: 10 });
+  assert.equal(uncounted.coverage.sources.sys_metadata.status, 'limited');
+  assert.equal(uncounted.coverage.sources.sys_metadata.available, null);
+  assert.match(uncounted.coverage.sources.sys_metadata.reason, /unavailable/i);
+});
+
+// Defect 2: the live pdi table holds 425 rows with raw disposition 4 or 104
+// behind 334670 other rows, so an unfiltered read spends the whole budget
+// before reaching any preserved-customization evidence.
+test('upgrade history is read with a server-side disposition filter so skipped customizations survive a default budget', async () => {
+  const { captureCustomizations } = await import('../src/customizations.js');
+  const noise = Array.from({ length: 400 }, (_, index) => ({ sys_id: `noise-${String(index).padStart(4, '0')}`, file_name: `noise_${index}`, disposition: '1', resolution_status: '' }));
+  const logRows = [...noise, { sys_id: 'skip-4', file_name: 'sys_script_a', disposition: '4', resolution_status: '' }, { sys_id: 'skip-104', file_name: 'sys_script_orphan', disposition: '104', resolution_status: '' }];
+  const metadataRows = [{ sys_id: 'a', sys_update_name: 'sys_script_a', sys_name: 'Vendor rule', sys_scope: 'global', sys_class_name: 'sys_script', sys_updated_on: '2026-01-01' }];
+  const queries = [];
+  const visible = (table, query) => {
+    if (table === 'sys_metadata') return metadataRows;
+    if (table === 'sys_upgrade_history_log') return query.includes('dispositionIN4,104') ? logRows.filter(row => ['4', '104'].includes(row.disposition)) : logRows;
+    return [];
+  };
+  const result = await captureCustomizations({ sdk: {
+    async list(table, params) {
+      queries.push({ table, query: params.sysparm_query });
+      const offset = Number(params.sysparm_offset);
+      return visible(table, params.sysparm_query).slice(offset, offset + Number(params.sysparm_limit));
+    },
+    async aggregateCount(table, query = '') { return visible(table, query).length; },
+  } });
+  assert.equal(result.categories.ootb_modifications.length, 1);
+  assert.equal(result.categories.ootb_modifications[0].identity.sys_id, 'a');
+  assert.equal(result.categories.ootb_modifications[0].evidence.at(-1).disposition, '4');
+  const historyQuery = queries.find(entry => entry.table === 'sys_upgrade_history_log').query;
+  assert.match(historyQuery, /dispositionIN4,104/);
+  assert.equal(result.coverage.sources.sys_upgrade_history_log.status, 'exhausted');
+  assert.equal(result.coverage.sources.sys_upgrade_history_log.fetched, 2);
+  assert.equal(result.coverage.sources.sys_upgrade_history_log.available, 2);
+  // Unmatched counts stay honest about the filtered population.
+  assert.equal(result.coverage.unmatched_upgrade_records, 1);
+});
+
+// Defect 3: a 200 with an unexpected body is not an empty table.
+test('a malformed table envelope is an unavailable source, never an empty or exhausted one', async t => {
+  const { captureCustomizations, captureReport, compareReports, formatReportComparison } = await import('../src/customizations.js');
+  const { SDKClient } = await import('../src/sdk.js');
+  t.mock.method(globalThis, 'fetch', async input => {
+    const req = input instanceof Request ? input : new Request(input);
+    if (new URL(req.url).pathname === '/angular.do') return new Response('{}', { headers: { 'set-cookie': 'JSESSIONID=fixture; Path=/' } });
+    return Response.json({ unexpected: true });
+  });
+  const sdk = new SDKClient('https://mock.example', { getCredentials: async () => ({ auth_method: 'basic', username: 'fixture', password: 'fixture' }) });
+  const malformed = await captureCustomizations({ sdk });
+  for (const [table, coverage] of Object.entries(malformed.coverage.sources)) {
+    assert.equal(coverage.status, 'unavailable', table);
+    assert.equal(coverage.available, null, table);
+    assert.notEqual(coverage.status, 'exhausted', table);
+  }
+  assert.equal(malformed.categories.unclassified.length, 0);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customizations-'));
+  try {
+    const good = await captureReport({ sdk: readOnlySdk({ sys_metadata: metadata }), instance: 'https://mock.example', dir });
+    const broken = { run_id: 'malformed-run', instance: good.instance, start_time: good.start_time, capture_schema_version: good.capture_schema_version, ...malformed };
+    const compared = compareReports(good, broken);
+    assert.equal(compared.status, 'unreliable');
+    assert.ok(compared.impaired_sources.new.includes('sys_metadata (unavailable)'));
+    assert.match(compared.unknowns.join(' '), /unreliable/i);
+    const rendered = formatReportComparison(compared);
+    assert.match(rendered, /Unreliable new sources: .*sys_metadata \(unavailable\)/);
+    // The unreadable side is never rendered as verified removals only.
+    assert.match(rendered, /must not be read as mass creation or deletion/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Defect 4: readOnly must suppress the credential last-seen write even when a
+// caller also passes touchLastSeen.
+test('readOnly suppresses the credential last-seen write unconditionally', async t => {
+  const { SDKClient } = await import('../src/sdk.js');
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ result: [] }));
+  let touches = 0;
+  const sdk = new SDKClient('https://mock.example', { getCredentials: async () => ({ auth_method: 'basic', username: 'fixture', password: 'fixture' }), touchLastSeen: () => { touches++; } });
+  await sdk.request('https://mock.example/api/now/table/sys_metadata', { method: 'GET', readOnly: true, touchLastSeen: true });
+  assert.equal(touches, 0);
+  await sdk.request('https://mock.example/api/now/table/sys_scope', { method: 'GET' });
+  assert.equal(touches, 1);
+  await sdk.request('https://mock.example/api/now/table/sys_scope', { method: 'GET', touchLastSeen: false });
+  assert.equal(touches, 1);
+});
+
+// Defect 5: a human must be able to see what changed, was added or was removed.
+test('comparison output renders before/after values and item detail without changing the JSON', async () => {
+  const { captureReport, compareReports, formatReportComparison } = await import('../src/customizations.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customizations-'));
+  const row = (id, name) => ({ sys_id: id, sys_update_name: `sys_script_${id}`, sys_name: name, sys_scope: 'global', sys_class_name: 'sys_script' });
+  try {
+    const baseline = await captureReport({ sdk: readOnlySdk({ sys_metadata: [row('a', 'Vendor rule'), row('b', 'Removed rule')] }), instance: 'https://mock.example', dir });
+    const newer = await captureReport({ sdk: readOnlySdk({ sys_metadata: [row('a', 'Renamed rule'), row('c', 'Added rule')] }), instance: 'https://mock.example', dir });
+    const diff = compareReports(baseline, newer);
+    assert.equal(diff.changes.length, 1);
+    assert.equal(diff.additions.length, 1);
+    assert.equal(diff.removals.length, 1);
+    assert.deepEqual(Object.keys(diff.changes[0]).sort(), ['baseline', 'id', 'new']);
+    const text = formatReportComparison(diff);
+    assert.match(text, /Vendor rule/);
+    assert.match(text, /Renamed rule/);
+    assert.match(text, /identity\.name: "Vendor rule" -> "Renamed rule"/);
+    assert.match(text, /ADDITIONS \(1\)/);
+    assert.match(text, /Added rule/);
+    assert.match(text, /Evidence: sys_metadata:c/);
+    assert.match(text, /REMOVALS \(1\)/);
+    assert.match(text, /Removed rule/);
+    assert.ok(!JSON.stringify(diff).includes('identity.name:'));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

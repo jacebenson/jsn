@@ -6,49 +6,101 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { getVersion } from './commands/version.js';
 
+// Raw provider choices: 4 = Skipped, 104 = Skipped (second pass). Other skip
+// dispositions do not establish a preserved customization, so the upgrade
+// history read is filtered server-side and a bounded budget spends its pages
+// on preserved-customization evidence instead of arbitrary history rows.
+export const SKIP_DISPOSITIONS = ['4', '104'];
+const SKIP_QUERY = `dispositionIN${SKIP_DISPOSITIONS.join(',')}`;
 const SOURCES = {
-  sys_scope: 'sys_id,name,scope,sys_class_name',
-  sys_metadata: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on',
-  sys_upgrade_history_log: 'sys_id,file_name,disposition,resolution_status,sys_updated_on',
+  sys_scope: { fields: 'sys_id,name,scope,sys_class_name', query: 'ORDERBYsys_id', countQuery: '' },
+  sys_metadata: { fields: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on', query: 'ORDERBYsys_id', countQuery: '' },
+  sys_upgrade_history_log: { fields: 'sys_id,file_name,disposition,resolution_status,sys_updated_on', query: `${SKIP_QUERY}^ORDERBYsys_id`, countQuery: SKIP_QUERY },
 };
 const value = v => v && typeof v === 'object' ? v.value ?? '' : v ?? '';
 const text = v => String(value(v));
 
-async function readSource(sdk, table, fields, pageSize, maxPages) {
+// How many rows are available for the same query? The Stats API count is the
+// only evidence that lets a capture claim completeness; without it coverage
+// must stay unknown rather than implied by a page that happened to end.
+async function availableCount(sdk, table, countQuery, fetched) {
+  if (typeof sdk.aggregateCount !== 'function') return null;
+  let count;
+  try {
+    count = await sdk.aggregateCount(table, countQuery);
+  } catch {
+    return null;
+  }
+  if (!Number.isFinite(count) || count < 0) return null;
+  // A zero count with rows in hand means the count is unusable, not that the
+  // table is empty.
+  if (count === 0 && fetched > 0) return null;
+  return Math.floor(count);
+}
+
+async function readSource(sdk, table, { fields, query, countQuery }, pageSize, maxPages) {
   const rows = [];
   const seen = new Set();
-  const coverage = { status: 'limited', fetched: 0, pages: 0, missing_identity: 0, reason: 'Page limit reached; remaining records unknown.' };
+  const coverage = {
+    status: 'limited', fetched: 0, available: null, pages: 0, duplicate_rows: 0, missing_identity: 0,
+    query, reason: 'Page limit reached; remaining records unknown.',
+  };
+  // The strict seam rejects a 2xx body without a result array, so a malformed
+  // envelope becomes an unavailable source instead of an empty inventory.
+  const listFn = typeof sdk.listStrict === 'function' ? sdk.listStrict.bind(sdk) : sdk.list.bind(sdk);
+  let failure = '';
   try {
     for (let page = 0; page < maxPages; page++) {
-      const batch = await sdk.list(table, {
-        sysparm_fields: fields, sysparm_query: 'ORDERBYsys_id',
+      const batch = await listFn(table, {
+        sysparm_fields: fields, sysparm_query: query,
         sysparm_display_value: 'all', sysparm_exclude_reference_link: 'true',
         sysparm_limit: String(pageSize), sysparm_offset: String(page * pageSize),
       }, { readOnly: true });
       coverage.pages++;
       if (!Array.isArray(batch)) throw new Error('Invalid table response');
-      let duplicate = false;
       for (const row of batch) {
         const id = text(row.sys_id);
         if (!id) { coverage.missing_identity++; continue; }
-        if (seen.has(id)) { duplicate = true; continue; }
+        if (seen.has(id)) { coverage.duplicate_rows++; continue; }
         seen.add(id);
         rows.push(row);
         const required = table === 'sys_metadata' ? ['sys_class_name', 'sys_scope', 'sys_update_name'] : table === 'sys_scope' ? ['scope'] : ['file_name', 'disposition', 'resolution_status'];
         if (required.some(field => !Object.hasOwn(row, field))) coverage.missing_identity++;
       }
       coverage.fetched = rows.length;
-      if (duplicate) { coverage.status = 'unstable'; coverage.reason = 'Repeated identities across pages; pagination may be ignored or records changed during capture.'; break; }
-      if (batch.length < pageSize) {
-        coverage.status = coverage.missing_identity ? 'missing_fields' : 'exhausted';
-        coverage.reason = coverage.missing_identity ? 'Some records omitted identity or classification fields; field ACLs or malformed responses may hide evidence.' : 'Visible result exhausted. Row and field ACL filtering cannot be ruled out.';
-        break;
-      }
+      // A short page is not exhaustion: ServiceNow returns short offset pages
+      // on large tables. Keep reading within the page budget.
+      if (batch.length === 0) break;
     }
   } catch (error) {
-    coverage.status = /401|403|permission|forbidden|access denied/i.test(String(error?.message)) ? 'permission_denied' : 'unavailable';
-    coverage.reason = 'Table read failed; partial results retained. Authentication, ACLs, table availability or network access may limit coverage.';
+    failure = String(error?.message || error);
   }
+  if (failure) {
+    coverage.status = /401|403|permission|forbidden|access denied/i.test(failure) ? 'permission_denied' : 'unavailable';
+    coverage.reason = 'Table read failed; partial results retained. Authentication, ACLs, table availability or network access may limit coverage.';
+    return { rows, coverage };
+  }
+  coverage.available = await availableCount(sdk, table, countQuery, rows.length);
+  const duplicateNote = coverage.duplicate_rows
+    ? ` Pagination returned ${coverage.duplicate_rows} repeated identit${coverage.duplicate_rows === 1 ? 'y' : 'ies'}; offset paging on large tables can overlap or skip.`
+    : '';
+  if (coverage.missing_identity) {
+    coverage.status = 'missing_fields';
+    coverage.reason = 'Some records omitted identity or classification fields; field ACLs or malformed responses may hide evidence.';
+  } else if (coverage.available !== null && coverage.fetched >= coverage.available) {
+    coverage.status = 'exhausted';
+    coverage.reason = `Read all ${coverage.available} rows the Stats API reports for this query. Both the count and the rows reflect visible ACL-filtered records.`;
+  } else if (coverage.available !== null) {
+    coverage.status = 'limited';
+    coverage.reason = `Read ${coverage.fetched} of ${coverage.available} rows the Stats API reports for this query; ${coverage.available - coverage.fetched} row(s) were not read within the page budget.`;
+  } else if (coverage.duplicate_rows) {
+    coverage.status = 'unstable';
+    coverage.reason = 'Repeated identities across pages; pagination may be ignored or records changed during capture. The Stats API count for this query was unavailable, so completeness is unknown.';
+  } else {
+    coverage.status = 'limited';
+    coverage.reason = 'The Stats API count for this query was unavailable, so visible-result completeness cannot be claimed.';
+  }
+  coverage.reason += duplicateNote;
   return { rows, coverage };
 }
 
@@ -100,6 +152,17 @@ function canonical(value) {
 function inventory(report) {
   return new Map(Object.entries(report.categories).flatMap(([category, items]) => items.map(item => [`${item.identity.table}:${item.identity.sys_id}`, { category, ...item }])));
 }
+
+// Sources that cannot be read are not empty sources. A comparison built on top
+// of one must say so instead of presenting missing coverage as real removals.
+function impairedSources(coverage) {
+  const sources = coverage?.sources || {};
+  return Object.entries(sources).filter(([, source]) => {
+    if (source.status === 'unavailable' || source.status === 'permission_denied') return true;
+    return source.fetched === 0 && source.available === null;
+  }).map(([table, source]) => `${table} (${source.status})`);
+}
+
 export function compareReports(baseline, newer) {
   validateReport(baseline); validateReport(newer);
   if (baseline.instance !== newer.instance) throw new Error('Customization reports must describe the same instance');
@@ -110,14 +173,19 @@ export function compareReports(baseline, newer) {
     else if (!b.has(id)) removals.push({ id, availability: 'not_observed_in_new', item: a.get(id) });
     else if (JSON.stringify(canonical(a.get(id))) !== JSON.stringify(canonical(b.get(id)))) changes.push({ id, baseline: a.get(id), new: b.get(id) });
   }
-  return { baseline_run_id: baseline.run_id, new_run_id: newer.run_id, instance: baseline.instance, status: 'incomplete', additions, removals, changes,
+  const impaired = { baseline: impairedSources(baseline.coverage), new: impairedSources(newer.coverage) };
+  const unreliable = impaired.baseline.length > 0 || impaired.new.length > 0;
+  const unknowns = ['Additions/removals mean newly observed/no longer observed, not proven creation/deletion. ACLs, limits and concurrent changes can affect visibility.', 'Only captured metadata and evidence are compared, not full artifact content or OOTB baselines.', 'Ownership declarations, scope visibility and evidence coverage can cause category changes without an artifact change.'];
+  if (unreliable) unknowns.push(`Unavailable or empty sources make observed additions/removals unreliable: baseline [${impaired.baseline.join(', ') || 'none'}], new [${impaired.new.join(', ') || 'none'}]. They may reflect missing coverage rather than a real change and must not be read as mass creation or deletion.`);
+  return { baseline_run_id: baseline.run_id, new_run_id: newer.run_id, instance: baseline.instance, status: unreliable ? 'unreliable' : 'incomplete', additions, removals, changes,
+    impaired_sources: impaired,
     coverage: { baseline: baseline.coverage, new: newer.coverage },
-    unknowns: ['Additions/removals mean newly observed/no longer observed, not proven creation/deletion. ACLs, limits and concurrent changes can affect visibility.', 'Only captured metadata and evidence are compared, not full artifact content or OOTB baselines.', 'Ownership declarations, scope visibility and evidence coverage can cause category changes without an artifact change.'] };
+    unknowns };
 }
 
 export function formatReport(report) {
   const lines = [`Customization capture ${report.run_id}${report.label ? ` (${report.label})` : ''}`, `Instance: ${report.instance}`, `Status: ${report.status}`, '', 'COVERAGE'];
-  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}: ${coverage.status}, ${coverage.fetched} fetched. ${coverage.reason}`);
+  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}: ${coverage.status}, ${coverage.fetched} fetched of ${coverage.available === null || coverage.available === undefined ? 'unknown' : coverage.available} available. ${coverage.reason}`);
   for (const limitation of report.coverage.limitations) lines.push(`Unknown: ${limitation}`);
   if (report.coverage.unmatched_customer_scopes.length) lines.push(`Unmatched customer declarations: ${report.coverage.unmatched_customer_scopes.join(', ')}`);
   lines.push(`Unmatched upgrade history records: ${report.coverage.unmatched_upgrade_records}`);
@@ -140,13 +208,66 @@ export function formatReport(report) {
 export function formatReportList(runs) {
   return ['RUN ID  STATUS  LABEL  INSTANCE', ...runs.map(run => `${run.run_id}  ${run.status}  ${run.label || '(unlabeled)'}  ${run.instance}`), ...(runs.length ? [] : ['(no customization captures)'])].join('\n') + '\n';
 }
+
+// Flatten a captured item into comparable leaf fields so a comparison can show
+// what actually changed instead of only asserting that something did.
+function flattenFields(source, prefix = '', out = {}) {
+  const current = prefix || 'value';
+  if (source === null || source === undefined) { out[current] = ''; return out; }
+  if (Array.isArray(source)) {
+    if (!source.length) { out[current] = '(none)'; return out; }
+    source.forEach((entry, index) => flattenFields(entry, `${prefix}[${index}]`, out));
+    return out;
+  }
+  if (typeof source === 'object') {
+    const keys = Object.keys(source).sort();
+    if (!keys.length) { out[current] = '(none)'; return out; }
+    for (const key of keys) flattenFields(source[key], prefix ? `${prefix}.${key}` : key, out);
+    return out;
+  }
+  out[current] = String(source);
+  return out;
+}
+function fieldChanges(before, after) {
+  const a = flattenFields(canonical(before));
+  const b = flattenFields(canonical(after));
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()
+    .filter(field => a[field] !== b[field])
+    .map(field => ({ field, before: Object.hasOwn(a, field) ? a[field] : '(absent)', after: Object.hasOwn(b, field) ? b[field] : '(absent)' }));
+}
+function describeComparedItem(item) {
+  const identity = item?.identity || {};
+  const scope = item?.scope || {};
+  return [
+    `Artifact: ${identity.table || 'unknown'}:${identity.sys_id || 'unknown'} "${identity.name || identity.update_name || 'unnamed'}"`,
+    `Category: ${item?.category || 'unknown'}`,
+    `Scope: ${scope.scope || scope.sys_id || 'unknown'}${scope.name ? ` (${scope.name})` : ''}`,
+    `Evidence: ${(item?.evidence || []).map(evidence => `${evidence.source}:${evidence.sys_id}`).join(', ') || 'none captured'}`,
+    `Risk: ${item?.risk?.rating || 'unknown'}`,
+    `Recommendation: ${item?.recommendation || 'not recorded'}`,
+  ];
+}
+
 export function formatReportComparison(result) {
   const lines = [`Customization comparison: ${result.status}`, `Baseline: ${result.baseline_run_id}`, `New: ${result.new_run_id}`, ...result.unknowns];
+  const impaired = result.impaired_sources || { baseline: [], new: [] };
+  if (impaired.baseline.length) lines.push(`Unreliable baseline sources: ${impaired.baseline.join(', ')}`);
+  if (impaired.new.length) lines.push(`Unreliable new sources: ${impaired.new.join(', ')}`);
   for (const kind of ['additions', 'removals', 'changes']) {
     lines.push('', `${kind.toUpperCase()} (${result[kind].length})`);
-    for (const change of result[kind]) lines.push(`${change.id}: ${change.availability || 'captured metadata/evidence changed'}`);
+    for (const entry of result[kind]) {
+      if (kind === 'changes') {
+        lines.push(`${entry.id}: ${entry.availability || 'captured metadata/evidence changed'}`);
+        const fields = fieldChanges(entry.baseline, entry.new);
+        for (const field of fields) lines.push(`  ${field.field}: "${field.before}" -> "${field.after}"`);
+        if (!fields.length) lines.push('  No compared field differs; evidence ordering or another unrendered value changed.');
+      } else {
+        lines.push(`${entry.id}: ${entry.availability}`);
+        for (const detail of describeComparedItem(entry.item)) lines.push(`  ${detail}`);
+      }
+    }
   }
-  for (const side of ['baseline', 'new']) for (const [table, source] of Object.entries(result.coverage[side].sources)) lines.push(`${side} ${table}: ${source.status}, ${source.fetched} fetched. ${source.reason}`);
+  for (const side of ['baseline', 'new']) for (const [table, source] of Object.entries(result.coverage[side].sources)) lines.push(`${side} ${table}: ${source.status}, ${source.fetched} fetched of ${source.available === null || source.available === undefined ? 'unknown' : source.available} available. ${source.reason}`);
   return lines.join('\n') + '\n';
 }
 
@@ -155,8 +276,8 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000 || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100) throw new Error('pageSize must be 1..1000 and maxPages 1..100');
   const sources = {};
   const data = {};
-  for (const [table, fields] of Object.entries(SOURCES)) {
-    const result = await readSource(sdk, table, fields, pageSize, maxPages);
+  for (const [table, source] of Object.entries(SOURCES)) {
+    const result = await readSource(sdk, table, source, pageSize, maxPages);
     sources[table] = result.coverage;
     data[table] = result.rows;
   }
@@ -183,8 +304,9 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
     };
     const history = (logs.get(identity.update_name) || []).sort((a, b) => text(b.sys_updated_on).localeCompare(text(a.sys_updated_on)) || text(a.sys_id).localeCompare(text(b.sys_id)));
     // Raw provider choices: 4 = Skipped, 104 = Skipped (second pass).
-    // Other skip dispositions do not establish a preserved customization.
-    const skipped = history.filter(log => Object.hasOwn(log, 'resolution_status') && ['4', '104'].includes(text(log.disposition)) && text(log.resolution_status) !== 'reviewed_reverted');
+    // The read is already filtered server-side; this check stays because a
+    // server filter is never trusted to be a classification.
+    const skipped = history.filter(log => Object.hasOwn(log, 'resolution_status') && SKIP_DISPOSITIONS.includes(text(log.disposition)) && text(log.resolution_status) !== 'reviewed_reverted');
     // A declaration is caller evidence, not platform/vendor provenance. Keep it
     // separate from OOTB findings and record the uncertainty explicitly.
     if (scope && scopeId !== 'global' && scopeName !== 'global' && (declared.has(scopeName) || declared.has(scopeId))) {
@@ -213,7 +335,7 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
     coverage: { complete: false, sources,
       unmatched_upgrade_records: data.sys_upgrade_history_log.filter(row => !matchedLogs.has(text(row.file_name))).length,
       unmatched_customer_scopes: customerScopes.filter(id => !data.sys_scope.some(row => text(row.sys_id) === id || text(row.scope) === id)),
-      limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
+      limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', `Upgrade history is read server-side for raw dispositions ${SKIP_DISPOSITIONS.join(' and ')} only; unmatched upgrade counts describe that filtered population, not all upgrade history.`, 'Coverage compares rows fetched with the Stats API count for the same query; a short page never implies exhaustion and an unavailable count leaves completeness unknown.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
     },
   };
 }

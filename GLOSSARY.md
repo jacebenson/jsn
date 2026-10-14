@@ -26,14 +26,24 @@ A private local schema-versioned JSON report produced by bounded GET-only reads
 of application metadata, scopes and upgrade history. Historical OOTB evidence,
 caller-declared customer scope artifacts and unclassified metadata stay separate.
 An upgrade skip is evidence of a past preserved customization, not a trusted
-current OOTB baseline. Non-global scope is never ownership evidence. Missing
-ACL visibility, baseline and dependency analysis keep reports incomplete.
+current OOTB baseline. The upgrade-history read is filtered server-side to the
+preserved-customization dispositions, so a bounded budget reaches the evidence
+and unmatched counts describe that filtered population. Non-global scope is never
+ownership evidence. Coverage never infers exhaustion from a short page: it
+compares the rows fetched with the Stats API count for the same query, reports
+both, and reports `exhausted` only when the fetched rows account for the available
+total. An unavailable count is reported as unknown. A 2xx table body without a
+`result` array is a malformed envelope and makes that source unavailable, never
+empty; comparing a report that has an unavailable or empty source yields
+`unreliable` status so missing coverage is never read as mass creation/deletion.
+Missing ACL visibility, baseline and dependency analysis keep reports incomplete.
 Comparisons use artifact table/sys_id identity and captured evidence, ignoring
 local capture metadata and ordering. Observed additions/removals do not prove
 creation/deletion. Saved review commands require no instance.
 
 The SDK `readOnly` request option requires GET for the data request and
-suppresses local credential last-seen writes. It preserves standard authentication,
+suppresses local credential last-seen writes unconditionally — a caller cannot
+re-enable them by passing `touchLastSeen`. It preserves standard authentication,
 including OAuth refresh and session/GCK bootstrap. Authentication POSTs and local
 refreshed-credential storage are allowed; instance-record mutations and eval are not.
 Upgrade history joins `file_name` to metadata `sys_update_name`. Raw dispositions
