@@ -70,6 +70,7 @@ import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { perfCmd } from './commands/perf.js';
+import { customizationsCmd } from './commands/customizations.js';
 import { midserversCmd } from './commands/midservers.js';
 import { diffCmd } from './commands/diff.js';
 import { graphqlCmd } from './commands/graphql.js';
@@ -406,6 +407,7 @@ export function buildCLI() {
     .command(atfCmd(wrap))
     .command(approvalsCmd(wrap))
     .command(perfCmd(wrap))
+    .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
     .command(diffCmd(wrap))
     .command(graphqlCmd(wrap))

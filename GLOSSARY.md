@@ -20,6 +20,22 @@ an instance read showing Up. Readiness additionally requires raw `validated=true
 after the user performs the manual Validate trust operation. Windows currently
 uses a foreground console and does not register a system service.
 
+## Customization capture
+
+A private local schema-versioned JSON report produced by bounded GET-only reads
+of application metadata, scopes and upgrade history. Historical OOTB evidence,
+caller-declared customer scope artifacts and unclassified metadata stay separate.
+An upgrade skip is evidence of a past preserved customization, not a trusted
+current OOTB baseline. Non-global scope is never ownership evidence. Missing
+ACL visibility, baseline and dependency analysis keep reports incomplete.
+Comparisons use artifact table/sys_id identity and captured evidence, ignoring
+local capture metadata and ordering. Observed additions/removals do not prove
+creation/deletion. Saved review commands require no instance.
+
+The SDK `readOnly` request option requires GET, disables session warm-up and
+OAuth refresh, and suppresses local credential last-seen writes. An expired
+token is an authentication failure, not permission to refresh during capture.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as

@@ -44,6 +44,53 @@ private files and offers a foreground console, not native service registration.
 See [direct MID installation](docs/mid-direct-install.md) for security boundaries,
 lifecycle commands and the untested Windows host phases. Docker remains available.
 
+## Customization reports
+
+```sh
+jsn customizations capture --label before-upgrade --customer-scope x_acme_app
+jsn customizations list
+jsn customizations show <run_id>
+jsn customizations compare <baseline_id> <new_id> --json
+jsn customizations show <run_id> --get data.coverage
+```
+
+Captures use Table API GET requests only. They never run background scripts,
+refresh OAuth tokens, warm login sessions or write instance records. Expired
+credentials require a separate login. Reports are private local JSON files in
+`$JSN_DATA_HOME/customizations`, defaulting to `~/.jsn/customizations`. List,
+show and compare work offline. Interactive terminals offer local report pickers;
+pass explicit IDs with JSON, pipes or `--get`.
+
+The bounded inventory joins visible `sys_metadata`, `sys_scope` and
+`sys_upgrade_history_log` records. `ootb_modifications` contains artifacts
+with historical skipped-upgrade evidence, not a verified current OOTB diff.
+`customer_app_artifacts` contains only scopes explicitly declared with repeatable
+`--customer-scope` values or sys_ids. The instance verifies the scope identity,
+not its ownership. Installed/vendor scopes are never automatically called
+customer-built. Other visible artifacts remain `unclassified`.
+
+Each item reports identity, scope, evidence, unknown risk with rationale and a
+review recommendation. Historical OOTB findings include the known skipped-upgrade
+impact and explicit unknown baseline, runtime impact and dependencies. No
+reversion is performed or recommended as safe without further investigation.
+
+Defaults are 100 records per page and 10 pages per source. Adjust `--page-size`
+and `--max-pages` within the documented limits. Source coverage distinguishes
+visible-result exhaustion, page limits, missing fields, unstable pagination and
+read failures. ACL-filtered rows cannot be ruled out even after exhaustion.
+Reports therefore remain `incomplete`. An empty category does not prove that
+no customizations exist.
+
+Comparisons show newly observed, no-longer-observed and changed metadata/evidence.
+They ignore local capture IDs, labels, timestamps and enumeration order.
+They do not prove record creation/deletion or detect source-body changes without
+captured metadata changes. Compare only reports from the same instance.
+
+Provider contract: [ServiceNow Customizations Unchanged](https://www.servicenow.com/docs/r/xanadu/platform-administration/customizations-unchanged-related-list.html)
+explains that the `Skipped` disposition preserves customizations. Other skip
+reasons are not treated as equivalent evidence. This command cannot establish a
+trusted baseline from that history alone.
+
 ## Quick Start
 
 ```bash

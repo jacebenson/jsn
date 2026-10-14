@@ -52,11 +52,11 @@ export class SDKClient {
     this.sessionUserToken = '';
   }
 
-  async _setAuth(req, { skipOAuthSession = false } = {}) {
+  async _setAuth(req, { skipOAuthSession = false, allowRefresh = true } = {}) {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
-    const creds = await this.authProvider.getCredentials();
+    const creds = await this.authProvider.getCredentials({ allowRefresh });
     if (!creds) {
       throw errAuth('No valid credentials');
     }
@@ -94,7 +94,8 @@ export class SDKClient {
   }
 
   async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, touchLastSeen = true, ...requestOptions } = opts;
+    const { timeout = this.timeout, readOnly = false, touchLastSeen = !readOnly, ...requestOptions } = opts;
+    if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
 
@@ -110,7 +111,7 @@ export class SDKClient {
       if (this.domain) {
         req.headers.set('X-Now-Domain', this.domain);
       }
-      await this._setAuth(req);
+      await this._setAuth(req, { skipOAuthSession: readOnly, allowRefresh: !readOnly });
 
       const resp = await fetch(req);
       const body = await resp.text();
