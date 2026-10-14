@@ -13,10 +13,18 @@ import { getVersion } from './commands/version.js';
 export const SKIP_DISPOSITIONS = ['4', '104'];
 const SKIP_QUERY = `dispositionIN${SKIP_DISPOSITIONS.join(',')}`;
 const SOURCES = {
-  sys_scope: { fields: 'sys_id,name,scope,sys_class_name', query: 'ORDERBYsys_id', countQuery: '' },
-  sys_metadata: { fields: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on', query: 'ORDERBYsys_id', countQuery: '' },
-  sys_upgrade_history_log: { fields: 'sys_id,file_name,disposition,resolution_status,sys_updated_on', query: `${SKIP_QUERY}^ORDERBYsys_id`, countQuery: SKIP_QUERY },
+  sys_scope: { fields: 'sys_id,name,scope,sys_class_name', query: 'ORDERBYsys_id', countQuery: '', kind: 'inventory read' },
+  sys_metadata: { fields: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on', query: 'ORDERBYsys_id', countQuery: '', kind: 'bounded sample' },
+  sys_upgrade_history_log: { fields: 'sys_id,file_name,disposition,resolution_status,sys_updated_on', query: `${SKIP_QUERY}^ORDERBYsys_id`, countQuery: SKIP_QUERY, kind: 'inventory read' },
 };
+// The broad sys_metadata read is an arbitrary sys_id-ordered slice of a table
+// that can hold hundreds of thousands of rows, so it can only ever be a bounded
+// sample of the instance. Skipped-upgrade artifacts are therefore resolved
+// directly by the update names the filtered history read observed, so every
+// skipped artifact visible on the instance reaches the inventory.
+export const RESOLUTION_SOURCE = 'sys_metadata_name_resolution';
+export const RESOLUTION_CHUNK_SIZE = 25;
+const RESOLUTION_MAX_PAGES = 3;
 const value = v => v && typeof v === 'object' ? v.value ?? '' : v ?? '';
 const text = v => String(value(v));
 
@@ -38,12 +46,24 @@ async function availableCount(sdk, table, countQuery, fetched) {
   return Math.floor(count);
 }
 
-async function readSource(sdk, table, { fields, query, countQuery }, pageSize, maxPages) {
+// A per-query count with no zero/short-page guessing: a count of 0 for a name
+// chunk means no visible row matched that chunk, which is real evidence.
+async function statsCount(sdk, table, query) {
+  if (typeof sdk.aggregateCount !== 'function') return null;
+  try {
+    const count = await sdk.aggregateCount(table, query);
+    return Number.isFinite(count) && count >= 0 ? Math.floor(count) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readSource(sdk, table, { fields, query, countQuery, kind }, pageSize, maxPages) {
   const rows = [];
   const seen = new Set();
   const coverage = {
     status: 'limited', fetched: 0, available: null, pages: 0, duplicate_rows: 0, missing_identity: 0,
-    query, reason: 'Page limit reached; remaining records unknown.',
+    query, ...(kind ? { kind } : {}), reason: 'Page limit reached; remaining records unknown.',
   };
   // The strict seam rejects a 2xx body without a result array, so a malformed
   // envelope becomes an unavailable source instead of an empty inventory.
@@ -102,6 +122,84 @@ async function readSource(sdk, table, { fields, query, countQuery }, pageSize, m
   }
   coverage.reason += duplicateNote;
   return { rows, coverage };
+}
+
+// Resolve observed skipped-upgrade update names against visible sys_metadata
+// with chunked GET-only `sys_update_nameIN<chunk>` queries. The broad sample
+// cannot be relied on for this: it is an arbitrary sys_id-ordered slice, so an
+// inventory claim needs the artifacts the history read actually named.
+// Read failures are reported per chunk instead of being hidden behind the
+// sample, and completeness stays anchored to the Stats API count for the exact
+// name queries used, never to a page that happened to end.
+async function resolveUpdateNames(sdk, names) {
+  const requested = [...new Set(names)].sort();
+  const rows = [];
+  const seen = new Set();
+  const resolved = new Set();
+  const coverage = {
+    kind: 'targeted name resolution', status: 'limited', fetched: 0, available: null, pages: 0, chunks: 0,
+    query: 'sys_update_nameIN<observed skipped update names>', requested_names: requested.length,
+    resolved_names: 0, unresolved_names: 0, failed_chunks: 0, reason: '',
+  };
+  if (!requested.length) {
+    coverage.query = '';
+    coverage.reason = 'No skipped upgrade rows were observed, so no update names required resolution.';
+    return { rows, resolved, coverage };
+  }
+  const listFn = typeof sdk.listStrict === 'function' ? sdk.listStrict.bind(sdk) : sdk.list.bind(sdk);
+  const failures = [];
+  let countSum = 0;
+  let countKnown = true;
+  for (let start = 0; start < requested.length; start += RESOLUTION_CHUNK_SIZE) {
+    const chunk = requested.slice(start, start + RESOLUTION_CHUNK_SIZE);
+    const limit = Math.max(chunk.length, 1);
+    const query = `sys_update_nameIN${chunk.join(',')}`;
+    coverage.chunks++;
+    try {
+      for (let page = 0; page < RESOLUTION_MAX_PAGES; page++) {
+        const batch = await listFn('sys_metadata', {
+          sysparm_fields: SOURCES.sys_metadata.fields, sysparm_query: `${query}^ORDERBYsys_id`,
+          sysparm_display_value: 'all', sysparm_exclude_reference_link: 'true',
+          sysparm_limit: String(limit), sysparm_offset: String(page * limit),
+        }, { readOnly: true });
+        coverage.pages++;
+        if (!Array.isArray(batch)) throw new Error('Invalid table response');
+        for (const row of batch) {
+          const updateName = text(row.sys_update_name);
+          if (updateName && chunk.includes(updateName)) resolved.add(updateName);
+          const id = text(row.sys_id);
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          rows.push(row);
+        }
+        coverage.fetched = rows.length;
+        if (batch.length === 0) break;
+      }
+    } catch (error) {
+      failures.push(String(error?.message || error));
+    }
+    const counted = await statsCount(sdk, 'sys_metadata', query);
+    if (counted === null) countKnown = false;
+    else countSum += counted;
+  }
+  coverage.available = countKnown ? countSum : null;
+  coverage.resolved_names = resolved.size;
+  coverage.unresolved_names = requested.length - resolved.size;
+  if (failures.length) {
+    coverage.status = failures.some(message => /401|403|permission|forbidden|access denied/i.test(message)) ? 'permission_denied' : 'unavailable';
+    coverage.failed_chunks = failures.length;
+    coverage.reason = `${failures.length} of ${coverage.chunks} update-name lookup chunk(s) failed; rows resolved by the remaining chunks were retained, but some observed skipped artifacts may be missing from this inventory. ACL visibility or a read error may limit this source.`;
+  } else if (coverage.available !== null && coverage.fetched >= coverage.available) {
+    coverage.status = 'exhausted';
+    coverage.reason = `Resolved ${coverage.resolved_names} of ${requested.length} observed skipped update names in ${coverage.chunks} chunk(s) and read all ${coverage.available} row(s) the Stats API reports for those name queries.`;
+  } else if (coverage.available !== null) {
+    coverage.status = 'limited';
+    coverage.reason = `Resolved ${coverage.resolved_names} of ${requested.length} observed skipped update names and read ${coverage.fetched} of ${coverage.available} row(s) the Stats API reports for those name queries; the per-chunk page budget was reached.`;
+  } else {
+    coverage.status = 'limited';
+    coverage.reason = `Resolved ${coverage.resolved_names} of ${requested.length} observed skipped update names; the Stats API count for those name queries was unavailable, so lookup completeness cannot be claimed.`;
+  }
+  return { rows, resolved, coverage };
 }
 
 export const CUSTOMIZATION_SCHEMA_VERSION = 1;
@@ -185,9 +283,14 @@ export function compareReports(baseline, newer) {
 
 export function formatReport(report) {
   const lines = [`Customization capture ${report.run_id}${report.label ? ` (${report.label})` : ''}`, `Instance: ${report.instance}`, `Status: ${report.status}`, '', 'COVERAGE'];
-  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}: ${coverage.status}, ${coverage.fetched} fetched of ${coverage.available === null || coverage.available === undefined ? 'unknown' : coverage.available} available. ${coverage.reason}`);
+  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}${coverage.kind ? ` [${coverage.kind}]` : ''}: ${coverage.status}, ${coverage.fetched} fetched of ${coverage.available === null || coverage.available === undefined ? 'unknown' : coverage.available} available. ${coverage.reason}`);
   for (const limitation of report.coverage.limitations) lines.push(`Unknown: ${limitation}`);
   if (report.coverage.unmatched_customer_scopes.length) lines.push(`Unmatched customer declarations: ${report.coverage.unmatched_customer_scopes.join(', ')}`);
+  const upgrade = report.coverage.upgrade_evidence;
+  if (upgrade) {
+    lines.push(`Observed skipped upgrade rows: ${upgrade.skipped_rows_observed}; distinct update names: ${upgrade.update_names_observed}; resolved by direct name lookup: ${upgrade.resolved_by_lookup}; unresolved: ${upgrade.unresolved_update_names.length}${upgrade.lookup_failures ? `; failed lookup chunks: ${upgrade.lookup_failures}` : ''}`);
+    if (upgrade.unresolved_update_names.length) lines.push(`Unresolved skipped update names (not visible in sys_metadata): ${upgrade.unresolved_update_names.slice(0, 20).join(', ')}${upgrade.unresolved_update_names.length > 20 ? `, ... and ${upgrade.unresolved_update_names.length - 20} more` : ''}`);
+  }
   lines.push(`Unmatched upgrade history records: ${report.coverage.unmatched_upgrade_records}`);
   for (const [category, items] of Object.entries(report.categories)) {
     lines.push('', `${category.toUpperCase()} (${items.length})`);
@@ -267,7 +370,7 @@ export function formatReportComparison(result) {
       }
     }
   }
-  for (const side of ['baseline', 'new']) for (const [table, source] of Object.entries(result.coverage[side].sources)) lines.push(`${side} ${table}: ${source.status}, ${source.fetched} fetched of ${source.available === null || source.available === undefined ? 'unknown' : source.available} available. ${source.reason}`);
+  for (const side of ['baseline', 'new']) for (const [table, source] of Object.entries(result.coverage[side].sources)) lines.push(`${side} ${table}${source.kind ? ` [${source.kind}]` : ''}: ${source.status}, ${source.fetched} fetched of ${source.available === null || source.available === undefined ? 'unknown' : source.available} available. ${source.reason}`);
   return lines.join('\n') + '\n';
 }
 
@@ -280,6 +383,17 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
     const result = await readSource(sdk, table, source, pageSize, maxPages);
     sources[table] = result.coverage;
     data[table] = result.rows;
+  }
+  // The broad sys_metadata read is a bounded sample, so the artifacts the
+  // filtered history read actually named are looked up directly. The source is
+  // only registered when there is something to resolve, so a report with no
+  // skipped rows has no phantom empty source.
+  const observedNames = data.sys_upgrade_history_log.map(row => text(row.file_name)).filter(Boolean);
+  const resolution = await resolveUpdateNames(sdk, observedNames);
+  if (observedNames.length) {
+    sources[RESOLUTION_SOURCE] = resolution.coverage;
+    const sampled = new Set(data.sys_metadata.map(row => text(row.sys_id)));
+    data.sys_metadata = [...data.sys_metadata, ...resolution.rows.filter(row => !sampled.has(text(row.sys_id)))];
   }
   const scopes = new Map(data.sys_scope.map(row => [text(row.sys_id), row]));
   const declared = new Set(customerScopes);
@@ -329,13 +443,21 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
       categories.unclassified.push(item);
     }
   }
-  const matchedLogs = new Set(data.sys_metadata.map(row => text(row.sys_update_name)).filter(Boolean));
+  const visibleNames = new Set(data.sys_metadata.map(row => text(row.sys_update_name)).filter(Boolean));
+  const unresolvedNames = [...new Set(observedNames)].filter(name => !visibleNames.has(name)).sort();
   return {
     status: 'incomplete', categories,
     coverage: { complete: false, sources,
-      unmatched_upgrade_records: data.sys_upgrade_history_log.filter(row => !matchedLogs.has(text(row.file_name))).length,
+      upgrade_evidence: {
+        skipped_rows_observed: data.sys_upgrade_history_log.length,
+        update_names_observed: new Set(observedNames).size,
+        resolved_by_lookup: observedNames.length ? resolution.coverage.resolved_names : 0,
+        unresolved_update_names: unresolvedNames,
+        lookup_failures: observedNames.length ? resolution.coverage.failed_chunks : 0,
+      },
+      unmatched_upgrade_records: data.sys_upgrade_history_log.filter(row => !visibleNames.has(text(row.file_name))).length,
       unmatched_customer_scopes: customerScopes.filter(id => !data.sys_scope.some(row => text(row.sys_id) === id || text(row.scope) === id)),
-      limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', `Upgrade history is read server-side for raw dispositions ${SKIP_DISPOSITIONS.join(' and ')} only; unmatched upgrade counts describe that filtered population, not all upgrade history.`, 'Coverage compares rows fetched with the Stats API count for the same query; a short page never implies exhaustion and an unavailable count leaves completeness unknown.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
+      limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', `Upgrade history is read server-side for raw dispositions ${SKIP_DISPOSITIONS.join(' and ')} only; unmatched upgrade counts describe that filtered population, not all upgrade history.`, 'Coverage compares rows fetched with the Stats API count for the same query; a short page never implies exhaustion and an unavailable count leaves completeness unknown.', `The broad sys_metadata source is a bounded sample of an arbitrary sys_id-ordered slice, not an inventory, so unclassified and declared-customer categories only describe sampled artifacts. Skipped-upgrade artifacts are separate: they are resolved by the update names the filtered history read observed (${RESOLUTION_SOURCE}).`, 'Name resolution only looks up artifacts with skipped-upgrade evidence, so customizations with no upgrade-skip history are not discovered by it.', 'A resolved artifact can show a scope sys_id without a scope name when that scope record was outside the bounded sys_scope read.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
     },
   };
 }

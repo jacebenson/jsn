@@ -66,10 +66,22 @@ pass explicit IDs with JSON, pipes or `--get`.
 The bounded inventory joins visible `sys_metadata`, `sys_scope` and
 `sys_upgrade_history_log` records. `ootb_modifications` contains artifacts
 with historical skipped-upgrade evidence, not a verified current OOTB diff.
+Because the broad `sys_metadata` read is an arbitrary `sys_id`-ordered slice
+(994 of 621972 rows on a large instance), it is reported as a **bounded sample,
+not an inventory**: it only ever describes the rows the page budget reached.
+The skipped-upgrade artifacts are inventoried separately and completely for the
+observed history: after the filtered upgrade-history read, every observed
+`sys_update_name` is resolved with chunked GET-only
+`sys_update_nameIN<chunk of names>` lookups on `sys_metadata`, so an artifact
+with skipped-upgrade evidence appears in `ootb_modifications` even when it falls
+far outside the sample. `coverage.upgrade_evidence` reports the skipped rows
+observed, the distinct update names, how many resolved by direct lookup, the
+unresolved name list and any failed lookup chunks.
 `customer_app_artifacts` contains only scopes explicitly declared with repeatable
 `--customer-scope` values or sys_ids. The instance verifies the scope identity,
 not its ownership. Installed/vendor scopes are never automatically called
-customer-built. Other visible artifacts remain `unclassified`.
+customer-built. Other visible artifacts remain `unclassified`, and both those
+categories cover only what the bounded sample read.
 
 Each item reports identity, scope, evidence, unknown risk with rationale and a
 review recommendation. Historical OOTB findings include the known skipped-upgrade
@@ -111,7 +123,14 @@ that history row; a present empty resolution is distinct from a missing field.
 The upgrade-history read is filtered server-side to those dispositions so a
 bounded capture spends its pages on preserved-customization evidence instead of
 arbitrary history rows, and `unmatched_upgrade_records` counts only that filtered
-population, not all upgrade history.
+population, not all upgrade history. The filtered history is the unit of the
+inventory claim: every observed `file_name` is then resolved against visible
+`sys_metadata` with chunked GET-only `sys_update_nameIN<chunk>` lookups, so
+skipped artifacts are inventoried from the history instead of from the arbitrary
+`sys_id`-ordered metadata sample. `unmatched_upgrade_records` and
+`coverage.upgrade_evidence.unresolved_update_names` describe only names no
+visible metadata row matched; a failed lookup chunk is reported rather than
+treated as an absent artifact.
 These values were checked against the PDI dictionary, choices and actual joined
 rows. Display labels are not used for classification.
 

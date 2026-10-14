@@ -89,7 +89,16 @@ session/GCK using authentication POSTs. List/show/compare are offline.
 Declare customer ownership with repeatable `--customer-scope` values or sys_ids;
 never infer customer ownership from a non-global scope. The declaration is
 caller evidence, not independent publisher verification. OOTB findings reflect
-historical upgrade skips, not a current verified baseline deviation. Missing
+historical upgrade skips, not a current verified baseline deviation. The upgrade
+history is read server-side for the skip dispositions and every observed skipped
+`file_name` is resolved against `sys_metadata` by chunked
+`sys_update_nameIN<chunk>` lookups, so the OOTB inventory covers the observed
+skipped artifacts; the broad `sys_metadata` read is an arbitrary `sys_id`-ordered
+slice and is reported as a bounded sample, not an inventory, describing only the
+unclassified and declared-customer categories. Unresolved skipped names and
+failed lookup chunks stay explicit rather than becoming absent artifacts, and a
+resolved artifact can lack a scope name when its scope record was outside the
+bounded `sys_scope` read. Missing
 ACL access, pagination limits and unmatched evidence remain explicit. All
 reports are incomplete; no findings is not proof of no customizations.
 Comparisons cover captured metadata/evidence, not source payloads. Removals mean

@@ -245,6 +245,98 @@ test('upgrade history is read with a server-side disposition filter so skipped c
   assert.equal(result.coverage.unmatched_upgrade_records, 1);
 });
 
+// Defect 6: the broad sys_metadata read is an arbitrary sys_id-ordered slice.
+// Live pdi with the default budget reads 994 of 621972 rows, and only 2 of the
+// 425 skipped-upgrade artifacts fall inside it. An inventory of skipped
+// customizations must resolve the observed update names directly.
+function queryAwareSdk(data) {
+  const visible = (table, query = '') => {
+    let rows = data[table] || [];
+    const names = /sys_update_nameIN([^ ^]+)/.exec(query);
+    if (names) { const wanted = new Set(names[1].split(',')); rows = rows.filter(row => wanted.has(String(row.sys_update_name))); }
+    const dispositions = /dispositionIN([^ ^]+)/.exec(query);
+    if (dispositions) { const wanted = new Set(dispositions[1].split(',')); rows = rows.filter(row => wanted.has(String(row.disposition))); }
+    return rows;
+  };
+  const queries = [];
+  return { queries, sdk: {
+    async list(table, params) {
+      queries.push({ table, query: params.sysparm_query });
+      const offset = Number(params.sysparm_offset);
+      return visible(table, params.sysparm_query).slice(offset, offset + Number(params.sysparm_limit));
+    },
+    async aggregateCount(table, query = '') { return visible(table, query).length; },
+  } };
+}
+
+test('observed skipped upgrade names are resolved by direct lookup, not left to the arbitrary metadata sample', async () => {
+  const { captureCustomizations, formatReport } = await import('../src/customizations.js');
+  const noise = Array.from({ length: 1200 }, (_, index) => ({ sys_id: `noise-${String(index).padStart(4, '0')}`, sys_update_name: `sys_script_noise_${index}`, sys_name: `Noise ${index}`, sys_scope: 'global', sys_class_name: 'sys_script' }));
+  const artifact = { sys_id: 'artifact-target', sys_update_name: 'sys_script_target', sys_name: 'Skipped vendor rule', sys_scope: 'global', sys_class_name: 'sys_script', sys_updated_on: '2026-02-02 00:00:00' };
+  const { sdk, queries } = queryAwareSdk({
+    sys_metadata: [...noise, artifact],
+    sys_upgrade_history_log: [{ sys_id: 'skip-1', file_name: 'sys_script_target', disposition: '4', resolution_status: '' }],
+  });
+  const result = await captureCustomizations({ sdk });
+  // The bounded sample still only ever sees the first 1000 rows by sys_id.
+  assert.equal(result.coverage.sources.sys_metadata.status, 'limited');
+  assert.equal(result.coverage.sources.sys_metadata.fetched, 1000);
+  assert.equal(result.coverage.sources.sys_metadata.kind, 'bounded sample');
+  assert.equal(result.categories.ootb_modifications.length, 1, 'the skipped artifact must appear in the OOTB inventory');
+  assert.equal(result.categories.ootb_modifications[0].identity.sys_id, 'artifact-target');
+  assert.equal(result.categories.ootb_modifications[0].evidence.at(-1).disposition, '4');
+  const resolution = result.coverage.sources.sys_metadata_name_resolution;
+  assert.equal(resolution.status, 'exhausted');
+  assert.equal(resolution.kind, 'targeted name resolution');
+  assert.equal(resolution.requested_names, 1);
+  assert.equal(resolution.resolved_names, 1);
+  assert.equal(resolution.fetched, 1);
+  assert.equal(resolution.available, 1);
+  assert.equal(result.coverage.upgrade_evidence.skipped_rows_observed, 1);
+  assert.deepEqual(result.coverage.upgrade_evidence.unresolved_update_names, []);
+  assert.equal(result.coverage.unmatched_upgrade_records, 0);
+  assert.ok(queries.some(call => call.table === 'sys_metadata' && /sys_update_nameIN/.test(call.query || '')), 'the resolution must query sys_metadata by update name');
+  assert.match(formatReport(result), /bounded sample/);
+});
+
+// Defect 7: an unresolvable skipped name stays visible as a gap, and a failed
+// lookup chunk is reported instead of being hidden behind the sample.
+test('unresolved skipped names and failed lookup chunks are reported, never silently dropped', async () => {
+  const { captureCustomizations } = await import('../src/customizations.js');
+  const { sdk } = queryAwareSdk({
+    sys_metadata: [{ sys_id: 'm1', sys_update_name: 'sys_script_present', sys_name: 'Present', sys_scope: 'global', sys_class_name: 'sys_script' }],
+    sys_upgrade_history_log: [
+      { sys_id: 's1', file_name: 'sys_script_present', disposition: '4', resolution_status: '' },
+      { sys_id: 's2', file_name: 'sys_script_absent', disposition: '104', resolution_status: '' },
+    ],
+  });
+  const result = await captureCustomizations({ sdk });
+  assert.equal(result.coverage.upgrade_evidence.skipped_rows_observed, 2);
+  assert.deepEqual(result.coverage.upgrade_evidence.unresolved_update_names, ['sys_script_absent']);
+  assert.equal(result.coverage.unmatched_upgrade_records, 1);
+  // A blocked name lookup is an ACL-limited lookup, not a silent gap: the
+  // sampled rows and the resolveable names are still inventoried, and the
+  // failure is counted in coverage and in the upgrade evidence summary.
+  const { sdk: working } = queryAwareSdk({
+    sys_metadata: [{ sys_id: 'm1', sys_update_name: 'sys_script_present', sys_name: 'Present', sys_scope: 'global', sys_class_name: 'sys_script' }],
+    sys_upgrade_history_log: [{ sys_id: 's1', file_name: 'sys_script_present', disposition: '4', resolution_status: '' }],
+  });
+  const blocked = await captureCustomizations({ sdk: {
+    async list(table, params) {
+      if (table === 'sys_metadata' && /sys_update_nameIN/.test(params.sysparm_query || '')) throw new Error('403 Forbidden');
+      return working.list(table, params);
+    },
+    async aggregateCount(table, query = '') { return working.aggregateCount(table, query); },
+  } });
+  const lookup = blocked.coverage.sources.sys_metadata_name_resolution;
+  assert.equal(blocked.coverage.sources.sys_metadata.status, 'exhausted');
+  assert.equal(lookup.status, 'permission_denied');
+  assert.equal(lookup.failed_chunks, 1);
+  assert.match(lookup.reason, /ACL visibility or a read error/);
+  assert.equal(blocked.coverage.upgrade_evidence.lookup_failures, 1);
+  assert.equal(blocked.categories.ootb_modifications.length, 1);
+});
+
 // Defect 3: a 200 with an unexpected body is not an empty table.
 test('a malformed table envelope is an unavailable source, never an empty or exhausted one', async t => {
   const { captureCustomizations, captureReport, compareReports, formatReportComparison } = await import('../src/customizations.js');

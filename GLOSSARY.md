@@ -28,14 +28,21 @@ caller-declared customer scope artifacts and unclassified metadata stay separate
 An upgrade skip is evidence of a past preserved customization, not a trusted
 current OOTB baseline. The upgrade-history read is filtered server-side to the
 preserved-customization dispositions, so a bounded budget reaches the evidence
-and unmatched counts describe that filtered population. Non-global scope is never
-ownership evidence. Coverage never infers exhaustion from a short page: it
-compares the rows fetched with the Stats API count for the same query, reports
-both, and reports `exhausted` only when the fetched rows account for the available
-total. An unavailable count is reported as unknown. A 2xx table body without a
-`result` array is a malformed envelope and makes that source unavailable, never
-empty; comparing a report that has an unavailable or empty source yields
-`unreliable` status so missing coverage is never read as mass creation/deletion.
+and unmatched counts describe that filtered population. Every observed skipped
+`file_name` is then resolved against visible `sys_metadata` with chunked
+`sys_update_nameIN<chunk>` lookups, so the OOTB inventory covers the observed
+skipped artifacts even though the broad `sys_metadata` read is an arbitrary
+`sys_id`-ordered slice reported as a bounded sample rather than an inventory;
+unresolved names and failed lookup chunks stay explicit. The bounded sample
+describes only the unclassified and declared-customer categories. Non-global
+scope is never ownership evidence. Coverage never infers exhaustion from a short
+page: it compares the rows fetched with the Stats API count for the same query,
+reports both, and reports `exhausted` only when the fetched rows account for the
+available total. An unavailable count is reported as unknown. A 2xx table body
+without a `result` array is a malformed envelope and makes that source
+unavailable, never empty; comparing a report that has an unavailable or empty
+source yields `unreliable` status so missing coverage is never read as mass
+creation/deletion.
 Missing ACL visibility, baseline and dependency analysis keep reports incomplete.
 Comparisons use artifact table/sys_id identity and captured evidence, ignoring
 local capture metadata and ordering. Observed additions/removals do not prove
