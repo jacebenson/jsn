@@ -195,6 +195,21 @@ usage errors opt into the shared renderer's JSON envelope with
 `error.jsonEnvelope = true`; other command families retain legacy stderr usage
 errors and all usage errors keep exit status 2.
 
+## Skipped update review and impact analysis
+
+`src/skipped-updates.js` owns instance-wide unresolved skipped-finding discovery,
+read-only reviews, exact selected batch previews and per-finding verified outcomes.
+A finding is a `sys_upgrade_history_log` row, not the customized artifact itself.
+A **confirmed batch** binds the effective instance, selected IDs, explicit action,
+evidence and snapshots to a SHA-256 token, or receives one interactive confirmation
+only after the exact preview. Recommendations never choose or dispatch actions.
+
+`src/impact-analysis.js` is a reusable pure module for current/base field comparison,
+known dependency evidence and explicit unknown deeper effects. Provider adaptation
+lives in `src/skipped-update-provider.js`, exposed through the SDK. A **revert** uses
+the observed provider version lifecycle, never a generic resolution-field update.
+Dispatch is not success; log and artifact readback are required.
+
 ## Flow execution
 
 `src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.

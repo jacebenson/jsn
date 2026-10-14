@@ -434,6 +434,8 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Automation** — `flows`, `actions`, `rules`, `scrapi`, `updatesets`, `eval`, `rest`
 
+**Upgrade review** — [`skipped-updates`](docs/skipped-updates.md) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
+
 **Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`

@@ -4,6 +4,7 @@ import { gunzipSync } from 'node:zlib';
 import { errAuth, errAPI, errNetwork } from './errors.js';
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
+import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -201,6 +202,14 @@ export class SDKClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async getSkippedUpdateBaseline(sysID) {
+    return readSkippedBaseline(this, sysID);
+  }
+
+  async revertSkippedUpdate(sysID, modCount) {
+    return revertSkippedUpdate(this, sysID, modCount);
   }
 
   async list(table, params = {}, opts = {}) {
