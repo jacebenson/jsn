@@ -254,11 +254,44 @@
         "what": "See every set and its state"
       },
       {
+        "cmd": "jsn updatesets complete \"My Set\" --notes \"Fixed validation\"",
+        "what": "Complete a set with notes in its Description"
+      },
+      {
         "cmd": "jsn updatesets export \"My Set\" --out set.xml",
         "what": "Export to XML via the fluent endpoint"
       }
     ],
     "demo": "updatesets"
+  },
+  {
+    "id": "updatesets-complete",
+    "title": "Update set completion notes",
+    "tagline": "Completing a set records what changed, in the set's own Description.",
+    "commands": [
+      {
+        "cmd": "jsn updatesets complete \"My Set\" --notes \"Fixed validation\"",
+        "what": "Complete a named set with notes"
+      },
+      {
+        "cmd": "jsn updatesets complete --notes \"Fixed validation\" --json",
+        "what": "Complete the current set, machine-readable"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn updatesets list",
+        "text": "3 update set(s)\n\nname                            state       application           application.scope\n------------------------------  ----------  --------------------  --------------------\nCheckout approvals              In prog...  test                  x_8821_test\nCatalog copy fixes              In prog...  test                  x_8821_test\nReleased fixes                  Complete    test                  x_8821_test"
+      },
+      {
+        "cmd": "jsn updatesets complete \"Catalog copy fixes\" --notes 'Copied the approved catalog text' --force",
+        "text": "Update set marked complete: Catalog copy fixes"
+      },
+      {
+        "cmd": "jsn updatesets complete \"Catalog copy fixes\" --notes 'Copied the approved catalog text' --force --json",
+        "text": "{\n  \"ok\": true,\n  \"data\": {\n    \"update_set\": \"Catalog copy fixes\",\n    \"state\": \"complete\",\n    \"description\": \"- Copied the approved catalog text\"\n  },\n  \"summary\": \"Update set marked complete: Catalog copy fixes\",\n  \"breadcrumbs\": []\n}"
+      }
+    ]
   },
   {
     "id": "atf",
