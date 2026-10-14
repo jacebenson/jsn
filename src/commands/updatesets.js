@@ -1,7 +1,10 @@
 import fs from 'node:fs';
-import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
+import { editor, confirm } from '@inquirer/prompts';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack } from '../helpers.js';
+import { getActiveProfile } from '../config.js';
+import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
-import { errAPI, errUsage } from '../errors.js';
+import { errAPI, errUsage, errConfirmationRequired } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('updatesets', {
@@ -131,6 +134,28 @@ async function fetchUpdateSetById(app, sysID) {
   params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,description,sys_created_on,sys_updated_on');
   const records = await app.sdk.list('sys_update_set', params);
   return Array.isArray(records) && records.length > 0 ? records[0] : null;
+}
+
+/** Completion refuses duplicate names rather than guessing a mutation target. */
+async function resolveCompletionTarget(app, name) {
+  if (name !== undefined) {
+    if (!String(name).trim()) throw errUsage('Update set name must not be empty');
+    assertSafeExactMatch(name);
+    const params = new URLSearchParams({
+      sysparm_query: `name=${name}`, sysparm_limit: '2',
+      sysparm_display_value: 'all', sysparm_fields: 'sys_id,name',
+    });
+    const records = await app.sdk.list('sys_update_set', params);
+    if (!records.length) throw errUsage(`Update set not found: ${name}`);
+    if (records.length !== 1) {
+      throw errUsage(`Multiple update sets named "${name}". Select the intended set with "jsn updatesets set", then run "jsn updatesets complete" without a name.`);
+    }
+    return { sys_id: rawReferenceId(records[0].sys_id), name: getStringField(records[0], 'name') };
+  }
+  const userSysID = await requireCurrentUserSysId(app.sdk);
+  const current = await getCurrentUpdateSet(app.sdk, userSysID);
+  if (!current?.sys_id) throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
+  return current;
 }
 
 /** Build a safe, flat preorder hierarchy with ancestors before the selected set. */
@@ -631,16 +656,57 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
-          command: 'complete',
-          describe: 'Mark the current update set as complete',
+          command: 'complete [name]',
+          describe: 'Complete a named or current update set with completion notes',
+          builder: (y) => y
+            .positional('name', { type: 'string', describe: 'Unique update set name, defaults to the current set' })
+            .option('notes', { type: 'string', describe: 'Completion notes, one bullet per line; opens an editor when omitted interactively' }),
           handler: wrap(async (argv, app) => {
-            const userSysID = await requireCurrentUserSysId(app.sdk);
-            const current = await getCurrentUpdateSet(app.sdk, userSysID);
-            if (!current?.sys_id) {
-              throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
+            const current = await resolveCompletionTarget(app, argv.name);
+            const record = await fetchUpdateSetById(app, current.sys_id);
+            if (!record) throw errUsage(`Update set not found or unreadable: ${current.sys_id}`);
+            if (!Object.hasOwn(record, 'description')
+              || (record.description && typeof record.description === 'object' && !Object.hasOwn(record.description, 'value'))) {
+              throw errUsage(`Description is unreadable for update set "${current.name}" (${current.sys_id}); refusing to replace unknown text.`);
             }
-            await app.sdk.update('sys_update_set', current.sys_id, { state: 'complete' });
-            app.ok({ update_set: current.name, state: 'complete' }, { summary: `Update set marked complete: ${current.name}` });
+            const existing = String(record.description && typeof record.description === 'object'
+              ? record.description.value ?? '' : record.description ?? '');
+            const interactive = !argv.json && !argv.get && (!argv.format || argv.format === FormatAuto)
+              && app.output?.getFormat() === FormatAuto && canPrompt();
+            let notes = argv.notes;
+            let description;
+            try {
+              if (notes === undefined) {
+                if (!interactive) throw errUsage('Provide nonempty completion notes with --notes in noninteractive mode');
+                notes = await editor({ message: `Completion notes for "${current.name}". Write concise bullets, one per line` });
+              }
+              const bullets = String(notes).split(/\r?\n/)
+                .map(line => line.trim().replace(/^[-*•]\s*/, '').trim()).filter(Boolean)
+                .map(line => `- ${line}`).join('\n');
+              if (!bullets) throw errUsage('Provide nonempty completion notes with --notes');
+              description = existing ? `${existing}\n\n${bullets}` : bullets;
+              if (existing && !argv.force && getActiveProfile(app.config)?.skip_confirmations !== true) {
+                const question = `Append notes and complete "${current.name}"?\nExisting Description:\n${existing}\n\nNew notes:\n${bullets}`;
+                if (!interactive) throw errConfirmationRequired(question, buildRerunCommand(argv, {
+                  rerun: ['updatesets', 'complete', ...(argv.name !== undefined ? [argv.name] : []), '--notes', String(notes)],
+                }));
+                if (!await confirm({ message: question, default: false })) return;
+              }
+            } catch (error) {
+              if (['ExitPromptError', 'AbortPromptError'].includes(error.name)) return;
+              throw error;
+            }
+            const data = { state: 'complete', description };
+            try {
+              await app.sdk.update('sys_update_set', current.sys_id, data);
+            } catch (error) {
+              throw errAPI(error.status || 0, `Could not complete update set "${current.name}" (${current.sys_id}): ${error.message}. Check the record before retrying.`);
+            }
+            const mismatches = await verifyWriteBack(app, 'sys_update_set', current.sys_id, data);
+            if (mismatches.length) {
+              throw errAPI(200, `Could not verify completion of update set "${current.name}" (${current.sys_id}): ${mismatches.map(item => item.field).join(', ')} did not persist or could not be read. The write may have partially succeeded; inspect the set before retrying.`);
+            }
+            app.ok({ update_set: current.name, sys_id: current.sys_id, state: 'complete', description }, { summary: `Update set marked complete: ${current.name}` });
           }),
         })
         .command({
@@ -667,7 +733,7 @@ export function updateSetsCmd(wrap) {
         console.log('  export <name>  Export an update set to XML (stdout or --out)');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
-        console.log('  complete       Mark the current update set as complete');
+        console.log('  complete [name] Complete a named or current set with --notes (editor when omitted)');
         console.log('  ignore         Ignore the current update set');
         console.log('  parent <name>  Set the parent of an update set');
         console.log('\nRun "jsn updatesets <command> --help" for details.');

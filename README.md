@@ -107,6 +107,25 @@ jsn snippets run open-inc
 jsn logs follow --level error --tail 10
 ```
 
+### Update set completion
+
+```bash
+jsn updatesets complete                         # Current set, opens a notes editor in a human terminal
+jsn updatesets complete "My Feature" --notes "Fixed validation" --force --json
+```
+
+`complete [name]` saves concise bullet-list notes in Description and marks only
+that update set complete. Omit the name to use the current set. Explicit names
+must be unique; for duplicate names, select the intended set with `updatesets set`
+and complete it without a name. Children are not changed.
+
+Existing Description text is preserved exactly. The command shows it and asks
+before appending notes, unless `--force` or the profile's `skip_confirmations`
+policy explicitly allows the append. Scripts and JSON output must supply
+nonempty `--notes`; they never open prompts. Separate multiple notes with real
+newlines. Success requires readback of both Description and state. If verification
+fails, inspect the set before retrying because the write may have partially succeeded.
+
 ### Flow Designer actions
 
 `actions` and `action` are the same command. `list`, `show`, and explicit

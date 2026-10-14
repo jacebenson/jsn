@@ -73,6 +73,20 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 | **Docs** | `docs sync`, `docs status`, `docs search`, `docs serve` |
 | **Developer** | `eval`, `rest`, `skill`, `version` |
 
+### Complete an update set
+
+```bash
+jsn updatesets complete "My Feature" --notes "Fixed validation" --force --json
+```
+
+`complete [name]` defaults to the current set when the name is omitted. Explicit
+names must be unique. Supply nonempty `--notes` in automation; real newlines
+separate bullets. A human terminal opens a notes editor when `--notes` is absent.
+Existing Description text is preserved and appended after confirmation. Use
+`--force` only after approval, or the profile's `skip_confirmations` policy.
+Only the selected set changes, not its children. Both Description and state are
+read back before success. On verification failure, inspect the set before retrying.
+
 ### Table and raw REST examples
 
 ```bash
