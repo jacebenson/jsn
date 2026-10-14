@@ -114,10 +114,11 @@ jsn updatesets complete                         # Current set, opens a notes edi
 jsn updatesets complete "My Feature" --notes "Fixed validation" --force --json
 ```
 
-`complete [name]` saves concise bullet-list notes in Description and marks only
-that update set complete. Omit the name to use the current set. Explicit names
+`complete [name]` saves concise bullet-list notes in the selected set's Description
+and marks it complete. Omit the name to use the current set. Explicit names
 must be unique; for duplicate names, select the intended set with `updatesets set`
-and complete it without a name. Children are not changed.
+and complete it without a name. ServiceNow's normal batch completion rules still
+apply: completing a parent can complete its children. Notes are not copied to children.
 
 Existing Description text is preserved exactly. The command shows it and asks
 before appending notes, unless `--force` or the profile's `skip_confirmations`

@@ -21,9 +21,9 @@ const { updateSetsCmd } = await import('../src/commands/updatesets.js');
 beforeEach(() => { interactive = false; answer = 'Fixed validation'; confirmed = true; promptCalls = []; currentID = 'current'; });
 function fixture(description = '') {
   const records = [
-    { sys_id: 'current', name: 'Current', state: 'in progress', description: '' },
-    { sys_id: 'selected', name: 'Feature', state: 'in progress', description },
-    { sys_id: 'child', name: 'Child', parent: 'selected', state: 'in progress', description: 'Child notes' },
+    { sys_id: 'current', name: 'Current', base_update_set: '', state: 'in progress', description: '' },
+    { sys_id: 'selected', name: 'Feature', base_update_set: '', state: 'in progress', description },
+    { sys_id: 'child', name: 'Child', parent: '', base_update_set: '', state: 'in progress', description: 'Child notes' },
   ];
   const writes = [], reads = [], results = [];
   const app = { config: {}, output: { getFormat: () => 'auto' }, ok: data => results.push(data), sdk: {
@@ -31,10 +31,28 @@ function fixture(description = '') {
       reads.push({ table, query: params.get('sysparm_query') });
       assert.equal(table, 'sys_update_set');
       const query = params.get('sysparm_query');
-      const found = records.filter(r => query === `sys_id=${r.sys_id}` || query === `name=${r.name}`);
-      return structuredClone(found);
+      const found = records.filter(r => query.split('^').every(term => {
+        const [field, value] = term.split('!=');
+        if (value !== undefined) return helpers.getStringField(r, field) !== value;
+        const [key, expected] = term.split('=');
+        return helpers.getStringField(r, key) === expected;
+      }));
+      const offset = Number(params.get('sysparm_offset') || 0);
+      return structuredClone(found.slice(offset, offset + Number(params.get('sysparm_limit') || found.length)));
     },
-    update: async (table, id, data) => { writes.push({ table, id, data }); Object.assign(records.find(r => r.sys_id === id), data); },
+    update: async (table, id, data) => {
+      writes.push({ table, id, data });
+      const selected = records.find(r => r.sys_id === id);
+      // Model the observed before rule "Complete Update Set Batch", not just the SDK payload.
+      if (data.state === 'complete' && selected.state !== 'complete'
+        && helpers.getStringField(selected, 'base_update_set') === id) {
+        for (const child of records) {
+          if (child.sys_id !== id && helpers.getStringField(child, 'base_update_set') === id
+            && helpers.getStringField(child, 'state') === 'in progress') child.state = 'complete';
+        }
+      }
+      Object.assign(selected, data);
+    },
   } };
   return { app, records, writes, reads, results };
 }
@@ -122,7 +140,7 @@ test('existing descriptions require explicit force or profile confirmation polic
   }
 });
 
-test('explicit name completes only the selected set, preserving its description and leaving children untouched', async () => {
+test('explicit name targets the selected set, preserving its description and leaving unrelated sets untouched', async () => {
   const f = fixture('Existing feature notes');
   const beforeCurrent = structuredClone(f.records[0]), beforeChild = structuredClone(f.records[2]);
   await run(['Feature', '--notes', 'Changed feature', '--force'], f.app);
@@ -198,6 +216,21 @@ test('unreadable Description fails before any write rather than replacing unknow
     await assert.rejects(run(['--notes', 'New'], f.app), /Description.*unreadable|unreadable.*Description/i);
     assert.equal(f.writes.length, 0);
   }
+});
+
+test('batch completion keeps the normal ServiceNow cascade without copying parent notes to children', async () => {
+  const f = fixture('Parent notes');
+  f.records[1].base_update_set = 'selected';
+  Object.assign(f.records[2], { parent: 'selected', base_update_set: 'selected' });
+  f.records.push({ sys_id: 'nested', name: 'Nested', parent: 'child', base_update_set: 'selected', state: 'in progress', description: 'Nested notes' });
+  await run(['Feature', '--notes', 'Parent completed', '--force'], f.app);
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.writes[0].id, 'selected');
+  assert.equal(f.records[1].description, 'Parent notes\n\n- Parent completed');
+  for (const member of f.records.slice(2)) assert.equal(member.state, 'complete');
+  assert.equal(f.records[2].description, 'Child notes');
+  assert.equal(f.records[3].description, 'Nested notes');
+  assert.equal(f.results[0].state, 'complete');
 });
 
 test('confirmation prompt cancellation makes no write', async () => {

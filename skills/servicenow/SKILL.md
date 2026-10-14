@@ -84,8 +84,10 @@ names must be unique. Supply nonempty `--notes` in automation; real newlines
 separate bullets. A human terminal opens a notes editor when `--notes` is absent.
 Existing Description text is preserved and appended after confirmation. Use
 `--force` only after approval, or the profile's `skip_confirmations` policy.
-Only the selected set changes, not its children. Both Description and state are
-read back before success. On verification failure, inspect the set before retrying.
+Notes apply only to the selected set. ServiceNow's normal batch rules can complete
+child sets when the parent completes; their descriptions are not replaced.
+Both selected-set Description and state are read back before success. On
+verification failure, inspect the set before retrying.
 
 ### Table and raw REST examples
 
