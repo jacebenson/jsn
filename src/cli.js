@@ -9,6 +9,7 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { skippedUpdatesCmd } from './commands/skipped-updates.js';
 import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
@@ -405,6 +406,7 @@ export function buildCLI() {
     // DEVELOPER
     .command(atfCmd(wrap))
     .command(approvalsCmd(wrap))
+    .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
     .command(midserversCmd(wrap))
     .command(diffCmd(wrap))

@@ -16,6 +16,17 @@ Mutation commands require the instance, respect read-only profile boundaries, an
 
 The pstack-shaped launch, drive, proof, evidence, and cleanup instructions live in `.agents/skills/verify/`. General product knowledge lives in `docs/`, so verification procedures and product description do not drift into one document.
 
+## Skipped batches require preview-bound consent
+
+Skipped-update processing is declared as a mutation through the capability registry.
+The shared middleware blocks read-only profiles without requesting confirmation.
+The domain module previews the exact selected batch before its single confirmation;
+automation confirms a snapshot-bound token from a separate read-only preview.
+`--force` and profile confirmation opt-outs do not waive this consent. Impact analysis
+is pure and reusable, while revert calls the inspected provider lifecycle and verifies
+log and artifact readback. Unknown deeper effects remain explicit rather than being
+inferred from a field comparison.
+
 ## New flows get their trigger from the same GraphQL patch as their actions
 
 `POST /api/now/processflow/flow` returns a flow whose `triggerInstances` is
