@@ -561,7 +561,7 @@ export class AuthManager {
 
   createProfileProvider(instance, options = {}) {
     return {
-      getCredentials: (requestOptions = {}) => this.getCredentialsFor(instance, options.username, { ...options, allowRefresh: requestOptions.allowRefresh ?? options.allowRefresh }),
+      getCredentials: () => this.getCredentialsFor(instance, options.username, options),
       touchLastSeen: () => this.touchLastSeen(instance, options),
     };
   }
@@ -667,12 +667,12 @@ export class AuthManager {
     return this.getAuthState(instance, options).state === 'available';
   }
 
-  async getCredentials(options = {}) {
+  async getCredentials() {
     const instance = this.identity.getEffectiveInstance();
     if (!instance) {
       throw errAuth('No instance configured');
     }
-    return this.getCredentialsFor(instance, undefined, options);
+    return this.getCredentialsFor(instance);
   }
 
   getCredentialsFor(instance, username, options = {}) {
@@ -700,7 +700,7 @@ export class AuthManager {
     if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
     if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
-      if (resolved.refresh_token && options.allowRefresh !== false) return this.refreshToken(instance, resolved, credentialUsername);
+      if (resolved.refresh_token) return this.refreshToken(instance, resolved, credentialUsername);
       throw errAuth('Token expired, please login again');
     }
     return resolved;

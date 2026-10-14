@@ -9,7 +9,7 @@ import { getVersion } from './commands/version.js';
 const SOURCES = {
   sys_scope: 'sys_id,name,scope,sys_class_name',
   sys_metadata: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on',
-  sys_upgrade_history_log: 'sys_id,name,disposition,resolution_status,sys_updated_on',
+  sys_upgrade_history_log: 'sys_id,file_name,disposition,resolution_status,sys_updated_on',
 };
 const value = v => v && typeof v === 'object' ? v.value ?? '' : v ?? '';
 const text = v => String(value(v));
@@ -34,7 +34,7 @@ async function readSource(sdk, table, fields, pageSize, maxPages) {
         if (seen.has(id)) { duplicate = true; continue; }
         seen.add(id);
         rows.push(row);
-        const required = table === 'sys_metadata' ? ['sys_class_name', 'sys_scope', 'sys_update_name'] : table === 'sys_scope' ? ['scope'] : ['name', 'disposition', 'resolution_status'];
+        const required = table === 'sys_metadata' ? ['sys_class_name', 'sys_scope', 'sys_update_name'] : table === 'sys_scope' ? ['scope'] : ['file_name', 'disposition', 'resolution_status'];
         if (required.some(field => !Object.hasOwn(row, field))) coverage.missing_identity++;
       }
       coverage.fetched = rows.length;
@@ -164,7 +164,7 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
   const declared = new Set(customerScopes);
   const logs = new Map();
   for (const row of data.sys_upgrade_history_log) {
-    const name = text(row.name);
+    const name = text(row.file_name);
     if (!logs.has(name)) logs.set(name, []);
     logs.get(name).push(row);
   }
@@ -182,7 +182,9 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
       unknowns: ['Current content and behavioral differences were not captured.', 'Metadata timestamps can change without a behavioral change.'],
     };
     const history = (logs.get(identity.update_name) || []).sort((a, b) => text(b.sys_updated_on).localeCompare(text(a.sys_updated_on)) || text(a.sys_id).localeCompare(text(b.sys_id)));
-    const skipped = history.filter(log => Object.hasOwn(log, 'resolution_status') && text(log.disposition).toLowerCase() === 'skipped' && text(log.resolution_status).toLowerCase() !== 'reverted');
+    // Raw provider choices: 4 = Skipped, 104 = Skipped (second pass).
+    // Other skip dispositions do not establish a preserved customization.
+    const skipped = history.filter(log => Object.hasOwn(log, 'resolution_status') && ['4', '104'].includes(text(log.disposition)) && text(log.resolution_status) !== 'reviewed_reverted');
     // A declaration is caller evidence, not platform/vendor provenance. Keep it
     // separate from OOTB findings and record the uncertainty explicitly.
     if (scope && scopeId !== 'global' && scopeName !== 'global' && (declared.has(scopeName) || declared.has(scopeId))) {
@@ -209,7 +211,7 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
   return {
     status: 'incomplete', categories,
     coverage: { complete: false, sources,
-      unmatched_upgrade_records: data.sys_upgrade_history_log.filter(row => !matchedLogs.has(text(row.name))).length,
+      unmatched_upgrade_records: data.sys_upgrade_history_log.filter(row => !matchedLogs.has(text(row.file_name))).length,
       unmatched_customer_scopes: customerScopes.filter(id => !data.sys_scope.some(row => text(row.sys_id) === id || text(row.scope) === id)),
       limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
     },

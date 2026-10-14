@@ -32,9 +32,13 @@ Comparisons use artifact table/sys_id identity and captured evidence, ignoring
 local capture metadata and ordering. Observed additions/removals do not prove
 creation/deletion. Saved review commands require no instance.
 
-The SDK `readOnly` request option requires GET, disables session warm-up and
-OAuth refresh, and suppresses local credential last-seen writes. An expired
-token is an authentication failure, not permission to refresh during capture.
+The SDK `readOnly` request option requires GET for the data request and
+suppresses local credential last-seen writes. It preserves standard authentication,
+including OAuth refresh and session/GCK bootstrap. Authentication POSTs and local
+refreshed-credential storage are allowed; instance-record mutations and eval are not.
+Upgrade history joins `file_name` to metadata `sys_update_name`. Raw dispositions
+`4` and `104` identify preserved-customization skips; `reviewed_reverted` resolution
+excludes that row. Display labels and other skip reasons are not equivalent evidence.
 
 ## Command
 

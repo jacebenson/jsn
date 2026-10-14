@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec = promisify(execFile);
 
-test('actual CLI capture/list/show/compare is GET-only and offline review supports JSON, human output and --get', async () => {
+test('actual CLI capture permits authentication bootstrap but only GET table reads; saved review is offline', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customization-cli-'));
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -20,6 +20,12 @@ test('actual CLI capture/list/show/compare is GET-only and offline review suppor
       sys_upgrade_history_log: [],
     };
     res.setHeader('Content-Type', 'application/json');
+    if (url.pathname === '/angular.do' && req.method === 'POST') {
+      res.setHeader('Set-Cookie', 'JSESSIONID=fixture; Path=/');
+      res.setHeader('X-UserToken-Response', 'fixture-gck');
+      res.end('{}');
+      return;
+    }
     if (req.method !== 'GET') { res.statusCode = 405; res.end('{}'); return; }
     const table = url.pathname.split('/').at(-1);
     const offset = Number(url.searchParams.get('sysparm_offset') || 0);
@@ -43,7 +49,9 @@ test('actual CLI capture/list/show/compare is GET-only and offline review suppor
     assert.deepEqual(compare.data.changes, []);
     assert.equal(compare.data.status, 'incomplete');
     assert.ok(requests.some(req => req.url.includes('/api/now/table/sys_metadata')));
-    assert.ok(requests.every(req => req.method === 'GET'));
+    assert.ok(requests.some(req => req.method === 'POST' && req.url.startsWith('/angular.do?')));
+    assert.ok(requests.filter(req => req.url.startsWith('/api/now/table/')).every(req => req.method === 'GET'));
+    assert.ok(requests.every(req => req.method === 'GET' || (req.method === 'POST' && req.url.startsWith('/angular.do?'))));
     const count = requests.length;
     await new Promise(resolve => server.close(resolve));
     assert.equal(JSON.parse((await run(['show', id, '--json'])).stdout).data.run_id, id);

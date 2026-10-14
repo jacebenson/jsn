@@ -1,0 +1,19 @@
+{
+  "sys_metadata": [
+    {
+      "sys_id": { "display_value": "153c2456db1f4e5194020a602d58ebba", "value": "153c2456db1f4e5194020a602d58ebba" },
+      "sys_update_name": { "display_value": "sys_security_acl_153c2456db1f4e5194020a602d58ebba", "value": "sys_security_acl_153c2456db1f4e5194020a602d58ebba" },
+      "sys_name": { "display_value": "sys_one_extend_aggregator_score_map", "value": "sys_one_extend_aggregator_score_map" },
+      "sys_scope": { "display_value": "Global", "value": "global" },
+      "sys_class_name": { "display_value": "Access Control", "value": "sys_security_acl" }
+    }
+  ],
+  "sys_upgrade_history_log": [
+    {
+      "sys_id": { "display_value": "03fd94bb93b7031016c8fd18dd03d6f4", "value": "03fd94bb93b7031016c8fd18dd03d6f4" },
+      "disposition": { "display_value": "Skipped", "value": "4" },
+      "file_name": { "display_value": "sys_security_acl_153c2456db1f4e5194020a602d58ebba", "value": "sys_security_acl_153c2456db1f4e5194020a602d58ebba" },
+      "resolution_status": { "display_value": null, "value": "" }
+    }
+  ]
+}

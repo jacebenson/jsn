@@ -52,11 +52,11 @@ export class SDKClient {
     this.sessionUserToken = '';
   }
 
-  async _setAuth(req, { skipOAuthSession = false, allowRefresh = true } = {}) {
+  async _setAuth(req, { skipOAuthSession = false } = {}) {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
-    const creds = await this.authProvider.getCredentials({ allowRefresh });
+    const creds = await this.authProvider.getCredentials();
     if (!creds) {
       throw errAuth('No valid credentials');
     }
@@ -111,7 +111,9 @@ export class SDKClient {
       if (this.domain) {
         req.headers.set('X-Now-Domain', this.domain);
       }
-      await this._setAuth(req, { skipOAuthSession: readOnly, allowRefresh: !readOnly });
+      // readOnly guards the data request, not standard authentication bootstrap.
+      // OAuth refresh and session/GCK negotiation are not instance-record writes.
+      await this._setAuth(req);
 
       const resp = await fetch(req);
       const body = await resp.text();

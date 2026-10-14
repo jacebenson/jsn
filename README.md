@@ -54,9 +54,11 @@ jsn customizations compare <baseline_id> <new_id> --json
 jsn customizations show <run_id> --get data.coverage
 ```
 
-Captures use Table API GET requests only. They never run background scripts,
-refresh OAuth tokens, warm login sessions or write instance records. Expired
-credentials require a separate login. Reports are private local JSON files in
+Capture data access uses Table API GET requests only. Captures never run
+background scripts or create, update or delete instance records. Standard
+authentication still applies, including OAuth refresh, local refreshed-credential
+storage and session/GCK bootstrap, which can make authentication POST requests.
+Expired credentials without a usable refresh token require login. Reports are private local JSON files in
 `$JSN_DATA_HOME/customizations`, defaulting to `~/.jsn/customizations`. List,
 show and compare work offline. Interactive terminals offer local report pickers;
 pass explicit IDs with JSON, pipes or `--get`.
@@ -90,6 +92,14 @@ Provider contract: [ServiceNow Customizations Unchanged](https://www.servicenow.
 explains that the `Skipped` disposition preserves customizations. Other skip
 reasons are not treated as equivalent evidence. This command cannot establish a
 trusted baseline from that history alone.
+
+The verified provider join is `sys_upgrade_history_log.file_name` to
+`sys_metadata.sys_update_name`, not the log's nonexistent `name` field. Capture
+uses raw values from `sysparm_display_value=all`: disposition `4` or `104`
+means Skipped or Skipped (second pass). Resolution `reviewed_reverted` excludes
+that history row; a present empty resolution is distinct from a missing field.
+These values were checked against the PDI dictionary, choices and actual joined
+rows. Display labels are not used for classification.
 
 ## Quick Start
 

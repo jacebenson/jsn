@@ -82,8 +82,10 @@ jsn customizations show <run_id> --get data.categories
 jsn customizations compare <baseline_id> <new_id> --json
 ```
 
-Capture performs bounded GET-only table reads and saves local reports. It does
-not eval, refresh tokens or warm login sessions. List/show/compare are offline.
+Capture performs bounded GET-only table reads and saves local reports. It never
+evals or creates, updates or deletes instance records. Standard authentication
+may refresh OAuth tokens, store refreshed credentials locally and bootstrap a
+session/GCK using authentication POSTs. List/show/compare are offline.
 Declare customer ownership with repeatable `--customer-scope` values or sys_ids;
 never infer customer ownership from a non-global scope. The declaration is
 caller evidence, not independent publisher verification. OOTB findings reflect
@@ -93,6 +95,10 @@ reports are incomplete; no findings is not proof of no customizations.
 Comparisons cover captured metadata/evidence, not source payloads. Removals mean
 no longer observed, not proven deletion. Reversion impact and dependencies
 remain unknown until separately investigated. Never recommend automatic reversion.
+
+Upgrade history joins `file_name` to metadata `sys_update_name`. Raw disposition
+`4` or `104` is skipped-customization evidence; resolution `reviewed_reverted`
+excludes that history row. Use raw values, not display labels or other skip reasons.
 
 ### Table and raw REST examples
 

@@ -31,6 +31,35 @@ test('local captures round trip without an SDK and comparisons ignore capture me
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// Sanitized Table API rows observed on pdi, 2026-10-14. No payloads or credentials.
+// sys_choice confirms 4/104 = Skipped/Skipped (second pass) and
+// reviewed_reverted = Reviewed and Reverted; labels are not raw values.
+const providerRows = JSON.parse(fs.readFileSync(new URL('./fixtures/customizations-provider.json', import.meta.url), 'utf8'));
+test('observed provider file_name joins metadata update name and raw skip/resolution choices drive classification', async () => {
+  const { captureCustomizations } = await import('../src/customizations.js');
+  const capture = rows => captureCustomizations({ sdk: readOnlySdk(rows) });
+  const result = await capture(providerRows);
+  assert.equal(result.categories.ootb_modifications.length, 1);
+  assert.equal(result.categories.ootb_modifications[0].identity.table, 'sys_security_acl');
+  assert.equal(result.categories.ootb_modifications[0].evidence.at(-1).disposition, '4');
+  assert.equal(result.coverage.sources.sys_upgrade_history_log.status, 'exhausted');
+  assert.equal(result.coverage.unmatched_upgrade_records, 0);
+  for (const [disposition, resolution, expected] of [
+    ['104', '', 1], ['4', 'reviewed_retained', 1], ['4', 'reviewed_reverted', 0],
+    ['7', '', 0], ['11', '', 0], ['skipped', '', 0],
+  ]) {
+    const rows = structuredClone(providerRows);
+    rows.sys_upgrade_history_log[0].disposition = { value: disposition, display_value: 'Skipped' };
+    rows.sys_upgrade_history_log[0].resolution_status = { value: resolution, display_value: 'Reviewed and Retained' };
+    assert.equal((await capture(rows)).categories.ootb_modifications.length, expected, `${disposition}/${resolution}`);
+  }
+  const hidden = structuredClone(providerRows);
+  delete hidden.sys_upgrade_history_log[0].file_name;
+  const missing = await capture(hidden);
+  assert.equal(missing.coverage.sources.sys_upgrade_history_log.status, 'missing_fields');
+  assert.equal(missing.categories.ootb_modifications.length, 0);
+});
+
 const metadata = [
   { sys_id: 'a', sys_update_name: 'sys_script_a', sys_name: 'Vendor rule', sys_scope: 'global', sys_class_name: 'sys_script', sys_updated_on: '2026-01-01' },
   { sys_id: 'b', sys_update_name: 'sys_script_b', sys_name: 'Our rule', sys_scope: 'ours', sys_class_name: 'sys_script' },
@@ -48,7 +77,7 @@ test('capture uses only table reads and separates evidenced historical OOTB chan
   const result = await captureCustomizations({ sdk: readOnlySdk({
     sys_metadata: metadata,
     sys_scope: [{ sys_id: 'ours', scope: 'x_acme_ours', name: 'Ours' }, { sys_id: 'store', scope: 'sn_store', name: 'Vendor' }],
-    sys_upgrade_history_log: [{ sys_id: 'log', name: 'sys_script_a', disposition: 'skipped', resolution_status: 'retained' }],
+    sys_upgrade_history_log: [{ sys_id: 'log', file_name: 'sys_script_a', disposition: '4', resolution_status: 'reviewed_retained' }],
   }), customerScopes: ['x_acme_ours'], pageSize: 2, maxPages: 5 });
   assert.equal(result.categories.ootb_modifications.length, 1);
   assert.equal(result.categories.customer_app_artifacts.length, 1);
@@ -74,26 +103,53 @@ test('missing required fields never produce apparently exhausted coverage', asyn
 
 test('missing upgrade resolution and installed scopes remain unclassified', async () => {
   const { captureCustomizations } = await import('../src/customizations.js');
-  const result = await captureCustomizations({ sdk: readOnlySdk({ sys_metadata: metadata, sys_upgrade_history_log: [{ sys_id: 'log', name: 'sys_script_a', disposition: 'skipped' }] }) });
+  const result = await captureCustomizations({ sdk: readOnlySdk({ sys_metadata: metadata, sys_upgrade_history_log: [{ sys_id: 'log', file_name: 'sys_script_a', disposition: '4' }] }) });
   assert.equal(result.categories.ootb_modifications.length, 0);
   assert.equal(result.categories.customer_app_artifacts.length, 0);
   assert.equal(result.categories.unclassified.length, 3);
 });
 
-test('strict SDK reads reject mutations, do not warm sessions, refresh expired OAuth or stamp credentials', async () => {
+test('read-only data requests preserve OAuth refresh and session bootstrap while rejecting record mutations', async t => {
   const { SDKClient } = await import('../src/sdk.js');
   const { AuthManager } = await import('../src/auth.js');
+  let creds = { auth_method: 'oauth', access_token: 'expired-fixture', refresh_token: 'fixture', expires_at: 1 };
+  let saves = 0;
   const auth = new AuthManager({ getEffectiveInstance: () => 'https://mock.example', getAuthMethod: () => 'oauth' }, { credentialStore: {
-    load: () => ({ auth_method: 'oauth', access_token: 'fixture', refresh_token: 'fixture', expires_at: 1 }),
-    save: () => assert.fail('credential write'),
+    load: () => creds,
+    save: (_instance, refreshed) => { creds = refreshed; saves++; },
   } });
-  auth.refreshToken = () => assert.fail('OAuth refresh');
-  const sdk = new SDKClient('https://mock.example', auth);
-  sdk._warmSession = () => assert.fail('Session warm-up');
-  await assert.rejects(sdk.list('sys_metadata', {}, { readOnly: true }), /expired/);
-  const scopedSdk = new SDKClient('https://mock.example', auth.createProfileProvider('https://mock.example', { authMethod: 'oauth' }));
-  await assert.rejects(scopedSdk.list('sys_metadata', {}, { readOnly: true }), /expired/);
-  await assert.rejects(sdk.request('https://mock.example/api/now/table/sys_metadata', { readOnly: true, method: 'POST' }), /require GET/);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (input, opts) => {
+    const req = input instanceof Request ? input : new Request(input, opts);
+    const url = new URL(req.url);
+    requests.push(`${req.method} ${url.pathname}`);
+    if (url.pathname === '/oauth_token.do') {
+      assert.equal(new URLSearchParams(await req.text()).get('grant_type'), 'refresh_token');
+      return Response.json({ access_token: 'fresh-fixture', refresh_token: 'fixture', expires_in: 3600 });
+    }
+    if (url.pathname === '/angular.do') {
+      return new Response('{}', { headers: { 'set-cookie': 'JSESSIONID=fixture; Path=/', 'x-usertoken-response': 'fixture-gck' } });
+    }
+    if (url.pathname === '/api/now/table/sys_scope') {
+      assert.equal(req.headers.get('Authorization'), 'Bearer fresh-fixture');
+      return Response.json({ result: [{ sys_id: 'global' }] });
+    }
+    assert.equal(req.method, 'GET');
+    assert.equal(url.pathname, '/api/now/table/sys_metadata');
+    assert.equal(req.headers.get('Cookie'), 'JSESSIONID=fixture');
+    assert.equal(req.headers.get('X-UserToken'), 'fixture-gck');
+    assert.equal(req.headers.get('Authorization'), null);
+    return Response.json({ result: metadata });
+  });
+  const sdk = new SDKClient('https://mock.example', auth.createProfileProvider('https://mock.example', { authMethod: 'oauth' }));
+  assert.deepEqual(await sdk.list('sys_metadata', {}, { readOnly: true }), metadata);
+  assert.equal(saves, 1);
+  assert.deepEqual(requests, ['POST /oauth_token.do', 'POST /angular.do', 'GET /api/now/table/sys_scope', 'POST /angular.do', 'GET /api/now/table/sys_metadata']);
+  const count = requests.length;
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+    await assert.rejects(sdk.request('https://mock.example/api/now/table/sys_metadata', { readOnly: true, method }), /require GET/);
+  }
+  assert.equal(requests.length, count);
 });
 
 test('ACL failures retain prior pages and bounded pagination never implies completeness', async () => {

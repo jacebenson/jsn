@@ -73,7 +73,7 @@ describe('capabilities registry', () => {
     assert.ok(!skip.has('records'));
   });
 
-  it('declares customization local review and GET-only capture capabilities', () => {
+  it('declares customization local review and read-only data capture capabilities', () => {
     assert.deepStrictEqual(collectCapabilities().get('customizations'), { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
     assert.ok(noInstanceCommands().has('customizations'));
     assert.ok(!mutationPaths().some(path => path[0] === 'customizations'));
