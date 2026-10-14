@@ -34,7 +34,7 @@ test('local captures round trip without an SDK and comparisons ignore capture me
 const metadata = [
   { sys_id: 'a', sys_update_name: 'sys_script_a', sys_name: 'Vendor rule', sys_scope: 'global', sys_class_name: 'sys_script', sys_updated_on: '2026-01-01' },
   { sys_id: 'b', sys_update_name: 'sys_script_b', sys_name: 'Our rule', sys_scope: 'ours', sys_class_name: 'sys_script' },
-  { sys_id: 'c', sys_name: 'Store rule', sys_scope: 'store', sys_class_name: 'sys_script' },
+  { sys_id: 'c', sys_update_name: 'sys_script_c', sys_name: 'Store rule', sys_scope: 'store', sys_class_name: 'sys_script' },
 ];
 function readOnlySdk(rows = {}) {
   return new Proxy({ async list(table, params) {
@@ -68,6 +68,8 @@ test('missing required fields never produce apparently exhausted coverage', asyn
   const { captureCustomizations } = await import('../src/customizations.js');
   const result = await captureCustomizations({ sdk: readOnlySdk({ sys_metadata: [{ sys_id: 'hidden' }] }) });
   assert.equal(result.coverage.sources.sys_metadata.status, 'missing_fields');
+  const missingJoin = await captureCustomizations({ sdk: readOnlySdk({ sys_metadata: [{ sys_id: 'join-hidden', sys_class_name: 'sys_script', sys_scope: 'global' }] }) });
+  assert.equal(missingJoin.coverage.sources.sys_metadata.status, 'missing_fields');
 });
 
 test('missing upgrade resolution and installed scopes remain unclassified', async () => {

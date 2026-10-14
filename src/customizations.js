@@ -34,14 +34,14 @@ async function readSource(sdk, table, fields, pageSize, maxPages) {
         if (seen.has(id)) { duplicate = true; continue; }
         seen.add(id);
         rows.push(row);
-        const required = table === 'sys_metadata' ? ['sys_class_name', 'sys_scope'] : table === 'sys_scope' ? ['scope'] : ['name', 'disposition', 'resolution_status'];
+        const required = table === 'sys_metadata' ? ['sys_class_name', 'sys_scope', 'sys_update_name'] : table === 'sys_scope' ? ['scope'] : ['name', 'disposition', 'resolution_status'];
         if (required.some(field => !Object.hasOwn(row, field))) coverage.missing_identity++;
       }
       coverage.fetched = rows.length;
       if (duplicate) { coverage.status = 'unstable'; coverage.reason = 'Repeated identities across pages; pagination may be ignored or records changed during capture.'; break; }
       if (batch.length < pageSize) {
         coverage.status = coverage.missing_identity ? 'missing_fields' : 'exhausted';
-        coverage.reason = coverage.missing_identity ? 'Some records omitted sys_id; field ACLs or malformed responses may hide evidence.' : 'Visible result exhausted. Row and field ACL filtering cannot be ruled out.';
+        coverage.reason = coverage.missing_identity ? 'Some records omitted identity or classification fields; field ACLs or malformed responses may hide evidence.' : 'Visible result exhausted. Row and field ACL filtering cannot be ruled out.';
         break;
       }
     }
