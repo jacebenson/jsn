@@ -63,6 +63,11 @@ export async function reviewSkippedUpdate(sdk, id) {
   const fingerprint = digest({ finding, current, baseline });
   return { sys_id: raw(finding.sys_id), artifact, finding: Object.fromEntries(FIELDS.split(',').map(key => [key, raw(finding[key])])),
     impact, fingerprint, eligible: unresolved(finding),
+    // The provider's revert writes a NEW base version record whose payload is a
+    // copy of the version that was read here, so revert readback compares base
+    // CONTENT (this digest) instead of the previewed version sys_id.
+    baseline_payload_digest: typeof baseline?.payload === 'string' && baseline.payload
+      ? digest(baseline.payload) : null,
     revert_supported: raw(finding.disposition) === '4' && validId(baseline?.sys_id)
       && Boolean(current && raw(current.sys_id) === artifact.sys_id && fields
         && Object.keys(fields).every(field => !isImpactField(field) || Object.hasOwn(current, field))) };
@@ -126,12 +131,20 @@ export async function processSkippedBatch({ sdk, ids, action, instance = '', rea
         const artifact = await sdk.get(selected.artifact.table, selected.artifact.sys_id);
         const baseline = await sdk.getSkippedUpdateBaseline(selected.sys_id);
         const fields = baselineFields(baseline?.payload, selected.artifact);
+        // RevertToBaseSystem reverts to the previewed base version and leaves a new
+        // base version record behind, so the sys_id legitimately changes. What must
+        // still match is the base CONTENT we previewed and the artifact now at base.
         if (!artifact || raw(artifact.sys_id) !== selected.artifact.sys_id || !fields
-            || baseline.sys_id !== selected.impact.evidence.baseline_version
+            || !validId(baseline?.sys_id) || typeof baseline?.payload !== 'string'
+            || digest(baseline.payload) !== selected.baseline_payload_digest
             || Object.entries(fields).some(([field, value]) => isImpactField(field)
               && (!Object.hasOwn(artifact, field) || raw(artifact[field]) !== value))) {
-          throw errUsage('Artifact readback did not verify all meaningful base fields against the previewed base version.');
+          throw errUsage('Artifact readback did not verify the previewed base content on the reverted artifact.');
         }
+        results.push({ sys_id: selected.sys_id, action, success: true, write_attempted: true,
+          resolution_status: raw(persisted.resolution_status), disposition: raw(persisted.disposition),
+          base_version: raw(baseline.sys_id), verified: true });
+        continue;
       }
       results.push({ sys_id: selected.sys_id, action, success: true, write_attempted: true,
         resolution_status: raw(persisted.resolution_status), disposition: raw(persisted.disposition), verified: true });

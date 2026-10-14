@@ -57,4 +57,24 @@ Official ServiceNow Australia documentation, available through `jsn docs search 
 - [Resolve a skipped update and set a resolution status](https://www.servicenow.com/docs/r/platform-administration/upgrade-management/um-resolve-skipped-update.html), local doc 37734. It distinguishes Reviewed and Retained from Revert to Base System and describes reverted disposition, resolution and customer-update creation.
 - [Skipped records that occur during application installation](https://www.servicenow.com/docs/r/platform-administration/generation-skip-records-app-installs.html), local doc 36385. It confirms application skips use `sys_upgrade_history_log`.
 
-Read-only inspection on the configured Australia PDI verified the dictionary, raw choice values, the Revert to Base System UI action condition and script, and the `RevertUpdateVersionAjax` implementation. The exact base-version getter path was exercised through a read-only background script. No live retain, revert, test-record creation or other instance writes were performed. Write orchestration and readback are tested with a fake provider; live persistence remains unverified.
+Read-only inspection on the configured Australia PDI verified the dictionary, raw choice values, the Revert to Base System UI action condition and script, and the `RevertUpdateVersionAjax` implementation. The exact base-version getter path was exercised through a read-only background script.
+
+## Verified live behavior on a PDI
+
+A disposable Script Include fixture was created, customized, and processed through this CLI against a configured Australia PDI, then deleted.
+
+- `RevertToBaseSystem` reverted the artifact to the previewed base content and left a **new** `sys_update_version` record behind whose payload is a byte-identical copy of the previewed baseline (matching SHA-256). The previewed version `sys_id` therefore legitimately changes. Revert readback compares base **content** (payload digest) plus the artifact's meaningful fields, never the previewed version `sys_id`. Requiring the same `sys_id` would report a successful revert as failed.
+- A before-business-rule named `Add To Update Set On Resolution Change` is active on `sys_upgrade_history_log` (Global, `before`). Every resolution change this CLI writes is captured as a `sys_update_xml` record in the **active** update set. Run retain/revert batches in a scratch update set and delete the captured records with the fixture, or the operator inherits customer updates for records that no longer exist.
+- Deletion of captured `sys_update_xml` records is ACL-blocked over the Table API on a PDI. Remove them through a background script with admin rights.
+
+Live retained and reverted read-backs (log state, disposition, artifact script) are recorded in the issue 270 evidence set.
+
+## Local processing versus cross-instance transfer
+
+These note what this command does **not** do. `skipped-updates` reviews and processes findings on the instance you are connected to. It is not an update-set transport for skips, and no transport feature is planned here.
+
+- [KB0955553](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB0955553) documents the `glide.save.skiplist.decision` property and the conditions an update-set transfer checks: same `file_name`, `sys_upgrade_state` matching the incoming version payload hash, `changed=true`, resolution other than not reviewed, an eligible disposition, and the latest upgrade WAR matching. Plugin-history skips cannot be moved or processed through update sets at all.
+- Those conditions limit **transfer**. They are not review eligibility, so discovery stays instance-wide with no latest-upgrade or event filter.
+- [KB0678054](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB0678054) shows the `sys_upgrade_history_log` disposition grouping is consolidated evidence, with the related sections covering the individual groups.
+- [KB0726987](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB0726987) explains that skip counts differ between instances because of incomplete clones and modifications between clone and upgrade. Matching or differing counts are not parity or completeness evidence.
+- A [ServiceNow Community article on processing skipped records](https://www.servicenow.com/community/upgrades-and-patching-articles/processing-skipped-records-and-capturing-upgrade-details-in/ta-p/3403302) notes that captured upgrade-detail payloads match across instances by `incoming_version_payload_hash` rather than by log `sys_id`, and confirms the resolution-change capture described above.

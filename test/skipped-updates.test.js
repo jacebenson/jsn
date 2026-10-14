@@ -119,12 +119,32 @@ test('explicit revert uses lifecycle and verifies state and artifact changes', a
   const sdk = fakeSDK(); let reverted = false;
   sdk.update = () => assert.fail('revert must not forge state with generic update');
   sdk.revertSkippedUpdate = async (sysID, mod) => { assert.equal(sysID, id); assert.equal(mod, '2'); reverted = true; };
+  // Live behavior: the provider writes a NEW base version record (new sys_id,
+  // identical payload) as part of reverting. Readback must accept that and still
+  // verify the artifact is at the previewed base content.
+  sdk.getSkippedUpdateBaseline = async () => reverted ? { ...base, sys_id: 'e'.repeat(32) } : base;
   sdk.get = async table => table === 'sys_upgrade_history_log'
     ? { ...finding, ...(reverted ? { disposition: '5', resolution_status: 'reviewed_reverted' } : {}) }
     : { sys_id: artifactId, script: reverted ? 'base()' : 'custom()' };
   const preview = await prepareSkippedBatch(sdk, { ids: [id], action: 'revert' });
   const result = await processSkippedBatch({ sdk, ids: [id], action: 'revert', confirmationToken: preview.confirmation_token });
   assert.equal(result.success_count, 1);
+  assert.equal(result.results[0].base_version, 'e'.repeat(32));
+});
+
+test('revert readback rejects a base version whose content is not the previewed base', async () => {
+  const sdk = fakeSDK(); let reverted = false;
+  sdk.revertSkippedUpdate = async () => { reverted = true; };
+  // Provider returns a different base version AND different base content: that is
+  // not the content the operator previewed, so the finding must not report success.
+  sdk.getSkippedUpdateBaseline = async () => reverted
+    ? { ...base, sys_id: 'e'.repeat(32), payload: base.payload.replace('base()', 'other()') } : base;
+  sdk.get = async table => table === 'sys_upgrade_history_log'
+    ? { ...finding, ...(reverted ? { disposition: '5', resolution_status: 'reviewed_reverted' } : {}) }
+    : { sys_id: artifactId, script: reverted ? 'base()' : 'custom()' };
+  const result = await processSkippedBatch({ sdk, ids: [id], action: 'revert', confirm: async () => true });
+  assert.equal(result.success_count, 0); assert.equal(result.failure_count, 1);
+  assert.equal(result.results[0].effect, 'unknown');
 });
 
 test('revert verifies unchanged baseline fields too, not only the previewed differences', async () => {

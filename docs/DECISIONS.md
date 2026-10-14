@@ -67,3 +67,14 @@ the provider's UI schema carried inside `parameter`
 input even though the read path renders an object. Payload builders narrow the
 provider's schema to those sets; the accepted keys are recorded in
 `src/flow-triggers.js`.
+
+## Revert readback verifies base content, not the previewed version sys_id
+
+`RevertUpdateVersionAjax.revertToBaseSystem` reverts the artifact to the previewed
+base version and leaves a new `sys_update_version` record whose payload copies
+that baseline. The previewed version `sys_id` is therefore expected to change, so
+comparing it after the write reports a real revert as a failure. Revert readback
+compares the SHA-256 digest of the base payload captured during review plus the
+artifact's meaningful base fields. A fake provider that returns the same version
+record after the write cannot expose this, so the regression test simulates the
+provider's new record.
