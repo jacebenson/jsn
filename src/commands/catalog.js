@@ -63,8 +63,8 @@ export function catalogCmd(wrap) {
               for (const v of argv.variable) {
                 const parts = String(v).split(':');
                 if (parts.length >= 2) {
-                  const typeName = parts.length >= 2 ? parts[parts.length - 1] : '';
-                  const label = parts.length >= 3 ? parts[parts.length - 1] : parts[0];
+                  const typeName = parts[1];
+                  const label = parts.length >= 3 ? parts.slice(2).join(':') : parts[0];
                   const sysName = parts[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
                   try {
                     await app.sdk.create('item_option_new', {
