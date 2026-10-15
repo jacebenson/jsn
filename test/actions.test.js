@@ -24,7 +24,7 @@ function app() {
   const calls = [];
   return {
     calls, writes, output,
-    ok: (data, opts) => output.ok(data, opts), err: e => output.err(e),
+    ok: (data, opts) => output.ok(data, opts), err: e => output.err(e), requireInstance() {},
     config: { activeProfile: 'test', profiles: { test: { skip_confirmations: false } } },
     getEffectiveInstance: () => 'https://example.invalid',
     sdk: {
@@ -43,7 +43,7 @@ function app() {
 
 test('one actions/action command preserves list/show/delete and exposes only verified requested lifecycle', () => {
   const map = commands();
-  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'help', 'definition', 'update', 'test', 'step-types', 'delete']);
+  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'help', 'definition', 'update', 'test', 'step-types', 'action-type-schema', 'delete']);
   assert.deepEqual(map.get('update').aliases, ['edit']);
   assert.deepEqual(actionsCmd(fn => fn).aliases, ['action']);
   for (const verb of ['create', 'update', 'edit', 'delete', 'test']) assert.equal(isMutationCommand({ _: ['actions', verb] }), true, verb);
@@ -116,6 +116,32 @@ test('actions help reports no examples separately from unreadable example lookup
   denied.sdk.getProcessFlowAction = a.sdk.getProcessFlowAction;
   denied.sdk.listStrict = async () => { throw new Error('permission denied'); };
   await assert.rejects(commands().get('help').handler({ identifier: 'Ask For Approval' }, denied), /permission denied/);
+});
+
+test('action-type-schema reads provider metadata for an exact ID and scope without writes', async () => {
+  const a = app();
+  const schema = { id: ID, scope: SCOPE, inputs: [{ name: 'record', type: 'reference', mandatory: true }], outputs: [] };
+  a.requireInstance = () => {};
+  a.sdk.request = async (url, options) => {
+    a.calls.push(['request', url, options]);
+    return { result: schema };
+  };
+  await commands().get('action-type-schema').handler({ id: ID, scope: SCOPE }, a);
+  assert.deepEqual(JSON.parse(a.writes.join('')).data, schema);
+  const request = a.calls.find(call => call[0] === 'request');
+  assert.match(request[1], new RegExp(`/api/now/processflow/action/action_types/${ID}`));
+  assert.match(request[1], new RegExp(`sysparm_transaction_scope=${SCOPE}`));
+  assert.equal(request[2].method, 'GET');
+  assert.equal(a.calls.some(call => ['create', 'update', 'delete'].includes(call[0])), false);
+});
+
+test('action-type-schema rejects malformed IDs and scopes before provider requests', async () => {
+  for (const argv of [{ id: 'bad', scope: SCOPE }, { id: ID, scope: 'bad' }]) {
+    const a = app();
+    a.requireInstance = () => {};
+    await assert.rejects(commands().get('action-type-schema').handler(argv, a));
+    assert.equal(a.calls.some(call => call[0] === 'request'), false);
+  }
 });
 
 test('create and update forward full data-file documents without generic table mutation', async () => {

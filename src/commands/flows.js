@@ -6,7 +6,7 @@ import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
-import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES } from '../flow-triggers.js';
+import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
 import { errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
@@ -63,6 +63,25 @@ export function flowsCmd(wrap) {
     describe: 'Manage Flow Designer flows',
     builder: (yargs) => {
       return yargs
+        .command({
+          command: 'schemas',
+          describe: 'Read live trigger catalog and declared inputs; supported marks verified CLI creation families',
+          handler: wrap(async (_argv, app) => {
+            app.requireInstance();
+            const catalog = await readTriggerCatalog(app.sdk);
+            for (const category of catalog.categories) {
+              for (const trigger of category.triggers) {
+                if (trigger.supported) trigger.inputs = await readTriggerInputDefinitions(app.sdk, trigger.sysId);
+              }
+            }
+            for (const trigger of catalog.ungrouped) {
+              if (trigger.supported) trigger.inputs = await readTriggerInputDefinitions(app.sdk, trigger.sysId);
+            }
+            const data = { ...catalog, structural_contract: 'Manifest keys and persistence shape are code-owned; trigger definitions and input metadata are instance-derived.' };
+            data._formatted = [...catalog.categories.flatMap(c => c.triggers.map(t => `${c.name}: ${t.name} [${t.type}] ${t.supported ? 'supported' : 'not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)), ...catalog.ungrouped.map(t => `${t.name} [${t.type}] ungrouped${t.supported ? '; supported' : '; not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)].join('\n');
+            app.ok(data, { summary: 'Live Flow trigger schemas' });
+          }),
+        })
         .command({
           command: 'list',
           aliases: ['ls'],
@@ -294,7 +313,7 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'create',
-          describe: `Create a draft flow. JSON manifest fields: name (required), scope (required), optional description, trigger { type (required), optional table, condition, inputs }, actions (required array of { type, optional inputs }). Trigger type must be supported; trigger inputs and action inputs are objects. Flow Logic, subflows, variables, and errorHandling are unsupported. Example:\n{"name":"Approval flow","scope":"global","trigger":{"type":"record_create_or_update","table":"incident"},"actions":[{"type":"<actionTypeSysId>","inputs":{"message":"Created"}}]}`,
+          describe: 'Create a draft flow from a JSON manifest or guided prompts. Use `jsn flows schemas` for instance-derived trigger and input schemas, and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs. Manifest structure remains code-owned.',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' })
@@ -322,7 +341,7 @@ export function flowsCmd(wrap) {
         .command({
           command: 'update [identifier]',
           aliases: ['edit'],
-          describe: `Safely update an inactive Draft flow. JSON may contain scope, trigger { optional type: "record_create_or_update", table and/or condition }, and/or actions [{ order (positive integer), type, inputs (non-empty object of changed values) }]. Only existing trigger and action inputs are updated; omitted values are preserved. Example:\n{"trigger":{"table":"incident","condition":"active=true"},"actions":[{"order":1,"type":"<existingActionTypeSysId>","inputs":{"message":"Updated"}}]}`,
+          describe: 'Safely update an inactive Draft flow from a partial JSON manifest. Use `jsn flows schemas` for live trigger inputs and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs. Manifest structure remains code-owned; omitted values are preserved.',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })
