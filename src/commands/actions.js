@@ -9,6 +9,7 @@ import { cancelled, pickDesignerRecord, designerScope, guidedActionCreate, guide
 const ACTION_COMMANDS = [
   { name: 'list', description: 'List actions' },
   { name: 'show [identifier]', description: 'Show an action by name or sys_id' },
+  { name: 'help [identifier]', description: 'Show action input requirements and live usage examples' },
   { name: 'definition [identifier]', description: 'Read the full JSON definition including executable step_instances' },
   { name: 'step-types', description: 'Read step schema templates for a target scope' },
   { name: 'create', description: 'Create an action: guided in a terminal, full JSON definition in scripts' },
@@ -63,6 +64,26 @@ export const actionsCmd = wrap => {
           const scope = guided?.scope ?? await designerScope(argv, app);
           const result = await app.sdk.createProcessFlowAction(scope, definition);
           app.ok(result, { summary: `Created and verified action ${result.sys_id}` });
+        }),
+      })
+      .command({
+        command: 'help [identifier]', describe: 'Show action input requirements and examples from flows on this instance',
+        builder: scopeOption,
+        handler: run(async (argv, app) => {
+          const id = await actionID(argv, app);
+          if (id === undefined) return;
+          const scope = await actionScope(app.sdk, id, argv.scope);
+          const definition = await app.sdk.getProcessFlowAction(id, scope);
+          const inputs = (definition.inputs || []).map(input => ({
+            name: input.name,
+            type: input.type || input.parameter?.type || input.parameter?.inputType || input.valueType || 'unknown',
+            mandatory: input.mandatory ?? input.required ?? input.parameter?.mandatory ?? input.parameter?.required ?? false,
+            default: input.defaultValue ?? input.default ?? input.parameter?.defaultValue ?? '',
+            description: input.description || input.label || input.parameter?.label || '',
+          }));
+          app.ok({ action: { id, name: definition.name, scope }, inputs, examples: [], examples_status: 'unverified',
+            examples_note: 'Live examples are not shown yet because this instance’s action-instance to snapshot relationship has not been verified.' },
+          { summary: `Input help for action ${definition.name || id}` });
         }),
       })
       .command({

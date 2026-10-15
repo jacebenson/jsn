@@ -43,11 +43,11 @@ function app() {
 
 test('one actions/action command preserves list/show/delete and exposes only verified requested lifecycle', () => {
   const map = commands();
-  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'definition', 'update', 'test', 'step-types', 'delete']);
+  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'help', 'definition', 'update', 'test', 'step-types', 'delete']);
   assert.deepEqual(map.get('update').aliases, ['edit']);
   assert.deepEqual(actionsCmd(fn => fn).aliases, ['action']);
   for (const verb of ['create', 'update', 'edit', 'delete', 'test']) assert.equal(isMutationCommand({ _: ['actions', verb] }), true, verb);
-  for (const verb of ['list', 'show', 'definition', 'step-types']) assert.equal(isMutationCommand({ _: ['actions', verb] }), false, verb);
+  for (const verb of ['list', 'show', 'help', 'definition', 'step-types']) assert.equal(isMutationCommand({ _: ['actions', verb] }), false, verb);
 });
 
 test('definition --get extracts a directly reusable JSON document with executable script', async () => {
@@ -55,6 +55,31 @@ test('definition --get extracts a directly reusable JSON document with executabl
   await commands().get('definition').handler({ identifier: 'Echo' }, a);
   assert.deepEqual(JSON.parse(a.writes.join('')), fixture);
   assert.deepEqual(a.calls.at(-1), ['definition', ID, SCOPE]);
+});
+
+test('actions help shows provider input contracts without guessing an unverified live lookup', async () => {
+  const a = app();
+  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', inputs: [
+    { name: 'approval_conditions', type: 'approval_rules', mandatory: true, defaultValue: '', description: 'Who must approve' },
+  ] });
+  await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
+  const result = JSON.parse(a.writes.join('')).data;
+  assert.equal(result.inputs[0].type, 'approval_rules');
+  assert.equal(result.inputs[0].mandatory, true);
+  assert.deepEqual(result.examples, []);
+  assert.equal(result.examples_status, 'unverified');
+  assert.match(result.examples_note, /relationship has not been verified/);
+  assert.ok(!a.calls.some(call => call[0] === 'list' && call[1] === 'sys_hub_action_instance'));
+});
+
+test('actions help remains useful when no live example can be verified', async () => {
+  const a = app();
+  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', inputs: [{ name: 'approval_conditions', type: 'approval_rules' }] });
+  await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
+  const result = JSON.parse(a.writes.join('')).data;
+  assert.equal(result.inputs[0].name, 'approval_conditions');
+  assert.deepEqual(result.examples, []);
+  assert.equal(result.examples_status, 'unverified');
 });
 
 test('create and update forward full data-file documents without generic table mutation', async () => {
@@ -153,7 +178,7 @@ test('actual CLI adapter accepts action edit alias and wait options', async () =
 const binary = path.resolve('bin/jsn.js');
 const baseEnv = { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', SERVICENOW_INSTANCE_URL: '' };
 test('real binary help describes complete JSON and bounded wait without publish/snapshot', () => {
-  for (const verb of ['', 'create', 'update', 'definition', 'test', 'step-types']) {
+  for (const verb of ['', 'create', 'help', 'update', 'definition', 'test', 'step-types']) {
     const args = [binary, 'actions', ...(verb ? [verb] : []), '--help'];
     const r = spawnSync(process.execPath, args, { encoding: 'utf8', env: baseEnv });
     assert.equal(r.status, 0, r.stderr);
