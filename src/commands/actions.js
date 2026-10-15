@@ -29,32 +29,6 @@ async function actionID(argv, app) {
   return unwrapSysId(await resolveRecord(app.sdk, { table: ACTION_TABLE, identifier: argv.identifier, matchField: 'name', resource: 'action' }));
 }
 
-const refID = value => typeof value === 'string' ? value : value?.value ?? value?.sys_id ?? value?.sysId ?? value?.id;
-function collectActionExamples(node, id, examples, flowName) {
-  if (!node || typeof node !== 'object') return;
-  if (Array.isArray(node)) { for (const item of node) collectActionExamples(item, id, examples, flowName); return; }
-  const typeId = refID(node.actionTypeSysId || node.action_type_sys_id || node.actionType || node.action_type);
-  if (typeId === id) {
-    const inputs = Array.isArray(node.inputs) ? node.inputs : [];
-    if (inputs.length) examples.push({ flow: flowName, inputs: Object.fromEntries(inputs.filter(input => input?.name).map(input => [input.name, input.value ?? input.defaultValue ?? ''])) });
-  }
-  for (const [key, value] of Object.entries(node)) if (key !== 'inputs') collectActionExamples(value, id, examples, flowName);
-}
-async function findActionExamples(sdk, id) {
-  const query = new URLSearchParams({ sysparm_query: `action_type=${id}`, sysparm_fields: 'sys_id,flow', sysparm_limit: '20', sysparm_display_value: 'all' });
-  const rows = await sdk.list('sys_hub_action_instance', query);
-  const flows = [...new Set((rows || []).map(row => refID(row.flow)).filter(value => /^[a-f0-9]{32}$/i.test(value || '')))];
-  const examples = [];
-  for (const flowId of flows.slice(0, 10)) {
-    try {
-      const result = await sdk.inspectFlow(flowId);
-      collectActionExamples(result?.payload, id, examples, result?.flow?.name || flowId);
-    } catch { /* Example lookup is best-effort; schema help remains useful. */ }
-    if (examples.length >= 3) break;
-  }
-  return examples.slice(0, 3);
-}
-
 export const actionsCmd = wrap => {
   // Reuse the existing list/show picker and output contract only.
   const base = buildDevCmd('actions', ACTION_TABLE, ['action'], ['name', 'active', 'sys_scope', 'sys_updated_on'], wrap, {
@@ -107,9 +81,8 @@ export const actionsCmd = wrap => {
             default: input.defaultValue ?? input.default ?? input.parameter?.defaultValue ?? '',
             description: input.description || input.label || input.parameter?.label || '',
           }));
-          const examples = await findActionExamples(app.sdk, id).catch(() => []);
-          app.ok({ action: { id, name: definition.name, scope }, inputs, examples,
-            examples_note: examples.length ? 'Examples are values read from flows in this instance.' : 'No matching live flow example was found; examples are never invented.' },
+          app.ok({ action: { id, name: definition.name, scope }, inputs, examples: [], examples_status: 'unverified',
+            examples_note: 'Live examples are not shown yet because this instance’s action-instance to snapshot relationship has not been verified.' },
           { summary: `Input help for action ${definition.name || id}` });
         }),
       })
