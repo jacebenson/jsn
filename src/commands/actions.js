@@ -9,6 +9,7 @@ import { cancelled, pickDesignerRecord, designerScope, guidedActionCreate, guide
 const ACTION_COMMANDS = [
   { name: 'list', description: 'List actions' },
   { name: 'show [identifier]', description: 'Show an action by name or sys_id' },
+  { name: 'help [identifier]', description: 'Show action input requirements and live usage examples' },
   { name: 'definition [identifier]', description: 'Read the full JSON definition including executable step_instances' },
   { name: 'step-types', description: 'Read step schema templates for a target scope' },
   { name: 'create', description: 'Create an action: guided in a terminal, full JSON definition in scripts' },
@@ -26,6 +27,32 @@ async function actionID(argv, app) {
   if (identifier === undefined) return undefined;
   argv = { ...argv, identifier };
   return unwrapSysId(await resolveRecord(app.sdk, { table: ACTION_TABLE, identifier: argv.identifier, matchField: 'name', resource: 'action' }));
+}
+
+const refID = value => typeof value === 'string' ? value : value?.value ?? value?.sys_id ?? value?.sysId ?? value?.id;
+function collectActionExamples(node, id, examples, flowName) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) { for (const item of node) collectActionExamples(item, id, examples, flowName); return; }
+  const typeId = refID(node.actionTypeSysId || node.action_type_sys_id || node.actionType || node.action_type);
+  if (typeId === id) {
+    const inputs = Array.isArray(node.inputs) ? node.inputs : [];
+    if (inputs.length) examples.push({ flow: flowName, inputs: Object.fromEntries(inputs.filter(input => input?.name).map(input => [input.name, input.value ?? input.defaultValue ?? ''])) });
+  }
+  for (const [key, value] of Object.entries(node)) if (key !== 'inputs') collectActionExamples(value, id, examples, flowName);
+}
+async function findActionExamples(sdk, id) {
+  const query = new URLSearchParams({ sysparm_query: `action_type=${id}`, sysparm_fields: 'sys_id,flow', sysparm_limit: '20', sysparm_display_value: 'all' });
+  const rows = await sdk.list('sys_hub_action_instance', query);
+  const flows = [...new Set((rows || []).map(row => refID(row.flow)).filter(value => /^[a-f0-9]{32}$/i.test(value || '')))];
+  const examples = [];
+  for (const flowId of flows.slice(0, 10)) {
+    try {
+      const result = await sdk.inspectFlow(flowId);
+      collectActionExamples(result?.payload, id, examples, result?.flow?.name || flowId);
+    } catch { /* Example lookup is best-effort; schema help remains useful. */ }
+    if (examples.length >= 3) break;
+  }
+  return examples.slice(0, 3);
 }
 
 export const actionsCmd = wrap => {
@@ -63,6 +90,27 @@ export const actionsCmd = wrap => {
           const scope = guided?.scope ?? await designerScope(argv, app);
           const result = await app.sdk.createProcessFlowAction(scope, definition);
           app.ok(result, { summary: `Created and verified action ${result.sys_id}` });
+        }),
+      })
+      .command({
+        command: 'help [identifier]', describe: 'Show action input requirements and examples from flows on this instance',
+        builder: scopeOption,
+        handler: run(async (argv, app) => {
+          const id = await actionID(argv, app);
+          if (id === undefined) return;
+          const scope = await actionScope(app.sdk, id, argv.scope);
+          const definition = await app.sdk.getProcessFlowAction(id, scope);
+          const inputs = (definition.inputs || []).map(input => ({
+            name: input.name,
+            type: input.type || input.parameter?.type || input.parameter?.inputType || input.valueType || 'unknown',
+            mandatory: input.mandatory ?? input.required ?? input.parameter?.mandatory ?? input.parameter?.required ?? false,
+            default: input.defaultValue ?? input.default ?? input.parameter?.defaultValue ?? '',
+            description: input.description || input.label || input.parameter?.label || '',
+          }));
+          const examples = await findActionExamples(app.sdk, id).catch(() => []);
+          app.ok({ action: { id, name: definition.name, scope }, inputs, examples,
+            examples_note: examples.length ? 'Examples are values read from flows in this instance.' : 'No matching live flow example was found; examples are never invented.' },
+          { summary: `Input help for action ${definition.name || id}` });
         }),
       })
       .command({

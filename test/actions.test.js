@@ -43,11 +43,11 @@ function app() {
 
 test('one actions/action command preserves list/show/delete and exposes only verified requested lifecycle', () => {
   const map = commands();
-  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'definition', 'update', 'test', 'step-types', 'delete']);
+  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'help', 'definition', 'update', 'test', 'step-types', 'delete']);
   assert.deepEqual(map.get('update').aliases, ['edit']);
   assert.deepEqual(actionsCmd(fn => fn).aliases, ['action']);
   for (const verb of ['create', 'update', 'edit', 'delete', 'test']) assert.equal(isMutationCommand({ _: ['actions', verb] }), true, verb);
-  for (const verb of ['list', 'show', 'definition', 'step-types']) assert.equal(isMutationCommand({ _: ['actions', verb] }), false, verb);
+  for (const verb of ['list', 'show', 'help', 'definition', 'step-types']) assert.equal(isMutationCommand({ _: ['actions', verb] }), false, verb);
 });
 
 test('definition --get extracts a directly reusable JSON document with executable script', async () => {
@@ -55,6 +55,39 @@ test('definition --get extracts a directly reusable JSON document with executabl
   await commands().get('definition').handler({ identifier: 'Echo' }, a);
   assert.deepEqual(JSON.parse(a.writes.join('')), fixture);
   assert.deepEqual(a.calls.at(-1), ['definition', ID, SCOPE]);
+});
+
+test('actions help shows provider input contracts and only matching live flow values', async () => {
+  const a = app();
+  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', inputs: [
+    { name: 'approval_conditions', type: 'approval_rules', mandatory: true, defaultValue: '', description: 'Who must approve' },
+  ] });
+  a.sdk.list = async (table, params) => {
+    a.calls.push(['list', table, params]);
+    return table === 'sys_hub_action_instance' ? [{ flow: { value: 'c'.repeat(32) } }] : [{ sys_id: ID, sys_scope: { value: SCOPE }, name: 'Ask For Approval' }];
+  };
+  a.sdk.inspectFlow = async () => ({ flow: { name: 'Manager approval' }, payload: { actionInstances: [
+    { actionTypeSysId: ID, inputs: [{ name: 'approval_conditions', value: 'ApprovesAnyU[{{manager}}]' }] },
+    { actionTypeSysId: 'd'.repeat(32), inputs: [{ name: 'approval_conditions', value: 'not this action' }] },
+  ] } });
+  await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
+  const result = JSON.parse(a.writes.join('')).data;
+  assert.equal(result.inputs[0].type, 'approval_rules');
+  assert.equal(result.inputs[0].mandatory, true);
+  assert.deepEqual(result.examples, [{ flow: 'Manager approval', inputs: { approval_conditions: 'ApprovesAnyU[{{manager}}]' } }]);
+  const instanceQuery = a.calls.find(call => call[0] === 'list' && call[1] === 'sys_hub_action_instance')[2];
+  assert.equal(instanceQuery.get('sysparm_query'), `action_type=${ID}`);
+});
+
+test('actions help remains useful when no live action instance exists', async () => {
+  const a = app();
+  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', inputs: [{ name: 'approval_conditions', type: 'approval_rules' }] });
+  a.sdk.list = async table => table === 'sys_hub_action_type_definition' ? [{ sys_id: ID, sys_scope: { value: SCOPE }, name: 'Ask For Approval' }] : [];
+  await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
+  const result = JSON.parse(a.writes.join('')).data;
+  assert.equal(result.inputs[0].name, 'approval_conditions');
+  assert.deepEqual(result.examples, []);
+  assert.match(result.examples_note, /never invented/);
 });
 
 test('create and update forward full data-file documents without generic table mutation', async () => {
