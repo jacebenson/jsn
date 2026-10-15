@@ -80,9 +80,21 @@ export async function publishFlows(sdk, flowIDs = [], actionIDs = []) {
 /** Publish one flow through the ProcessFlow snapshot/version lifecycle. */
 export async function publishFlowLifecycle(sdk, instance, flowId) {
   const flowRecord = sdk.get ? await sdk.get('sys_hub_flow', flowId) : null;
-  const scope = str(flowRecord, 'scope');
-  if (!scope) throw new Error(`Flow ${flowId} has no transaction scope; refusing to publish`);
-  const definitionResponse = await sdk.request(`${instance}${PROCESSFLOW_PATH}/${encodeURIComponent(flowId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`, { method: 'GET' });
+  const flowPath = `${instance}${PROCESSFLOW_PATH}/${encodeURIComponent(flowId)}`;
+  // sys_hub_flow.scope is often omitted by the Table API for newly created
+  // flows. The ProcessFlow definition carries the application scope needed by
+  // its snapshot and version endpoints, so read it before constructing either.
+  let scope = str(flowRecord, 'scope');
+  let definitionResponse;
+  if (!scope) {
+    definitionResponse = await sdk.request(flowPath, { method: 'GET' });
+    const initialDefinition = definitionResponse?.result?.data ?? definitionResponse?.data?.result?.data ?? definitionResponse?.data ?? definitionResponse?.result ?? definitionResponse;
+    scope = str(initialDefinition, 'scope');
+    if (!scope) throw new Error(`Flow ${flowId} has no transaction scope; refusing to publish`);
+  }
+  if (!definitionResponse) {
+    definitionResponse = await sdk.request(`${flowPath}?sysparm_transaction_scope=${encodeURIComponent(scope)}`, { method: 'GET' });
+  }
   const definition = definitionResponse?.result?.data ?? definitionResponse?.data?.result?.data ?? definitionResponse?.data ?? definitionResponse?.result ?? definitionResponse;
   if (!definition || typeof definition !== 'object') throw new Error(`Flow definition could not be read for ${flowId}`);
   const definitionScope = str(definition, 'scope');
