@@ -24,7 +24,7 @@ function app() {
   const calls = [];
   return {
     calls, writes, output,
-    ok: (data, opts) => output.ok(data, opts), err: e => output.err(e),
+    ok: (data, opts) => output.ok(data, opts), err: e => output.err(e), requireInstance() {},
     config: { activeProfile: 'test', profiles: { test: { skip_confirmations: false } } },
     getEffectiveInstance: () => 'https://example.invalid',
     sdk: {

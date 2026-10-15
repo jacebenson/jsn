@@ -69,10 +69,16 @@ export function flowsCmd(wrap) {
           handler: wrap(async (_argv, app) => {
             app.requireInstance();
             const catalog = await readTriggerCatalog(app.sdk);
-            for (const category of catalog.categories) for (const trigger of category.triggers) trigger.inputs = await readTriggerInputDefinitions(app.sdk, trigger.sysId);
-            for (const trigger of catalog.ungrouped) trigger.inputs = await readTriggerInputDefinitions(app.sdk, trigger.sysId);
+            for (const category of catalog.categories) {
+              for (const trigger of category.triggers) {
+                if (trigger.supported) trigger.inputs = await readTriggerInputDefinitions(app.sdk, trigger.sysId);
+              }
+            }
+            for (const trigger of catalog.ungrouped) {
+              if (trigger.supported) trigger.inputs = await readTriggerInputDefinitions(app.sdk, trigger.sysId);
+            }
             const data = { ...catalog, structural_contract: 'Manifest keys and persistence shape are code-owned; trigger definitions and input metadata are instance-derived.' };
-            data._formatted = [...catalog.categories.flatMap(c => c.triggers.map(t => `${c.name}: ${t.name} [${t.type}] ${t.supported ? 'supported' : 'not supported'}; inputs: ${t.inputs.map(i => i.name + ':' + i.type).join(', ')}`)), ...catalog.ungrouped.map(t => `${t.name} [${t.type}] ungrouped; inputs: ${t.inputs.map(i => i.name + ':' + i.type).join(', ')}`)].join('\n');
+            data._formatted = [...catalog.categories.flatMap(c => c.triggers.map(t => `${c.name}: ${t.name} [${t.type}] ${t.supported ? 'supported' : 'not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)), ...catalog.ungrouped.map(t => `${t.name} [${t.type}] ungrouped${t.supported ? '; supported' : '; not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)].join('\n');
             app.ok(data, { summary: 'Live Flow trigger schemas' });
           }),
         })

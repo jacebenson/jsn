@@ -67,6 +67,32 @@ test('flows root renders every subcommand in a terminal, not just the summary', 
   assert.match(rendered, /--help/);
 });
 
+test('flows schemas returns live trigger catalog and only loads inputs for supported families', async () => {
+  const schemaCommand = commandTree().find(command => command.command === 'schemas');
+  assert.ok(schemaCommand);
+  const supportedId = 'a'.repeat(32), unsupportedId = 'b'.repeat(32);
+  const calls = [];
+  const { app, envelope } = jsonApp({ list: async table => {
+    calls.push(table);
+    if (table === 'sys_hub_trigger_definition') return [
+      { sys_id: supportedId, name: 'Created', type: 'record_create', active: 'true', category: { value: 'cat', display_value: 'Record' } },
+      { sys_id: unsupportedId, name: 'Custom', type: 'future_family', active: 'true', category: { value: 'cat', display_value: 'Record' } },
+    ];
+    if (table === 'sys_hub_trigger_category') return [{ sys_id: 'cat', name: { value: 'cat', display_value: 'Record' } }];
+    if (table === 'sys_hub_trigger_input') return [{ sys_id: 'c'.repeat(32), element: 'table', internal_type: 'table_name', mandatory: 'true', order: '1' }];
+    assert.fail(`unexpected table ${table}`);
+  } });
+  await schemaCommand.handler({}, app);
+  const result = envelope().data;
+  assert.equal(result.categories[0].triggers[0].supported, true);
+  assert.equal(result.categories[0].triggers[0].inputs[0].name, 'table');
+  assert.equal(result.categories[0].triggers[0].inputs[0].type, 'table_name');
+  assert.equal(result.categories[0].triggers[1].supported, false);
+  assert.equal('inputs' in result.categories[0].triggers[1], false);
+  assert.match(result.structural_contract, /instance-derived/);
+  assert.deepEqual(calls, ['sys_hub_trigger_definition', 'sys_hub_trigger_category', 'sys_hub_trigger_input']);
+});
+
 test('flows show handler emits the normal Output envelope and formatted data', async () => {
   const show = commandTree().find(command => command.command === 'show [identifier]');
   assert.ok(show);

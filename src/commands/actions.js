@@ -150,12 +150,16 @@ export const actionsCmd = wrap => {
         builder: yy => yy.option('id', { type: 'string', demandOption: true, describe: 'Exact 32-character action type sys_id' }).option('scope', { type: 'string', demandOption: true, describe: 'Exact transaction scope sys_id, or global' }),
         handler: run(async (argv, app) => {
           if (!/^[a-f\d]{32}$/i.test(argv.id)) throw errUsage('--id must be an exact 32-character action type sys_id');
-          if (!/^(?:[a-f\d]{32}|global)$/i.test(argv.scope)) throw errUsage('--scope must be an exact scope sys_id or global');
+          if (!/^(?:[a-fA-F0-9]{32}|global)$/.test(argv.scope)) throw errUsage('--scope must be an exact scope sys_id or global');
           app.requireInstance();
           const url = `${app.sdk.baseURL}/api/now/processflow/action/action_types/${encodeURIComponent(argv.id)}?${new URLSearchParams({ sysparm_transaction_scope: argv.scope })}`;
           const response = await app.sdk.request(url, { method: 'GET' });
-          if (response?.error || !response?.result) throw new Error('Provider returned no action type metadata');
-          app.ok(response.result, { summary: `Provider action type schema ${argv.id}` });
+          const result = response?.result;
+          if (response?.error || result?.error || (result?.errorCode !== undefined && result.errorCode !== 0 && result.errorCode !== '0')) {
+            throw new Error(result?.errorMessage || response?.error?.message || 'Provider rejected the action type schema request');
+          }
+          if (!result || typeof result !== 'object') throw new Error('Provider returned no action type metadata');
+          app.ok(result, { summary: `Provider action type schema ${argv.id}` });
         }),
       })
       .command({
