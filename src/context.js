@@ -63,25 +63,16 @@ export async function getCurrentUpdateSet(sdk, userSysID) {
   return { name: val, sys_id: val };
 }
 
-/**
- * Find-or-create a sys_user_preference and set its value. Shared by the
- * scope/update-set "set" commands and create auto-set (was copy-pasted 3x).
- */
-async function setUserPreference(sdk, userSysID, name, value) {
-  const params = new URLSearchParams();
-  params.set('sysparm_query', `user=${userSysID}^name=${name}`);
-  params.set('sysparm_limit', '1');
-  params.set('sysparm_fields', 'sys_id');
-  const prefs = await sdk.list('sys_user_preference', params);
-  if (prefs.length > 0) {
-    await sdk.update('sys_user_preference', getStringField(prefs[0], 'sys_id'), { value });
-  } else {
-    await sdk.create('sys_user_preference', {
-      user: userSysID,
-      name,
-      value,
-      type: 'string',
-    });
+// Use the same selection contract as the platform picker. Table API writes to
+// sys_user_preference do not update an already-warmed session's capture context.
+async function selectContext(sdk, picker, data, expected) {
+  const endpoint = `${sdk.baseURL}/api/now/ui/concoursepicker/${picker}`;
+  await sdk.request(endpoint, { method: 'PUT', body: JSON.stringify(data) });
+  const response = await sdk.request(endpoint, { method: 'GET' });
+  const current = response?.result?.current;
+  const actual = picker === 'application' ? current : current?.sysId;
+  if (actual !== expected) {
+    throw new Error(`${picker === 'application' ? 'Application' : 'Update set'} selection was not applied. Expected ${expected}, received ${typeof actual === 'string' ? actual : 'an unreadable selection'}.`);
   }
 }
 
@@ -98,12 +89,12 @@ export async function requireCurrentUserSysId(sdk) {
   return getStringField(user[0], 'sys_id');
 }
 
-/** Set the current application scope via the apps.current_app preference. */
-export async function setCurrentApplication(sdk, userSysID, scopeSysID) {
-  await setUserPreference(sdk, userSysID, 'apps.current_app', scopeSysID);
+/** Select application scope in the authenticated session and verify it. */
+export async function setCurrentApplication(sdk, _userSysID, scopeSysID) {
+  await selectContext(sdk, 'application', { app_id: scopeSysID }, scopeSysID);
 }
 
-/** Set the current update set via the sys_update_set preference. */
-export async function setCurrentUpdateSet(sdk, userSysID, updateSetSysID) {
-  await setUserPreference(sdk, userSysID, 'sys_update_set', updateSetSysID);
+/** Select the capture update set in the authenticated session and verify it. */
+export async function setCurrentUpdateSet(sdk, _userSysID, updateSetSysID) {
+  await selectContext(sdk, 'updateset', { sysId: updateSetSysID }, updateSetSysID);
 }
