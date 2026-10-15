@@ -7,6 +7,10 @@ _site/
 # Dependencies
 node_modules/
 
+# Mutation testing artifacts
+.stryker-tmp/
+reports/mutation/
+
 # Logs
 *.log
 npm-debug.log*
