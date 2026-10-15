@@ -16,7 +16,7 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     const url = new URL(req.url, 'http://localhost');
     const rows = {
       sys_scope: [{ sys_id: 'ours', name: 'Ours', scope: 'x_acme_ours' }],
-      sys_metadata: [{ sys_id: 'a', sys_class_name: 'sys_script', sys_name: 'Our rule', sys_scope: 'ours', sys_update_name: 'sys_script_a' }],
+      sys_metadata: [{ sys_id: 'a', sys_class_name: 'sys_script', sys_name: 'license_roles', sys_scope: 'ours', sys_update_name: 'sys_script_a', sys_updated_by: 'fixture-user' }],
       sys_upgrade_history_log: [],
     };
     res.setHeader('Content-Type', 'application/json');
@@ -44,7 +44,18 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     const id = first.data.run_id;
     assert.equal(JSON.parse((await run(['list', '--json'])).stdout).data.count, 2);
     assert.equal(JSON.parse((await run(['show', id, '--get', 'data.run_id'])).stdout), id);
-    assert.match((await run(['show', id])).stdout, /CUSTOMER_APP_ARTIFACTS/);
+    const defaultView = JSON.parse((await run(['show', id])).stdout).data._formatted;
+    assert.match(defaultView, /GROUPED BY FILE TYPE/);
+    assert.match(defaultView, /Script \(1\)/);
+    assert.match(defaultView, /--group-by updated-by/);
+    const expanded = JSON.parse((await run(['show', id, '--filter', 'sys_script'])).stdout).data._formatted;
+    assert.match(expanded, /CUSTOMER_APP_ARTIFACTS/);
+    assert.match(expanded, /License Roles/);
+    const regrouped = JSON.parse((await run(['show', id, '--group-by', 'scope'])).stdout).data._formatted;
+    assert.match(regrouped, /GROUPED BY SCOPE/);
+    const updaterView = JSON.parse((await run(['show', id, '--group-by', 'updated-by'])).stdout).data._formatted;
+    assert.match(updaterView, /fixture-user \(1\)/);
+    assert.match(updaterView, /GROUPED BY UPDATED BY/);
     const compare = JSON.parse((await run(['compare', id, second.data.run_id, '--json'])).stdout);
     assert.deepEqual(compare.data.changes, []);
     assert.equal(compare.data.status, 'incomplete');
