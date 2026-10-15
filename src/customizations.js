@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { getVersion } from './commands/version.js';
+import { classifyCustomization } from './customizations-report.js';
 
 // Raw provider choices: 4 = Skipped, 104 = Skipped (second pass). Other skip
 // dispositions do not establish a preserved customization, so the upgrade
@@ -316,6 +317,9 @@ function formatReportDetailed(report) {
         for (const unknown of item.reversion.unknowns) lines.push(`  Reversion unknown: ${unknown}`);
       }
       for (const unknown of item.unknowns) lines.push(`  Unknown: ${unknown}`);
+      const triage = classifyCustomization(category);
+      lines.push(`  Triage: ${triage.label} (${triage.confidence})`, `  Why: ${triage.summary}`);
+      for (const step of triage.next_steps) lines.push(`  Next: ${step}`);
       lines.push(`  Recommendation: ${item.recommendation}`);
     }
   }
