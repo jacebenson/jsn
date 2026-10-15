@@ -43,7 +43,7 @@ function app() {
 
 test('one actions/action command preserves list/show/delete and exposes only verified requested lifecycle', () => {
   const map = commands();
-  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'definition', 'update', 'test', 'step-types', 'delete']);
+  assert.deepEqual([...map.keys()], ['list', 'show', 'create', 'definition', 'update', 'test', 'step-types', 'action-type-schema', 'delete']);
   assert.deepEqual(map.get('update').aliases, ['edit']);
   assert.deepEqual(actionsCmd(fn => fn).aliases, ['action']);
   for (const verb of ['create', 'update', 'edit', 'delete', 'test']) assert.equal(isMutationCommand({ _: ['actions', verb] }), true, verb);

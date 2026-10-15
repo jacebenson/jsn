@@ -18,7 +18,7 @@ function app(format) {
   };
 }
 
-const SURFACE = ['list', 'show [identifier]', 'definition [identifier]', 'step-types', 'create', 'update [identifier]', 'test [identifier]', 'delete [identifier]'];
+const SURFACE = ['list', 'show [identifier]', 'definition [identifier]', 'step-types', 'action-type-schema', 'create', 'update [identifier]', 'test [identifier]', 'delete [identifier]'];
 
 test('actions root lists every subcommand in a terminal', async () => {
   const { app: instance, text } = app('styled');
