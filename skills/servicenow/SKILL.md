@@ -79,6 +79,8 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 jsn customizations capture --label review --customer-scope x_acme_app --json
 jsn customizations list --json
 jsn customizations show <run_id> --get data.categories
+jsn customizations show <run_id> --get data.triage
+jsn customizations html <run_id> [--out review.html]
 jsn customizations compare <baseline_id> <new_id> --json
 ```
 

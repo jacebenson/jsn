@@ -50,8 +50,11 @@ lifecycle commands and the untested Windows host phases. Docker remains availabl
 jsn customizations capture --label before-upgrade --customer-scope x_acme_app
 jsn customizations list
 jsn customizations show <run_id>
+jsn customizations html <run_id>                 # writes customizations-<run_id>.html
+jsn customizations html <run_id> --out review.html
 jsn customizations compare <baseline_id> <new_id> --json
 jsn customizations show <run_id> --get data.coverage
+jsn customizations show <run_id> --get data.triage
 ```
 
 Capture data access uses Table API GET requests only. Captures never run
@@ -87,6 +90,13 @@ Each item reports identity, scope, evidence, unknown risk with rationale and a
 review recommendation. Historical OOTB findings include the known skipped-upgrade
 impact and explicit unknown baseline, runtime impact and dependencies. No
 reversion is performed or recommended as safe without further investigation.
+
+`show` adds a computed `data.triage` view with evidence confidence, the reason for
+the classification and concrete review steps; it does not alter saved captures or
+pretend to score risk. `html` exports a self-contained offline report with search,
+classification filters, grouping, evidence, coverage and links back to records.
+The default output is `customizations-<run_id>.html`; existing files are never
+overwritten. The report does not change ServiceNow records.
 
 Defaults are 100 records per page and 10 pages per source. Adjust `--page-size`
 and `--max-pages` within the documented limits. Source coverage compares the rows

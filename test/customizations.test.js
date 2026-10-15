@@ -83,6 +83,8 @@ test('customization summaries group by file type by default and support scope/up
     const expanded = formatReport(report, { filter: 'sys_script_include' });
     assert.match(expanded, /Script Include:two Two/);
     assert.match(expanded, /Filtered by type: sys_script_include/);
+    assert.match(expanded, /Triage: Unclassified metadata/);
+    assert.match(expanded, /Next: Identify the owner using application records/);
     assert.throws(() => formatReport(report, { groupBy: 'publisher' }), /group-by must be one of/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

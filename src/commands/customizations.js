@@ -3,6 +3,7 @@ import { errUsageHint, errUsage } from '../errors.js';
 import { canUsePicker } from '../helpers.js';
 import { paginatedSearch } from '../paginated-search.js';
 import { captureReport, listReports, getReport, compareReports, formatReport, formatReportList, formatReportComparison } from '../customizations.js';
+import { buildActionableReport, writeCustomizationHtml } from '../customizations-report.js';
 
 // Only capture needs an instance. Saved reports never need network access.
 declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
@@ -22,7 +23,9 @@ async function pickReport(app, argv, exclude = null, message = 'Select a customi
   return picked?.value ? requireReport(picked.value.run_id) : null;
 }
 function show(app, report, options = {}) {
-  app.ok({ ...report, _formatted: formatReport(report, options) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
+  const actionable = buildActionableReport(report);
+  const triage = actionable.artifacts.map(({ category, category_label, identity, triage: classification }) => ({ category, category_label, identity, ...classification }));
+  app.ok({ ...report, triage, _formatted: formatReport(report, options) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
 }
 export function customizationsCmd(wrap) {
   return {
@@ -56,6 +59,13 @@ export function customizationsCmd(wrap) {
         const report = argv.run_id ? requireReport(argv.run_id) : await pickReport(app, argv);
         if (report) show(app, report, { groupBy: argv.groupBy, filter: argv.filter || '' });
       }) })
+      .command({ command: 'html [run_id]', describe: 'Write a searchable, self-contained HTML review of a saved capture', builder: b => b
+        .option('out', { type: 'string', describe: 'Output HTML path (must not already exist)' }), handler: wrap(async (argv, app) => {
+        const report = argv.run_id ? requireReport(argv.run_id) : await pickReport(app, argv);
+        if (!report) return;
+        const file = writeCustomizationHtml(report, { out: argv.out });
+        app.ok({ run_id: report.run_id, file, artifacts: Object.values(report.categories).reduce((total, items) => total + items.length, 0) }, { summary: `Wrote offline customization review: ${file}`, breadcrumbs: [listHint, showHint(report.run_id)] });
+      }) })
       .command({ command: 'compare [baseline] [new]', describe: 'Compare two saved captures from the same instance', handler: wrap(async (argv, app) => {
         if (!!argv.baseline !== !!argv.new) throw errUsage('Compare requires exactly two report IDs');
         if (argv.baseline && argv.baseline === argv.new) throw errUsage('Compare requires two different report IDs');
@@ -67,6 +77,6 @@ export function customizationsCmd(wrap) {
         const result = compareReports(baseline, newer);
         app.ok({ ...result, _formatted: formatReportComparison(result) }, { summary: `Customization comparison: ${result.status}`, breadcrumbs: [listHint, showHint(baseline.run_id), showHint(newer.run_id)] });
       }) }),
-    handler: wrap(async (_argv, app) => app.ok({ command: 'customizations', subcommands: ['capture', 'list', 'show', 'compare'] }, { summary: 'Use `jsn customizations <subcommand> --help` for details.' })),
+    handler: wrap(async (_argv, app) => app.ok({ command: 'customizations', subcommands: ['capture', 'list', 'show', 'html', 'compare'] }, { summary: 'Use `jsn customizations <subcommand> --help` for details.' })),
   };
 }
