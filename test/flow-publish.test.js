@@ -122,6 +122,34 @@ describe('flows publish', () => {
     await assert.rejects(() => publishFlows(sdk, ['abc']), /malformed result body/);
   });
 
+  it('derives transaction scope from the ProcessFlow definition when the table record omits it', async () => {
+    const { publishFlowLifecycle } = await import('../src/flow-publish.js');
+    const calls = [];
+    let versionRows = [];
+    const sdk = {
+      baseURL: 'https://dev.example.service-now.com',
+      async get(table) {
+        return table === 'sys_hub_flow' ? { sys_id: 'f1', scope: '', active: 'true' } : null;
+      },
+      async request(url, options) {
+        calls.push({ url, options });
+        if (options.method === 'GET') return { result: { data: { scope: 'app-scope', name: 'New flow' } } };
+        if (url.includes('/snapshot')) return { result: { id: 'snapshot-1' } };
+        if (url.includes('/create_version')) {
+          versionRows = [{ sys_id: 'version-1', flow: 'f1', type: 'Activate/Publish' }];
+          return { result: { sys_id: 'version-1' } };
+        }
+        throw new Error(`Unexpected request ${url}`);
+      },
+      async list(table) { return table === 'sys_hub_flow_version' ? versionRows : []; },
+    };
+
+    const out = await publishFlowLifecycle(sdk, sdk.baseURL, 'f1');
+    assert.equal(out.active, true);
+    assert.equal(calls[0].url, `${sdk.baseURL}/api/now/processflow/flow/f1`);
+    assert.ok(calls.some(({ url }) => url.includes('sysparm_transaction_scope=app-scope')));
+  });
+
   it('refuses an empty publish', async () => {
     const { publishFlows } = await import('../src/flow-publish.js');
     await assert.rejects(() => publishFlows(buildSdk(), [], []), /Nothing to publish/);
