@@ -560,25 +560,16 @@ export function updateSetsCmd(wrap) {
               throw errUsage(`Cannot set "${name}" as current — update set is ${stateRaw === 'ignore' ? 'ignored' : 'complete'}.\nView it instead: jsn updatesets show "${name}"`);
             }
             const userSysID = await requireCurrentUserSysId(app.sdk);
-            await setCurrentUpdateSet(app.sdk, userSysID, sysID);
-
-            // Like the platform update set picker: switching the set also
-            // switches the application scope into the set's scope. The
-            // application field is a sys_scope reference, so its raw value
-            // IS the scope sys_id the apps.current_app preference stores.
+            // Scope selection can reset the session's capture set. Select the
+            // scope first, then the requested set, and verify both picker writes.
+            const scopeSysId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
             let scopeNote = '';
-            try {
-              const scopeSysId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
-              if (scopeSysId) {
-                await setCurrentApplication(app.sdk, userSysID, scopeSysId);
-                const scopeName = updateSetApp?.display_value || updateSetApp;
-                scopeNote = ` — scope switched to ${scopeName}`;
-              }
-            } catch {
-              // scope switch failed — fall back to a warning
-              const currentApp = await getCurrentApplication(app.sdk, userSysID).catch(() => null);
-              scopeNote = scopeMismatchWarning(updateSetApp, currentApp);
+            if (scopeSysId) {
+              await setCurrentApplication(app.sdk, userSysID, scopeSysId);
+              const scopeName = updateSetApp?.display_value || updateSetApp;
+              scopeNote = ` — scope switched to ${scopeName}`;
             }
+            await setCurrentUpdateSet(app.sdk, userSysID, sysID);
 
             app.ok({ update_set: name, sys_id: sysID }, { summary: `Current update set: ${name}${scopeNote}` });
           }),
@@ -631,15 +622,18 @@ export function updateSetsCmd(wrap) {
 
             // Auto-set as current update set
             const sysID = record?.sys_id?.value || record?.sys_id;
+            let selectionNote = '';
             try {
               const userSysID = await requireCurrentUserSysId(app.sdk);
               await setCurrentUpdateSet(app.sdk, userSysID, sysID);
-            } catch {
-              // Non-fatal — auto-set is a convenience, not mandatory
+            } catch (error) {
+              // Creation succeeded. Report partial success without hiding a
+              // failed selection or inviting a duplicate create on retry.
+              selectionNote = `; not selected as current: ${error.message}. Run jsn updatesets set "${argv.name}"`;
             }
 
             app.ok(record, {
-              summary: `Created update set: ${argv.name}`,
+              summary: `Created update set: ${argv.name}${selectionNote}`,
               breadcrumbs: [
                 {
                   action: 'set',

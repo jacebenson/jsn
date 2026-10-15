@@ -116,6 +116,13 @@ credentials and flags?" — effective instance URL, active profile (name +
 `src/session.js` owns session resolution and application. Commands can select
 an instance or profile without mutating the saved active profile.
 
+The provider's authenticated HTTP session is separate from this local identity.
+Its effective application and capture update set are selected through the
+concourse picker API in `src/context.js`, with session readback before success.
+Writing a `sys_user_preference` row does not synchronize an already-warmed HTTP
+session. When selecting an update set, select its application first, then the
+set. A flow's explicit transaction scope does not select its capture update set.
+
 ## Output envelope
 
 Everything a command emits goes through `app.output` (`src/output.js`).
