@@ -12,6 +12,7 @@ const ACTION_COMMANDS = [
   { name: 'help [identifier]', description: 'Show action input requirements and live usage examples' },
   { name: 'definition [identifier]', description: 'Read the full JSON definition including executable step_instances' },
   { name: 'step-types', description: 'Read step schema templates for a target scope' },
+  { name: 'action-type-schema', description: 'Read provider metadata for an exact action type ID and scope' },
   { name: 'create', description: 'Create an action: guided in a terminal, full JSON definition in scripts' },
   { name: 'update [identifier]', description: 'Save a full definition through Process Flow (alias: edit)' },
   { name: 'test [identifier]', description: 'Execute an action and optionally wait for actual outputs' },
@@ -56,7 +57,7 @@ export const actionsCmd = wrap => {
     describe: 'Flow Designer actions: create, edit full definitions, and test with outputs',
     builder: y => base.builder(y)
       .command({
-        command: 'create', describe: `Create parent and executable Process Flow action; verify persistence. --data/--data-file requires a full definition with inputs, outputs, and steps arrays. Variables have name and type; each step requires cid, step_type, and inputs, outputs, extended_inputs, extended_outputs arrays. Use step_types for valid step_type schema. Example (structure only):\n{"name":"Example action","inputs":[{"name":"record_id","type":"string"}],"outputs":[],"steps":[{"cid":"step-1","step_type":"<stepTypeFromSchema>","inputs":[],"outputs":[],"extended_inputs":[],"extended_outputs":[]}]}`,
+        command: 'create', describe: 'Create a Process Flow action. Use `jsn actions step-types --scope <sys_id>` for live provider schemas. The required definition structure is code-owned; step-specific fields are provider-defined.',
         builder: yy => dataOptions(yy).option('scope', { type: 'string', describe: 'Exact target scope sys_id, or global' }),
         handler: run(async (argv, app) => {
           const guided = !hasDefinitionData(argv) ? await guidedActionCreate(argv, app) : undefined;
@@ -137,11 +138,24 @@ export const actionsCmd = wrap => {
         }),
       })
       .command({
-        command: 'step-types', describe: 'Read step schema templates for a target scope',
+        command: 'step-types', describe: 'Read full live step schemas for a target scope',
         builder: yy => yy.option('scope', { type: 'string', describe: 'Exact transaction scope sys_id, or global' }),
         handler: run(async (argv, app) => {
           const scope = await designerScope(argv, app);
           app.ok(await app.sdk.getProcessFlowStepTypes(scope), { summary: 'Process Flow step schemas' });
+        }),
+      })
+      .command({
+        command: 'action-type-schema', describe: 'Read live provider input/output metadata for an exact action type ID and scope',
+        builder: yy => yy.option('id', { type: 'string', demandOption: true, describe: 'Exact 32-character action type sys_id' }).option('scope', { type: 'string', demandOption: true, describe: 'Exact transaction scope sys_id, or global' }),
+        handler: run(async (argv, app) => {
+          if (!/^[a-f\d]{32}$/i.test(argv.id)) throw errUsage('--id must be an exact 32-character action type sys_id');
+          if (!/^(?:[a-f\d]{32}|global)$/i.test(argv.scope)) throw errUsage('--scope must be an exact scope sys_id or global');
+          app.requireInstance();
+          const url = `${app.sdk.baseURL}/api/now/processflow/action/action_types/${encodeURIComponent(argv.id)}?${new URLSearchParams({ sysparm_transaction_scope: argv.scope })}`;
+          const response = await app.sdk.request(url, { method: 'GET' });
+          if (response?.error || !response?.result) throw new Error('Provider returned no action type metadata');
+          app.ok(response.result, { summary: `Provider action type schema ${argv.id}` });
         }),
       })
       .command({
