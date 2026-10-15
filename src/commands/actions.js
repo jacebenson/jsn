@@ -64,7 +64,12 @@ async function findActionExamples(sdk, definition, inputDefinitions) {
   for (const flowId of flowIds.slice(0, 10)) {
     try {
       const result = await sdk.inspectFlow(flowId);
-      collectActionExamples(result?.payload, snapshotId, allowedInputs, examples, result?.flow?.name || flowId);
+      const payloadActions = result?.payload?.actionInstances;
+      if (!Array.isArray(payloadActions) || !payloadActions.some(item => item && typeof item === 'object' && !Array.isArray(item))) {
+        unreadable = true;
+        continue;
+      }
+      collectActionExamples(result.payload, snapshotId, allowedInputs, examples, result?.flow?.name || flowId);
     } catch { unreadable = true; }
     if (examples.length >= 3) break;
   }

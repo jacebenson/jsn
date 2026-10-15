@@ -104,6 +104,14 @@ test('actions help reports no examples separately from unreadable example lookup
   await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
   assert.equal(JSON.parse(a.writes.join('')).data.examples_status, 'none');
 
+  const empty = app();
+  const flowID = 'a'.repeat(32);
+  empty.sdk.getProcessFlowAction = a.sdk.getProcessFlowAction;
+  empty.sdk.listStrict = async () => [{ flow: flowID }];
+  empty.sdk.inspectFlow = async () => ({ flow: { name: 'Unreadable flow' }, payload: {} });
+  await commands().get('help').handler({ identifier: 'Ask For Approval' }, empty);
+  assert.equal(JSON.parse(empty.writes.join('')).data.examples_status, 'unavailable');
+
   const denied = app();
   denied.sdk.getProcessFlowAction = a.sdk.getProcessFlowAction;
   denied.sdk.listStrict = async () => { throw new Error('permission denied'); };
