@@ -294,7 +294,7 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'create',
-          describe: 'Create a draft flow: pick a trigger category then trigger in a terminal, or use a JSON manifest in scripts',
+          describe: `Create a draft flow. JSON manifest fields: name (required), scope (required), optional description, trigger { type (required), optional table, condition, inputs }, actions (required array of { type, optional inputs }). Trigger type must be supported; trigger inputs and action inputs are objects. Flow Logic, subflows, variables, and errorHandling are unsupported. Example:\n{"name":"Approval flow","scope":"global","trigger":{"type":"record_create_or_update","table":"incident"},"actions":[{"type":"<actionTypeSysId>","inputs":{"message":"Created"}}]}`,
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' })
@@ -322,7 +322,7 @@ export function flowsCmd(wrap) {
         .command({
           command: 'update [identifier]',
           aliases: ['edit'],
-          describe: 'Safely update supported fields of an existing inactive Draft flow',
+          describe: `Safely update an inactive Draft flow. JSON may contain scope, trigger { optional type: "record_create_or_update", table and/or condition }, and/or actions [{ order (positive integer), type, inputs (non-empty object of changed values) }]. Only existing trigger and action inputs are updated; omitted values are preserved. Example:\n{"trigger":{"table":"incident","condition":"active=true"},"actions":[{"order":1,"type":"<existingActionTypeSysId>","inputs":{"message":"Updated"}}]}`,
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })

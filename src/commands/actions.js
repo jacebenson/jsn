@@ -55,7 +55,7 @@ export const actionsCmd = wrap => {
     describe: 'Flow Designer actions: create, edit full definitions, and test with outputs',
     builder: y => base.builder(y)
       .command({
-        command: 'create', describe: 'Create parent and executable Process Flow action; verify persistence',
+        command: 'create', describe: `Create parent and executable Process Flow action; verify persistence. --data/--data-file requires a full definition with inputs, outputs, and steps arrays. Variables have name and type; each step requires cid, step_type, and inputs, outputs, extended_inputs, extended_outputs arrays. Use step_types for valid step_type schema. Example (structure only):\n{"name":"Example action","inputs":[{"name":"record_id","type":"string"}],"outputs":[],"steps":[{"cid":"step-1","step_type":"<stepTypeFromSchema>","inputs":[],"outputs":[],"extended_inputs":[],"extended_outputs":[]}]}`,
         builder: yy => dataOptions(yy).option('scope', { type: 'string', describe: 'Exact target scope sys_id, or global' }),
         handler: run(async (argv, app) => {
           const guided = !hasDefinitionData(argv) ? await guidedActionCreate(argv, app) : undefined;
