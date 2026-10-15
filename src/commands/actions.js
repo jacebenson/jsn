@@ -29,6 +29,48 @@ async function actionID(argv, app) {
   return unwrapSysId(await resolveRecord(app.sdk, { table: ACTION_TABLE, identifier: argv.identifier, matchField: 'name', resource: 'action' }));
 }
 
+const refID = value => typeof value === 'string' ? value : value?.value ?? value?.sys_id ?? value?.sysId ?? value?.id;
+const asBoolean = value => value === true || value === 1 || (typeof value === 'string' && value.toLowerCase() === 'true');
+const EXAMPLE_TYPES = new Set(['approval_rules', 'conditions', 'schedule_date_time']);
+function collectActionExamples(node, snapshotId, allowedInputs, examples, flowName) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) { for (const item of node) collectActionExamples(item, snapshotId, allowedInputs, examples, flowName); return; }
+  const typeId = refID(node.actionTypeSysId || node.action_type_sys_id || node.actionType || node.action_type);
+  if (typeId === snapshotId && Array.isArray(node.inputs)) {
+    const values = Object.fromEntries(node.inputs.filter(input => input?.name && allowedInputs.has(input.name) && input.value !== undefined && input.value !== null)
+      .map(input => [input.name, refID(input.value) ?? input.value]));
+    if (Object.keys(values).length) examples.push({ flow: flowName, inputs: values });
+  }
+  for (const [key, value] of Object.entries(node)) if (key !== 'inputs') collectActionExamples(value, snapshotId, allowedInputs, examples, flowName);
+}
+async function findActionExamples(sdk, definition, inputDefinitions) {
+  const snapshotId = refID(definition.latest_snapshot);
+  if (!/^[a-f0-9]{32}$/i.test(snapshotId || '')) return { examples: [], status: 'unavailable' };
+  const allowedInputs = new Set(inputDefinitions.filter(input => EXAMPLE_TYPES.has(input.type)
+    && !/(password|secret|token|credential|authorization|cookie|api[_-]?key)/i.test(input.name)).map(input => input.name));
+  if (!allowedInputs.size) return { examples: [], status: 'not_applicable' };
+  const query = new URLSearchParams({
+    sysparm_query: `action_type=${snapshotId}^ORDERBYsys_id`,
+    sysparm_fields: 'sys_id,flow,action_type',
+    sysparm_limit: '20',
+    sysparm_display_value: 'false',
+  });
+  const rows = await sdk.listStrict('sys_hub_action_instance', query);
+  if (!rows.length) return { examples: [], status: 'none' };
+  const flowIds = [...new Set(rows.map(row => refID(row.flow)).filter(value => /^[a-f0-9]{32}$/i.test(value || '')))];
+  if (!flowIds.length) return { examples: [], status: 'unavailable' };
+  const examples = [];
+  let unreadable = false;
+  for (const flowId of flowIds.slice(0, 10)) {
+    try {
+      const result = await sdk.inspectFlow(flowId);
+      collectActionExamples(result?.payload, snapshotId, allowedInputs, examples, result?.flow?.name || flowId);
+    } catch { unreadable = true; }
+    if (examples.length >= 3) break;
+  }
+  return { examples: examples.slice(0, 3), status: examples.length ? 'found' : unreadable ? 'unavailable' : 'none' };
+}
+
 export const actionsCmd = wrap => {
   // Reuse the existing list/show picker and output contract only.
   const base = buildDevCmd('actions', ACTION_TABLE, ['action'], ['name', 'active', 'sys_scope', 'sys_updated_on'], wrap, {
@@ -77,12 +119,13 @@ export const actionsCmd = wrap => {
           const inputs = (definition.inputs || []).map(input => ({
             name: input.name,
             type: input.type || input.parameter?.type || input.parameter?.inputType || input.valueType || 'unknown',
-            mandatory: input.mandatory ?? input.required ?? input.parameter?.mandatory ?? input.parameter?.required ?? false,
+            mandatory: asBoolean(input.mandatory ?? input.required ?? input.parameter?.mandatory ?? input.parameter?.required),
             default: input.defaultValue ?? input.default ?? input.parameter?.defaultValue ?? '',
             description: input.description || input.label || input.parameter?.label || '',
           }));
-          app.ok({ action: { id, name: definition.name, scope }, inputs, examples: [], examples_status: 'unverified',
-            examples_note: 'Live examples are not shown yet because this instance’s action-instance to snapshot relationship has not been verified.' },
+          const exampleResult = await findActionExamples(app.sdk, definition, inputs);
+          app.ok({ action: { id, name: definition.name, scope }, inputs, examples: exampleResult.examples,
+            examples_status: exampleResult.status },
           { summary: `Input help for action ${definition.name || id}` });
         }),
       })

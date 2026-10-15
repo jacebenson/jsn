@@ -57,29 +57,57 @@ test('definition --get extracts a directly reusable JSON document with executabl
   assert.deepEqual(a.calls.at(-1), ['definition', ID, SCOPE]);
 });
 
-test('actions help shows provider input contracts without guessing an unverified live lookup', async () => {
+test('actions help follows the verified latest-snapshot relation and limits examples to opaque inputs', async () => {
+  const snapshot = 'e'.repeat(32);
+  const flowID = 'c'.repeat(32);
   const a = app();
-  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', inputs: [
-    { name: 'approval_conditions', type: 'approval_rules', mandatory: true, defaultValue: '', description: 'Who must approve' },
+  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', latest_snapshot: snapshot, inputs: [
+    { name: 'approval_conditions', type: 'approval_rules', mandatory: true, defaultValue: '' },
+    { name: 'approval_reason', type: 'string' },
+    { name: 'due_date', type: 'schedule_date_time', mandatory: 'false' },
+    { name: 'password', type: 'approval_rules' },
   ] });
+  a.sdk.listStrict = async (table, params) => {
+    a.calls.push(['listStrict', table, params]);
+    return [{ flow: flowID, action_type: snapshot }];
+  };
+  a.sdk.inspectFlow = async id => {
+    assert.equal(id, flowID);
+    return { flow: { name: 'Manager approval' }, payload: { actionInstances: [
+      { actionTypeSysId: snapshot, inputs: [
+        { name: 'approval_conditions', value: 'ApprovesAnyU[{{manager}}]' },
+        { name: 'approval_reason', value: 'private data omitted' },
+        { name: 'due_date', value: 'relative date expression' },
+        { name: 'password', value: 'secret omitted' },
+      ] },
+      { actionTypeSysId: 'd'.repeat(32), inputs: [{ name: 'approval_conditions', value: 'unrelated' }] },
+    ] } };
+  };
   await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
   const result = JSON.parse(a.writes.join('')).data;
   assert.equal(result.inputs[0].type, 'approval_rules');
-  assert.equal(result.inputs[0].mandatory, true);
-  assert.deepEqual(result.examples, []);
-  assert.equal(result.examples_status, 'unverified');
-  assert.match(result.examples_note, /relationship has not been verified/);
-  assert.ok(!a.calls.some(call => call[0] === 'list' && call[1] === 'sys_hub_action_instance'));
+  assert.equal(result.inputs[2].mandatory, false);
+  assert.deepEqual(result.examples, [{ flow: 'Manager approval', inputs: { approval_conditions: 'ApprovesAnyU[{{manager}}]', due_date: 'relative date expression' } }]);
+  assert.equal(result.examples_status, 'found');
+  const [, table, query] = a.calls.find(call => call[0] === 'listStrict');
+  assert.equal(table, 'sys_hub_action_instance');
+  assert.equal(query.get('sysparm_query'), `action_type=${snapshot}^ORDERBYsys_id`);
+  assert.equal(query.get('sysparm_fields'), 'sys_id,flow,action_type');
+  assert.equal(query.get('sysparm_limit'), '20');
+  assert.equal(query.get('sysparm_display_value'), 'false');
 });
 
-test('actions help remains useful when no live example can be verified', async () => {
+test('actions help reports no examples separately from unreadable example lookup', async () => {
   const a = app();
-  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', inputs: [{ name: 'approval_conditions', type: 'approval_rules' }] });
+  a.sdk.getProcessFlowAction = async () => ({ ...fixture, name: 'Ask For Approval', latest_snapshot: ID, inputs: [{ name: 'approval_conditions', type: 'approval_rules' }] });
+  a.sdk.listStrict = async () => [];
   await commands().get('help').handler({ identifier: 'Ask For Approval' }, a);
-  const result = JSON.parse(a.writes.join('')).data;
-  assert.equal(result.inputs[0].name, 'approval_conditions');
-  assert.deepEqual(result.examples, []);
-  assert.equal(result.examples_status, 'unverified');
+  assert.equal(JSON.parse(a.writes.join('')).data.examples_status, 'none');
+
+  const denied = app();
+  denied.sdk.getProcessFlowAction = a.sdk.getProcessFlowAction;
+  denied.sdk.listStrict = async () => { throw new Error('permission denied'); };
+  await assert.rejects(commands().get('help').handler({ identifier: 'Ask For Approval' }, denied), /permission denied/);
 });
 
 test('create and update forward full data-file documents without generic table mutation', async () => {
