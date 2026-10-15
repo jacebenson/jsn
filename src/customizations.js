@@ -14,7 +14,7 @@ export const SKIP_DISPOSITIONS = ['4', '104'];
 const SKIP_QUERY = `dispositionIN${SKIP_DISPOSITIONS.join(',')}`;
 const SOURCES = {
   sys_scope: { fields: 'sys_id,name,scope,sys_class_name', query: 'ORDERBYsys_id', countQuery: '', kind: 'inventory read' },
-  sys_metadata: { fields: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on', query: 'ORDERBYsys_id', countQuery: '', kind: 'bounded sample' },
+  sys_metadata: { fields: 'sys_id,sys_name,sys_class_name,sys_scope,sys_update_name,sys_updated_on,sys_updated_by', query: 'ORDERBYsys_id', countQuery: '', kind: 'bounded sample' },
   sys_upgrade_history_log: { fields: 'sys_id,file_name,disposition,resolution_status,sys_updated_on', query: `${SKIP_QUERY}^ORDERBYsys_id`, countQuery: SKIP_QUERY, kind: 'inventory read' },
 };
 // The broad sys_metadata read is an arbitrary sys_id-ordered slice of a table
@@ -27,6 +27,19 @@ export const RESOLUTION_CHUNK_SIZE = 25;
 const RESOLUTION_MAX_PAGES = 3;
 const value = v => v && typeof v === 'object' ? v.value ?? '' : v ?? '';
 const text = v => String(value(v));
+const humanize = value => String(value || '').replace(/^sys_/, '').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replaceAll('_', ' ').replace(/\bui\b/gi, 'UI').replace(/\b[a-z]/g, letter => letter.toUpperCase());
+const friendlyTable = table => humanize(table) || 'Unknown type';
+const friendlyArtifactName = (name, updateName, table, sysId) => {
+  if (name && name !== sysId && name !== updateName) return /[_]|[a-z][A-Z]/.test(name) ? humanize(name) : name;
+  if (updateName) {
+    const prefixes = [table, table.replace(/_[^_]+$/, ''), table.replace(/_[^_]+_[^_]+$/, '')].filter(Boolean);
+    const prefix = prefixes.find(candidate => updateName.startsWith(`${candidate}_`));
+    const fallback = prefix ? updateName.slice(prefix.length + 1) : updateName;
+    return humanize(fallback) || 'Name unavailable';
+  }
+  return sysId ? 'Name unavailable' : 'Unnamed artifact';
+};
+const displayArtifactName = identity => friendlyArtifactName(identity?.name || '', identity?.update_name || '', identity?.table || '', identity?.sys_id || '');
 
 // How many rows are available for the same query? The Stats API count is the
 // only evidence that lets a capture claim completeness; without it coverage
@@ -281,7 +294,7 @@ export function compareReports(baseline, newer) {
     unknowns };
 }
 
-export function formatReport(report) {
+function formatReportDetailed(report) {
   const lines = [`Customization capture ${report.run_id}${report.label ? ` (${report.label})` : ''}`, `Instance: ${report.instance}`, `Status: ${report.status}`, '', 'COVERAGE'];
   for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}${coverage.kind ? ` [${coverage.kind}]` : ''}: ${coverage.status}, ${coverage.fetched} fetched of ${coverage.available === null || coverage.available === undefined ? 'unknown' : coverage.available} available. ${coverage.reason}`);
   for (const limitation of report.coverage.limitations) lines.push(`Unknown: ${limitation}`);
@@ -295,7 +308,7 @@ export function formatReport(report) {
   for (const [category, items] of Object.entries(report.categories)) {
     lines.push('', `${category.toUpperCase()} (${items.length})`);
     for (const item of items) {
-      lines.push(`${item.identity.table}:${item.identity.sys_id} ${item.identity.name}`, `  Scope: ${item.scope.scope || item.scope.sys_id || 'unknown'}`, `  Risk: ${item.risk.rating}. ${item.risk.rationale}`);
+      lines.push(`${friendlyTable(item.identity.table)}:${item.identity.sys_id} ${displayArtifactName(item.identity)}`, `  Scope: ${item.scope.scope || item.scope.sys_id || 'unknown'}`, `  Risk: ${item.risk.rating}. ${item.risk.rationale}`);
       for (const evidence of item.evidence) lines.push(`  Evidence: ${evidence.source}:${evidence.sys_id}. ${evidence.basis}`);
       if (item.reversion) {
         for (const impact of item.reversion.known_impact) lines.push(`  Known impact: ${impact}`);
@@ -308,6 +321,43 @@ export function formatReport(report) {
   }
   return lines.join('\n') + '\n';
 }
+export const CUSTOMIZATION_GROUPS = ['type', 'scope', 'updated-by'];
+function groupKey(item, groupBy) {
+  if (groupBy === 'scope') return item.scope?.scope || item.scope?.sys_id || '(unknown scope)';
+  if (groupBy === 'updated-by') return item.identity?.updated_by || '(unknown updater)';
+  return item.identity?.table || 'unknown';
+}
+export function formatReport(report, { groupBy = 'type', filter = '' } = {}) {
+  if (!CUSTOMIZATION_GROUPS.includes(groupBy)) throw new Error(`group-by must be one of: ${CUSTOMIZATION_GROUPS.join(', ')}`);
+  if (filter) {
+    const filtered = structuredClone(report);
+    for (const [category, items] of Object.entries(filtered.categories)) filtered.categories[category] = items.filter(item => {
+      const key = groupKey(item, groupBy);
+      return key.toLowerCase() === String(filter).toLowerCase() || (groupBy === 'type' && friendlyTable(key).toLowerCase() === String(filter).toLowerCase());
+    });
+    const text = formatReportDetailed(filtered);
+    return `${text}\nFiltered by ${groupBy}: ${filter}\n`;
+  }
+  const items = Object.values(report.categories).flat();
+  const groups = new Map();
+  for (const item of items) {
+    const key = groupKey(item, groupBy);
+    groups.set(key, (groups.get(key) || 0) + 1);
+  }
+  const label = { type: 'file type', scope: 'scope', 'updated-by': 'updated by' }[groupBy];
+  const lines = [`Customization capture ${report.run_id}${report.label ? ` (${report.label})` : ''}`, `Instance: ${report.instance}`, `Status: ${report.status}`, `Artifacts: ${items.length}`, '', `GROUPED BY ${label.toUpperCase()}`];
+  if (!groups.size) lines.push('(no artifacts)');
+  for (const [key, count] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const byCategory = Object.entries(report.categories).map(([category, records]) => [category.replaceAll('_', ' '), records.filter(item => groupKey(item, groupBy) === key).length]).filter(([, total]) => total > 0).map(([category, total]) => `${category} ${total}`).join(', ');
+    lines.push(`${groupBy === 'type' ? friendlyTable(key) : key} (${count})  ${byCategory}`);
+  }
+  lines.push('', 'Expand a group with --filter <group-name>. File-type filters accept the friendly label or table name. Regroup with --group-by scope or --group-by updated-by.', 'Examples:', `  jsn customizations show ${report.run_id} --filter "Script Include"`, `  jsn customizations show ${report.run_id} --group-by scope`, `  jsn customizations show ${report.run_id} --group-by updated-by`);
+  lines.push('', 'Coverage and limitations are shared across these artifacts.');
+  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}: ${coverage.status}, ${coverage.fetched}/${coverage.available ?? 'unknown'} rows${coverage.kind ? ` (${coverage.kind})` : ''}`);
+  lines.push('Limits: metadata is a bounded sample; skipped-upgrade evidence is historical, not proof of a current OOTB difference. Scope and updater are clues, not proof of ownership.');
+  return lines.join('\n') + '\n';
+}
+
 export function formatReportList(runs) {
   return ['RUN ID  STATUS  LABEL  INSTANCE', ...runs.map(run => `${run.run_id}  ${run.status}  ${run.label || '(unlabeled)'}  ${run.instance}`), ...(runs.length ? [] : ['(no customization captures)'])].join('\n') + '\n';
 }
@@ -408,7 +458,7 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
     const scopeId = text(row.sys_scope);
     const scope = scopes.get(scopeId);
     const scopeName = text(scope?.scope);
-    const identity = { sys_id: text(row.sys_id), table: text(row.sys_class_name) || 'unknown', name: text(row.sys_name) || text(row.sys_update_name) || text(row.sys_id), update_name: text(row.sys_update_name) };
+    const identity = { sys_id: text(row.sys_id), table: text(row.sys_class_name) || 'unknown', name: text(row.sys_name) || text(row.sys_update_name) || text(row.sys_id), update_name: text(row.sys_update_name), updated_by: text(row.sys_updated_by) || null };
     const evidence = [{ source: 'sys_metadata', sys_id: identity.sys_id, basis: 'Visible application metadata record', updated_on: text(row.sys_updated_on) }];
     const item = {
       identity, scope: { sys_id: scopeId || null, name: text(scope?.name) || null, scope: scopeName || null }, evidence,

@@ -60,6 +60,33 @@ test('observed provider file_name joins metadata update name and raw skip/resolu
   assert.equal(missing.categories.ootb_modifications.length, 0);
 });
 
+test('customization summaries group by file type by default and support scope/updater grouping and group expansion', async () => {
+  const { captureReport, formatReport } = await import('../src/customizations.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customizations-groups-'));
+  try {
+    const report = await captureReport({ sdk: readOnlySdk({
+      sys_scope: [{ sys_id: 'scope-a', scope: 'x_acme_a', name: 'A' }],
+      sys_metadata: [
+        { sys_id: 'one', sys_name: 'One', sys_update_name: 'sys_script_one', sys_scope: 'scope-a', sys_class_name: 'sys_script', sys_updated_by: 'alice' },
+        { sys_id: 'two', sys_update_name: 'sys_script_two', sys_scope: 'scope-a', sys_class_name: 'sys_script_include', sys_updated_by: 'bob' },
+      ],
+    }), instance: 'https://mock.example', dir });
+    const summary = formatReport(report);
+    assert.match(summary, /GROUPED BY FILE TYPE/);
+    assert.match(summary, /Script \(1\)/);
+    assert.match(summary, /Script Include \(1\)/);
+    assert.match(summary, /--filter <group-name>/);
+    assert.match(summary, /--group-by updated-by/);
+    assert.match(formatReport(report, { groupBy: 'scope' }), /x_acme_a \(2\)/);
+    assert.match(formatReport(report, { groupBy: 'updated-by' }), /alice \(1\)/);
+    assert.match(formatReport(report, { groupBy: 'updated-by' }), /bob \(1\)/);
+    const expanded = formatReport(report, { filter: 'sys_script_include' });
+    assert.match(expanded, /Script Include:two Two/);
+    assert.match(expanded, /Filtered by type: sys_script_include/);
+    assert.throws(() => formatReport(report, { groupBy: 'publisher' }), /group-by must be one of/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 const metadata = [
   { sys_id: 'a', sys_update_name: 'sys_script_a', sys_name: 'Vendor rule', sys_scope: 'global', sys_class_name: 'sys_script', sys_updated_on: '2026-01-01' },
   { sys_id: 'b', sys_update_name: 'sys_script_b', sys_name: 'Our rule', sys_scope: 'ours', sys_class_name: 'sys_script' },

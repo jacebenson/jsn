@@ -21,8 +21,8 @@ async function pickReport(app, argv, exclude = null, message = 'Select a customi
   const picked = await paginatedSearch({ message, totalCount: runs.length, pageSize: 10, source: async (term = '') => runs.filter(run => `${run.run_id} ${run.label} ${run.instance}`.toLowerCase().includes(term.toLowerCase())).map(run => ({ name: `${run.run_id} ${run.label || '(unlabeled)'} ${run.instance}`, value: run })) });
   return picked?.value ? requireReport(picked.value.run_id) : null;
 }
-function show(app, report) {
-  app.ok({ ...report, _formatted: formatReport(report) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
+function show(app, report, options = {}) {
+  app.ok({ ...report, _formatted: formatReport(report, options) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
 }
 export function customizationsCmd(wrap) {
   return {
@@ -50,9 +50,11 @@ export function customizationsCmd(wrap) {
           app.ok({ runs, count: runs.length, _formatted: formatReportList(runs) }, { summary: `${runs.length} customization capture(s)`, breadcrumbs: [listHint, ...(runs[0] ? [showHint(runs[0].run_id)] : [])] });
         }),
       })
-      .command({ command: 'show [run_id]', describe: 'Review a saved capture offline', handler: wrap(async (argv, app) => {
+      .command({ command: 'show [run_id]', describe: 'Review a saved capture offline', builder: b => b
+        .option('group-by', { type: 'string', choices: ['type', 'scope', 'updated-by'], default: 'type', describe: 'Group summary by file type, scope or last updater' })
+        .option('filter', { type: 'string', describe: 'Expand a group shown in the summary (friendly or table name for file types)' }), handler: wrap(async (argv, app) => {
         const report = argv.run_id ? requireReport(argv.run_id) : await pickReport(app, argv);
-        if (report) show(app, report);
+        if (report) show(app, report, { groupBy: argv.groupBy, filter: argv.filter || '' });
       }) })
       .command({ command: 'compare [baseline] [new]', describe: 'Compare two saved captures from the same instance', handler: wrap(async (argv, app) => {
         if (!!argv.baseline !== !!argv.new) throw errUsage('Compare requires exactly two report IDs');
