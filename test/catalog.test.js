@@ -72,12 +72,12 @@ describe('catalog create --variable type resolution', () => {
       {
         app,
         name: 'Test Item',
-        variable: ['dept:select', 'start:date', 'when:datetime', 'agree:checkbox', 'contact:email'],
+        variable: ['dept:select:Department', 'start:date:Start date', 'when:datetime:When: exactly?', 'agree:checkbox:Agree', 'contact:email:Contact', 'hotel:yesno:Hotel needed?'],
       },
       app,
     );
 
-    assert.strictEqual(created.length, 5, 'all 5 variables created');
+    assert.strictEqual(created.length, 6, 'all 6 variables created');
     const byName = Object.fromEntries(created.map((c) => [c.name, c.type]));
     // These assertions FAIL against the old inline map
     // { select:'3', date:'4', datetime:'5', checkbox:'12', email:'11' }.
@@ -86,6 +86,10 @@ describe('catalog create --variable type resolution', () => {
     assert.strictEqual(byName.when, 10, 'datetime → 10 (Date/Time)');
     assert.strictEqual(byName.agree, 7, 'checkbox → 7 (CheckBox)');
     assert.strictEqual(byName.contact, 26, 'email → 26 (Email)');
+    assert.strictEqual(byName.hotel, 1, 'yesno → 1 (Yes/No)');
+    assert.deepStrictEqual(created.map((v) => v.question_text), [
+      'Department', 'Start date', 'When: exactly?', 'Agree', 'Contact', 'Hotel needed?',
+    ]);
   });
 });
 
