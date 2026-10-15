@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "node --experimental-test-module-mocks --test test/mutations.test.js test/usability-safety-group-mutations.test.js"
+  },
+  "mutate": ["src/mutations.js"],
+  "coverageAnalysis": "off",
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "concurrency": 2,
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 0
+  }
+}

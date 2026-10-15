@@ -9,6 +9,7 @@
   "main": "src/cli.js",
   "scripts": {
     "test": "node --experimental-test-module-mocks --test --test-concurrency=4 $(find test -name '*.test.js')",
+    "test:mutation": "stryker run",
     "lint": "npx eslint src/ bin/ test/",
     "start": "node bin/jsn.js",
     "docs": "npm --prefix docs run build",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.0.0",
     "globals": "^17.6.0"
   },
   "files": [
