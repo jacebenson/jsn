@@ -1,0 +1,567 @@
+# JSN CLI guide
+
+A command-line interface for ServiceNow. Type `jsn` and start working — no web UI needed.
+
+Works standalone or with AI agents (Claude Code, OpenCode, Hermes, Cursor, Copilot).
+
+## Install
+
+```bash
+npm install -g @jacebenson/jsn
+```
+
+Node.js 22.5.0 or newer. macOS, Linux, Windows.
+
+The install also copies an AI agent skill file to `~/.agents/skills/servicenow/SKILL.md`.
+
+### Install from GitHub (test unreleased builds)
+
+To test a branch or the freshly merged `main` before it's published to npm:
+
+```bash
+npm install -g github:jacebenson/jsn#main        # merged but not yet tagged
+npm install -g github:jacebenson/jsn#<branch>    # any PR/feature branch
+```
+
+Go back to the released version with:
+
+```bash
+npm install -g @jacebenson/jsn
+```
+
+**Note:** git installs build `better-sqlite3` (docs search) from source, so the machine needs build tools (Python, make, a C++ compiler).
+
+## Direct MID installation
+
+```sh
+jsn midservers add --install-method direct --name worker1
+```
+
+Official x86-64 ZIPs for Linux and Windows, selected from the instance's
+`mid.version`. Credentials are prompted and validated before installation.
+Linux supports a user-owned background runtime. Windows currently prepares
+private files and offers a foreground console, not native service registration.
+See [direct MID installation](mid-direct-install.md) for security boundaries,
+lifecycle commands and the untested Windows host phases. Docker remains available.
+
+## Customization reports
+
+```sh
+jsn customizations capture --label before-upgrade --customer-scope x_acme_app
+jsn customizations list
+jsn customizations show <run_id>
+jsn customizations html <run_id>                 # writes customizations-<run_id>.html
+jsn customizations html <run_id> --out review.html
+jsn customizations compare <baseline_id> <new_id> --json
+jsn customizations show <run_id> --get data.coverage
+jsn customizations show <run_id> --get data.triage
+```
+
+Capture data access uses Table API GET requests only. Captures never run
+background scripts or create, update or delete instance records. Standard
+authentication still applies, including OAuth refresh, local refreshed-credential
+storage and session/GCK bootstrap, which can make authentication POST requests.
+Expired credentials without a usable refresh token require login. Reports are private local JSON files in
+`$JSN_DATA_HOME/customizations`, defaulting to `~/.jsn/customizations`. List,
+show and compare work offline. Interactive terminals offer local report pickers;
+pass explicit IDs with JSON, pipes or `--get`.
+
+The bounded inventory joins visible `sys_metadata`, `sys_scope` and
+`sys_upgrade_history_log` records. `ootb_modifications` contains artifacts
+with historical skipped-upgrade evidence, not a verified current OOTB diff.
+Because the broad `sys_metadata` read is an arbitrary `sys_id`-ordered slice
+(994 of 621972 rows on a large instance), it is reported as a **bounded sample,
+not an inventory**: it only ever describes the rows the page budget reached.
+The skipped-upgrade artifacts are inventoried separately and completely for the
+observed history: after the filtered upgrade-history read, every observed
+`sys_update_name` is resolved with chunked GET-only
+`sys_update_nameIN<chunk of names>` lookups on `sys_metadata`, so an artifact
+with skipped-upgrade evidence appears in `ootb_modifications` even when it falls
+far outside the sample. `coverage.upgrade_evidence` reports the skipped rows
+observed, the distinct update names, how many resolved by direct lookup, the
+unresolved name list and any failed lookup chunks.
+`customer_app_artifacts` contains only scopes explicitly declared with repeatable
+`--customer-scope` values or sys_ids. The instance verifies the scope identity,
+not its ownership. Installed/vendor scopes are never automatically called
+customer-built. Other visible artifacts remain `unclassified`, and both those
+categories cover only what the bounded sample read.
+
+Each item reports identity, scope, evidence, unknown risk with rationale and a
+review recommendation. Historical OOTB findings include the known skipped-upgrade
+impact and explicit unknown baseline, runtime impact and dependencies. No
+reversion is performed or recommended as safe without further investigation.
+
+`show` adds a computed `data.triage` view with evidence confidence, the reason for
+the classification and concrete review steps; it does not alter saved captures or
+pretend to score risk. `html` exports a self-contained offline report with search,
+classification filters, grouping, evidence, coverage and links back to records.
+The default output is `customizations-<run_id>.html`; existing files are never
+overwritten. The report does not change ServiceNow records.
+
+Defaults are 100 records per page and 10 pages per source. Adjust `--page-size`
+and `--max-pages` within the documented limits. Source coverage compares the rows
+fetched with the Stats API count for the same query and reports both. A page
+shorter than the requested size never implies exhaustion; `exhausted` is reported
+only when the fetched rows account for the available total, and an unavailable
+count is reported as unknown rather than implied completeness. Other statuses
+distinguish missing fields, unstable pagination and read failures. Both the count
+and the rows reflect visible ACL-filtered records, so hidden rows cannot be ruled
+out and reports remain `incomplete`. An empty category does not prove that no
+customizations exist. A 2xx table body without a `result` array is treated as an
+unavailable source, never as an empty table.
+
+Comparisons show newly observed, no-longer-observed and changed metadata/evidence.
+They ignore local capture IDs, labels, timestamps and enumeration order.
+They do not prove record creation/deletion or detect source-body changes without
+captured metadata changes. Changed entries render the concrete before/after field
+values, and additions/removals list the artifact's name, table, scope, category
+and evidence basis. When either report has an unavailable or empty source, the
+comparison status is `unreliable` and those differences are labelled as missing
+coverage instead of mass creation or deletion. Compare only reports from the same
+instance.
+
+Provider contract: [ServiceNow Customizations Unchanged](https://www.servicenow.com/docs/r/xanadu/platform-administration/customizations-unchanged-related-list.html)
+explains that the `Skipped` disposition preserves customizations. Other skip
+reasons are not treated as equivalent evidence. This command cannot establish a
+trusted baseline from that history alone.
+
+The verified provider join is `sys_upgrade_history_log.file_name` to
+`sys_metadata.sys_update_name`, not the log's nonexistent `name` field. Capture
+uses raw values from `sysparm_display_value=all`: disposition `4` or `104`
+means Skipped or Skipped (second pass). Resolution `reviewed_reverted` excludes
+that history row; a present empty resolution is distinct from a missing field.
+The upgrade-history read is filtered server-side to those dispositions so a
+bounded capture spends its pages on preserved-customization evidence instead of
+arbitrary history rows, and `unmatched_upgrade_records` counts only that filtered
+population, not all upgrade history. The filtered history is the unit of the
+inventory claim: every observed `file_name` is then resolved against visible
+`sys_metadata` with chunked GET-only `sys_update_nameIN<chunk>` lookups, so
+skipped artifacts are inventoried from the history instead of from the arbitrary
+`sys_id`-ordered metadata sample. `unmatched_upgrade_records` and
+`coverage.upgrade_evidence.unresolved_update_names` describe only names no
+visible metadata row matched; a failed lookup chunk is reported rather than
+treated as an absent artifact.
+These values were checked against the PDI dictionary, choices and actual joined
+rows. Display labels are not used for classification.
+
+## Quick Start
+
+```bash
+jsn setup                                    # Interactive: add, switch, remove, modify instances
+jsn incidents list --query "priority=1"      # Critical incidents
+```
+
+## What It Does
+
+jsn talks to the ServiceNow REST API. Read, create, update, delete — tickets, users, groups, records on any table. Inspect flows and business rules. Export update sets. Run background scripts.
+
+Everything outputs JSON when piped, styled tables in a terminal.
+
+```bash
+# Core ticket work
+jsn incidents list --query "active=true^priority=1"
+jsn incidents INC0010001
+jsn incidents create --description "Server down" --priority 1
+
+# Admin tasks
+jsn flows list                                # Interactive picker with pagination
+jsn flows show "Assign Task"                  # Full flow detail
+jsn flows executions                          # All states, newest first
+jsn flows executions --active                  # Only waiting/running/queued
+jsn flows executions --since "2026-08-25 00:00:00" --until "2026-08-26 00:00:00"
+jsn flows executions --summary                 # Server totals + sampled duration metrics by flow
+jsn flows executions --limit 100               # Inspect more rows from the matching population
+jsn flows executions --record <sys_id>        # Executions for one source record
+jsn flows create --data-file flow.manifest.json # Create a draft record-triggered flow
+jsn rules list --query "collection=incident"
+jsn updatesets set "My Feature"
+
+# Generic table access
+jsn records list --table incident --limit 50 --json | jq '.data.records[].number'
+jsn records create --table incident --data '{"short_description":"test"}'
+jsn records list --table incident --limit 50 --get "data.records.0.number"   # no jq needed
+jsn records list --table incident --query "active=true"                       # totals included by default
+jsn records list --table incident --limit 10 --no-count                       # opt out of the total query
+jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
+jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
+jsn records list --table incident --limit 10 --csv                            # output CSV
+
+# Read-only cross-profile record diff
+jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
+jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --ignore state
+jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --no-ignore
+
+# Script execution
+jsn eval "gs.info('Hello World')"
+cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
+
+# Now GraphQL (documents may contain mutations; read-only profiles are blocked)
+jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
+cat incident.graphql | jsn graphql --stdin --variables '{"limit":2}'
+
+# Saved query snippets (stored locally, run against the active profile)
+jsn snippets save open-inc --table incident --query "active=true"
+jsn snippets run open-inc
+
+# Live log tailing (Ctrl+C to stop)
+jsn logs follow --level error --tail 10
+```
+
+### Update set completion
+
+```bash
+jsn updatesets complete                         # Current set, opens a notes editor in a human terminal
+jsn updatesets complete "My Feature" --notes "Fixed validation" --force --json
+```
+
+`complete [name]` saves concise bullet-list notes in the selected set's Description
+and marks it complete. Omit the name to use the current set. Explicit names
+must be unique; for duplicate names, select the intended set with `updatesets set`
+and complete it without a name. ServiceNow's normal batch completion rules still
+apply: completing a parent can complete its children. Notes are not copied to children.
+
+Existing Description text is preserved exactly. The command shows it and asks
+before appending notes, unless `--force` or the profile's `skip_confirmations`
+policy explicitly allows the append. Scripts and JSON output must supply
+nonempty `--notes`; they never open prompts. Separate multiple notes with real
+newlines. Success requires readback of both Description and state. If verification
+fails, inspect the set before retrying because the write may have partially succeeded.
+
+### Flow Designer actions
+
+`actions` and `action` are the same command. `list`, `show`, and explicit
+`delete` remain available. In a human terminal, omit the target to open a
+searchable picker. Create and edit guide you through provider schemas and save
+full Process Flow definitions, not ordinary table-field updates.
+
+```bash
+jsn actions create                 # Guided scope, name, schemas, inputs and script
+jsn actions edit                   # Pick an action, edit its saved definition
+jsn actions definition             # Pick and inspect a complete definition
+jsn actions test --wait            # Pick an action, supply saved-schema inputs, confirm
+jsn actions step-types             # Pick the exact transaction scope
+```
+
+Script inputs offer a file path or your `$VISUAL`/`$EDITOR`. New script steps can
+declare outputs and map them to action outputs. Variable declarations reuse
+provider schema templates and receive fresh UI identities. Unknown nested
+schema fields are retained. Unsupported input types stop with instructions to
+use `--data-file`; JSN does not silently omit them or invent schema defaults.
+Creation waits for an explicit final confirmation before allocating a parent.
+It saves a draft only and never publishes or runs it automatically.
+
+For automation, keep using explicit identifiers and full JSON:
+
+```bash
+jsn actions step-types --scope <scope_sys_id> --get data > step-types.json
+jsn actions create --scope <scope_sys_id> --data-file new-action.json --json
+jsn actions definition <action_sys_id> --get data > action.json
+# Edit action.json, retaining its ID, scope, lifecycle fields and all arrays.
+jsn actions update <action_sys_id> --data-file action.json --json
+jsn action edit <action_sys_id> --data-file action.json --json  # same operation
+jsn actions test <action_sys_id> --force --output-map '{"response":"hello"}' --wait --timeout 60 --json
+jsn actions test <action_sys_id> --force --data-file action.json --output-map '{"response":"hello"}' --wait --get data.outputs.response.value
+jsn actions delete <action_sys_id> --force  # explicit cleanup, never automatic
+```
+
+Existing targets infer their exact transaction scope from the action record.
+An explicit `--scope` must match that record byte-for-byte and exist in
+`sys_scope`. For Global, use the literal sys_id `global`.
+
+This **illustrative create document** shows an input/script/output mapping.
+Replace `<SCRIPT_STEP_TYPE_SYS_ID>` with the target's `step-types` result.
+Start from that step type's full input/output schemas, preserving runtime
+settings, status outputs and any other required fields. The shortened example
+is not a captured or instance-verified template. New steps/variables need their
+own identifiers; do not clone another action's record IDs. Leave new steps'
+`step_id` and `action` blank or omitted. Create binds their `action` to the newly
+allocated parent; persisted step IDs or parent bindings are rejected before creation.
+
+```json
+{
+  "name": "Echo response",
+  "description": "Return the supplied response",
+  "internal_name": "echo_response",
+  "inputs": [{"name": "response", "label": "Response", "type": "string", "mandatory": true}],
+  "outputs": [{"name": "response", "label": "Response", "type": "string", "value": "{{step[11111111-2222-4333-8444-555555555555].response}}"}],
+  "steps": [{
+    "cid": "11111111-2222-4333-8444-555555555555",
+    "step_type": "SCRIPT",
+    "step_type_id": "<SCRIPT_STEP_TYPE_SYS_ID>",
+    "label": "Echo script",
+    "order": 1,
+    "inputs": [
+      {"name": "required_run_time", "type": "choice", "value": "instance"},
+      {"name": "script", "type": "script", "value": "(function execute(inputs, outputs) { outputs.response = inputs.response; })(inputs, outputs);"}
+    ],
+    "outputs": [],
+    "extended_inputs": [{"name": "response", "type": "string", "value": "{{inputs.response}}", "extended": true}],
+    "extended_outputs": [{"name": "response", "type": "string", "extended": true}]
+  }]
+}
+```
+
+Create first inserts the parent in `sys_hub_action_type_definition`, reads that
+parent's own Process Flow defaults, then saves the inputs, outputs and nonempty
+steps with the internal `/api/now/processflow/action/action_types/{id}` PUT.
+It retains fresh lifecycle/status metadata instead of copying source snapshot
+or status IDs. A subsequent definition GET plus `/step_instances` GET verifies
+scripts, mappings and schemas. Update requires a complete document from
+`definition`, including target-owned lifecycle fields. Omitted fields are
+rejected before mutation. A PUT timeout triggers readback, not another PUT;
+`persisted_after_timeout` means persistence was verified, not that HTTP success
+was received. Failed creation reports the parent ID and leaves cleanup to you.
+
+Test sends `action`, `outputMap`, `runOnThread` and `tracingEnabled` to `/test`.
+Despite its wire name, `--output-map` supplies **action inputs**. Without
+`--wait`, success means dispatch only, with `status: dispatched` and no outputs.
+With `--wait`, JSN requires a `COMPLETE` context, blank `error_message`, and each
+declared user output's actual value from `sys_flow_runtime_value`. Output entries
+have `value`, `displayValue` and `hasValue`; false, zero and empty strings count.
+Failures, denied/missing outputs and timeouts exit nonzero. The wait budget
+starts after dispatch, defaults to 60 seconds, and is capped at 3600 seconds.
+Timeout does not cancel the server execution. Draft actions can be tested without
+publication. Testing runs their scripts and can have side effects. It requires
+interactive confirmation or `--force`, unless the profile explicitly skips
+confirmations. Read-only profiles block create/update/delete/test. No publish
+or snapshot command is added.
+These internal endpoints and runtime-table permissions can vary by instance.
+
+### Flow execution fields
+
+### Flow Designer terminal workflows
+
+```bash
+jsn flows create         # Guided record trigger and published action inputs
+jsn flows edit           # Pick an inactive Draft, edit condition or existing inputs
+jsn flows show           # Pick a flow to inspect
+jsn flows status         # Pick a flow to diagnose
+jsn flows test           # Pick flow and a record from its actual trigger table, confirm
+jsn flows publish        # Pick a flow, explicitly confirm activation
+# Automation must explicitly confirm publication too:
+jsn flows publish <flow_sys_id> --force --json
+```
+
+Wizards and omitted-target pickers require both a prompt-capable terminal and
+`auto` output. `--json`, explicit formats, `--get`, `--data`, `--data-file`,
+`--output-map`, pipes, `CI`, `NONINTERACTIVE` and `JSN_NO_PROMPTS=1` never open a
+wizard. In those modes provide identifiers and required scope/record/data
+explicitly. Tests, publish and deletion require `--force` or the profile's
+existing explicit skip-confirmations setting when prompting is unavailable.
+Read-only profiles still block mutations before authentication or prompting.
+Press Escape in record pickers or Ctrl+C in any wizard to cancel. Refusing a
+final confirmation leaves the instance untouched.
+
+Existing action/flow scopes come from saved raw identifiers. New scopes offer
+the active application preference if available, then a searchable scope picker.
+No scope name is guessed. Input pills are passed through unchanged.
+
+Flow edits are limited to the existing manifest contract. They do not rename
+flows, add/remove steps, implement Flow Logic, subflows, variables or error
+handling. Flow deletion remains unsupported. Action deletion retains its
+existing explicit parent-record cleanup and absence readback, not a new native
+builder deletion lifecycle. See [command coverage and local proof](flow-designer-interactive.md).
+
+### Flow creation manifest
+
+`jsn flows create` accepts `--data-file` or inline `--data`, or guides human
+terminal users without those options. The supported slice
+supports one `record_create_or_update` trigger and published Action types whose
+input schemas are available from the instance. JSN resolves action metadata,
+defaults, and typed inputs from ServiceNow; callers do not provide GraphQL or
+editor-generated identifiers.
+
+```json
+{
+  "name": "JSN-STUDY-ticket-log",
+  "description": "Log JSN study tickets",
+  "scope": "<SCOPE_SYS_ID>",
+  "trigger": {
+    "type": "record_create_or_update",
+    "table": "ticket",
+    "condition": "short_descriptionSTARTSWITHJSN-STUDY-"
+  },
+  "actions": [
+    { "type": "Log", "inputs": { "log_level": "info", "log_message": "Ticket received" } }
+  ]
+}
+```
+
+`scope` is required; JSN never defaults it to a tenant-specific or captured
+scope. The record-trigger condition currently accepts one simple encoded-query
+predicate (`fieldSTARTSWITHvalue`, `field=value`, `fieldLIKEvalue`, and the
+equivalent single-predicate operators). Compound `^`/`^OR` expressions are
+rejected until their predicate AST mapping is proven against the instance.
+
+Creation leaves the flow in Draft and inactive, then creates and reads back an
+Autosave version. `flows publish` remains a separate lifecycle operation: it
+reads the saved ProcessFlow definition, POSTs `/snapshot`, creates an
+`Activate/Publish` version, reads version history, and verifies `active=true`.
+Do not use it in a dry-run: publishing activates the flow.
+
+`jsn flows test <identifier> --record <sys_id>` is also a mutating operation.
+It requires confirmation (or `--force`), reads the saved definition, verifies
+that the supplied record exists in the record-trigger table, and POSTs the full
+definition to the ProcessFlow test endpoint. A response with only a context ID
+is reported as accepted, not completed. Test runs execute actions and can have
+side effects; this slice does not execute test flows during development.
+
+Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
+and rejected by this slice rather than silently ignored.
+
+`jsn flows update <identifier> --data-file update.json` updates supported fields
+of existing inactive Draft flows. The manifest may contain only `trigger` (with
+`table` and/or `condition`) and `actions`. Each action selects one saved instance
+by its one-based `order` and reusable action `type` (name or sys_id). Its `inputs`
+object may change only inputs already present in that saved Action. The CLI reads
+the saved component identities itself; manifests never carry UI UUIDs. Omitted
+trigger fields, Action inputs, metadata, and other flow components are preserved.
+Names must resolve to exactly one flow, and the protected `jace-test-flow` is
+rejected. Update sends the captured GraphQL `triggerInstances.update` and/or
+`actions.update` shapes, reads the full ProcessFlow definition back, creates an
+Autosave version, and reports update-set captures. It never publishes or
+activates the flow. Unsupported Flow Logic, subflows, variables, error handling,
+new Action inputs, ambiguous selectors, active flows, and non-Draft flows are
+rejected before mutation.
+
+`jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:
+
+- `started`: `started`, `start_time`, `started_at`, then `sys_created_on`
+- `ended`: `ended`, `end_time`, `ended_at`, then `completed_on`
+- `duration_seconds`: stored `duration`, `run_time`, or `execution_duration`, otherwise `ended - started`
+- `waiting_age_seconds`: current time minus `started` while the status is waiting, queued, paused, or pending
+- `execution_age_seconds`: current time minus `started` while the status is running, executing, or processing
+- `status`: `state`, then `status`, then `execution_state`
+- `error`: `error`, `error_message`, `exception`, then `message`
+
+The timestamp fields are instance-dependent. `sys_created_on` is a fallback for when the context row was created, not a claim that it is the true runtime start time.
+
+## Commands
+
+Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain:
+
+**Core** — `incidents`, `changes`, `requests`, `tasks`, `tickets`
+
+**Automation** — `flows`, `actions`, `rules`, `scrapi`, `updatesets`, `eval`, `rest`
+
+**Upgrade review** — [`skipped-updates`](skipped-updates.md) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
+
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`
+
+**User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
+
+**Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+
+**Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
+
+Every command supports `--json`, `--query`, and `--help`.
+
+For multiline script fields, `--data-file` parses the file as UTF-8 JSON and
+passes the resulting values through unchanged. On Windows PowerShell, generate
+the payload as JSON text and inspect it before invoking JSN, for example:
+
+```powershell
+$script = [string](Get-Content -Path .\Example.script.js -Raw)
+$payload = @{ script = $script; description = 'Example' } |
+  ConvertTo-Json -Depth 5 -Compress
+Set-Content -Path .\Example.update.json -Value $payload -Encoding UTF8
+Get-Content .\Example.update.json -Raw | ConvertFrom-Json | Select-Object -ExpandProperty script
+jsn includes update Example --data-file .\Example.update.json --json
+```
+
+`JSON.parse` preserves a JSON string as a JavaScript string, and the SDK
+serializes update payloads with `JSON.stringify`. If the file already contains
+a `{value=...}` or FileSystem-provider representation, that text is external
+to JSN and must be corrected before the update. Use a read-back command or
+`records update --strict` where applicable to verify persisted fields.
+
+## Instances
+
+Switch between instances without re-authenticating.
+
+```bash
+jsn setup                    # Interactive: add, switch, remove, or modify instances
+jsn auth status              # Dashboard — auth state, read-only 🔒, skip-confirmations ⚡
+```
+
+`jsn setup` is the human front door — one command, interactive menu. For scripts and CI, use the atomic commands:
+
+```bash
+jsn auth login https://dev12345.service-now.com   # Add + authenticate (scripted)
+jsn auth refresh                                  # Manually refresh the OAuth token
+jsn auth switch dev12345                          # Flip the active profile (scripted)
+jsn auth modify dev12345                          # Toggle read-only / skip confirmations
+```
+
+## Output Formats
+
+| Flag | When to use |
+|------|-------------|
+| (default) | Terminal — styled tables |
+| `--json` | Pipelines, scripts |
+| `--markdown` | Documentation |
+| `--quiet` / `-q` | Data only, no envelope |
+| `--csv` | Spreadsheets (opens straight into Excel) |
+| `--get <path>` | Pull one value out of the JSON envelope — no jq (e.g. `--get "data.records.0.number"`) |
+
+## Authentication
+
+JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth. Credentials are stored in the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/` when the keyring is unavailable.
+
+```bash
+jsn auth login https://dev12345.service-now.com
+```
+
+For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
+For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
+
+For CI/CD, set environment variables:
+
+```bash
+export SERVICENOW_INSTANCE_URL="https://dev12345.service-now.com"
+export SERVICENOW_OAUTH_TOKEN="***"
+jsn incidents list
+```
+
+For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`AUTH_LIFECYCLE.md`](AUTH_LIFECYCLE.md).
+
+GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`; introspection and available namespaces depend on the target instance.
+
+`jsn platform stats` uses a fixed `GET /xmlstats.do` request. It never accepts a processor path, query parameters, or request body, and it does not emit raw XML, cookies, credentials, or full node identifiers. Oversized, HTML/login, permission, unsupported, timeout, and malformed responses are reported with bounded collector statuses; missing metrics remain unavailable rather than being reported as zero.
+
+## Local data
+
+JSN stores durable local data under `~/.jsn/`. Documentation lives in
+`~/.jsn/docs/`, including `docs.db`, the ServiceNowDocs source checkout, and
+community markdown. Configuration stays under `~/.config/servicenow/` and
+credentials use the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/`.
+
+Existing installations migrate documentation from
+`~/.cache/servicenow-cli/docs/` automatically the first time the docs data is
+accessed. The old directory is removed only after the destination is verified.
+
+
+## AI Agents
+
+jsn ships with a skill file that tells AI agents how to use it. Installed automatically to `~/.agents/skills/servicenow/SKILL.md`.
+
+```bash
+jsn skill show                  # View the skill
+jsn skill install               # Install to Hermes
+jsn skill install --target all  # All supported agents
+```
+
+## Development
+
+```bash
+git clone https://github.com/jacebenson/jsn.git
+cd jsn
+npm install
+npm test
+```
+
+Releases run from the GitHub Actions workflow. Dispatch `Release production` with `patch`, `minor`, or `major`. The workflow tests and lints the repo, bumps the version, pushes the commit and tag, dispatches the npm publish workflow, and creates the GitHub release.
+
+## License
+
+MIT
