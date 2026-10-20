@@ -1,5 +1,8 @@
 # Flow Designer interactive commands
 
+For the partial draft-edit contract, preview, versioning, published-flow refusal
+and instance evidence limits, see [Safe edits to existing flows](safe-flow-edit.md).
+
 ## Terminal contract
 
 Use a human terminal with `auto` output. Run `jsn actions create` or

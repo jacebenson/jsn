@@ -62,7 +62,7 @@ function fakeApp({ answers = {}, selected = {} } = {}) {
     }
     if (table === 'sys_dictionary') return [{ element: display('number') }];
     if (table === 'sys_scope') return [{ sys_id: { value: SCOPE, display_value: 'Do not use this name' }, name: 'Synthetic scope' }];
-    if (table === 'sys_hub_flow') return [{ sys_id: ID, name: 'Synthetic flow', scope: SCOPE, active: false, status: 'draft' }];
+    if (table === 'sys_hub_flow') return [{ sys_id: ID, name: 'Synthetic flow', sys_scope: { value: SCOPE, display_value: 'Not the scope ID' }, active: false, status: 'draft' }];
     // The trigger catalogue the guided picker reads: categories first, then the
     // definitions in them, then each definition's declared inputs.
     if (table === 'sys_hub_trigger_category') return [

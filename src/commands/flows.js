@@ -341,10 +341,11 @@ export function flowsCmd(wrap) {
         .command({
           command: 'update [identifier]',
           aliases: ['edit'],
-          describe: 'Safely update an inactive Draft flow from a partial JSON manifest. Use `jsn flows schemas` for live trigger inputs and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs. Manifest structure remains code-owned; omitted values are preserved.',
+          describe: 'Save partial edits to an inactive Draft: record_create_or_update trigger table/condition and existing action inputs. Use --preview for before/after values without writes. Published checkout, Flow Logic, variables, catalog-trigger edits and stage placement require Flow Designer. Never publishes or executes. Use `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for live schemas; omitted values are preserved.',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })
+            .option('preview', { type: 'boolean', default: false, describe: 'Validate and show exact before/after input values without saving or versioning' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
@@ -360,12 +361,14 @@ export function flowsCmd(wrap) {
             } catch (error) {
               throw new Error(`Invalid flow update manifest JSON: ${error.message}`, { cause: error });
             }
-            await confirmDesignerMutation(argv, app, `Update draft flow ${identifier}; unspecified components and inputs are preserved`);
+            if (!argv.preview) await confirmDesignerMutation(argv, app, `Update draft flow ${identifier}; unspecified components and inputs are preserved`);
             const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
+              preview: argv.preview,
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
             });
-            return app.ok(result, {
-              summary: `Updated draft flow "${result.flow.name}" (${result.flow.id}) without activation`,
+            const diff = result.changes.map(change => `${change.component}${change.order ? ` ${change.order}` : ''}.${change.input}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`).join('\n');
+            return app.ok({ ...result, _formatted: diff }, {
+              summary: `${result.preview ? 'Preview for' : 'Updated'} draft flow "${result.flow.name}" (${result.flow.id}) without activation`,
               breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the updated draft flow' }],
             });
           }),
