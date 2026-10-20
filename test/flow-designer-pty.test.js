@@ -119,7 +119,7 @@ test('real PTY test, publish and deletion refusals never dispatch or mutate', { 
 
 test('real PTY flow edit picks an inactive draft, reads its condition and confirms the supported update', { skip }, () => {
   const result = run(['flow', 'edit'], [
-    ['Select a flow', '\r'], ['Edit supported draft flow fields', '\r'], ['Trigger condition', '\r'], ['Update draft flow', 'y\r'],
+    ['Select a flow', '\r'], ['Edit supported flow fields', '\r'], ['Trigger condition', '\r'], ['Update flow', 'y\r'],
   ]);
   assert.deepEqual(result.mutations.map(mutation => mutation.path), ['/api/now/graphql', '/api/now/graphql', '/api/now/graphql', '/api/now/processflow/versioning/create_version', '/api/now/graphql', '/api/now/graphql']);
   assert.match(result.mutations[0].body.query, /safeEdit.*read:/);

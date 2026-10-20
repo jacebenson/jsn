@@ -21,7 +21,7 @@ const FLOW_COMMANDS = [
   { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
   { name: 'test [identifier]', description: 'Execute a record-triggered flow against one record' },
   { name: 'create', description: 'Create a draft flow: guided in a terminal, JSON manifest in scripts' },
-  { name: 'update [identifier]', description: 'Update a draft flow (alias: edit)' },
+  { name: 'update [identifier]', description: 'Update a draft, or a published flow whose definition reports write access (alias: edit)' },
   { name: 'doctor', description: 'Check whether this instance can publish flows at all' },
   { name: 'delete [identifier]', description: 'Delete a flow (not implemented: use the Flow Designer UI)' },
 ];
@@ -341,7 +341,7 @@ export function flowsCmd(wrap) {
         .command({
           command: 'update [identifier]',
           aliases: ['edit'],
-          describe: 'Save partial edits to an inactive Draft: record_create_or_update trigger table/condition and existing action inputs. Use --preview for before/after values without writes. Published checkout, Flow Logic, variables, catalog-trigger edits and stage placement require Flow Designer. Never publishes or executes. Use `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for live schemas; omitted values are preserved.',
+          describe: 'Save partial edits to a Draft, or to a published/active flow whose ProcessFlow definition reports security.can_write=true: record_create_or_update trigger table/condition and existing action inputs. Published flows are edited as their working definition; the published snapshot and runtime pointers must stay unchanged, and the command fails loudly if they do not. Flows without write access are refused before any lock or content write, naming the permission. Use --preview for before/after values without writes. Flow Logic, variables, catalog-trigger edits and stage placement require Flow Designer. Never publishes or executes. Use `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for live schemas; omitted values are preserved.',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })
@@ -350,7 +350,10 @@ export function flowsCmd(wrap) {
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
-            const identifier = await pickFlow(argv, app, !hasDefinitionData(argv) ? 'active=false^status=draft' : '');
+            // No lifecycle filter: published flows are editable when their own
+            // definition reports write access, and a non-writable target is
+            // refused with a permission message rather than a lifecycle label.
+            const identifier = await pickFlow(argv, app);
             if (identifier === undefined) return;
             argv = { ...argv, identifier };
             let manifest;
@@ -361,15 +364,19 @@ export function flowsCmd(wrap) {
             } catch (error) {
               throw new Error(`Invalid flow update manifest JSON: ${error.message}`, { cause: error });
             }
-            if (!argv.preview) await confirmDesignerMutation(argv, app, `Update draft flow ${identifier}; unspecified components and inputs are preserved`);
+            if (!argv.preview) await confirmDesignerMutation(argv, app, `Update flow ${identifier}; unspecified components and inputs are preserved. A published flow is edited as its working definition: the published snapshot must stay unchanged.`);
             const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
               preview: argv.preview,
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
             });
             const diff = result.changes.map(change => `${change.component}${change.order ? ` ${change.order}` : ''}.${change.input}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`).join('\n');
+            const state = `${result.flow.status}${result.flow.active ? ', active' : ''}`;
+            const preservation = result.lifecycle?.published && !result.preview
+              ? `; published snapshot ${result.runtime_preservation?.before?.published_definition?.snapshot_id ?? ''} unchanged`
+              : '';
             return app.ok({ ...result, _formatted: diff }, {
-              summary: `${result.preview ? 'Preview for' : 'Updated'} draft flow "${result.flow.name}" (${result.flow.id}) without activation`,
-              breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the updated draft flow' }],
+              summary: `${result.preview ? 'Preview for' : 'Updated'} flow "${result.flow.name}" (${result.flow.id}) in state ${state}${preservation} without activation`,
+              breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the updated flow' }],
             });
           }),
         })

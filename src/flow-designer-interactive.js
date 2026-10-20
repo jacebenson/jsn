@@ -377,9 +377,14 @@ export async function savedFlowDefinition(app, identifier) {
 export async function guidedFlowEdit(argv, app) {
   if (!interactiveDesigner(argv, app)) throw errUsage('Provide --data-file or --data for the flow update manifest in noninteractive mode');
   const { record, definition } = await savedFlowDefinition(app, argv.identifier);
-  if (rawField(record.active) === true || rawField(record.active) === 'true' || rawField(record.status) !== 'draft') throw errUsage('Guided flow edit requires an inactive Draft');
+  // Published/active targets are judged by the provider, exactly as the scripted
+  // path does: an inactive Draft needs no write check, anything else must report
+  // security.can_write=true or the save would be rejected after this wizard.
+  const active = rawField(record.active) === true || rawField(record.active) === 'true';
+  const draft = !active && rawField(record.status) === 'draft';
+  if (!draft && definition?.security?.can_write !== true) throw errUsage(`Guided flow edit needs the flow's ProcessFlow definition to report security.can_write=true; ${argv.identifier} does not, so the provider would reject the save. Edit it in Flow Designer as a user who can write this flow.`);
   const manifest = {};
-  const choice = await prompts(app).select({ message: 'Edit supported draft flow fields', choices: [
+  const choice = await prompts(app).select({ message: 'Edit supported flow fields', choices: [
     { name: 'Record trigger condition', value: 'trigger' }, { name: 'Existing action input values', value: 'actions' },
   ] });
   if (choice === 'trigger') {

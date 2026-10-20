@@ -437,12 +437,14 @@ describe('flow update request shapes', () => {
     assert.equal(sdk.calls.filter(call => call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 1);
   });
 
-  it('refuses published flows before writes with a designer alternative', async () => {
+  it('refuses a published flow whose definition does not report write access, before any content write', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const sdk = updateSdk(baseDefinition);
-    sdk.list = async () => [{sys_id: flowId, name: 'Published', active: 'false', status: 'published'}];
-    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: {condition: 'active=false'} }), /checkout.*not verified.*Flow Designer/i);
-    assert.equal(sdk.calls.length, 0);
+    sdk.list = async () => [{sys_id: flowId, name: 'Published', scope: 'scope-1', active: 'false', status: 'published'}];
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: {condition: 'active=false'} }), /security\.can_write.*Insufficient access level/i);
+    // The definition read is allowed; nothing else is.
+    assert.equal(sdk.calls.filter(call => call.options.method === 'POST').length, 0);
+    assert.ok(sdk.calls.every(call => call.options.method === 'GET'));
   });
 
   it('rejects ambiguous triggers and duplicate action requests before writing', async () => {

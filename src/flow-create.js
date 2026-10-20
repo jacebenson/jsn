@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { withFlowSafeEdit } from './flow-safe-edit.js';
+import { flowSafeEditRequest, withFlowSafeEdit } from './flow-safe-edit.js';
 import { assertSafeExactMatch } from './helpers.js';
 import { createVerifiedFlowVersion } from './flow-versioning.js';
 import {
@@ -21,6 +21,20 @@ const FLOW_ENDPOINT = '/api/now/processflow/flow';
 const GRAPHQL_ENDPOINT = '/api/now/graphql';
 const PROTECTED_FLOW_ID = 'c215135293bf03d087b0f14fdd03d652';
 const PROTECTED_FLOW_NAME = 'jace-test-flow';
+// Design-time revisions this CLI itself creates. Published version rows must be
+// unchanged by an edit, but every save necessarily adds one Autosave row.
+const AUTOSAVE_VERSION_TYPE = 'Autosave';
+const FLOW_RECORD_FIELDS = 'sys_id,name,sys_scope,scope,active,status,type,sys_updated_on,master_snapshot,latest_snapshot,version_record,version';
+
+// Everything this partial-update contract still cannot do, whatever the
+// lifecycle state. Published edits reuse the same component rules.
+const DEFERRED_LIFECYCLE = ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'];
+
+function supportedLifecycle(published) {
+  return published
+    ? ['draft', 'autosave', 'published working-definition edit']
+    : ['draft', 'autosave'];
+}
 
 function isSysId(value) {
   return typeof value === 'string' && /^[0-9a-f]{32}$/i.test(value);
@@ -566,18 +580,123 @@ function readFlowRecord(sdk, identifier) {
   if (!exactIdentifier) throw new Error('Flow identifier must be an exact sys_id or name');
   assertSafeExactMatch(exactIdentifier);
   const query = isSysId(exactIdentifier) ? `sys_id=${exactIdentifier}` : `name=${exactIdentifier}`;
-  return sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: query, sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,sys_scope,scope,active,status,type,sys_updated_on' }));
+  return sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: query, sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: FLOW_RECORD_FIELDS }));
 }
 
-async function resolveDraftFlow(sdk, identifier) {
+// A flow is editable either as an inactive Draft (working definition only) or as
+// a published/active flow whose definition reports write access. `draft` is the
+// only state that skips the provider write-permission check: a published flow is
+// not inherently unwritable, and the decision belongs to the provider.
+export function flowLifecycleState(flow) {
+  const active = stringValue(flow.active).toLowerCase() === 'true';
+  const status = stringValue(flow.status).toLowerCase();
+  return { active, status: status || 'unknown', draft: !active && status === 'draft' };
+}
+
+function describeState(lifecycle) {
+  const parts = [lifecycle.active ? 'active' : 'inactive'];
+  if (lifecycle.status && lifecycle.status !== 'unknown') parts.push(`status=${lifecycle.status}`);
+  return parts.join(', ');
+}
+
+async function resolveFlowForUpdate(sdk, identifier) {
   const rows = await readFlowRecord(sdk, identifier);
   if (rows.length !== 1) throw new Error(rows.length === 0 ? `Flow not found: ${identifier}` : `Flow identifier is ambiguous: ${identifier}; exact target ID or unique name is required`);
   const flow = rows[0];
   const flowId = idValue(flow.sys_id);
   const flowName = stringValue(flow.name);
   if (flowId === PROTECTED_FLOW_ID || flowName === PROTECTED_FLOW_NAME) throw new Error(`Protected flow ${PROTECTED_FLOW_NAME} cannot be updated`);
-  if (String(flow.active?.value ?? flow.active ?? '').toLowerCase() !== 'false' || String(flow.status?.value ?? flow.status ?? '').toLowerCase() !== 'draft') throw new Error(`Flow ${flowId} is not an inactive Draft; refusing update. Published checkout is not verified by this CLI. Use Flow Designer to check out and edit published flows; save, publish and execution are separate operations.`);
-  return { flow, flowId, flowName };
+  return { flow, flowId, flowName, lifecycle: flowLifecycleState(flow) };
+}
+
+// The ProcessFlow definition is the write contract for a published flow. A
+// missing or false can_write means the provider will reject the content patch
+// with "Insufficient access level for operation [write]", so refuse before any
+// edit session exists and say which permission is missing.
+function assertDefinitionWritable(flowId, scope, lifecycle, definition) {
+  if (lifecycle.draft) return;
+  const security = definition?.security;
+  const canWrite = security && typeof security === 'object' ? security.can_write : undefined;
+  if (canWrite === true) return;
+  const reported = canWrite === false ? 'security.can_write=false' : 'no security.can_write';
+  throw new Error(`Flow ${flowId} is ${describeState(lifecycle)} and its ProcessFlow definition reports ${reported}, so the provider would reject a content write with "Insufficient access level for operation [write]". This is a flow content-permission problem, not a published-flow limitation: no edit session, content write or Autosave was attempted. Use an account/scope with write access to the flow's application (${scope}) or edit the flow in Flow Designer as a user who can write it. Published snapshots were not touched.`);
+}
+
+function digestDefinition(definition) {
+  return createHash('sha256').update(JSON.stringify(definition)).digest('hex');
+}
+
+// Runtime state of a published flow: the parent pointers that decide whether it
+// runs, the frozen published definition read through its master snapshot id, and
+// the version rows that a publish created. Autosave rows are excluded because
+// every accepted edit adds exactly one design-time revision.
+async function readFlowRuntime(sdk, instance, flowId, { scope, snapshotId }) {
+  const records = await sdk.list('sys_hub_flow', new URLSearchParams({
+    sysparm_query: `sys_id=${flowId}`,
+    sysparm_limit: '1',
+    sysparm_display_value: 'all',
+    sysparm_fields: FLOW_RECORD_FIELDS,
+  }));
+  if (records.length !== 1) throw new Error(`Flow ${flowId} runtime read returned ${records.length} records; cannot verify published state`);
+  const record = records[0];
+  const pointers = {
+    active: stringValue(record.active),
+    status: stringValue(record.status),
+    master_snapshot: stringValue(record.master_snapshot),
+    latest_snapshot: stringValue(record.latest_snapshot),
+    version_record: stringValue(record.version_record),
+  };
+  let publishedDefinition;
+  if (snapshotId) {
+    const response = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(snapshotId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`, { method: 'GET' });
+    const definition = findFlowData(response);
+    if (!definition || typeof definition !== 'object') throw new Error(`Published snapshot ${snapshotId} for flow ${flowId} was unreadable; refusing to compare published runtime state`);
+    publishedDefinition = { snapshot_id: snapshotId, digest: digestDefinition(definition) };
+  } else {
+    publishedDefinition = { snapshot_id: '', digest: '' };
+  }
+  const versionRows = await sdk.list('sys_hub_flow_version', new URLSearchParams({
+    sysparm_query: `flow=${flowId}^ORDERBYDESCsys_updated_on`,
+    sysparm_limit: '50',
+    sysparm_display_value: 'all',
+    sysparm_fields: 'sys_id,flow,type,sys_created_on',
+  }));
+  const versionRowsStable = versionRows
+    .map(row => ({ sys_id: stringValue(row.sys_id), type: stringValue(row.type), created: stringValue(row.sys_created_on) }))
+    .filter(row => row.type !== AUTOSAVE_VERSION_TYPE)
+    .sort((left, right) => left.sys_id.localeCompare(right.sys_id));
+  return { record: pointers, published_definition: publishedDefinition, version_rows: versionRowsStable };
+}
+
+// Published runtime must not move. Two parent fields do move by platform design
+// when a published flow is saved: the record's status becomes a draft working
+// copy and version_record points at the new Autosave. Those are accepted only in
+// that exact shape (and reported), because the runtime gates are `active`, the
+// frozen snapshot pointers and the published definition itself.
+function runtimeDifferences(before, after, { autosaveVersionId, newVersionType } = {}) {
+  const differences = [];
+  const checkout = [];
+  for (const field of ['active', 'master_snapshot', 'latest_snapshot']) {
+    if (before.record[field] !== after.record[field]) differences.push({ field, before: before.record[field], after: after.record[field] });
+  }
+  if (before.record.status !== after.record.status) {
+    const publishedToDraft = before.record.status === 'published' && after.record.status === 'draft';
+    const entry = { field: 'status', before: before.record.status, after: after.record.status };
+    if (publishedToDraft) checkout.push({ ...entry, reason: 'platform checkout: the published flow now has a draft working copy; the published snapshot still runs' });
+    else differences.push(entry);
+  }
+  if (before.record.version_record !== after.record.version_record) {
+    const entry = { field: 'version_record', before: before.record.version_record, after: after.record.version_record };
+    if (autosaveVersionId && after.record.version_record === autosaveVersionId) checkout.push({ ...entry, reason: `pointer moved to this command's ${newVersionType || 'Autosave'} version` });
+    else differences.push(entry);
+  }
+  if (before.published_definition.digest !== after.published_definition.digest) {
+    differences.push({ field: 'published_definition', before: before.published_definition, after: after.published_definition });
+  }
+  if (JSON.stringify(before.version_rows) !== JSON.stringify(after.version_rows)) {
+    differences.push({ field: 'published_version_rows', before: before.version_rows, after: after.version_rows });
+  }
+  return { differences, design_time_changes: checkout };
 }
 
 function updatedTrigger(flow, manifest, descriptor) {
@@ -790,22 +909,36 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
 
 export async function updateFlowFromManifest(sdk, instance, identifier, inputManifest, options = {}) {
   const manifest = validateFlowUpdateManifest(inputManifest);
-  const target = await resolveDraftFlow(sdk, identifier);
+  const target = await resolveFlowForUpdate(sdk, identifier);
   const flowId = target.flowId;
+  const lifecycle = target.lifecycle;
+  const published = !lifecycle.draft;
   const targetScope = stringValue(target.flow.sys_scope) || stringValue(target.flow.scope);
   const scope = manifest.scope ?? targetScope;
   const readUpdateSet = options.readUpdateSet || (async () => null);
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope`);
   if (manifest.scope !== undefined && targetScope && manifest.scope !== targetScope) throw new Error(`Flow ${flowId} scope does not match the update manifest`);
-  let beforeDefinition = await readProcessFlow(sdk, instance, flowId, scope);
+  const snapshotId = stringValue(target.flow.master_snapshot);
+  // A published/active target is judged by the provider, not by its lifecycle
+  // label: read the definition and require security.can_write before any lock.
+  const definitionRead = async () => {
+    const definition = await readProcessFlow(sdk, instance, flowId, scope);
+    assertDefinitionWritable(flowId, scope, lifecycle, definition);
+    return definition;
+  };
+  let beforeDefinition = await definitionRead();
   // A legacy ProcessFlow read can expose the preceding version's timestamp
   // immediately after Autosave. Never substitute the newer Table timestamp into
   // an older definition: reread the whole document, then let safeEdit check it.
   const recordUpdated = stringValue(target.flow.sys_updated_on);
   if (recordUpdated && beforeDefinition.updated !== recordUpdated) {
-    beforeDefinition = await readProcessFlow(sdk, instance, flowId, scope);
-    if (beforeDefinition.updated !== recordUpdated) throw new Error(`Flow ${flowId} definition is stale relative to its record; no edit session or content mutation attempted`);
+    // A publish moves the record, not the definition, so a published flow may
+    // legitimately report an older definition timestamp. The definition's own
+    // `updated` is what safeEdit checks; only a draft must match its record.
+    beforeDefinition = await definitionRead();
+    if (!published && beforeDefinition.updated !== recordUpdated) throw new Error(`Flow ${flowId} definition is stale relative to its record; no edit session or content mutation attempted`);
   }
+  if (published && !snapshotId) throw new Error(`Flow ${flowId} is ${describeState(lifecycle)} but has no master_snapshot; refusing to edit without a published-definition baseline`);
   const snapshots = [];
   const triggerUpdates = [];
   const actionUpdates = [];
@@ -837,9 +970,24 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     for (const [input, after] of Object.entries(requested.inputs)) changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
   }
   if (triggerUpdates.length === 0 && actionUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
-  if (options.preview) return { preview: true, flow: { id: flowId, name: target.flowName, status: 'draft', active: false }, changes, lifecycle: { published: false, executed: false } };
-
-  return withFlowSafeEdit(sdk, instance, flowId, beforeDefinition.updated, async () => {
+  if (options.preview) return {
+    preview: true,
+    flow: { id: flowId, name: target.flowName, status: lifecycle.status, active: lifecycle.active },
+    changes,
+    lifecycle: {
+      published,
+      active: lifecycle.active,
+      executed: false,
+      writable: true,
+      lock_acquired: false,
+      supported: supportedLifecycle(published),
+      deferred: DEFERRED_LIFECYCLE,
+    },
+  };
+  // Baseline the published runtime after the definition read (a legacy read can
+  // materialize a version row) and before the edit session exists.
+  const runtimeBefore = published ? await readFlowRuntime(sdk, instance, flowId, { scope, snapshotId }) : null;
+  const outcome = await withFlowSafeEdit(sdk, instance, flowId, beforeDefinition.updated, async () => {
     let completedStage = 'validated';
     try {
       const patchResponse = await mutationContext('trigger_and_actions_update', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
@@ -919,22 +1067,63 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
         instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow update',
       }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
       completedStage = 'autosave_verified';
+      let runtime;
+      if (published) {
+        runtime = { before: runtimeBefore, after: await readFlowRuntime(sdk, instance, flowId, { scope, snapshotId }) };
+        const comparison = runtimeDifferences(runtime.before, runtime.after, {
+          autosaveVersionId: stringValue(version?.sys_id || version?.sysId),
+          newVersionType: stringValue(version?.type) || AUTOSAVE_VERSION_TYPE,
+        });
+        if (comparison.differences.length) {
+          throw new Error(`Flow ${flowId} was edited but its published runtime state changed: ${JSON.stringify(comparison.differences)}. The edit may have altered runtime. Do not republish, retry, unpublish or deactivate; inspect published snapshot ${snapshotId}, the version rows and the active/status pointers in Flow Designer. No rollback, publish or execution was attempted.`);
+        }
+        runtime.verified = true;
+        runtime.design_time_changes = comparison.design_time_changes;
+        completedStage = 'runtime_verified';
+      }
       const selectedUpdateSet = await readUpdateSet();
       const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId);
+      // Report what the record says after the save, not the pre-edit label: a
+      // published flow that now has a draft working copy must not look published
+      // in the result. `active` and the snapshot pointers are the runtime gates.
+      const finalRecord = runtime?.after?.record;
       return {
-        flow: { id: flowId, name: target.flowName, status: 'draft', active: false },
+        flow: {
+          id: flowId,
+          name: target.flowName,
+          status: finalRecord?.status || lifecycle.status,
+          active: finalRecord ? finalRecord.active === 'true' : lifecycle.active,
+        },
         changes,
         processflow,
         definition_readback: { available: true, status: 'read_back', flow_id: flowId },
         version,
+        ...(runtime ? { runtime_preservation: runtime } : {}),
         update_set_capture: updateSetCapture,
         update_set_mutations: snapshots,
-        lifecycle: { published: false, supported: ['draft', 'autosave'], deferred: ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'] },
+        lifecycle: {
+          published,
+          active: lifecycle.active,
+          executed: false,
+          runtime_preserved: published ? true : undefined,
+          supported: supportedLifecycle(published),
+          deferred: DEFERRED_LIFECYCLE,
+        },
       };
     } catch (error) {
       throw new Error(`Flow ${flowId} update incomplete; last completed stage: ${completedStage}. Changes may already be persisted; inspect this exact flow before retrying. No rollback, publish or execution attempted. ${error.message}; reconciliation: ${JSON.stringify(snapshots)}`, { cause: error });
     }
   });
+  if (published) {
+    // The lease is user-level, so its absence is part of the delivered result.
+    const { status } = await flowSafeEditRequest(sdk, instance, flowId, 'read');
+    if (!status || status.canUserEdit || status.currentEditor) {
+      throw new Error(`Flow ${flowId} update saved (Autosave ${stringValue(outcome.version?.sys_id)}) but its safe edit lease is still present: ${JSON.stringify(status ?? null)}. Inspect and close the Flow Designer session before further edits. No rollback or unpublish attempted.`);
+    }
+    outcome.lifecycle = { ...outcome.lifecycle, safe_edit_lease: 'absent' };
+    outcome.runtime_preservation = { ...outcome.runtime_preservation, safe_edit_lease: 'absent' };
+  }
+  return outcome;
 }
 
 export async function readCurrentUpdateSet(sdk) {
