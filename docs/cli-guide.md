@@ -333,7 +333,7 @@ These internal endpoints and runtime-table permissions can vary by instance.
 
 ```bash
 jsn flows create         # Guided record trigger and published action inputs
-jsn flows edit           # Pick an inactive Draft, edit condition or existing inputs
+jsn flows edit           # Pick a flow, edit condition or existing inputs (drafts, and published flows you can write)
 jsn flows show           # Pick a flow to inspect
 jsn flows status         # Pick a flow to diagnose
 jsn flows test           # Pick flow and a record from its actual trigger table, confirm
@@ -410,7 +410,8 @@ Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
 and rejected by this slice rather than silently ignored.
 
 `jsn flows update <identifier> --data-file update.json` updates supported fields
-of existing inactive Draft flows. The manifest may contain only `trigger` (with
+of existing Draft flows, and of published or active flows whose ProcessFlow
+definition reports `security.can_write=true`. The manifest may contain only `trigger` (with
 `table` and/or `condition`) and `actions`. Each action selects one saved instance
 by its one-based `order` and reusable action `type` (name or sys_id). Its `inputs`
 object may change only inputs already present in that saved Action. The CLI reads
@@ -420,9 +421,15 @@ Names must resolve to exactly one flow, and the protected `jace-test-flow` is
 rejected. Update sends the captured GraphQL `triggerInstances.update` and/or
 `actions.update` shapes, reads the full ProcessFlow definition back, creates an
 Autosave version, and reports update-set captures. It never publishes or
-activates the flow. Unsupported Flow Logic, subflows, variables, error handling,
-new Action inputs, ambiguous selectors, active flows, and non-Draft flows are
-rejected before mutation.
+activates the flow. A published flow is edited as its working definition: the
+published snapshot, its version rows and the parent `active`, `status`,
+`master_snapshot`, `latest_snapshot` and `version_record` pointers are compared
+before and after, and a change fails the command loudly instead of being
+reported as a safe edit. A published flow whose definition reports
+`security.can_write=false` (or no `security.can_write`) is refused before any
+edit session or content write, naming the permission rather than the lifecycle.
+Unsupported Flow Logic, subflows, variables, error handling, new Action inputs
+and ambiguous selectors are rejected before mutation.
 
 `jsn flows executions` reads `sys_flow_context` and returns both the raw row and a normalized `execution` object. JSN discovers the runtime columns from `sys_dictionary` first, then uses these mappings:
 

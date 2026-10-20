@@ -256,7 +256,7 @@ test('guided flow creation builds validated existing manifest from table and pub
 
 test('guided flow edit reads saved definition and builds only requested trigger or existing action input patch', async () => human(async () => {
   for (const choice of ['trigger', 'actions']) {
-    const { app, calls } = fakeApp({ selected: { 'Edit supported draft flow fields': choice } });
+    const { app, calls } = fakeApp({ selected: { 'Edit supported flow fields': choice } });
     flowReads(app);
     app.flowDesignerPrompts.input = async () => choice === 'trigger' ? 'active=false' : '{{inputs.raw}}';
     const manifest = await guidedFlowEdit({ identifier: ID }, app);
@@ -371,7 +371,7 @@ test('active scope preference is offered by raw ID and validated without selecti
 }));
 
 test('guided flow refuses guessed input types and can load an actual type when saved inputs omit it', async () => human(async () => {
-  const { app } = fakeApp({ selected: { 'Edit supported draft flow fields': 'actions' } });
+  const { app } = fakeApp({ selected: { 'Edit supported flow fields': 'actions' } });
   flowReads(app);
   const request = app.sdk.request;
   app.sdk.request = async (url, options) => {
