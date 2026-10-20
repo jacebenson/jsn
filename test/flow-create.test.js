@@ -216,7 +216,7 @@ describe('flow creation request shapes', () => {
     const inputCall = sdk.calls.find(call => call.kind === 'list' && call.table === 'sys_hub_trigger_input');
     assert.ok(inputCall, 'declared trigger inputs must be read from the instance');
     assert.equal(decodeURIComponent(inputCall.params).includes(`sysparm_query=name=var__m_sys_hub_trigger_input_${TRIGGER_DEFINITION}`), true);
-    const patch = JSON.parse(sdk.calls.find(call => call.kind === 'request' && call.endpoint.endsWith('/graphql')).options.body).query;
+    const patch = JSON.parse(sdk.calls.find(call => call.kind === 'request' && call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).options.body).query;
     assert.match(patch, /triggerInstances: \{insert:/);
     assert.match(patch, /name: "table"/);
     assert.match(patch, /value: "ticket"/);
@@ -286,6 +286,7 @@ describe('flow update request shapes', () => {
   const triggerId = 'trigger-update-123';
   const baseDefinition = {
     flowId,
+    updated: '2020-01-01 00:00:00',
     triggerInstances: [{ sysId: triggerId, type: 'record_create_or_update', triggerType: 'Record', metadata: '{"query_parse":{"predicates": [], "order_by": ["short_description"], "group_by": [], "has_rlq_conditions": false, "custom": "preserve"}}', inputs: [
       { name: 'table', id: 'table-input', marker: 'table-preserve', displayField: 'number', displayValue: wrapped('Ticket'), value: wrapped('ticket') },
       { name: 'condition', id: 'condition-input', extra: 'preserve', displayField: 'old', displayValue: wrapped('old'), value: wrapped('old') },
@@ -302,6 +303,7 @@ describe('flow update request shapes', () => {
   function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition) {
     const calls = [];
     let versionReads = 0;
+    let editLease = false;
     return {
       calls,
       async list(table) {
@@ -315,12 +317,193 @@ describe('flow update request shapes', () => {
       },
       async request(endpoint, options = {}) {
         calls.push({ endpoint, options });
-        if (options.method === 'GET') return { result: { data: calls.some(call => call.options?.method === 'POST') ? afterDefinition : baseDefinitionForRead } };
+        const query = options.body && JSON.parse(options.body).query;
+        if (query?.includes('safeEdit(')) {
+          const isUpsert = query.includes('upsert:');
+          const isDelete = query.includes('delete:');
+          if (isUpsert) editLease = true;
+          if (isDelete) editLease = false;
+          const safeEdit = isUpsert ? { status: { canUserEdit: true, currentEditor: null, clientFlowStale: null } }
+            : isDelete ? { deleteResult: { deleteSuccess: true, id: flowId } }
+              : { status: { canUserEdit: editLease, currentEditor: null } };
+          return { data: { global: { snFlowDesigner: { safeEdit } } } };
+        }
+        if (options.method === 'GET') return { result: { data: calls.some(call => call.options?.method === 'POST' && !JSON.parse(call.options.body).query?.includes('safeEdit(')) ? afterDefinition : baseDefinitionForRead } };
         if (endpoint.includes('/versioning/create_version')) return { result: { sys_id: 'version-update-1' } };
+        assert.ok(editLease, 'does not have safe edit record for existing flow');
         return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId] } } } } } };
       },
     };
   }
+
+  it('acquires the missing legacy safe-edit lease before patch and releases after Autosave', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] });
+    const posts = sdk.calls.filter(call => call.options.method === 'POST');
+    assert.match(JSON.parse(posts[0].options.body).query, /safeEdit.*read:/);
+    assert.match(JSON.parse(posts[1].options.body).query, /safeEdit.*upsert:.*lastUpdated:"2020-01-01 00:00:00"/);
+    assert.match(JSON.parse(posts[2].options.body).query, /flowPatch:/);
+    assert.ok(posts[3].endpoint.includes('/versioning/create_version'));
+    assert.match(JSON.parse(posts[4].options.body).query, /safeEdit.*delete:/);
+    assert.match(JSON.parse(posts[5].options.body).query, /safeEdit.*read:/);
+  });
+
+  it('rejects stale and existing-user sessions before content writes through the public update path', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    for (const status of [{canUserEdit:true,currentEditor:null}, {canUserEdit:false,currentEditor:'Other'}]) {
+      const sdk = updateSdk(baseDefinition), request = sdk.request;
+      sdk.request = async (url, options) => JSON.parse(options.body || '{}').query?.includes('safeEdit(')
+        ? {data:{global:{snFlowDesigner:{safeEdit:{status}}}}} : request(url, options);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {actions:[{order:1,type:'Log',inputs:{log_message:'new'}}]}), /existing edit session/);
+      assert.equal(sdk.calls.filter(call=>call.options.method==='POST').length, 0);
+    }
+    const sdk = updateSdk(baseDefinition), list = sdk.list;
+    sdk.list = async (table, params) => table === 'sys_hub_flow' ? [{sys_id:flowId,name:'Draft',scope:'scope-1',active:'false',status:'draft',sys_updated_on:wrapped('2021-01-01 00:00:00')}] : list(table, params);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {actions:[{order:1,type:'Log',inputs:{log_message:'new'}}]}), /definition is stale/);
+    assert.equal(sdk.calls.filter(call=>call.options.method==='POST').length, 0);
+  });
+
+  it('uses raw sys_scope from a real Table API flow record', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    const list = sdk.list;
+    sdk.list = async (table, params) => {
+      if (table === 'sys_hub_flow') {
+        assert.ok(params.get('sysparm_fields').split(',').includes('sys_scope'));
+        return [{ sys_id: flowId, name: 'Draft', sys_scope: { value: 'scope-1', display_value: 'Display label' }, active: 'false', status: 'draft' }];
+      }
+      return list(table, params);
+    };
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] });
+    assert.equal(result.version.type, 'Autosave');
+    assert.ok(sdk.calls[0].endpoint.endsWith('sysparm_transaction_scope=scope-1'));
+  });
+
+  it('previews exact input differences without writes or version allocation', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'preview message' } }] }, { preview: true });
+    assert.equal(sdk.calls.filter(call => call.options.method !== 'GET').length, 0);
+    assert.equal(result.preview, true);
+    assert.deepEqual(result.changes, [{ component: 'action', order: 1, type: 'Log', input: 'log_message', before: 'old message', after: 'preview message' }]);
+    assert.equal(result.flow.id, flowId);
+  });
+
+  it('rejects loss of omitted components before Autosave', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    for (const field of ['triggerInstances', 'flowVariables', 'flowLogicInstances', 'subFlowInstances']) {
+      const before = structuredClone(baseDefinition);
+      if (field !== 'triggerInstances') before[field] = [{ id: 'keep', opaque: { a: 1 } }];
+      const after = structuredClone(before);
+      after.actionInstances[0].inputs[1].value = wrapped('new message');
+      after[field] = [];
+      const sdk = updateSdk(after, before);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }), /omitted|preserv/i);
+      assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0);
+    }
+  });
+
+  it('serializes only requested trigger inputs using the mutation schema, not raw readback fields', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.triggerInstances[0].inputs[1].label = 'Provider read-only label';
+    before.triggerInstances[0].inputs[1].parameter = { name: 'condition', type: 'conditions', attributes: { modelDependent: 'trigger_inputs' } };
+    const sdk = updateSdk(before, before);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'active=false' } }, { preview: true });
+    // Inspect the same serialized patch via a failed readback after submission.
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: { condition: 'active=false' } }));
+    const query = JSON.parse(sdk.calls.find(call => call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).options.body).query;
+    assert.doesNotMatch(query, /Provider read-only label|trigger_strategy|table-input/);
+    assert.match(query, /attributes: "modelDependent=trigger_inputs"/);
+    assert.match(query, /name: "condition"/);
+  });
+
+  it('reports the last completed stage when version creation fails without retrying', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    const request = sdk.request;
+    sdk.request = async (url, options) => {
+      if (url.includes('/versioning/create_version')) throw new Error('version unavailable');
+      return request(url, options);
+    };
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }), error => error.message.includes(flowId) && error.message.includes('definition_verified') && error.message.includes('version unavailable'));
+    assert.equal(sdk.calls.filter(call => call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 1);
+  });
+
+  it('refuses published flows before writes with a designer alternative', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition);
+    sdk.list = async () => [{sys_id: flowId, name: 'Published', active: 'false', status: 'published'}];
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: {condition: 'active=false'} }), /checkout.*not verified.*Flow Designer/i);
+    assert.equal(sdk.calls.length, 0);
+  });
+
+  it('rejects ambiguous triggers and duplicate action requests before writing', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const duplicate = structuredClone(baseDefinition);
+    duplicate.triggerInstances.push(structuredClone(duplicate.triggerInstances[0]));
+    const triggerSdk = updateSdk(duplicate, duplicate);
+    await assert.rejects(updateFlowFromManifest(triggerSdk, 'https://example.service-now.com', flowId, { trigger: {condition: 'active=false'} }), /exactly one trigger/);
+    assert.equal(triggerSdk.calls.filter(call => call.options.method === 'POST').length, 0);
+    const sdk = updateSdk(baseDefinition);
+    const action = {order: 1, type: 'Log', inputs: { log_message: 'new' }};
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {actions:[action, action]}), /duplicate action/i);
+    assert.equal(sdk.calls.filter(call => call.options.method === 'POST').length, 0);
+  });
+
+  it('rejects schema, identity, order and value-wrapper drift before Autosave', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const mutations = [
+      after => { after.actionInstances[0].inputs[1].value.schemaless = true; },
+      after => { after.actionInstances[0].inputs[1].value.opaque = 'lost'; },
+      after => { after.actionInstances[0].inputs[1].parameter.type = 'integer'; },
+      after => { after.actionInstances[0].order = '2'; },
+      after => { after.actionInstances[0].inputs.reverse(); },
+    ];
+    for (const mutate of mutations) {
+      const after = structuredClone(baseDefinition);
+      after.actionInstances[0].inputs[1].value = wrapped('new message');
+      mutate(after);
+      const sdk = updateSdk(after);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions:[{order:1,type:'Log',inputs:{log_message:'new message'}}] }), /preservation/);
+      assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0);
+    }
+  });
+
+  it('rejects trigger input reordering and requested-input schema drift before Autosave', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    for (const mutate of [after => after.triggerInstances[0].inputs.reverse(), after => {after.triggerInstances[0].inputs[0].marker = 'changed';}]) {
+      const after = structuredClone(baseDefinition);
+      after.triggerInstances[0].inputs[0].value = wrapped('task');
+      after.triggerInstances[0].inputs[0].displayValue = wrapped('Task');
+      mutate(after);
+      const sdk = updateSdk(after);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { trigger: {table:'task'} }, {readTableDescriptor:async()=>({label:'Task',displayField:'number'})}), /preservation/);
+      assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0);
+    }
+  });
+
+  it('serializes provider object metadata as a GraphQL string for table-only edits', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.triggerInstances[0].metadata = JSON.parse(before.triggerInstances[0].metadata);
+    before.triggerInstances[0].inputs[0].parameter = { name: 'table', type: 'table_name' };
+    const after = structuredClone(before);
+    after.triggerInstances[0].inputs[0].parameter.type_label = '';
+    after.triggerInstances[0].inputs[0].value = wrapped('task');
+    after.triggerInstances[0].inputs[0].displayValue = wrapped('Task');
+    const sdk = updateSdk(after, before);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {trigger:{table:'task'}}, {readTableDescriptor:async()=>({label:'Task',displayField:'number'})});
+    const query = JSON.parse(sdk.calls.find(call => call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).options.body).query;
+    assert.ok(query.includes(`metadata: ${JSON.stringify(JSON.stringify(before.triggerInstances[0].metadata))}`));
+  });
 
   it('updates only requested trigger/action values, preserves omitted fields, versions, and captures', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
@@ -344,7 +527,7 @@ describe('flow update request shapes', () => {
     // The read and the Autosave both carry the flow's transaction scope.
     assert.ok(sdk.calls.some(call => call.options.method === 'GET' && call.endpoint.includes(`/processflow/flow/${flowId}?sysparm_transaction_scope=scope-1`)));
     assert.ok(sdk.calls.some(call => call.endpoint.includes('/versioning/create_version?sysparm_transaction_scope=scope-1')));
-    const patch = sdk.calls.find(call => call.endpoint.endsWith('/graphql'));
+    const patch = sdk.calls.find(call => call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit('));
     const query = JSON.parse(patch.options.body).query;
     assert.match(query, /triggerInstances: \{update:/);
     assert.match(query, /actions: \{update:/);
@@ -355,11 +538,9 @@ describe('flow update request shapes', () => {
     // Predicate metadata is re-derived by the instance, so the CLI sends {}.
     assert.match(query, /metadata: "\{\}"/);
     assert.doesNotMatch(query, /predicates/);
-    assert.match(query, /table-input/);
+    assert.doesNotMatch(query, /table-input/);
     assert.match(query, /condition-input/);
-    assert.match(query, /trigger_strategy/);
-    assert.match(query, /run_on_extended/);
-    assert.match(query, /run_flow_in/);
+    assert.doesNotMatch(query, /trigger_strategy|run_on_extended|run_flow_in/);
     // `custom: "preserve"` is NOT re-sent: the omitted metadata is proven by the
     // read-back comparison instead (the fixture keeps it in the fresh metadata).
     assert.doesNotMatch(query, /custom/);
@@ -385,10 +566,9 @@ describe('flow update request shapes', () => {
       readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
       readTableDescriptor: async () => ({ table: 'task', label: 'Task', displayField: 'number' }),
     });
-    const patch = sdk.calls.find(call => call.endpoint.endsWith('/graphql'));
+    const patch = sdk.calls.find(call => call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit('));
     const query = JSON.parse(patch.options.body).query;
-    assert.match(query, /trigger_strategy/);
-    assert.match(query, /condition-input/);
+    assert.doesNotMatch(query, /trigger_strategy|condition-input/);
     assert.match(query, /custom/);
     assert.ok(query.includes(`metadata: ${JSON.stringify(beforeMetadata)}`));
     assert.doesNotMatch(query, /short_descriptionSTARTSWITHnew-/);
@@ -440,15 +620,17 @@ describe('flow update request shapes', () => {
   it('retains target ID and does not retry after a partial GraphQL failure', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     let writes = 0;
-    const sdk = makeSdk();
+    const sdk = updateSdk(baseDefinition);
     sdk.list = async (table) => {
       if (table === 'sys_hub_flow') return [{ sys_id: flowId, name: 'Draft update flow', scope: 'scope-1', active: 'false', status: 'draft' }];
       if (table === 'sys_hub_action_type_definition') return [{ sys_id: 'action-type-123', name: 'Log', active: 'true' }];
       return [];
     };
+    const originalRequest = sdk.request;
     sdk.request = async (endpoint, options = {}) => {
+      if (options.body && JSON.parse(options.body).query?.includes('safeEdit(')) return originalRequest(endpoint, options);
       if (options.method === 'GET') return { result: { data: baseDefinition } };
-      if (endpoint.endsWith('/graphql')) { writes += 1; throw new Error('GraphQL timeout'); }
+      if (endpoint.endsWith('/graphql') && !JSON.parse(options.body).query?.includes('safeEdit(')) { writes += 1; throw new Error('GraphQL timeout'); }
       throw new Error(`unexpected ${endpoint}`);
     };
     await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new' } }] }), error => /flow-update-123.*incomplete|GraphQL timeout/i.test(error.message) && /reconciliation/.test(error.message));
@@ -492,6 +674,6 @@ describe('flow update request shapes', () => {
     const sdk = updateSdk(afterDefinition);
     await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }), /log_message did not match the requested value/);
     assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0, 'no Autosave after a failed read-back');
-    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql')).length, 1);
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 1);
   });
 });

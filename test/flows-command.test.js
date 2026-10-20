@@ -211,7 +211,7 @@ test('flows update is a manifest mutation with confirmation and exact manifest o
   assert.ok(command);
   const options = [];
   command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
-  assert.deepEqual(options.map(([name]) => name), ['data', 'data-file', 'force']);
+  assert.deepEqual(options.map(([name]) => name), ['data', 'data-file', 'preview', 'force']);
   assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('update'), true);
 
   const previous = process.env.JSN_NO_PROMPTS;
@@ -224,6 +224,24 @@ test('flows update is a manifest mutation with confirmation and exact manifest o
     if (previous === undefined) delete process.env.JSN_NO_PROMPTS;
     else process.env.JSN_NO_PROMPTS = previous;
   }
+});
+
+test('flows update preview emits an exact diff without confirmation or mutation', async () => {
+  const writes = [];
+  const {app, envelope} = jsonApp({
+    list: async table => {
+      if (table === 'sys_hub_flow') return [{sys_id:'flow-1',name:'Draft',sys_scope:'global',active:false,status:'draft'}];
+      throw new Error(`unexpected lookup ${table}`);
+    },
+    request: async (url, options) => {
+      if (options.method !== 'GET') writes.push(url);
+      return {result:{data:{triggerInstances:[],actionInstances:[{order:1,actionTypeSysId:'a'.repeat(32),uiUniqueIdentifier:'saved-ui',inputs:[{name:'message',value:'before'}]}]}}};
+    },
+  });
+  await handler('update [identifier]').handler({identifier:'flow-1',data:JSON.stringify({actions:[{order:1,type:'a'.repeat(32),inputs:{message:'after'}}]}),preview:true}, app);
+  assert.equal(envelope().data.preview,true);
+  assert.deepEqual(envelope().data.changes,[{component:'action',order:1,type:'a'.repeat(32),input:'message',before:'before',after:'after'}]);
+  assert.deepEqual(writes,[]);
 });
 
 test('publish handler resolves a named flow, declares mutation, and emits JSON', async () => {

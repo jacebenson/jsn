@@ -202,6 +202,17 @@ usage errors opt into the shared renderer's JSON envelope with
 `error.jsonEnvelope = true`; other command families retain legacy stderr usage
 errors and all usage errors keep exit status 2.
 
+## Flow safe-edit session
+
+`src/flow-safe-edit.js` owns the provider's `safeEdit` acquisition/read/release
+contract around existing-flow patch, preservation verification and Autosave.
+The session is a user-level edit lock, not a published snapshot, execution or
+artifact deletion. Preview never changes it. Refuse pre-existing same-user and
+other-user sessions; release only a newly acknowledged acquisition and verify
+its absence. Stale or unreadable freshness stops content writes. Ambiguous
+acquisition is reported without guessing ownership; failed cleanup cannot
+return save success or hide an earlier partial-write error.
+
 ## Skipped update review and impact analysis
 
 `src/skipped-updates.js` owns instance-wide unresolved skipped-finding discovery,

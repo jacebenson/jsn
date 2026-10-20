@@ -47,7 +47,7 @@ const value = v => ({ schemaless: false, schemalessValue: '', value: v });
 // An already-saved draft, used by `flow edit` / `flows test`. Shape the live
 // ProcessFlow read-back returns: the family in `type`, the picker category in
 // `triggerType`.
-let flow = { flowId: ID, scope: SCOPE, triggerInstances: [{
+let flow = { flowId: ID, scope: SCOPE, updated: '2020-01-01 00:00:00', triggerInstances: [{
   id: TRIGGER_ID, type: 'record_create_or_update', triggerType: 'Record', triggerDefinitionId: TRIGGER_DEFINITION,
   metadata: { query_parse: { predicates: [], order_by: [], group_by: [], has_rlq_conditions: false } },
   inputs: [{ name: 'table', value: value('incident') }, { name: 'condition', value: value('') }],
@@ -120,6 +120,12 @@ sdk.request = async (url, options = {}) => {
   if (path === `/api/now/processflow/flow/${FLOW_ID}` || path === `/api/now/processflow/flow/${ID}`) return { result: { data: { ...flow, flowId: flow.flowId } } };
   if (path === '/api/now/graphql') {
     const query = body.query;
+    if (query.includes('safeEdit(')) {
+      const safeEdit = query.includes('upsert:') ? { status: { canUserEdit: true, currentEditor: null, clientFlowStale: null } }
+        : query.includes('delete:') ? { deleteResult: { deleteSuccess: true, id: FLOW_ID } }
+          : { status: { canUserEdit: false, currentEditor: null } };
+      return { data: { global: { snFlowDesigner: { safeEdit } } } };
+    }
     if (query.includes('triggerInstances: {update:')) {
       const metadata = query.match(/metadata: ("(?:\\.|[^"\\])*")/);
       if (metadata) flow.triggerInstances[0].metadata = JSON.parse(metadata[1]);
