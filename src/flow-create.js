@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { withFlowSafeEdit } from './flow-safe-edit.js';
 import { assertSafeExactMatch } from './helpers.js';
 import { createVerifiedFlowVersion } from './flow-versioning.js';
 import {
@@ -565,7 +566,7 @@ function readFlowRecord(sdk, identifier) {
   if (!exactIdentifier) throw new Error('Flow identifier must be an exact sys_id or name');
   assertSafeExactMatch(exactIdentifier);
   const query = isSysId(exactIdentifier) ? `sys_id=${exactIdentifier}` : `name=${exactIdentifier}`;
-  return sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: query, sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,sys_scope,scope,active,status,type' }));
+  return sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: query, sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,sys_scope,scope,active,status,type,sys_updated_on' }));
 }
 
 async function resolveDraftFlow(sdk, identifier) {
@@ -796,7 +797,15 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const readUpdateSet = options.readUpdateSet || (async () => null);
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope`);
   if (manifest.scope !== undefined && targetScope && manifest.scope !== targetScope) throw new Error(`Flow ${flowId} scope does not match the update manifest`);
-  const beforeDefinition = await readProcessFlow(sdk, instance, flowId, scope);
+  let beforeDefinition = await readProcessFlow(sdk, instance, flowId, scope);
+  // A legacy ProcessFlow read can expose the preceding version's timestamp
+  // immediately after Autosave. Never substitute the newer Table timestamp into
+  // an older definition: reread the whole document, then let safeEdit check it.
+  const recordUpdated = stringValue(target.flow.sys_updated_on);
+  if (recordUpdated && beforeDefinition.updated !== recordUpdated) {
+    beforeDefinition = await readProcessFlow(sdk, instance, flowId, scope);
+    if (beforeDefinition.updated !== recordUpdated) throw new Error(`Flow ${flowId} definition is stale relative to its record; no edit session or content mutation attempted`);
+  }
   const snapshots = [];
   const triggerUpdates = [];
   const actionUpdates = [];
@@ -830,100 +839,102 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   if (triggerUpdates.length === 0 && actionUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
   if (options.preview) return { preview: true, flow: { id: flowId, name: target.flowName, status: 'draft', active: false }, changes, lifecycle: { published: false, executed: false } };
 
-  let completedStage = 'validated';
-  try {
-    const patchResponse = await mutationContext('trigger_and_actions_update', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
-      method: 'POST',
-      body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates }), variables: {} }),
-    }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
-    assertGraphQLSuccess(patchResponse, 'Flow trigger/action update');
-    completedStage = 'patch_acknowledged';
-    const processflow = await readProcessFlow(sdk, instance, flowId, scope);
-    // Only requested values may differ. Preserve array order and opaque fields.
-    for (const field of ['flowVariables', 'flowLogicInstances', 'subFlowInstances', 'flowInputs', 'flowOutputs', 'inputs', 'outputs', 'stages']) {
-      if (!isDeepStrictEqual(beforeDefinition[field], processflow[field])) throw new Error(`Flow ${flowId} changed omitted ${field}; preservation failed`);
-    }
-    if (!triggerUpdate && !isDeepStrictEqual(beforeDefinition.triggerInstances, processflow.triggerInstances)) throw new Error(`Flow ${flowId} changed omitted triggerInstances`);
-    const maskActions = definition => findExistingActions(definition).map(action => {
-      const copy = clone(action);
-      const changed = changedActionInputs.get(stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier));
-      for (const [index, input] of inputList(copy).entries()) if (changed?.has(input.name)) inputList(copy)[index] = maskInputValue(input);
-      return copy;
-    });
-    if (!isDeepStrictEqual(maskActions(beforeDefinition), maskActions(processflow))) throw new Error(`Flow ${flowId} changed omitted action fields; preservation failed`);
-    const readbackTrigger = findArray(processflow, 'triggerInstances')[0];
-    if (triggerUpdate) {
-      if (!readbackTrigger || findId(readbackTrigger, ['sysId', 'sys_id', 'id', 'triggerId']) !== triggerUpdate.id) throw new Error(`Flow ${flowId} trigger update was not readable after mutation`);
-      const beforeTrigger = findArray(beforeDefinition, 'triggerInstances')[0];
-      const preserveBefore = { ...beforeTrigger, inputs: undefined, metadata: undefined };
-      const preserveAfter = { ...readbackTrigger, inputs: undefined, metadata: undefined };
-      if (JSON.stringify(preserveBefore) !== JSON.stringify(preserveAfter)) throw new Error(`Flow ${flowId} trigger readback changed fields omitted by the manifest`);
-      const readbackInputs = inputList(readbackTrigger);
-      const beforeInputs = inputList(beforeTrigger);
-      if (readbackInputs.length !== beforeInputs.length) throw new Error(`Flow ${flowId} trigger input count changed during update`);
-      const requestedInputs = new Set();
-      if (manifest.trigger.table !== undefined) requestedInputs.add('table');
-      if (manifest.trigger.condition !== undefined) requestedInputs.add('condition');
-      const maskTriggerInputs = inputs => inputs.map(input => {
-        if (!requestedInputs.has(input.name)) return input;
-        const copy = maskInputValue(input);
-        delete copy.displayField;
-        // Live table saves materialize only this absent display label as ''.
-        // Do not collapse named values, defaults or arbitrary empty fields.
-        if (copy.parameter?.type_label === '') delete copy.parameter.type_label;
+  return withFlowSafeEdit(sdk, instance, flowId, beforeDefinition.updated, async () => {
+    let completedStage = 'validated';
+    try {
+      const patchResponse = await mutationContext('trigger_and_actions_update', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
+        method: 'POST',
+        body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates }), variables: {} }),
+      }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
+      assertGraphQLSuccess(patchResponse, 'Flow trigger/action update');
+      completedStage = 'patch_acknowledged';
+      const processflow = await readProcessFlow(sdk, instance, flowId, scope);
+      // Only requested values may differ. Preserve array order and opaque fields.
+      for (const field of ['flowVariables', 'flowLogicInstances', 'subFlowInstances', 'flowInputs', 'flowOutputs', 'inputs', 'outputs', 'stages']) {
+        if (!isDeepStrictEqual(beforeDefinition[field], processflow[field])) throw new Error(`Flow ${flowId} changed omitted ${field}; preservation failed`);
+      }
+      if (!triggerUpdate && !isDeepStrictEqual(beforeDefinition.triggerInstances, processflow.triggerInstances)) throw new Error(`Flow ${flowId} changed omitted triggerInstances`);
+      const maskActions = definition => findExistingActions(definition).map(action => {
+        const copy = clone(action);
+        const changed = changedActionInputs.get(stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier));
+        for (const [index, input] of inputList(copy).entries()) if (changed?.has(input.name)) inputList(copy)[index] = maskInputValue(input);
         return copy;
       });
-      if (!isDeepStrictEqual(maskTriggerInputs(beforeInputs), maskTriggerInputs(readbackInputs))) throw new Error(`Flow ${flowId} trigger input preservation failed`);
-      for (const beforeInput of beforeInputs) {
-        const afterInput = readbackInputs.find(input => input.name === beforeInput.name);
-        if (!afterInput) throw new Error(`Flow ${flowId} trigger lost input ${beforeInput.name} during update`);
-        if (!requestedInputs.has(beforeInput.name) && JSON.stringify(beforeInput) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} trigger changed omitted input ${beforeInput.name}`);
+      if (!isDeepStrictEqual(maskActions(beforeDefinition), maskActions(processflow))) throw new Error(`Flow ${flowId} changed omitted action fields; preservation failed`);
+      const readbackTrigger = findArray(processflow, 'triggerInstances')[0];
+      if (triggerUpdate) {
+        if (!readbackTrigger || findId(readbackTrigger, ['sysId', 'sys_id', 'id', 'triggerId']) !== triggerUpdate.id) throw new Error(`Flow ${flowId} trigger update was not readable after mutation`);
+        const beforeTrigger = findArray(beforeDefinition, 'triggerInstances')[0];
+        const preserveBefore = { ...beforeTrigger, inputs: undefined, metadata: undefined };
+        const preserveAfter = { ...readbackTrigger, inputs: undefined, metadata: undefined };
+        if (JSON.stringify(preserveBefore) !== JSON.stringify(preserveAfter)) throw new Error(`Flow ${flowId} trigger readback changed fields omitted by the manifest`);
+        const readbackInputs = inputList(readbackTrigger);
+        const beforeInputs = inputList(beforeTrigger);
+        if (readbackInputs.length !== beforeInputs.length) throw new Error(`Flow ${flowId} trigger input count changed during update`);
+        const requestedInputs = new Set();
+        if (manifest.trigger.table !== undefined) requestedInputs.add('table');
+        if (manifest.trigger.condition !== undefined) requestedInputs.add('condition');
+        const maskTriggerInputs = inputs => inputs.map(input => {
+          if (!requestedInputs.has(input.name)) return input;
+          const copy = maskInputValue(input);
+          delete copy.displayField;
+          // Live table saves materialize only this absent display label as ''.
+          // Do not collapse named values, defaults or arbitrary empty fields.
+          if (copy.parameter?.type_label === '') delete copy.parameter.type_label;
+          return copy;
+        });
+        if (!isDeepStrictEqual(maskTriggerInputs(beforeInputs), maskTriggerInputs(readbackInputs))) throw new Error(`Flow ${flowId} trigger input preservation failed`);
+        for (const beforeInput of beforeInputs) {
+          const afterInput = readbackInputs.find(input => input.name === beforeInput.name);
+          if (!afterInput) throw new Error(`Flow ${flowId} trigger lost input ${beforeInput.name} during update`);
+          if (!requestedInputs.has(beforeInput.name) && JSON.stringify(beforeInput) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} trigger changed omitted input ${beforeInput.name}`);
+        }
+        if (manifest.trigger.table !== undefined && inputRawValue(readbackInputs.find(input => input.name === 'table')) !== manifest.trigger.table) throw new Error(`Flow ${flowId} trigger table readback did not match the requested value`);
+        if (manifest.trigger.condition !== undefined) {
+          if (inputRawValue(readbackInputs.find(input => input.name === 'condition')) !== manifest.trigger.condition) throw new Error(`Flow ${flowId} trigger condition readback did not match the requested value`);
+          assertPredicateMetadataMatches(readbackTrigger.metadata, manifest.trigger.condition, `Flow ${flowId} trigger`);
+          const beforeMetadata = stripPredicates(parseMaybeJson(beforeTrigger.metadata, {}));
+          const afterMetadata = stripPredicates(parseMaybeJson(readbackTrigger.metadata, {}));
+          if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) throw new Error(`Flow ${flowId} trigger metadata changed fields omitted by the manifest`);
+        } else if (JSON.stringify(parseMaybeJson(beforeTrigger.metadata, {})) !== JSON.stringify(parseMaybeJson(readbackTrigger.metadata, {}))) {
+          throw new Error(`Flow ${flowId} trigger metadata changed when the condition was omitted`);
+        }
       }
-      if (manifest.trigger.table !== undefined && inputRawValue(readbackInputs.find(input => input.name === 'table')) !== manifest.trigger.table) throw new Error(`Flow ${flowId} trigger table readback did not match the requested value`);
-      if (manifest.trigger.condition !== undefined) {
-        if (inputRawValue(readbackInputs.find(input => input.name === 'condition')) !== manifest.trigger.condition) throw new Error(`Flow ${flowId} trigger condition readback did not match the requested value`);
-        assertPredicateMetadataMatches(readbackTrigger.metadata, manifest.trigger.condition, `Flow ${flowId} trigger`);
-        const beforeMetadata = stripPredicates(parseMaybeJson(beforeTrigger.metadata, {}));
-        const afterMetadata = stripPredicates(parseMaybeJson(readbackTrigger.metadata, {}));
-        if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) throw new Error(`Flow ${flowId} trigger metadata changed fields omitted by the manifest`);
-      } else if (JSON.stringify(parseMaybeJson(beforeTrigger.metadata, {})) !== JSON.stringify(parseMaybeJson(readbackTrigger.metadata, {}))) {
-        throw new Error(`Flow ${flowId} trigger metadata changed when the condition was omitted`);
+      const readbackActions = findExistingActions(processflow);
+      for (const update of actionUpdates) {
+        const uiId = stringValue(update.uiUniqueIdentifier);
+        const readback = readbackActions.find(action => stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier) === uiId);
+        if (!readback) throw new Error(`Flow ${flowId} Action ${uiId} was not readable after mutation`);
+        const before = actionTargets.get(uiId);
+        const changed = changedActionInputs.get(uiId) || new Set();
+        for (const input of inputList(before)) {
+          const afterInput = inputList(readback).find(candidate => candidate.name === input.name);
+          if (!afterInput) throw new Error(`Flow ${flowId} Action ${uiId} lost input ${input.name} during update`);
+          if (!changed.has(input.name) && JSON.stringify(input) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} Action ${uiId} changed omitted input ${input.name}`);
+          if (changed.has(input.name) && inputRawValue(afterInput) !== inputRawValue(update.inputs.find(candidate => candidate.name === input.name))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
+        }
       }
+      completedStage = 'definition_verified';
+      const { version } = await mutationContext('autosave_version', readUpdateSet, snapshots, () => createVerifiedFlowVersion(sdk, {
+        instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow update',
+      }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
+      completedStage = 'autosave_verified';
+      const selectedUpdateSet = await readUpdateSet();
+      const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId);
+      return {
+        flow: { id: flowId, name: target.flowName, status: 'draft', active: false },
+        changes,
+        processflow,
+        definition_readback: { available: true, status: 'read_back', flow_id: flowId },
+        version,
+        update_set_capture: updateSetCapture,
+        update_set_mutations: snapshots,
+        lifecycle: { published: false, supported: ['draft', 'autosave'], deferred: ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'] },
+      };
+    } catch (error) {
+      throw new Error(`Flow ${flowId} update incomplete; last completed stage: ${completedStage}. Changes may already be persisted; inspect this exact flow before retrying. No rollback, publish or execution attempted. ${error.message}; reconciliation: ${JSON.stringify(snapshots)}`, { cause: error });
     }
-    const readbackActions = findExistingActions(processflow);
-    for (const update of actionUpdates) {
-      const uiId = stringValue(update.uiUniqueIdentifier);
-      const readback = readbackActions.find(action => stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier) === uiId);
-      if (!readback) throw new Error(`Flow ${flowId} Action ${uiId} was not readable after mutation`);
-      const before = actionTargets.get(uiId);
-      const changed = changedActionInputs.get(uiId) || new Set();
-      for (const input of inputList(before)) {
-        const afterInput = inputList(readback).find(candidate => candidate.name === input.name);
-        if (!afterInput) throw new Error(`Flow ${flowId} Action ${uiId} lost input ${input.name} during update`);
-        if (!changed.has(input.name) && JSON.stringify(input) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} Action ${uiId} changed omitted input ${input.name}`);
-        if (changed.has(input.name) && inputRawValue(afterInput) !== inputRawValue(update.inputs.find(candidate => candidate.name === input.name))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
-      }
-    }
-    completedStage = 'definition_verified';
-    const { version } = await mutationContext('autosave_version', readUpdateSet, snapshots, () => createVerifiedFlowVersion(sdk, {
-      instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow update',
-    }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
-    completedStage = 'autosave_verified';
-    const selectedUpdateSet = await readUpdateSet();
-    const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId);
-    return {
-      flow: { id: flowId, name: target.flowName, status: 'draft', active: false },
-      changes,
-      processflow,
-      definition_readback: { available: true, status: 'read_back', flow_id: flowId },
-      version,
-      update_set_capture: updateSetCapture,
-      update_set_mutations: snapshots,
-      lifecycle: { published: false, supported: ['draft', 'autosave'], deferred: ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'] },
-    };
-  } catch (error) {
-    throw new Error(`Flow ${flowId} update incomplete; last completed stage: ${completedStage}. Changes may already be persisted; inspect this exact flow before retrying. No rollback, publish or execution attempted. ${error.message}; reconciliation: ${JSON.stringify(snapshots)}`, { cause: error });
-  }
+  });
 }
 
 export async function readCurrentUpdateSet(sdk) {

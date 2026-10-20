@@ -121,7 +121,11 @@ test('real PTY flow edit picks an inactive draft, reads its condition and confir
   const result = run(['flow', 'edit'], [
     ['Select a flow', '\r'], ['Edit supported draft flow fields', '\r'], ['Trigger condition', '\r'], ['Update draft flow', 'y\r'],
   ]);
-  assert.deepEqual(result.mutations.map(mutation => mutation.path), ['/api/now/graphql', '/api/now/processflow/versioning/create_version']);
-  assert.equal(result.mutations[1].body.type, 'Autosave');
+  assert.deepEqual(result.mutations.map(mutation => mutation.path), ['/api/now/graphql', '/api/now/graphql', '/api/now/graphql', '/api/now/processflow/versioning/create_version', '/api/now/graphql', '/api/now/graphql']);
+  assert.match(result.mutations[0].body.query, /safeEdit.*read:/);
+  assert.match(result.mutations[1].body.query, /safeEdit.*upsert:/);
+  assert.equal(result.mutations[3].body.type, 'Autosave');
+  assert.match(result.mutations[4].body.query, /safeEdit.*delete:/);
+  assert.match(result.mutations[5].body.query, /safeEdit.*read:/);
   assert.equal(result.flow.triggerInstances[0].id, 'f'.repeat(32));
 });
