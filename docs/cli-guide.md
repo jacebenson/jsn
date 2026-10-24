@@ -44,6 +44,22 @@ private files and offers a foreground console, not native service registration.
 See [direct MID installation](mid-direct-install.md) for security boundaries,
 lifecycle commands and the untested Windows host phases. Docker remains available.
 
+## Create an update set in a scope
+
+```sh
+jsn updatesets create --name "Workspace changes" --scope sn_sow
+```
+
+`--scope` accepts a scope value, application sys_id, or display name, using the
+same resolver as `jsn scopes set`. JSN selects and verifies the application
+before creating the update set in that application, then selects the new set.
+An unknown, ambiguous, or unselectable scope stops creation. Omit `--scope`
+to keep the existing behavior.
+
+The scope switch persists if creation later fails. If creation succeeds but
+selecting the new set fails, the output reports the created record and a warning.
+Inspect that record rather than rerunning create and making a duplicate.
+
 ## Customization reports
 
 ```sh
