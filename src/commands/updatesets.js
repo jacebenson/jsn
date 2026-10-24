@@ -6,6 +6,8 @@ import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
 import { errAPI, errUsage, errConfirmationRequired } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
+import { resolveScope } from './scopes.js';
+import { unwrapSysId } from '../resolve-record.js';
 
 declareCapabilities('updatesets', {
   mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent'],
@@ -612,12 +614,22 @@ export function updateSetsCmd(wrap) {
           describe: 'Create a new update set (auto-sets as current)',
           builder: (y) => y
             .option('name', { alias: 'n', type: 'string', demandOption: true, describe: 'Update set name' })
-            .option('description', { type: 'string', describe: 'Description' }),
+            .option('description', { type: 'string', describe: 'Description' })
+            .option('scope', { type: 'string', describe: 'Switch to this application before creating (scope value, sys_id, or name)' }),
           handler: wrap(async (argv, app) => {
+            let scopeSysID;
+            if (argv.scope !== undefined) {
+              if (!String(argv.scope).trim()) throw errUsage('Scope must not be empty');
+              const scope = await resolveScope(app.sdk, argv.scope);
+              scopeSysID = unwrapSysId(scope);
+              const userSysID = await requireCurrentUserSysId(app.sdk);
+              await setCurrentApplication(app.sdk, userSysID, scopeSysID);
+            }
             const record = await app.sdk.create('sys_update_set', {
               name: argv.name,
               description: argv.description || argv.name,
               state: 'in progress',
+              ...(scopeSysID ? { application: scopeSysID } : {}),
             });
 
             // Auto-set as current update set
