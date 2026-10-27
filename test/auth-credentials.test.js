@@ -251,8 +251,8 @@ describe('AuthManager credential store boundary', () => {
   it('keeps setup credential paths on the AuthManager boundary', async () => {
     const source = await import('node:fs').then(({ readFileSync }) => readFileSync(new URL('../src/commands/auth.js', import.meta.url), 'utf8'));
     assert.doesNotMatch(source, /(?<!\.)\b(loadCredentials|saveCredentials|deleteCredentials)\(/);
-    assert.match(source, /app\.auth\.loadCredentials\(/);
-    assert.match(source, /app\.auth\.saveCredentials\(/);
+    assert.match(source, /app\.auth\.loginWithPassword\(/);
+    assert.doesNotMatch(source, /app\.auth\.saveCredentials\(/);
   });
 });
 

@@ -1,5 +1,17 @@
 # JSN decisions
 
+## Setup collects answers for the canonical auth operations
+
+Setup remains the human front door, with add/reconnect/status/default/settings/
+sign-out/remove actions. It invokes the same exported operations as `auth`;
+the wizard has no separate credential or profile persistence. Login collects
+new-profile preferences and a default choice before authentication, then saves
+through one path. Bots provide explicit values or receive structured missing-
+input errors, and never launch browsers implicitly. Preference flags are
+idempotent assignments. New usernames cannot inherit the old default's pending
+credential slot. Remote browser-extension capture is a separate follow-up
+tracked in issue #302.
+
 ## Auth output separates profile settings, credentials, and live verification
 
 Auth status uses a compact table for method, saved credential state, live

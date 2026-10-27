@@ -19,10 +19,14 @@ describe('Setup Handler — zero profiles', () => {
       namedExports: {
         loginWizard: async () => { wizardCalled = true; return { instanceURL: 'https://dev.service-now.com', profileName: 'dev', loggedIn: false }; },
         modifyProfile: async () => {},
-        removeProfile: async () => {},
-        pickProfile: async () => 'dev',
+        loginProfile: async () => {},
+        showAuthStatus: async () => {},
+        switchProfile: async () => {},
+        logoutProfile: async () => {},
+        removeConnection: async () => {},
       },
     });
+    mock.module('../src/helpers.js', { namedExports: { canUsePicker: () => true } });
     mock.module('@inquirer/prompts', {
       namedExports: {
         select: async () => { selectCalled = true; return 'add'; },

@@ -221,6 +221,13 @@ function resolveJsonMode(app, argv) {
 export function renderAppError(err, { app = null, argv = null, identifier = '' } = {}) {
   const code = err.code || 'unknown';
 
+  if (code === CodeAuth) {
+    if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    let text = `Error (auth): ${err.message}\n`;
+    if (err.hint) text += `\nHint: ${err.hint}\n`;
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
   if (code === CodeConfirmationRequired) {
     // Structured error for AI agents / piped consumers: the JSON envelope
     // goes to stdout (where tooling reads) so the agent can surface the

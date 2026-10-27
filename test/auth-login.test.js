@@ -208,7 +208,7 @@ it('explicit --profile targets that profile without invoking the interactive pic
         other: { instance_url: 'https://other-profile.example.com', auth_method: 'oauth' },
       } },
       isInteractive: () => true,
-      auth: { ...mockApp.auth, login: async (...args) => calls.push(args) },
+      auth: { ...mockApp.auth, loginWithCode: async (...args) => calls.push(args) },
       getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'alice' }) }),
       sdk: null,
       ok: () => {},
@@ -220,8 +220,8 @@ it('explicit --profile targets that profile without invoking the interactive pic
       return mockYargs;
     } };
     cmd.builder(mockYargs);
-    await subcommands.find(s => s.def.startsWith('login')).handler({ app, profile: 'named', _: ['login'] });
-    assert.deepStrictEqual(calls[0], [instance, 'alice']);
+    await subcommands.find(s => s.def.startsWith('login')).handler({ app, profile: 'named', code: 'fixture-code', _: ['login'] });
+    assert.deepStrictEqual(calls[0], [instance, 'fixture-code', 'alice']);
     assert.strictEqual(app.config.profiles.named.instance_url, instance);
   });
 

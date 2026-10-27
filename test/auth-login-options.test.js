@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { quoteShellArg } from '../src/helpers.js';
+import * as helpers from '../src/helpers.js';
 
 let questions = [];
 let answers = [];
 mock.module('../src/helpers.js', { namedExports: {
-  quoteShellArg, canUsePicker: app => app.isInteractive(),
+  ...helpers, canUsePicker: app => app.isInteractive(),
 } });
 mock.module('@inquirer/prompts', { namedExports: {
   confirm: async question => { questions.push(question); return answers.shift(); },
@@ -27,7 +27,7 @@ after(() => {
   else process.env.XDG_CONFIG_HOME = previousXdg;
   fs.rmSync(directory, { recursive: true, force: true });
 });
-beforeEach(() => { questions = []; answers = [true, false, false]; });
+beforeEach(() => { questions = []; answers = [true, true, false, false]; });
 
 function fixture(profiles = {}, interactive = true) {
   const outputs = [];
@@ -46,7 +46,7 @@ function fixture(profiles = {}, interactive = true) {
 it('offers setup settings when direct login creates a new profile', async () => {
   const { app, login, outputs } = fixture();
   await login({ instance: 'new-instance', basic: true });
-  assert.deepEqual(questions.map(question => question.default), [false, false, true]);
+  assert.deepEqual(questions.map(question => question.default), [false, true, true, true]);
   const profile = Object.values(app.config.profiles)[0];
   assert.equal(profile.read_only, true);
   assert.equal(profile.skip_confirmations, false);
@@ -56,7 +56,7 @@ it('offers setup settings when direct login creates a new profile', async () => 
 
 it('honors explicit login settings without asking those questions again', async () => {
   const { app, login } = fixture();
-  await login({ instance: 'new-instance', basic: true, 'read-only': true, 'skip-confirmations': false, 'include-counts': false });
+  await login({ instance: 'new-instance', basic: true, 'read-only': true, 'skip-confirmations': false, 'include-counts': false, makeDefault: false });
   assert.equal(questions.length, 0);
   assert.equal(Object.values(app.config.profiles)[0].read_only, true);
   assert.equal(Object.values(app.config.profiles)[0].include_counts, false);

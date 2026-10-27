@@ -487,17 +487,20 @@ to JSN and must be corrected before the update. Use a read-back command or
 Switch between instances without re-authenticating.
 
 ```bash
-jsn setup                    # Interactive: add, switch, remove, or modify instances
+jsn setup                    # Guided login and connection management
 jsn auth status              # Compact profile status table
 ```
 
-`jsn setup` is the human front door — one command, interactive menu. For scripts and CI, use the atomic commands:
+`jsn setup` is the human front door. It collects answers and calls the same
+operations as `auth`: add, sign in again, status, choose a default, change
+settings, sign out, and remove. For scripts and CI, use explicit commands
+(Basic login below reads SN_USERNAME/SN_PASSWORD from the environment):
 
 ```bash
-jsn auth login https://dev12345.service-now.com   # Add + authenticate (scripted)
-jsn auth refresh                                  # Manually refresh the OAuth token
-jsn auth switch dev12345                          # Flip the active profile (scripted)
-jsn auth modify dev12345                          # Toggle read-only / skip confirmations
+jsn auth login dev12345 --name work --basic --read-only --make-default --json
+jsn auth refresh --profile work                   # Refresh an OAuth profile
+jsn auth switch work                             # Explicitly choose the default
+jsn auth modify work --read-only --no-include-counts --confirm-deletes --json
 ```
 
 ## Output Formats
@@ -525,9 +528,16 @@ include `--details`.
 
 When `jsn auth login <instance>` creates a profile interactively, it offers the
 same read-only, delete-confirmation, and result-count options as setup. Scripts
-can supply `--read-only`, `--no-include-counts`, and `--skip-confirmations`;
-the last option disables delete prompts. `jsn auth modify <profile>` changes
-those settings later. Reauthentication preserves existing preferences.
+can supply `--read-only`, `--no-include-counts`, and `--confirm-deletes`.
+The compatible `--skip-confirmations` disables delete prompts.
+`jsn auth modify <profile>` accepts the same setting flags; repeating a request
+sets the same values. Without flags, humans get a settings picker; scripts get
+a structured usage error. Reauthentication preserves existing preferences.
+
+Use `--name <new-name>` to create another connection, including a second user
+on the same instance, and `--profile <existing-name>` to reconnect. Setup asks
+whether to use a connection by default. Scripts must pass `--make-default` or
+run `auth switch`; even a first login does not silently set a default.
 
 JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth. Credentials are stored in the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/` when the keyring is unavailable.
 
@@ -537,6 +547,19 @@ jsn auth login https://dev12345.service-now.com
 
 For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
+
+### OAuth from scripts or a remote terminal
+
+```bash
+jsn auth login dev12345 --name work --oauth --print-url --json
+jsn auth login dev12345 --name work --oauth --code "$CODE" --read-only --json
+```
+
+The first result contains `data.authorization_url` and a completion command.
+Keep the same instance and profile name when exchanging the code. The existing
+`--print-url --wait-file <path>` flow remains available. Progress goes to
+stderr; JSON results and auth errors remain machine-readable. Noninteractive
+login without a code or URL request returns a usage error instead of prompting.
 
 ### Log in using a browser (experimental)
 
@@ -570,7 +593,9 @@ When the session expires, log in again:
 jsn auth login --profile limited --browser
 ```
 
-Bare `auth login` on an existing GCK profile also launches browser login.
+Interactive `auth login` on an existing GCK profile launches browser login.
+Bots must request that explicitly with `--browser`; JSON/piped commands never
+open a browser implicitly.
 Pages without a readable `g_ck` still need the explicit `--gck` paste flow.
 Login is explicit; JSN does not renew browser sessions in the background.
 

@@ -80,6 +80,18 @@ instance URLs; `auth status --details` explicitly reveals those fields, with
 **User** as the identity column label. `--local` reports saved metadata without
 an instance request. Profile names remain visible as selection identifiers.
 
+## Authentication operations
+
+The operations exported by `src/commands/auth.js` are the common implementation
+for both `auth` command handlers and the human `setup` menu. The setup wizard
+collects answers and calls `loginProfile`; it does not store credentials or
+persist profiles independently. Login owns identity verification, preferences,
+and saving. `--name` creates a new connection; `--profile` reconnects an existing
+one. Defaults change only through a human choice, `--make-default`, or
+`auth switch`. Public settings flags assign explicit values, so repeating a
+bot's `auth modify` request is idempotent. Noninteractive commands never open
+implicit prompts or browsers.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as

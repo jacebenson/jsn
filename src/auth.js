@@ -700,7 +700,7 @@ export class AuthManager {
     if (method === 'basic' && (!resolved.username || !resolved.password)) throw errAuth('Invalid basic auth credentials');
     if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
-    if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
+    if (options.refresh !== false && resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
       if (resolved.refresh_token) return this.refreshToken(instance, resolved, credentialUsername);
       throw errAuth('Token expired, please login again');
     }
@@ -713,17 +713,17 @@ export class AuthManager {
     const pkce = generatePKCE();
     const authURL = buildAuthURL(instanceURL, clientID, pkce);
 
-    console.log();
-    console.log('Open this URL in your browser to authenticate:');
-    console.log(authURL);
-    console.log();
-    console.log('(The browser is not opened automatically — if a browser tab opens,');
-    console.log(' use the URL above if the opened page shows an error.)');
-    console.log();
+    console.error();
+    console.error('Open this URL in your browser to authenticate:');
+    console.error(authURL);
+    console.error();
+    console.error('(The browser is not opened automatically — if a browser tab opens,');
+    console.error(' use the URL above if the opened page shows an error.)');
+    console.error();
 
-    console.log('After authenticating in the browser, copy the authorization code shown on the page.');
-    console.log('(input is hidden for security — just paste and press Enter)');
-    console.log();
+    console.error('After authenticating in the browser, copy the authorization code shown on the page.');
+    console.error('(input is hidden for security — just paste and press Enter)');
+    console.error();
 
     const authCode = await askHidden('Authorization code (hidden on paste for security): ');
     const code = authCode.trim();
@@ -731,7 +731,7 @@ export class AuthManager {
       throw errAuth('Authorization code is required');
     }
 
-    console.log('\nExchanging authorization code for tokens...');
+    console.error('\nExchanging authorization code for tokens...');
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
     // Save with the selected profile username when one is already known.
     this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
@@ -752,10 +752,10 @@ export class AuthManager {
     savePKCEState(instanceURL, pkce, username);
     const url = buildAuthURL(instanceURL, clientID, pkce);
     if (waitFile) {
-      console.log(url);
-      console.log();
-      console.log(`Waiting for authorization code in file: ${waitFile}`);
-      console.log('(polling every 2 seconds — write the code to the file to complete login)');
+      console.error(url);
+      console.error();
+      console.error(`Waiting for authorization code in file: ${waitFile}`);
+      console.error('(polling every 2 seconds — write the code to the file to complete login)');
       return this._waitForCodeFile(instanceURL, clientID, pkce, waitFile, 300000, username);
     }
     return url;
@@ -765,18 +765,15 @@ export class AuthManager {
     const start = Date.now();
     const pollInterval = 2000;
     while (Date.now() - start < timeout) {
-      try {
-        const code = fs.readFileSync(filePath, 'utf-8').trim();
-        if (code) {
-          console.log(`\nAuthorization code found in ${filePath}`);
-          removePKCEState(instanceURL, username);
-          const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-          this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
-          console.log('Token exchange successful!\n');
-          return newCreds;
-        }
-      } catch {
-        // File not ready yet
+      let code = '';
+      try { code = fs.readFileSync(filePath, 'utf-8').trim(); } catch { /* File not ready yet. */ }
+      if (code) {
+        console.error(`\nAuthorization code found in ${filePath}`);
+        const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
+        removePKCEState(instanceURL, username);
+        this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
+        console.error('Token exchange successful!\n');
+        return newCreds;
       }
       await new Promise(r => setTimeout(r, pollInterval));
     }
@@ -788,11 +785,13 @@ export class AuthManager {
    * Reads SN_USERNAME/SN_PASSWORD (or SN_<INSTANCE>_USERNAME/SN_<INSTANCE>_PASSWORD).
    * Stores the basic auth credentials so they persist across sessions.
    */
-  async loginWithPassword(instanceURL, username = this._activeUsername()) {
+  async loginWithPassword(instanceURL, username = this._activeUsername(), suppliedCredentials) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const envCreds = getBasicAuthFromEnv(instanceURL);
     const storedCreds = this.loadCredentials(instanceURL, username);
-    const creds = envCreds || storedCreds;
+    const creds = suppliedCredentials
+      ? { auth_method: 'basic', ...suppliedCredentials }
+      : envCreds || storedCreds;
     if (!creds || creds.auth_method !== 'basic' || !creds.username || !creds.password) {
       throw errAuth(
         `No basic auth credentials found in environment or stored profile.\n\n` +
@@ -802,6 +801,9 @@ export class AuthManager {
         `Then run:\n` +
         `  jsn auth login --basic ${instanceURL}`
       );
+    }
+    if (username && creds.username !== username) {
+      throw errAuth('The Basic credentials do not match the selected profile user. Use matching credentials or create a new named profile.');
     }
     this.saveCredentials(instanceURL, creds, creds.username);
     return creds;
