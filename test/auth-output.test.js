@@ -89,40 +89,17 @@ export const AUTH_STATUS_FIXTURE = {
 
 export const AUTH_STATUS_STYLED_GOLDEN = `4 profiles
 
-dev (selected, default)
-  Instance:    https://dev.service-now.com
-  Account:     admin
-  Auth:        OAuth (OS keyring)
-  Credentials: Available
-  Connection:  Verified
-  Settings:    read-only; delete confirmations off; counts on
-  Last used:   3 days ago
+PROFILE          AUTH             CREDENTIALS  CONNECTION   ACCESS      DELETES    COUNTS
+dev * (default)  OAuth            Available    Verified     Read-only   No prompt  On
+prod             Browser session  Missing      Failed       Read/write  Confirm    Off
+Profile 3        Not configured   Available    Not checked  Read/write  Confirm    On
+Profile 4        Not configured   Available    Not checked  Read/write  Confirm    On
 
-prod
-  Instance:    https://prod.service-now.com
-  Account:     deployer
-  Auth:        Browser session
-  Credentials: Missing
-  Connection:  Failed
-  Settings:    writes allowed; confirm deletes; counts off
-  Last used:   10 days ago
-  Next:        jsn auth login --profile prod
+* selected profile
 
-https://anon.service-now.com
-  Instance:    https://anon.service-now.com
-  Account:     Not recorded
-  Auth:        Not configured
-  Credentials: Available
-  Connection:  Not checked
-  Settings:    writes allowed; confirm deletes; counts on
+prod: jsn auth login --profile prod
 
-https://bob.service-now.com
-  Instance:    https://bob.service-now.com
-  Account:     bob
-  Auth:        Not configured
-  Credentials: Available
-  Connection:  Not checked
-  Settings:    writes allowed; confirm deletes; counts on
+Show users and instance URLs: jsn auth status --details
 `;
 
 describe('auth status styled output (visual pin)', () => {

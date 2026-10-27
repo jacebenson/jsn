@@ -47,10 +47,14 @@ Browser debugging responses and credentials are never printed.
 
 `auth status` uses safe metadata and a read-only current-user probe. It does not refresh tokens, update `last_seen`, migrate credentials, or persist credentials. JSON diagnostics contain method, source, state, and probe classification only; access tokens, refresh tokens, passwords, cookies, and browser-session headers are never serialized.
 
-The JSON envelope and existing `--get` paths remain compatible; profile rows
-also expose the configured `username` and whether the profile is `active` for
-this invocation. Human status separates credential availability from live
-verification and shows profile settings plus corrective commands.
+The default human status is a compact table of profile, method, credentials,
+connection, access, delete confirmations, and result counts. Usernames and
+instance URLs require `--details` in all output formats. Without it, the JSON
+omits `default_instance` and profile `instance`, `username`, and `verified_as`;
+`--get` paths for these fields also require `--details`. The details table labels
+the identity column **User**. The envelope and non-identity fields retain their
+existing paths. Human status separates credential availability from live
+verification and retains corrective commands without exposing identity fields.
 `auth status --local` performs no instance request and reports its probe as
 `not_attempted` / `not_requested`. A live account differing from the configured
 username is reported as `account_mismatch`, never verified. Probe failures are

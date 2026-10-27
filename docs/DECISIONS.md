@@ -2,8 +2,10 @@
 
 ## Auth output separates profile settings, credentials, and live verification
 
-Auth status shows the configured account and method, saved credential state,
-live connection result, and profile options as labeled text. Credential
+Auth status uses a compact table for method, saved credential state, live
+connection result, and profile options. Users and instance URLs require
+`--details` in both human and machine output; identity JSON paths require that
+flag as well. The identity column is labeled User. Credential
 availability alone does not imply successful live verification. `--local`
 skips instance requests. Auth/setup suppress the unrelated current-instance
 header through a declared capability. New-profile login and setup share the

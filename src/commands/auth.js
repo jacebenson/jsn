@@ -9,43 +9,53 @@ import process from 'node:process';
 // updates here.)
 declareCapabilities('auth', { noInstance: true, skipContextHeader: true });
 
-/** Render safe profile, account, credential, and connection metadata for humans. */
-export function renderAuthStatus(result, summary) {
+/** Render a compact status table; identity fields require explicit details. */
+export function renderAuthStatus(result, summary, { details = false } = {}) {
   const profiles = Array.isArray(result.profiles) ? result.profiles : [];
   if (!profiles.length) return 'No profiles configured.\nRun: jsn auth login <instance> --browser\n';
   const methods = { oauth: 'OAuth', basic: 'Basic', gck: 'Browser session' };
-  const sources = { env_token: 'environment token', env_basic: 'environment credentials', keyring: 'OS keyring', file: 'credential file', gck: 'saved browser session' };
   const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid' };
-  const lines = [summary || `${profiles.length} profile(s)`, ''];
-  for (const profile of profiles) {
-    const labels = [profile.active && 'selected', profile.default && 'default'].filter(Boolean);
-    lines.push(`${profile.name || profile.instance}${labels.length ? ` (${labels.join(', ')})` : ''}`);
-    lines.push(`  Instance:    ${profile.instance}`);
-    const account = profile.username || profile.verified_as || 'Not recorded';
-    lines.push(`  Account:     ${account}${profile.verified_as && profile.verified_as !== account ? ` (session is ${profile.verified_as})` : ''}`);
+  const headings = ['PROFILE', 'AUTH', 'CREDENTIALS', 'CONNECTION', 'ACCESS', 'DELETES', 'COUNTS'];
+  if (details) headings.push('USER', 'INSTANCE');
+  const notes = [];
+  const rows = profiles.map((profile, index) => {
     const diagnostics = profile.diagnostics || {};
-    const method = methods[diagnostics.auth_method] || 'Not configured';
-    const source = sources[diagnostics.auth_source || profile.auth_source];
-    lines.push(`  Auth:        ${method}${source ? ` (${source})` : ''}`);
-    lines.push(`  Credentials: ${states[diagnostics.state] || (profile.authenticated ? 'Available' : 'Missing')}`);
     const probe = diagnostics.probe || {};
+    const label = profile.name || `Profile ${index + 1}`;
     const connection = profile.verified === true ? 'Verified'
-      : probe.code === 'not_requested' ? 'Not checked (local status)'
-      : profile.verified === false ? `Failed${probe.message ? ` — ${probe.message}` : ''}`
-      : `Not checked${probe.message ? ` — ${probe.message}` : ''}`;
-    lines.push(`  Connection:  ${connection}`);
-    lines.push(`  Settings:    ${profile.read_only ? 'read-only' : 'writes allowed'}; ${profile.skip_confirmations ? 'delete confirmations off' : 'confirm deletes'}; counts ${profile.include_counts === false ? 'off' : 'on'}`);
-    if (profile.days_since_last_seen != null) lines.push(`  Last used:   ${profile.days_since_last_seen === 0 ? 'today' : `${profile.days_since_last_seen} ${profile.days_since_last_seen === 1 ? 'day' : 'days'} ago`}`);
+      : probe.code === 'account_mismatch' ? 'User mismatch'
+      : profile.verified === false ? 'Failed' : 'Not checked';
+    const row = [
+      `${label}${profile.active ? ' *' : ''}${profile.default ? ' (default)' : ''}`,
+      methods[diagnostics.auth_method] || 'Not configured',
+      states[diagnostics.state] || (profile.authenticated ? 'Available' : 'Missing'),
+      connection,
+      profile.read_only ? 'Read-only' : 'Read/write',
+      profile.skip_confirmations ? 'No prompt' : 'Confirm',
+      profile.include_counts === false ? 'Off' : 'On',
+    ];
+    if (details) {
+      const user = profile.username || profile.verified_as || 'Not recorded';
+      row.push(`${user}${profile.verified_as && profile.verified_as !== user ? ` (session: ${profile.verified_as})` : ''}`, profile.instance || 'Not configured');
+    }
+    if (profile.verified !== true && probe.message) notes.push(`${label}: ${probe.message}`);
     if (profile.name && profile.verified !== true) {
       const command = `jsn auth ${diagnostics.state === 'refreshable' ? 'refresh' : 'login'} --profile ${quoteShellArg(profile.name)}`;
       const hint = ['missing', 'expired', 'refreshable', 'malformed'].includes(diagnostics.state)
         || ['unauthorized', 'invalid_browser_session', 'refresh_failed', 'account_mismatch'].includes(probe.code)
         ? command : probe.hint;
-      if (hint) lines.push(`  Next:        ${hint}`);
+      if (hint) notes.push(`${label}: ${hint}`);
     }
-    lines.push('');
-  }
-  return lines.join('\n');
+    return row;
+  });
+  const widths = headings.map((heading, column) => Math.max(heading.length, ...rows.map(row => row[column].length)));
+  const formatRow = row => row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd();
+  const lines = [summary || `${profiles.length} profiles`, '', formatRow(headings), ...rows.map(formatRow)];
+  if (profiles.some(profile => profile.active)) lines.push('', '* selected profile');
+  if (profiles.some(profile => profile.diagnostics?.probe?.code === 'not_requested')) lines.push('', 'Connection not checked (--local).');
+  if (notes.length) lines.push('', ...notes);
+  if (!details) lines.push('', 'Show users and instance URLs: jsn auth status --details');
+  return lines.join('\n') + '\n';
 }
 
 /** The same profile preferences are offered by setup and new-profile login. */
@@ -854,9 +864,11 @@ Examples:
         })
         .command({
           command: 'status',
-          describe: 'Show detailed authentication status',
+          describe: 'Show authentication status (use --details for users and instance URLs)',
           builder: sub => sub.option('local', {
             type: 'boolean', describe: 'Show saved credential state without contacting any instance',
+          }).option('details', {
+            type: 'boolean', describe: 'Include users and instance URLs in status output',
           }),
           handler: wrap(async (argv, app) => {
             const configuredDefault = app.config.profiles?.[app.config.defaultProfile];
@@ -965,7 +977,11 @@ Examples:
             const summary = `${profiles.length} ${profiles.length === 1 ? 'profile' : 'profiles'}`;
             // Ship the styled view as _formatted (see renderAuthStatus); the
             // OutputWriter prints it verbatim and suppresses the summary.
-            result._formatted = renderAuthStatus(result, summary);
+            result._formatted = renderAuthStatus(result, summary, { details: argv.details === true });
+            if (!argv.details) {
+              delete result.default_instance;
+              result.profiles = profiles.map(({ instance: _instance, username: _username, verified_as: _verifiedAs, ...visible }) => visible);
+            }
             app.ok(result, { summary });
 
             // Warn about legacy credentials that need re-authentication

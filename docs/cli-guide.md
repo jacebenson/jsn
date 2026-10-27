@@ -488,7 +488,7 @@ Switch between instances without re-authenticating.
 
 ```bash
 jsn setup                    # Interactive: add, switch, remove, or modify instances
-jsn auth status              # Dashboard — auth state, read-only 🔒, skip-confirmations ⚡
+jsn auth status              # Compact profile status table
 ```
 
 `jsn setup` is the human front door — one command, interactive menu. For scripts and CI, use the atomic commands:
@@ -513,11 +513,15 @@ jsn auth modify dev12345                          # Toggle read-only / skip conf
 
 ## Authentication
 
-`jsn auth status` shows each profile's account, method, credential state,
+`jsn auth status` shows a compact table of profiles, methods, credential state,
 connection verification, and read-only/delete-confirmation/count settings.
-The selected and default profiles are labeled explicitly. Use
-`jsn --profile <name> auth status` to focus on one account, or add `--local`
-to inspect saved state without contacting any instance.
+The selected and default profiles are labeled explicitly. Usernames and
+instance URLs are hidden by default, including in JSON; add `--details` to
+include the **User** and **Instance** columns and their JSON fields. Use
+`jsn --profile <name> auth status` to focus on one profile, or add `--local`
+to inspect saved state without contacting any instance. Scripts extracting
+`default_instance`, `profiles.*.instance`, `username`, or `verified_as` must
+include `--details`.
 
 When `jsn auth login <instance>` creates a profile interactively, it offers the
 same read-only, delete-confirmation, and result-count options as setup. Scripts

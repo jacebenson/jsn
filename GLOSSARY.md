@@ -72,6 +72,14 @@ that does not launch or close the user's existing browser.
 Browser import is a credential acquisition path, not a fourth auth method;
 Firefox and normal-profile browser integration remain future work.
 
+## Authentication status
+
+A status report separates saved credential availability from live connection
+verification. Its default table and machine output omit user identity and
+instance URLs; `auth status --details` explicitly reveals those fields, with
+**User** as the identity column label. `--local` reports saved metadata without
+an instance request. Profile names remain visible as selection identifiers.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as
