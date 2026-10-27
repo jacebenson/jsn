@@ -25,6 +25,18 @@ OAuth, Basic Auth, and GCK are separate methods:
 
 For an explicitly configured profile, the configured method is authoritative. Conflicting environment credentials and stored credentials are unavailable or rejected rather than used as an implicit fallback. Unconfigured, legacy usage retains the documented environment precedence for compatibility.
 
+## Browser import verifies the selected account
+
+`auth login --browser` is an experimental acquisition path for GCK credentials.
+It connects to a user-selected loopback Chromium debugging endpoint, selects
+one exact-origin tab, and reads `g_ck` plus cookies applicable to the instance's
+current-user API. Missing tokens, multiple matching tabs, and origin changes
+fail before persistence. The account is verified with a bounded current-user
+GET that rejects redirects. Import requires a returned username and rejects
+an account that differs from an existing profile's username. Setup persists
+the verified username, and reauthentication preserves profile safety settings.
+Browser debugging responses and credentials are never printed.
+
 ## Diagnostics are read-only
 
 `auth status` uses safe metadata and a read-only current-user probe. It does not refresh tokens, update `last_seen`, migrate credentials, or persist credentials. JSON diagnostics contain method, source, state, and probe classification only; access tokens, refresh tokens, passwords, cookies, and browser-session headers are never serialized.

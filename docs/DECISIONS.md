@@ -1,5 +1,16 @@
 # JSN decisions
 
+## Browser import uses an explicit local DevTools connection
+
+The first browser-session import supports Chrome/Chromium through a loopback
+debugging endpoint selected by `auth login --browser [--browser-url URL]`.
+It reads one exact-origin tab and API-scoped cookies, then verifies the current
+user before saving via AuthManager. It rejects ambiguous tabs and account
+mismatches. No browser databases, decryption helpers, dependencies, automatic
+browser restarts, or background session renewal are introduced. Imported
+credentials remain `gck`, so transport and storage use the existing auth path.
+Firefox and automatic discovery need separate adapters and live validation.
+
 ## The capability registry is authoritative
 
 Command safety capabilities live in `src/capabilities.js`. Middleware derives mutation and daily-check behavior from that registry. New commands must declare their capabilities instead of adding names to separate lists.

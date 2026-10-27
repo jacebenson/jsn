@@ -812,27 +812,50 @@ export class AuthManager {
    * The PKCE state must have been saved by an earlier buildAuthURL() call.
    */
   async loginWithGck(instanceURL, input, username = this._activeUsername()) {
+    return this._loginWithBrowserSession(instanceURL, parseBrowserSessionInput(input), username);
+  }
+
+  async loginWithBrowser(instanceURL, options = {}, username = this._activeUsername()) {
+    const { readBrowserSession } = await import('./browser-auth.js');
+    const creds = await readBrowserSession(instanceURL, options);
+    return this._loginWithBrowserSession(instanceURL, creds, username, { requireIdentity: true });
+  }
+
+  async _loginWithBrowserSession(instanceURL, creds, username, { requireIdentity = false } = {}) {
     instanceURL = normalizeInstanceURL(instanceURL);
-    const creds = parseBrowserSessionInput(input);
+    const query = new URLSearchParams({
+      sysparm_limit: '1',
+      sysparm_fields: 'user_name',
+      sysparm_query: 'user_name=javascript:gs.getUserName()',
+    });
     let response;
     try {
-      response = await fetch(`${instanceURL}/api/now/table/sys_user?sysparm_limit=1`, {
+      response = await fetch(`${instanceURL}/api/now/table/sys_user?${query}`, {
         method: 'GET',
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.httpClient.timeout),
         headers: {
           Accept: 'application/json',
           'X-UserToken': creds.access_token,
           Cookie: creds.cookies,
         },
       });
-    } catch (error) {
-      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck (${error.message})`);
+    } catch {
+      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry browser-session login.`);
     }
     if (!response.ok) {
       throw errAuth(`Browser session rejected by ${instanceURL} (HTTP ${response.status}). Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck`);
     }
-    const body = await response.json();
+    let body;
+    try { body = await response.json(); } catch { throw errAuth('Browser session verification did not return JSON. Nothing was saved.'); }
     const user = body?.result?.[0];
     const verifiedUsername = typeof user?.user_name === 'string' ? user.user_name : username;
+    if (requireIdentity && (!user?.user_name || typeof user.user_name !== 'string')) {
+      throw errAuth('Could not verify the browser account. Nothing was saved. Check current-user API access.');
+    }
+    if (requireIdentity && username && username !== verifiedUsername) {
+      throw errAuth('The browser account does not match the selected profile. Nothing was saved. Use the matching account or create a new profile.');
+    }
     this.saveCredentials(instanceURL, { ...creds, username: verifiedUsername || undefined }, verifiedUsername || undefined);
     return { ...creds, username: verifiedUsername || undefined };
   }

@@ -522,6 +522,42 @@ jsn auth login https://dev12345.service-now.com
 For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
 
+### Import a Chrome/Chromium session (experimental)
+
+Start a separate Chromium session with a local debugging port and sign into
+your instance in that window. For example, on Linux:
+
+```bash
+chromium --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir="$HOME/.config/jsn-chromium"
+```
+
+Chrome requires a non-default user data directory for remote debugging
+([Chrome documentation](https://developer.chrome.com/blog/remote-debugging-port)).
+The debugging port grants access to that browser profile; keep it local and
+close this browser session when finished. JSN connects only when requested;
+it does not restart your browser or read browser profile databases.
+
+Keep one tab open for the instance, with a logged-in application page, then run:
+
+```bash
+jsn auth login dev12345 --browser
+jsn auth login --profile limited --browser --browser-url http://127.0.0.1:9222
+```
+
+In `jsn setup`, choose **Browser session**, then **connect** as the session
+source. JSN reads the page's user token and cookies for that instance's API,
+verifies the current account, and saves ordinary browser-session (`gck`)
+credentials. Verification requires access to the current user's `sys_user`
+record through the Table API. An existing profile's username must match the
+browser account. Import fails without saving if verification fails or multiple
+tabs match; close extra matching tabs and retry.
+
+When the session expires, sign in again in this browser and rerun the same
+`auth login --browser` command. This is a manual reimport; it does not watch the
+browser or automatically renew a session. Pages without a readable `g_ck` need
+the existing `--gck` paste flow. Firefox support and browser discovery are not
+implemented in this draft.
+
 For CI/CD, set environment variables:
 
 ```bash

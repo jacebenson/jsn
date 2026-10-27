@@ -107,7 +107,7 @@ export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '', target
 }
 
 export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '', targetProfile = null) {
-  if (argv.gck || argv.headers) return true;
+  if (argv.gck || argv.headers || argv.browser) return true;
   if (targetProfile) return targetProfile.auth_method === 'gck';
   return Object.values(cfg.profiles || {}).some(profile =>
     profile.instance_url === instanceURL && profile.auth_method === 'gck'
@@ -116,7 +116,13 @@ export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '', targetPr
 
 export function validateLoginSelectors(argv = {}, targetProfile = null) {
   const basic = argv.basic === true || argv.password === true;
-  const gck = argv.gck === true || argv.headers !== undefined;
+  const gck = argv.gck === true || argv.headers !== undefined || argv.browser === true;
+  if (argv.browserUrl !== undefined && !argv.browser) {
+    throw errUsage('--browser-url requires --browser.');
+  }
+  if (argv.browser && (argv.headers !== undefined || argv.code !== undefined || argv.printUrl || argv.waitFile)) {
+    throw errUsage('--browser cannot be combined with --headers, --code, --print-url, or --wait-file.');
+  }
   if (basic && gck) {
     throw errUsage('Basic and browser-session selectors are mutually exclusive; choose --basic/--password or --gck/--headers.');
   }
@@ -250,7 +256,7 @@ export async function loginWizard(app, argv = {}) {
     profile.skip_confirmations = true;
   }
 
-  const authMethod = await ask('Authentication method (OAuth/Basic/Browser session) [OAuth]: ');
+  const authMethod = argv.browser ? 'browser' : await ask('Authentication method (OAuth/Basic/Browser session) [OAuth]: ');
   const useGck = authMethod.toLowerCase().startsWith('g') || authMethod.toLowerCase().startsWith('browser');
   const useBasic = !useGck && authMethod.toLowerCase().startsWith('b');
 
@@ -270,9 +276,18 @@ export async function loginWizard(app, argv = {}) {
     profile.username = username;
     profile.auth_method = 'basic';
   } else if (useGck) {
-    rl.close();
-    const input = await readBrowserSessionInput();
-    await app.auth.loginWithGck(instance, input);
+    const source = argv.browser ? 'connect' : await ask('Browser session source (paste/connect) [paste]: ');
+    let credentials;
+    if (source.trim().toLowerCase().startsWith('c')) {
+      const browserUrl = argv.browserUrl ?? await ask('Local browser debugging URL [http://127.0.0.1:9222]: ');
+      rl.close();
+      credentials = await app.auth.loginWithBrowser(instance, { browserUrl: browserUrl || undefined }, null);
+    } else {
+      rl.close();
+      const input = await readBrowserSessionInput();
+      credentials = await app.auth.loginWithGck(instance, input, null);
+    }
+    profile.username = credentials?.username;
     profile.auth_method = 'gck';
     loggedIn = true;
   } else {
@@ -548,7 +563,7 @@ function canLogoutBareProfile(app, instance, target, explicitlySelected) {
 export function authCmd(wrap) {
   return {
     command: 'auth [subcommand]',
-    describe: 'Manage authentication (OAuth or Basic Auth)',
+    describe: 'Manage authentication (OAuth, Basic, or browser session)',
     builder: (yargs) => {
       return yargs
         .command({
@@ -572,6 +587,14 @@ export function authCmd(wrap) {
               describe: 'Browser request headers or cURL command for browser-session auth',
               type: 'string',
             })
+            .option('browser', {
+              describe: 'Import a browser session from a matching Chrome/Chromium tab via local remote debugging',
+              type: 'boolean',
+            })
+            .option('browser-url', {
+              describe: 'Local Chromium debugging URL (requires --browser; default http://127.0.0.1:9222)',
+              type: 'string',
+            })
             .option('print-url', {
               describe: 'Print the OAuth URL and exit (saves PKCE state for --code)',
               type: 'boolean',
@@ -583,18 +606,17 @@ export function authCmd(wrap) {
             .option('read-only', {
               describe: 'Mark the created profile as read-only (blocks mutation commands)',
               type: 'boolean',
-              default: false,
             })
             .option('skip-confirmations', {
               describe: 'Skip delete confirmations on this profile (deletes run without prompting)',
               type: 'boolean',
-              default: false,
             })
             .option('include-counts', {
               describe: 'Include result totals on list commands (default on; pass --no-include-counts to opt out)',
               type: 'boolean',
             }),
           handler: wrap(async (argv, app) => {
+            validateLoginSelectors(argv);
             let instanceURL;
             if (argv.profile) {
               const namedProfile = app.config.profiles?.[argv.profile];
@@ -651,8 +673,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
             if (useGck) {
-              const input = argv.headers || await readBrowserSessionInput();
-              const credentials = await app.auth.loginWithGck(instanceURL, input, targetUsername || undefined);
+              const credentials = argv.browser
+                ? await app.auth.loginWithBrowser(instanceURL, { browserUrl: argv.browserUrl }, targetUsername || undefined)
+                : await app.auth.loginWithGck(instanceURL, argv.headers || await readBrowserSessionInput(), targetUsername || undefined);
               targetUsername = credentials?.username || targetUsername;
             } else if (useBasic) {
               const credentials = await app.auth.loginWithPassword(instanceURL, targetUsername || undefined);
@@ -737,9 +760,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               instance_url: instanceURL,
               auth_method: useGck ? 'gck' : useBasic ? 'basic' : 'oauth',
               username: username || undefined,
-              read_only: argv['read-only'] || undefined,
-              skip_confirmations: argv['skip-confirmations'] || undefined,
-              include_counts: argv['include-counts'] === true ? true : argv['include-counts'] === false ? false : undefined,
+              read_only: (argv['read-only'] ?? targetProfile?.read_only) || undefined,
+              skip_confirmations: (argv['skip-confirmations'] ?? targetProfile?.skip_confirmations) || undefined,
+              include_counts: argv['include-counts'] ?? targetProfile?.include_counts,
             };
 
             // Re-save OAuth credentials with username now that we have it,
