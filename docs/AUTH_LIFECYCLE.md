@@ -28,7 +28,13 @@ For an explicitly configured profile, the configured method is authoritative. Co
 ## Browser import verifies the selected account
 
 `auth login --browser` is an experimental acquisition path for GCK credentials.
-It connects to a user-selected loopback Chromium debugging endpoint, selects
+It normally launches a chosen installed Chromium-family browser with a fresh
+temporary profile, assigns a loopback debugging port automatically, and waits
+up to five minutes for login. Guest sessions do not complete login. Setup asks
+for the installed browser choice without debugging details. The owned browser
+and temporary directory are cleaned up on success, cancellation, and failure.
+`--browser-url` connects to an existing browser as an advanced alternative.
+The import selects
 one exact-origin tab, and reads `g_ck` plus cookies applicable to the instance's
 current-user API. Missing tokens, multiple matching tabs, and origin changes
 fail before persistence. The account is verified with a bounded current-user

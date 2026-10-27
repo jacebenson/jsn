@@ -522,41 +522,55 @@ jsn auth login https://dev12345.service-now.com
 For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
 
-### Import a Chrome/Chromium session (experimental)
+### Log in using a browser (experimental)
 
-Start a separate Chromium session with a local debugging port and sign into
-your instance in that window. For example, on Linux:
+Run `jsn setup`, enter the instance and profile name, and choose **Browser
+session**. Choose an installed browser when prompted, then sign in in the
+window JSN opens. JSN continues automatically after verifying your account.
+There are no debugging-port or request-header prompts.
 
-```bash
-chromium --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir="$HOME/.config/jsn-chromium"
-```
-
-Chrome requires a non-default user data directory for remote debugging
-([Chrome documentation](https://developer.chrome.com/blog/remote-debugging-port)).
-The debugging port grants access to that browser profile; keep it local and
-close this browser session when finished. JSN connects only when requested;
-it does not restart your browser or read browser profile databases.
-
-Keep one tab open for the instance, with a logged-in application page, then run:
+The direct command is:
 
 ```bash
 jsn auth login dev12345 --browser
-jsn auth login --profile limited --browser --browser-url http://127.0.0.1:9222
+jsn auth login dev12345 --browser --browser-name chromium
 ```
 
-In `jsn setup`, choose **Browser session**, then **connect** as the session
-source. JSN reads the page's user token and cookies for that instance's API,
-verifies the current account, and saves ordinary browser-session (`gck`)
-credentials. Verification requires access to the current user's `sys_user`
-record through the Table API. An existing profile's username must match the
-browser account. Import fails without saving if verification fails or multiple
-tabs match; close extra matching tabs and retry.
+Installed Chromium, Chrome, and Edge are detected. Chromium is the first
+validated launch integration; Firefox is not supported yet. `--browser-name`
+accepts `chromium`, `chrome`, or `edge`; without it, interactive login offers
+installed browsers and noninteractive login selects the first available one.
 
-When the session expires, sign in again in this browser and rerun the same
-`auth login --browser` command. This is a manual reimport; it does not watch the
-browser or automatically renew a session. Pages without a readable `g_ck` need
-the existing `--gck` paste flow. Firefox support and browser discovery are not
-implemented in this draft.
+JSN opens a fresh, temporary login window, so another window's account is not
+silently reused. Finish signing in within five minutes. JSN verifies access to
+the current user's `sys_user` record, saves standard GCK credentials, then
+closes its login window and removes its temporary browser profile. Press Ctrl+C
+or close the login window to cancel. Your normal browser windows stay open.
+An existing profile's username must match the browser account.
+
+When the session expires, log in again:
+
+```bash
+jsn auth login --profile limited --browser
+```
+
+Bare `auth login` on an existing GCK profile also launches browser login.
+Pages without a readable `g_ck` still need the explicit `--gck` paste flow.
+Login is explicit; JSN does not renew browser sessions in the background.
+
+For an already configured local debugging browser, the advanced connection
+path remains available without launching or closing that browser:
+
+```bash
+jsn auth login dev12345 --browser --browser-url http://127.0.0.1:9222
+```
+
+That endpoint must be loopback-only. Chrome requires a non-default browser data
+directory for this connection
+([Chrome documentation](https://developer.chrome.com/blog/remote-debugging-port)).
+Keep one logged-in application tab open for the instance; multiple matching
+tabs are rejected. The debugging connection grants access to that browser
+profile, so close it when finished.
 
 For CI/CD, set environment variables:
 

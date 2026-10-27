@@ -59,14 +59,18 @@ excludes that row. Display labels and other skip reasons are not equivalent evid
 
 ## Browser session import
 
-An explicit `auth login --browser` operation reads a single exact-instance
-Chrome/Chromium tab through a loopback DevTools connection. It obtains the
+An explicit `auth login --browser` operation launches a chosen installed
+Chromium-family browser with a fresh temporary profile and waits for login.
+Its loopback DevTools port is assigned automatically. It obtains the
 page's `g_ck` and only cookies applicable to the current-user API URL, verifies
 the current account, and persists standard `gck` credentials. It never chooses
 between multiple matching tabs or imports a different account into an existing
 named identity. Import is also available in setup's browser-session flow.
+The login browser is closed and its temporary profile removed after completion,
+cancellation, or failure. `--browser-url` retains an advanced connection path
+that does not launch or close the user's existing browser.
 Browser import is a credential acquisition path, not a fourth auth method;
-Firefox discovery and normal-profile browser integration remain future work.
+Firefox and normal-profile browser integration remain future work.
 
 ## Command
 

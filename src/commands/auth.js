@@ -120,6 +120,9 @@ export function validateLoginSelectors(argv = {}, targetProfile = null) {
   if (argv.browserUrl !== undefined && !argv.browser) {
     throw errUsage('--browser-url requires --browser.');
   }
+  if (argv.browserName !== undefined && (!argv.browser || argv.browserUrl !== undefined)) {
+    throw errUsage('--browser-name requires --browser and cannot be combined with --browser-url.');
+  }
   if (argv.browser && (argv.headers !== undefined || argv.code !== undefined || argv.printUrl || argv.waitFile)) {
     throw errUsage('--browser cannot be combined with --headers, --code, --print-url, or --wait-file.');
   }
@@ -132,6 +135,16 @@ export function validateLoginSelectors(argv = {}, targetProfile = null) {
   if (gck && targetProfile?.auth_method === 'basic') {
     throw errUsage('This profile is configured for basic authentication; use --basic/--password or change the profile method.');
   }
+}
+
+export async function loginUsingBrowser(app, instance, argv = {}, username) {
+  if (argv.browserUrl) return app.auth.loginWithBrowser(instance, { browserUrl: argv.browserUrl }, username);
+  const { chooseBrowser } = await import('../browser-launch.js');
+  const browser = await chooseBrowser({ browserName: argv.browserName, interactive: canUsePicker(app, argv) });
+  return app.auth.loginWithBrowser(instance, {
+    launch: true, browser,
+    onProgress: message => process.stderr.write(`${message}\n`),
+  }, username);
 }
 
 /**
@@ -276,17 +289,8 @@ export async function loginWizard(app, argv = {}) {
     profile.username = username;
     profile.auth_method = 'basic';
   } else if (useGck) {
-    const source = argv.browser ? 'connect' : await ask('Browser session source (paste/connect) [paste]: ');
-    let credentials;
-    if (source.trim().toLowerCase().startsWith('c')) {
-      const browserUrl = argv.browserUrl ?? await ask('Local browser debugging URL [http://127.0.0.1:9222]: ');
-      rl.close();
-      credentials = await app.auth.loginWithBrowser(instance, { browserUrl: browserUrl || undefined }, null);
-    } else {
-      rl.close();
-      const input = await readBrowserSessionInput();
-      credentials = await app.auth.loginWithGck(instance, input, null);
-    }
+    rl.close();
+    const credentials = await loginUsingBrowser(app, instance, argv, null);
     profile.username = credentials?.username;
     profile.auth_method = 'gck';
     loggedIn = true;
@@ -588,11 +592,15 @@ export function authCmd(wrap) {
               type: 'string',
             })
             .option('browser', {
-              describe: 'Import a browser session from a matching Chrome/Chromium tab via local remote debugging',
+              describe: 'Open a browser and wait for you to log in to ServiceNow',
               type: 'boolean',
             })
+            .option('browser-name', {
+              describe: 'Browser to launch: chromium, chrome, or edge (otherwise choose an installed browser)',
+              type: 'string',
+            })
             .option('browser-url', {
-              describe: 'Local Chromium debugging URL (requires --browser; default http://127.0.0.1:9222)',
+              describe: 'Advanced: connect to an existing local debugging URL instead of launching (requires --browser)',
               type: 'string',
             })
             .option('print-url', {
@@ -673,8 +681,8 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             // --basic (with --password as a compatibility alias): authenticate
             // with basic auth from env vars and persist it for this profile.
             if (useGck) {
-              const credentials = argv.browser
-                ? await app.auth.loginWithBrowser(instanceURL, { browserUrl: argv.browserUrl }, targetUsername || undefined)
+              const credentials = (argv.browser || (!argv.gck && !argv.headers))
+                ? await loginUsingBrowser(app, instanceURL, argv, targetUsername || undefined)
                 : await app.auth.loginWithGck(instanceURL, argv.headers || await readBrowserSessionInput(), targetUsername || undefined);
               targetUsername = credentials?.username || targetUsername;
             } else if (useBasic) {

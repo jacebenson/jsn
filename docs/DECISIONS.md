@@ -1,15 +1,20 @@
 # JSN decisions
 
-## Browser import uses an explicit local DevTools connection
+## Browser login launches an isolated browser and manages its connection
 
-The first browser-session import supports Chrome/Chromium through a loopback
-debugging endpoint selected by `auth login --browser [--browser-url URL]`.
+Browser-session login launches a detected Chrome/Chromium-family browser with a
+fresh temporary user directory and an OS-assigned loopback debugging port.
+Setup asks only for the browser choice; JSN waits for login and then closes its
+own browser and removes the directory. Browser selection supports installed
+Chromium, Chrome, and Edge, with Chromium the first implemented/tested adapter.
+`--browser-url` retains explicit advanced connection support.
 It reads one exact-origin tab and API-scoped cookies, then verifies the current
 user before saving via AuthManager. It rejects ambiguous tabs and account
 mismatches. No browser databases, decryption helpers, dependencies, automatic
 browser restarts, or background session renewal are introduced. Imported
 credentials remain `gck`, so transport and storage use the existing auth path.
-Firefox and automatic discovery need separate adapters and live validation.
+Firefox needs a separate adapter; macOS, Windows, Chrome, and Edge still need
+live validation of platform browser discovery and launch.
 
 ## The capability registry is authoritative
 

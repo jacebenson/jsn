@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { password as passwordPrompt } from '@inquirer/prompts';
 import { globalConfigDir, normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
+import { pendingBrowserLogin } from './browser-auth.js';
 
 // ─── Credential key helpers ───
 
@@ -816,12 +817,27 @@ export class AuthManager {
   }
 
   async loginWithBrowser(instanceURL, options = {}, username = this._activeUsername()) {
+    if (options.launch) {
+      const { launchBrowserSession } = await import('./browser-launch.js');
+      const credentials = await launchBrowserSession(instanceURL, {
+        ...options,
+        verify: (creds, verification) => this._verifyBrowserSession(instanceURL, creds, username, { ...verification, requireIdentity: true }),
+      });
+      this.saveCredentials(normalizeInstanceURL(instanceURL), credentials, credentials.username);
+      return credentials;
+    }
     const { readBrowserSession } = await import('./browser-auth.js');
     const creds = await readBrowserSession(instanceURL, options);
     return this._loginWithBrowserSession(instanceURL, creds, username, { requireIdentity: true });
   }
 
   async _loginWithBrowserSession(instanceURL, creds, username, { requireIdentity = false } = {}) {
+    const credentials = await this._verifyBrowserSession(instanceURL, creds, username, { requireIdentity });
+    this.saveCredentials(normalizeInstanceURL(instanceURL), credentials, credentials.username);
+    return credentials;
+  }
+
+  async _verifyBrowserSession(instanceURL, creds, username, { requireIdentity = false, signal, timeout = this.httpClient.timeout } = {}) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const query = new URLSearchParams({
       sysparm_limit: '1',
@@ -833,7 +849,7 @@ export class AuthManager {
       response = await fetch(`${instanceURL}/api/now/table/sys_user?${query}`, {
         method: 'GET',
         redirect: 'error',
-        signal: AbortSignal.timeout(this.httpClient.timeout),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
         headers: {
           Accept: 'application/json',
           'X-UserToken': creds.access_token,
@@ -844,19 +860,22 @@ export class AuthManager {
       throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry browser-session login.`);
     }
     if (!response.ok) {
+      if (requireIdentity && [401, 403].includes(response.status)) {
+        throw pendingBrowserLogin('The session is not authorized for current-user verification. Finish signing in, or check current-user API access.');
+      }
       throw errAuth(`Browser session rejected by ${instanceURL} (HTTP ${response.status}). Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck`);
     }
     let body;
     try { body = await response.json(); } catch { throw errAuth('Browser session verification did not return JSON. Nothing was saved.'); }
     const user = body?.result?.[0];
     const verifiedUsername = typeof user?.user_name === 'string' ? user.user_name : username;
+    if (requireIdentity && verifiedUsername === 'guest') throw pendingBrowserLogin('Waiting for browser login.');
     if (requireIdentity && (!user?.user_name || typeof user.user_name !== 'string')) {
-      throw errAuth('Could not verify the browser account. Nothing was saved. Check current-user API access.');
+      throw pendingBrowserLogin('Could not verify the browser account. Nothing was saved. Check current-user API access.');
     }
     if (requireIdentity && username && username !== verifiedUsername) {
       throw errAuth('The browser account does not match the selected profile. Nothing was saved. Use the matching account or create a new profile.');
     }
-    this.saveCredentials(instanceURL, { ...creds, username: verifiedUsername || undefined }, verifiedUsername || undefined);
     return { ...creds, username: verifiedUsername || undefined };
   }
 
