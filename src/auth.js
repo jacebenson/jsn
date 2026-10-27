@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { password as passwordPrompt } from '@inquirer/prompts';
+import { password as passwordPrompt } from './prompts.js';
 import { globalConfigDir, normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
 import { pendingBrowserLogin } from './browser-auth.js';

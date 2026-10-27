@@ -663,3 +663,5 @@ Releases run from the GitHub Actions workflow. Dispatch `Release production` wit
 ## License
 
 MIT
+
+Auth and setup prompts show **Esc to cancel**. Press Esc to leave the current workflow without accepting the highlighted choice. `jsn auth status` includes hints for switching profiles, renewing OAuth/browser sessions, and changing profile settings.

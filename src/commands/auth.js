@@ -77,7 +77,7 @@ export function profileSettingValues(argv = {}) {
 /** The same profile preferences are offered by setup and new-profile login. */
 export async function configureProfileOptions(profile, argv = {}, { interactive = false, confirm } = {}) {
   argv = profileSettingValues(argv);
-  if (interactive && !confirm) ({ confirm } = await import('@inquirer/prompts'));
+  if (interactive && !confirm) ({ confirm } = await import('../prompts.js'));
   const settings = [
     ['read_only', 'read-only', 'Read-only profile (blocks mutation commands)?', false],
     ['skip_confirmations', 'skip-confirmations', 'Confirm before deleting records?', false],
@@ -202,7 +202,7 @@ export async function loginUsingBrowser(app, instance, argv = {}, username) {
  * never opens a picker; it falls back to the single/default profile.
  */
 export async function pickProfile(app, message, argv = {}) {
-  const { search } = await import('@inquirer/prompts');
+  const { search } = await import('../prompts.js');
   const profileNames = Object.keys(app.config.profiles || {});
   if (profileNames.length === 0) throw errUsage('No profiles configured. Run "jsn setup" first.');
   if (argv.name || argv.profile) {
@@ -280,7 +280,7 @@ export async function readBrowserSessionInput() {
 
 /** Collect human answers, then call the same login operation as auth login. */
 export async function loginWizard(app, argv = {}) {
-  const { input, select, confirm, password } = await import('@inquirer/prompts');
+  const { input, select, confirm, password } = await import('../prompts.js');
   const explicitInstance = resolveWizardInstance(app, argv);
   const instance = resolveInstanceArg(explicitInstance || await input({
     message: 'ServiceNow instance name or URL:',
@@ -330,7 +330,7 @@ function suggestedProfileName(instance) {
  * Returns { addNew: true, instanceName } or { addNew: false, name }.
  */
 async function pickLoginTarget(app) {
-  const { search, input } = await import('@inquirer/prompts');
+  const { search, input } = await import('../prompts.js');
   const ADD_NEW = '__add_new__';
   const profileNames = Object.keys(app.config.profiles || {});
   let lastInput = '';
@@ -423,7 +423,7 @@ export async function modifyProfile(app, argv = {}) {
   let picked = false;
   if (!flag) {
     if (!canUsePicker(app, argv)) throw errUsageHint('Specify the settings to change when noninteractive.', 'Use --read-only, --no-include-counts, or --confirm-deletes.');
-    const { select } = await import('@inquirer/prompts');
+    const { select } = await import('../prompts.js');
     const choices = PROFILE_FLAGS.map(f => ({
       name: `${f.icon} ${f.name}: ${(f.value === 'include_counts' ? profile[f.value] !== false : f.value === 'skip_confirmations' ? !profile[f.value] : profile[f.value]) ? 'on' : 'off'}`,
       value: f.value,
@@ -448,7 +448,7 @@ export async function modifyProfile(app, argv = {}) {
       if (!installed) {
         throw new Error(`Domain separation is not installed on ${profile.instance_url}`);
       }
-      const { confirm } = await import('@inquirer/prompts');
+      const { confirm } = await import('../prompts.js');
       const clear = profile.domain
         ? await confirm({ message: `Domain is set. Clear it?`, default: false })
         : false;
@@ -470,7 +470,7 @@ export async function modifyProfile(app, argv = {}) {
 
   if (picked) {
     const setting = { read_only: 'read-only', skip_confirmations: 'confirm-deletes', include_counts: 'include-counts' }[flag];
-    const { confirm } = await import('@inquirer/prompts');
+    const { confirm } = await import('../prompts.js');
     const value = await confirm({
       message: { read_only: 'Read-only profile (blocks mutation commands)?', skip_confirmations: 'Confirm before deleting records?', include_counts: 'Include result totals on list commands?' }[flag],
       default: flag === 'skip_confirmations' ? !profile[flag] : flag === 'include_counts' ? profile[flag] !== false : !!profile[flag],
@@ -600,7 +600,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   });
   let setDefault = argv.makeDefault === true;
   if (!targetProfile && argv.makeDefault === undefined && interactive && !preliminary) {
-    const { confirm } = await import('@inquirer/prompts');
+    const { confirm } = await import('../prompts.js');
     setDefault = await confirm({ message: 'Use this profile by default?', default: !app.config.defaultProfile });
   }
   // --basic (with --password as a compatibility alias): authenticate
@@ -618,7 +618,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
         : await app.auth.loginWithPassword(instanceURL, targetUsername || null);
     } catch (error) {
       if (!interactive || argv._basicCredentials || error.code !== 'auth_error') throw error;
-      const { input, password } = await import('@inquirer/prompts');
+      const { input, password } = await import('../prompts.js');
       const username = targetUsername || await input({ message: 'Username:', validate: value => value.trim() ? true : 'A username is required' });
       credentials = await app.auth.loginWithPassword(instanceURL, targetUsername || null, {
         username, password: await password({ message: 'Password:' }),
@@ -725,10 +725,13 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
         ? app.getSDKForProfile(instanceURL, { profile, authMethod: profile.auth_method, username: profile.username }) : app.sdk;
       profile.domain_separation = await domains.isDomainSeparationInstalled({ sdk });
       if (profile.domain_separation) {
-        const { confirm } = await import('@inquirer/prompts');
+        const { confirm } = await import('../prompts.js');
         if (await confirm({ message: 'Configure a default domain?', default: false })) profile.domain = await domains.pickDomain({ ...app, sdk });
       }
-    } catch { /* Capability discovery remains best-effort, as in setup. */ }
+    } catch (error) {
+      if (error.name === 'PromptCancelled') throw error;
+      // Capability discovery remains best-effort, as in setup.
+    }
   }
 
   // Re-save OAuth credentials with username now that we have it,
@@ -918,7 +921,14 @@ export async function showAuthStatus(argv, app) {
     delete result.default_instance;
     result.profiles = profiles.map(({ instance: _instance, username: _username, verified_as: _verifiedAs, ...visible }) => visible);
   }
-  app.ok(result, { summary });
+  app.ok(result, {
+    summary,
+    breadcrumbs: [
+      { action: 'Switch profile', cmd: 'jsn auth switch <name>', description: 'Choose the default profile' },
+      { action: 'Renew session', cmd: 'jsn auth refresh --profile <name>', description: 'Refresh OAuth or sign in again in a browser' },
+      { action: 'Change settings', cmd: 'jsn auth modify --profile <name>', description: 'Read-only access, delete confirmations, and counts' },
+    ],
+  });
 
   // Warn about legacy credentials that need re-authentication
   const legacyProfiles = profiles.filter(p => p.legacy);

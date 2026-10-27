@@ -12,6 +12,7 @@ function fixture() {
     },
   });
   const output = [];
+  const options = [];
   let requests = 0;
   let constructions = 0;
   let verifiedUser = 'limited';
@@ -23,12 +24,12 @@ function fixture() {
       assert.equal(options.username, 'limited');
       return { getCurrentUser: async options => { requests++; assert.equal(options.touchLastSeen, false); return { user_name: verifiedUser }; } };
     },
-    ok: data => output.push(data),
+    ok: (data, opts) => { output.push(data); options.push(opts); },
   };
   const commands = [];
   const builder = { command: command => { commands.push(command); return builder; } };
   authCmd(fn => argv => fn(argv, app)).builder(builder);
-  return { status: commands.find(command => command.command === 'status').handler, output, counts: () => ({ requests, constructions }), setUser: user => { verifiedUser = user; } };
+  return { status: commands.find(command => command.command === 'status').handler, output, options, counts: () => ({ requests, constructions }), setUser: user => { verifiedUser = user; } };
 }
 
 it('local status hides identity and shows saved state without constructing an SDK or probing', async () => {
@@ -78,4 +79,15 @@ it('details explicitly reveals users and URLs in both the table and JSON fields'
   assert.match(output[0]._formatted, /USER\s+INSTANCE/);
   assert.match(output[0]._formatted, /limited\s+https:\/\/fixture\.service-now\.com/);
   assert.doesNotMatch(output[0]._formatted, /ACCOUNT/);
+});
+
+it('status suggests switching, renewing, and editing a profile without identity details', async () => {
+  const { status, options } = fixture();
+  await status({ local: true });
+  assert.deepEqual(options[0].breadcrumbs.map(hint => hint.cmd), [
+    'jsn auth switch <name>',
+    'jsn auth refresh --profile <name>',
+    'jsn auth modify --profile <name>',
+  ]);
+  assert.doesNotMatch(JSON.stringify(options), /fixture.service-now.com|limited/);
 });

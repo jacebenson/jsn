@@ -219,6 +219,7 @@ function resolveJsonMode(app, argv) {
  *   text is null when the error was rendered through app.err (envelope).
  */
 export function renderAppError(err, { app = null, argv = null, identifier = '' } = {}) {
+  if (err.name === 'PromptCancelled') return { stream: 'stderr', text: 'Cancelled.\n', exitCode: 0 };
   const code = err.code || 'unknown';
 
   if (code === CodeAuth) {

@@ -63,7 +63,7 @@ export async function chooseBrowser({ browserName, interactive = false } = {}) {
   }
   if (!browsers.length) throw errUsage('No supported browser found. Install Chrome/Chromium or Edge, or use --gck to paste a browser request. Firefox login is not supported yet.');
   if (!interactive || browsers.length === 1) return browsers[0];
-  const { select } = await import('@inquirer/prompts');
+  const { select } = await import('./prompts.js');
   const selected = await select({ message: 'Log in using which browser?', choices: browsers });
   return browsers.find(browser => browser.value === selected);
 }
