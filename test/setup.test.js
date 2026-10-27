@@ -61,7 +61,7 @@ describe('dispatchSetupAction', () => {
         isInteractive: () => false,
         ok: (result, opts) => { app._lastResult = result; app._lastSummary = opts.summary; },
       };
-      await dispatchSetupAction(app, {}, 'switch');
+      await dispatchSetupAction(app, { name: 'dev' }, 'switch');
       // pickProfile with isInteractive false returns the first profile
       assert.strictEqual(app.config.activeProfile, 'dev');
       assert.strictEqual(app._lastResult.active_profile, 'dev');
@@ -83,7 +83,7 @@ describe('dispatchSetupAction', () => {
         isInteractive: () => false,
         ok: (result) => { app._lastResult = result; },
       };
-      await dispatchSetupAction(app, {}, 'switch');
+      await dispatchSetupAction(app, { name: 'dev' }, 'switch');
       // The real setActiveProfile flips both active + default
       assert.ok(app._lastResult.active_profile);
     });

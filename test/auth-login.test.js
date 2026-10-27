@@ -96,6 +96,33 @@ it('rejects conflicting selectors at the login command boundary before auth star
     assert.strictEqual(started, false);
   });
 
+it('imports from the selected browser endpoint and preserves profile safety settings on reauth', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const calls = [];
+    const instance = 'https://browser-import.example.com';
+    const app = {
+      ...mockApp,
+      config: { profiles: { limited: { instance_url: instance, username: 'limited', auth_method: 'gck', read_only: true, include_counts: false } } },
+      isInteractive: () => false,
+      auth: {
+        ...mockApp.auth,
+        loginWithBrowser: async (...args) => { calls.push(args); return { username: 'limited' }; },
+        loginWithGck: async () => assert.fail('must not prompt for pasted headers'),
+      },
+      sdk: { getCurrentUser: async () => ({ user_name: 'limited' }) },
+    };
+    const commands = [];
+    const builder = { command: c => { commands.push(c); return builder; } };
+    authCmd(fn => argv => fn(argv, app)).builder(builder);
+    await commands.find(c => c.command.startsWith('login')).handler({
+      profile: 'limited', browser: true, browserUrl: 'http://127.0.0.1:9333', _: ['auth', 'login'],
+    });
+    assert.deepStrictEqual(calls, [[instance, { browserUrl: 'http://127.0.0.1:9333' }, 'limited']]);
+    assert.strictEqual(app.config.profiles.limited.auth_method, 'gck');
+    assert.strictEqual(app.config.profiles.limited.read_only, true);
+    assert.strictEqual(app.config.profiles.limited.include_counts, false);
+  });
+
 it('dispatches normal browser-session login and preserves its configured method', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const calls = [];
@@ -181,7 +208,7 @@ it('explicit --profile targets that profile without invoking the interactive pic
         other: { instance_url: 'https://other-profile.example.com', auth_method: 'oauth' },
       } },
       isInteractive: () => true,
-      auth: { ...mockApp.auth, login: async (...args) => calls.push(args) },
+      auth: { ...mockApp.auth, loginWithCode: async (...args) => calls.push(args) },
       getSDKForProfile: () => ({ getCurrentUser: async () => ({ user_name: 'alice' }) }),
       sdk: null,
       ok: () => {},
@@ -193,8 +220,8 @@ it('explicit --profile targets that profile without invoking the interactive pic
       return mockYargs;
     } };
     cmd.builder(mockYargs);
-    await subcommands.find(s => s.def.startsWith('login')).handler({ app, profile: 'named', _: ['login'] });
-    assert.deepStrictEqual(calls[0], [instance, 'alice']);
+    await subcommands.find(s => s.def.startsWith('login')).handler({ app, profile: 'named', code: 'fixture-code', _: ['login'] });
+    assert.deepStrictEqual(calls[0], [instance, 'fixture-code', 'alice']);
     assert.strictEqual(app.config.profiles.named.instance_url, instance);
   });
 

@@ -10,7 +10,7 @@ import { resolveSession, applySession } from './session.js';
 import { renderHelp } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
-import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
+import { noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
@@ -320,7 +320,7 @@ export function buildCLI() {
       }
 
       // Print context header for interactive terminals
-      if (!dailySkips.has(cmd)) {
+      if (!contextHeaderSkipCommands().has(cmd)) {
         await argv.app.printContextHeader(argv);
       }
     })

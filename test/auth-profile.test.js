@@ -326,3 +326,12 @@ describe('profile targeting regressions', () => {
       assert.ok(app.config.profiles.alice);
     });
 });
+
+it('turns default-on result counts off on the first toggle', async () => {
+  const { modifyProfile } = await import('../src/commands/auth.js');
+  const app = { config: { profiles: { limited: {} } }, ok() {} };
+  await modifyProfile(app, { name: 'limited', flag: 'include_counts' });
+  assert.strictEqual(app.config.profiles.limited.include_counts, false);
+  await modifyProfile(app, { name: 'limited', flag: 'include_counts' });
+  assert.strictEqual(app.config.profiles.limited.include_counts, true);
+});

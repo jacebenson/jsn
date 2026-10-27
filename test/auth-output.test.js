@@ -37,7 +37,10 @@ export const AUTH_STATUS_FIXTURE = {
       name: 'dev',
       instance: 'https://dev.service-now.com',
       authenticated: true,
-      auth_source: 'oauth',
+      auth_source: 'keyring',
+      active: true,
+      username: 'admin',
+      diagnostics: { auth_method: 'oauth', auth_source: 'keyring', state: 'available', probe: { status: 'succeeded' } },
       verified: true,
       verified_as: 'admin',
       last_seen: 1000,
@@ -50,6 +53,9 @@ export const AUTH_STATUS_FIXTURE = {
     },
     {
       name: 'prod',
+      username: 'deployer',
+      include_counts: false,
+      diagnostics: { auth_method: 'gck', auth_source: 'unavailable', state: 'missing', probe: { status: 'not_attempted' } },
       instance: 'https://prod.service-now.com',
       authenticated: false,
       verified: false,
@@ -81,14 +87,20 @@ export const AUTH_STATUS_FIXTURE = {
   ],
 };
 
-export const AUTH_STATUS_STYLED_GOLDEN =
-  '4 profile(s)\n' +
-  '\n' +
-  '\n' +
-  '* ✓ dev — https://dev.service-now.com 🔒 ⚡ ✅\n' +
-  '  ✗ prod — https://prod.service-now.com ⚠️ (10d ago — may have been released)\n' +
-  '  ✓ https://anon.service-now.com\n' +
-  '  ✓ https://bob.service-now.com (as bob)\n';
+export const AUTH_STATUS_STYLED_GOLDEN = `4 profiles
+
+PROFILE          AUTH             CREDENTIALS  CONNECTION   ACCESS      DELETES    COUNTS
+dev * (default)  OAuth            Available    Verified     Read-only   No prompt  On
+prod             Browser session  Missing      Failed       Read/write  Confirm    Off
+Profile 3        Not configured   Available    Not checked  Read/write  Confirm    On
+Profile 4        Not configured   Available    Not checked  Read/write  Confirm    On
+
+* selected profile
+
+prod: jsn auth login --profile prod
+
+Show users and instance URLs: jsn auth status --details
+`;
 
 describe('auth status styled output (visual pin)', () => {
   it('renders the profiles envelope byte-identically via OutputWriter', async () => {
@@ -102,8 +114,8 @@ describe('auth status styled output (visual pin)', () => {
 
     // The handler ships data._formatted built by renderAuthStatus; the
     // OutputWriter then writes it verbatim (summary suppressed).
-    const data = { ...AUTH_STATUS_FIXTURE, _formatted: renderAuthStatus(AUTH_STATUS_FIXTURE, '4 profile(s)') };
-    ow.ok(data, { summary: '4 profile(s)' });
+    const data = { ...AUTH_STATUS_FIXTURE, _formatted: renderAuthStatus(AUTH_STATUS_FIXTURE, '4 profiles') };
+    ow.ok(data, { summary: '4 profiles' });
 
     assert.strictEqual(chunks.join(''), AUTH_STATUS_STYLED_GOLDEN);
   });

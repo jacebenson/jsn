@@ -14,6 +14,7 @@ import {
   mutationPaths,
   noInstanceCommands,
   dailyCheckSkipCommands,
+  contextHeaderSkipCommands,
 } from '../src/capabilities.js';
 
 describe('capabilities registry', () => {
@@ -26,8 +27,8 @@ describe('capabilities registry', () => {
     // A read-only factory command declares no mutations
     assert.deepStrictEqual(caps.get('sppages'), { mutationSubcommands: [] });
     // No-instance commands declare themselves
-    assert.deepStrictEqual(caps.get('auth'), { noInstance: true });
-    assert.deepStrictEqual(caps.get('setup'), { noInstance: true });
+    assert.deepStrictEqual(caps.get('auth'), { noInstance: true, skipContextHeader: true });
+    assert.deepStrictEqual(caps.get('setup'), { noInstance: true, skipContextHeader: true });
     assert.deepStrictEqual(caps.get('skill'), { noInstance: true, skipDailyChecks: true });
     assert.deepStrictEqual(caps.get('docs'), { noInstance: true, skipDailyChecks: true });
     // Built-ins
@@ -114,4 +115,12 @@ describe('capabilities registry', () => {
     assert.ok(has(['approvals', 'reject']));
     assert.ok(has(['approvals', 'submit']));
   });
+});
+
+it('suppresses the old instance header for auth/setup without disabling daily checks', () => {
+  for (const command of ['auth', 'setup']) {
+    assert.ok(contextHeaderSkipCommands().has(command));
+    assert.ok(!dailyCheckSkipCommands().has(command));
+  }
+  assert.ok(!contextHeaderSkipCommands().has('incidents'));
 });

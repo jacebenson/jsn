@@ -8,9 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { password as passwordPrompt } from '@inquirer/prompts';
+import { password as passwordPrompt } from './prompts.js';
 import { globalConfigDir, normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
+import { pendingBrowserLogin } from './browser-auth.js';
 
 // ─── Credential key helpers ───
 
@@ -699,7 +700,7 @@ export class AuthManager {
     if (method === 'basic' && (!resolved.username || !resolved.password)) throw errAuth('Invalid basic auth credentials');
     if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
-    if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
+    if (options.refresh !== false && resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
       if (resolved.refresh_token) return this.refreshToken(instance, resolved, credentialUsername);
       throw errAuth('Token expired, please login again');
     }
@@ -712,17 +713,17 @@ export class AuthManager {
     const pkce = generatePKCE();
     const authURL = buildAuthURL(instanceURL, clientID, pkce);
 
-    console.log();
-    console.log('Open this URL in your browser to authenticate:');
-    console.log(authURL);
-    console.log();
-    console.log('(The browser is not opened automatically — if a browser tab opens,');
-    console.log(' use the URL above if the opened page shows an error.)');
-    console.log();
+    console.error();
+    console.error('Open this URL in your browser to authenticate:');
+    console.error(authURL);
+    console.error();
+    console.error('(The browser is not opened automatically — if a browser tab opens,');
+    console.error(' use the URL above if the opened page shows an error.)');
+    console.error();
 
-    console.log('After authenticating in the browser, copy the authorization code shown on the page.');
-    console.log('(input is hidden for security — just paste and press Enter)');
-    console.log();
+    console.error('After authenticating in the browser, copy the authorization code shown on the page.');
+    console.error('(input is hidden for security — just paste and press Enter)');
+    console.error();
 
     const authCode = await askHidden('Authorization code (hidden on paste for security): ');
     const code = authCode.trim();
@@ -730,7 +731,7 @@ export class AuthManager {
       throw errAuth('Authorization code is required');
     }
 
-    console.log('\nExchanging authorization code for tokens...');
+    console.error('\nExchanging authorization code for tokens...');
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
     // Save with the selected profile username when one is already known.
     this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
@@ -751,10 +752,10 @@ export class AuthManager {
     savePKCEState(instanceURL, pkce, username);
     const url = buildAuthURL(instanceURL, clientID, pkce);
     if (waitFile) {
-      console.log(url);
-      console.log();
-      console.log(`Waiting for authorization code in file: ${waitFile}`);
-      console.log('(polling every 2 seconds — write the code to the file to complete login)');
+      console.error(url);
+      console.error();
+      console.error(`Waiting for authorization code in file: ${waitFile}`);
+      console.error('(polling every 2 seconds — write the code to the file to complete login)');
       return this._waitForCodeFile(instanceURL, clientID, pkce, waitFile, 300000, username);
     }
     return url;
@@ -764,18 +765,15 @@ export class AuthManager {
     const start = Date.now();
     const pollInterval = 2000;
     while (Date.now() - start < timeout) {
-      try {
-        const code = fs.readFileSync(filePath, 'utf-8').trim();
-        if (code) {
-          console.log(`\nAuthorization code found in ${filePath}`);
-          removePKCEState(instanceURL, username);
-          const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-          this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
-          console.log('Token exchange successful!\n');
-          return newCreds;
-        }
-      } catch {
-        // File not ready yet
+      let code = '';
+      try { code = fs.readFileSync(filePath, 'utf-8').trim(); } catch { /* File not ready yet. */ }
+      if (code) {
+        console.error(`\nAuthorization code found in ${filePath}`);
+        const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
+        removePKCEState(instanceURL, username);
+        this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
+        console.error('Token exchange successful!\n');
+        return newCreds;
       }
       await new Promise(r => setTimeout(r, pollInterval));
     }
@@ -787,11 +785,13 @@ export class AuthManager {
    * Reads SN_USERNAME/SN_PASSWORD (or SN_<INSTANCE>_USERNAME/SN_<INSTANCE>_PASSWORD).
    * Stores the basic auth credentials so they persist across sessions.
    */
-  async loginWithPassword(instanceURL, username = this._activeUsername()) {
+  async loginWithPassword(instanceURL, username = this._activeUsername(), suppliedCredentials) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const envCreds = getBasicAuthFromEnv(instanceURL);
     const storedCreds = this.loadCredentials(instanceURL, username);
-    const creds = envCreds || storedCreds;
+    const creds = suppliedCredentials
+      ? { auth_method: 'basic', ...suppliedCredentials }
+      : envCreds || storedCreds;
     if (!creds || creds.auth_method !== 'basic' || !creds.username || !creds.password) {
       throw errAuth(
         `No basic auth credentials found in environment or stored profile.\n\n` +
@@ -802,8 +802,10 @@ export class AuthManager {
         `  jsn auth login --basic ${instanceURL}`
       );
     }
+    if (username && creds.username !== username) {
+      throw errAuth('The Basic credentials do not match the selected profile user. Use matching credentials or create a new named profile.');
+    }
     this.saveCredentials(instanceURL, creds, creds.username);
-    console.log(`✓ Basic auth credentials saved for ${instanceURL}`);
     return creds;
   }
 
@@ -812,28 +814,69 @@ export class AuthManager {
    * The PKCE state must have been saved by an earlier buildAuthURL() call.
    */
   async loginWithGck(instanceURL, input, username = this._activeUsername()) {
+    return this._loginWithBrowserSession(instanceURL, parseBrowserSessionInput(input), username);
+  }
+
+  async loginWithBrowser(instanceURL, options = {}, username = this._activeUsername()) {
+    if (options.launch) {
+      const { launchBrowserSession } = await import('./browser-launch.js');
+      const credentials = await launchBrowserSession(instanceURL, {
+        ...options,
+        verify: (creds, verification) => this._verifyBrowserSession(instanceURL, creds, username, { ...verification, requireIdentity: true }),
+      });
+      this.saveCredentials(normalizeInstanceURL(instanceURL), credentials, credentials.username);
+      return credentials;
+    }
+    const { readBrowserSession } = await import('./browser-auth.js');
+    const creds = await readBrowserSession(instanceURL, options);
+    return this._loginWithBrowserSession(instanceURL, creds, username, { requireIdentity: true });
+  }
+
+  async _loginWithBrowserSession(instanceURL, creds, username, { requireIdentity = false } = {}) {
+    const credentials = await this._verifyBrowserSession(instanceURL, creds, username, { requireIdentity });
+    this.saveCredentials(normalizeInstanceURL(instanceURL), credentials, credentials.username);
+    return credentials;
+  }
+
+  async _verifyBrowserSession(instanceURL, creds, username, { requireIdentity = false, signal, timeout = this.httpClient.timeout } = {}) {
     instanceURL = normalizeInstanceURL(instanceURL);
-    const creds = parseBrowserSessionInput(input);
+    const query = new URLSearchParams({
+      sysparm_limit: '1',
+      sysparm_fields: 'user_name',
+      sysparm_query: 'user_name=javascript:gs.getUserName()',
+    });
     let response;
     try {
-      response = await fetch(`${instanceURL}/api/now/table/sys_user?sysparm_limit=1`, {
+      response = await fetch(`${instanceURL}/api/now/table/sys_user?${query}`, {
         method: 'GET',
+        redirect: 'error',
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
         headers: {
           Accept: 'application/json',
           'X-UserToken': creds.access_token,
           Cookie: creds.cookies,
         },
       });
-    } catch (error) {
-      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck (${error.message})`);
+    } catch {
+      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry browser-session login.`);
     }
     if (!response.ok) {
+      if (requireIdentity && [401, 403].includes(response.status)) {
+        throw pendingBrowserLogin('The session is not authorized for current-user verification. Finish signing in, or check current-user API access.');
+      }
       throw errAuth(`Browser session rejected by ${instanceURL} (HTTP ${response.status}). Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck`);
     }
-    const body = await response.json();
+    let body;
+    try { body = await response.json(); } catch { throw errAuth('Browser session verification did not return JSON. Nothing was saved.'); }
     const user = body?.result?.[0];
     const verifiedUsername = typeof user?.user_name === 'string' ? user.user_name : username;
-    this.saveCredentials(instanceURL, { ...creds, username: verifiedUsername || undefined }, verifiedUsername || undefined);
+    if (requireIdentity && verifiedUsername === 'guest') throw pendingBrowserLogin('Waiting for browser login.');
+    if (requireIdentity && (!user?.user_name || typeof user.user_name !== 'string')) {
+      throw pendingBrowserLogin('Could not verify the browser account. Nothing was saved. Check current-user API access.');
+    }
+    if (requireIdentity && username && username !== verifiedUsername) {
+      throw errAuth('The browser account does not match the selected profile. Nothing was saved. Use the matching account or create a new profile.');
+    }
     return { ...creds, username: verifiedUsername || undefined };
   }
 

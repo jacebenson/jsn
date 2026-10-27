@@ -57,6 +57,41 @@ Upgrade history joins `file_name` to metadata `sys_update_name`. Raw disposition
 `4` and `104` identify preserved-customization skips; `reviewed_reverted` resolution
 excludes that row. Display labels and other skip reasons are not equivalent evidence.
 
+## Browser session import
+
+An explicit `auth login --browser` operation launches a chosen installed
+Chromium-family browser with a fresh temporary profile and waits for login.
+Its loopback DevTools port is assigned automatically. It obtains the
+page's `g_ck` and only cookies applicable to the current-user API URL, verifies
+the current account, and persists standard `gck` credentials. It never chooses
+between multiple matching tabs or imports a different account into an existing
+named identity. Import is also available in setup's browser-session flow.
+The login browser is closed and its temporary profile removed after completion,
+cancellation, or failure. `--browser-url` retains an advanced connection path
+that does not launch or close the user's existing browser.
+Browser import is a credential acquisition path, not a fourth auth method;
+Firefox and normal-profile browser integration remain future work.
+
+## Authentication status
+
+A status report separates saved credential availability from live connection
+verification. Its default table and machine output omit user identity and
+instance URLs; `auth status --details` explicitly reveals those fields, with
+**User** as the identity column label. `--local` reports saved metadata without
+an instance request. Profile names remain visible as selection identifiers.
+
+## Authentication operations
+
+The operations exported by `src/commands/auth.js` are the common implementation
+for both `auth` command handlers and the human `setup` menu. The setup wizard
+collects answers and calls `loginProfile`; it does not store credentials or
+persist profiles independently. Login owns identity verification, preferences,
+and saving. `--name` creates a new connection; `--profile` reconnects an existing
+one. Defaults change only through a human choice, `--make-default`, or
+`auth switch`. Public settings flags assign explicit values, so repeating a
+bot's `auth modify` request is idempotent. Noninteractive commands never open
+implicit prompts or browsers.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as
@@ -86,7 +121,10 @@ The middleware **derives** the skip-lists (instance guard, daily checks,
 context header) and the mutation-guard path list from this registry — it never
 matches `argv._[0]` against hand-written string lists.
 
-Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`.
+Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`,
+`skipContextHeader`. Auth and setup declare `skipContextHeader` so profile
+management does not display or probe the old instance's scope/user/update set.
+Daily checks remain independently controlled.
 
 > Replaced: hand-maintained skip-lists in `cli.js` plus the hand-written
 > mutation registry in `mutations.js`.

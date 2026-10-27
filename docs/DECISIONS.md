@@ -1,5 +1,51 @@
 # JSN decisions
 
+## Setup collects answers for the canonical auth operations
+
+Setup remains the human front door, with add/reconnect/status/default/settings/
+sign-out/remove actions. It invokes the same exported operations as `auth`;
+the wizard has no separate credential or profile persistence. Login collects
+new-profile preferences and a default choice before authentication, then saves
+through one path. Bots provide explicit values or receive structured missing-
+input errors, and never launch browsers implicitly. Preference flags are
+idempotent assignments. New usernames cannot inherit the old default's pending
+credential slot. Remote browser-extension capture is a separate follow-up
+tracked in issue #302.
+
+## Auth output separates profile settings, credentials, and live verification
+
+Auth status uses a compact table for method, saved credential state, live
+connection result, and profile options. Users and instance URLs require
+`--details` in both human and machine output; identity JSON paths require that
+flag as well. The identity column is labeled User. Credential
+availability alone does not imply successful live verification. `--local`
+skips instance requests. Auth/setup suppress the unrelated current-instance
+header through a declared capability. New-profile login and setup share the
+same option prompts; noninteractive login uses structured breadcrumbs for
+setting hints. Existing-profile reauthentication preserves its settings.
+
+## Browser login launches an isolated browser and manages its connection
+
+Browser-session login launches a detected Chrome/Chromium-family browser with a
+fresh temporary user directory and an OS-assigned loopback debugging port.
+Setup asks only for the browser choice; JSN waits for login and then closes its
+own browser and removes the directory. Browser selection supports installed
+Chromium, Chrome, and Edge, with Chromium the first implemented/tested adapter.
+`--browser-url` retains explicit advanced connection support.
+Windows discovery uses Windows path separators, semicolon-delimited PATH,
+case-insensitive environment names, and both per-user and system installations.
+Browsers launch as executables with separate arguments and no shell, allowing
+spaces without shell quoting. Cleanup asks the owned browser to close through
+DevTools before falling back to termination, and retries profile removal for
+file locks. This avoids treating Windows termination as graceful POSIX SIGTERM.
+It reads one exact-origin tab and API-scoped cookies, then verifies the current
+user before saving via AuthManager. It rejects ambiguous tabs and account
+mismatches. No browser databases, decryption helpers, dependencies, automatic
+browser restarts, or background session renewal are introduced. Imported
+credentials remain `gck`, so transport and storage use the existing auth path.
+Firefox needs a separate adapter; macOS, Windows, Chrome, and Edge still need
+live validation of platform browser discovery and launch.
+
 ## The capability registry is authoritative
 
 Command safety capabilities live in `src/capabilities.js`. Middleware derives mutation and daily-check behavior from that registry. New commands must declare their capabilities instead of adding names to separate lists.
