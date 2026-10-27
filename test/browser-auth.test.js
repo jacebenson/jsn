@@ -1,6 +1,6 @@
 import { afterEach, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { readBrowserSession } from '../src/browser-auth.js';
+import { readBrowserSession, closeLoginBrowser } from '../src/browser-auth.js';
 import { AuthManager } from '../src/auth.js';
 import { validateLoginSelectors } from '../src/commands/auth.js';
 
@@ -145,4 +145,23 @@ it('rejects navigation during import and malformed cookies', async () => {
   browserFixture({ cookies: [{ name: 'sid', value: 'bad\r\nheader' }] });
   await assert.rejects(readBrowserSession(instance), /invalid cookies/);
   assert.equal(closed, true);
+});
+
+it('closes the owned browser through its local browser-level connection', async () => {
+  browserFixture();
+  mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(String(url), 'http://127.0.0.1:9222/json/version');
+    assert.equal(options.redirect, 'error');
+    return Response.json({ webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/browser/fixture' });
+  });
+  await closeLoginBrowser('http://127.0.0.1:9222');
+  assert.ok(calls.some(call => call.method === 'Browser.close'));
+  assert.equal(closed, true);
+});
+
+it('does not send browser shutdown to a different debugging endpoint', async () => {
+  browserFixture();
+  mock.method(globalThis, 'fetch', async () => Response.json({ webSocketDebuggerUrl: 'ws://127.0.0.1:9999/devtools/browser/fixture' }));
+  await assert.rejects(closeLoginBrowser('http://127.0.0.1:9222'), /Unexpected login browser endpoint/);
+  assert.equal(calls.some(call => call.method === 'Browser.close'), false);
 });

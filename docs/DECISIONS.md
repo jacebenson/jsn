@@ -8,6 +8,12 @@ Setup asks only for the browser choice; JSN waits for login and then closes its
 own browser and removes the directory. Browser selection supports installed
 Chromium, Chrome, and Edge, with Chromium the first implemented/tested adapter.
 `--browser-url` retains explicit advanced connection support.
+Windows discovery uses Windows path separators, semicolon-delimited PATH,
+case-insensitive environment names, and both per-user and system installations.
+Browsers launch as executables with separate arguments and no shell, allowing
+spaces without shell quoting. Cleanup asks the owned browser to close through
+DevTools before falling back to termination, and retries profile removal for
+file locks. This avoids treating Windows termination as graceful POSIX SIGTERM.
 It reads one exact-origin tab and API-scoped cookies, then verifies the current
 user before saving via AuthManager. It rejects ambiguous tabs and account
 mismatches. No browser databases, decryption helpers, dependencies, automatic

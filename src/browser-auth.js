@@ -7,6 +7,21 @@ export function pendingBrowserLogin(message) {
   return Object.assign(errAuth(message), { browserLoginPending: true });
 }
 
+// Only called for a fresh browser owned by the login launcher. Never use
+// Browser.close for the advanced connection to a user's existing browser.
+export async function closeLoginBrowser(browserUrl) {
+  const endpoint = localEndpoint(browserUrl, 'http:');
+  const response = await fetch(new URL('/json/version', endpoint), {
+    signal: AbortSignal.timeout(1000), redirect: 'error',
+  });
+  if (!response.ok) throw errAuth('Could not close the login browser.');
+  const version = await response.json();
+  const ws = localEndpoint(version.webSocketDebuggerUrl, 'ws:');
+  if (ws.hostname !== endpoint.hostname || ws.port !== endpoint.port) throw errAuth('Unexpected login browser endpoint.');
+  const client = await connect(ws, 1000);
+  try { await client.send('Browser.close'); } finally { client.close(); }
+}
+
 // Browser access is opt-in and confined to a local debugging connection.
 // Never inspect profile databases or enumerate cookies for unrelated sites.
 function localEndpoint(value, protocol) {
