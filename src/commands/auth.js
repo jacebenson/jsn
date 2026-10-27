@@ -1,65 +1,66 @@
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile, setProfile } from '../config.js';
 import { errUsage, errUsageHint } from '../errors.js';
-import { canUsePicker } from '../helpers.js';
+import { canUsePicker, quoteShellArg } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
 
 // Auth manages local credentials/profiles — runs without a configured
 // instance. (Not in the daily-check skip-list: legacy behavior checks for
 // updates here.)
-declareCapabilities('auth', { noInstance: true });
+declareCapabilities('auth', { noInstance: true, skipContextHeader: true });
 
-/**
- * Render the `jsn auth status` styled (TTY) view: one line per profile with
- * default marker, auth ✓/✗, 🔒 read_only, ⚡ skip_confirmations, ✅/⚠️
- * live-verification, and stale-last-seen hints.
- *
- * This view logic lives in the auth command — NOT in src/output.js — and is
- * shipped to the OutputWriter as `data._formatted` (the documented escape
- * hatch for command-curated visuals; see the interface comment in
- * src/output.js). The `summary` line is folded into the formatted string
- * because the writer suppresses opts.summary when _formatted is present.
- * Golden-pinned by test/auth.test.js ("auth status styled output").
- */
+/** Render safe profile, account, credential, and connection metadata for humans. */
 export function renderAuthStatus(result, summary) {
-  let out = summary ? `${summary}\n\n` : '';
   const profiles = Array.isArray(result.profiles) ? result.profiles : [];
-  if (profiles.length > 0) {
-    out += '\n';
-    for (const p of profiles) {
-      const prefix = p.default ? '* ' : '  ';
-      const authIcon = p.authenticated ? '✓' : '✗';
-
-      // Show verified status if we got one
-      let verifiedStr = '';
-      if (p.verified === true) {
-        verifiedStr = ' ✅';
-      } else if (p.verified === false) {
-        verifiedStr = ' ⚠️';
-      }
-
-      // Show stale hint if >7 days since last seen
-      let staleStr = '';
-      if (p.stale && p.days_since_last_seen) {
-        staleStr = ` (${p.days_since_last_seen}d ago — may have been released)`;
-      }
-
-      // Show lock icon for read-only profiles
-      const lockIcon = p.read_only ? ' 🔒' : '';
-
-      // Show confirmations-off badge for skip_confirmations profiles
-      const confirmBadge = p.skip_confirmations ? ' ⚡' : '';
-
-      if (p.name) {
-        out += `${prefix}${authIcon} ${p.name} — ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`;
-      } else if (p.username) {
-        out += `${prefix}${authIcon} ${p.instance} (as ${p.username})${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`;
-      } else {
-        out += `${prefix}${authIcon} ${p.instance}${lockIcon}${confirmBadge}${verifiedStr}${staleStr}\n`;
-      }
+  if (!profiles.length) return 'No profiles configured.\nRun: jsn auth login <instance> --browser\n';
+  const methods = { oauth: 'OAuth', basic: 'Basic', gck: 'Browser session' };
+  const sources = { env_token: 'environment token', env_basic: 'environment credentials', keyring: 'OS keyring', file: 'credential file', gck: 'saved browser session' };
+  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid' };
+  const lines = [summary || `${profiles.length} profile(s)`, ''];
+  for (const profile of profiles) {
+    const labels = [profile.active && 'selected', profile.default && 'default'].filter(Boolean);
+    lines.push(`${profile.name || profile.instance}${labels.length ? ` (${labels.join(', ')})` : ''}`);
+    lines.push(`  Instance:    ${profile.instance}`);
+    const account = profile.username || profile.verified_as || 'Not recorded';
+    lines.push(`  Account:     ${account}${profile.verified_as && profile.verified_as !== account ? ` (session is ${profile.verified_as})` : ''}`);
+    const diagnostics = profile.diagnostics || {};
+    const method = methods[diagnostics.auth_method] || 'Not configured';
+    const source = sources[diagnostics.auth_source || profile.auth_source];
+    lines.push(`  Auth:        ${method}${source ? ` (${source})` : ''}`);
+    lines.push(`  Credentials: ${states[diagnostics.state] || (profile.authenticated ? 'Available' : 'Missing')}`);
+    const probe = diagnostics.probe || {};
+    const connection = profile.verified === true ? 'Verified'
+      : probe.code === 'not_requested' ? 'Not checked (local status)'
+      : profile.verified === false ? `Failed${probe.message ? ` — ${probe.message}` : ''}`
+      : `Not checked${probe.message ? ` — ${probe.message}` : ''}`;
+    lines.push(`  Connection:  ${connection}`);
+    lines.push(`  Settings:    ${profile.read_only ? 'read-only' : 'writes allowed'}; ${profile.skip_confirmations ? 'delete confirmations off' : 'confirm deletes'}; counts ${profile.include_counts === false ? 'off' : 'on'}`);
+    if (profile.days_since_last_seen != null) lines.push(`  Last used:   ${profile.days_since_last_seen === 0 ? 'today' : `${profile.days_since_last_seen} ${profile.days_since_last_seen === 1 ? 'day' : 'days'} ago`}`);
+    if (profile.name && profile.verified !== true) {
+      const command = `jsn auth ${diagnostics.state === 'refreshable' ? 'refresh' : 'login'} --profile ${quoteShellArg(profile.name)}`;
+      const hint = ['missing', 'expired', 'refreshable', 'malformed'].includes(diagnostics.state)
+        || ['unauthorized', 'invalid_browser_session', 'refresh_failed', 'account_mismatch'].includes(probe.code)
+        ? command : probe.hint;
+      if (hint) lines.push(`  Next:        ${hint}`);
     }
+    lines.push('');
   }
-  return out;
+  return lines.join('\n');
+}
+
+/** The same profile preferences are offered by setup and new-profile login. */
+export async function configureProfileOptions(profile, argv = {}, { interactive = false, confirm } = {}) {
+  if (interactive && !confirm) ({ confirm } = await import('@inquirer/prompts'));
+  const settings = [
+    ['read_only', 'read-only', 'Read-only profile (blocks mutation commands)?', false],
+    ['skip_confirmations', 'skip-confirmations', 'Skip confirmations (deletes run without prompting)?', false],
+    ['include_counts', 'include-counts', 'Include result totals on list commands?', true],
+  ];
+  for (const [key, flag, message, fallback] of settings) {
+    if (argv[flag] !== undefined) profile[key] = argv[flag];
+    else if (interactive) profile[key] = await confirm({ message, default: profile[key] ?? fallback });
+  }
+  return profile;
 }
 
 /**
@@ -159,7 +160,7 @@ export async function pickProfile(app, message) {
   if (profileNames.length === 0) throw errUsage('No profiles configured. Run "jsn setup" first.');
   if (profileNames.length === 1 || !canUsePicker(app, {})) return profileNames[0];
   const choices = profileNames.map(name => ({
-    name: `${name} — ${app.config.profiles[name].instance_url}`,
+    name: `${name} — ${app.config.profiles[name].instance_url} (${app.config.profiles[name].username || 'account not recorded'})`,
     value: name,
   }));
   return search({
@@ -311,10 +312,7 @@ export async function loginWizard(app, argv = {}) {
     // on Windows Git Bash: leaving both readers attached can make the later
     // OAuth question see EOF and let Node exit instead of waiting for input.
     rl.close();
-    const { confirm } = await import('@inquirer/prompts');
-    profile.read_only = await confirm({ message: 'Read-only profile (blocks mutation commands)?', default: profile.read_only || false });
-    profile.skip_confirmations = await confirm({ message: 'Skip confirmations (deletes run without prompting)?', default: profile.skip_confirmations || false });
-    profile.include_counts = await confirm({ message: 'Include result totals on list commands?', default: profile.include_counts !== false });
+    await configureProfileOptions(profile, argv, { interactive: true });
     console.log('');
   }
 
@@ -405,11 +403,11 @@ async function pickLoginTarget(app) {
       lastInput = term || '';
       const profiles = profileNames
         .filter((name) => {
-          const label = `${name} — ${app.config.profiles[name].instance_url}`.toLowerCase();
+          const label = `${name} — ${app.config.profiles[name].instance_url} ${app.config.profiles[name].username || ''}`.toLowerCase();
           return !filter || label.includes(filter);
         })
         .map((name) => ({
-          name: `${name} — ${app.config.profiles[name].instance_url}`,
+          name: `${name} — ${app.config.profiles[name].instance_url} (${app.config.profiles[name].username || 'account not recorded'})`,
           value: name,
         }));
       const addLabel = filter
@@ -476,7 +474,7 @@ export async function modifyProfile(app, argv = {}) {
   if (!flag) {
     const { select } = await import('@inquirer/prompts');
     const choices = PROFILE_FLAGS.map(f => ({
-      name: `${f.icon} ${f.name}: ${profile[f.value] ? 'on' : 'off'}`,
+      name: `${f.icon} ${f.name}: ${(f.value === 'include_counts' ? profile[f.value] !== false : profile[f.value]) ? 'on' : 'off'}`,
       value: f.value,
     }));
     if (profile.domain_separation) {
@@ -518,7 +516,7 @@ export async function modifyProfile(app, argv = {}) {
     }
   }
 
-  profile[flag] = !profile[flag];
+  profile[flag] = flag === 'include_counts' ? profile[flag] === false : !profile[flag];
   await saveConfig(app.config);
   app.ok({ profile: name, [flag]: profile[flag] },
     { summary: `${flag} is now ${profile[flag] ? 'ON' : 'off'} for ${name}` });
@@ -626,6 +624,7 @@ export function authCmd(wrap) {
           handler: wrap(async (argv, app) => {
             validateLoginSelectors(argv);
             let instanceURL;
+            let selectedProfileName = argv.profile || (argv.instance && app.config.profiles?.[argv.instance] ? argv.instance : null);
             if (argv.profile) {
               const namedProfile = app.config.profiles?.[argv.profile];
               if (!namedProfile?.instance_url) {
@@ -657,6 +656,7 @@ export function authCmd(wrap) {
                 instanceURL = resolveInstanceArg(target.instanceName, app.config);
               } else {
                 instanceURL = normalizeInstanceURL(app.config.profiles[target.name].instance_url);
+                selectedProfileName = target.name;
               }
             } else {
               instanceURL = getEffectiveInstance(app.config);
@@ -672,7 +672,12 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               }
             }
 
-            const target = resolveTargetProfile(argv, app.config, instanceURL);
+            const matchingProfiles = Object.entries(app.config.profiles || {})
+              .filter(([, profile]) => normalizeInstanceURL(profile.instance_url) === instanceURL);
+            if (!selectedProfileName && matchingProfiles.length > 1) {
+              throw errUsage('Multiple profiles use this instance. Choose the account with: jsn auth login --profile <name>');
+            }
+            const target = resolveTargetProfile({ ...argv, profile: selectedProfileName }, app.config, instanceURL);
             const targetProfile = target.profile;
             validateLoginSelectors(argv, targetProfile);
             let targetUsername = targetProfile?.username || '';
@@ -698,7 +703,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             }
             // --print-url: just print the URL and exit
             else if (argv.printUrl) {
-              const authURL = app.auth.buildAuthURL(instanceURL);
+              const authURL = app.auth.buildAuthURL(instanceURL, undefined, targetUsername || undefined);
               console.log(authURL);
               return;
             }
@@ -772,6 +777,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
               skip_confirmations: (argv['skip-confirmations'] ?? targetProfile?.skip_confirmations) || undefined,
               include_counts: argv['include-counts'] ?? targetProfile?.include_counts,
             };
+            if (!targetProfile) {
+              await configureProfileOptions(app.config.profiles[profileName], argv, { interactive: canUsePicker(app, argv) });
+            }
 
             // Re-save OAuth credentials with username now that we have it,
             // so they're keyed by <user>@<instance> for per-user isolation.
@@ -801,7 +809,22 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
             const summary = username
               ? `✓ Authenticated to ${instanceURL} as ${username} (profile: ${profileName})`
               : `✓ Authenticated to ${instanceURL} (profile: ${profileName})`;
-            app.ok(result, { summary });
+            const settings = app.config.profiles[profileName];
+            const breadcrumbs = !targetProfile ? [
+              {
+                action: 'Verify this profile', cmd: `jsn --profile ${quoteShellArg(profileName)} auth status`,
+                description: 'Check the account and connection for this profile',
+              },
+              {
+                action: 'Profile settings', cmd: `jsn auth modify ${quoteShellArg(profileName)}`,
+                description: `${settings.read_only ? 'read-only' : 'writes allowed'}; ${settings.skip_confirmations ? 'delete confirmations off' : 'confirm deletes'}; counts ${settings.include_counts === false ? 'off' : 'on'}`,
+              },
+              {
+                action: 'New profile flags', cmd: 'jsn auth login <instance> --read-only --no-include-counts',
+                description: 'Set these at login; --skip-confirmations disables delete prompts',
+              },
+            ] : [];
+            app.ok(result, { summary, breadcrumbs });
           }),
         })
         .command({
@@ -832,6 +855,9 @@ Examples:
         .command({
           command: 'status',
           describe: 'Show detailed authentication status',
+          builder: sub => sub.option('local', {
+            type: 'boolean', describe: 'Show saved credential state without contacting any instance',
+          }),
           handler: wrap(async (argv, app) => {
             const configuredDefault = app.config.profiles?.[app.config.defaultProfile];
             const defaultInstance = configuredDefault?.instance_url || app.config.instanceURL || '';
@@ -862,7 +888,9 @@ Examples:
               let verified = null;
               let verifiedAt = null;
               let probe;
-              if (!instance) {
+              if (argv.local) {
+                probe = { status: 'not_attempted', code: 'not_requested', classification: 'not_checked' };
+              } else if (!instance) {
                 probe = app.auth.probeUnavailable?.('missing_instance') || { status: 'not_attempted', code: 'missing_instance', classification: 'unavailable' };
               } else {
                 try {
@@ -879,6 +907,13 @@ Examples:
                   if (probe.status === 'succeeded' && user?.user_name) {
                     verified = true;
                     verifiedAt = user.user_name;
+                    if (profile.username && profile.username !== user.user_name) {
+                      verified = false;
+                      probe = {
+                        status: 'failed', code: 'account_mismatch', classification: 'account_mismatch',
+                        message: 'The session account does not match the configured profile account.',
+                      };
+                    }
                   } else if (probe.status !== 'not_attempted') {
                     verified = false;
                   }
@@ -897,6 +932,8 @@ Examples:
               profiles.push({
                 name,
                 instance,
+                username: profile.username || undefined,
+                active: name === (app.session?.profileName || app.config.activeProfile || app.config.defaultProfile),
                 authenticated: isAuth,
                 legacy,
                 auth_source: authSource,
@@ -925,7 +962,7 @@ Examples:
               profiles,
             };
 
-            const summary = `${profiles.length} profile(s)`;
+            const summary = `${profiles.length} ${profiles.length === 1 ? 'profile' : 'profiles'}`;
             // Ship the styled view as _formatted (see renderAuthStatus); the
             // OutputWriter prints it verbatim and suppresses the summary.
             result._formatted = renderAuthStatus(result, summary);

@@ -1,5 +1,15 @@
 # JSN decisions
 
+## Auth output separates profile settings, credentials, and live verification
+
+Auth status shows the configured account and method, saved credential state,
+live connection result, and profile options as labeled text. Credential
+availability alone does not imply successful live verification. `--local`
+skips instance requests. Auth/setup suppress the unrelated current-instance
+header through a declared capability. New-profile login and setup share the
+same option prompts; noninteractive login uses structured breadcrumbs for
+setting hints. Existing-profile reauthentication preserves its settings.
+
 ## Browser login launches an isolated browser and manages its connection
 
 Browser-session login launches a detected Chrome/Chromium-family browser with a

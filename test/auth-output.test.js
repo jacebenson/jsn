@@ -37,7 +37,10 @@ export const AUTH_STATUS_FIXTURE = {
       name: 'dev',
       instance: 'https://dev.service-now.com',
       authenticated: true,
-      auth_source: 'oauth',
+      auth_source: 'keyring',
+      active: true,
+      username: 'admin',
+      diagnostics: { auth_method: 'oauth', auth_source: 'keyring', state: 'available', probe: { status: 'succeeded' } },
       verified: true,
       verified_as: 'admin',
       last_seen: 1000,
@@ -50,6 +53,9 @@ export const AUTH_STATUS_FIXTURE = {
     },
     {
       name: 'prod',
+      username: 'deployer',
+      include_counts: false,
+      diagnostics: { auth_method: 'gck', auth_source: 'unavailable', state: 'missing', probe: { status: 'not_attempted' } },
       instance: 'https://prod.service-now.com',
       authenticated: false,
       verified: false,
@@ -81,14 +87,43 @@ export const AUTH_STATUS_FIXTURE = {
   ],
 };
 
-export const AUTH_STATUS_STYLED_GOLDEN =
-  '4 profile(s)\n' +
-  '\n' +
-  '\n' +
-  '* ✓ dev — https://dev.service-now.com 🔒 ⚡ ✅\n' +
-  '  ✗ prod — https://prod.service-now.com ⚠️ (10d ago — may have been released)\n' +
-  '  ✓ https://anon.service-now.com\n' +
-  '  ✓ https://bob.service-now.com (as bob)\n';
+export const AUTH_STATUS_STYLED_GOLDEN = `4 profiles
+
+dev (selected, default)
+  Instance:    https://dev.service-now.com
+  Account:     admin
+  Auth:        OAuth (OS keyring)
+  Credentials: Available
+  Connection:  Verified
+  Settings:    read-only; delete confirmations off; counts on
+  Last used:   3 days ago
+
+prod
+  Instance:    https://prod.service-now.com
+  Account:     deployer
+  Auth:        Browser session
+  Credentials: Missing
+  Connection:  Failed
+  Settings:    writes allowed; confirm deletes; counts off
+  Last used:   10 days ago
+  Next:        jsn auth login --profile prod
+
+https://anon.service-now.com
+  Instance:    https://anon.service-now.com
+  Account:     Not recorded
+  Auth:        Not configured
+  Credentials: Available
+  Connection:  Not checked
+  Settings:    writes allowed; confirm deletes; counts on
+
+https://bob.service-now.com
+  Instance:    https://bob.service-now.com
+  Account:     bob
+  Auth:        Not configured
+  Credentials: Available
+  Connection:  Not checked
+  Settings:    writes allowed; confirm deletes; counts on
+`;
 
 describe('auth status styled output (visual pin)', () => {
   it('renders the profiles envelope byte-identically via OutputWriter', async () => {
@@ -102,8 +137,8 @@ describe('auth status styled output (visual pin)', () => {
 
     // The handler ships data._formatted built by renderAuthStatus; the
     // OutputWriter then writes it verbatim (summary suppressed).
-    const data = { ...AUTH_STATUS_FIXTURE, _formatted: renderAuthStatus(AUTH_STATUS_FIXTURE, '4 profile(s)') };
-    ow.ok(data, { summary: '4 profile(s)' });
+    const data = { ...AUTH_STATUS_FIXTURE, _formatted: renderAuthStatus(AUTH_STATUS_FIXTURE, '4 profiles') };
+    ow.ok(data, { summary: '4 profiles' });
 
     assert.strictEqual(chunks.join(''), AUTH_STATUS_STYLED_GOLDEN);
   });

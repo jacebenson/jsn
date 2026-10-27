@@ -804,7 +804,6 @@ export class AuthManager {
       );
     }
     this.saveCredentials(instanceURL, creds, creds.username);
-    console.log(`✓ Basic auth credentials saved for ${instanceURL}`);
     return creds;
   }
 

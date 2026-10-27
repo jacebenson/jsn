@@ -6,7 +6,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 // Setup manages local profile config — runs without a configured instance.
 // (Not in the daily-check skip-list: legacy behavior checks for updates here.)
-declareCapabilities('setup', { noInstance: true });
+declareCapabilities('setup', { noInstance: true, skipContextHeader: true });
 
 const HUB_CHOICES = [
   { name: 'Add a new instance', value: 'add' },

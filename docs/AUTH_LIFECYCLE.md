@@ -47,7 +47,21 @@ Browser debugging responses and credentials are never printed.
 
 `auth status` uses safe metadata and a read-only current-user probe. It does not refresh tokens, update `last_seen`, migrate credentials, or persist credentials. JSON diagnostics contain method, source, state, and probe classification only; access tokens, refresh tokens, passwords, cookies, and browser-session headers are never serialized.
 
-The existing JSON envelope, human rendering, `--get` paths, and structured error codes remain unchanged. Probe failures are classified without returning provider response bodies.
+The JSON envelope and existing `--get` paths remain compatible; profile rows
+also expose the configured `username` and whether the profile is `active` for
+this invocation. Human status separates credential availability from live
+verification and shows profile settings plus corrective commands.
+`auth status --local` performs no instance request and reports its probe as
+`not_attempted` / `not_requested`. A live account differing from the configured
+username is reported as `account_mismatch`, never verified. Probe failures are
+classified without returning provider response bodies.
+
+New profiles created by direct `auth login` receive the same interactive
+read-only, delete-confirmation, and result-count choices as setup. Explicit
+flags bypass their corresponding questions. Noninteractive login provides
+setting hints through output breadcrumbs. Reauthentication preserves settings
+without repeating onboarding. Profile names and interactive choices pin the
+credential identity even when multiple accounts share an instance URL.
 
 ## Shared-instance and concurrent behavior
 

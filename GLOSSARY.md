@@ -101,7 +101,10 @@ The middleware **derives** the skip-lists (instance guard, daily checks,
 context header) and the mutation-guard path list from this registry — it never
 matches `argv._[0]` against hand-written string lists.
 
-Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`.
+Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`,
+`skipContextHeader`. Auth and setup declare `skipContextHeader` so profile
+management does not display or probe the old instance's scope/user/update set.
+Daily checks remain independently controlled.
 
 > Replaced: hand-maintained skip-lists in `cli.js` plus the hand-written
 > mutation registry in `mutations.js`.

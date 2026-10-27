@@ -14,6 +14,8 @@
 //     // Skip the once-per-day npm-version / skill freshness checks and the
 //     // interactive context header.
 //     skipDailyChecks: true,
+//     // Suppress the current instance header for profile management commands.
+//     skipContextHeader: true,
 //   }
 //
 // cli.js derives every skip-list and the mutation guard's path list from
@@ -87,6 +89,14 @@ export function dailyCheckSkipCommands(caps = collectCapabilities()) {
   const out = new Set();
   for (const [name, c] of caps) {
     if (c.skipDailyChecks) out.add(name);
+  }
+  return out;
+}
+
+export function contextHeaderSkipCommands(caps = collectCapabilities()) {
+  const out = dailyCheckSkipCommands(caps);
+  for (const [name, capability] of caps) {
+    if (capability.skipContextHeader) out.add(name);
   }
   return out;
 }

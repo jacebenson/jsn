@@ -513,6 +513,18 @@ jsn auth modify dev12345                          # Toggle read-only / skip conf
 
 ## Authentication
 
+`jsn auth status` shows each profile's account, method, credential state,
+connection verification, and read-only/delete-confirmation/count settings.
+The selected and default profiles are labeled explicitly. Use
+`jsn --profile <name> auth status` to focus on one account, or add `--local`
+to inspect saved state without contacting any instance.
+
+When `jsn auth login <instance>` creates a profile interactively, it offers the
+same read-only, delete-confirmation, and result-count options as setup. Scripts
+can supply `--read-only`, `--no-include-counts`, and `--skip-confirmations`;
+the last option disables delete prompts. `jsn auth modify <profile>` changes
+those settings later. Reauthentication preserves existing preferences.
+
 JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth. Credentials are stored in the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/` when the keyring is unavailable.
 
 ```bash
