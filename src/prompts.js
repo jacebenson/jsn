@@ -35,3 +35,9 @@ export const password = cancellablePrompt(prompts.password);
 export const select = cancellablePrompt(prompts.select);
 export const search = cancellablePrompt(prompts.search);
 export const confirm = cancellablePrompt(prompts.confirm);
+export const checkbox = cancellablePrompt(prompts.checkbox);
+
+// The editor prompt hands the keyboard to $EDITOR, so Escape belongs to that
+// editor. It lives here so every command imports prompts from one module;
+// cancelling an editor still uses Inquirer's Ctrl+C abort.
+export const editor = prompts.editor;

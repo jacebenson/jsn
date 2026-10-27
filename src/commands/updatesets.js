@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { editor, confirm } from '@inquirer/prompts';
+import { editor, confirm } from '../prompts.js';
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
 import { FormatAuto } from '../output.js';

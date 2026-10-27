@@ -182,8 +182,8 @@ export const paginatedSearch = createPrompt((config, done) => {
   });
 
   const helpText = loaded < totalCount && !searchMode
-    ? '(scroll to load more, type to search)'
-    : '(type to search)';
+    ? '(scroll to load more, type to search, Esc to cancel)'
+    : '(type to search, Esc to cancel)';
 
   return [
     `${fullMessage} Search: ${searchTerm}${status === 'loading' ? ' ...' : ''}`,

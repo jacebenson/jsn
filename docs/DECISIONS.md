@@ -124,3 +124,22 @@ compares the SHA-256 digest of the base payload captured during review plus the
 artifact's meaningful base fields. A fake provider that returns the same version
 record after the write cannot expose this, so the regression test simulates the
 provider's new record.
+
+## Escape cancels any interactive prompt
+
+`src/prompts.js` is the only module that imports `@inquirer/prompts`. Every
+prompt a command shows comes from there through `cancellablePrompt`, which
+listens for Escape, aborts with `PromptCancelled`, and removes its keypress
+listener in a `finally`. Escape therefore backs out of selection, search,
+confirmation, text entry and multi-select prompts alike, leaving no partial
+answer behind.
+
+A cancelled prompt throws, and the shared renderer turns `PromptCancelled` into
+`Cancelled.` on stderr with exit status 0, so backing out is not a failure.
+Guided flow and action editing catches it the same way it catches Ctrl+C and
+returns without dispatching a mutation. Record pickers resolve `undefined`
+instead, because every picker caller treats that as "leave this screen", and
+the picker help line names Escape so the hint matches the wizard prompts.
+
+The editor prompt is the exception: its keyboard belongs to `$EDITOR` while the
+editor is open, so cancelling still uses Inquirer's Ctrl+C abort.
