@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam, buildRecordPayload } from '../helpers.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
@@ -33,7 +33,7 @@ export function ticketsCmd(wrap) {
             const records = await app.sdk.list('task', params);
             const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
             const breadcrumbs = [
-              { action: 'create', cmd: 'jsn tickets create --data \'{...}\'', description: 'Create a new ticket' },
+              { action: 'create', cmd: 'jsn tickets create -f short_description=New ticket', description: 'Create a new ticket' },
             ];
             if (records.length === argv.limit) {
               breadcrumbs.push({
@@ -71,9 +71,13 @@ export function ticketsCmd(wrap) {
         .command({
           command: 'create',
           describe: 'Create a new ticket',
-          builder: (y) => y.option('data', { type: 'string', demandOption: true, describe: 'JSON fields (e.g. \'{"state":"2","priority":"1"}\')' }),
+          builder: (y) => y
+            .option('data', { type: 'string', describe: 'JSON fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = JSON.parse(argv.data);
+            const recordData = buildRecordPayload(argv);
             const record = await app.sdk.create('task', recordData);
             app.ok(record, { summary: `Created ticket ${getStringField(record, 'number')}` });
           }),
@@ -81,9 +85,13 @@ export function ticketsCmd(wrap) {
         .command({
           command: 'update <number>',
           describe: 'Update a ticket',
-          builder: (y) => y.option('data', { type: 'string', demandOption: true, describe: 'JSON fields (e.g. \'{"state":"2","priority":"1"}\')' }),
+          builder: (y) => y
+            .option('data', { type: 'string', describe: 'JSON fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = JSON.parse(argv.data);
+            const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table: 'task', identifier: argv.number, matchField: 'number', resource: 'Ticket' });
             const updated = await app.sdk.update('task', sysID, recordData);
             app.ok(updated, { summary: `Updated ticket ${argv.number}` });

@@ -1,7 +1,7 @@
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -73,7 +73,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               app.ok(record, {
                 summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
                 breadcrumbs: [
-                  { action: 'update', cmd: `jsn ${alias} update ${number} --data '{...}'`, description: `Update this ${displayName}` },
+                  { action: 'update', cmd: `jsn ${alias} update ${number} -f state=2`, description: `Update this ${displayName}` },
                   { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
                 ],
               });
@@ -139,7 +139,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             app.ok(record, {
               summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
               breadcrumbs: [
-                { action: 'update', cmd: `jsn ${alias} update ${number} --data '{...}'`, description: `Update this ${displayName}` },
+                { action: 'update', cmd: `jsn ${alias} update ${number} -f state=2`, description: `Update this ${displayName}` },
                 { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
               ],
             });
@@ -151,16 +151,16 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           builder: (y) => y
             .option('description', { alias: 'd', type: 'string', describe: 'Short description' })
             .option('priority', { type: 'string', describe: 'Priority (1-5)' })
-            .option('data', { type: 'string', describe: 'JSON data for additional fields' }),
+            .option('data', { type: 'string', describe: 'JSON data for additional fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = {};
-            if (argv.data) {
-              Object.assign(recordData, JSON.parse(argv.data));
-            }
+            const recordData = buildRecordPayload(argv, { required: false });
             if (argv.description) recordData.short_description = argv.description;
             if (argv.priority) recordData.priority = argv.priority;
             if (!recordData.short_description) {
-              throw new Error('short_description is required (use --description or --data)');
+              throw new Error('short_description is required (use --description, -f short_description=..., or --data)');
             }
             const record = await app.sdk.create(table, recordData);
             app.ok(record, {
@@ -175,10 +175,13 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           command: 'update <number>',
           describe: `Update a ${displayName}`,
           builder: (y) => y
-            .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
+            .option('data', { type: 'string', describe: 'JSON data to update' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
-            const recordData = JSON.parse(argv.data);
+            const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
             const updated = await app.sdk.update(table, sysID, recordData);
             app.ok(updated, {

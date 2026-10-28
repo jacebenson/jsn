@@ -523,6 +523,50 @@ export function parseDataArg(argv) {
 }
 
 /**
+ * Parse repeatable -f/--field name=value options.
+ * Values remain strings, including empty values and values containing '='.
+ */
+export function parseFieldPairs(argv = {}) {
+  const raw = argv.field == null ? [] : (Array.isArray(argv.field) ? argv.field : [argv.field]);
+  const result = {};
+  for (const token of raw) {
+    const text = String(token);
+    const equals = text.indexOf('=');
+    if (equals < 0) throw new Error(`-f expects field=value, got "${text}"`);
+    const name = text.slice(0, equals);
+    let value = text.slice(equals + 1);
+    if (!name || /\\s/.test(name) || !/^[A-Za-z0-9_.]+$/.test(name)) {
+      throw new Error(`-f expects a valid field name, got "${name}"`);
+    }
+    if (value.startsWith('@@')) {
+      value = value.slice(1);
+    } else if (value.startsWith('@')) {
+      value = fs.readFileSync(value.slice(1), 'utf-8');
+      if (value.charCodeAt(0) === 0xFEFF) value = value.slice(1);
+    }
+    result[name] = value;
+  }
+  return result;
+}
+
+/**
+ * Build a record mutation payload from JSON input and/or field pairs.
+ */
+export function buildRecordPayload(argv = {}, { required = true } = {}) {
+  const hasData = Boolean(argv.data || argv['data-file'] || argv['data-stdin']);
+  const hasFields = argv.field != null && (Array.isArray(argv.field) ? argv.field.length > 0 : true);
+  if (!hasData && !hasFields) {
+    if (required) throw new Error('Provide fields with -f name=value, or a JSON payload with --data/--data-file/--data-stdin');
+    return {};
+  }
+  const payload = hasData ? parseDataArg(argv) : {};
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Record payload must be a JSON object');
+  }
+  return { ...payload, ...parseFieldPairs(argv) };
+}
+
+/**
  * Translate human-readable type names to ServiceNow item_option_new type IDs.
  * Maps common names like "date", "select", "multilinetext" to their integer IDs.
  * Passes through numeric values unchanged.

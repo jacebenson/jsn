@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload } from '../helpers.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
@@ -72,12 +72,12 @@ export function usersCmd(wrap) {
             .option('username', { alias: 'u', type: 'string', describe: 'Username (e.g. john.doe)' })
             .option('name', { alias: 'n', type: 'string', describe: 'Full name (e.g. John Doe)' })
             .option('email', { alias: 'e', type: 'string', describe: 'Email address' })
-            .option('data', { type: 'string', describe: 'JSON data for additional fields' }),
+            .option('data', { type: 'string', describe: 'JSON data for additional fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = {};
-            if (argv.data) {
-              Object.assign(recordData, JSON.parse(argv.data));
-            }
+            const recordData = buildRecordPayload(argv, { required: false });
             if (argv.username) recordData.user_name = argv.username;
             if (argv.name) recordData.name = argv.name;
             if (argv.email) recordData.email = argv.email;
@@ -97,10 +97,13 @@ export function usersCmd(wrap) {
           command: 'update <identifier>',
           describe: 'Update a user by user_name or sys_id',
           builder: (y) => y
-            .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
+            .option('data', { type: 'string', describe: 'JSON data to update' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const recordData = JSON.parse(argv.data);
+            const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
             const updated = await app.sdk.update('sys_user', sysID, recordData);
             app.ok(updated, {

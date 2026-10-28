@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
@@ -142,7 +142,7 @@ export function recordsCmd(wrap) {
             }
 
             const breadcrumbs = [
-              { action: 'create', cmd: `jsn records create --table ${table} --data '{...}'`, description: 'Create a new record' },
+              { action: 'create', cmd: `jsn records create --table ${table} -f name=value`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
               { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View available columns' },
             ];
@@ -221,12 +221,13 @@ export function recordsCmd(wrap) {
           describe: 'Create a new record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
+            .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('strict', { type: 'boolean', default: false, describe: 'Exit non-zero if any supplied field was not persisted (write-back check)' }),
           handler: wrap(async (argv, app) => {
-            const recordData = parseDataArg(argv);
+            const recordData = buildRecordPayload(argv);
             const warnings = checkDerivedFields(argv.table, recordData);
             for (const w of warnings) {
               process.stderr.write(`⚠ ${w.hint}\n`);
@@ -249,12 +250,13 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
-            .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
+            .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('strict', { type: 'boolean', default: false, describe: 'Exit non-zero if any supplied field was not persisted (write-back check)' }),
           handler: wrap(async (argv, app) => {
-            const recordData = parseDataArg(argv);
+            const recordData = buildRecordPayload(argv);
             const warnings = checkDerivedFields(argv.table, recordData);
             for (const w of warnings) {
               process.stderr.write(`⚠ ${w.hint}\n`);
@@ -401,22 +403,15 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', demandOption: true, describe: 'Encoded query selecting the records to update (e.g. "priority=1^state=1")' })
-            .option('set', { type: 'string', demandOption: true, describe: 'JSON object of fields to set (e.g. \'{"state":"3"}\')' })
+            .option('set', { type: 'string', describe: 'JSON object of fields to set' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('dry-run', { type: 'boolean', default: true, describe: 'Preview the count + a sample without mutating (default)' })
             .option('execute', { type: 'boolean', default: false, describe: 'Perform the update after confirmation' })
             .option('limit', { type: 'number', default: 200, describe: 'Max records to update when executing' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            let set;
-            try {
-              set = JSON.parse(argv.set);
-            } catch (e) {
-              throw new Error(`Invalid --set JSON: ${e.message}`, { cause: e });
-            }
-            if (!set || typeof set !== 'object' || Array.isArray(set)) {
-              throw new Error('--set must be a JSON object of field=value pairs');
-            }
+            const set = buildRecordPayload({ ...argv, data: argv.set }, { required: true });
             if (!argv['dry-run'] && !argv.execute) {
               argv.execute = true; // explicit --no-dry-run implies execute intent
             }

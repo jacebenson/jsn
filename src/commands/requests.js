@@ -53,7 +53,7 @@ async function enrichedShowHandler(argv, app) {
   app.ok(record, {
     summary: `Request ${number}`,
     breadcrumbs: [
-      { action: 'update', cmd: `jsn req update ${number} --data '{...}'`, description: 'Update this request' },
+      { action: 'update', cmd: `jsn req update ${number} -f state=2`, description: 'Update this request' },
       { action: 'list', cmd: `jsn req list`, description: 'Back to all requests' },
     ],
   });
