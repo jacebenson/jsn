@@ -49,3 +49,9 @@ jobs:
           version=$(node -p "require('./package.json').version")
           npm version "${version}-dev.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" --no-git-tag-version
           npm publish --access public --provenance --tag dev
+
+      - name: Deprecate unsupported dev versions
+        env:
+          # npm deprecate requires token auth; publishing above stays on OIDC.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/deprecate-old-versions.mjs dev --apply
