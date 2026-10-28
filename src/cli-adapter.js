@@ -3,6 +3,14 @@ import process from 'node:process';
 
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const names = (x) => typeof x === 'string' ? [x] : (x || []);
+
+/**
+ * A repeatable option may be declared either way: `type: 'array'` (this
+ * adapter's historic spelling) or `array: true` (the yargs spelling most
+ * contributors reach for). Both must accumulate; honoring only the first
+ * silently kept the LAST value of `-f a=1 -f b=2` and dropped the rest.
+ */
+const isArrayOption = (spec) => spec?.type === 'array' || spec?.array === true;
 const commandName = (command) => command.trim().split(/\s+/)[0];
 const positionSpec = (command) => [...command.matchAll(/([<[])([^>\]]+)[>\]]/g)].map((m) => ({ name: m[2], required: m[1] === '<' }));
 
@@ -189,7 +197,7 @@ export class LocalCLI {
   _assign(argv, key, value, spec, opts = {}) {
     const validate = opts.validate !== false;
     const actual = spec?.name || key;
-    const values = spec?.type === 'array' ? (Array.isArray(value) ? value : [value]) : [value];
+    const values = isArrayOption(spec) ? (Array.isArray(value) ? value : [value]) : [value];
     if (validate && spec?.choices && values.some((item) => !spec.choices.includes(item))) {
       this._fail(`Invalid value for --${actual}: ${value}. Choose from: ${spec.choices.join(', ')}`);
       return false;
@@ -201,7 +209,7 @@ export class LocalCLI {
     const converted = spec?.type === 'boolean'
       ? (value === 'true' ? true : value === 'false' ? false : value)
       : spec?.type === 'number' ? Number(value) : value;
-    if (spec?.type === 'array') argv[actual] = [...(argv[actual] || []), ...values];
+    if (isArrayOption(spec)) argv[actual] = [...(argv[actual] || []), ...values];
     else argv[actual] = converted;
     argv[camel(actual)] = argv[actual];
     for (const alias of names(spec?.alias)) argv[alias] = argv[actual];
@@ -210,8 +218,8 @@ export class LocalCLI {
     const options = this._optionConfig(path);
     const defs = {};
     for (const [key, spec] of options) defs[key] = {
-      type: spec.type === 'number' || spec.type === 'array' ? 'string' : (spec.type || 'boolean'),
-      multiple: spec.type === 'array',
+      type: spec.type === 'number' || isArrayOption(spec) ? 'string' : (spec.type || 'boolean'),
+      multiple: isArrayOption(spec),
     };
     args = args.map((arg) => {
       if (/^-[^-]=/.test(arg)) return `--${arg.slice(1)}`;

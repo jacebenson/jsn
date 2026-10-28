@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
+import { promisify } from 'node:util';
+import http from 'node:http';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { buildRecordPayload, parseFieldPairs } from '../src/helpers.js';
 import { recordsCmd } from '../src/commands/records.js';
 import { incidentsCmd } from '../src/commands/incidents.js';
@@ -14,6 +18,8 @@ import { makeApp } from './support/app-test-helpers.js';
 function command(module, name) {
   return findCommand(captureSubcommands(module(wrapHandler)), name);
 }
+
+const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 
 function updateSdk({ records = [], resolvedId = 'sys-id-1' } = {}) {
   const updates = [];
@@ -125,3 +131,78 @@ describe('registered mutation commands accept field pairs', () => {
     assert.deepEqual(updates[0].body, { state: '2' });
   });
 });
+
+/**
+ * The handler-level tests above pass `field` as a pre-built array, so they
+ * cannot see the parser. A repeatable option declared `array: true` used to
+ * survive only as its LAST value through the real parser, sending one field of
+ * three. Drive the actual binary against a real HTTP endpoint to keep that
+ * silent drop from coming back.
+ */
+describe('repeated -f survives the real CLI parser', () => {
+  it('sends every field pair over the wire, in order, as strings', async () => {
+    const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'jsn-field-pairs-e2e-'));
+    const requests = [];
+    const record = { sys_id: 'abc123def456', number: 'INC0010023', state: '1', priority: '3', short_description: 'old' };
+    const server = http.createServer(async (request, response) => {
+      const body = [];
+      for await (const chunk of request) body.push(chunk);
+      const url = new URL(request.url, 'http://fixture.invalid');
+      requests.push({ method: request.method, path: url.pathname, body: Buffer.concat(body).toString() });
+      response.setHeader('Content-Type', 'application/json');
+      if (url.pathname === '/api/now/table/sys_user') {
+        response.end(JSON.stringify({ result: [{ sys_id: 'user-1', user_name: 'probe', name: 'Probe' }] }));
+        return;
+      }
+      if (url.pathname.startsWith('/api/now/table/incident')) {
+        if (request.method === 'GET') {
+          response.end(JSON.stringify({ result: [record] }));
+          return;
+        }
+        response.end(JSON.stringify({ result: { ...record, ...JSON.parse(Buffer.concat(body).toString() || '{}') } }));
+        return;
+      }
+      response.end(JSON.stringify({ result: [] }));
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const instance = `http://127.0.0.1:${server.address().port}`;
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SN_') && !key.startsWith('SERVICENOW_')));
+    Object.assign(env, {
+      XDG_CONFIG_HOME: directory, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
+      SN_USERNAME: 'probe', SN_PASSWORD: 'probe',
+    });
+
+    // execFile (async) and not spawnSync: blocking the event loop would prevent
+    // this in-process fixture server from ever answering the CLI.
+    async function run(args) {
+      try {
+        return { ...(await promisify(execFile)(process.execPath, [cli, ...args], { cwd: directory, env, timeout: 30000 })), status: 0 };
+      } catch (error) {
+        return { status: error.code ?? 1, stdout: error.stdout || '', stderr: error.stderr || error.message };
+      }
+    }
+
+    try {
+      const login = await run(['auth', 'login', instance, '--name', 'probe', '--basic', '--skip-confirmations', '--make-default', '--json']);
+      assert.equal(login.status, 0, login.stderr);
+
+      const result = await run(['incidents', 'update', 'INC0010023',
+        '-f', 'state=2',
+        '-f', 'short_description=VPN down for 3 users',
+        '-f', 'priority=1']);
+      assert.equal(result.status, 0, result.stderr);
+
+      const put = requests.find((entry) => entry.method === 'PUT');
+      assert.ok(put, 'a PUT must be sent');
+      assert.deepEqual(JSON.parse(put.body), {
+        state: '2',
+        short_description: 'VPN down for 3 users',
+        priority: '1',
+      });
+    } finally {
+      server.close();
+    }
+  });
+});
+
