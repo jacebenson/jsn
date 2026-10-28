@@ -19,14 +19,28 @@ export function getVersion() {
   }
 }
 
-export async function checkLatest() {
+const backgroundChecks = new Set();
+
+export function cancelBackgroundChecks() {
+  for (const controller of backgroundChecks) controller.abort();
+  backgroundChecks.clear();
+}
+
+export async function checkLatest({ timeout = 1500, background = false } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  timer.unref();
+  if (background) backgroundChecks.add(controller);
   try {
-    const res = await fetch(NPM_REGISTRY);
+    const res = await fetch(NPM_REGISTRY, { signal: controller.signal });
     if (!res.ok) return null;
     const data = await res.json();
     return data.version;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
+    backgroundChecks.delete(controller);
   }
 }
 

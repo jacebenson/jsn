@@ -155,6 +155,8 @@ credentials and flags?" — effective instance URL, active profile (name +
 an instance or profile without mutating the saved active profile.
 
 The provider's authenticated HTTP session is separate from this local identity.
+Concurrent requests on one SDK client share session initialization; failed
+initialization can be retried by a later request.
 Its effective application and capture update set are selected through the
 concourse picker API in `src/context.js`, with session readback before success.
 Writing a `sys_user_preference` row does not synchronize an already-warmed HTTP

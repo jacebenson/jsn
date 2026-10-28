@@ -98,30 +98,17 @@ export class App {
       displayUserName = displayUserName.slice(0, 6) + '...';
     }
 
-    let scope = 'global';
-    if (userSysID) {
-      try {
-        const app = await getCurrentApplication(this.sdk, userSysID);
-        if (app && app.scope) scope = app.scope;
-      } catch {
-        // ignore
-      }
-    }
+    // Both lookups depend on the user, but not on one another.
+    const [application, selectedUpdateSet] = userSysID ? await Promise.all([
+      getCurrentApplication(this.sdk, userSysID).catch(() => null),
+      getCurrentUpdateSet(this.sdk, userSysID).catch(() => null),
+    ]) : [null, null];
+    const scope = application?.scope || 'global';
+    const updateSet = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
+      ? selectedUpdateSet.name : 'Default';
+    const updateSetSysID = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
+      ? selectedUpdateSet.sys_id : '';
     this.context.scope = scope;
-
-    let updateSet = 'Default';
-    let updateSetSysID = '';
-    if (userSysID) {
-      try {
-        const us = await getCurrentUpdateSet(this.sdk, userSysID);
-        if (us && us.name && us.name !== '-') {
-          updateSet = us.name;
-          updateSetSysID = us.sys_id;
-        }
-      } catch {
-        // ignore
-      }
-    }
     this.context.updateSet = updateSet;
 
     const instance = this.getEffectiveInstance();

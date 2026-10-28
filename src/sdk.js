@@ -50,6 +50,7 @@ export class SDKClient {
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
     this.oauthCookies = null;
+    this._sessionPromise = null;
     this.sessionUserToken = '';
   }
 
@@ -791,18 +792,26 @@ export class SDKClient {
 
     const result = { _record: records[0] };
 
-    for (const rel of related) {
-      try {
-        const relParams = new URLSearchParams();
-        relParams.set('sysparm_display_value', 'all');
-        relParams.set('sysparm_fields', (rel.fields || []).join(','));
-        relParams.set('sysparm_query', `${rel.queryField}=${rel.queryValue}`);
-        relParams.set('sysparm_limit', '100');
-        result[rel.displayAs] = await this.list(rel.table, relParams);
-      } catch {
-        result[rel.displayAs] = [];
+    // Four workers bound instance load while overlapping independent reads.
+    let next = 0;
+    const values = new Array(related.length);
+    await Promise.all(Array.from({ length: Math.min(4, related.length) }, async () => {
+      while (next < related.length) {
+        const index = next++;
+        const rel = related[index];
+        try {
+          const relParams = new URLSearchParams();
+          relParams.set('sysparm_display_value', 'all');
+          relParams.set('sysparm_fields', (rel.fields || []).join(','));
+          relParams.set('sysparm_query', `${rel.queryField}=${rel.queryValue}`);
+          relParams.set('sysparm_limit', '100');
+          values[index] = await this.list(rel.table, relParams);
+        } catch {
+          values[index] = [];
+        }
       }
-    }
+    }));
+    related.forEach((rel, index) => { result[rel.displayAs] = values[index]; });
 
     return result;
   }
@@ -859,6 +868,15 @@ export class SDKClient {
 
   async _warmSession() {
     if (this.oauthCookies) return this.oauthCookies;
+    if (!this._sessionPromise) {
+      this._sessionPromise = this._initializeSession().finally(() => {
+        this._sessionPromise = null;
+      });
+    }
+    return this._sessionPromise;
+  }
+
+  async _initializeSession() {
     try {
       const creds = await this.authProvider.getCredentials();
       if (creds.auth_method === 'oauth') {
