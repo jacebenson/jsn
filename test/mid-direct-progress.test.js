@@ -37,7 +37,7 @@ test('bounded downloader reports byte progress and a final done event', async t 
   assert.ok(events.length >= 2 && events.length <= 5, `unexpected event count ${events.length}`);
 });
 
-test('installer announces download and extraction phases before the silent runtime start', async t => {
+test('Linux installer announces download and extraction phases before the silent runtime start', { skip: process.platform !== 'linux' }, async t => {
   const directory = path.join(disposable(t), 'oct12');
   const phases = [];
   const downloadPhases = [];

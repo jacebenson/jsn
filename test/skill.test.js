@@ -161,7 +161,7 @@ describe('Skill hermesSkillDir', () => {
 
     const { hermesSkillDir } = await import('../src/commands/skill.js');
     const skillDir = hermesSkillDir();
-    assert.ok(skillDir.includes('profiles/work/skills/servicenow'));
+    assert.ok(skillDir.includes(path.join('profiles', 'work', 'skills', 'servicenow')));
   });
 
   it('should scan profiles directory when HERMES_PROFILE not set', async () => {
@@ -176,7 +176,7 @@ describe('Skill hermesSkillDir', () => {
     const { hermesSkillDir } = await import('../src/commands/skill.js');
     const skillDir = hermesSkillDir();
     // Should find the first profile directory
-    assert.ok(skillDir.includes('profiles/'));
-    assert.ok(skillDir.includes('skills/servicenow'));
+    assert.ok(skillDir.includes('profiles' + path.sep));
+    assert.ok(skillDir.includes(path.join('skills', 'servicenow')));
   });
 });

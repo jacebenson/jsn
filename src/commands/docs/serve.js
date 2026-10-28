@@ -5,7 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { URL } from 'node:url';
 import Database from 'better-sqlite3';
-import { getDocsDbPath, hasEmbeddings } from './db.js';
+import { getDocsDbPath, hasEmbeddings, closeDocsDb } from './db.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
 const PUBLIC_DIR = path.join(import.meta.dirname, 'public');
@@ -236,6 +236,8 @@ export function serveDocs(opts = {}) {
     }
   });
 
+  server.once('close', () => closeDocsDb(db));
+
   return new Promise((resolve, reject) => {
     let currentPort = parseInt(port, 10);
     const maxAttempts = 10;
@@ -263,6 +265,7 @@ export function serveDocs(opts = {}) {
         err.message = `Could not find an open port between ${port} and ${currentPort}. Try specifying one with --port.`;
       }
       resolved = true;
+      closeDocsDb(db);
       reject(err);
     }
 
