@@ -36,7 +36,7 @@ import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
-import { getVersion, checkLatest } from './commands/version.js';
+import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
 import { docsCmd } from './commands/docs/docs.js';
 
 // Table and platform commands registered at root level for progressive disclosure
@@ -290,7 +290,7 @@ export function buildCLI() {
         }
       }
       if (!skipNpmCheck) {
-        const cacheFile = path.join(globalConfigDir(), '.last-npm-check');
+        const cacheFile = path.join(globalConfigDir(), `.last-npm-check-${getReleaseChannel()}`);
         let shouldCheck = true;
         try {
           const mtime = fs.statSync(cacheFile).mtimeMs;
@@ -303,9 +303,9 @@ export function buildCLI() {
 
         if (shouldCheck) {
           const version = getVersion();
-          checkLatest({ background: true }).then(latest => {
+          checkLatest({ background: true, version }).then(latest => {
             if (latest && version !== latest) {
-              process.stderr.write(`\n⚠ jsn ${latest} available (you have ${version}) — run "npm install -g @jacebenson/jsn" to update\n\n`);
+              process.stderr.write(`\n⚠ jsn ${latest} available (you have ${version}) — run "${getInstallCommand(version)}" to update\n\n`);
             }
           }).catch(() => {});
 
