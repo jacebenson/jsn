@@ -1,4 +1,5 @@
-import yaml from 'js-yaml';
+// js-yaml 5 ships ESM-only named exports; there is no default export.
+import { load as loadYaml, dump as dumpYaml } from 'js-yaml';
 
 const DEFAULT_DELIMITERS = ['---', '---'];
 
@@ -27,7 +28,8 @@ export function parseFrontmatter(input, options = {}) {
 
   const closeIndex = frontmatter.indexOf(`\n${close}`);
   const raw = closeIndex === -1 ? frontmatter : frontmatter.slice(0, closeIndex);
-  const parsed = yaml.load(raw);
+  // js-yaml 5 throws on an empty document; an empty block means no metadata.
+  const parsed = raw.trim() === '' ? {} : loadYaml(raw);
   const data = parsed === undefined ? {} : parsed;
 
   if (closeIndex === -1) return { data, content: '' };
@@ -41,7 +43,7 @@ export function parseFrontmatter(input, options = {}) {
 /** Serialize docs metadata and body using gray-matter-compatible YAML framing. */
 export function stringifyFrontmatter(body, data, options = {}) {
   const [open, close] = delimiters(options);
-  const yamlText = yaml.dump(data, options).trim();
+  const yamlText = dumpYaml(data, options).trim();
   const prefix = yamlText === '{}' ? '' : `${open}\n${yamlText}\n${close}\n`;
   const content = String(body);
   return prefix + (content.endsWith('\n') ? content : `${content}\n`);
