@@ -1,6 +1,6 @@
 // Generic table-based CRUD command builder
 
-import { formatRecordForDisplay, getStringField, parseDataArg, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { FormatAuto } from '../output.js';
@@ -108,7 +108,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
     if (!readOnly) {
       crumbs.unshift(
         { action: 'delete', cmd: `jsn ${name} delete ${id}`, description: `Delete this ${singular}` },
-        { action: 'update', cmd: `jsn ${name} update ${id} --data '{...}'`, description: `Update this ${singular}` }
+        { action: 'update', cmd: `jsn ${name} update ${id} -f name=value`, description: `Update this ${singular}` }
       );
     }
     return crumbs;
@@ -152,7 +152,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             app.ok(record, {
               summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${recordName}`,
               breadcrumbs: [
-                ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${recordName} --data '{...}'`, description: `Update this ${singular}` }]),
+                ...(readOnly ? [] : [{ action: 'update', cmd: `jsn ${name} update ${recordName} -f name=value`, description: `Update this ${singular}` }]),
                 { action: 'list', cmd: `jsn ${name} list`, description: `Back to all ${name}` },
               ],
             });
@@ -215,10 +215,12 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           command: 'create',
           describe: `Create a new ${singular}`,
           builder: (y) => y
-            .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
-            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' }),
+            .option('data', { type: 'string', describe: 'JSON fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = parseDataArg(argv);
+            const recordData = buildRecordPayload(argv);
             const record = await app.sdk.create(table, recordData);
             app.ok(record, {
               summary: `Created ${singular}`,
@@ -232,8 +234,10 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           command: 'update <identifier>',
           describe: `Update ${vowelArticle(singular)} ${singular}`,
           builder: (y) => y
-            .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
-            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' }),
+            .option('data', { type: 'string', describe: 'JSON fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
             const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular });
@@ -242,7 +246,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             }
 
             const sysID = unwrapSysId(record);
-            const recordData = parseDataArg(argv);
+            const recordData = buildRecordPayload(argv);
             const updated = await app.sdk.update(table, sysID, recordData);
             app.ok(updated, { summary: `Updated ${singular} ${id}` });
           }),

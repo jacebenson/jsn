@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch, buildRecordPayload } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('groups', { mutationSubcommands: ['create', 'update', 'delete'] });
@@ -94,12 +94,12 @@ export function groupsCmd(wrap) {
           builder: (y) => y
             .option('name', { alias: 'n', type: 'string', describe: 'Group name' })
             .option('manager', { type: 'string', describe: 'Manager name or sys_id' })
-            .option('data', { type: 'string', describe: 'JSON data for additional fields' }),
+            .option('data', { type: 'string', describe: 'JSON data for additional fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = {};
-            if (argv.data) {
-              Object.assign(recordData, JSON.parse(argv.data));
-            }
+            const recordData = buildRecordPayload(argv, { required: false });
             if (argv.name) recordData.name = argv.name;
             if (argv.manager) recordData.manager = argv.manager;
             if (!recordData.name) {
@@ -118,11 +118,14 @@ export function groupsCmd(wrap) {
           command: 'update <name>',
           describe: 'Update a group by name or sys_id',
           builder: (y) => y
-            .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
+            .option('data', { type: 'string', describe: 'JSON data to update' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const id = argv.name;
             assertSafeExactMatch(id);
-            const recordData = JSON.parse(argv.data);
+            const recordData = buildRecordPayload(argv);
             const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
             const params = new URLSearchParams();
             params.set('sysparm_query', isSysID ? `sys_id=${id}` : `name=${id}`);
