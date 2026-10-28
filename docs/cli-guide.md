@@ -365,8 +365,8 @@ wizard. In those modes provide identifiers and required scope/record/data
 explicitly. Tests, publish and deletion require `--force` or the profile's
 existing explicit skip-confirmations setting when prompting is unavailable.
 Read-only profiles still block mutations before authentication or prompting.
-Press Escape in record pickers or Ctrl+C in any wizard to cancel. Refusing a
-final confirmation leaves the instance untouched.
+Press Escape in any prompt or record picker to cancel; Ctrl+C aborts as well.
+Refusing a final confirmation leaves the instance untouched.
 
 Existing action/flow scopes come from saved raw identifiers. New scopes offer
 the active application preference if available, then a searchable scope picker.
@@ -680,4 +680,4 @@ Releases run from the GitHub Actions workflow. Dispatch `Release production` wit
 
 MIT
 
-Auth and setup prompts show **Esc to cancel**. Press Esc to leave the current workflow without accepting the highlighted choice. `jsn auth status` includes hints for switching profiles, renewing OAuth/browser sessions, and changing profile settings.
+Auth and setup prompts show **Esc to cancel**, as does every other prompt. Press Esc to leave the current workflow without accepting the highlighted choice. `jsn auth status` includes hints for switching profiles, renewing OAuth/browser sessions, and changing profile settings.

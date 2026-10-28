@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { input, password as passwordPrompt, select } from '@inquirer/prompts';
+import { input, password as passwordPrompt, select } from '../prompts.js';
 import { confirmDelete, formatRecordForDisplay, getStringField, interactiveList, canPrompt, assertSafeExactMatch } from '../helpers.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';

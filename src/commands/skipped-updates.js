@@ -1,4 +1,4 @@
-import { checkbox, select, confirm } from '@inquirer/prompts';
+import { checkbox, select, confirm } from '../prompts.js';
 import { canUsePicker, interactiveList, getStringField } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import { errUsage } from '../errors.js';

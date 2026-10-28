@@ -1,7 +1,7 @@
 // Terminal orchestration only. Persistence and lifecycle remain in the SDK.
 import fs from 'node:fs';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { input, select, confirm, editor } from '@inquirer/prompts';
+import { input, select, confirm, editor } from './prompts.js';
 import { canPrompt, interactiveList, getStringField } from './helpers.js';
 import { FormatAuto } from './output.js';
 import { errUsage, errConfirmationRequired } from './errors.js';
@@ -35,7 +35,7 @@ export function interactiveDesigner(argv, app) {
 export async function cancelled(operation) {
   try { return await operation(); }
   catch (error) {
-    if (error === CANCEL || ['ExitPromptError', 'AbortPromptError'].includes(error.name)) return undefined;
+    if (error === CANCEL || ['ExitPromptError', 'AbortPromptError', 'PromptCancelled'].includes(error.name)) return undefined;
     // Keep direct handler errors throwable; opt into the shared JSON renderer at the CLI boundary.
     if (error.code === 'usage_error') error.jsonEnvelope = true;
     throw error;

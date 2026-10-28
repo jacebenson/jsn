@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { select, search, confirm, input, password, PromptCancelled } from '../src/prompts.js';
+import { select, search, confirm, input, password, checkbox, PromptCancelled } from '../src/prompts.js';
 import { renderAppError } from '../src/errors.js';
 
 for (const [name, prompt, extra] of [
   ['select', select, { choices: [{ name: 'One', value: 'one' }] }],
   ['search', search, { source: () => [{ name: 'One', value: 'one' }] }],
   ['confirm', confirm, {}], ['input', input, {}], ['password', password, {}],
+  ['checkbox', checkbox, { choices: [{ name: 'One', value: 'one' }] }],
 ]) {
   test(`Escape cancels ${name} and cleans up keyboard listeners`, async () => {
     const stream = new PassThrough();
