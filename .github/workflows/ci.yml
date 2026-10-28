@@ -12,7 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Pin Windows to the VS 2022 toolchain recognized by node-gyp.
+        os: [ubuntu-latest, windows-2022]
         node: ['22', '24']
     runs-on: ${{ matrix.os }}
     steps:
