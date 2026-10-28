@@ -4,16 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import process from 'node:process';
-import {
-  getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir, docsDbExists,
-  openDocsDb, closeDocsDb, getDocsIndexStats,
-} from './db.js';
-import { syncDocs } from './sync.js';
-import { refreshDocs } from './refresh.js';
-import { embedDocs } from './embed.js';
-import { searchDocs, getDocByIdOrPath } from './search.js';
-import { serveDocs } from './serve.js';
-import { syncCommunity, listCommunityDocs } from './community.js';
 import { declareCapabilities } from '../../capabilities.js';
 import { formatCommandList } from '../../helpers.js';
 
@@ -39,6 +29,8 @@ export function docsCmd(wrap) {
             .option('no-embed', { type: 'boolean', describe: 'Skip HRR semantic embeddings' })
             .option('no-ingest', { type: 'boolean', describe: 'Clone/pull only; do not rebuild index' }),
           handler: wrap(async (argv, app) => {
+            const { getDocsDbPath, getDocsSourceMarkdownDir } = await import('./db.js');
+            const { syncDocs } = await import('./sync.js');
             const result = syncDocs({
               markdownDir: getDocsSourceMarkdownDir(),
               dbPath: getDocsDbPath(),
@@ -52,6 +44,7 @@ export function docsCmd(wrap) {
           command: 'status',
           describe: 'Show docs database status',
           handler: wrap(async (argv, app) => {
+            const { getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir, docsDbExists, withDocsDb, getDocsIndexStats } = await import('./db.js');
             const dbPath = getDocsDbPath();
             const repoDir = getDocsSourceDir();
             const markdownDir = getDocsSourceMarkdownDir();
@@ -60,12 +53,10 @@ export function docsCmd(wrap) {
 
             let state, embedded, documents, bundles, docTypes, syncedAt, dbSize;
             if (dbExists) {
-              const db = openDocsDb();
-              const stats = getDocsIndexStats(db);
+              const stats = withDocsDb({}, (db) => getDocsIndexStats(db));
               ({ documents, bundles, docTypes, syncedAt } = stats);
               const stat = fs.statSync(dbPath);
               dbSize = stat.size;
-              closeDocsDb(db);
 
               embedded = stats.embeddedCount >= documents && documents > 0;
               if (embedded) state = 'ready';
@@ -108,6 +99,7 @@ export function docsCmd(wrap) {
             .option('doc-type', { type: 'string', describe: 'Filter by doc type' })
             .option('mode', { type: 'string', choices: ['keyword', 'hybrid'], default: 'hybrid', describe: 'Search mode' }),
           handler: wrap(async (argv, app) => {
+            const { searchDocs } = await import('./search.js');
             const result = searchDocs({
               query: argv.query,
               limit: argv.limit,
@@ -154,6 +146,7 @@ export function docsCmd(wrap) {
             .positional('id-or-path', { type: 'string', describe: 'Document id (number) or file path' })
             .option('lines', { type: 'number', default: 80, describe: 'Lines of body to show in terminal (use --json for full content)' }),
           handler: wrap(async (argv, app) => {
+            const { getDocByIdOrPath } = await import('./search.js');
             const idOrPath = argv['id-or-path'];
             const row = getDocByIdOrPath(idOrPath);
 
@@ -192,6 +185,7 @@ export function docsCmd(wrap) {
             .option('host', { type: 'string', default: '127.0.0.1', describe: 'Bind address' })
             .option('expose', { type: 'boolean', default: false, describe: 'Bind to 0.0.0.0 to expose on the network' }),
           handler: wrap(async (argv, _app) => {
+            const { serveDocs } = await import('./serve.js');
             try {
               const host = argv.expose ? '0.0.0.0' : argv.host;
               await serveDocs({ port: argv.port, host });
@@ -205,6 +199,7 @@ export function docsCmd(wrap) {
           command: 'embed',
           describe: 'Backfill or refresh HRR semantic embeddings',
           handler: wrap(async (argv, app) => {
+            const { embedDocs } = await import('./embed.js');
             const result = embedDocs();
             app.ok(result, { summary: `Embedded ${result.embedded} of ${result.total} docs` });
           }),
@@ -213,6 +208,8 @@ export function docsCmd(wrap) {
           command: 'refresh',
           describe: 'Incrementally refresh docs.db from existing source clone',
           handler: wrap(async (argv, app) => {
+            const { getDocsSourceMarkdownDir } = await import('./db.js');
+            const { refreshDocs } = await import('./refresh.js');
             const result = refreshDocs({ docsDir: getDocsSourceMarkdownDir() });
             app.ok(result, { summary: `Refresh complete: +${result.added} ~${result.updated} -${result.removed} =${result.unchanged}` });
           }),
@@ -230,6 +227,7 @@ export function docsCmd(wrap) {
                 .option('sources', { type: 'string', describe: 'Path to a community-sources.json (default: bundled)' })
                 .option('delay-ms', { type: 'number', describe: 'Delay between article fetches (default: 500)' }),
               handler: wrap(async (argv, app) => {
+                const { syncCommunity } = await import('./community.js');
                 const result = await syncCommunity({
                   sourcesFile: argv.sources,
                   expand: argv.expand === true,
@@ -245,6 +243,7 @@ export function docsCmd(wrap) {
               command: 'list',
               describe: 'List community docs currently in the index',
               handler: wrap(async (argv, app) => {
+                const { listCommunityDocs } = await import('./community.js');
                 const result = listCommunityDocs();
                 const lines = result.docs.map((d) => `[${d.id}] ${d.title || d.path} (${d.doc_type})`);
                 app.ok({
@@ -258,6 +257,7 @@ export function docsCmd(wrap) {
         });
     },
     handler: wrap(async (argv, app) => {
+      const { getDocsDbPath } = await import('./db.js');
       const subcommands = argv.subcommands || [];
       const summary = 'jsn docs — ServiceNow documentation search (sync, status, search, show, serve).';
       app.ok({

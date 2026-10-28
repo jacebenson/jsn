@@ -52,8 +52,10 @@ afterEach(() => {
 it('finds installed browsers from executables without launching or reading profiles', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-browser-discovery-'));
   roots.push(root);
-  for (const executable of ['chromium', 'google-chrome']) fs.writeFileSync(path.join(root, executable), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
-  const browsers = await findBrowsers({ platform: 'linux', env: { PATH: root } });
+  const platform = process.platform === 'win32' ? 'win32' : 'linux';
+  const suffix = platform === 'win32' ? '.exe' : '';
+  for (const executable of ['chromium', 'google-chrome']) fs.writeFileSync(path.join(root, executable + suffix), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  const browsers = await findBrowsers({ platform, env: { PATH: root } });
   assert.deepEqual(browsers.map(browser => browser.value), ['chromium', 'chrome']);
   await assert.rejects(chooseBrowser({ browserName: 'firefox' }), /Firefox login is not supported/);
 });

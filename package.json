@@ -8,7 +8,7 @@
   },
   "main": "src/cli.js",
   "scripts": {
-    "test": "node --experimental-test-module-mocks --test --test-concurrency=4 $(find test -name '*.test.js')",
+    "test": "node scripts/test.mjs",
     "test:mutation": "stryker run",
     "lint": "npx eslint src/ bin/ test/",
     "start": "node bin/jsn.js",

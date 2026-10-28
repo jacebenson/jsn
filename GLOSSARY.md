@@ -155,6 +155,8 @@ credentials and flags?" — effective instance URL, active profile (name +
 an instance or profile without mutating the saved active profile.
 
 The provider's authenticated HTTP session is separate from this local identity.
+Concurrent requests on one SDK client share session initialization; failed
+initialization can be retried by a later request.
 Its effective application and capture update set are selected through the
 concourse picker API in `src/context.js`, with session readback before success.
 Writing a `sys_user_preference` row does not synchronize an already-warmed HTTP
@@ -294,3 +296,10 @@ Dispatch is not success; log and artifact readback are required.
   discovery fallback runs outside any command, but its `app.ok` can still throw
   (a missing `--get` path does), and an unwrapped rejection exits through a Node
   stack instead of the structured error contract.
+
+## Auth implementation modules
+
+`src/auth.js` preserves the public auth API and identity-aware `AuthManager`.
+Credential storage, OAuth/PKCE helpers, browser-session input parsing and pure
+credential-state classification live under `src/auth/`. This separation does
+not change credential keys, environment precedence or probe side effects.

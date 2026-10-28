@@ -28,7 +28,7 @@ describe('MID Server installer', () => {
   });
 
   it('uses the instance and MID name for the install directory', () => {
-    assert.equal(midInstallDirectory('https://dev354702.service-now.com', 'oct12', '/home/jace'), '/home/jace/.servicenow/mids/dev354702/oct12');
+    assert.equal(midInstallDirectory('https://dev354702.service-now.com', 'oct12', '/home/jace'), path.join('/home/jace', '.servicenow', 'mids', 'dev354702', 'oct12'));
   });
   it('uses the final build date in a release name with multiple dates', () => {
     assert.match(

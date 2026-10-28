@@ -27,7 +27,7 @@ test('only src/prompts.js imports @inquirer/prompts directly', () => {
     .map(file => path.relative(path.join(srcRoot, '..'), file));
 
   // @inquirer/core is the pagination primitive, not a prompt surface.
-  assert.deepEqual(direct, ['src/prompts.js']);
+  assert.deepEqual(direct, [path.join('src', 'prompts.js')]);
 });
 
 test('Escape on a nested confirmation cancels the flow before it mutates', async () => {

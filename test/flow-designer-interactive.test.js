@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { actionsCmd } from '../src/commands/actions.js';
 import { flowsCmd } from '../src/commands/flows.js';
 import { SDKClient } from '../src/sdk.js';
@@ -12,7 +13,7 @@ const SCOPE = 'b'.repeat(32);
 const STEP = 'c'.repeat(32);
 const STATUS = 'd'.repeat(32);
 const RECORD = 'e'.repeat(32);
-const SCRIPT_FILE = new URL('./fixtures/interactive-action-script.js', import.meta.url).pathname;
+const SCRIPT_FILE = fileURLToPath(new URL('./fixtures/interactive-action-script.js', import.meta.url));
 const script = readFileSync(SCRIPT_FILE, 'utf8');
 const schema = () => ({ id: STEP, type: 'SCRIPT', name: 'Script', customMetadata: { preserve: true },
   inputs: [{ name: 'runtime', type: 'choice', choices: [{ label: 'Instance', value: 'instance' }], defaultValue: 'instance' }, { name: 'script', type: 'script' }],

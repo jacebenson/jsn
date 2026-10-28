@@ -46,7 +46,7 @@ test('HTML export creates a private file without overwriting an existing report'
     const out = path.join(dir, 'review.html');
     assert.equal(writeCustomizationHtml(fixture, { out }), out);
     assert.match(fs.readFileSync(out, 'utf8'), /Customization review/);
-    assert.equal(fs.statSync(out).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(out).mode & 0o777, 0o600);
     assert.throws(() => writeCustomizationHtml(fixture, { out }), { code: 'EEXIST' });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

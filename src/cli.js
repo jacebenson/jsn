@@ -303,7 +303,7 @@ export function buildCLI() {
 
         if (shouldCheck) {
           const version = getVersion();
-          checkLatest().then(latest => {
+          checkLatest({ background: true }).then(latest => {
             if (latest && version !== latest) {
               process.stderr.write(`\n⚠ jsn ${latest} available (you have ${version}) — run "npm install -g @jacebenson/jsn" to update\n\n`);
             }
@@ -584,3 +584,5 @@ export function buildCLI() {
 
 // Run if invoked directly (bin/jsn.js calls cli.parse())
 export const cli = buildCLI();
+
+export { cancelBackgroundChecks } from './commands/version.js';

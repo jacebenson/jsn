@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { openDocsDb, closeDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
+import { withDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function ingestDocs(opts = {}) {
@@ -14,69 +14,69 @@ export function ingestDocs(opts = {}) {
   // Fresh build each run.
   if (fs.existsSync(dbPath)) fs.rmSync(dbPath);
 
-  const db = openDocsDb({ dbPath });
-  initDocsSchema(db);
+  return withDocsDb({ dbPath }, (db) => {
+    initDocsSchema(db);
 
-  const insert = db.prepare(`
-    INSERT INTO docs (path, title, release, bundle, doc_type, locale, frontmatter, body, size, mtime, hash, hrr_vector)
-    VALUES (@path, @title, @release, @bundle, @doc_type, @locale, @frontmatter, @body, @size, @mtime, @hash, @hrr_vector)
-  `);
+    const insert = db.prepare(`
+      INSERT INTO docs (path, title, release, bundle, doc_type, locale, frontmatter, body, size, mtime, hash, hrr_vector)
+      VALUES (@path, @title, @release, @bundle, @doc_type, @locale, @frontmatter, @body, @size, @mtime, @hash, @hrr_vector)
+    `);
 
-  let count = 0;
-  let errors = 0;
-  const startedAt = Date.now();
+    let count = 0;
+    let errors = 0;
+    const startedAt = Date.now();
 
-  db.exec('BEGIN');
-  for (const { file, rel } of walkDocs(roots)) {
-    try {
-      const stat = fs.statSync(file);
-      const raw = fs.readFileSync(file, 'utf8');
-      const hash = createHash('sha256').update(raw).digest('hex');
-      let data = {};
-      let body = raw;
+    db.exec('BEGIN');
+    for (const { file, rel } of walkDocs(roots)) {
       try {
-        const parsed = parseFrontmatter(raw);
-        data = parsed.data || {};
-        body = parsed.content || '';
-      } catch {
-        // Malformed frontmatter: keep raw body, empty metadata.
+        const stat = fs.statSync(file);
+        const raw = fs.readFileSync(file, 'utf8');
+        const hash = createHash('sha256').update(raw).digest('hex');
+        let data = {};
+        let body = raw;
+        try {
+          const parsed = parseFrontmatter(raw);
+          data = parsed.data || {};
+          body = parsed.content || '';
+        } catch {
+          // Malformed frontmatter: keep raw body, empty metadata.
+        }
+        const hrr = embed
+          ? phasesToBytes(encodeText(docSurface(data.title ?? null, body), DEFAULT_DIM))
+          : null;
+        insert.run({
+          path: rel,
+          title: data.title ?? null,
+          release: data.release ?? null,
+          bundle: data.bundle ?? null,
+          doc_type: data.doc_type ?? null,
+          locale: data.locale ?? null,
+          frontmatter: JSON.stringify(data),
+          body,
+          size: stat.size,
+          mtime: Math.floor(stat.mtimeMs),
+          hash,
+          hrr_vector: hrr,
+        });
+        count++;
+        if (count % 5000 === 0) {
+          process.stderr.write(`  ...${count} files\n`);
+        }
+      } catch (err) {
+        errors++;
+        if (errors <= 10) process.stderr.write(`Skipped ${file}: ${err.message}\n`);
       }
-      const hrr = embed
-        ? phasesToBytes(encodeText(docSurface(data.title ?? null, body), DEFAULT_DIM))
-        : null;
-      insert.run({
-        path: rel,
-        title: data.title ?? null,
-        release: data.release ?? null,
-        bundle: data.bundle ?? null,
-        doc_type: data.doc_type ?? null,
-        locale: data.locale ?? null,
-        frontmatter: JSON.stringify(data),
-        body,
-        size: stat.size,
-        mtime: Math.floor(stat.mtimeMs),
-        hash,
-        hrr_vector: hrr,
-      });
-      count++;
-      if (count % 5000 === 0) {
-        process.stderr.write(`  ...${count} files\n`);
-      }
-    } catch (err) {
-      errors++;
-      if (errors <= 10) process.stderr.write(`Skipped ${file}: ${err.message}\n`);
     }
-  }
-  db.exec('COMMIT');
+    db.exec('COMMIT');
 
-  db.exec("INSERT INTO docs_fts(docs_fts) VALUES('optimize');");
-  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-  db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
-  db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('hrr_dim', ?)").run(String(DEFAULT_DIM));
-  db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('synced_at', ?)").run(String(Date.now()));
-  db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('embeddings', ?)").run(String(embed));
-  closeDocsDb(db);
+    db.exec("INSERT INTO docs_fts(docs_fts) VALUES('optimize');");
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('hrr_dim', ?)").run(String(DEFAULT_DIM));
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('synced_at', ?)").run(String(Date.now()));
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('embeddings', ?)").run(String(embed));
 
-  const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
-  return { count, errors, secs, dbPath, embedded: embed };
+    const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
+    return { count, errors, secs, dbPath, embedded: embed };
+  });
 }

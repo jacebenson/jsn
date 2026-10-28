@@ -1,4 +1,3 @@
-import { createPrompt, useKeypress, usePagination, useState, isDownKey, isEnterKey, isUpKey } from '@inquirer/core';
 import { loginWizard, loginProfile, showAuthStatus, switchProfile, modifyProfile, logoutProfile, removeConnection } from './auth.js';
 import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -18,32 +17,35 @@ const HUB_CHOICES = [
 ];
 
 /** The setup hub prompt; q and Escape resolve with no selected action. */
-export const authHubPrompt = createPrompt((config, done) => {
-  const [active, setActive] = useState(0);
-  const choices = config.choices;
+export const authHubPrompt = async (...args) => {
+  const { createPrompt, useKeypress, usePagination, useState, isDownKey, isEnterKey, isUpKey } = await import('@inquirer/core');
+  return createPrompt((config, done) => {
+    const [active, setActive] = useState(0);
+    const choices = config.choices;
 
-  useKeypress((key) => {
-    if (key.name === 'q' || key.name === 'escape') {
-      done(undefined);
-      return;
-    }
-    if (isEnterKey(key)) {
-      done(choices[active].value);
-      return;
-    }
-    if (isUpKey(key) && active > 0) setActive(active - 1);
-    if (isDownKey(key) && active < choices.length - 1) setActive(active + 1);
-  });
+    useKeypress((key) => {
+      if (key.name === 'q' || key.name === 'escape') {
+        done(undefined);
+        return;
+      }
+      if (isEnterKey(key)) {
+        done(choices[active].value);
+        return;
+      }
+      if (isUpKey(key) && active > 0) setActive(active - 1);
+      if (isDownKey(key) && active < choices.length - 1) setActive(active + 1);
+    });
 
-  const page = usePagination({
-    items: choices,
-    active,
-    pageSize: choices.length,
-    loop: false,
-    renderItem: ({ item, isActive }) => `${isActive ? '❯' : ' '} ${item.name}`,
-  });
-  return `${config.message}\n${page}\n\n↑↓ navigate • ⏎ select • q/Esc exit`;
-});
+    const page = usePagination({
+      items: choices,
+      active,
+      pageSize: choices.length,
+      loop: false,
+      renderItem: ({ item, isActive }) => `${isActive ? '❯' : ' '} ${item.name}`,
+    });
+    return `${config.message}\n${page}\n\n↑↓ navigate • ⏎ select • q/Esc exit`;
+  })(...args);
+};
 
 /** Interactive hub: what do you want to do? Returns an action or undefined on exit. */
 export async function authHubMenu({ promptFn = authHubPrompt, input, output } = {}) {

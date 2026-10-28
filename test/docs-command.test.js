@@ -128,7 +128,7 @@ describe('Docs serve — port fallback guard', () => {
       const { server } = await serveDocs({ dbPath, port: 0, host: '127.0.0.1' });
       assert.ok(server);
       assert.ok(server.address().port > 0);
-      server.close();
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     } catch (err) {
       assert.fail(`serveDocs failed: ${err.message}`);
     } finally {

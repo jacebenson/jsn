@@ -425,15 +425,19 @@ describe('updatesets export', () => {
     assert.strictEqual(app._ok.data.bytes, Buffer.byteLength(XML));
   });
 
-  it('writes to --out file and reports the path', async () => {
+  it('writes to --out file and reports the path', async (t) => {
     const exportCmd = await findExportCmd();
     const { app } = makeApp();
-    await exportCmd.handler({ app, name: 'My Feature', out: '/tmp/jsn-export-test.xml' }, app);
     const fs = await import('node:fs');
-    assert.strictEqual(fs.readFileSync('/tmp/jsn-export-test.xml', 'utf-8'), XML);
-    assert.strictEqual(app._ok.data.out, '/tmp/jsn-export-test.xml');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-export-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const out = path.join(directory, 'export.xml');
+    await exportCmd.handler({ app, name: 'My Feature', out }, app);
+    assert.strictEqual(fs.readFileSync(out, 'utf-8'), XML);
+    assert.strictEqual(app._ok.data.out, out);
     assert.strictEqual(app._ok.data.bytes, Buffer.byteLength(XML));
-    fs.rmSync('/tmp/jsn-export-test.xml', { force: true });
   });
 
   it('calls exportUpdateSet with the resolved sys_id and scope', async () => {
