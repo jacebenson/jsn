@@ -362,7 +362,7 @@ export function assertSafeExactMatch(value) {
 export async function interactiveList({ app, table, singular, columns, limit = 50, query = '', formatLabel, labelField = 'name', message, formatValue, promptFn }) {
   const prompt = promptFn || paginatedSearch;
   app.requireInstance();
-  const effectiveFormat = app.output.getFormat() === FormatAuto ? (isTTY(process.stdout) ? FormatAuto : FormatAuto) : app.output.getFormat();
+  const effectiveFormat = app.output.getFormat();
   if (!promptFn && (effectiveFormat !== FormatAuto || !canPrompt())) {
     return null; // not interactive — caller should fall back to text/table
   }

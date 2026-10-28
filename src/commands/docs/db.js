@@ -132,8 +132,13 @@ export function openDocsDb(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
   ensureDocsCacheDir();
   const db = new Database(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  return db;
+  try {
+    db.exec('PRAGMA journal_mode = WAL');
+    return db;
+  } catch (error) {
+    closeDocsDb(db);
+    throw error;
+  }
 }
 
 export function closeDocsDb(db) {
@@ -245,4 +250,19 @@ export function getDocsIndexStats(db) {
 
 export function setMeta(db, key, value) {
   db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(key, value);
+}
+
+/** Own a synchronous docs connection and roll back unfinished work on failure. */
+export function withDocsDb(opts, operation) {
+  const db = openDocsDb(opts);
+  try {
+    return operation(db);
+  } catch (error) {
+    if (db.inTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* Preserve the original error. */ }
+    }
+    throw error;
+  } finally {
+    closeDocsDb(db);
+  }
 }

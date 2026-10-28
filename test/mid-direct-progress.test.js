@@ -32,7 +32,7 @@ test('bounded downloader reports byte progress and a final done event', async t 
   assert.equal(events.at(-1).done, true);
   assert.equal(events.at(-1).received, 6 * 1024 * 1024);
   assert.equal(fs.statSync(archive).size, 6 * 1024 * 1024);
-  assert.equal(fs.statSync(archive).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(archive).mode & 0o777, 0o600);
   // Progress is reported at intervals, not once per chunk.
   assert.ok(events.length >= 2 && events.length <= 5, `unexpected event count ${events.length}`);
 });
@@ -93,8 +93,10 @@ test('direct log discovery finds the rotated vendor log and refuses links', asyn
   assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log.0', 'a newer rotated file takes over after rotation');
   // A symlinked log must never be followed or returned.
   fs.rmSync(path.join(logs, 'agent0.log'));
-  fs.symlinkSync('/etc/hostname', path.join(logs, 'agent0.log'));
-  assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log.0', 'a symlink is never selected');
+  if (process.platform !== 'win32') {
+    fs.symlinkSync(path.join(logs, 'wrapper.log'), path.join(logs, 'agent0.log'));
+    assert.equal(path.basename(resolveDirectLogFile(directory)), 'agent0.log.0', 'a symlink is never selected');
+  }
 });
 
 test('follow streams appended lines and survives log rotation', async t => {

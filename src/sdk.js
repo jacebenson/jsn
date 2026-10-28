@@ -95,56 +95,24 @@ export class SDKClient {
     }
   }
 
-  async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, readOnly = false, touchLastSeen, ...requestOptions } = opts;
-    if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
+  // Keep the timeout alive through body consumption for text/JSON requests.
+  // Raw-response callers retain their existing timeout boundary at headers.
+  async _withAuthenticatedRequest(endpoint, opts, {
+    timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
+  }, consume = (response) => response) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
-
     try {
-      const req = new Request(endpoint, {
-        ...requestOptions,
-        signal: controller.signal,
-      });
-      req.headers.set('Accept', 'application/json');
-      if (requestOptions.body && typeof requestOptions.body === 'string') {
-        req.headers.set('Content-Type', 'application/json');
-      }
-      if (this.domain) {
-        req.headers.set('X-Now-Domain', this.domain);
-      }
-      // readOnly guards the data request, not standard authentication bootstrap.
-      // OAuth refresh and session/GCK negotiation are not instance-record writes.
-      await this._setAuth(req);
-
-      const resp = await fetch(req);
-      const body = await resp.text();
-
-      if (!resp.ok) {
-        throw errAPI(resp.status, body || resp.statusText);
-      }
-
-      if (resp.status === 204 || body === '') {
-        return null;
-      }
-
-      // Stamp last_seen on successful API call
-      try {
-        // readOnly suppresses the credential last-seen write unconditionally: a
-        // caller passing touchLastSeen cannot override it (GLOSSARY contract).
-        const shouldTouch = readOnly ? false : (touchLastSeen ?? true);
-        if (shouldTouch && this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
-          this.authProvider.touchLastSeen(this.baseURL);
-        }
-      } catch { /* non-fatal */ }
-
-      return JSON.parse(body);
+      const req = new Request(endpoint, { ...opts, signal: controller.signal });
+      if (prepare) prepare(req);
+      await this._setAuth(req, { skipOAuthSession });
+      return await consume(await fetch(req));
     } catch (err) {
-      if (err.name === 'AbortError') {
-        throw errNetwork(new Error('Request timed out'));
-      }
-      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-        throw errNetwork(err);
+      if (normalizeErrors) {
+        if (err.name === 'AbortError') throw errNetwork(new Error('Request timed out'));
+        if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+          throw errNetwork(err);
+        }
       }
       throw err;
     } finally {
@@ -152,17 +120,38 @@ export class SDKClient {
     }
   }
 
-  // _fetchWithAuth makes an authenticated fetch and returns the Response object.
+  async request(endpoint, opts = {}) {
+    const { timeout = this.timeout, readOnly = false, touchLastSeen, ...requestOptions } = opts;
+    if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
+      timeout,
+      normalizeErrors: true,
+      prepare: (req) => {
+        req.headers.set('Accept', 'application/json');
+        if (requestOptions.body && typeof requestOptions.body === 'string') {
+          req.headers.set('Content-Type', 'application/json');
+        }
+        if (this.domain) req.headers.set('X-Now-Domain', this.domain);
+      },
+    }, async (resp) => {
+      const body = await resp.text();
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (resp.status === 204 || body === '') return null;
+
+      // Preserve read-only credential-write suppression and the existing empty-body behavior.
+      try {
+        const shouldTouch = readOnly ? false : (touchLastSeen ?? true);
+        if (shouldTouch && this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
+          this.authProvider.touchLastSeen(this.baseURL);
+        }
+      } catch { /* non-fatal */ }
+      return JSON.parse(body);
+    });
+  }
+
+  // Authentication bootstrap bypasses session warming to avoid recursion.
   async _fetchWithAuth(endpoint, opts = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-    try {
-      const req = new Request(endpoint, { ...opts, signal: controller.signal });
-      await this._setAuth(req, { skipOAuthSession: true });
-      return await fetch(req);
-    } finally {
-      clearTimeout(timer);
-    }
+    return this._withAuthenticatedRequest(endpoint, opts, { skipOAuthSession: true });
   }
 
   // Public raw-response seam for callers that must inspect non-2xx bodies.
@@ -171,38 +160,18 @@ export class SDKClient {
   }
 
   async rawRequest(endpoint, opts = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const req = new Request(endpoint, {
-        ...opts,
-        signal: controller.signal,
-      });
-      if (opts.body && typeof opts.body === 'string') {
-        req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
-      }
-      await this._setAuth(req);
-
-      const resp = await fetch(req);
+    return this._withAuthenticatedRequest(endpoint, opts, {
+      normalizeErrors: true,
+      prepare: (req) => {
+        if (opts.body && typeof opts.body === 'string') {
+          req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
+        }
+      },
+    }, async (resp) => {
       const body = await resp.text();
-
-      if (!resp.ok) {
-        throw errAPI(resp.status, body || resp.statusText);
-      }
-
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
       return body;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        throw errNetwork(new Error('Request timed out'));
-      }
-      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-        throw errNetwork(err);
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+    });
   }
 
   async getSkippedUpdateBaseline(sysID) {

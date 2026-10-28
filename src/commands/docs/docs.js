@@ -44,7 +44,7 @@ export function docsCmd(wrap) {
           command: 'status',
           describe: 'Show docs database status',
           handler: wrap(async (argv, app) => {
-            const { getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir, docsDbExists, openDocsDb, closeDocsDb, getDocsIndexStats } = await import('./db.js');
+            const { getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir, docsDbExists, withDocsDb, getDocsIndexStats } = await import('./db.js');
             const dbPath = getDocsDbPath();
             const repoDir = getDocsSourceDir();
             const markdownDir = getDocsSourceMarkdownDir();
@@ -53,12 +53,10 @@ export function docsCmd(wrap) {
 
             let state, embedded, documents, bundles, docTypes, syncedAt, dbSize;
             if (dbExists) {
-              const db = openDocsDb();
-              const stats = getDocsIndexStats(db);
+              const stats = withDocsDb({}, (db) => getDocsIndexStats(db));
               ({ documents, bundles, docTypes, syncedAt } = stats);
               const stat = fs.statSync(dbPath);
               dbSize = stat.size;
-              closeDocsDb(db);
 
               embedded = stats.embeddedCount >= documents && documents > 0;
               if (embedded) state = 'ready';
