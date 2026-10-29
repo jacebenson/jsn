@@ -150,10 +150,19 @@ record. `resolveRecord(sdk, { table, identifier, matchField, resource })` → th
 record (with display values) or a standard `not_found` error; `resolveSysId`
 returns just the id; `isSysId` / `unwrapSysId` are the primitives.
 
-Behind the interface: identifier classification (32-char hex → `sys_id`, else
-the table's human field like `number`/`name`/`user_name`), safe-exact-match
-assertion, `sysparm_display_value=all`, single-record extraction, sys_id
-unwrapping. Commands do "resolve → mutate → report."
+Behind the interface: configured human-field precedence for nonhex identifiers,
+explicit `identifierField` disambiguation (including legacy/nonhex sys_ids),
+exact lookup followed by sys_id prefix then suffix. Each query requests at most
+two rows; multiple matches fail with `ambiguous`, zero with `not_found`. Errors
+carry machine-readable `resolution` metadata. Explicit human fields never use
+partial matching. `isSysId` remains a 32-hex precedence heuristic, not a claim
+that other values cannot be sys_ids. Commands do "resolve → mutate → report."
+
+`src/records-engine.js` supplies shared in-process list/get/create/update/delete
+operations. Generic records, ticket and table factories call this engine while
+retaining their payload, confirmation, scope, picker and output policies. Read
+commands accept explicit `--display-values raw|display|both`; omitted preserves
+existing reference representation. No engine operation spawns another CLI.
 
 > Replaced: ~12 divergent hand-rolled "query by identifier, throw if empty"
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,

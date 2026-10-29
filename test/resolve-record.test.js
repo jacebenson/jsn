@@ -49,13 +49,13 @@ describe('resolveRecord', () => {
     assert.strictEqual(capture.query, 'name=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz');
   });
 
-  it('always requests display values and limit=1', async () => {
+  it('always requests display values and limit=2', async () => {
     const { resolveRecord } = await import('../src/resolve-record.js');
     const capture = {};
     const sdk = makeSdk([{ sys_id: 'x1' }], capture);
     await resolveRecord(sdk, { table: 'sys_user', identifier: 'john.doe', matchField: 'user_name' });
     assert.strictEqual(capture.displayValue, 'all');
-    assert.strictEqual(capture.limit, '1');
+    assert.strictEqual(capture.limit, '2');
   });
 
   it('passes fields through as sysparm_fields when given', async () => {
