@@ -29,7 +29,7 @@ describe('authHubMenu', () => {
 
     assert.strictEqual(action, 'modify');
     const values = capturedChoices.map(c => c.value);
-    assert.deepStrictEqual(values, ['add', 'login', 'status', 'switch', 'modify', 'logout', 'remove']);
+    assert.deepStrictEqual(values, ['add', 'login', 'status', 'switch', 'modify', 'logout', 'remove', 'docs']);
   });
 
   it('returns undefined when q exits the interactive hub', async () => {

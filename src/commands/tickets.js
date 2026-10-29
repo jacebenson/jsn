@@ -1,3 +1,4 @@
+import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam, buildRecordPayload, confirmDelete } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
 import { resolveSysId } from '../resolve-record.js';
@@ -59,9 +60,10 @@ export function ticketsCmd(wrap) {
           command: 'show <number>',
           aliases: ['get'],
           describe: 'Show a ticket',
-          builder: y => recordOptions(y),
+          builder: y => relatedListOptions(recordOptions(y)),
           handler: wrap(async (argv, app) => {
             const record = await getRecord(app.sdk, { table: 'task', identifier: argv.number, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'number', resource: 'Ticket' });
+            await enrichRelatedLists(record, { table: 'task', argv, app });
             app.ok(record, { summary: `Ticket ${argv.number}` });
           }),
         })

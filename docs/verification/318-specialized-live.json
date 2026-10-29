@@ -1,0 +1,35 @@
+{
+  "checked_at": "2026-10-29T04:58:45.425Z",
+  "implementation_commit": "d619ef9283c517e87878e581b57f8e003c679679",
+  "profile": "pdi",
+  "command": "node bin/jsn.js --profile pdi tables show incident --related --related-limit 5",
+  "safe_target": "sys_db_object metadata definition; no business record or related rows requested",
+  "configured_descriptor_limit": 5,
+  "json": {
+    "exit": 0,
+    "ok": true,
+    "related_present": true,
+    "descriptor_count": 59,
+    "available_counts": 1,
+    "nonempty_count": 1,
+    "first_nonempty_count": 48,
+    "coverage": "partial",
+    "commands_pin_selected_profile": true,
+    "commands_pin_instance": true
+  },
+  "human": {
+    "exit": 0,
+    "related_heading": true,
+    "retrieval_hint": true,
+    "coverage_visible": true
+  },
+  "extraction": {
+    "exit": 0,
+    "path": "data._related.nonempty.0.count",
+    "value": 48,
+    "matches_json": true
+  },
+  "writes": 0,
+  "context_selection_changes": 0,
+  "ok": true
+}

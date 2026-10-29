@@ -2,20 +2,36 @@
 // after a ServiceNow docs update (e.g. `git pull` in the docs repo).
 
 import fs from 'node:fs';
+import path from 'node:path';
+import { docsReaderLease } from './locks.js';
+import { errUsageHint } from '../../errors.js';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { withDocsDb, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
+import { withDocsDb, getDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function refreshDocs(opts = {}) {
+  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir() : null);
+  if (resource) fs.mkdirSync(path.dirname(resource), { recursive: true });
+  const release = resource && !opts.sourceLeaseHeld ? docsReaderLease(resource) : () => {};
+  try { return refreshDocsLocked(opts); } finally { release(); }
+}
+function refreshDocsLocked(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
   const roots = opts.roots || defaultDocsRoots(opts);
+
+  if (roots.some(root => (!root.prefix || opts.roots) && (!fs.existsSync(root.dir) || !fs.statSync(root.dir).isDirectory()))) {
+    throw errUsageHint('Raw documentation source is missing; existing index retained.', 'Use jsn docs install --source snapshot to update a prebuilt index, or --source github to install raw source before refreshing.');
+  }
 
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found: ${dbPath}. Run "jsn docs sync" first for the initial build.`);
   }
 
   return withDocsDb({ dbPath }, (db) => {
+    if (!opts.sourceLeaseHeld && db.prepare("SELECT value FROM meta WHERE key='snapshot_revision'").get()) {
+      throw errUsageHint('A prebuilt snapshot cannot refresh from an unrelated raw clone; existing index retained.', 'Use jsn docs install --source snapshot, or jsn docs sync to explicitly update raw source and rebuild.');
+    }
     db.exec('PRAGMA journal_mode = WAL');
 
     const cols = db.prepare('PRAGMA table_info(docs)').all().map((c) => c.name);
@@ -48,9 +64,11 @@ export function refreshDocs(opts = {}) {
     const seen = new Set();
     const started = Date.now();
 
+    const missingPrefixes = roots.filter(root => root.prefix && !fs.existsSync(root.dir)).map(root => root.prefix);
     const files = [...walkDocs(roots)];
 
     db.exec('BEGIN');
+    db.prepare("DELETE FROM meta WHERE key='snapshot_revision'").run();
     for (const { file, rel } of files) {
       try {
         seen.add(rel);
@@ -105,7 +123,7 @@ export function refreshDocs(opts = {}) {
     }
 
     for (const [rel, row] of existing) {
-      if (!seen.has(rel)) {
+      if (!missingPrefixes.some(prefix => rel.startsWith(prefix)) && !seen.has(rel)) {
         del.run(row.id);
         removed++;
       }
@@ -116,6 +134,8 @@ export function refreshDocs(opts = {}) {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
     db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('synced_at', ?)").run(String(Date.now()));
 
+    fs.rmSync(`${dbPath}.snapshot.json`, { force: true });
+    fs.rmSync(`${dbPath}.available.json`, { force: true });
     const secs = ((Date.now() - started) / 1000).toFixed(1);
     return { added, updated, removed, unchanged, errors, secs, dbPath, embeddingsEnabled };
   });

@@ -1,4 +1,5 @@
 import { constrainQuery, constrainedQueryHelp } from '../constrained-query.js';
+import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic table-based CRUD command builder
 
 import { formatRecordForDisplay, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
@@ -187,7 +188,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         aliases: ['get'],
         describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
         builder: y => {
-          const command = recordOptions(y);
+          const command = relatedListOptions(recordOptions(y));
           return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true,
             describe: 'Fetch profile-declared essential children; --no-essential skips them. Supplementary lists remain lazy.' }) : command;
         },
@@ -209,6 +210,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             await opts.onShow(record, app, argv);
           }
 
+          await enrichRelatedLists(record, { table, argv, app });
           const summary = typeof showSummary === 'function' ? showSummary(record, id) : showSummary;
           const breadcrumbs = typeof showBreadcrumbs === 'function' ? showBreadcrumbs(record, id) : showBreadcrumbs;
 

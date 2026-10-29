@@ -21,6 +21,9 @@ After #344 landed, this follow-up was rebased onto main. Its field runtime and
 test changes are unchanged. Main additionally contains the related-count reader;
 the combined field/profile/related-reader checks passed 23 tests after rebase,
 and full lint passed. The PR diff now contains only this field follow-up.
+The subsequent current-main merge preserves the specialized related-list hooks
+and both architecture notes. All 30 affected field/profile/essential/related
+checks and full lint passed. The recorded PDI evidence is unchanged.
 
 [Sanitized live terminal proof](field-troubleshooting-live.json) records source
 revision and each actual command. A fresh mandatory PDI doctor reported

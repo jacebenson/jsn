@@ -1,0 +1,11 @@
+/storage/*
+!/storage/.keep
+/log/*
+!/log/.keep
+/tmp/*
+!/tmp/.keep
+/public/*
+!/public/.keep
+/.bundle/
+/config/master.key
+/vendor/bundle/
