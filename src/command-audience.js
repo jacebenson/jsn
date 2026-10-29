@@ -5,7 +5,7 @@ const BASIC_COMMANDS = new Set([
   'knowledge',
   'groups', 'groupmembers', 'grouproles', 'users', 'setup', 'auth', 'skill',
   'cmdb',
-  'version', 'docs', 'history', 'discover', 'completion',
+  'version', 'upgrade', 'docs', 'history', 'discover', 'completion',
   'catalogitems',
 ]);
 
