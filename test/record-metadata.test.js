@@ -124,7 +124,7 @@ test('ACL failures and malformed/truncated metadata remain explicit coverage gap
 });
 
 test('unknown or ambiguous custom views never select a layout', async () => {
-  for (const views of [[], [{ sys_id: id('1') }, { sys_id: id('2') }]]) {
+  for (const views of [[], [{}], [{ sys_id: id('1') }, { sys_id: id('2') }]]) {
     const f = fixture();
     const original = f.sdk.list;
     f.sdk.list = (table, params) => table === 'sys_ui_view' ? Promise.resolve(views) : original(table, params);
@@ -147,6 +147,8 @@ test('simple custom references are queryable only when no platform script is req
 test('rejects encoded-query injection before transport and preserves fatal authentication failures', async () => {
   const { sdk, calls } = fixture();
   const reader = createRecordMetadataReader(sdk);
+  await assert.rejects(reader.read({}), /table name/);
+  await assert.rejects(reader.read({ table: null }), /table name/);
   await assert.rejects(reader.read({ table: 'task^ORname=incident' }), /table name/);
   await assert.rejects(reader.read({ table: 'task', view: 'default^NQ' }), /Unsafe identifier/);
   assert.equal(calls.length, 0);

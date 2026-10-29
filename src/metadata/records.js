@@ -11,7 +11,7 @@ const reference = value => {
   assertSafeExactMatch(text);
   return text;
 };
-const isName = value => namePattern.test(value);
+const isName = value => typeof value === 'string' && namePattern.test(value);
 const chunks = values => Array.from({ length: Math.ceil(values.length / 100) }, (_, index) => values.slice(index * 100, (index + 1) * 100));
 
 function request(table, query, fields, limit = 1000) {
@@ -117,7 +117,10 @@ export function createRecordMetadataReader(sdk, { limit = 1000, maxDepth = 32 } 
     const viewQuery = defaultView ? 'name=^ORname=default^ORtitle=Default view' : `name=${view}^ORtitle=${view}^ORsys_id=${view}`;
     const [views] = await reads([request('sys_ui_view', `${viewQuery}^userISEMPTY`, 'sys_id,name,title', 3)], warnings);
     let viewId = '';
-    if (views.length === 1) viewId = reference(views[0].sys_id);
+    if (views.length === 1) {
+      viewId = reference(views[0].sys_id);
+      if (!viewId) warnings.push({ source: 'sys_ui_view', reason: 'View id is absent or not visible' });
+    }
     else if (views.length > 1) warnings.push({ source: 'sys_ui_view', reason: 'View lookup is ambiguous; no layout was selected' });
     else if (!defaultView) warnings.push({ source: 'sys_ui_view', reason: 'Requested view is absent or not visible; no layout was selected' });
     const canReadLayout = views.length <= 1 && (defaultView || !!viewId);
