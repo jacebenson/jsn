@@ -7,6 +7,14 @@ an elevated administrator token to register/remove the service. The MID runs as
 the built-in LocalService account, with access restricted to its owned directory.
 No RDP, remote Node.js or changes to the local Docker context are required.
 
+Use `midservers add` for local installation, or add `--ssh <alias>` to install on
+a remote target. Current SSH authentication must be noninteractive: use a key,
+agent or an already authenticated connection. An SSH password prompt is a separate
+future option; `--password-stdin` supplies the ServiceNow MID password only.
+
+[Live lifecycle verification and terminal evidence](verification/260-remote-mid.md)
+cover Linux native, Linux Docker and Windows native installation through teardown.
+
 ## Plan and command surface
 
 1. Preflight SSH, Docker platform/architecture, Compose and daemon identity.

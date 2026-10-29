@@ -1,0 +1,48 @@
+{
+  "observed": "2026-10-29T07:18:21.437Z",
+  "checks": [
+    {
+      "runtime": "linux-native",
+      "validated": true,
+      "eccStdout": "JSN_MID_260_NATIVE_LINUX_OK",
+      "logLines": 25
+    },
+    {
+      "runtime": "linux-docker-final",
+      "validated": true,
+      "eccStdout": "JSN_MID_260_FINAL_DOCKER_OK",
+      "logLines": 30
+    },
+    {
+      "runtime": "windows-native-fresh",
+      "validated": true,
+      "eccStdout": "JSN_MID_260_FRESH_WINDOWS_OK",
+      "logLines": 30
+    }
+  ],
+  "windowsService": {
+    "status": "Running",
+    "startMode": "Auto",
+    "runtimeAccount": "NT AUTHORITY\\LocalService"
+  },
+  "completed": "2026-10-29T07:24:29.231Z",
+  "cleanup": {
+    "windowsServicesAbsent": true,
+    "windowsProcessesAbsent": true,
+    "inspectionArchiveAbsent": true,
+    "windowsDirectoriesAbsent": true,
+    "dockerResourcesAbsent": true,
+    "linuxNativeDirectoryAbsent": true,
+    "midRecordsAbsent": true,
+    "temporaryAccountAbsent": true
+  },
+  "binary": "node bin/jsn.js",
+  "profile": "pdi",
+  "runtime_source": "f759100",
+  "package_version": "4.3.13",
+  "tests": {
+    "passed": 1631,
+    "skipped": 2,
+    "failed": 0
+  }
+}
