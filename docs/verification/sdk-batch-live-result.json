@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "checked_at": "2026-10-29T04:28:34.057Z",
+  "implementation_commit": "5fe95f11474d6810872c2020bc96c94631faf4b5",
+  "profile": "pdi",
+  "auth_method": "oauth",
+  "lane": "existing credentials; no refresh/recovery/UI-session warming",
+  "transport": "batch",
+  "fallback_observed": false,
+  "observations": [
+    {
+      "method": "POST",
+      "path": "/api/now/v1/batch",
+      "status": 200
+    }
+  ],
+  "counts": {
+    "total": 2,
+    "successful": 2,
+    "failed": 0
+  },
+  "results": [
+    {
+      "id": "metadata",
+      "ok": true,
+      "status": 200,
+      "serviced": true,
+      "result_rows": 1,
+      "aggregate_count": null,
+      "error_code": null
+    },
+    {
+      "id": "count",
+      "ok": true,
+      "status": 200,
+      "serviced": true,
+      "result_rows": null,
+      "aggregate_count": "1",
+      "error_code": null
+    }
+  ]
+}

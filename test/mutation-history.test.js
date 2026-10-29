@@ -67,7 +67,9 @@ test('real CLI generic and specialized writes share automatic history and JSON q
       if (req.method === 'POST') return new Response(JSON.stringify({ result: { sys_id: 'full-resolved-id', number: 'INC0001', ...JSON.parse(await req.text()) } }));
       if (req.method === 'PATCH' || req.method === 'PUT') return new Response(JSON.stringify({ result: { sys_id: 'full-resolved-id' } }));
       if (req.method === 'DELETE') return new Response(null, { status: 204 });
-      return new Response(JSON.stringify({ result: table === 'sys_scope' ? [{ sys_id: 'scoped-app', name: 'Fixture', scope: 'x_fixture' }] : [] }));
+      return new Response(JSON.stringify({ result: table === 'sys_scope' ? [{ sys_id: 'scoped-app', name: 'Fixture', scope: 'x_fixture' }]
+        : table === 'u_custom' && url.searchParams.get('sysparm_query') === 'sys_id=full-resolved-id'
+          ? [{ sys_id: 'full-resolved-id', active: false, private_field: 'never-store-this' }] : [] }));
     };
   `);
   const env = { ...process.env, HOME: directory, XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory,

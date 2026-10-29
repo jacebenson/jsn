@@ -1,4 +1,4 @@
-import { buildDevCmd } from './_generic.js';
+import { buildProfileCommand } from '../record-profiles.js';
 import { getStringField } from '../helpers.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
@@ -47,13 +47,13 @@ async function fetchExtensionChain(sdk, record) {
 
 export { actionsCmd } from './actions.js';
 
-export const includesCmd = (wrap) => buildDevCmd('includes', 'sys_script_include', ['include', 'si'], ['name', 'api_name', 'active', 'sys_scope'], wrap, { singular: 'script include', scopeValidation: true });
+export const includesCmd = (wrap) => buildProfileCommand('includes', wrap);
 
-export const rulesCmd = (wrap) => buildDevCmd('rules', 'sys_script', ['rule', 'br'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'business rule', scopeValidation: true });
+export const rulesCmd = (wrap) => buildProfileCommand('rules', wrap);
 
-export const clientScriptsCmd = (wrap) => buildDevCmd('clientscripts', 'sys_script_client', ['clientscript', 'cs'], ['name', 'table', 'active', 'type', 'sys_scope'], wrap, { singular: 'client script', scopeValidation: true });
+export const clientScriptsCmd = (wrap) => buildProfileCommand('clientscripts', wrap);
 
-export const uiActionsCmd = (wrap) => buildDevCmd('uiactions', 'sys_ui_action', ['uiaction', 'ua'], ['name', 'table', 'active', 'order', 'sys_scope'], wrap, { singular: 'UI action', scopeValidation: true });
+export const uiActionsCmd = (wrap) => buildProfileCommand('uiactions', wrap);
 
 // NOTE: uipolicies has exactly ONE definition — the rich one in
 // ./uipolicies.js (re-exported below at the bottom of this file). A plain
@@ -62,10 +62,7 @@ export const uiActionsCmd = (wrap) => buildDevCmd('uiactions', 'sys_ui_action', 
 // this module's uiPoliciesCmd before uipoliciesCmd — so the factory version
 // was dead code shadowing nothing. Deleted; the re-export is the behavior.
 
-export const tablesCmd = (wrap) => buildDevCmd('tables', 'sys_db_object', ['table', 't'], ['name', 'label', 'super_class', 'create_access_controls'], wrap, {
-  singular: 'table',
-  scopeValidation: true,
-  showFields: ['name', 'label', 'super_class', 'create_access_controls', 'sys_scope', 'sys_created_on', 'sys_updated_on', 'sys_created_by', 'sys_updated_by', 'is_extendable'],
+export const tablesCmd = (wrap) => buildProfileCommand('tables', wrap, {
   async onShow(record, app) {
     const tableName = getStringField(record, 'name');
     const [count, extChain] = await Promise.all([
@@ -81,48 +78,48 @@ export { columnsCmd } from './columns.js';
 
 // Read-only commands (Go only has list/show)
 export { importCmd } from './import.js';
-export const spPagesCmd = (wrap) => buildDevCmd('sppages', 'sp_page', ['sp-pages'], ['id', 'title', 'sys_scope'], wrap, { singular: 'Service Portal page', readOnly: true });
-export const spWidgetsCmd = (wrap) => buildDevCmd('spwidgets', 'sp_widget', ['sp-widget', 'widgets'], ['id', 'name', 'sys_scope'], wrap, { singular: 'Service Portal widget', readOnly: true });
-export const uiPagesCmd = (wrap) => buildDevCmd('uipages', 'sys_ui_page', ['ui-page', 'pages'], ['name', 'sys_scope'], wrap, { singular: 'UI page', scopeValidation: true });
-export const appMenuCmd = (wrap) => buildDevCmd('appmenu', 'sys_app_application', ['app-menu', 'menu'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application menu', scopeValidation: true });
+export const spPagesCmd = (wrap) => buildProfileCommand('sppages', wrap);
+export const spWidgetsCmd = (wrap) => buildProfileCommand('spwidgets', wrap);
+export const uiPagesCmd = (wrap) => buildProfileCommand('uipages', wrap);
+export const appMenuCmd = (wrap) => buildProfileCommand('appmenu', wrap);
 
 // Commands with full CRUD
-export const aclsCmd = (wrap) => buildDevCmd('acls', 'sys_security_acl', ['acl'], ['name', 'operation', 'type', 'active', 'sys_scope'], wrap, { singular: 'ACL', scopeValidation: true });
-export const rolesCmd = (wrap) => buildDevCmd('roles', 'sys_user_role', ['role', 'r'], ['name', 'description', 'elevated_privilege', 'sys_scope'], wrap, { singular: 'role', scopeValidation: true });
-export const propertiesCmd = (wrap) => buildDevCmd('properties', 'sys_properties', ['property', 'prop'], ['name', 'value', 'description', 'sys_scope'], wrap, { singular: 'property', scopeValidation: true });
+export const aclsCmd = (wrap) => buildProfileCommand('acls', wrap);
+export const rolesCmd = (wrap) => buildProfileCommand('roles', wrap);
+export const propertiesCmd = (wrap) => buildProfileCommand('properties', wrap);
 
 // New commands for scoped-app tables
-export const relationshipsCmd = (wrap) => buildDevCmd('relationships', 'sys_relationship', ['relationship', 'rel'], ['name', 'sys_scope'], wrap, { singular: 'relationship', scopeValidation: true });
-export const appmodulesCmd = (wrap) => buildDevCmd('appmodules', 'sys_app_module', ['appmodule', 'am'], ['name', 'active', 'sys_scope'], wrap, { singular: 'application module', scopeValidation: true });
-export const listcontrolsCmd = (wrap) => buildDevCmd('listcontrols', 'sys_ui_list_control', ['listcontrol', 'lc'], ['name', 'active', 'sys_scope'], wrap, { singular: 'list control', scopeValidation: true });
-export const viewsCmd = (wrap) => buildDevCmd('views', 'sys_ui_view', ['view', 'vw'], ['name', 'title', 'sys_scope'], wrap, { singular: 'view', scopeValidation: true });
-export const privilegesCmd = (wrap) => buildDevCmd('privileges', 'sys_scope_privilege', ['privilege', 'priv'], ['source_scope', 'target_scope', 'target_name', 'operation', 'status'], wrap, { singular: 'privilege', scopeValidation: true });
-export const uxscriptsCmd = (wrap) => buildDevCmd('uxscripts', 'sys_ux_lib_source_script', ['uxscript', 'ux'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UX script', scopeValidation: true });
+export const relationshipsCmd = (wrap) => buildProfileCommand('relationships', wrap);
+export const appmodulesCmd = (wrap) => buildProfileCommand('appmodules', wrap);
+export const listcontrolsCmd = (wrap) => buildProfileCommand('listcontrols', wrap);
+export const viewsCmd = (wrap) => buildProfileCommand('views', wrap);
+export const privilegesCmd = (wrap) => buildProfileCommand('privileges', wrap);
+export const uxscriptsCmd = (wrap) => buildProfileCommand('uxscripts', wrap);
 export { aliasesCmd } from './aliases.js';
-export const catalogscriptsCmd = (wrap) => buildDevCmd('catalogscripts', 'catalog_script_client', ['catalogscript'], ['name', 'table', 'active', 'sys_scope'], wrap, { singular: 'catalog script', scopeValidation: true });
+export const catalogscriptsCmd = (wrap) => buildProfileCommand('catalogscripts', wrap);
 
 // ── Automation: Async ──
-export const scriptactionsCmd = (wrap) => buildDevCmd('scriptactions', 'sysevent_script_action', ['scriptaction'], ['name', 'active', 'sys_scope'], wrap, { singular: 'script action', scopeValidation: true });
-export const scheduledjobsCmd = (wrap) => buildDevCmd('scheduledjobs', 'sysauto_script', ['scheduledjob'], ['name', 'active', 'run_type', 'sys_scope'], wrap, { singular: 'scheduled job', scopeValidation: true });
-export const asyncrulesCmd = (wrap) => buildDevCmd('asyncrules', 'sys_script', ['asyncrule'], ['name', 'collection', 'active', 'order', 'sys_scope'], wrap, { singular: 'async business rule', scopeValidation: true, extraQuery: 'when=async' });
-export const triggersCmd = (wrap) => buildDevCmd('triggers', 'sysevent_register', ['trigger'], ['name', 'event_name', 'active', 'sys_scope'], wrap, { singular: 'event trigger', scopeValidation: true });
+export const scriptactionsCmd = (wrap) => buildProfileCommand('scriptactions', wrap);
+export const scheduledjobsCmd = (wrap) => buildProfileCommand('scheduledjobs', wrap);
+export const asyncrulesCmd = (wrap) => buildProfileCommand('asyncrules', wrap);
+export const triggersCmd = (wrap) => buildProfileCommand('triggers', wrap);
 
 // ── Automation: In Memory ──
 
-export const assignmentsCmd = (wrap) => buildDevCmd('assignments', 'sysrule_assignment', ['assignment'], ['name', 'active', 'sys_scope'], wrap, { singular: 'assignment rule', scopeValidation: true, readOnly: true });
+export const assignmentsCmd = (wrap) => buildProfileCommand('assignments', wrap);
 
 // ── Automation: Inbound ──
-export const emailCmd = (wrap) => buildDevCmd('email', 'sysevent_in_email_action', ['emails'], ['name', 'active', 'type', 'sys_scope'], wrap, { singular: 'inbound email action', scopeValidation: true });
+export const emailCmd = (wrap) => buildProfileCommand('email', wrap);
 
 // ── Automation: Outbound ──
 export { restmessageCmd } from './restmessage.js';
 export { soapmessagesCmd } from './soapmessages.js';
 
 // ── UX: Core UI ──
-export const uimacrosCmd = (wrap) => buildDevCmd('uimacros', 'sys_ui_macro', ['uimacro'], ['name', 'active', 'sys_scope'], wrap, { singular: 'UI macro', scopeValidation: true });
+export const uimacrosCmd = (wrap) => buildProfileCommand('uimacros', wrap);
 
 // ── UX: Workspaces ──
-export const uxlistsCmd = (wrap) => buildDevCmd('uxlists', 'sys_ux_list', ['uxlist'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace list', scopeValidation: true, readOnly: true });
-export const uxapplicabilityCmd = (wrap) => buildDevCmd('uxapplicability', 'sys_ux_applicability_m2m', ['uxapp'], ['name', 'active', 'sys_scope'], wrap, { singular: 'workspace applicability', scopeValidation: true, readOnly: true });
+export const uxlistsCmd = (wrap) => buildProfileCommand('uxlists', wrap);
+export const uxapplicabilityCmd = (wrap) => buildProfileCommand('uxapplicability', wrap);
 export { uipoliciesCmd } from './uipolicies.js';
-export const cataloguipoliciesCmd = (wrap) => buildDevCmd('cataloguipolicies', 'catalog_ui_policy', ['cataloguipolicy', 'cup'], ['short_description', 'catalog_item', 'variable_set', 'active', 'sys_scope'], wrap, { singular: 'catalog UI policy', scopeValidation: true });
+export const cataloguipoliciesCmd = (wrap) => buildProfileCommand('cataloguipolicies', wrap);

@@ -106,6 +106,15 @@ one. Defaults change only through a human choice, `--make-default`, or
 bot's `auth modify` request is idempotent. Noninteractive commands never open
 implicit prompts or browsers.
 
+## Record metadata reader
+
+An invocation-scoped SDK-bound reader of shared form layouts, table inheritance,
+and related-list definitions. It caches metadata reads in-process, uses optional
+GET-only batching and bulk section queries, and reports coverage uncertainty.
+It retrieves definitions rather than related record data. Static references can
+be described declaratively; scripted relationships remain platform-required.
+Generic record retrieval does not automatically fetch form metadata.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as
@@ -159,14 +168,47 @@ record. `resolveRecord(sdk, { table, identifier, matchField, resource })` → th
 record (with display values) or a standard `not_found` error; `resolveSysId`
 returns just the id; `isSysId` / `unwrapSysId` are the primitives.
 
-Behind the interface: identifier classification (32-char hex → `sys_id`, else
-the table's human field like `number`/`name`/`user_name`), safe-exact-match
-assertion, `sysparm_display_value=all`, single-record extraction, sys_id
-unwrapping. Commands do "resolve → mutate → report."
+Behind the interface: configured human-field precedence for nonhex identifiers,
+explicit `identifierField` disambiguation (including legacy/nonhex sys_ids),
+exact lookup followed by sys_id prefix then suffix. Each query requests at most
+two rows; multiple matches fail with `ambiguous`, zero with `not_found`. Errors
+carry machine-readable `resolution` metadata. Explicit human fields never use
+partial matching. `isSysId` remains a 32-hex precedence heuristic, not a claim
+that other values cannot be sys_ids. Commands do "resolve → mutate → report."
+
+`src/records-engine.js` supplies shared in-process list/get/create/update/delete
+operations. Generic records, ticket and table factories call this engine while
+retaining their payload, confirmation, scope, picker and output policies. Read
+commands accept explicit `--display-values raw|display|both`; omitted preserves
+existing reference representation. No engine operation spawns another CLI.
 
 > Replaced: ~12 divergent hand-rolled "query by identifier, throw if empty"
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,
 > `catalog.js`.
+
+## Record command profiles
+
+`src/record-command-profiles.js` owns table/alias/default-column, identifier,
+reference representation, list projection and essential/supplementary relationship
+policy for the migrated table and ticket factories. `src/record-profiles.js`
+validates immutable definitions and builds actual commands through the existing
+factories. `buildRecordProfile` accepts an additional declarative definition;
+`buildProfileCommand` selects a bundled one. Executable hooks (scope checks,
+show enrichment, custom resolvers) remain code and extend the configured command.
+The command's `recordProfile` metadata is the same validated definition used to
+implement it; it is not a separate discovery-only map.
+
+## Essential related records
+
+A specialized record profile opts in through `relationships.essential` entries
+(name, table, foreignKey, columns, ordering, bounded limit). Its show operation
+reads those children in parallel and attaches `_essential` results with records,
+loaded count, visible-row/ACL coverage, truncation and an exact retrieval hint.
+`--no-essential` skips those reads. Unavailable sources stay explicit; they never
+become successful empty arrays. Profile hooks remain composable. Generic get
+and supplementary metadata/counts are separate and never fetch these children
+implicitly. UI policies declare actions as essential, replacing console-only
+output with the same children in JSON and human record sections.
 
 ## Session
 
@@ -348,6 +390,27 @@ coverage limits and safe next steps without changing captured evidence or the
 stored capture schema. Older captures receive the same guidance when viewed;
 no report migration is required. Per-artifact `triage` remains the classification
 and confidence assessment, separate from unverified runtime/reversion risk.
+
+### Supplementary related-list observations
+
+A **related-list count** is an opt-in aggregate observation attached as `_related`
+to a specialized show result. It is distinct from eager essential-child data.
+Safe reference metadata and AND-only literal filters bind each aggregate query
+to the resolved parent record. Only actual aggregate zero means zero; denied,
+unserviced, malformed, unknown and capped descriptors retain unavailable counts
+and partial coverage. Counts are scoped to Aggregate API permissions. Nonempty
+lists suggest exact, connection-pinned commands rather than fetching related
+records. Descriptor fanout defaults to 50, individual reads use at most four
+concurrent calls, and caches are SDK/invocation-bound. Generic get is unchanged.
+
+### Optional batch reads
+
+A **batch read** is an explicit `SDKClient.batch` operation over independent,
+same-instance GET subrequests. The native Batch API envelope is correlated by ID;
+per-item failures, unserviced IDs, and missing responses stay distinct. Only an
+explicitly unsupported outer endpoint permits sequential read fallback. Normal
+SDK methods stay unbatched, writes are rejected before dispatch, and authentication
+or ACL errors never silently trigger fallback. See `docs/sdk-batch.md`.
 
 ## Local mutation history
 

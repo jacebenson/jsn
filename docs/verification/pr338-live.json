@@ -1,0 +1,61 @@
+{
+  "pr": "338",
+  "at": "2026-10-29T04:47:31.795Z",
+  "source_commit": "f8052cecad7d8f0a44fdcb88b041bae2ffd6051c",
+  "profile": "pdi",
+  "instance_operations": "read_only",
+  "live_writes": false,
+  "doctor": {
+    "command": "node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi",
+    "exit": 0,
+    "authenticated": true,
+    "verified": true,
+    "probe_status": "succeeded"
+  },
+  "checks": [
+    {
+      "label": "exact human-field lookup",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier incident --identifier-field name --columns name,label --json",
+      "exit": 0,
+      "result": {
+        "ok": true,
+        "name": "incident",
+        "label": "Incident"
+      }
+    },
+    {
+      "label": "unambiguous prefix lookup",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --sys-id <metadata-id-prefix> --columns name --json",
+      "exit": 0,
+      "result": {
+        "ok": true,
+        "name": "incident",
+        "same_record": true
+      }
+    },
+    {
+      "label": "exact zero-match error",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier jsn_missing_schema_probe_20261028 --identifier-field name --json",
+      "exit": 1,
+      "result": {
+        "ok": false,
+        "code": "not_found",
+        "resolution": {
+          "table": "sys_db_object",
+          "field": "name",
+          "mode": "exact",
+          "matches": 0,
+          "attempts": [
+            {
+              "table": "sys_db_object",
+              "field": "name",
+              "mode": "exact",
+              "matches": 0
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "cleanup": "passed"
+}

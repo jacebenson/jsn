@@ -1,5 +1,6 @@
 // ServiceNow REST API client
 
+import { batchRead } from './sdk-batch.js';
 import { gunzipSync } from 'node:zlib';
 import { CodeAuth, errAuth, errAPI, errNetwork } from './errors.js';
 import { getStringField } from './helpers.js';
@@ -239,6 +240,11 @@ export class SDKClient {
       if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
       return body;
     });
+  }
+
+  // Explicit opt-in; ordinary SDK methods remain unbatched.
+  async batch(requests, options = {}) {
+    return batchRead(this, requests, options);
   }
 
   async getSkippedUpdateBaseline(sysID) {

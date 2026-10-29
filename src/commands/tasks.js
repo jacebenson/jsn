@@ -1,7 +1,5 @@
-import { buildTicketCommands } from './_ticket.js';
-
-const taskDefaultColumns = ['number', 'short_description', 'state', 'assigned_to'];
+import { buildProfileCommand } from '../record-profiles.js';
 
 export function tasksCmd(wrap) {
-  return buildTicketCommands('sc_task', 'tasks', 'task', taskDefaultColumns, {}, null, wrap);
+  return buildProfileCommand('tasks', wrap);
 }

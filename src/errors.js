@@ -256,6 +256,13 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
     return { stream: 'stderr', text, exitCode: 1 };
   }
 
+  if (err.resolution) {
+    if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    const lookup = err.resolution;
+    const text = `Error (${code}): ${err.message}\nLookup: ${lookup.mode} ${lookup.table}.${lookup.field}; ${lookup.at_least ? 'at least ' : ''}${lookup.matches} matches.\n${err.hint ? `\nHint: ${err.hint}\n` : ''}`;
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
   if (code === CodeNotFound) {
     let text = `Error (${code}): ${err.message}\n`;
     if (identifier) {

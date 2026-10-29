@@ -174,6 +174,14 @@ Installation, `skill show`, and `skill check` use the same bundled source and
 version. Upgrade JSN and reinstall the skill to update both together.
 `skill fetch` remains an explicit way to inspect the latest development text.
 
+## 2026-10-28: Declarative record command profiles
+
+The migrated simple-table and ticket factories consume validated keyed JavaScript definitions
+for aliases, table, default columns, identifier field, reference/list output and
+relationship policy. Executable hooks remain JavaScript. The same definition is
+attached to the implemented command as metadata, avoiding a second help-only map.
+Bundled wrappers retain their public exports and specialized hooks; additional
+profiles can use the same factory without a subprocess or a CRUD implementation.
 ## Capture-context approval is separate from delete confirmation
 
 The mutation wrapper checks capture context before dispatch, even with JSON, quiet

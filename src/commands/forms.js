@@ -1,105 +1,29 @@
 import { getStringField, interactiveList } from '../helpers.js';
 
-function getDisplayValue(record, key) {
-  if (!record || typeof record !== 'object') return '';
-  const val = record[key];
-  if (val == null) return '';
-  if (typeof val === 'string') return val;
-  if (typeof val === 'object') {
-    if (val.display_value != null && val.display_value !== '') return String(val.display_value);
-    if (val.value != null) return String(val.value);
+import { createRecordMetadataReader } from '../metadata/records.js';
+
+export function formatFormMetadata(metadata) {
+  const lines = [`Form: ${metadata.table} → ${metadata.requested_view}`];
+  if (metadata.form?.inherited) lines.push(`  Inherited layout: ${metadata.form.table}`);
+  if (!metadata.form) lines.push('  No unambiguous shared form layout is visible.');
+  for (const section of metadata.form?.sections || []) {
+    lines.push('', `── ${section.caption || '(unnamed)'} ──`);
+    for (const element of section.elements) lines.push(`  ${element.label || element.element || '(unnamed)'}${element.type ? ` (${element.type})` : ''}`);
+    if (!section.elements.length) lines.push('  (no visible elements)');
   }
-  return String(val);
+  const configured = metadata.related_lists.filter(item => item.configured);
+  if (configured.length) {
+    lines.push('', 'Configured related lists:');
+    for (const list of configured) lines.push(`  ${list.label || list.id} (${list.query_status})`);
+  }
+  lines.push('', metadata.coverage.scope);
+  for (const warning of metadata.coverage.warnings) lines.push(`  ${warning.source}: ${warning.reason}`);
+  return lines.join('\n');
 }
 
-function getIntValue(record, key) {
-  if (!record || typeof record !== 'object') return 0;
-  const val = record[key];
-  if (val == null) return 0;
-  if (typeof val === 'number') return Math.floor(val);
-  if (typeof val === 'string') { const n = parseInt(val, 10); return isNaN(n) ? 0 : n; }
-  if (typeof val === 'object' && val.value != null) { const n = parseInt(val.value, 10); return isNaN(n) ? 0 : n; }
-  return 0;
-}
-
-async function showForm(app, table, viewName) {
-  // 1) Look up the view
-  const viewParams = new URLSearchParams();
-  viewParams.set('sysparm_limit', '1');
-  viewParams.set('sysparm_fields', 'sys_id');
-  viewParams.set('sysparm_display_value', 'all');
-  viewParams.set('sysparm_query', `name=${viewName}`);
-  let viewSysID = '';
-  try { const vr = await app.sdk.list('sys_ui_view', viewParams); if (vr.length > 0) viewSysID = getStringField(vr[0], 'sys_id'); } catch { /* ignore */ }
-  if (!viewSysID) {
-    viewParams.set('sysparm_query', `title=${viewName}`);
-    try { const vr = await app.sdk.list('sys_ui_view', viewParams); if (vr.length > 0) viewSysID = getStringField(vr[0], 'sys_id'); } catch { /* ignore */ }
-  }
-
-  // 2) Get sections for this table + view
-  const secParams = new URLSearchParams();
-  secParams.set('sysparm_limit', '200');
-  secParams.set('sysparm_fields', 'sys_id,caption');
-  secParams.set('sysparm_display_value', 'all');
-  secParams.set('sysparm_query', `name=${table}^view=${viewName}^ORDERBYposition`);
-  if (viewSysID) {
-    secParams.set('sysparm_query', `name=${table}^view=${viewSysID}^ORDERBYposition`);
-  }
-  const sections = await app.sdk.list('sys_ui_section', secParams);
-
-  // 3) Get elements for each section
-  const sectionsOut = [];
-  for (const sec of sections) {
-    const secSysID = getStringField(sec, 'sys_id');
-    const sectionCaption = getDisplayValue(sec, 'caption') || '(unnamed)';
-
-    let elements = [];
-    if (secSysID) {
-      const elemParams = new URLSearchParams();
-      elemParams.set('sysparm_limit', '500');
-      elemParams.set('sysparm_fields', 'element,type,label,position');
-      elemParams.set('sysparm_display_value', 'all');
-      elemParams.set('sysparm_query', `sys_ui_section=${secSysID}^ORDERBYposition`);
-      try { elements = await app.sdk.list('sys_ui_element', elemParams); } catch { /* ignore */ }
-    }
-
-    sectionsOut.push({
-      caption: sectionCaption,
-      position: getIntValue(sec, 'position'),
-      elements: elements
-        .map(e => ({
-          type: getDisplayValue(e, 'type'),
-          label: getDisplayValue(e, 'label'),
-          element: getDisplayValue(e, 'element'),
-          position: getIntValue(e, 'position'),
-        }))
-        .sort((a, b) => a.position - b.position),
-    });
-  }
-
-  sectionsOut.sort((a, b) => a.position - b.position);
-
-  // Build formatted output
-  const lines = [];
-  lines.push(`Form: ${table} → ${viewName}`);
-  if (viewSysID) lines.push(`  View: ${app.getEffectiveInstance()}/nav_to.do?uri=sys_ui_view.do?sys_id=${viewSysID}`);
-  lines.push('');
-
-  for (const sec of sectionsOut) {
-    const secLabel = sec.caption || '(unnamed)';
-    lines.push(`── ${secLabel} ──`);
-    if (sec.elements.length === 0) {
-      lines.push('  (no elements)');
-    }
-    for (const el of sec.elements) {
-      const elLabel = el.label || el.element || '(unnamed)';
-      const typeStr = el.type ? ` (${el.type})` : '';
-      lines.push(`  ${elLabel}${typeStr}`);
-    }
-    lines.push('');
-  }
-
-  process.stdout.write(lines.join('\n') + '\n');
+async function showForm(app, table, view) {
+  const metadata = await createRecordMetadataReader(app.sdk).read({ table, view });
+  app.ok({ ...metadata, _formatted: formatFormMetadata(metadata) }, { summary: `Form metadata for ${table}` });
 }
 
 export function formsCmd(wrap) {
@@ -164,7 +88,8 @@ export function formsCmd(wrap) {
           aliases: ['get'],
           describe: 'Show form layout',
           builder: (y) => y
-            .option('view', { type: 'string', default: 'Default view', describe: 'View name' }),
+            .option('view', { type: 'string', default: 'Default view', describe: 'Shared view name, title or sys_id' })
+            .epilogue('Discovers shared layouts, inherited forms and related-list metadata. JSON includes coverage limits; custom relationship scripts are never executed. Generic records get presentation is unchanged.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             await showForm(app, argv.table, argv.view);

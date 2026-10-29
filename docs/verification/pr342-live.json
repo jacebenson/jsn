@@ -1,0 +1,40 @@
+{
+  "pr": "342",
+  "at": "2026-10-29T04:49:44.552Z",
+  "source_commit": "e24b2994dd1a7a88e9fc4605693a030ea559e3ba",
+  "profile": "pdi",
+  "instance_operations": "read_only",
+  "live_writes": false,
+  "doctor": {
+    "command": "node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi",
+    "exit": 0,
+    "authenticated": true,
+    "verified": true,
+    "probe_status": "succeeded"
+  },
+  "checks": [
+    {
+      "label": "existing UI policy essential-action count",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --json --get data._essential.actions.loaded",
+      "exit": 0,
+      "result": {
+        "loaded": 1
+      }
+    },
+    {
+      "label": "existing UI policy essential-action status",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --json --get data._essential.actions.status",
+      "exit": 0,
+      "result": "loaded"
+    },
+    {
+      "label": "essential opt-out retains the primary record",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --no-essential --json --get data.sys_id",
+      "exit": 0,
+      "result": {
+        "same_record": true
+      }
+    }
+  ],
+  "cleanup": "passed"
+}
