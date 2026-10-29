@@ -47,6 +47,7 @@ export class SDKClient {
   constructor(baseURL, authProvider, opts = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.authProvider = authProvider;
+    this.recovery = opts.recovery;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
     this.oauthCookies = null;
@@ -100,23 +101,42 @@ export class SDKClient {
   async _withAuthenticatedRequest(endpoint, opts, {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
   }, consume = (response) => response) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const req = new Request(endpoint, { ...opts, signal: controller.signal });
-      if (prepare) prepare(req);
-      await this._setAuth(req, { skipOAuthSession });
-      return await consume(await fetch(req));
-    } catch (err) {
-      if (normalizeErrors) {
-        if (err.name === 'AbortError') throw errNetwork(new Error('Request timed out'));
-        if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-          throw errNetwork(err);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      let rejection;
+      try {
+        const req = new Request(endpoint, { ...opts, signal: controller.signal });
+        if (prepare) prepare(req);
+        await this._setAuth(req, { skipOAuthSession });
+        const response = await fetch(req);
+        if (!skipOAuthSession && response.status === 401 && this.recovery) {
+          // Only a definitive HTTP rejection permits replay, including POST.
+          // Do not consume/echo the provider's potentially sensitive body.
+          rejection = { status: response.status, method: req.method, url: req.url };
+          await response.body?.cancel();
+        } else {
+          return await consume(response);
         }
+      } catch (err) {
+        if (normalizeErrors) {
+          if (err.name === 'AbortError') throw errNetwork(new Error('Request timed out'));
+          if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+            throw errNetwork(err);
+          }
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
-      throw err;
-    } finally {
-      clearTimeout(timer);
+      // Browser renewal has its own existing hard timeout. Never leave a
+      // request timeout running while waiting for the human to authenticate.
+      if (attempt === 0 && await this.recovery.recover(rejection)) {
+        this.oauthCookies = null;
+        this.sessionUserToken = '';
+        continue;
+      }
+      throw this.recovery.error || errAPI(401, '');
     }
   }
 

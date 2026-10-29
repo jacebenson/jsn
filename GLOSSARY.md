@@ -72,6 +72,20 @@ that does not launch or close the user's existing browser.
 Browser import is a credential acquisition path, not a fourth auth method;
 Firefox and normal-profile browser integration remain future work.
 
+## Runtime authentication recovery
+
+`src/auth-recovery.js` creates the App-owned, identity-scoped recovery provider
+passed to the SDK as `opts.recovery`. Its `recover({ status, method, url })`
+returns true only after replacing credentials. Its safe `error` supplies guidance
+if the single retry is rejected. Only HTTP 401 from a non-bootstrap request may
+recover and replay once; uncertain mutation outcomes never replay.
+
+Browser profiles persist `reauth: auto | confirm | never`; missing means
+`confirm`. Both `auto` and `confirm` require a prompt-capable invocation through
+`canUsePicker`. OAuth refreshes the selected credential identity; Basic never
+renews. HTTP 401 is `auth_error` with status and recovery guidance, HTTP 403 is
+`forbidden` with ACL/role guidance. Neither exposes provider bodies.
+
 ## Authentication status
 
 A status report separates saved credential availability from live connection

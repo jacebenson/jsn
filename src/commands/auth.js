@@ -382,13 +382,18 @@ export async function modifyProfile(app, argv = {}) {
   const name = argv.name || argv.profile || await pickProfile(app, 'Modify which profile?', argv);
   const profile = app.config.profiles?.[name];
   if (!profile) throw new Error(`Profile not found: ${name}`);
-  const explicitSettings = ['read-only', 'skip-confirmations', 'include-counts'].some(flag => argv[flag] !== undefined);
+  if (argv.reauth !== undefined && !['auto', 'confirm', 'never'].includes(argv.reauth)) {
+    throw errUsage('--reauth must be auto, confirm, or never.');
+  }
+  const explicitSettings = ['read-only', 'skip-confirmations', 'include-counts', 'reauth'].some(flag => argv[flag] !== undefined);
   if (explicitSettings) {
     if (argv.domain !== undefined) throw errUsage('Set profile preferences and domain separately.');
     const updated = await configureProfileOptions({ ...profile }, argv);
+    if (argv.reauth !== undefined) updated.reauth = argv.reauth;
     app.config.profiles[name] = updated;
     await saveConfig(app.config);
-    app.ok({ profile: name, read_only: updated.read_only === true, confirm_deletes: updated.skip_confirmations !== true, include_counts: updated.include_counts !== false },
+    app.ok({ profile: name, read_only: updated.read_only === true, confirm_deletes: updated.skip_confirmations !== true, include_counts: updated.include_counts !== false,
+      ...(argv.reauth !== undefined ? { reauth: updated.reauth } : {}) },
       { summary: `Settings saved for ${name}` });
     return;
   }
@@ -1134,6 +1139,7 @@ export function authCmd(wrap) {
             .option('read-only', { type: 'boolean', describe: 'Set read-only access (use --no-read-only to allow writes)' })
             .option('include-counts', { type: 'boolean', describe: 'Set result counts (use --no-include-counts to disable)' })
             .option('confirm-deletes', { type: 'boolean', describe: 'Set delete confirmations (use --no-confirm-deletes to disable)' })
+            .option('reauth', { type: 'string', choices: ['auto', 'confirm', 'never'], describe: 'Browser recovery policy: auto, confirm (default), or never; interactive only' })
             .option('skip-confirmations', { type: 'boolean', describe: 'Compatibility flag: disable delete confirmations' })
             .positional('name', {
               describe: 'Profile name to modify',

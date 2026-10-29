@@ -103,6 +103,42 @@ Pending OAuth PKCE state is also identity-scoped when the profile username is kn
 
 The focused auth tests cover same-instance username isolation, explicit refresh/logout identity, method separation, read-only diagnostics, legacy handling, redaction, and concurrent username-scoped PKCE state.
 
+## Runtime authentication recovery
+
+Normal commands do not run an auth-status preflight or use a fixed session-age
+heuristic. An HTTP 401 from the real request permits one recovery attempt and
+one replay, including POST. A second 401 is final. Network failures, aborts,
+timeouts, 5xx and 403 never trigger recovery or replay. Authentication bootstrap
+requests bypass recovery. Successful recovery discards cached session cookies
+and the user token before rebuilding the existing authenticated session.
+
+OAuth recovery uses `AuthManager.refreshToken` with the selected instance and
+username. Basic credentials have no renewal mechanism. Browser-session profiles
+use `reauth: auto | confirm | never`, saved under `profiles.<name>.reauth`.
+An absent setting means `confirm`. Configure it with:
+
+    jsn auth modify --profile <name> --reauth confirm
+
+`auto` opens the existing browser renewal flow only when a human is reachable.
+`confirm` first asks one yes/no question. `never` refuses runtime browser renewal.
+All policies refuse implicit renewal in non-TTY, CI and agent invocations, with
+machine output or `--get`. The existing browser login timeout remains five minutes.
+Renew explicitly with `jsn auth refresh --profile <name> --browser`.
+Setup has no additional policy question; use `auth modify` for this preference.
+
+HTTP 401 is `auth_error` with status, profile and an exact recovery command in
+JSON, plus the same guidance in text. OAuth guidance names
+`jsn auth refresh --profile <name>` and login as the fallback. Basic guidance
+names `jsn auth login --basic <instance> --profile <name>` and
+`SN_USERNAME`/`SN_PASSWORD`. HTTP 403 is `forbidden` with authorization/ACL/role
+guidance, not a request to log in. Neither classification includes provider
+response bodies. Errors without a usable HTTP status retain their existing
+classification rather than guessing whether authentication failed.
+
+The existing declared-expiry refresh in `AuthManager.getCredentialsFor` remains:
+it uses the token's own `expires_at`, not elapsed session age. Read-only auth
+status SDKs do not install runtime recovery. Offline commands do not require it.
+
 ## Remaining boundary
 
 A legacy bare credential or bare pending PKCE state has no reliable username identity. JSN therefore does not claim to distinguish users before a profile identity is known. Users should re-authenticate legacy/no-profile entries before operating multiple identities on the same instance.
