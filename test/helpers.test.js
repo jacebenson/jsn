@@ -108,36 +108,30 @@ describe('buildQuerySuffix', () => {
 });
 
 describe('parseDataArg', () => {
-  let tmpDir, tmpFile;
-
   it('parses inline JSON', async () => {
     const { parseDataArg } = await import('../src/helpers.js');
     const result = parseDataArg({ data: '{"key": "value", "num": 42}' });
     assert.deepStrictEqual(result, { key: 'value', num: 42 });
   });
 
-  it('reads JSON from file', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-test-'));
-    tmpFile = path.join(tmpDir, 'payload.json');
-    fs.writeFileSync(tmpFile, '{"from": "file", "active": true}');
+  it('reads JSON files without changing scalar types or multiline script contents', async () => {
     const { parseDataArg } = await import('../src/helpers.js');
-    const result = parseDataArg({ 'data-file': tmpFile });
-    assert.deepStrictEqual(result, { from: 'file', active: true });
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('preserves multiline script strings and object types from JSON files exactly', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-test-'));
-    tmpFile = path.join(tmpDir, 'script-payload.json');
     const script = 'var Example = Class.create();\nExample.prototype = {\n  type: "Example"\n};\n';
-    const payload = { script, description: 'multiline source' };
-    fs.writeFileSync(tmpFile, JSON.stringify(payload), 'utf8');
-    const { parseDataArg } = await import('../src/helpers.js');
-    const result = parseDataArg({ 'data-file': tmpFile });
-    assert.strictEqual(typeof result.script, 'string');
-    assert.strictEqual(result.script, script);
-    assert.deepStrictEqual(result, payload);
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    const cases = [
+      ['simple payload', { from: 'file', active: true }],
+      ['multiline script', { script, description: 'multiline source' }],
+    ];
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-test-'));
+    try {
+      const tmpFile = path.join(tmpDir, 'payload.json');
+      for (const [label, payload] of cases) {
+        fs.writeFileSync(tmpFile, JSON.stringify(payload), 'utf8');
+        const result = parseDataArg({ 'data-file': tmpFile });
+        assert.deepStrictEqual(result, payload, label);
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('throws when no data or data-file', async () => {
