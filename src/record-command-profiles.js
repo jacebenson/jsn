@@ -63,4 +63,8 @@ export default {
   changes: { table: 'change_request', aliases: ['change_request', 'chg'], columns: ['number', 'short_description', 'risk', 'state', 'assigned_to'], kind: 'ticket' },
   requests: { table: 'sc_req_item', aliases: ['sc_req_item', 'req'], columns: ['number', 'short_description', 'stage', 'assigned_to'], kind: 'ticket' },
   tasks: { table: 'sc_task', aliases: ['sc_task', 'task'], columns: ['number', 'short_description', 'state', 'assigned_to'], kind: 'ticket' },
+  uipolicies: { table: 'sys_ui_policy', aliases: ['uipolicy', 'up'], columns: ['short_description', 'table', 'sys_class_name', 'active'],
+    identifierField: 'short_description', options: { singular: 'UI policy', scopeValidation: true },
+    relationships: { essential: [{ name: 'actions', table: 'sys_ui_policy_action', foreignKey: 'ui_policy', limit: 100, orderBy: 'order',
+      columns: ['name', 'table', 'field_name', 'read_only', 'mandatory', 'visible'] }] } },
 };

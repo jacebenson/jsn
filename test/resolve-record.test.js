@@ -106,6 +106,7 @@ describe('unwrapSysId', () => {
     const { unwrapSysId } = await import('../src/resolve-record.js');
     assert.strictEqual(unwrapSysId({ sys_id: { value: 'v1' } }), 'v1');
     assert.strictEqual(unwrapSysId({ sys_id: 'v2' }), 'v2');
+    assert.strictEqual(unwrapSysId({ sys_id: { display_value: 'not-a-raw-id' } }), '');
   });
 });
 

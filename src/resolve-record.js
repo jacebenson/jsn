@@ -25,7 +25,7 @@ export function isSysId(identifier) {
  */
 export function unwrapSysId(record) {
   const sysId = record?.sys_id;
-  if (sysId && typeof sysId === 'object') return sysId.value || sysId.display_value || '';
+  if (sysId && typeof sysId === 'object') return sysId.value || '';
   return sysId || '';
 }
 
