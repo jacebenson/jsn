@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
@@ -7,7 +5,7 @@ import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
-  mutationSubcommands: ['create', 'update', 'delete', 'bulk', 'attachments add'],
+  mutationSubcommands: ['create', 'update', 'delete', 'bulk'],
 });
 
 const tableDefaultColumns = {
@@ -303,74 +301,6 @@ export function recordsCmd(wrap) {
             const sysID = await deleteRecord(app.sdk, lookup);
             app.ok({ message: 'Record deleted', table: argv.table, sys_id: sysID }, { summary: `Deleted record from ${argv.table}` });
           }),
-        })
-        .command({
-          command: 'attachments',
-          describe: 'Work with attachments on a record',
-          builder: (y) => y
-            .command({
-              command: 'list',
-              describe: 'List attachments on a record',
-              builder: (yy) => yy
-                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id' })
-                .option('table', { type: 'string', describe: 'Parent table name (context only)' }),
-              handler: wrap(async (argv, app) => {
-                app.requireInstance();
-                const attachments = await app.sdk.listAttachments(argv['sys-id']);
-                app.ok({
-                  sys_id: argv['sys-id'],
-                  table: argv.table || '',
-                  count: attachments.length,
-                  attachments,
-                  context: { instance_url: app.getEffectiveInstance() },
-                }, { summary: `${attachments.length} attachment(s) on record ${argv['sys-id']}` });
-              }),
-            })
-            .command({
-              command: 'get <attachment-id>',
-              describe: 'Download an attachment to a local file',
-              builder: (yy) => yy
-                .positional('attachment-id', { describe: 'Attachment sys_id', type: 'string' })
-                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id (used to resolve the file name)' })
-                .option('out', { alias: 'o', type: 'string', describe: 'Output file path (default: attachment file name in cwd)' }),
-              handler: wrap(async (argv, app) => {
-                app.requireInstance();
-                const buf = await app.sdk.getAttachment(argv['attachment-id']);
-                let name = argv.out;
-                if (!name) {
-                  // Best-effort: derive the file name from the attachment row.
-                  let fileName = `${argv['attachment-id']}.bin`;
-                  try {
-                    const rows = await app.sdk.listAttachments(argv['sys-id']);
-                    const hit = (rows || []).find((a) => getStringField(a, 'sys_id') === argv['attachment-id']);
-                    const fn = getStringField(hit, 'file_name');
-                    if (fn) fileName = fn;
-                  } catch { /* keep default */ }
-                  name = fileName;
-                }
-                await fs.promises.writeFile(name, buf);
-                app.ok({ sys_id: argv['attachment-id'], out: name, bytes: buf.length }, { summary: `Wrote ${buf.length} bytes to ${name}` });
-              }),
-            })
-            .command({
-              command: 'add <file>',
-              describe: 'Upload a file as a new attachment on a record (mutation)',
-              builder: (yy) => yy
-                .positional('file', { describe: 'Local file path to upload', type: 'string' })
-                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id' })
-                .option('table', { type: 'string', demandOption: true, describe: 'Parent table for the record (e.g. incident)' })
-                .option('name', { type: 'string', describe: 'Display file name (default: basename of --file)' })
-                .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
-              handler: wrap(async (argv, app) => {
-                app.requireInstance();
-                await confirmDelete(app, argv, `Upload "${argv.file}" as an attachment on ${argv.table} ${argv['sys-id']}?`);
-                const content = await fs.promises.readFile(argv.file);
-                const fileName = argv.name || path.basename(argv.file);
-                const created = await app.sdk.addAttachment(argv.table, argv['sys-id'], content, fileName);
-                app.ok({ sys_id: created?.sys_id, file_name: fileName, table: argv.table, recordsys_id: argv['sys-id'] }, { summary: `Attached ${fileName}` });
-              }),
-            })
-            .demandCommand(1, 'Specify an attachment action: list, get, or add'),
         })
         .command({
           command: 'aggregate',

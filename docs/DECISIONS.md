@@ -237,3 +237,13 @@ Export never changes state and defaults to a sanitized filename in a terminal;
 pipes keep raw XML, with explicit `--stdout`, `--out`, and `--out-dir` controls.
 Files are exclusively created to preserve existing exports. `reopen` is the
 explicit path back to an in-progress local set, without selecting it.
+
+## 2026-10-29: Attachment transfers have a standalone command
+
+Expose `attachments list/download/upload` at the root so transfer operations are
+discoverable without knowing the record command tree. `get`/`add` remain action
+aliases; remove the nested transfer subtree rather than register duplicate
+implementations. Preserve optional attachment enrichment on record/request views.
+Downloads identify the attachment directly and derive only a safe local basename
+from remote metadata; local overwrites are explicit. Uploads retain declared
+mutation guards and confirmation.
