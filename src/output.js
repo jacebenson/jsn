@@ -529,6 +529,17 @@ export class OutputWriter {
       }
     }
 
+    if (data._related && typeof data._related === 'object') {
+      this.writer.write('─ Related lists ─\n');
+      for (const list of data._related.nonempty || []) {
+        this.writer.write(`  ${list.label}: ${list.count}\n`);
+        if (list.command) this.writer.write(`  Retrieve: ${list.command}\n`);
+      }
+      this.writer.write(`  Coverage: ${data._related.coverage?.state || 'unknown'}; counts reflect aggregate API access and visible metadata.\n`);
+      for (const warning of data._related.coverage?.warnings || []) this.writer.write(`  Unknown (${warning.source}): ${warning.reason}\n`);
+      this.writer.write('\n');
+    }
+
     // ── Attachments ──
     if (data._attachments && Array.isArray(data._attachments) && data._attachments.length > 0) {
       this.writer.write('─ Attachments ─\n');

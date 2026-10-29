@@ -1,3 +1,4 @@
+import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 import { getRecord, recordOptions } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { buildProfileCommand } from '../record-profiles.js';
@@ -16,7 +17,7 @@ export function requestsCmd(wrap) {
       command: 'show <number>',
       aliases: ['get'],
       describe: 'Show a specific request with attachments and catalog variables',
-      builder: y => recordOptions(y),
+      builder: y => relatedListOptions(recordOptions(y)),
       handler: wrap(enrichedShowHandler),
     });
   };
@@ -42,6 +43,7 @@ async function enrichedShowHandler(argv, app) {
     table: 'sc_req_item',
   };
 
+  await enrichRelatedLists(record, { table: 'sc_req_item', argv, app });
   app.ok(record, {
     summary: `Request ${number}`,
     breadcrumbs: [

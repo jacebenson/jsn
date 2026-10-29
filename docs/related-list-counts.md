@@ -47,7 +47,6 @@ limit (1–1000). Individual aggregate reads run with at most four concurrent ca
 batch chunking remains bounded by the SDK. Metadata
 is cached by the metadata reader; no cache is persisted across invocations.
 
-This module depends on dynamic metadata (#317). Specialized factory/ticket hooks
-are integrated alongside command-profile work; generic get is intentionally outside
-this feature. `_related` is supplementary data; essential children use their
+This module depends on dynamic metadata (#317). Specialized factory, ticket, request and standalone tickets shows expose these
+options. Generic get is intentionally outside this feature. `_related` is supplementary data; essential children use their
 separate `_essential` contract.
