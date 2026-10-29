@@ -349,6 +349,15 @@ stored capture schema. Older captures receive the same guidance when viewed;
 no report migration is required. Per-artifact `triage` remains the classification
 and confidence assessment, separate from unverified runtime/reversion risk.
 
+### Optional batch reads
+
+A **batch read** is an explicit `SDKClient.batch` operation over independent,
+same-instance GET subrequests. The native Batch API envelope is correlated by ID;
+per-item failures, unserviced IDs, and missing responses stay distinct. Only an
+explicitly unsupported outer endpoint permits sequential read fallback. Normal
+SDK methods stay unbatched, writes are rejected before dispatch, and authentication
+or ACL errors never silently trigger fallback. See `docs/sdk-batch.md`.
+
 ## Local mutation history
 
 Table API creates, updates and deletes invoked by the CLI record one final local
