@@ -15,6 +15,8 @@ Boolean `action_query=true`, without classifying rules by their order.
 Seven focused tests pass, covering constrained composition, empty queries,
 ordering, case variants/OR/NQ/dynamic rejection before SDK access, preservation of
 unconstrained query semantics and actual CLI help. Lint passes.
+The full suite on the combined main-integration source plus this follow-up
+passed 1,516 tests, with 2 skipped and 0 failures (1,518 total).
 
 [Sanitized live terminal proof](field-troubleshooting-live.json) records source
 revision and each actual command. A fresh mandatory PDI doctor reported
