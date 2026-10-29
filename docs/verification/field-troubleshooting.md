@@ -17,6 +17,10 @@ ordering, case variants/OR/NQ/dynamic rejection before SDK access, preservation 
 unconstrained query semantics and actual CLI help. Lint passes.
 The full suite on the combined main-integration source plus this follow-up
 passed 1,516 tests, with 2 skipped and 0 failures (1,518 total).
+After #344 landed, this follow-up was rebased onto main. Its field runtime and
+test changes are unchanged. Main additionally contains the related-count reader;
+the combined field/profile/related-reader checks passed 23 tests after rebase,
+and full lint passed. The PR diff now contains only this field follow-up.
 
 [Sanitized live terminal proof](field-troubleshooting-live.json) records source
 revision and each actual command. A fresh mandatory PDI doctor reported
