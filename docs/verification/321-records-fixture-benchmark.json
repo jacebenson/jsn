@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-10-29T05:38:02.289Z",
+  "node": "v24.19.0",
+  "scope": "Loopback HTTP SDK + related-list reader; supplied metadata; no CLI startup, live instance, auth renewal or writes",
+  "notes": "60 unique descriptors; default cap 50. Fixed 5ms response delay per outer HTTP request, not per batch subrequest. Timing is informational; request counts are regression-tested. No historical baseline measured.",
+  "samples": [
+    {
+      "sample": 1,
+      "mode": "batch",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 1,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 95.557,
+          "http_requests": 1,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 1.643,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 21.143,
+          "http_requests": 1,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 2,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 2,
+      "mode": "batch",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 1,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 28.021,
+          "http_requests": 1,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 1.694,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 21.737,
+          "http_requests": 1,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 2,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 3,
+      "mode": "batch",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 1,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 26.832,
+          "http_requests": 1,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 3.195,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 19.807,
+          "http_requests": 1,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 2,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 1,
+      "mode": "individual",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 4,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 177.029,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 0.75,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 144.354,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 0,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 2,
+      "mode": "individual",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 4,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 150.86,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 1.155,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 152.191,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 0,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 3,
+      "mode": "individual",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 4,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 140.382,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 0.839,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 119.189,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 0,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 1,
+      "mode": "unsupported",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 1,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 407.124,
+          "http_requests": 51,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 0.718,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 387.857,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 1,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 2,
+      "mode": "unsupported",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 1,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 401.799,
+          "http_requests": 51,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 1.144,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 410.116,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 1,
+      "only_aggregate_reads": true
+    },
+    {
+      "sample": 3,
+      "mode": "unsupported",
+      "descriptors": 60,
+      "delay_ms_per_http_request": 5,
+      "peak_http_concurrency": 1,
+      "phases": {
+        "cold": {
+          "elapsed_ms": 405.13,
+          "http_requests": 51,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "cached": {
+          "elapsed_ms": 0.741,
+          "http_requests": 0,
+          "aggregate_operations": 0,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        },
+        "other_record": {
+          "elapsed_ms": 389.674,
+          "http_requests": 50,
+          "aggregate_operations": 50,
+          "available": 50,
+          "unavailable": 10,
+          "coverage": "partial"
+        }
+      },
+      "batch_attempts": 1,
+      "only_aggregate_reads": true
+    }
+  ]
+}

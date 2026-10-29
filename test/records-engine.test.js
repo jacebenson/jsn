@@ -95,6 +95,7 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
     const parts = url.pathname.split('/');
     res.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/angular.do') { res.end('{}'); return; }
+    if (url.pathname.startsWith('/api/now/stats/')) { res.end(JSON.stringify({ result: { stats: { count: '2' } } })); return; }
     if (req.method !== 'GET') {
       let body = ''; for await (const chunk of req) body += chunk;
       writes.push({ method: req.method, id: parts[5], data: body ? JSON.parse(body) : null });
@@ -107,7 +108,8 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
       const match = query.match(/^(\w+)(STARTSWITH|ENDSWITH|=)([^^]*)/);
       found = match ? rows.filter(row => match[2] === '=' ? row[match[1]] === match[3]
         : match[2] === 'STARTSWITH' ? row[match[1]]?.startsWith(match[3]) : row[match[1]]?.endsWith(match[3])) : rows;
-      found = found.slice(0, Number(url.searchParams.get('sysparm_limit') || 20));
+      const offset = Number(url.searchParams.get('sysparm_offset') || 0);
+      found = found.slice(offset, offset + Number(url.searchParams.get('sysparm_limit') || 20));
     }
     const mode = url.searchParams.get('sysparm_display_value');
     const convert = row => row && Object.fromEntries(Object.entries(row).map(([key, value]) => [key,
@@ -118,7 +120,7 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
   const instance = `http://127.0.0.1:${server.address().port}`;
   await fs.mkdir(path.join(directory, 'servicenow'));
   await fs.writeFile(path.join(directory, 'servicenow', 'config.json'), JSON.stringify({ default_profile: 'other', profiles: {
-    selected: { instance_url: instance, auth_method: 'basic', username: 'fixture', include_counts: false },
+    selected: { instance_url: instance, auth_method: 'basic', username: 'fixture', include_counts: true },
     other: { instance_url: 'http://example.invalid', auth_method: 'basic' },
     readonly: { instance_url: instance, auth_method: 'basic', read_only: true },
   } }));
@@ -133,6 +135,23 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
     assert.ok(!(result.stdout + result.stderr).includes('fixture-secret'));
     return JSON.parse(result.stdout);
   }
+  // Pagination is a wire/output contract, not only a URLSearchParams unit test.
+  for (const command of [['records', 'list', '--table', 'x_custom', '--no-count'], ['incidents', 'list']]) {
+    const start = requests.length;
+    const page = await run([...command, '--columns', 'number,assigned_to', '--limit', '1', '--offset', '1', '--display-values', 'both']);
+    assert.equal(page.data.records[0].number, 'INC002');
+    assert.deepEqual(page.data.pagination, { limit: 1, offset: 1 });
+    const reads = requests.slice(start).filter(request => request.url.pathname.startsWith('/api/now/'));
+    assert.equal(reads.length, 1, 'one page read, no count, metadata or eager relationships');
+    assert.equal(reads[0].url.searchParams.get('sysparm_offset'), '1');
+    assert.equal(reads[0].url.searchParams.get('sysparm_limit'), '1');
+    assert.equal(reads[0].url.searchParams.get('sysparm_display_value'), 'all');
+  }
+  const countStart = requests.length;
+  const counted = await run(['records', 'list', '--table', 'x_custom', '--limit', '1', '--offset', '1', '--count']);
+  assert.equal(counted.data.pagination.total, 2);
+  assert.equal(requests.slice(countStart).filter(request => request.url.pathname.startsWith('/api/now/')).length, 2, 'explicit count adds exactly one aggregate request');
+  assert.equal(requests.at(-1).url.pathname, '/api/now/stats/x_custom');
   const base = ['records', 'get', '--table', 'x_custom', '--sys-id', 'legacy-target'];
   const before = requests.length;
   assert.equal((await run(base)).data.assigned_to, 'Display User');
