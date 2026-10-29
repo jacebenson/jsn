@@ -82,7 +82,7 @@ describe('capabilities registry', () => {
 
   it('derives dailyCheckSkipCommands including offline customization reports', () => {
     const skip = dailyCheckSkipCommands();
-    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'discover', 'docs', 'help', 'history', 'skill', 'version']);
+    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'discover', 'docs', 'help', 'history', 'skill', 'update', 'upgrade', 'version']);
   });
 
   it('derives mutation paths for root CRUD commands', () => {
