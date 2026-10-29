@@ -3,6 +3,7 @@ import { errUsage, errUsageHint, errConfirmationRequired } from '../errors.js';
 import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
+import { readFile } from 'node:fs/promises';
 import { refreshSession } from '../session.js';
 
 function syncSession(app) {
@@ -139,7 +140,7 @@ export function resolveTargetProfile(argv = {}, cfg = {}, instanceURL = '') {
  */
 export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '', targetProfile = null) {
   if (argv.basic || argv.password) return true;
-  if (argv.oauth || argv.code || argv.printUrl || argv.browser || argv.gck || argv.headers) return false;
+  if (argv.oauth || argv.code || argv.printUrl || argv.browser || argv.gck || argv.headers || argv.headersFile !== undefined) return false;
   if (targetProfile) return targetProfile.auth_method === 'basic';
   return Object.values(cfg.profiles || {}).some(profile =>
     profile.instance_url === instanceURL && profile.auth_method === 'basic'
@@ -147,7 +148,7 @@ export function shouldUseBasicAuth(argv = {}, cfg = {}, instanceURL = '', target
 }
 
 export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '', targetProfile = null) {
-  if (argv.gck || argv.headers || argv.browser) return true;
+  if (argv.gck || argv.headers || argv.browser || argv.headersFile !== undefined) return true;
   if (argv.basic || argv.password || argv.oauth || argv.code || argv.printUrl) return false;
   if (targetProfile) return targetProfile.auth_method === 'gck';
   return Object.values(cfg.profiles || {}).some(profile =>
@@ -157,10 +158,11 @@ export function shouldUseGckAuth(argv = {}, cfg = {}, instanceURL = '', targetPr
 
 export function validateLoginSelectors(argv = {}, targetProfile = null) {
   const basic = argv.basic === true || argv.password === true;
-  const gck = argv.gck === true || argv.headers !== undefined || argv.browser === true;
+  const gck = argv.gck === true || argv.headers !== undefined || argv.headersFile !== undefined || argv.browser === true;
   const oauth = argv.oauth === true || argv.code !== undefined || argv.printUrl === true || argv.waitFile !== undefined;
   if (oauth && (basic || gck)) throw errUsage('Choose only one authentication method: --oauth, --basic, or --browser/--gck.');
   if (argv.waitFile && !argv.printUrl) throw errUsage('--wait-file requires --print-url.');
+  if (argv.headers !== undefined && argv.headersFile !== undefined) throw errUsage('Choose --headers-file or --headers, not both.');
   if (argv.code !== undefined && argv.printUrl) throw errUsage('--code cannot be combined with --print-url.');
   if (argv.browserUrl !== undefined && !argv.browser) {
     throw errUsage('--browser-url requires --browser.');
@@ -168,8 +170,8 @@ export function validateLoginSelectors(argv = {}, targetProfile = null) {
   if (argv.browserName !== undefined && (!argv.browser || argv.browserUrl !== undefined)) {
     throw errUsage('--browser-name requires --browser and cannot be combined with --browser-url.');
   }
-  if (argv.browser && (argv.headers !== undefined || argv.code !== undefined || argv.printUrl || argv.waitFile)) {
-    throw errUsage('--browser cannot be combined with --headers, --code, --print-url, or --wait-file.');
+  if (argv.browser && (argv.headers !== undefined || argv.headersFile !== undefined || argv.code !== undefined || argv.printUrl || argv.waitFile)) {
+    throw errUsage('--browser cannot be combined with --headers-file, --headers, --code, --print-url, or --wait-file.');
   }
   if (basic && gck) {
     throw errUsage('Basic and browser-session selectors are mutually exclusive; choose --basic/--password or --gck/--headers.');
@@ -276,6 +278,22 @@ export async function readBrowserSessionInput() {
     stdin.on('data', onData);
     stdin.on('error', onError);
   });
+}
+
+/** Read captured session data without putting it in argv or printing a prompt. */
+async function readBrowserSessionFile(file) {
+  let content;
+  if (file === '-') {
+    if (process.stdin.isTTY) throw errUsageHint('--headers-file - requires piped or redirected input.', 'Pipe captured headers into this command, or pass a file path.');
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    content = Buffer.concat(chunks).toString('utf8');
+  } else {
+    try { content = await readFile(file, 'utf8'); }
+    catch { throw errUsageHint('Could not read browser-session input file.', 'Check the --headers-file path and file permissions.'); }
+  }
+  if (!content.trim()) throw errUsage('Browser-session input is empty. Supply captured headers or a cURL request.');
+  return content;
 }
 
 /** Collect human answers, then call the same login operation as auth login. */
@@ -593,8 +611,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   const useBasic = shouldUseBasicAuth(argv, methodConfig, instanceURL, targetProfile);
   const useGck = shouldUseGckAuth(argv, methodConfig, instanceURL, targetProfile);
   const interactive = canUsePicker(app, argv);
-  if (useGck && !argv.browser && !argv.headers && !interactive) {
-    throw errUsage('Browser sign-in needs a human. Pass --browser to explicitly open a login window, or supply a captured session.');
+  const capturedHeaders = argv.headers !== undefined || argv.headersFile !== undefined;
+  if (useGck && !argv.browser && !capturedHeaders && !interactive) {
+    throw errUsage('Browser sign-in needs a human. Pass --browser to explicitly open a login window, or supply a captured session with --headers-file <path|->.');
   }
   if (!useGck && !useBasic && !argv.printUrl && !argv.code && !interactive) {
     throw errUsage('OAuth login requires --print-url followed by --code <code> when noninteractive.');
@@ -611,9 +630,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   // --basic (with --password as a compatibility alias): authenticate
   // with basic auth from env vars and persist it for this profile.
   if (useGck) {
-    const credentials = (argv.browser || (!argv.gck && !argv.headers))
+    const credentials = (argv.browser || (!argv.gck && !capturedHeaders))
       ? await loginUsingBrowser(app, instanceURL, argv, targetUsername || null)
-      : await app.auth.loginWithGck(instanceURL, argv.headers || await readBrowserSessionInput(), targetUsername || null);
+      : await app.auth.loginWithGck(instanceURL, argv.headersFile !== undefined ? await readBrowserSessionFile(argv.headersFile) : argv.headers || await readBrowserSessionInput(), targetUsername || null);
     targetUsername = credentials?.username || targetUsername;
   } else if (useBasic) {
     let credentials;
@@ -994,10 +1013,16 @@ Examples:
 
   const target = resolveTargetProfile(argv, app.config, instanceURL);
   const targetProfile = target.profile;
+  const browser = argv.browser || (targetProfile?.auth_method === 'gck'
+    && argv.headers === undefined && argv.headersFile === undefined && canUsePicker(app, argv));
+  validateLoginSelectors({ ...argv, browser }, targetProfile);
+  if (targetProfile?.auth_method !== 'gck' && (argv.headersFile !== undefined || argv.headers !== undefined || argv.browser)) {
+    throw errUsage('Browser-session input requires a browser-session profile. Select it with --profile, or add a separate connection with auth login --name <name>.');
+  }
   if (targetProfile?.auth_method === 'gck') {
     return loginProfile({
       ...argv, instance: instanceURL, profile: target.name,
-      browser: argv.browser || (!argv.headers && canUsePicker(app, argv)),
+      browser,
     }, app);
   }
   const targetAuthOptions = {
@@ -1083,7 +1108,11 @@ export function authCmd(wrap) {
               type: 'boolean',
             })
             .option('headers', {
-              describe: 'Browser request headers or cURL command for browser-session auth',
+              describe: 'Inline browser headers (compatibility); prefer --headers-file to keep secrets out of arguments',
+              type: 'string',
+            })
+            .option('headers-file', {
+              describe: 'Read browser headers/cURL from a file, or - for stdin; no secrets in arguments',
               type: 'string',
             })
             .option('browser', {
@@ -1143,7 +1172,8 @@ export function authCmd(wrap) {
             .option('browser', { type: 'boolean', describe: 'Explicitly open a browser to renew the session' })
             .option('browser-name', { type: 'string', describe: 'Browser to launch: chromium, chrome, or edge' })
             .option('browser-url', { type: 'string', describe: 'Advanced: local browser debugging URL (requires --browser)' })
-            .option('headers', { type: 'string', describe: 'Captured browser request headers or cURL command' }),
+            .option('headers', { type: 'string', describe: 'Inline captured headers (compatibility); prefer --headers-file' })
+            .option('headers-file', { type: 'string', describe: 'Captured headers/cURL file, or - for stdin; keeps secrets out of arguments' }),
           handler: wrap(refreshProfile),
         })
         .command({

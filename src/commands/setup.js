@@ -1,5 +1,5 @@
 import { loginWizard, loginProfile, showAuthStatus, switchProfile, modifyProfile, logoutProfile, removeConnection } from './auth.js';
-import { errUsage } from '../errors.js';
+import { errUsageHint } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 // Setup manages local profile config — runs without a configured instance.
@@ -7,14 +7,34 @@ import { declareCapabilities } from '../capabilities.js';
 declareCapabilities('setup', { noInstance: true, skipContextHeader: true });
 
 const HUB_CHOICES = [
-  { name: 'Add a connection', value: 'add' },
-  { name: 'Sign in again', value: 'login' },
-  { name: 'Check connections', value: 'status' },
-  { name: 'Choose the default profile', value: 'switch' },
-  { name: 'Change settings', value: 'modify' },
-  { name: 'Sign out (keep the profile)', value: 'logout' },
-  { name: 'Remove a connection', value: 'remove' },
+  { name: 'Add a connection', value: 'add', command: 'jsn auth login <instance> --name <name> --basic' },
+  { name: 'Sign in again', value: 'login', command: 'jsn auth login --profile <name> (with the authentication options below)' },
+  { name: 'Check connections', value: 'status', command: 'jsn auth status --details --json (use --local to skip instance probes)' },
+  { name: 'Choose the default profile', value: 'switch', command: 'jsn auth switch <name>' },
+  { name: 'Change settings', value: 'modify', command: 'jsn auth modify --profile <name> --read-only --confirm-deletes --no-include-counts' },
+  { name: 'Sign out (keep the profile)', value: 'logout', command: 'jsn auth logout --profile <name> --force (only after explicit approval)' },
+  { name: 'Remove a connection', value: 'remove', command: 'jsn auth remove <name>' },
 ];
+
+const setupHelp = () => [
+  'With no profiles, setup opens the add-connection wizard; otherwise it opens the management menu.',
+  'The wizard and these scriptable commands share the same authentication and configuration operations:',
+  ...HUB_CHOICES.map(choice => `  ${choice.name}: ${choice.command}`),
+  '',
+  'Authentication input without secrets in command arguments:',
+  '  Basic: set SN_USERNAME and SN_PASSWORD through your environment, then use --basic.',
+  '  OAuth: jsn auth login <instance> --name <name> --oauth --print-url --wait-file <code-file> --json',
+  '  Browser session: jsn auth login <instance> --name <name> --headers-file <session-file> --json',
+  '  Piped browser session: jsn auth login <instance> --name <name> --headers-file - --json',
+  '  A browser window can also be requested explicitly with --browser; it requires a human to sign in.',
+  '  Refresh OAuth: jsn auth refresh --profile <name>',
+  '  Renew captured browser headers: jsn auth refresh --profile <name> --headers-file <session-file>',
+  '',
+  'New-profile preferences: --read-only, --confirm-deletes, --include-counts and --make-default.',
+  'Use --no-read-only, --no-confirm-deletes, --no-include-counts or --no-make-default for the opposite value.',
+  'Use --json for structured output. Explicit flags avoid implicit pickers; ambiguous targets return an error.',
+  'Discover all options with jsn auth <command> --help.',
+].join('\n');
 
 /** The setup hub prompt; q and Escape resolve with no selected action. */
 export const authHubPrompt = async (...args) => {
@@ -81,10 +101,11 @@ export function setupCmd(wrap) {
   return {
     command: 'setup',
     describe: 'Set up and manage your ServiceNow instances (interactive)',
+    builder: y => y.epilogue(setupHelp()),
     handler: wrap(async (argv, app) => {
       const { canUsePicker } = await import('../helpers.js');
       if (!app.isInteractive() || !canUsePicker(app, argv)) {
-        throw errUsage('"jsn setup" is interactive. Use the specific commands:\n  jsn auth login <instance>\n  jsn auth refresh\n  jsn auth status');
+        throw errUsageHint('"jsn setup" is interactive. Use explicit auth commands instead.', setupHelp());
       }
       const profileNames = Object.keys(app.config.profiles || {});
       if (profileNames.length === 0) {
