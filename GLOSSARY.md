@@ -133,6 +133,16 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
   Read-only profiles block these. See *capability registry*.
 
+## Attachment transfer
+
+`attachments` is the standalone owner of file listing, download and upload.
+`download`/`get` identifies the attachment itself, without requiring its parent;
+`upload`/`add` identifies the destination table and parent record and declares a
+mutation capability. The former `records attachments` subtree is removed.
+`records get --attachments` remains an optional record-view enrichment. Download
+metadata cannot choose directories or device filenames, and existing local
+files require explicit `--overwrite`. Results use the normal output envelope.
+
 ## Command discovery
 
 `jsn discover` searches the live command registrations used for dispatch. Root

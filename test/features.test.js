@@ -87,12 +87,10 @@ describe('records bulk (dry-run by default)', () => {
   });
 });
 
-describe('records attachments', () => {
+describe('attachments', () => {
   it('lists attachments for a record', async () => {
-    const { recordsCmd } = await import('../src/commands/records.js');
-    const cmd = recordsCmd(wrapHandler);
-    const att = findCommand(captureSubcommands(cmd), 'attachments');
-    assert.ok(att, 'attachments subcommand exists');
+    const { attachmentsCmd } = await import('../src/commands/attachments.js');
+    const att = attachmentsCmd(wrapHandler);
 
     const listSub = findCommand(captureSubcommands(att), 'list');
     assert.ok(listSub, 'attachments list subcommand exists');
