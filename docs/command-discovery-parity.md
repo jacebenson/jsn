@@ -61,7 +61,7 @@ change documents controls rather than changing that behavior.
 ## Skill integration now permitted
 
 - Replace Discovery / Interactive Picker sections with a concise pointer to
-  `jsn --help` / `jsn discover --help`; keep output-mode guidance.
+  `jsn --help` / `jsn discover --help`; output-mode mechanics also live in help.
 - Remove the rigid Command Hierarchy and Key Commands catalog. Keep the separate
   eval approval/no-protection-bypass safeguard.
 - Remove Table/raw REST examples: existing command help carries these examples
@@ -71,3 +71,34 @@ change documents controls rather than changing that behavior.
 action matching, exact table filter, custom-table fallback, JSON extraction,
 human output and root help. Existing completion/help/output-contract tests
 cover compatibility. This audit does not close the other #328 dependencies.
+
+
+## #320 acceptance follow-up
+
+The bundled skill from #348 now delegates command choice to installed help,
+without preferring specialized commands over generic records or REST. Its only
+command preference is ordinary commands over approved eval.
+
+Profile-backed discovery now reads reference-output/list-projection preferences
+and essential relationship names/tables from the same validated profile that
+builds the handler. For example, `jsn discover --table sys_ui_policy` explains
+that show includes policy actions and gives the `--no-essential` opt-out. There
+is no separately maintained discovery table. Regression coverage changes a
+profile's relationship/output configuration and verifies discovery updates,
+including removal of the former relationship; the actual CLI JSON and human
+outputs and the skill's command-choice boundary are also checked.
+
+Development lifecycle guidance is present in the bundled skill: scope/set,
+work, instance verification, offer ATFs/scans, then human-confirmed completion
+with notes. Incoming import/preview/error resolution/commit/verify is also
+present. Main does not yet implement the incoming XML lifecycle as a dedicated
+command; that separate implementation is not a discovery acceptance gap and
+must not be inferred from registry search results. Existing update-set help
+covers capture creation/selection/completion, while ATF help covers listing,
+running and results rather than a dedicated test-authoring command.
+
+Validation: 26 discovery/profile/completion/records-REST help tests, full lint,
+and the local verification doctor/drive/cleanup passed. The local docs drive
+returned three JSON and human-readable search matches. No PDI request or auth
+mutation was made. #320 is ready to close after this follow-up is integrated;
+incoming lifecycle implementation remains separate work.

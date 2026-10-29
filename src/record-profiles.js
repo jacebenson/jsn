@@ -84,5 +84,10 @@ export function buildRecordProfile(definition, wrap, hooks = {}) {
     : buildDevCmd(profile.name, profile.table, profile.aliases, profile.columns, wrap, options);
   command.aliases = [...profile.aliases];
   command.recordProfile = profile;
+  command.discovery.benefits.push(
+    `Reference output: ${profile.output.references}; list projection: ${profile.output.listProjection}`,
+    ...profile.relationships.essential.map(relationship =>
+      `Essential ${relationship.name} records from ${relationship.table} on show (disable with --no-essential)`),
+  );
   return command;
 }
