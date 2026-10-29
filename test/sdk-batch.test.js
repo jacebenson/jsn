@@ -151,3 +151,11 @@ it('does not replay timed-out aggregate reads or infer success from duplicate re
     assert.equal(duplicate.calls.length, 1);
   } finally { await duplicate.close(); }
 });
+it('native batch reads do not create mutation-history events for the aggregate POST', async () => {
+  const mutations = [];
+  const f = await fixture(success, { onMutation: event => mutations.push(event) });
+  try {
+    await f.sdk.batch([{ url: '/api/now/table/sys_db_object?sysparm_limit=1' }]);
+    assert.equal(f.calls[0].method, 'POST'); assert.deepEqual(mutations, []);
+  } finally { await f.close(); }
+});
