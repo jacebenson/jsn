@@ -40,6 +40,14 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     const first = JSON.parse((await run(['capture', '--instance', instance, '--customer-scope', 'x_acme_ours', '--json'])).stdout);
     assert.equal(first.ok, true);
     assert.equal(first.data.categories.customer_app_artifacts.length, 1);
+    const guidance = first.data.interpretation;
+    assert.equal(guidance.automated_remediation, false);
+    assert.match(guidance.capture, /authentication POSTs/);
+    assert.match(guidance.evidence.upgrade_skips, /4 and 104.*reviewed_reverted/);
+    assert.match(guidance.evidence.ownership, /not customer or publisher ownership/);
+    assert.match(guidance.limitations.join(' '), /No findings is not proof/);
+    assert.match(first.data._formatted, /Caller-declared customer scope: Declaration, not verified ownership/);
+    assert.match(first.data._formatted, /Stats API count.*unavailable|count.*unavailable/i);
     const second = JSON.parse((await run(['capture', '--instance', instance, '--customer-scope', 'x_acme_ours', '--json'])).stdout);
     const id = first.data.run_id;
     assert.equal(JSON.parse((await run(['list', '--json'])).stdout).data.count, 2);
@@ -57,21 +65,28 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     assert.match(updaterView, /fixture-user \(1\)/);
     assert.match(updaterView, /GROUPED BY UPDATED BY/);
     const shown = JSON.parse((await run(['show', id, '--json'])).stdout).data;
+    assert.deepEqual(shown.interpretation, guidance);
     assert.equal(shown.triage[0].label, 'Caller-declared customer scope');
     assert.match(shown.triage[0].next_steps.join(' '), /owner and publisher/i);
     const htmlPath = path.join(dir, 'customizations-review.html');
     const htmlResult = JSON.parse((await run(['html', id, '--out', htmlPath])).stdout).data;
     assert.equal(htmlResult.file, htmlPath);
     assert.equal(htmlResult.artifacts, 1);
+    assert.deepEqual(htmlResult.interpretation, guidance);
     const html = fs.readFileSync(htmlPath, 'utf8');
     assert.match(html, /License Roles/);
     assert.match(html, /Search artifacts/);
     assert.match(html, /Open record in ServiceNow/);
     assert.match(html, /Next steps/);
+    assert.match(html, /How to interpret this evidence/);
+    const embedded = JSON.parse(html.match(/<script id="report-data" type="application\/json">(.*?)<\/script>/s)[1]);
+    assert.deepEqual(embedded.interpretation, guidance);
     await assert.rejects(run(['html', id, '--out', htmlPath]));
     const compare = JSON.parse((await run(['compare', id, second.data.run_id, '--json'])).stdout);
     assert.deepEqual(compare.data.changes, []);
     assert.equal(compare.data.status, 'incomplete');
+    assert.deepEqual(compare.data.interpretation, guidance);
+    assert.match(compare.data._formatted, /not proven creation\/deletion/);
     assert.ok(requests.some(req => req.url.includes('/api/now/table/sys_metadata')));
     assert.ok(requests.some(req => req.method === 'POST' && req.url.startsWith('/angular.do?')));
     assert.ok(requests.filter(req => req.url.startsWith('/api/now/table/')).every(req => req.method === 'GET'));
@@ -79,6 +94,13 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     const count = requests.length;
     await new Promise(resolve => server.close(resolve));
     assert.equal(JSON.parse((await run(['show', id, '--json'])).stdout).data.run_id, id);
+    for (const args of [[], ['capture'], ['show'], ['compare']]) {
+      const help = (await run([...args, '--help'])).stdout;
+      assert.match(help, /reviewed_reverted/);
+      assert.match(help, /not proof of no customizations/);
+      assert.match(help, /Never recommend automatic reversion/);
+    }
+    assert.match((await run(['capture', '--help'])).stdout, /authentication POSTs/);
     assert.equal(requests.length, count);
     await assert.rejects(run(['compare', id, id, '--json']));
     await assert.rejects(run(['show', '--json']));
