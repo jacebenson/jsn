@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { buildCLI } from '../src/cli.js';
 import { discoverCommands } from '../src/commands/discover.js';
 import { buildDevCmd } from '../src/commands/_generic.js';
+import { buildRecordProfile } from '../src/record-profiles.js';
 
 const env = { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1' };
 function run(...args) {
@@ -49,4 +51,39 @@ test('root help avoids the inaccurate universal picker/query claim and explains 
   assert.match(help, /Some list commands offer a picker/);
   assert.match(help, /search fields vary by command/);
   assert.doesNotMatch(help, /--query is available on every list command/);
+});
+
+
+test('discovery follows changed profile output and essential relationships without another command map', () => {
+  const cli = buildCLI();
+  const definition = { name: 'profilefixture', table: 'x_profile_fixture', aliases: [], columns: ['name'],
+    output: { references: 'raw', listProjection: 'full' },
+    relationships: { essential: [{ name: 'actions', table: 'x_fixture_action', foreignKey: 'parent' }] } };
+  cli.command(buildRecordProfile(definition, fn => fn));
+  let matches = discoverCommands(cli.commandRegistry(), { query: 'x_fixture_action' });
+  assert.equal(matches.length, 1);
+  assert.ok(matches[0].discovery.benefits.includes('Reference output: raw; list projection: full'));
+  assert.ok(matches[0].discovery.benefits.some(value => value.includes('--no-essential')));
+  assert.ok(matches[0].actions.some(action => action.help === 'jsn profilefixture show --help'));
+  cli.command(buildRecordProfile({ ...definition, output: { references: 'both' },
+    relationships: { essential: [{ name: 'details', table: 'x_fixture_detail', foreignKey: 'owner' }] } }, fn => fn));
+  assert.equal(discoverCommands(cli.commandRegistry(), { query: 'x_fixture_action' }).length, 0);
+  matches = discoverCommands(cli.commandRegistry(), { query: 'x_fixture_detail' });
+  assert.equal(matches.length, 1);
+  assert.ok(matches[0].discovery.benefits.includes('Reference output: both; list projection: display'));
+});
+
+test('CLI shows the configured essential UI policy action benefit', () => {
+  const result = JSON.parse(run('discover', '--table', 'sys_ui_policy', '--json'));
+  assert.ok(result.data.commands[0].discovery.benefits.some(value => value.includes('sys_ui_policy_action')));
+  assert.match(run('discover', '--table', 'sys_ui_policy', '--markdown'), /--no-essential/);
+});
+
+
+test('bundled skill delegates command choice to help rather than preferring specialized commands', () => {
+  const skill = readFileSync(new URL('../skills/servicenow/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /jsn discover/);
+  assert.match(skill, /jsn <command> --help/);
+  assert.doesNotMatch(skill, /prefer[^.\n]*(?:specialized|table-specific)[^.\n]*(?:records|REST)/i);
+  assert.doesNotMatch(skill, /(?:records|REST)[^.\n]*(?:inferior|last resort)/i);
 });
