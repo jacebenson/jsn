@@ -67,7 +67,10 @@ test('forms show uses selected-profile HTTP metadata and output controller while
   assert.equal(metadata.data.coverage.state, 'observed');
   assert.equal(requests.filter(request => request.method === 'GET' && !request.path.includes('angular.do') && !request.path.endsWith('/sys_scope')).length, 9);
   assert.equal(JSON.parse(await run(['forms', 'show', 'x_case', '--json', '--get', 'data.form.sections[0].caption'])), 'Case details');
-  assert.match(await run(['forms', 'show', 'x_case', '--markdown']), /Case details/);
+  const human = await run(['forms', 'show', 'x_case', '--styled']);
+  assert.match(human, /^Form: x_case/);
+  assert.match(human, /Case details/);
+  assert.doesNotMatch(human, /_formatted/);
   const generic = JSON.parse(await run(['records', 'get', '--table', 'x_case', '--sys-id', id('5'), '--json']));
   assert.equal(generic.data.short_description, 'Unchanged generic record');
   assert.deepEqual(requests.filter(request => request.path.startsWith('/api/now/table/') && !request.path.endsWith('/sys_scope')).map(request => request.path), ['/api/now/table/x_case']);

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import { loadConfig, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
-import { renderHelp } from './help.js';
+import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
 import { noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
@@ -15,6 +15,7 @@ import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
 // Command modules
+import { discoverCmd } from './commands/discover.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
@@ -70,6 +71,7 @@ import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { approvalsCmd } from './commands/approvals.js';
+import { historyCmd } from './commands/history.js';
 import { perfCmd } from './commands/perf.js';
 import { customizationsCmd } from './commands/customizations.js';
 import { midserversCmd } from './commands/midservers.js';
@@ -116,6 +118,7 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
+      await app.guardMutationContext(argv);
       await handler(argv, app);
     } catch (err) {
       // All error rendering goes through the unified renderer in
@@ -144,6 +147,12 @@ export function buildCLI() {
       },
     ])
     .options({
+      reason: { type: 'string', describe: 'Optional non-sensitive reason saved in local mutation history' },
+
+      force: {
+        type: 'boolean',
+        description: 'Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation',
+      },
       instance: {
         type: 'string',
         description: 'ServiceNow instance URL',
@@ -410,6 +419,7 @@ export function buildCLI() {
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
+    .command(historyCmd(wrap))
     .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
     .command(diffCmd(wrap))
@@ -419,6 +429,7 @@ export function buildCLI() {
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
+    .command(discoverCmd(wrap, () => cliInstance.commandRegistry()))
     .demandCommand(1, 'You must specify a command')
     // Completion plumbing under a hidden command name, so the explicit
     // 'completion' command below owns the UX. (#176)
@@ -499,6 +510,7 @@ export function buildCLI() {
         }, { summary });
       })(argv);
     })
+    .epilogue(renderTips())
     .help('help', 'Show help')
     .version(false)
     .strictCommands()

@@ -18,26 +18,26 @@ export async function getCurrentUser(sdk) {
   };
 }
 
-export async function getCurrentApplication(sdk, userSysID) {
+export async function getCurrentApplication(sdk, userSysID, { unknownWhenMissing = false } = {}) {
   const params = new URLSearchParams();
   params.set('sysparm_query', `user=${userSysID}^name=apps.current_app`);
   params.set('sysparm_limit', '1');
   params.set('sysparm_fields', 'value');
   const records = await sdk.list('sys_user_preference', params);
-  if (records.length === 0) return { scope: 'global', appSysId: '' };
+  if (records.length === 0) return { scope: unknownWhenMissing ? '' : 'global', appSysId: '' };
   const val = records[0].value?.value || records[0].value;
-  if (!val) return { scope: 'global', appSysId: '' };
+  if (!val) return { scope: unknownWhenMissing ? '' : 'global', appSysId: '' };
 
   // Try to resolve sys_id to scope name
   try {
     const app = await sdk.get('sys_scope', val);
-    if (app) return { scope: app.scope || 'global', appSysId: val };
+    if (app) return { scope: getStringField(app, 'scope') || (unknownWhenMissing ? '' : 'global'), appSysId: val };
   } catch {
     // fallback
   }
   try {
     const app2 = await sdk.get('sys_app', val);
-    if (app2) return { scope: app2.scope || 'global', appSysId: val };
+    if (app2) return { scope: getStringField(app2, 'scope') || (unknownWhenMissing ? '' : 'global'), appSysId: val };
   } catch {
     // fallback
   }
@@ -56,7 +56,7 @@ export async function getCurrentUpdateSet(sdk, userSysID) {
 
   try {
     const us = await sdk.get('sys_update_set', val);
-    if (us) return { name: us.name || val, sys_id: val };
+    if (us) return { name: getStringField(us, 'name') || val, sys_id: val, application: us.application, state: getStringField(us, 'state') };
   } catch {
     // fallback
   }
