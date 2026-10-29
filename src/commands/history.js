@@ -28,6 +28,8 @@ export function renderHistory(entries, { details = false, timeZone = Intl.DateTi
   if (!entries.length) return 'No local mutations in the last seven days.';
   const date = new Intl.DateTimeFormat('en-GB', { timeZone, month: 'short', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  // Strip terminal control characters from stored identifiers and labels.
+  // eslint-disable-next-line no-control-regex
   const clean = value => String(value ?? '').replace(/[\x00-\x1f\x7f]/g, ' ');
   const clip = (value, length) => value.length > length ? `${value.slice(0, length - 1)}…` : value;
   const rows = entries.map(entry => {
