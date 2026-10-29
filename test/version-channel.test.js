@@ -46,3 +46,14 @@ test('version --check offers a dev update and recognizes the current dev build',
   await cmd.handler({ check: true }, app);
   assert.equal(result.data.upToDate, true);
 });
+
+
+test('registry check supports an explicitly selected channel', async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    urls.push(url);
+    return { ok: true, json: async () => ({ version: '4.3.14-dev.1' }) };
+  });
+  assert.equal(await checkLatest({ version: '4.3.13', channel: 'dev' }), '4.3.14-dev.1');
+  assert.deepEqual(urls, ['https://registry.npmjs.org/@jacebenson/jsn/dev']);
+});

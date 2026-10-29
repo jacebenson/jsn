@@ -23,8 +23,12 @@ npm install -g @jacebenson/jsn@dev
 
 Dev builds check the dev channel for updates during normal use, at most once
 per day. Run `jsn version --check` to check immediately. To install the newest
-dev build, run `npm install -g @jacebenson/jsn@dev` again. Updates are manual.
-Return to stable with `npm install -g @jacebenson/jsn@latest`.
+dev build, run `jsn upgrade` (alias: `jsn update`). It preserves your installed
+channel and skips installation when no newer version is available. Use
+`--dry-run` to print the npm command without network access or installation,
+`--force` to reinstall, or `--channel dev|latest` to switch channels explicitly.
+For example, `jsn upgrade --channel latest` returns to stable. npm installation
+permissions still apply; the command does not elevate privileges automatically.
 
 Pushes to `main` promote the commit to `dev` and publish a tested prerelease
 under npm's `dev` tag. Versions include the workflow run number and attempt
