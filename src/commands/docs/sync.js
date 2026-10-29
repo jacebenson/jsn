@@ -39,13 +39,13 @@ function syncDocsLocked(opts = {}) {
 
   const initialStatus = {
     clone: !fs.existsSync(path.join(repoDir, '.git')),
-    docsApprox: 45000,
+    docsApprox: 51000,
     willEmbed: embed && noIngest === false,
-    minutesHint: embed ? 3 : 1,
+    minutesHint: embed ? 5 : 1,
   };
 
-  process.stderr.write('Note: docs sync downloads ~45k markdown files and builds an FTS5 + HRR index. ');
-  process.stderr.write(`This normally takes ${initialStatus.minutesHint}-${initialStatus.minutesHint + 2} minutes.\n`);
+  process.stderr.write('Note: docs sync downloads ~51k markdown files and builds an FTS5 + HRR index. ');
+  process.stderr.write(`Estimated ${embed ? '5–25' : '1–5'} minutes; actual time varies by host and indexing options.\n`);
   if (initialStatus.willEmbed) {
     process.stderr.write('Pass --no-embed to skip semantic embeddings and finish faster.\n');
   }

@@ -14,6 +14,7 @@ describe('Setup Handler — zero profiles', () => {
   it('routes straight to the login wizard (no hub menu)', async () => {
     let wizardCalled = false;
     let selectCalled = false;
+    let docsOffered = false;
 
     mock.module('../src/commands/auth.js', {
       namedExports: {
@@ -33,6 +34,9 @@ describe('Setup Handler — zero profiles', () => {
       },
     });
 
+    mock.module('../src/commands/docs/db.js', { namedExports: { docsDbExists: () => false } });
+    mock.module('../src/commands/docs/install.js', { namedExports: { offerDocumentation: async () => { docsOffered = true; return { source: 'skip', skipped: true }; } } });
+
     const { setupCmd } = await import('../src/commands/setup.js');
     const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
     const cmd = setupCmd(wrap);
@@ -45,6 +49,7 @@ describe('Setup Handler — zero profiles', () => {
 
     await cmd.handler({ app, _: ['setup'] });
     assert.ok(wizardCalled, 'loginWizard should be called with zero profiles');
+    assert.ok(docsOffered, 'optional documentation should be offered after successful connection setup');
     assert.ok(!selectCalled, 'hub menu must NOT be shown with zero profiles');
   });
 });

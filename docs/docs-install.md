@@ -35,7 +35,9 @@ The prebuilt source downloads an already searchable database from `jsn.jace.pro`
 Its manifest supplies the download size; JSN displays an estimate at 5 MiB/s plus
 verification, clearly labeled because actual transfer time varies. The GitHub
 source downloads approximately 51,000 raw files and indexes them locally; around
-five minutes is an estimate based on prior experience, not a guarantee. Both use
+5–25 minutes is a labeled estimate: prior runs were around five minutes, while
+full semantic indexing in the recorded validation took about 21 minutes. Actual
+time varies by host and indexing options. Both use
 the same FTS5 schema and local search. GitHub remains available if the snapshot
 service is unavailable or a local source build is preferred.
 

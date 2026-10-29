@@ -60,8 +60,8 @@ snapshots and the previous stable manifest for rollback.
 ## CLI installation and compatibility
 
 Documentation remains optional. `docs install --source github` explicitly builds
-raw source locally (approximately 51,000 files; five minutes is an estimate, not a
-promise). `--source snapshot` downloads a prebuilt searchable database, shows
+raw source locally (approximately 51,000 files; 5–25 minutes is a labeled estimate based on prior runs and the measured full
+semantic build, not a promise). `--source snapshot` downloads a prebuilt searchable database, shows
 manifest bytes and a labeled transfer estimate, verifies checksum/schema/integrity
 and atomically replaces only the docs index. `--source skip` is explicit. Setup
 offers the same choices; noninteractive invocations select a source explicitly.

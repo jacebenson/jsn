@@ -17,7 +17,7 @@ export async function installDocumentation(source, options = {}) {
     return installSnapshot({ manifestURL, manifest });
   }
   if (source !== 'github') throw errUsageHint('Choose a documentation source.', 'Use jsn docs install --source snapshot|github|skip');
-  process.stderr.write('Raw GitHub source: approximately 51,000 files plus local indexing; estimated around five minutes (actual time and download size vary).\n');
+  process.stderr.write('Raw GitHub source: approximately 51,000 files plus local indexing; estimated 5–25 minutes including semantic indexing (prior runs ~5 minutes; validation full build ~21 minutes; actual time and size vary).\n');
   fs.mkdirSync(getDocsCacheDir(), { recursive: true });
   const staging = fs.mkdtempSync(path.join(getDocsCacheDir(), '.github-install-'));
   try {
@@ -40,7 +40,7 @@ export async function chooseDocumentationSource() {
   return select({ message: 'Install optional offline documentation?', choices: [
     { name: 'Skip for now (first search will explain installation)', value: 'skip' },
     { name: 'Prebuilt searchable database from jsn.jace.pro (size and estimate before approval)', value: 'snapshot' },
-    { name: 'GitHub raw source + local indexing (~51,000 files; estimated ~5 minutes)', value: 'github' },
+    { name: 'GitHub raw source + local indexing (~51,000 files; estimated 5–25 minutes)', value: 'github' },
   ] });
 }
 export async function offerDocumentation(_app, _argv = {}) {
@@ -61,7 +61,7 @@ export async function offerDocumentation(_app, _argv = {}) {
 export async function ensureDocumentation(app, argv) {
   if (fs.existsSync(getDocsDbPath())) { scheduleFreshnessCheck(); return; }
   if (!canUsePicker(app, argv)) throw errUsageHint('No local documentation index. Documentation installation is optional and requires a source choice.',
-    'Run jsn docs install --source snapshot for a verified prebuilt database, or --source github for raw files + local indexing (estimated ~5 minutes). Use --source skip to defer.');
+    'Run jsn docs install --source snapshot for a verified prebuilt database, or --source github for raw files + local indexing (estimated 5–25 minutes). Use --source skip to defer.');
   const result = await offerDocumentation(app, argv);
   if (result.skipped) throw errUsageHint('Documentation installation skipped.', 'Run jsn docs install --source snapshot|github when ready.');
 }

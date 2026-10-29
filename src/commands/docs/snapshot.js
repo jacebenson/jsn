@@ -65,8 +65,8 @@ export function buildSnapshot({ docsDir, outputDir, revision, artifactBaseURL, e
     return manifest;
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
-async function download(url, maxBytes, fetchFn) {
-  const response = await fetchFn(url, { signal: AbortSignal.timeout(120000) });
+async function download(url, maxBytes, fetchFn, timeout = 600000) {
+  const response = await fetchFn(url, { signal: AbortSignal.timeout(timeout) });
   if (response.url && new URL(response.url).protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(response.url).hostname)) throw new Error('Docs download redirected to insecure transport');
   if (!response.ok) throw new Error(`Docs download rejected (HTTP ${response.status})`);
   if (Number(response.headers.get('content-length')) > maxBytes) { await response.body?.cancel(); throw new Error('Docs download exceeds size limit'); }
@@ -81,7 +81,7 @@ async function download(url, maxBytes, fetchFn) {
 export async function fetchManifest(url = DEFAULT_MANIFEST_URL, { fetchFn = fetch } = {}) {
   // Validate transport before making a request, including configured mirrors.
   validateManifest({ format: 1, schema: 1, cliCompatibility: 'docs-schema-1', revision: 'abcdef0', sha256: '0'.repeat(64), compressedBytes: 1, databaseBytes: 1, url });
-  return validateManifest(JSON.parse((await download(url, 65536, fetchFn)).toString('utf8')));
+  return validateManifest(JSON.parse((await download(url, 65536, fetchFn, 15000)).toString('utf8')));
 }
 export function snapshotEstimate(manifest) {
   return `${(manifest.compressedBytes / 1048576).toFixed(1)} MiB; estimated ${Math.max(1, Math.ceil(manifest.compressedBytes / 5242880))} seconds at 5 MiB/s plus verification (actual time varies)`;
