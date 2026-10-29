@@ -7,7 +7,7 @@ import { resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 
-export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap) {
+export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap, opts = {}) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
   // Root-level command only.
   declareCapabilities(displayName, { mutationSubcommands: ['create', 'update', 'delete'] });
@@ -85,8 +85,8 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const q = query ? query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
             const params = recordListParams({ limit, offset, fields, query: q });
 
-            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues });
-            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
+            const displayRecords = fields && !argv.displayValues && opts.listProjection !== 'full' ? records.map(r => formatRecordForDisplay(r, columns)) : records;
 
             const breadcrumbs = [
               { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },
@@ -128,7 +128,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           builder: y => recordOptions(y),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
-            const record = await getRecord(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'number', resource: displayName });
+            const record = await getRecord(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             record._context = {
               instance_url: app.getEffectiveInstance(),
               table,
@@ -179,7 +179,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           handler: wrap(async (argv, app) => {
             const number = argv.number;
             const recordData = buildRecordPayload(argv);
-            const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'number', resource: displayName });
+            const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
             app.ok(updated, {
               summary: `Updated ${displayName} ${number}`,
@@ -196,7 +196,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           handler: wrap(async (argv, app) => {
             const number = argv.number;
             await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
-            const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'number', resource: displayName });
+            const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
             app.ok({ number, message: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} deleted` }, {
               summary: `Deleted ${displayName} ${number}`,

@@ -168,6 +168,18 @@ existing reference representation. No engine operation spawns another CLI.
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,
 > `catalog.js`.
 
+## Record command profiles
+
+`src/record-command-profiles.json` owns table/alias/default-column, identifier,
+reference representation, list projection and essential/supplementary relationship
+policy for the migrated table and ticket factories. `src/record-profiles.js`
+validates immutable definitions and builds actual commands through the existing
+factories. `buildRecordProfile` accepts an additional declarative definition;
+`buildProfileCommand` selects a bundled one. Executable hooks (scope checks,
+show enrichment, custom resolvers) remain code and extend the configured command.
+The command's `recordProfile` metadata is the same validated definition used to
+implement it; it is not a separate discovery-only map.
+
 ## Session
 
 The composite answer to "which instance am I talking to, as whom, with what
