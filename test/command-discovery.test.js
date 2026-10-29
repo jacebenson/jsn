@@ -37,7 +37,10 @@ test('CLI discovery supports JSON, extraction, text, exact table filtering and c
   const envelope = JSON.parse(run('discover', '--table', 'incident', '--json'));
   assert.deepEqual(envelope.data.commands.map(command => command.name), ['incidents']);
   assert.equal(JSON.parse(run('discover', '--table', 'incident', '--json', '--get', 'data.commands[0].help')), 'jsn incidents --help');
-  assert.match(run('discover', '--table', 'incident', '--markdown'), /Configured list columns/);
+  const human = run('discover', '--table', 'incident', '--styled');
+  assert.match(human, /^incidents: Manage incidents/);
+  assert.match(human, /Configured list columns/);
+  assert.doesNotMatch(human, /_formatted/);
   assert.match(run('discover', '--table', 'x_unknown', '--markdown'), /jsn records list --help/);
   assert.match(run('discover', '--help'), /Cross-table tasks: jsn records list --table task/);
   assert.match(run('discover', '--help'), /jsn rest --help/);
