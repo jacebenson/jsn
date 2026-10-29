@@ -29,8 +29,10 @@ jsn skill install
 The default interactive installer lets you choose one or more supported targets.
 Installation uses the skill bundled with your JSN version and works without a
 network connection. After upgrading JSN, run `jsn skill install` again to update
-your agent's copy. `jsn skill fetch` prints the latest development skill from
-GitHub for inspection; it may assume features absent from your installed CLI.
+your agent's copy. `jsn skill fetch` prints the packaged skill offline. `jsn skill check` reports
+missing or edited copies, including the first differing line. A plain reinstall
+replaces the recorded copies, including local edits. Use an explicit directory or
+`--target` to choose new installation locations.
 
 ## Supported harnesses
 

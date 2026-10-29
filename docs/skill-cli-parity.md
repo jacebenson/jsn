@@ -28,8 +28,9 @@ operational mechanics to their installed help and runtime safeguards.
 `skill install`, `skill show` and `skill check` use the skill bundled with the
 installed CLI. Existing integration tests prove offline installation, byte/version
 equality, freshness checking and replacement of an outdated installed copy.
-`skill fetch` is explicit development-source access. Older CLI versions that
-fetch mutable main cannot be corrected retroactively; upgrade JSN first.
+`skill fetch` prints the packaged text offline. Checks report each managed copy
+and the first differing line, even if its version is unchanged. Reinstall replaces
+all recorded copies. Older CLI versions that fetch mutable main require upgrading.
 
 ## Integration status
 

@@ -1,0 +1,29 @@
+# Offline skill lifecycle — checkout binary, disposable installation
+
+$ node bin/jsn.js skill install <temporary-directory>/agent --styled
+Skill installed to <temporary-directory>/agent/SKILL.md
+
+
+  → reinstall: jsn skill install — Replace recorded copies with the packaged skill
+
+
+$ node bin/jsn.js skill check --styled
+✓ Skill contents match the packaged copy (v4.3.13)
+matching: <temporary-directory>/agent/SKILL.md
+
+$ append local edit without changing version
+
+$ node bin/jsn.js skill check --styled
+⚠ Skill contents differ — run "jsn skill install" to replace installed copies
+different: <temporary-directory>/agent/SKILL.md (first difference: line 35)
+
+$ node bin/jsn.js skill install --styled
+Skill installed to <temporary-directory>/agent/SKILL.md
+
+
+  → reinstall: jsn skill install — Replace recorded copies with the packaged skill
+
+
+$ node bin/jsn.js skill check --styled
+✓ Skill contents match the packaged copy (v4.3.13)
+matching: <temporary-directory>/agent/SKILL.md
