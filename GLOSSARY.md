@@ -152,6 +152,16 @@ column configuration and supported view benefits through optional `discovery`
 metadata on the command definition. This metadata is additive to the existing
 root JSON registry; it is not a second command inventory or a mutation policy.
 
+After login or OAuth refresh, the selected profile caches a command audience
+bound to its account and instance. A verified `admin` role shows the full
+surface. Other authenticated accounts see a compact task and connection surface;
+an unavailable role check also uses that compact presentation and records the
+uncertainty. Existing profiles without a cached audience retain the full surface
+until authentication is renewed. Root help, root JSON, `discover`, and root shell
+completion share this policy. `--all-commands` restores the full surface.
+Explicit command paths are always registered; this is presentation, never an
+ACL or an authorization claim. Role changes are picked up on authentication.
+
 ## Capability registry
 
 `src/capabilities.js`. The single source of truth for command metadata the

@@ -238,6 +238,22 @@ pipes keep raw XML, with explicit `--stdout`, `--out`, and `--out-dir` controls.
 Files are exclusively created to preserve existing exports. `reopen` is the
 explicit path back to an in-progress local set, without selecting it.
 
+
+## 2026-10-29: Present commands for the authenticated account
+
+Cache the account's admin role at connection authentication, scoped to the
+profile's username and instance origin. Compact discovery emphasizes tickets,
+generic records, people/groups and local connection tools. A failed role probe
+uses the same compact presentation while recording `role_check: unavailable`.
+Legacy profiles remain complete until reauthenticated. This keeps help offline
+and avoids probing instance roles on every invocation.
+
+Keep every command callable and expose `--all-commands` in global help. Command
+visibility does not replace ServiceNow ACLs: non-admin users can have delegated
+development access, and role snapshots may age. Generic `requests` remains RITM
+management; a new catalog ordering/record-producer workflow requires separate
+API and mutation design and is not invented as part of help filtering.
+
 ## 2026-10-29: Attachment transfers have a standalone command
 
 Expose `attachments list/download/upload` at the root so transfer operations are
