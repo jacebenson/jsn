@@ -213,7 +213,7 @@ export function isErrorCode(err, code) {
  * back to argv.format for callers without an App (unit tests).
  */
 function resolveJsonMode(app, argv) {
-  if (app?.output) return app.output.effectiveFormat() === 'json';
+  if (app?.output) return ['json', 'quiet'].includes(app.output.effectiveFormat());
   return argv?.format === 'json';
 }
 

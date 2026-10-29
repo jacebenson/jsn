@@ -182,3 +182,20 @@ relationship policy. Executable hooks remain JavaScript. The same definition is
 attached to the implemented command as metadata, avoiding a second help-only map.
 Bundled wrappers retain their public exports and specialized hooks; additional
 profiles can use the same factory without a subprocess or a CRUD implementation.
+## Capture-context approval is separate from delete confirmation
+
+The mutation wrapper checks capture context before dispatch, even with JSON, quiet
+output, or disabled headers. Global + Default needs explicit approval because
+customization may be captured in the wrong set, and some changes are not captured
+at all. Interactive users see a default-no decision; agents receive
+`confirmation_required` and an exact rerun command with `--force` after approval.
+The profile's skip-delete preference cannot bypass this context decision. Scope
+mismatches warn without another prompt; a selected completed capture set blocks
+writes and directs the user to select an in-progress set.
+
+Selection and creation of scopes/update sets are capability-declared remediation
+exemptions. REST's read-only-profile policy is unchanged; GET is only exempt from
+capture-context approval for write-enabled profiles. Missing or unreadable context
+is reported as unknown, preserving commands on service accounts without falsely
+classifying them as Global + Default. The guard supplements existing update-set
+name disambiguation and completion checks; it does not complete sets automatically.

@@ -106,6 +106,15 @@ one. Defaults change only through a human choice, `--make-default`, or
 bot's `auth modify` request is idempotent. Noninteractive commands never open
 implicit prompts or browsers.
 
+## Record metadata reader
+
+An invocation-scoped SDK-bound reader of shared form layouts, table inheritance,
+and related-list definitions. It caches metadata reads in-process, uses optional
+GET-only batching and bulk section queries, and reports coverage uncertainty.
+It retrieves definitions rather than related record data. Static references can
+be described declaratively; scripted relationships remain platform-required.
+Generic record retrieval does not automatically fetch form metadata.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as
@@ -123,6 +132,15 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
 - **Mutation subcommand** — a subcommand that writes to the instance
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
   Read-only profiles block these. See *capability registry*.
+
+## Command discovery
+
+`jsn discover` searches the live command registrations used for dispatch. Root
+names, aliases, descriptions and child help paths are derived from the command
+tree. Factory-built commands additionally expose their actual table/default
+column configuration and supported view benefits through optional `discovery`
+metadata on the command definition. This metadata is additive to the existing
+root JSON registry; it is not a second command inventory or a mutation policy.
 
 ## Capability registry
 
@@ -360,3 +378,41 @@ coverage limits and safe next steps without changing captured evidence or the
 stored capture schema. Older captures receive the same guidance when viewed;
 no report migration is required. Per-artifact `triage` remains the classification
 and confidence assessment, separate from unverified runtime/reversion risk.
+
+### Optional batch reads
+
+A **batch read** is an explicit `SDKClient.batch` operation over independent,
+same-instance GET subrequests. The native Batch API envelope is correlated by ID;
+per-item failures, unserviced IDs, and missing responses stay distinct. Only an
+explicitly unsupported outer endpoint permits sequential read fallback. Normal
+SDK methods stay unbatched, writes are rejected before dispatch, and authentication
+or ACL errors never silently trigger fallback. See `docs/sdk-batch.md`.
+
+## Local mutation history
+
+Table API creates, updates and deletes invoked by the CLI record one final local
+history event after authentication retries finish. The seven-day SQLite store is
+independent of documentation indexes. Events contain instance origin, profile,
+table, resolved record ID, operation, outcome and an optional non-sensitive
+reason; request/response bodies and credentials are never serialized. A definitive
+HTTP rejection is failed; an uncertain transport outcome is unknown. Local storage
+failure warns without changing the remote operation's result. This convenience
+history is not a durable ServiceNow audit log.
+
+### Mutation capture-context approval
+
+A **capture-context guard** resolves the selected application and update set before
+an instance mutation, independently of output headers and delete-confirmation
+preferences. Confirmed Global scope plus the exact Default update-set name requires
+explicit approval; `--force` records approval for that invocation. A missing scope
+preference or failed lookup is unknown context, never evidence of Global scope.
+Scope mismatches are warnings with a concrete selection command; selected completed
+capture sets are errors. Success JSON carries `context.mutation`; blocked commands
+carry `context` with stable diagnostic codes, severity, remediation, and approval
+state. Ordinary creates/updates in other contexts need no confirmation.
+
+Capabilities declare remediation exemptions (`mutationContextExemptSubcommands`)
+and read methods (`mutationContextReadMethods`) separately from mutation paths.
+Creating/selecting an application or update set remains possible to resolve unsafe
+context. REST GET bypasses capture-context approval but remains blocked on read-only
+profiles, along with every other raw REST request.

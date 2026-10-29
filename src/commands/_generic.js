@@ -278,6 +278,13 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
     command: `${name} [subcommand]`,
     aliases: aliases || [],
     describe: `Manage ${name} (e.g. "${name} list --query nameLIKEincident")`,
+    discovery: {
+      table,
+      defaultColumns,
+      benefits: ['Configured list columns', 'Lookup by name or sys_id',
+        ...(showFields ? ['Configured show fields'] : []),
+        ...(opts.onShow ? ['Additional table-specific show processing'] : [])],
+    },
     builder,
     handler: (_argv) => {
       // This handler only runs when no subcommand is matched (the default case).
