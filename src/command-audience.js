@@ -2,6 +2,7 @@
 // Explicit command paths and --all-commands remain available to every account.
 const BASIC_COMMANDS = new Set([
   'incidents', 'changes', 'requests', 'tasks', 'tickets', 'approvals', 'records',
+  'knowledge',
   'groups', 'groupmembers', 'grouproles', 'users', 'setup', 'auth', 'skill',
   'version', 'docs', 'history', 'discover', 'completion',
 ]);

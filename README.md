@@ -32,6 +32,17 @@ under npm's `dev` tag. Versions include the workflow run number and attempt
 The npm trusted publisher for `publish-dev.yml` must authorize the repository's
 `dev` GitHub environment, alongside the production publishing configuration.
 
+### Knowledge search
+
+Use `jsn knowledge search "VPN setup" --profile work` (alias `kb`) to search
+accessible articles, then `jsn knowledge show KB0000010 --profile work` to read
+one. Search supports bounded `--limit`/`--offset`, knowledge-base sys_ids with
+`--kb`, and `--language`. JSON preserves native HTML; human output uses Markdown.
+Hints preserve an explicitly selected profile/instance. The Knowledge API plugin
+(`sn_km_api`) must be available; access is evaluated by that API, with no fallback
+to direct table reads. Reads do not request view-count updates. See the
+[Knowledge API reference](https://www.servicenow.com/docs/r/yokohama/api-reference/rest-apis/knowledge-api.html).
+
 ### Instance Scan
 
 `jsn scan` manages checks and suites and runs scans against an explicit target.

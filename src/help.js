@@ -28,6 +28,7 @@ function renderGroup(name, commands) {
 }
 
 const CORE_COMMANDS = [
+  { name: 'knowledge', alias: 'kb', desc: 'Search and read knowledge articles' },
   { name: 'incidents', alias: 'inc', desc: 'Manage incidents' },
   { name: 'changes', alias: 'chg', desc: 'Manage change requests' },
   { name: 'requests', alias: 'req', desc: 'Manage service catalog requests' },

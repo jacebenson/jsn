@@ -22,6 +22,7 @@ import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
 import { attachmentsCmd } from './commands/attachments.js';
 import { cmdbCmd } from './commands/cmdb.js';
+import { knowledgeCmd } from './commands/knowledge.js';
 import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
 import { incidentsCmd } from './commands/incidents.js';
@@ -412,6 +413,7 @@ export function buildCLI() {
     .command(propertiesCmd(wrap))
     // DATA
     .command(cmdbCmd(wrap))
+    .command(knowledgeCmd(wrap))
     .command(recordsCmd(wrap))
     .command(attachmentsCmd(wrap))
     .command(transactionsCmd(wrap))
