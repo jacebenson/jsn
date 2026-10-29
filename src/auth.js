@@ -612,7 +612,9 @@ export class AuthManager {
     if (!instance) {
       throw errAuth('No instance specified');
     }
+    const existed = !!this.credentialStore.load(instance, username);
     this.credentialStore.delete(instance, username);
+    return existed && !this.credentialStore.load(instance, username);
   }
 
   /**

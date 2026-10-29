@@ -164,3 +164,12 @@ the picker help line names Escape so the hint matches the wizard prompts.
 
 The editor prompt is the exception: its keyboard belongs to `$EDITOR` while the
 editor is open, so cancelling still uses Inquirer's Ctrl+C abort.
+
+## Agent skill installation stays paired with the CLI
+
+`jsn skill install` copies the packaged ServiceNow skill rather than downloading
+mutable `main`. Skill guidance may omit safeguards only after the matching CLI
+implements them, so a newer skill cannot safely be installed by an older CLI.
+Installation, `skill show`, and `skill check` use the same bundled source and
+version. Upgrade JSN and reinstall the skill to update both together.
+`skill fetch` remains an explicit way to inspect the latest development text.

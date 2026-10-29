@@ -173,7 +173,7 @@ it('auth logout should call logout', async () => {
       assert.ok(instance);
     };
 
-    await logoutCmd.handler({ app: mockApp, instance: 'https://test-instance.service-now.com', _: ['logout'] });
+    await logoutCmd.handler({ app: mockApp, instance: 'https://test-instance.service-now.com', force: true, _: ['logout'] });
     assert.ok(logoutCalled, 'logout should have been called');
   });
 

@@ -83,7 +83,15 @@ export function recordsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { type: 'number', default: 20, describe: 'Max records' })
             .option('offset', { type: 'number', default: 0, describe: 'Offset' })
-            .option('count', { type: 'boolean', default: true, describe: 'Include the total-matching count (use --no-count to opt out)' }),
+            .option('count', { type: 'boolean', default: true, describe: 'Include the total-matching count (use --no-count to opt out)' })
+            .epilogue([
+              'In an interactive terminal with automatic output, browse a picker (10 visible items).',
+              'Use arrow keys to browse, type to search sys_id on the server, scroll to load more,',
+              'and press Enter to select or Esc to cancel. --sys-id skips the picker.',
+              'Use --json for noninteractive structured output; pipes and explicit formats also skip the picker.',
+              'Example: jsn records list --table incident --query "active=true" --limit 5 --json',
+              'Discover fields with: jsn columns --table incident',
+            ].join('\n')),
           handler: wrap(async (argv, app) => {
             const table = argv.table;
             const columns = argv.columns ? argv.columns.split(',') : getDefaultColumns(table);
@@ -187,7 +195,8 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
-            .option('attachments', { type: 'boolean', default: false, describe: 'Also list the record\'s attachments' }),
+            .option('attachments', { type: 'boolean', default: false, describe: 'Also list the record\'s attachments' })
+            .epilogue('Example: jsn records get --table incident --sys-id <sys_id> --json'),
           handler: wrap(async (argv, app) => {
             assertSafeExactMatch(argv['sys-id']);
             const params = new URLSearchParams();

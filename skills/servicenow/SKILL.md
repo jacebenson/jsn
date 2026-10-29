@@ -14,7 +14,7 @@ compatibility: |
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
 metadata:
   author: jacebenson
-  version: "4.3.6"
+  version: "4.3.9"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -43,10 +43,9 @@ All `list` subcommands use a paginated interactive picker in TTY mode:
 1. **Output modes** — `--json` when parsing data; text when presenting to humans
 2. **Use sys_id for updates** — All update/delete operations require sys_id
 3. **Check auth first** — Run `jsn auth status` before operations
-4. **NEVER logout** — Only run `jsn auth logout` if the user explicitly asks
-5. **Use `--profile <name>`** to target a specific instance, or `jsn auth switch <name>` to change the default
-6. **Before using `eval` or `rest`** — Ask: *"Is there a more specific jsn command?"* Prefer specific over generic over escape hatch over eval.
-7. **CONFIRM before destructive operations** — Show what will be created/updated/deleted and ask for approval.
+4. **Verify the intended instance** — Use `--profile <name>` for explicit targeting; never assume the default is right. `jsn auth switch <name>` changes the default.
+5. **Eval safety** — Prefer purpose-built or `records` commands. Never use `eval` to bypass a blocked business rule, ACL, or other ServiceNow protection. If eval is genuinely needed, explain why and obtain explicit user approval.
+6. **CONFIRM before destructive operations** — Show what will be created/updated/deleted and ask for approval.
 
 ## Command Hierarchy
 
@@ -113,6 +112,12 @@ excludes that history row. Use raw values, not display labels or other skip reas
 
 ### Complete an update set
 
+Before development changes, identify the intended application scope and update
+set. Keep related changes together, use the appropriate update-set or application
+deployment mechanism, and report where changes were captured. Not all changes
+are update-set tracked. Only complete a set when the human explicitly asks,
+including sets you created; completing the current set returns selection to Default.
+
 ```bash
 jsn updatesets complete "My Feature" --notes "Fixed validation" --force --json
 ```
@@ -127,18 +132,10 @@ child sets when the parent completes; their descriptions are not replaced.
 Both selected-set Description and state are read back before success. On
 verification failure, inspect the set before retrying.
 
-### Table and raw REST examples
+### Table and raw REST discovery
 
-```bash
-# Query a table with the normal records command
-jsn records list --table incident --query "active=true" --limit 5 --json
-
-# Get a single record
-jsn records get --table incident --sys-id abc123... --json
-
-# Raw endpoint access when no specific command fits
-jsn rest "/api/now/table/incident?sysparm_limit=3" --json
-```
+Use `jsn records list --help`, `jsn records get --help`, and `jsn rest --help`
+for syntax and examples. REST is blocked on read-only connections, including GET.
 
 ### `jsn docs` — offline documentation search
 
