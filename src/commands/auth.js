@@ -1,3 +1,4 @@
+import { detectCommandAudience } from '../command-audience.js';
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile } from '../config.js';
 import { errUsage, errUsageHint, errConfirmationRequired } from '../errors.js';
 import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
@@ -710,6 +711,8 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   // profile exists; preserve it when verification is unavailable.
   username = username || targetUsername;
 
+  const commandAudience = await detectCommandAudience(app.sdk, username, instanceURL);
+
   // Save to profiles — deduplicate by instance URL
   if (!app.config.profiles) {
     app.config.profiles = {};
@@ -740,7 +743,9 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
     read_only: preferences.read_only,
     skip_confirmations: preferences.skip_confirmations,
     include_counts: preferences.include_counts,
+    ...(commandAudience ? { command_audience: commandAudience } : {}),
   };
+  if (!commandAudience) delete app.config.profiles[profileName].command_audience;
   if (!targetProfile && interactive) {
     try {
       const domains = await import('./domains.js');
@@ -1050,10 +1055,20 @@ Examples:
     const name = target.name || app.config.activeProfile || app.config.defaultProfile;
     if (name && app.config.profiles[name] && app.config.profiles[name].instance_url === instanceURL) {
       app.config.profiles[name].domain_separation = hasDS;
+
       await saveConfig(app.config);
     }
   } catch {
     // Non-fatal — capability probe is best-effort
+  }
+
+  const audienceName = target.name || app.config.activeProfile || app.config.defaultProfile;
+  const audienceProfile = app.config.profiles?.[audienceName];
+  if (audienceProfile?.instance_url === instanceURL) {
+    const sdk = app.getSDKForProfile
+      ? app.getSDKForProfile(instanceURL, { ...targetAuthOptions, profile: audienceProfile }) : app.sdk;
+    audienceProfile.command_audience = await detectCommandAudience(sdk, audienceProfile.username, instanceURL);
+    await saveConfig(app.config);
   }
 
   app.ok({

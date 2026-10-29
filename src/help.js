@@ -203,6 +203,8 @@ function renderFlags(options) {
 export function renderTips() {
   return `
 TIPS
+  Show every command, including admin and developer tools: "jsn --all-commands --help"
+  Command visibility follows the selected profile at authentication; explicit commands still use ServiceNow ACLs.
   Find commands by task words: "jsn discover catalog"; by configured table: "jsn discover --table incident"
   Cross-table task searches and custom tables: "jsn records list --help"
   Specialized commands offer configured columns, lookup, and table-specific views; inspect discovery results for details
