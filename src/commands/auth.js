@@ -1013,14 +1013,16 @@ Examples:
 
   const target = resolveTargetProfile(argv, app.config, instanceURL);
   const targetProfile = target.profile;
-  validateLoginSelectors(argv, targetProfile);
+  const browser = argv.browser || (targetProfile?.auth_method === 'gck'
+    && argv.headers === undefined && argv.headersFile === undefined && canUsePicker(app, argv));
+  validateLoginSelectors({ ...argv, browser }, targetProfile);
   if (targetProfile?.auth_method !== 'gck' && (argv.headersFile !== undefined || argv.headers !== undefined || argv.browser)) {
     throw errUsage('Browser-session input requires a browser-session profile. Select it with --profile, or add a separate connection with auth login --name <name>.');
   }
   if (targetProfile?.auth_method === 'gck') {
     return loginProfile({
       ...argv, instance: instanceURL, profile: target.name,
-      browser: argv.browser || (argv.headers === undefined && argv.headersFile === undefined && canUsePicker(app, argv)),
+      browser,
     }, app);
   }
   const targetAuthOptions = {
