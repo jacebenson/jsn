@@ -1,0 +1,118 @@
+{
+  "checked_at": "2026-10-29T04:46:06.321Z",
+  "checkout_commit": "59a7875683b3aff5f9a5a76b1d85ab7d50b68c76",
+  "profile": "pdi",
+  "lane": "read-only feature proofs; existing credentials; no refresh/recovery UI/session warming in SDK lanes",
+  "prs": {
+    "329": {
+      "kind": "actual PDI 401 then SDK transport replay",
+      "statuses": [
+        401,
+        200
+      ],
+      "recovery_callbacks": 1,
+      "final_rows": 1,
+      "passed": true,
+      "callback_source": "existing valid credential selected in memory; no OAuth refresh/browser renewal",
+      "gaps": [
+        "Real browser renewal, actual refresh failure, and concurrency were not induced on the PDI; those remain fixture-covered."
+      ]
+    },
+    "330": {
+      "logout": {
+        "command": "node bin/jsn.js --profile pdi auth logout --json",
+        "exit": 1,
+        "code": "confirmation_required",
+        "credentials_available_before": true,
+        "credentials_available_after": true,
+        "approval_hint_pins_profile": true,
+        "approval_hint_requires_force": true,
+        "profile_retained": true
+      },
+      "skill": {
+        "show_exit": 0,
+        "show_matches_bundled": true,
+        "isolated_exit": 0,
+        "matches_bundled": true
+      },
+      "help_explains_local_only": true,
+      "gaps": [
+        "Approved credential deletion and subsequent reauthentication were deliberately not performed on the connected profile."
+      ]
+    },
+    "332": {
+      "command": "node bin/jsn.js --profile pdi records list --table sys_db_object --query name=incident --columns name --limit 1 --json",
+      "exit": 0,
+      "ok": true,
+      "rows": 1,
+      "auth_status_command_issued_for_this_operation": false,
+      "test_doctor_was_shared_safety_gate": true
+    },
+    "333": {
+      "setup_noninteractive": {
+        "exit": 2,
+        "code": "usage_error",
+        "hint_has_explicit_auth_commands": true
+      },
+      "setup_help": {
+        "exit": 0,
+        "scriptable_status_documented": true,
+        "secure_headers_file_documented": true
+      },
+      "selected_profile_local_status": {
+        "exit": 0,
+        "profile_count": 1,
+        "authenticated": true
+      },
+      "gaps": [
+        "New-profile login, credential import, profile preference changes and removal were not performed on the live configuration."
+      ]
+    },
+    "336": {
+      "kind": "real capture-context reads, guard only, no mutation handler",
+      "code": null,
+      "scope_class": "global",
+      "update_set_class": "named",
+      "update_set_state": "in progress",
+      "approval_required": false,
+      "diagnostics": [],
+      "dispatched_mutations": 0,
+      "gaps": [
+        "Global + Default continue/cancel/override was not induced; no scope or update-set selection was changed. Root owns disposable write-lane proof separately."
+      ]
+    },
+    "337": {
+      "kind": "filtered local history visibility after real PDI read",
+      "before_exit": 0,
+      "after_exit": 0,
+      "retention_days": 7,
+      "entries_before": 0,
+      "entries_after": 0,
+      "sdk_mutation_events_for_reads": 0,
+      "gaps": [
+        "Automatic successful/failed write capture and seven-day expiry pruning are not live-tested by this read-only lane. Root owns disposable write-lane proof separately."
+      ]
+    },
+    "339": {
+      "transport": "batch",
+      "fallback_observed": false,
+      "counts": {
+        "total": 2,
+        "successful": 2,
+        "failed": 0
+      },
+      "statuses": [
+        200,
+        200
+      ],
+      "metadata_rows": 1,
+      "aggregate_count": "1",
+      "sdk_mutation_events_for_reads_and_batch_post": 0,
+      "gaps": [
+        "Unsupported-endpoint fallback and partial failures remain fixture-covered; the connected PDI supports native batch."
+      ]
+    }
+  },
+  "real_profile_configuration_unchanged": true,
+  "credentials_available_after": true
+}
