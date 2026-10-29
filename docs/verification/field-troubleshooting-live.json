@@ -1,0 +1,65 @@
+{
+  "pr": "field-troubleshooting",
+  "at": "2026-10-29T04:52:09.791Z",
+  "source_commit": "d4b63077f294bf94c7ea016f2b4cd345c69d9960",
+  "profile": "pdi",
+  "instance_operations": "read_only",
+  "live_writes": false,
+  "doctor": {
+    "command": "node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi",
+    "exit": 0,
+    "authenticated": true,
+    "verified": true,
+    "probe_status": "succeeded"
+  },
+  "checks": [
+    {
+      "label": "constrained active before-query rules",
+      "command": "node bin/jsn.js --profile pdi b4rules list --query active=true --columns when,action_query --limit 5 --json",
+      "exit": 0,
+      "result": {
+        "count": 5,
+        "flags": [
+          {
+            "when": "before",
+            "action_query": "true"
+          },
+          {
+            "when": "before",
+            "action_query": "true"
+          },
+          {
+            "when": "before",
+            "action_query": "true"
+          },
+          {
+            "when": "before",
+            "action_query": "true"
+          },
+          {
+            "when": "before",
+            "action_query": "true"
+          }
+        ]
+      }
+    },
+    {
+      "label": "disjunctive filter rejected before transport",
+      "command": "node bin/jsn.js --profile pdi b4rules list --query active=true^NQwhen=after --json",
+      "exit": 2,
+      "result": {
+        "code": "usage_error"
+      }
+    },
+    {
+      "label": "dictionary-override metadata table",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier sys_dictionary_override --identifier-field name --columns name,label --json",
+      "exit": 0,
+      "result": {
+        "name": "sys_dictionary_override",
+        "label": "Dictionary Entry Override"
+      }
+    }
+  ],
+  "cleanup": "passed"
+}
