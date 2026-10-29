@@ -67,7 +67,7 @@ node --test test/record-metadata.test.js test/forms-metadata-cli.test.js
 npm run lint
 ```
 
-The 14 targeted tests pass, including a real CLI against isolated local HTTP
+The 15 targeted tests pass, including a real CLI against isolated local HTTP
 using explicit nondefault read-only profile selection. It exercises JSON, `--get`
 and human output through `forms show`, checks the section join and bulk element
 endpoints, and observes exactly nine table reads for the one-section fixture.
@@ -87,3 +87,7 @@ by local fixtures here; their full range was not exercised on the connected PDI.
 
 Final full regression suite: 1456 passed, 2 skipped, 0 failed (1458 total).
 The styled-output CLI test was also rerun after strengthening its assertions.
+
+A follow-up regression verifies that missing/display-only configured filters are
+marked `filter_available:false`, so count consumers cannot broaden an unknown
+filter into an unfiltered collection. The 15 focused tests pass after this guard.
