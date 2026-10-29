@@ -6,6 +6,39 @@ const PACKAGE = '@jacebenson/jsn';
 const REGISTRY = 'https://registry.npmjs.org';
 const KEEP = 3; // Current release and two releases back, independently per channel.
 
+// A publish returns before the registry edge serves the updated packument, so the
+// dist-tag read a second later still names the previous version. Poll until it
+// catches up instead of failing the publish job on the propagation lag.
+export const TAG_CATCH_UP_ATTEMPTS = 20;
+export const TAG_CATCH_UP_INTERVAL_MS = 3000;
+
+export async function fetchMetadata(fetchImpl = fetch, registry = REGISTRY) {
+  // The cache key includes the query string, so a timestamp bypasses the stale edge copy.
+  const response = await fetchImpl(`${registry}/${PACKAGE}?t=${Date.now()}`, {
+    headers: { 'cache-control': 'no-cache' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error(`Could not read npm versions: HTTP ${response.status}`);
+  return response.json();
+}
+
+export async function waitForChannelTag(channel, published, options = {}) {
+  const readMetadata = options.readMetadata ?? (() => fetchMetadata());
+  const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  const attempts = options.attempts ?? TAG_CATCH_UP_ATTEMPTS;
+  const intervalMs = options.intervalMs ?? TAG_CATCH_UP_INTERVAL_MS;
+  let observed;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await sleep(intervalMs);
+    const metadata = await readMetadata();
+    observed = metadata?.['dist-tags']?.[channel];
+    if (observed === published && metadata.versions?.[published]) return metadata;
+  }
+  throw new Error(
+    `Registry ${channel} tag still reads ${JSON.stringify(observed ?? null)} after ${attempts} reads; expected ${published}. Nothing was deprecated.`,
+  );
+}
+
 function versionParts(version, channel) {
   const pattern = channel === 'dev'
     ? /^(\d+)\.(\d+)\.(\d+)-dev\.(\d+)(?:\.(\d+))?$/
@@ -63,9 +96,8 @@ async function main() {
   const apply = args.includes('--apply');
   if (apply && !process.env.NODE_AUTH_TOKEN) throw new Error('Set NPM_TOKEN in GitHub secrets (passed as NODE_AUTH_TOKEN) for npm deprecation');
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  const response = await fetch(`${REGISTRY}/${PACKAGE}`, { signal: AbortSignal.timeout(15000) });
-  if (!response.ok) throw new Error(`Could not read npm versions: HTTP ${response.status}`);
-  const plan = planDeprecations(await response.json(), channel, pkg.version);
+  const metadata = await waitForChannelTag(channel, pkg.version);
+  const plan = planDeprecations(metadata, channel, pkg.version);
   process.stdout.write(`${JSON.stringify({ apply, ...plan }, null, 2)}\n`);
   if (apply) applyDeprecations(plan);
 }

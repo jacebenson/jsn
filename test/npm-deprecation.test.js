@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDeprecations, planDeprecations } from '../scripts/deprecate-old-versions.mjs';
+import { applyDeprecations, fetchMetadata, planDeprecations, waitForChannelTag } from '../scripts/deprecate-old-versions.mjs';
 
 function metadata() {
   // Deliberately unordered; dev run numbers and patch versions must sort numerically.
@@ -59,4 +59,46 @@ test('applies only exact planned versions and stops if a registry write fails', 
   assert.throws(() => applyDeprecations(plan, () => { count++; return { status: 1 }; }), /failed for 4.3.8/);
   assert.equal(count, 1);
   assert.throws(() => applyDeprecations(plan, () => ({ error: new Error('not found') })), /failed for/);
+});
+
+test('waits for the registry dist-tag to catch up with the version just published', async () => {
+  const stale = metadata();
+  const fresh = metadata();
+  fresh.versions['4.3.11-dev.11.3'] = {};
+  fresh['dist-tags'].dev = '4.3.11-dev.11.3';
+  const responses = [stale, stale, fresh];
+  const reads = [];
+  const result = await waitForChannelTag('dev', '4.3.11-dev.11.3', {
+    readMetadata: async () => { reads.push(1); return responses.shift(); },
+    sleep: async () => {},
+  });
+  assert.equal(reads.length, 3);
+  assert.equal(result['dist-tags'].dev, '4.3.11-dev.11.3');
+});
+
+test('gives up loudly and names the tag it kept reading instead of deprecating blind', async () => {
+  await assert.rejects(
+    waitForChannelTag('dev', '4.3.11-dev.11.3', {
+      readMetadata: async () => metadata(),
+      sleep: async () => {},
+      attempts: 3,
+      intervalMs: 1,
+    }),
+    /still reads "4\.3\.11-dev\.11\.2" after 3 reads; expected 4\.3\.11-dev\.11\.3\. Nothing was deprecated\./,
+  );
+});
+
+test('reads the packument through a cache-busting URL and reports registry errors', async () => {
+  const urls = [];
+  const data = await fetchMetadata(async (url, options) => {
+    urls.push({ url, options });
+    return { ok: true, json: async () => metadata() };
+  }, 'https://registry.example');
+  assert.equal(data['dist-tags'].latest, '4.3.11');
+  assert.match(urls[0].url, /^https:\/\/registry\.example\/@jacebenson\/jsn\?t=\d{13}$/);
+  assert.equal(urls[0].options.headers['cache-control'], 'no-cache');
+  await assert.rejects(
+    fetchMetadata(async () => ({ ok: false, status: 503 }), 'https://registry.example'),
+    /HTTP 503/,
+  );
 });
