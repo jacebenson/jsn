@@ -94,7 +94,9 @@ recover and replay once; uncertain mutation outcomes never replay.
 
 Browser profiles persist `reauth: auto | confirm | never`; missing means
 `confirm`. Both `auto` and `confirm` require a prompt-capable invocation through
-`canUsePicker`. OAuth refreshes the selected credential identity; Basic never
+`canUsePicker`. The interactive `confirm` prompt defaults to Yes; explicitly
+declining keeps the browser closed and does not replay the rejected command.
+OAuth refreshes the selected credential identity; Basic never
 renews. HTTP 401 is `auth_error` with status and recovery guidance, HTTP 403 is
 `forbidden` with ACL/role guidance. Neither exposes provider bodies.
 

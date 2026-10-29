@@ -67,7 +67,7 @@ export function createAuthRecovery({ app, session, argv = () => app._authArgv ||
       && canInteract(app, argv())) {
       try {
         if ((profile?.reauth ?? 'confirm') === 'confirm'
-          && !await prompt({ message: `Sign in again in a browser for ${label}?`, default: false })) throw provider.error;
+          && !await prompt({ message: `Sign in again in a browser for ${label}?`, default: true })) throw provider.error;
         // Reuse the canonical GCK refresh/login operation without emitting a
         // second success envelope or replacing the in-flight command's SDK.
         const targetApp = Object.create(app);
