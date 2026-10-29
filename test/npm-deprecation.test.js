@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDeprecations, fetchMetadata, planDeprecations, waitForChannelTag } from '../scripts/deprecate-old-versions.mjs';
+import { applyDeprecations, fetchMetadata, planDeprecations, TAG_CATCH_UP_ATTEMPTS, waitForChannelTag } from '../scripts/deprecate-old-versions.mjs';
 
 function metadata() {
   // Deliberately unordered; dev run numbers and patch versions must sort numerically.
@@ -74,6 +74,22 @@ test('waits for the registry dist-tag to catch up with the version just publishe
   });
   assert.equal(reads.length, 3);
   assert.equal(result['dist-tags'].dev, '4.3.11-dev.11.3');
+});
+
+test('keeps polling for minutes when the registry lags behind a published version', async () => {
+  const delays = [];
+  const fresh = metadata();
+  fresh.versions['4.3.11-dev.11.3'] = {};
+  fresh['dist-tags'].dev = '4.3.11-dev.11.3';
+  let reads = 0;
+  await waitForChannelTag('dev', '4.3.11-dev.11.3', {
+    readMetadata: async () => (++reads < TAG_CATCH_UP_ATTEMPTS ? metadata() : fresh),
+    sleep: async ms => { delays.push(ms); },
+  });
+  const total = delays.reduce((sum, ms) => sum + ms, 0);
+  assert.ok(total >= 300000, `expected at least five minutes of waiting, got ${total}ms`);
+  assert.ok(Math.max(...delays) <= 30000, 'no single interval should exceed 30s');
+  assert.ok(delays.at(-1) >= delays[0], 'intervals should grow rather than stay flat');
 });
 
 test('gives up loudly and names the tag it kept reading instead of deprecating blind', async () => {
