@@ -38,7 +38,8 @@ Sanitized terminal result (instance hostname and local evidence path omitted):
 
 Doctor exited **2**. The configured OAuth credential requires refresh, so the
 verification workflow correctly stopped before contacting the Batch API. No
-login, credential refresh, record writes, or credential contents were involved.
+login, credential refresh, or record writes occurred. No credential contents were
+printed or saved in evidence.
 
 After the user restores an authenticated session, rerun the doctor and then test
 GET-only batch requests for limited metadata (for example `sys_db_object` names
