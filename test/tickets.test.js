@@ -7,9 +7,6 @@ import { captureCommands, findHandler, wrapHandler } from './support/command-tes
 const command = ticketsCmd(wrapHandler);
 
 describe('Tickets Command Structure', () => {
-  it('should export ticketsCmd', () => {
-    assert.strictEqual(typeof ticketsCmd, 'function');
-  });
   it('should define all CRUD subcommands', () => {
     const names = captureCommands(command).map(s => s.command.split(' ')[0]);
     for (const name of ['list', 'show', 'create', 'update', 'delete']) assert.ok(names.includes(name));

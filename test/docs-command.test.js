@@ -11,10 +11,6 @@ function fakeWrap(handler) {
 }
 
 describe('Docs Command', () => {
-  it('should export docsCmd function', () => {
-    assert.strictEqual(typeof docsCmd, 'function');
-  });
-
   it('should define docs command with correct properties', () => {
     const cmd = docsCmd(fakeWrap);
     assert.strictEqual(cmd.command, 'docs [subcommand]');
@@ -44,24 +40,19 @@ describe('Docs Command', () => {
 });
 
 describe('Docs status — no DB', () => {
-  it('should return not-downloaded state when nothing exists', async () => {
+  it('should return not-downloaded state when nothing exists', async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'jsn-docs-status-'));
+    const previous = { JSN_DATA_HOME: process.env.JSN_DATA_HOME, XDG_CACHE_HOME: process.env.XDG_CACHE_HOME };
+    process.env.JSN_DATA_HOME = path.join(root, 'data');
+    process.env.XDG_CACHE_HOME = path.join(root, 'cache');
+    t.after(() => {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      rmSync(root, { recursive: true, force: true });
+    });
     const cmd = docsCmd(fakeWrap);
-    // Find the status subcommand handler.
-    const yargs = {
-      command: (c) => {
-        if (typeof c === 'function') {
-          yargs._cmd = c(fakeWrap);
-        } else {
-          yargs._cmd = c;
-        }
-        return yargs;
-      },
-      _cmd: null,
-    };
-    cmd.builder(yargs);
-
-    // We need the status handler — builder registered commands, find 'status'.
-    // Rebuild: the yargs mock above only captures last command. Let's capture all.
     const all = [];
     const y2 = {
       command: (c) => {
@@ -78,10 +69,10 @@ describe('Docs status — no DB', () => {
     await handler({}, app);
 
     assert.ok(result, 'handler should call app.ok');
-    assert.strictEqual(typeof result.state, 'string');
-    assert.strictEqual(typeof result.downloaded.ok, 'boolean');
-    assert.strictEqual(typeof result.db.ok, 'boolean');
-    assert.strictEqual(typeof result.embedded.ok, 'boolean');
+    assert.strictEqual(result.state, 'not downloaded');
+    assert.strictEqual(result.downloaded.ok, false);
+    assert.strictEqual(result.db.ok, false);
+    assert.strictEqual(result.embedded.ok, false);
     assert.strictEqual(typeof result.downloaded.path, 'string');
     assert.strictEqual(typeof result.db.path, 'string');
   });
@@ -90,12 +81,12 @@ describe('Docs status — no DB', () => {
 describe('Docs sync — incremental path', () => {
   const INTEG = process.env.JSN_INTEGRATION_TESTS === 'true';
 
-  it('should use incremental refresh when DB already exists', { skip: !INTEG }, async () => {
+  it('should use incremental refresh when DB already exists', { skip: !INTEG }, async (t) => {
     const { syncDocs } = await import('../src/commands/docs/sync.js');
     const { docsDbExists } = await import('../src/commands/docs/db.js');
 
     if (!docsDbExists()) {
-      // DB doesn't exist — this test needs a prior sync. Skip cleanly.
+      t.skip('requires an existing docs index from a prior sync');
       return;
     }
 

@@ -8,11 +8,6 @@ import { errAPI } from '../src/errors.js';
 // ─── Command Structure ───
 
 describe('ATF Command Structure', () => {
-  it('should export atfCmd', async () => {
-    const { atfCmd } = await import('../src/commands/atf.js');
-    assert.strictEqual(typeof atfCmd, 'function');
-  });
-
   it('should define all subcommands', async () => {
     const { atfCmd } = await import('../src/commands/atf.js');
     const wrap = (fn) => fn;

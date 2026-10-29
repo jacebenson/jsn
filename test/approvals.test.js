@@ -7,11 +7,6 @@ import assert from 'node:assert';
 // ─── Command Structure ───
 
 describe('Approvals Command Structure', () => {
-  it('should export approvalsCmd', async () => {
-    const { approvalsCmd } = await import('../src/commands/approvals.js');
-    assert.strictEqual(typeof approvalsCmd, 'function');
-  });
-
   it('should define all subcommands', async () => {
     const { approvalsCmd } = await import('../src/commands/approvals.js');
     const wrap = (fn) => fn;
