@@ -6,7 +6,7 @@ linked implementation issues are complete.
 
 | Skill material | Decision | CLI home / remaining proof |
 | --- | --- | --- |
-| Discovery, picker mechanics | Keep pending #320 | `records list --help` now explains its picker accurately; other list implementations still need a full audit. |
+| Discovery, picker mechanics | Reduce to discovery pointer | `jsn --help` carries accurate shared picker controls and scoped eligibility; see `docs/command-discovery-parity.md` for the audited variants. |
 | Machine output | Keep | Concise `--json` guidance remains agent behavior. |
 | Full sys_id requirement | Keep pending #314 | `src/resolve-record.js` currently limits lookup to one result; ambiguity-safe central resolution is not implemented. |
 | Auth preflight | Remove after #329 verification | `test/auth-direct-command.test.js` invokes records commands without status/login preflights across Basic/OAuth/browser credentials, JSON/text, missing/expired/rejected credentials and one-time recovery. Runtime tests retain browser approval and noninteractive guards; local diagnostics and saved-report listing remain offline. `auth status` is still available explicitly. |
@@ -14,7 +14,7 @@ linked implementation issues are complete.
 | Intended instance | Rewrite / keep | Explicit `--profile` targeting and verification of the intended instance remain agent decisions. |
 | Eval safeguards | Rewrite / keep | Explicit approval and no bypass of ServiceNow protections remain agent decisions. |
 | Mutation confirmation | Keep pending #310 | Ordinary creates/updates should need no confirmation; Global + Default must require context approval. `src/app.js` currently only warns, and JSON/quiet bypass that header. Do not claim the guard is implemented. |
-| Command hierarchy/catalog | Keep pending #320 | Intent-based discovery from command metadata is not yet implemented. |
+| Command hierarchy/catalog | Remove after skill integration | `jsn discover` derives matches, configured defaults and exact help paths from live registrations; see `docs/command-discovery-parity.md` and `test/command-discovery.test.js`. |
 | Customization interpretation | Reduce after parity | Shared CLI help, JSON/text and HTML interpretation now carry evidence semantics and safe next steps; see `docs/customization-evidence-parity.md`. |
 | Update-set workflow | Rewrite / keep | Identify scope/set, keep related work together, report capture location, and complete only on explicit human request. Keep existing mechanics until the #310 help/output review is complete. |
 | Table/raw REST examples | Remove duplicated examples | `records list --help`, `records get --help`, `rest --help`; CLI-level checks in `test/records-rest-help.test.js`. All REST methods remain blocked on read-only connections. |
