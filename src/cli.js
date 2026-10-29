@@ -116,6 +116,7 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
+      await app.guardMutationContext(argv);
       await handler(argv, app);
     } catch (err) {
       // All error rendering goes through the unified renderer in
@@ -144,6 +145,10 @@ export function buildCLI() {
       },
     ])
     .options({
+      force: {
+        type: 'boolean',
+        description: 'Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation',
+      },
       instance: {
         type: 'string',
         description: 'ServiceNow instance URL',

@@ -173,3 +173,21 @@ implements them, so a newer skill cannot safely be installed by an older CLI.
 Installation, `skill show`, and `skill check` use the same bundled source and
 version. Upgrade JSN and reinstall the skill to update both together.
 `skill fetch` remains an explicit way to inspect the latest development text.
+
+## Capture-context approval is separate from delete confirmation
+
+The mutation wrapper checks capture context before dispatch, even with JSON, quiet
+output, or disabled headers. Global + Default needs explicit approval because
+customization may be captured in the wrong set, and some changes are not captured
+at all. Interactive users see a default-no decision; agents receive
+`confirmation_required` and an exact rerun command with `--force` after approval.
+The profile's skip-delete preference cannot bypass this context decision. Scope
+mismatches warn without another prompt; a selected completed capture set blocks
+writes and directs the user to select an in-progress set.
+
+Selection and creation of scopes/update sets are capability-declared remediation
+exemptions. REST's read-only-profile policy is unchanged; GET is only exempt from
+capture-context approval for write-enabled profiles. Missing or unreadable context
+is reported as unknown, preserving commands on service accounts without falsely
+classifying them as Global + Default. The guard supplements existing update-set
+name disambiguation and completion checks; it does not complete sets automatically.

@@ -339,3 +339,21 @@ coverage limits and safe next steps without changing captured evidence or the
 stored capture schema. Older captures receive the same guidance when viewed;
 no report migration is required. Per-artifact `triage` remains the classification
 and confidence assessment, separate from unverified runtime/reversion risk.
+
+### Mutation capture-context approval
+
+A **capture-context guard** resolves the selected application and update set before
+an instance mutation, independently of output headers and delete-confirmation
+preferences. Confirmed Global scope plus the exact Default update-set name requires
+explicit approval; `--force` records approval for that invocation. A missing scope
+preference or failed lookup is unknown context, never evidence of Global scope.
+Scope mismatches are warnings with a concrete selection command; selected completed
+capture sets are errors. Success JSON carries `context.mutation`; blocked commands
+carry `context` with stable diagnostic codes, severity, remediation, and approval
+state. Ordinary creates/updates in other contexts need no confirmation.
+
+Capabilities declare remediation exemptions (`mutationContextExemptSubcommands`)
+and read methods (`mutationContextReadMethods`) separately from mutation paths.
+Creating/selecting an application or update set remains possible to resolve unsafe
+context. REST GET bypasses capture-context approval but remains blocked on read-only
+profiles, along with every other raw REST request.
