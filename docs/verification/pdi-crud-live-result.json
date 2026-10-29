@@ -1,0 +1,50 @@
+{
+  "profile": "pdi",
+  "live": true,
+  "table": "sys_user_preference",
+  "test_record": "unique inert jsn.validation.* preference",
+  "known_named_in_progress_context": true,
+  "steps": [
+    {
+      "command": "records create",
+      "ok": true,
+      "context_approved": true,
+      "resolved_id": true
+    },
+    {
+      "command": "records update",
+      "ok": true
+    },
+    {
+      "command": "records get",
+      "ok": true
+    },
+    {
+      "command": "records delete",
+      "ok": true,
+      "approval": "cleanup of this test-created record only"
+    }
+  ],
+  "cleanup_verified": true,
+  "history": [
+    {
+      "operation": "delete",
+      "outcome": "succeeded",
+      "correct_resolved_id": true,
+      "supplied_reason": true
+    },
+    {
+      "operation": "update",
+      "outcome": "succeeded",
+      "correct_resolved_id": true,
+      "supplied_reason": true
+    },
+    {
+      "operation": "create",
+      "outcome": "succeeded",
+      "correct_resolved_id": true,
+      "supplied_reason": true
+    }
+  ],
+  "ok": true
+}
