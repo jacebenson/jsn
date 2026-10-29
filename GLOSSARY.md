@@ -106,6 +106,15 @@ one. Defaults change only through a human choice, `--make-default`, or
 bot's `auth modify` request is idempotent. Noninteractive commands never open
 implicit prompts or browsers.
 
+## Record metadata reader
+
+An invocation-scoped SDK-bound reader of shared form layouts, table inheritance,
+and related-list definitions. It caches metadata reads in-process, uses optional
+GET-only batching and bulk section queries, and reports coverage uncertainty.
+It retrieves definitions rather than related record data. Static references can
+be described declaratively; scripted relationships remain platform-required.
+Generic record retrieval does not automatically fetch form metadata.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as
