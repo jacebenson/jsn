@@ -29,7 +29,7 @@ function fake(t) {
   return { ...f, run, calls };
 }
 
-test('native Linux API reports privileges and sends credentials only through SSH stdin', t => {
+test('native Linux API reports privileges and sends credentials only through SSH stdin', { skip: process.platform === 'win32' }, t => {
   const f = fake(t);
   const m = installLinuxRemoteMidServer({ directory: f.directory, releaseName: 'glide-australia-01-01-2026', username: 'private-user', password: 'secret-value', run: f.run });
   assert.equal(m.state, 'installed');
@@ -49,7 +49,7 @@ test('native Linux API reports privileges and sends credentials only through SSH
   assert.equal(removeLinuxRemoteMidServer({ directory: f.directory, run: f.run }).state, 'removed');
 });
 
-test('native Linux fails closed on public metadata, ambiguous responses and credential-bearing SSH errors', t => {
+test('native Linux fails closed on public metadata, ambiguous responses and credential-bearing SSH errors', { skip: process.platform === 'win32' }, t => {
   const f = fake(t);
   fs.chmodSync(path.join(f.directory, '.jsn-mid-linux-remote.json'), 0o644);
   assert.throws(() => inspectLinuxRemoteMidServer({ directory: f.directory, run: f.run }), /private/);
@@ -84,10 +84,11 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
  z.writestr('agent/config.xml','<parameters/>')
  z.writestr('agent/conf/wrapper.conf','wrapper.java.command=jre/bin/java\\n#include ../conf/wrapper-override.conf')
  z.writestr('agent/conf/wrapper-override.conf','')
- z.writestr('agent/bin/mid.sh', 'SERVICE_MANAGEMENT_TOOL=initd\\ncase "$1" in\\nstart) nohup bin/wrapper-linux-x86-64 120 >/dev/null 2>&1 </dev/null & echo $! > fixture.pid ;;\\nstop) kill "$(cat fixture.pid)" ;;\\nesac\\n')
+ z.writestr('agent/bin/mid.sh', 'SERVICE_MANAGEMENT_TOOL=initd\\n. bin/mid.shconf_override\\nmkdir -p work\\ncase "$1" in\\nstart) nohup bin/wrapper-linux-x86-64 120 >/dev/null 2>&1 </dev/null & echo $! > work/$APP_NAME.pid ;;\\nstop) kill "$(cat work/$APP_NAME.pid)" ;;\\nesac\\n')
  z.write('/bin/sleep','agent/bin/wrapper-linux-x86-64')
  z.writestr('agent/jre/bin/java','fixture java')
  z.writestr('agent/logs/agent0.log','first\\nlast\\n')
+ z.writestr('agent/logs/agent0.log.0.lck','not a log')
 `, archive]);
   const run = (_command, args, options) => {
     const source = Buffer.from(args.at(-1).match(/b64decode\("([A-Za-z0-9+/=]+)"\)/)[1], 'base64').toString();
@@ -101,8 +102,14 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
   assert.match(fs.readFileSync(config, 'utf8'), /p&amp;&lt;/);
   assert.equal(inspectLinuxRemoteMidServer({ directory: f.directory, run }).status, 'stopped');
   assert.equal(startLinuxRemoteMidServer({ directory: f.directory, run }).status, 'running');
-  assert.throws(() => removeLinuxRemoteMidServer({ directory: f.directory, run }), /operation failed/);
   assert.equal(stopLinuxRemoteMidServer({ directory: f.directory, run }).status, 'stopped');
+  assert.equal(startLinuxRemoteMidServer({ directory: f.directory, run }).status, 'running');
+  const pidfile = path.join(m.remoteDirectory, 'agent/work', `jsn_mid_${m.owner.replaceAll('-', '')}.pid`);
+  const vendorPid = fs.readFileSync(pidfile, 'utf8');
+  fs.writeFileSync(pidfile, String(process.pid));
+  assert.throws(() => stopLinuxRemoteMidServer({ directory: f.directory, run }), /operation failed/);
+  assert.equal(inspectLinuxRemoteMidServer({ directory: f.directory, run }).status, 'running');
+  fs.writeFileSync(pidfile, vendorPid);
   assert.equal(logsLinuxRemoteMidServer({ directory: f.directory, tail: 1, run }), 'last');
   assert.equal(removeLinuxRemoteMidServer({ directory: f.directory, run }).removed, true);
   assert.ok(!fs.existsSync(m.remoteDirectory));
@@ -130,4 +137,26 @@ with zipfile.ZipFile(sys.argv[1],'w') as z:
     assert.ok(!fs.existsSync(path.join(m.remoteDirectory, 'agent')));
     assert.equal(removeLinuxRemoteMidServer({ directory: f.directory, run }).removed, true);
   }
+});
+
+
+test('CLI-facing Linux remove stops before deleting and stop failure blocks removal', { skip: process.platform === 'win32' }, t => {
+  const f = fake(t);
+  removeLinuxRemoteMidServer({ directory: f.directory, run: f.run });
+  assert.deepEqual(f.calls.slice(-2).map(call => call.p.action), ['stop', 'remove']);
+  const actions = [];
+  assert.throws(() => removeLinuxRemoteMidServer({ directory: f.directory, run: (_command, _args, options) => {
+    actions.push(JSON.parse(options.input).action); throw new Error('stop failed');
+  } }), /operation failed/);
+  assert.deepEqual(actions, ['stop']);
+  assert.ok(fs.existsSync(f.directory));
+});
+
+
+test('native Linux refuses Windows controllers before remote probes or local writes', t => {
+  const f = fixture(t);
+  assert.throws(() => prepareLinuxRemoteMidServer({ platform: 'win32', target: 'fixture-host',
+    instanceURL: 'https://fixture.service-now.com', name: 'native1', directory: f.directory,
+    run: () => assert.fail('must not contact a host') }), /POSIX controller/);
+  assert.ok(!fs.existsSync(f.directory));
 });

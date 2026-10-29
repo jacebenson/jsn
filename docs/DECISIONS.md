@@ -237,3 +237,15 @@ Export never changes state and defaults to a sanitized filename in a terminal;
 pipes keep raw XML, with explicit `--stdout`, `--out`, and `--out-dir` controls.
 Files are exclusively created to preserve existing exports. `reopen` is the
 explicit path back to an in-progress local set, without selecting it.
+
+## 2026-10-29: Manage remote MIDs through configured SSH aliases
+
+Keep the controller local and reuse the user's SSH key/known-host policy. Docker
+build contexts and Compose manifests stream over SSH stdin; remote volumes replace
+client-side bind paths. Native Windows uses the official ZIP and service wrapper
+with LocalService and the vendor filesystem allow-list. Native Linux uses the
+bundled JRE and SSH-user background launcher, requiring Python 3 but no sudo.
+All deployments use unique ownership markers/labels; cleanup stops on mismatches
+or uncertain runtime state. Explicit trust uses MIDServerAjax's platform Validate
+action, never a direct write to the validated field. Runtime availability and
+instance readiness are verified separately. See mid-remote-management.md.

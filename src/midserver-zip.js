@@ -17,7 +17,7 @@ function read(fd, size, offset) {
 
 // Inspect every entry before extracting anything. ZIP64, split ZIPs, links and
 // Windows aliases are deliberately unsupported, not delegated to a shell tool.
-export function inspectMidZip(archive) {
+export function inspectMidZip(archive, { allowedRoots = ['agent', 'META-INF'] } = {}) {
   const fd = fs.openSync(archive, 'r');
   try {
     const size = fs.fstatSync(fd).size;
@@ -44,7 +44,7 @@ export function inspectMidZip(archive) {
       const localOffset = directory.readUInt32LE(pos + 42);
       const folder = name.endsWith('/');
       const parts = name.replace(/\/$/, '').split('/');
-      if (!['agent', 'META-INF'].includes(parts[0]) || parts.some(part => !part || part === '.' || part === '..' || /[\\:<>"|?*]/.test(part) || [...part].some(char => char.codePointAt(0) < 32) || /[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) throw new Error('Unsafe ZIP path');
+      if ((allowedRoots && !allowedRoots.includes(parts[0])) || parts.some(part => !part || part === '.' || part === '..' || /[\\:<>"|?*]/.test(part) || [...part].some(char => char.codePointAt(0) < 32) || /[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) throw new Error('Unsafe ZIP path');
       const type = mode & 0o170000;
       if (type && type !== 0o100000 && type !== 0o040000) throw new Error('ZIP links and special files are forbidden');
       if ((flags & 1) || ![0, 8].includes(method) || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) throw new Error('Unsupported ZIP encoding');

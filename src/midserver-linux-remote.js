@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { validateRemoteTarget } from './midserver-remote.js';
@@ -8,7 +9,7 @@ import { buildMidZipUrl } from './midserver-direct.js';
 const FILE = '.jsn-mid-linux-remote.json';
 // Static program only in argv; all deployment data and credentials travel on stdin.
 const PROGRAM = String.raw`
-import os,sys,json,stat,platform,shutil,subprocess,time,zipfile,urllib.request,hashlib,xml.etree.ElementTree as ET
+import os,sys,json,stat,platform,shutil,subprocess,time,zipfile,urllib.request,hashlib,re,xml.etree.ElementTree as ET
 p=json.load(sys.stdin)
 def fail(): raise RuntimeError('Remote native MID safety check failed')
 def result(v): print('JSN_RESULT:'+json.dumps(v))
@@ -44,6 +45,12 @@ def safe_tree():
    if not (stat.S_ISREG(s.st_mode) or stat.S_ISDIR(s.st_mode)) or s.st_uid!=os.getuid(): fail()
 def launcher(action):
  owned(); safe_tree()
+ if action=='stop':
+  pidfile=os.path.join(p['remoteDirectory'],'agent','work','jsn_mid_'+p['owner'].replace('-','')+'.pid')
+  s=os.lstat(pidfile)
+  if not stat.S_ISREG(s.st_mode) or s.st_uid!=os.getuid() or s.st_size>64: fail()
+  value=open(pidfile).read().strip()
+  if not re.fullmatch('[1-9][0-9]*',value) or int(value) not in processes(): fail()
  subprocess.run(['sh','bin/mid.sh',action],cwd=os.path.join(p['remoteDirectory'],'agent'),stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,timeout=90,start_new_session=True)
 if platform.system()!='Linux' or platform.machine() not in ['x86_64','amd64'] or os.getuid()==0: fail()
 action=p['action']; d=p.get('remoteDirectory')
@@ -127,7 +134,7 @@ else:
   directory=os.path.join(d,'agent','logs'); candidates=[]
   if os.path.isdir(directory):
    for n in os.listdir(directory):
-    if n=='agent0.log' or n.startswith('agent0.log.') or n=='wrapper.log':
+    if re.fullmatch(r'agent0\.log(?:\.[0-9]+)?',n) or n=='wrapper.log':
      f=os.path.join(directory,n); s=os.lstat(f)
      if stat.S_ISREG(s.st_mode) and s.st_uid==os.getuid(): candidates.append((n!='wrapper.log',s.st_mtime,f))
   text=''
@@ -158,7 +165,8 @@ function load(directory) {
   if (m.version !== 1 || !/^[a-f0-9-]{36}$/.test(m.owner) || !m.remoteDirectory?.startsWith('/') || m.remoteDirectory !== path.posix.normalize(m.remoteDirectory) || !m.remoteDirectory.endsWith(`/.jsn-mid/${m.owner}`)) throw new Error('Invalid Linux MID ownership metadata');
   return m;
 }
-export function prepareLinuxRemoteMidServer({ target, instanceURL, name, directory, ...options }) {
+export function prepareLinuxRemoteMidServer({ target, instanceURL, name, directory, platform = process.platform, ...options }) {
+  if (platform === 'win32') throw new Error('A POSIX controller is required for private local metadata');
   validateRemoteTarget(target);
   const url = new URL(instanceURL);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name || '')) throw new Error('Valid HTTPS origin and MID name required');
@@ -192,7 +200,10 @@ function operation(action, { directory, ...options }) {
 export const inspectLinuxRemoteMidServer = options => operation('inspect', options);
 export const startLinuxRemoteMidServer = options => operation('start', options);
 export const stopLinuxRemoteMidServer = options => operation('stop', options);
-export const removeLinuxRemoteMidServer = options => operation('remove', options);
+export function removeLinuxRemoteMidServer(options) {
+  stopLinuxRemoteMidServer(options);
+  return operation('remove', options);
+}
 export function logsLinuxRemoteMidServer({ directory, tail = 100, ...options }) {
   if (!Number.isInteger(tail) || tail < 1 || tail > 10000) throw new Error('Log tail must be 1–10000');
   const m = load(directory); return remote(m.target, { ...m, action: 'logs', tail }, options).logs;
