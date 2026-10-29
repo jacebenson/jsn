@@ -66,7 +66,7 @@ describe('formatUpdateSetDetail', () => {
     assert.ok(detail._formatted.includes('Updates:   2'));
     assert.ok(detail._formatted.includes('    b.xml'));
     // open set → set/parent/export/complete/ignore hints
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'export', 'complete', 'ignore']);
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['scan', 'set', 'parent', 'export', 'complete', 'ignore']);
   });
 
   it('closed sets get a cannot-set hint and no complete hint', async () => {
@@ -80,8 +80,8 @@ describe('formatUpdateSetDetail', () => {
       },
     };
     const detail = await formatUpdateSetDetail(app, { sys_id: 'x1', name: 'Shipped' });
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'export']);
-    assert.ok(detail.hints[0].description.includes('Cannot set as current'));
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['scan', 'set', 'parent', 'export']);
+    assert.ok(detail.hints.find(h => h.action === 'set').description.includes('Cannot set as current'));
   });
 
   it('classes children by type (name fallback) and flags risky items', async () => {

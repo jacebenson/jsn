@@ -32,6 +32,46 @@ under npm's `dev` tag. Versions include the workflow run number and attempt
 The npm trusted publisher for `publish-dev.yml` must authorize the repository's
 `dev` GitHub environment, alongside the production publishing configuration.
 
+### Instance Scan
+
+`jsn scan` manages checks and suites and runs scans against an explicit target.
+Use `jsn scan --help` and each subcommand's `--help` to discover the options.
+
+```bash
+jsn scan checks list --profile dev
+jsn scan checks create --type table --data-file check.json --profile dev
+jsn scan checks activate <check-id> --profile dev
+jsn scan suites add-check <suite-id> --check <check-id> --profile dev
+jsn scan run --update-set "My change" --suite "My suite" --wait --profile dev
+jsn scan run --table sys_script_include --record <record-id> --profile dev
+jsn scan results <execution-id> --profile dev
+```
+
+Check types are `table`, `column`, `linter`, and `script`. Definitions are created
+inactive unless the payload explicitly sets `active: true`; activation never
+starts a scan. Both checks and suites support list/show/create/update/delete and
+activate/deactivate. Suites also support add-check/remove-check.
+
+Runs require an update set, scope, record plus table, or explicit `--full`.
+Instance-wide scans may traverse many tables even when a check's script only
+examines a few records. Starting and cancelling a scan require confirmation;
+use `--force` only after approving that operation. `--wait --timeout 120` bounds
+the wait, not the scan's lifetime. A timed-out wait keeps the execution id and
+does not cancel or resubmit the scan. Use `status`, `results`, or `cancel` next.
+
+Update-set scans examine current instance records, not the historical XML
+versions. Inactive records may be skipped. Script-only checks do not participate
+in record/update-set scans; use an explicitly instance-wide suite run to execute
+them. Execution success does not mean zero findings or complete test coverage:
+results report recorded check executions, finding counts, unreadable sources,
+and truncated lists separately. A result's rerun hint preserves the previous
+target combination and requires `--full` again for instance-wide scans.
+
+Every command returns next-step breadcrumbs in human and JSON output, retaining
+an explicitly selected profile or instance. `updatesets show` also offers a scan
+hint. Recommendation/generation of new checks is not part of this command;
+JSN contains no AI and does not infer missing business requirements.
+
 ### Supported versions
 
 Only the current release and the two preceding releases in each channel are

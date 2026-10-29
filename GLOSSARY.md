@@ -518,3 +518,13 @@ and `install`. Installation records all selected file locations; the legacy
 `skillLocation` points to the first. A plain reinstall replaces that recorded set.
 Explicit destinations select a new managed set. Freshness means identical file
 contents, including edits that leave the frontmatter version unchanged.
+## Instance Scan
+
+`jsn scan` separates check definitions (`checks`), groups of checks (`suites`),
+explicit targets (`run`), execution progress (`status`), and findings/coverage
+(`results`). Activation changes eligibility without starting an execution.
+Provider execution success is separate from findings and recorded check counts;
+unreadable or truncated coverage must never become a clean zero. Scan dispatch
+is not automatically retried, and an expired local wait does not cancel the
+provider's execution. Instance-wide runs require explicit `--full`, including
+when reusing a previous instance-wide target.
