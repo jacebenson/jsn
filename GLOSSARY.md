@@ -170,7 +170,7 @@ existing reference representation. No engine operation spawns another CLI.
 
 ## Record command profiles
 
-`src/record-command-profiles.json` owns table/alias/default-column, identifier,
+`src/record-command-profiles.js` owns table/alias/default-column, identifier,
 reference representation, list projection and essential/supplementary relationship
 policy for the migrated table and ticket factories. `src/record-profiles.js`
 validates immutable definitions and builds actual commands through the existing

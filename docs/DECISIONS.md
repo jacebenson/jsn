@@ -176,7 +176,7 @@ version. Upgrade JSN and reinstall the skill to update both together.
 
 ## 2026-10-28: Declarative record command profiles
 
-The migrated simple-table and ticket factories consume validated JSON definitions
+The migrated simple-table and ticket factories consume validated keyed JavaScript definitions
 for aliases, table, default columns, identifier field, reference/list output and
 relationship policy. Executable hooks remain JavaScript. The same definition is
 attached to the implemented command as metadata, avoiding a second help-only map.

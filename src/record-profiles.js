@@ -1,6 +1,6 @@
 // Declarative command metadata is consumed by the actual command factories.
 // Hooks stay executable code; JSON owns aliases/table/defaults/relationship policy.
-import fs from 'node:fs';
+import definitions from './record-command-profiles.js';
 import { buildDevCmd } from './commands/_generic.js';
 import { buildTicketCommands } from './commands/_ticket.js';
 
@@ -16,7 +16,16 @@ function freeze(value) {
 export function validateRecordProfiles(profiles) {
   if (!Array.isArray(profiles)) throw new Error('Record profiles must be an array.');
   const names = new Set();
-  return profiles.map(profile => {
+  return profiles.map(definition => {
+    for (const key of ['options', 'output', 'relationships']) {
+      if (definition[key] !== undefined && (!definition[key] || typeof definition[key] !== 'object' || Array.isArray(definition[key]))) throw new Error(`Invalid ${key} for ${definition.name}.`);
+    }
+    const profile = { ...definition,
+      identifierField: definition.identifierField ?? (definition.kind === 'ticket' ? 'number' : 'name'),
+      options: { ...definition.options },
+      output: { references: 'both', listProjection: 'display', ...definition.output },
+      relationships: { essential: [], supplementary: [], ...definition.relationships },
+    };
     if (!namePattern.test(profile.name || '') || names.has(profile.name)) throw new Error('Invalid or duplicate record profile name.');
     names.add(profile.name);
     if (!fieldPattern.test(profile.table || '') || !fieldPattern.test(profile.identifierField || '')) throw new Error(`Invalid table/identifier field for ${profile.name}.`);
@@ -34,7 +43,7 @@ export function validateRecordProfiles(profiles) {
     return freeze(structuredClone(profile));
   });
 }
-const profiles = freeze(validateRecordProfiles(JSON.parse(fs.readFileSync(new URL('./record-command-profiles.json', import.meta.url), 'utf8'))));
+const profiles = freeze(validateRecordProfiles(Object.entries(definitions).map(([name, profile]) => ({ name, ...profile }))));
 const index = new Map(profiles.map(profile => [profile.name, profile]));
 export const recordProfiles = () => profiles;
 export function getRecordProfile(name) {

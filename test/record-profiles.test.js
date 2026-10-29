@@ -4,7 +4,7 @@ import { getRecordProfile, recordProfiles, validateRecordProfiles, buildProfileC
 import { captureCommands, findHandler } from './support/command-test-helpers.js';
 
 function commands(command) { return captureCommands(command).map(c => c.command.split(' ')[0]); }
-test('bundled JSON profiles drive actual aliases, tables, columns, identifier and output defaults', async () => {
+test('bundled keyed profiles drive actual aliases, tables, columns, identifier and output defaults', async () => {
   assert.ok(recordProfiles().some(profile => profile.name === 'tables'));
   assert.ok(recordProfiles().every(profile => Object.isFrozen(profile)));
   const cases = [
@@ -56,4 +56,14 @@ test('a new declarative profile extends the real factory and executable show hoo
   assert.equal(selected[0], 'x_fixture_custom'); assert.equal(selected[1].sysparm_query, 'code=CODE1');
   assert.equal(selected[1].sysparm_display_value, 'false'); assert.equal(data._hook, true);
   assert.equal(command.recordProfile.output.references, 'raw');
+});
+
+test('minimal declarations inherit defaults and only override the preferences they change', () => {
+  const [profile] = validateRecordProfiles([{ name: 'minimal', table: 'x_minimal', aliases: [], columns: ['name'], output: { references: 'raw' } }]);
+  assert.equal(profile.identifierField, 'name');
+  assert.deepEqual(profile.output, { references: 'raw', listProjection: 'display' });
+  assert.deepEqual(profile.relationships, { essential: [], supplementary: [] });
+  assert.deepEqual(profile.options, {});
+  const [ticket] = validateRecordProfiles([{ name: 'minimal_ticket', kind: 'ticket', table: 'x_ticket', aliases: [], columns: ['number'] }]);
+  assert.equal(ticket.identifierField, 'number');
 });
