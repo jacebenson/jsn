@@ -237,7 +237,11 @@ function buildRelationships({ entries, dictionary, relationships, sourceTable, n
     const existing = result.get(id);
     const descriptor = existing || { id, kind: 'unresolved', table: '', reference_field: '', query_status: 'unavailable',
       reason: 'Configured related list metadata is absent, unsupported, or not visible' };
-    result.set(id, { ...descriptor, configured: true, source_table: sourceTable, position: position(entry),
+    const filter = entry.filter;
+    const filterAvailable = Boolean(Object.hasOwn(entry, 'filter') && (filter === null || typeof filter === 'string'
+      || (filter && typeof filter === 'object' && Object.hasOwn(filter, 'value') && (filter.value === null || typeof filter.value === 'string'))));
+    if (!filterAvailable) warnings.push({ source: 'sys_ui_related_list_entry', reason: 'A configured filter is absent or not visible; do not assume an unfiltered list' });
+    result.set(id, { ...descriptor, configured: true, filter_available: filterAvailable, source_table: sourceTable, position: position(entry),
       filter: field(entry, 'filter'), order_by: field(entry, 'order_by') });
     if (!existing) warnings.push({ source: 'sys_ui_related_list_entry', reason: descriptor.reason });
   }

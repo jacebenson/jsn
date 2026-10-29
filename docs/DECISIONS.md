@@ -174,6 +174,14 @@ Installation, `skill show`, and `skill check` use the same bundled source and
 version. Upgrade JSN and reinstall the skill to update both together.
 `skill fetch` remains an explicit way to inspect the latest development text.
 
+## 2026-10-28: Declarative record command profiles
+
+The migrated simple-table and ticket factories consume validated keyed JavaScript definitions
+for aliases, table, default columns, identifier field, reference/list output and
+relationship policy. Executable hooks remain JavaScript. The same definition is
+attached to the implemented command as metadata, avoiding a second help-only map.
+Bundled wrappers retain their public exports and specialized hooks; additional
+profiles can use the same factory without a subprocess or a CRUD implementation.
 ## Capture-context approval is separate from delete confirmation
 
 The mutation wrapper checks capture context before dispatch, even with JSON, quiet
@@ -191,3 +199,24 @@ capture-context approval for write-enabled profiles. Missing or unreadable conte
 is reported as unknown, preserving commands on service accounts without falsely
 classifying them as Global + Default. The guard supplements existing update-set
 name disambiguation and completion checks; it does not complete sets automatically.
+
+
+## 2026-10-28: Fixed filters remain invariant in constrained table views
+
+Additional list queries cannot replace a factory's fixed `extraQuery`. These
+views accept bounded literal AND filters and ordering; OR/NQ/dynamic clauses
+fail before transport instead of escaping the view through encoded-query
+branch semantics. Generic records continue to accept advanced encoded queries.
+Field-investigation help documents schema, overrides, query rules and ACL
+coverage by symptom, without claiming a universal priority or effective-access
+proof from a list of ACL records.
+## Rails serves existing documentation output and distributes an independent index
+
+Keep the documentation service in `site/`, beside the Node CLI and existing
+Eleventy content project. Preserve the generated public URL tree while replacing
+the serving layer with Rails. Build metadata/manifests live in the service's own
+database; immutable downloadable indexes live on GitHub Releases/object storage.
+The central builder reuses Node ingestion and publishes the stable manifest only
+after artifact verification/upload. CLI installation, website deployment and index
+publication have independent pipelines. See `docs-distribution-architecture.md`
+for the pre-migration audit, host configuration gate and rollback path.

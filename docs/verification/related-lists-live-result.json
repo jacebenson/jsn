@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "checked_at": "2026-10-29T04:33:58.991Z",
+  "profile": "pdi",
+  "lane": "existing credentials; no refresh/recovery/UI-session warming",
+  "table": "sys_db_object",
+  "metadata_match_count": 1,
+  "configured_descriptor_limit": 5,
+  "configured_metadata_limit": 100,
+  "descriptors_considered": 59,
+  "available_counts": 1,
+  "unavailable_counts": 58,
+  "nonempty_hints": 1,
+  "coverage": "partial",
+  "warning_count": 58,
+  "aggregate_request_count": 1,
+  "aggregate_statuses": [
+    200
+  ],
+  "aggregate_counts": [
+    48
+  ],
+  "record_body_fetches": 0,
+  "refreshes": 0,
+  "writes": 0
+}

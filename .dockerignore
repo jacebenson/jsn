@@ -1,0 +1,11 @@
+.git
+node_modules
+site/vendor/bundle
+site/.bundle
+site/storage/*
+site/log/*
+site/tmp/*
+docs/node_modules
+docs/_site
+.verification
+site/config/master.key

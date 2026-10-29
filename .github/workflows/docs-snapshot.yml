@@ -1,0 +1,94 @@
+name: Build documentation snapshot
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/commands/docs/**', 'scripts/build-docs-snapshot.mjs', '.github/workflows/docs-snapshot.yml']
+permissions:
+  contents: write
+concurrency:
+  group: docs-snapshot-publisher
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DOCS_PUBLISH_TOKEN: ${{ secrets.DOCS_PUBLISH_TOKEN }}
+      DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL || 'https://jsn.jace.pro' }}
+    steps:
+      - name: Isolate documentation build data
+        run: echo "JSN_DATA_HOME=$RUNNER_TEMP/jsn-docs-build" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Identify source revision and existing published artifact
+        id: source
+        shell: bash
+        run: |
+          source_revision=$(git ls-remote https://github.com/ServiceNow/ServiceNowDocs refs/heads/australia | cut -f1)
+          [[ "$source_revision" =~ ^[a-f0-9]{40}$ ]]
+          builder_revision=$(git log -1 --format=%H -- src/commands/docs scripts/build-docs-snapshot.mjs .github/workflows/docs-snapshot.yml)
+          artifact_tag="docs-index-1-${source_revision}-${builder_revision}"
+          echo "revision=$source_revision" >> "$GITHUB_OUTPUT"
+          echo "tag=$artifact_tag" >> "$GITHUB_OUTPUT"
+          mkdir -p snapshot-output
+          if gh release view "$artifact_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if test "$(gh release view "$artifact_tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true; then
+              echo 'draft=true' >> "$GITHUB_OUTPUT"
+              echo 'reused=false' >> "$GITHUB_OUTPUT"
+            else
+              gh release download "$artifact_tag" --repo "$GITHUB_REPOSITORY" --dir snapshot-output
+              echo 'reused=true' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo 'reused=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Record build state
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+        run: node scripts/report-docs-build.mjs "$SOURCE_REVISION" building
+      - name: Build isolated FTS5 index with existing ingestion
+        if: steps.source.outputs.reused != 'true'
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+          ARTIFACT_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          git clone --depth 1 --branch australia --config core.longpaths=true https://github.com/ServiceNow/ServiceNowDocs "$RUNNER_TEMP/docs-source"
+          test "$(git -C "$RUNNER_TEMP/docs-source" rev-parse HEAD)" = "$SOURCE_REVISION"
+          node scripts/build-docs-snapshot.mjs "$RUNNER_TEMP/docs-source/markdown" snapshot-output "$SOURCE_REVISION" "https://github.com/$GITHUB_REPOSITORY/releases/download/$ARTIFACT_TAG/"
+      - name: Verify artifact before publication
+        run: node scripts/verify-docs-snapshot.mjs snapshot-output
+      - name: Publish immutable artifact before updating the stable manifest
+        if: steps.source.outputs.reused != 'true'
+        env:
+          ARTIFACT_TAG: ${{ steps.source.outputs.tag }}
+          EXISTING_DRAFT: ${{ steps.source.outputs.draft }}
+        run: |
+          if test "$EXISTING_DRAFT" = true; then
+            test "$(gh release view "$ARTIFACT_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+            gh release upload "$ARTIFACT_TAG" snapshot-output/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$ARTIFACT_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          else
+            gh release create "$ARTIFACT_TAG" snapshot-output/* --repo "$GITHUB_REPOSITORY" --title "Documentation index $ARTIFACT_TAG" --notes 'Prebuilt ServiceNow documentation index; independent from JSN npm releases.' --latest=false
+          fi
+      - name: Promote stable Rails manifest
+        run: node scripts/publish-docs-manifest.mjs snapshot-output/manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docs-snapshot-build-manifest
+          path: snapshot-output/manifest.json
+      - name: Record failed build without changing last-good manifest
+        if: failure() && steps.source.outputs.revision != ''
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+        run: node scripts/report-docs-build.mjs "$SOURCE_REVISION" failed
