@@ -9,7 +9,7 @@
 // resolve → mutate → report.
 
 import { assertSafeExactMatch, isHexString } from './helpers.js';
-import { errNotFound } from './errors.js';
+import { errNotFound, errUsage, AppError, CodeAmbiguous } from './errors.js';
 
 /**
  * True when the identifier looks like a ServiceNow sys_id (32 hex chars).
@@ -30,35 +30,55 @@ export function unwrapSysId(record) {
 }
 
 /**
- * Resolve a single record by human identifier.
- *
- * @param {object} sdk — SDK handle (uses sdk.list)
- * @param {object} opts
- * @param {string} opts.table — ServiceNow table
- * @param {string} opts.identifier — sys_id (32 hex) or value of matchField
- * @param {string} opts.matchField — field to match non-sys_id identifiers on
- *   (e.g. 'number', 'name', 'user_name')
- * @param {string} [opts.resource] — label for the not-found error
- *   (e.g. 'User' → "User not found: <id>"); defaults to matchField
- * @param {string[]} [opts.fields] — restrict sysparm_fields when set
- * @returns {Promise<object>} the record (display values requested)
- * @throws {AppError} code not_found when no record matches
+ * Exact lookups precede partial sys_id lookup. Configured human identifiers keep
+ * their legacy precedence; identifierField explicitly disambiguates collisions.
+ * Each query requests at most two rows so no operation silently picks a match.
  */
-export async function resolveRecord(sdk, { table, identifier, matchField, resource, fields }) {
+export async function resolveRecord(sdk, { table, identifier, matchField = 'sys_id', identifierField,
+  resource, fields, displayValue = 'all', partial = true }) {
   assertSafeExactMatch(identifier);
-  const queryField = isSysId(identifier) ? 'sys_id' : matchField;
-  const params = new URLSearchParams();
-  params.set('sysparm_query', `${queryField}=${identifier}`);
-  params.set('sysparm_limit', '1');
-  params.set('sysparm_display_value', 'all');
-  if (fields && fields.length > 0) {
-    params.set('sysparm_fields', fields.join(','));
+  if (typeof identifier !== 'string' || !identifier.trim()) throw errUsage('An identifier is required.');
+  for (const value of [table, identifierField || matchField]) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value || '')) throw errUsage('Invalid table or identifier field name.');
   }
-  const records = await sdk.list(table, params);
-  if (records.length === 0) {
-    throw errNotFound(resource || matchField, identifier);
+  const explicit = identifierField !== undefined;
+  const firstField = identifierField || (isSysId(identifier) ? 'sys_id' : matchField);
+  const attempts = [];
+  async function lookup(field, operator, mode) {
+    const params = new URLSearchParams({
+      sysparm_query: `${field}${operator}${identifier}`,
+      sysparm_limit: '2', sysparm_display_value: displayValue,
+    });
+    if (fields?.length) params.set('sysparm_fields', [...new Set(['sys_id', ...fields])].join(','));
+    const records = await sdk.list(table, params);
+    const resolution = { table, field, mode, matches: Math.min(records.length, 2),
+      ...(records.length >= 2 ? { at_least: true } : {}) };
+    attempts.push(resolution);
+    if (records.length > 1) {
+      const error = new AppError(CodeAmbiguous, `Multiple ${resource || 'records'} found matching ${mode} ${field}: ${identifier}`,
+        'Use a longer/full sys_id or select the exact human field with --identifier-field <field>.');
+      error.resolution = { ...resolution, attempts };
+      throw error;
+    }
+    return records[0];
   }
-  return records[0];
+  let record = await lookup(firstField, '=', 'exact');
+  if (record) return record;
+  if (!explicit && firstField !== 'sys_id') {
+    record = await lookup('sys_id', '=', 'exact');
+    if (record) return record;
+  }
+  // An explicitly selected human field must never fall back to another field.
+  if (partial && (!explicit || firstField === 'sys_id')) {
+    record = await lookup('sys_id', 'STARTSWITH', 'prefix');
+    if (record) return record;
+    record = await lookup('sys_id', 'ENDSWITH', 'suffix');
+    if (record) return record;
+  }
+  const error = errNotFound(resource || matchField, identifier);
+  error.hint = 'No accessible record matched. Check the table/ACLs, supply a full or longer sys_id, or use --identifier-field <field> for an exact human identifier.';
+  error.resolution = { ...attempts.at(-1), attempts };
+  throw error;
 }
 
 /**
@@ -67,5 +87,7 @@ export async function resolveRecord(sdk, { table, identifier, matchField, resour
  */
 export async function resolveSysId(sdk, opts) {
   const record = await resolveRecord(sdk, { fields: ['sys_id'], ...opts });
-  return unwrapSysId(record);
+  const id = unwrapSysId(record);
+  if (!id) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+  return id;
 }
