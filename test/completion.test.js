@@ -36,24 +36,14 @@ function compgen(wordlist, prefix) {
 }
 
 describe('jsn completion', () => {
-  it('exits 0 and prints a completion script to stdout', () => {
+  it('prints a sourceable completion script without context headers or update notices', () => {
     const r = runCompletion();
     assert.strictEqual(r.status, 0, `expected exit 0, got ${r.status}: ${r.stderr}`);
-    assert.ok(r.stdout.length > 0, 'stdout should not be empty');
-  });
-
-  it('generates a script with the yargs completion function for jsn', () => {
-    const r = runCompletion();
     assert.match(r.stdout, /###-begin-jsn-completions-###/, 'missing completion begin marker');
     assert.match(r.stdout, /###-end-jsn-completions-###/, 'missing completion end marker');
     assert.match(r.stdout, /_jsn_yargs_completions/, 'missing completion function');
     assert.match(r.stdout, /complete .* _jsn_yargs_completions jsn/, 'missing complete registration');
-  });
-
-  it('does not print the context header or update notices to stdout', () => {
-    const r = runCompletion();
-    // The completion script must be clean — sourcing it in a shell will
-    // break if banners/headers leak into stdout.
+    // Banners would break sourcing this output in a shell.
     assert.ok(!r.stdout.includes('Instance:'), 'context header leaked into stdout');
     assert.ok(!r.stdout.includes('⚠'), 'update notice leaked into stdout');
   });
@@ -108,12 +98,6 @@ describe('jsn completion', () => {
     assert.match(r.stdout, /zsh/, 'missing zsh install instructions');
     assert.ok(!r.stdout.includes('###-begin-jsn-completions-###'),
       '--help should show help, not dump the script');
-  });
-
-  it('completion prints the script (handler path, same as built-in)', () => {
-    const r = runCompletion();
-    assert.strictEqual(r.status, 0);
-    assert.match(r.stdout, /###-begin-jsn-completions-###/);
   });
 
   it('hidden __completion plumbing command is not listed in completions', () => {
