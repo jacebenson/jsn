@@ -1,12 +1,11 @@
 import { getRecord, recordOptions } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
-import { buildTicketCommands } from './_ticket.js';
+import { buildProfileCommand } from '../record-profiles.js';
 
-const requestDefaultColumns = ['number', 'short_description', 'stage', 'assigned_to'];
 
 export function requestsCmd(wrap) {
   // Get the base command definition from the shared ticket builder
-  const baseCmd = buildTicketCommands('sc_req_item', 'requests', 'req', requestDefaultColumns, {}, null, wrap);
+  const baseCmd = buildProfileCommand('requests', wrap);
 
   // Override the builder to inject our enriched show handler.
   // yargs allows re-registration — the last .command() call wins the slot.

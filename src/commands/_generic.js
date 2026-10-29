@@ -164,12 +164,12 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const baseQ = extraQuery ? extraQuery + '^' : '';
           const q = query ? query + '^ORDERBYDESCsys_updated_on' : (baseQ + 'ORDERBYDESCsys_updated_on');
           const params = recordListParams({ limit, fields: ['sys_id', ...columns], query: q });
-          const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues });
+          const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
           app.ok({
             table,
             count: records.length,
             columns,
-            records: argv.displayValues ? records : records.map(r => formatRecordForDisplay(r, columns)),
+            records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, columns)),
             context: { instance_url: app.getEffectiveInstance() },
           }, {
             summary: `${records.length} ${name}(s)`,
@@ -190,7 +190,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const fields = (showFields && showFields.length > 0)
             ? [...new Set(['sys_id', ...showFields])]
             : undefined;
-          const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'name', resource: singular, fields });
+          const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'name', resource: singular, fields });
           record._context = {
             instance_url: app.getEffectiveInstance(),
             table,
@@ -238,7 +238,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'name', resource: singular });
+            const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'name', resource: singular });
             if (scopeValidation) {
               await guardScope(app.sdk, record);
             }
@@ -255,7 +255,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           builder: (y) => recordOptions(y, false).option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues, matchField: 'name', resource: singular });
+            const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'name', resource: singular });
             if (scopeValidation) {
               await guardScope(app.sdk, record);
             }
