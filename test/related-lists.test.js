@@ -93,7 +93,7 @@ it('specialized enrichment stays opt-in and uses resolved raw IDs and selected c
   assert.equal(calls.length, 1); assert.equal(calls[0].view, 'Custom'); assert.equal(calls[0].profile, 'selected'); assert.deepEqual(record._related, { nonempty: [] });
 });
 it('rejects unsafe record identities and field/table metadata before aggregate requests', async () => {
-  const f = fixture([reference('bad', { reference_field: 'parent^ORactive' })]);
+  const f = fixture([reference('bad', { reference_field: 'parent^ORactive' }), reference('missing', { reference_field: undefined })]);
   await assert.rejects(f.reader.read({ table: 'incident', recordId: 'record^NQactive=true' }), { code: 'usage_error' });
   const result = await f.reader.read({ table: 'incident', recordId: 'record' });
   assert.equal(f.calls.length, 0); assert.equal(result.lists[0].count, null);

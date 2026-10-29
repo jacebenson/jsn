@@ -3,6 +3,7 @@
 import { assertSafeExactMatch, quoteShellArg } from './helpers.js';
 import { errUsage } from './errors.js';
 const namePattern = /^[A-Za-z0-9_]+$/;
+const isName = value => typeof value === 'string' && namePattern.test(value);
 const raw = value => String(value && typeof value === 'object' ? value.value ?? '' : value ?? '');
 
 /** Only a conservative, AND-only literal encoded-query subset can be combined
@@ -44,7 +45,7 @@ export function createRelatedListReader(sdk, { metadataReader, maxLists = 50 } =
   const cache = new Map();
   let reader = metadataReader;
   async function read({ table, recordId, view = 'Default view', profile = '', instance = '' }) {
-    if (!namePattern.test(table)) throw errUsage('Related-list table must be a valid table name.');
+    if (!isName(table)) throw errUsage('Related-list table must be a valid table name.');
     const id = raw(recordId);
     if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) throw errUsage('Related-list counts require a safe, resolved record sys_id.');
     assertSafeExactMatch(id);
@@ -61,7 +62,7 @@ export function createRelatedListReader(sdk, { metadataReader, maxLists = 50 } =
         status: 'unavailable', count: null };
       let reason;
       const filter = safeRelatedFilter(list.filter || '');
-      if (list.query_status !== 'reference' || !namePattern.test(list.table) || !namePattern.test(list.reference_field)) reason = list.reason || 'Related list requires platform relationship logic or unavailable metadata.';
+      if (list.query_status !== 'reference' || !isName(list.table) || !isName(list.reference_field)) reason = list.reason || 'Related list requires platform relationship logic or unavailable metadata.';
       else if (filter === null) reason = 'Related-list filter uses unsupported dynamic or disjunctive query logic; count was not requested.';
       if (reason) {
         result.reason = reason; warnings.push({ source: list.id, reason }); return { result };

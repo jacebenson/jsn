@@ -348,3 +348,15 @@ coverage limits and safe next steps without changing captured evidence or the
 stored capture schema. Older captures receive the same guidance when viewed;
 no report migration is required. Per-artifact `triage` remains the classification
 and confidence assessment, separate from unverified runtime/reversion risk.
+
+### Supplementary related-list observations
+
+A **related-list count** is an opt-in aggregate observation attached as `_related`
+to a specialized show result. It is distinct from eager essential-child data.
+Safe reference metadata and AND-only literal filters bind each aggregate query
+to the resolved parent record. Only actual aggregate zero means zero; denied,
+unserviced, malformed, unknown and capped descriptors retain unavailable counts
+and partial coverage. Counts are scoped to Aggregate API permissions. Nonempty
+lists suggest exact, connection-pinned commands rather than fetching related
+records. Descriptor fanout defaults to 50, individual reads use at most four
+concurrent calls, and caches are SDK/invocation-bound. Generic get is unchanged.
