@@ -339,3 +339,14 @@ coverage limits and safe next steps without changing captured evidence or the
 stored capture schema. Older captures receive the same guidance when viewed;
 no report migration is required. Per-artifact `triage` remains the classification
 and confidence assessment, separate from unverified runtime/reversion risk.
+
+## Local mutation history
+
+Table API creates, updates and deletes invoked by the CLI record one final local
+history event after authentication retries finish. The seven-day SQLite store is
+independent of documentation indexes. Events contain instance origin, profile,
+table, resolved record ID, operation, outcome and an optional non-sensitive
+reason; request/response bodies and credentials are never serialized. A definitive
+HTTP rejection is failed; an uncertain transport outcome is unknown. Local storage
+failure warns without changing the remote operation's result. This convenience
+history is not a durable ServiceNow audit log.

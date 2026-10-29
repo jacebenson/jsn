@@ -7,6 +7,7 @@
 // setEffectiveInstance() are thin session-backed shims kept for the many
 // command handlers that already call them.
 
+import { appendMutation } from './mutation-history.js';
 import { AuthManager } from './auth.js';
 import { createAuthRecovery } from './auth-recovery.js';
 import { SDKClient } from './sdk.js';
@@ -59,6 +60,7 @@ export class App {
     }), {
       domain: session?.domain || '',
       recovery: createAuthRecovery({ app: this, session }),
+      onMutation: event => this.recordMutation(instance, session?.profileName, event),
     });
   }
 
@@ -67,7 +69,19 @@ export class App {
     const profile = options.profile || {};
     return new SDKClient(instance, this.auth.createProfileProvider(instance, options), {
       domain: options.domain ?? profile.domain ?? '',
+      onMutation: event => this.recordMutation(instance, options.profileName || null, event),
     });
+  }
+
+  recordMutation(instance, profile, event) {
+    if (!this._authArgv) return;
+    try { appendMutation({ ...event, instance, profile, reason: this._authArgv.reason }); }
+    catch {
+      if (!this._historyWarningShown) {
+        process.stderr.write('Warning: local mutation history could not be saved. The remote result is unchanged.\n');
+        this._historyWarningShown = true;
+      }
+    }
   }
 
   loadContext() {
