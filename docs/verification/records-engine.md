@@ -43,3 +43,20 @@ counts. Essential-child tests verify one bounded child read, raw parent ids,
 truncation, explicit ACL/unavailable states, JSON/--get/styled output and opt-out.
 These mutation/error fixtures are not claims of live mutation coverage. No live
 legacy-id, ambiguous-id, write, ACL-denied or truncation experiment was run.
+
+## Per-PR terminal proof after registry compaction
+
+Each source revision below ran its own mandatory authenticated/verified doctor
+immediately before read-only PDI commands, followed by cleanup. Separate detached
+source snapshots kept the combined full-suite checkout stable.
+
+| PR | Source revision | Sanitized terminal proof | Actual read coverage |
+| --- | --- | --- | --- |
+| #338 | f8052ce | [pr338-live.json](pr338-live.json) | Exact metadata lookup, same-record prefix, structured zero match |
+| #340 | 5c780b2 | [pr340-live.json](pr340-live.json) | Compact 66-line registry; tables command and table alias |
+| #342 | e24b299 | [pr342-live.json](pr342-live.json) | Existing essential action loaded=1/status=loaded; opt-out keeps parent |
+| #344 | 503de71 | [pr344-live.json](pr344-live.json) | Combined current-main integration of all the above; 70-line registry with UI policies |
+
+Opaque IDs are masked; schema labels and scalar child counts are retained. These
+checks performed no live writes. The earlier PRs merged into dependency branches;
+#344 is the explicit main-targeted integration of their reviewed implementations.
