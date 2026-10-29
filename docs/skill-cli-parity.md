@@ -12,14 +12,14 @@ operational mechanics to their installed help and runtime safeguards.
 | Mandatory auth preflight | Remove | #329/#332 request-driven recovery; real PDI 401 → 200 with one replay, explicitly distinguishing in-memory credential recovery from browser renewal; direct CLI read without a status preflight. |
 | Blanket never-logout rule | Remove | #330 informed logout confirmation; real PDI noninteractive refusal retained credentials and profile; destructive clear path remains fixture-tested. |
 | Target connection | Keep explicit | Verify intended instance and pin `--profile`; selected-profile live checks and scoped credential tests. |
-| Eval safety | Keep explicit | Purpose-built/records preference; explain need and obtain approval; never bypass ACLs, business rules or other protections. |
+| Eval safety | Keep explicit | Purpose-built/records preference; explain need and obtain approval; discourage bypassing ServiceNow protections. |
 | Mutation confirmation | Keep authorization boundaries only | #336 ordinary create/update behavior and Global + Default approval; delete preference remains separate. Live disposable preference CRUD/history proof and high-risk-context fixture tests. |
 | Hierarchy and command catalog | Remove duplication | #335 discovery derives from actual registration; #340 compact declarative registry reaches main through #344. |
-| Customization implementation rules | Short capability/coverage pointer | #331 interpretation/coverage/triage in CLI output; bounded live PDI capture and offline review proof. Never infer automatic reversion approval. |
-| Update-set completion mechanics | Keep human workflow only | Identify scope/set, group related changes, report capture location. Human must explicitly request completion even for agent-created sets. Current completion returns selection to Default; some changes are untracked. |
+| Customization implementation rules | Remove duplication; CLI supplies evidence and coverage | #331 interpretation/coverage/triage in CLI output; bounded live PDI capture and offline review proof. Findings do not imply reversion approval. |
+| Update-set completion mechanics | Keep human workflow only | Choose/create scope and set, do the work, verify on the instance, offer ATFs and instance scans, then ask about further additions. Complete with notes after the human confirms the set is finished. Selection/reset mechanics stay in CLI help. |
 | Table/REST examples and read-only policy | Remove duplication; CLI enforces policy | Command help tested in #330; raw REST remains blocked on read-only profiles even for GET. |
 | Docs tutorial | Remove duplication; root help discovers docs | #346 implements #324 source choice, verified snapshots, offline local use and recovery. Production migration remains an explicit separate deployment gate. |
-| Field troubleshooting | Keep audited symptom-based workflow | Separate audit found and corrected before-query constraints, override-table guidance and ACL coverage in #347. No universal priority order; do not bypass protections. PDI schema/read evidence is recorded on that PR. |
+| Field troubleshooting | Remove duplication; use audited CLI guidance | Separate audit found and corrected before-query constraints, override-table guidance and ACL coverage in #347. No universal priority order; do not bypass protections. PDI schema/read evidence is recorded on that PR. |
 | Raw config/credential paths | Remove | #333 scriptable setup/auth help and secure input; live PDI setup/status and offline file/stdin tests. |
 
 ## Distribution
@@ -35,7 +35,7 @@ fetch mutable main cannot be corrected retroactively; upgrade JSN first.
 #344, #346, #347 and the #318 specialized related-list integration are on main.
 The skill now keeps only the entry point and agent judgment that help/runtime
 cannot supply: target intent, eval/destructive/context authorization, development
-capture, human-only completion, causal investigation and evidence interpretation.
+capture, instance verification, an offer of ATFs/instance scans, and human-confirmed completion.
 It adds no reference catalog to replace the removed CLI duplication.
 
 External docs service deployment remains a separate operational task; this skill
