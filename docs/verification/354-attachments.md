@@ -31,7 +31,25 @@ of the old subtree. Existing parent-discovery extraction regressions now exercis
 the top-level attachment parent. SDK endpoints remain native attachment APIs;
 no scripts or subprocess command dispatch are introduced.
 
-These byte transfers and writes are local fixture evidence. No instance access,
-credential refresh, remote-host changes or PDI writes were performed by this
-implementation/test run. Any separately coordinated PDI proof is recorded with
-its exact source revision and limits rather than implied by fixture results.
+Those local byte transfers and writes are fixture evidence. The following
+separately authorized, coordinated run establishes actual instance behavior.
+
+## Actual PDI terminal round trip
+
+[Sanitized terminal evidence](354-attachments-pdi.json) records source
+`1c6f449` and the actual commands/results (all exit 0). A fresh doctor passed
+with profile pdi authenticated and verified before the run. One uniquely named
+`jsn354.*` preference was created solely as a disposable attachment parent.
+
+- `attachments upload <owned-tiny-file> --table sys_user_preference --sys-id <owned-parent> --name jsn354-proof.txt --force --json` returned an attachment ID.
+- `attachments list --sys-id <owned-parent> --json` returned count 1 and that attachment.
+- `attachments download <owned-attachment> --json` needed no parent ID, selected the expected filename and reproduced the exact 57 harmless text bytes.
+- Exact owned attachment/preference IDs were deleted, with subsequent lists verifying both gone.
+
+Current application/update-set preference snapshots matched before and after;
+no scope/update-set selection commands ran. A temporary Node preload blocked
+OAuth `refreshToken` for the entire run to enforce the shared-auth boundary;
+the successful run required no renewal. No remote-host/MID operations occurred.
+Local temporary files were removed and verify cleanup passed. The public proof
+omits opaque IDs, hostname and credential contents. The final commit only adds
+this evidence; runtime source is unchanged from the tested revision.
