@@ -115,15 +115,20 @@ export function createRecordMetadataReader(sdk, { limit = 1000, maxDepth = 32 } 
     const names = hierarchy.map(item => item.name);
     const defaultView = view === 'Default view' || view === 'default';
     const viewQuery = defaultView ? 'name=^ORname=default^ORtitle=Default view' : `name=${view}^ORtitle=${view}^ORsys_id=${view}`;
-    const [views] = await reads([request('sys_ui_view', `${viewQuery}^userISEMPTY`, 'sys_id,name,title', 3)], warnings);
+    const [views] = await reads([request('sys_ui_view', `${viewQuery}^userISEMPTY`, 'sys_id,name,title', limit)], warnings);
+    const byId = views.filter(row => field(row, 'sys_id') === view);
+    const byName = views.filter(row => field(row, 'name') === (defaultView ? '' : view));
+    const byTitle = views.filter(row => field(row, 'title') === view);
+    const byAlias = defaultView ? views.filter(row => field(row, 'name') === 'default') : [];
+    const candidates = byId.length ? byId : byName.length ? byName : byTitle.length ? byTitle : byAlias;
     let viewId = '';
-    if (views.length === 1) {
-      viewId = reference(views[0].sys_id);
+    const viewCapped = views.length >= limit;
+    if (candidates.length === 1 && !viewCapped) {
+      viewId = reference(candidates[0].sys_id);
       if (!viewId) warnings.push({ source: 'sys_ui_view', reason: 'View id is absent or not visible' });
-    }
-    else if (views.length > 1) warnings.push({ source: 'sys_ui_view', reason: 'View lookup is ambiguous; no layout was selected' });
+    } else if (candidates.length > 1 || viewCapped) warnings.push({ source: 'sys_ui_view', reason: 'View lookup is ambiguous or capped; no layout was selected' });
     else if (!defaultView) warnings.push({ source: 'sys_ui_view', reason: 'Requested view is absent or not visible; no layout was selected' });
-    const canReadLayout = views.length <= 1 && (defaultView || !!viewId);
+    const canReadLayout = !viewCapped && candidates.length <= 1 && (defaultView || !!viewId);
     const viewFilter = viewId ? `view=${viewId}${defaultView ? '^ORviewISEMPTY' : ''}` : 'viewISEMPTY';
     const specs = [
       request('sys_dictionary', `referenceIN${names.join(',')}^elementISNOTEMPTY`, 'sys_id,name,element,reference,column_label', limit),

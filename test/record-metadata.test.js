@@ -197,3 +197,17 @@ test('large forms use bounded bulk id queries instead of one request per section
   assert.equal(elementReads.length, 2);
   assert.ok(elementReads.every(call => call.query.split('^')[0].slice('sys_ui_sectionIN'.length).split(',').length <= 100));
 });
+
+
+test('canonical Default view wins over a distinct view literally named default', async () => {
+  const { sdk } = fixture();
+  const original = sdk.list;
+  sdk.list = (table, params) => table === 'sys_ui_view' ? Promise.resolve([
+    { sys_id: id('9'), name: 'default', title: 'Other default' },
+    { sys_id: id('c'), name: '', title: 'Default view' },
+  ]) : original(table, params);
+  const metadata = await createRecordMetadataReader(sdk).read({ table: 'x_case' });
+  assert.equal(metadata.view_sys_id, id('c'));
+  assert.ok(metadata.form);
+  assert.equal(metadata.coverage.state, 'observed');
+});

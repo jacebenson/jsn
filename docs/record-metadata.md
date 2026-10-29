@@ -20,7 +20,8 @@ The report contains:
 - `form`: the nearest shared layout for the requested view, its inherited table,
   ordered linked sections and ordered elements, or null. Forms and related-list
   containers resolve independently. Custom views do not silently select Default
-  view. Ambiguous/hidden layouts are not guessed. Personalized records are
+  view. Exact id/name and canonical Default view matches precede title/alias
+  matches; ambiguity at the same precedence is not guessed. Personalized records are
   excluded; this is shared metadata, not a simulation of the user's runtime UI.
 - `related_lists`: configured entries plus discoverable dictionary reference and
   basic relationship candidates. Each descriptor carries `configured`, `kind`,
@@ -85,3 +86,5 @@ sources, hidden ids, ambiguity, injection, auth, cycles and depth limits.
 explicit nondefault read-only profile, JSON, extraction and human output, and
 proves generic get still performs a single table read without metadata requests.
 No ServiceNow instance calls are required.
+
+Connected-PDI terminal counts and scope limits: `docs/verification/317-metadata.md`.
