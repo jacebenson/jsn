@@ -253,3 +253,13 @@ visibility does not replace ServiceNow ACLs: non-admin users can have delegated
 development access, and role snapshots may age. Generic `requests` remains RITM
 management; a new catalog ordering/record-producer workflow requires separate
 API and mutation design and is not invented as part of help filtering.
+
+## 2026-10-29: Attachment transfers have a standalone command
+
+Expose `attachments list/download/upload` at the root so transfer operations are
+discoverable without knowing the record command tree. `get`/`add` remain action
+aliases; remove the nested transfer subtree rather than register duplicate
+implementations. Preserve optional attachment enrichment on record/request views.
+Downloads identify the attachment directly and derive only a safe local basename
+from remote metadata; local overwrites are explicit. Uploads retain declared
+mutation guards and confirmation.

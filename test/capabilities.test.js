@@ -105,9 +105,11 @@ describe('capabilities registry', () => {
     assert.ok(has(['tickets', 'create']));
     assert.ok(has(['users', 'delete']));
     assert.ok(has(['groups', 'update']));
-    // records bulk + attachments add
+    // records bulk + standalone attachment uploads
     assert.ok(has(['records', 'bulk']));
-    assert.ok(has(['records', 'attachments', 'add']));
+    assert.ok(has(['attachments', 'upload']));
+    assert.ok(has(['attachments', 'add']));
+    assert.ok(!has(['records', 'attachments', 'add']));
     // atf + approvals
     assert.ok(has(['atf', 'run']));
     assert.ok(has(['atf', 'run-suite']));

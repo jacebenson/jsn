@@ -20,6 +20,7 @@ import { discoverCmd } from './commands/discover.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
+import { attachmentsCmd } from './commands/attachments.js';
 import { cmdbCmd } from './commands/cmdb.js';
 import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
@@ -411,6 +412,7 @@ export function buildCLI() {
     // DATA
     .command(cmdbCmd(wrap))
     .command(recordsCmd(wrap))
+    .command(attachmentsCmd(wrap))
     .command(transactionsCmd(wrap))
 
     .command(platformCmd(wrap))
@@ -494,7 +496,7 @@ export function buildCLI() {
     })
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of
-      // its own (records attachments, docs community, and any future parent) —
+      // its own (attachments, docs community, and any future parent) —
       // the adapter used to fall through and exit 0 having printed nothing.
       // Children come from the registry, description included, so this list
       // cannot drift from the registrations the way a hand-written one did.
