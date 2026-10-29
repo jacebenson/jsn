@@ -17,7 +17,7 @@ import { resolveSession, applySession, contextFromSession, requireSessionInstanc
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
 import { canPrompt } from './helpers.js';
-import { isMutationCommand } from './mutations.js';
+import { guardMutationContext } from './mutation-context.js';
 import process from 'node:process';
 
 
@@ -92,7 +92,7 @@ export class App {
     return this.session?.instance || '';
   }
 
-  async printContextHeader(argv = {}) {
+  async printContextHeader(_argv = {}) {
     if (!this.getEffectiveInstance() || !this.sdk) return;
     if (process.env.JSN_NO_HEADER) return;
     if (this.output.getFormat() === FormatJSON || this.output.getFormat() === FormatQuiet) return;
@@ -118,12 +118,12 @@ export class App {
 
     // Both lookups depend on the user, but not on one another.
     const [application, selectedUpdateSet] = userSysID ? await Promise.all([
-      getCurrentApplication(this.sdk, userSysID).catch(() => null),
+      getCurrentApplication(this.sdk, userSysID, { unknownWhenMissing: true }).catch(() => null),
       getCurrentUpdateSet(this.sdk, userSysID).catch(() => null),
     ]) : [null, null];
-    const scope = application?.scope || 'global';
+    const scope = application?.scope || 'unknown';
     const updateSet = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
-      ? selectedUpdateSet.name : 'Default';
+      ? selectedUpdateSet.name : 'unknown';
     const updateSetSysID = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
       ? selectedUpdateSet.sys_id : '';
     this.context.scope = scope;
@@ -153,43 +153,14 @@ export class App {
 
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 
-    // ⚠️  Warning if in the Default update set (mutation commands only)
-    if (isMutationCommand(argv) && updateSet && updateSet.toLowerCase().includes('default')) {
-      const isGlobal = scope === 'global';
-      if (isGlobal) {
-        // 🔴 HARD WARNING — Global + Default
-        process.stderr.write(
-          '\x1b[31m' + // red
-          '┏━ GLOBAL + DEFAULT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n' +
-          '┃  You are in Global scope with the Default update set.  ┃\n' +
-          '┃  Changes ARE captured — in the Default update set.     ┃\n' +
-          '┃  Moving them to a named update set later requires      ┃\n' +
-          '┃  manual surgery, one change at a time. Avoid the mess. ┃\n' +
-          '┃                                                        ┃\n' +
-          '┃  Create a named update set now:                        ┃\n' +
-          '┃    jsn updatesets create --name "My Feature"       ┃\n' +
-          '┃                                                        ┃\n' +
-          '┃  Or switch to a scoped scope first:                    ┃\n' +
-          '┃    jsn scopes list                                 ┃\n' +
-          '┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\x1b[0m\n'
-        );
-      } else {
-        // 🟡 SOFT WARNING — Scope + Default
-        process.stderr.write(
-          '\x1b[33m' + // yellow
-          '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-          '  ⚠  Default update set in scope [' + scope + ']\n' +
-          '  Changes are contained to this scope, but a named\n' +
-          '  update set is still recommended for tracking.\n' +
-          '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-          '\x1b[0m' // reset
-        );
-      }
-    }
+  }
+
+  async guardMutationContext(argv) {
+    this.mutationContext = await guardMutationContext(this, argv);
   }
 
   ok(data, opts = {}) {
-    this.output.ok(data, opts);
+    this.output.ok(data, this.mutationContext ? { ...opts, context: { ...opts.context, mutation: this.mutationContext } } : opts);
   }
 
   err(error) {

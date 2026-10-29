@@ -284,7 +284,7 @@ describe('scopeMismatchWarning', () => {
       { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' },
     );
     assert.ok(warn.includes('in app "Global"'));
-    assert.ok(warn.includes('jsn scopes set Global'));
+    assert.ok(warn.includes('jsn scopes set abc123'));
   });
 
   it('handles a plain-string application field (non-display-value path)', async () => {

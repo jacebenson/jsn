@@ -116,6 +116,7 @@ export class LocalCLI {
 
   scriptName(value) { this.script = value; return this; }
   usage(value) { this.root.usageText = value; return this; }
+  epilogue(value) { this.root.epilogueText = value; return this; }
   middleware(fn) { this.middlewares.push(...(Array.isArray(fn) ? fn : [fn])); return this; }
   option(name, config) { this.root.options.set(name, { ...config, name }); return this; }
   options(config) { for (const [name, value] of Object.entries(config)) this.option(name, value); return this; }
@@ -294,6 +295,13 @@ export class LocalCLI {
         aliases: [...node.aliases],
         description: node.definition.describe || '',
         subcommands: node.children.filter(visible).map((child) => child.name),
+        discovery: node.definition.discovery || null,
+        help: `jsn ${node.name} --help`,
+        actions: node.children.filter(visible).map((child) => ({
+          name: child.name,
+          description: child.definition.describe || '',
+          help: `jsn ${node.name} ${child.name} --help`,
+        })),
       };
     };
     return {
