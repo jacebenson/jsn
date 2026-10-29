@@ -16,6 +16,10 @@
 //     skipDailyChecks: true,
 //     // Suppress the current instance header for profile management commands.
 //     skipContextHeader: true,
+//     // Remediation commands bypass mutation capture-context approval only.
+//     mutationContextExemptSubcommands: ['create', 'set'],
+//     // REST methods that are reads (read-only profile policy is separate).
+//     mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'],
 //   }
 //
 // cli.js derives every skip-list and the mutation guard's path list from

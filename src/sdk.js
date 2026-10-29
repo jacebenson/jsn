@@ -48,6 +48,7 @@ export class SDKClient {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.authProvider = authProvider;
     this.recovery = opts.recovery;
+    this.onMutation = opts.onMutation;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
     this.oauthCookies = null;
@@ -104,7 +105,47 @@ export class SDKClient {
 
   // Keep the timeout alive through body consumption for text/JSON requests.
   // Raw-response callers retain their existing timeout boundary at headers.
-  async _withAuthenticatedRequest(endpoint, opts, {
+  async _withAuthenticatedRequest(endpoint, opts, settings, consume = (response) => response) {
+    const url = new URL(endpoint);
+    const match = url.pathname.match(/^\/api\/now\/table\/([^/]+)(?:\/([^/]+))?\/?$/);
+    const operation = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }[(opts.method || 'GET').toUpperCase()];
+    const event = match && operation && this.onMutation ? {
+      table: decodeURIComponent(match[1]), sys_id: match[2] ? decodeURIComponent(match[2]) : null, operation,
+    } : null;
+    let result;
+    try {
+      result = await this._performAuthenticatedRequest(endpoint, opts, settings, async response => {
+        if (event) event.http_status = response.status;
+        const value = await consume(response);
+        if (event && value instanceof Response && response.ok && operation === 'create') {
+          try { event.sys_id = (await response.clone().json())?.result?.sys_id || null; } catch { /* ID remains unknown. */ }
+        }
+        return value;
+      });
+    } catch (error) {
+      if (event) await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
+        ? 'failed' : 'unknown', http_status: error.status || null });
+      throw error;
+    }
+    if (event) {
+      let body = result;
+      if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = null; } }
+      const id = body?.result?.sys_id;
+      if (typeof id === 'string') event.sys_id = id;
+      else if (typeof id?.value === 'string') event.sys_id = id.value;
+      await this._reportMutation({ ...event, outcome: event.http_status >= 400
+        ? (event.http_status < 500 && event.http_status !== 408 ? 'failed' : 'unknown')
+        : (event.sys_id ? 'succeeded' : 'unknown') });
+    }
+    return result;
+  }
+
+  async _reportMutation(event) {
+    // History failures must never change the outcome of a completed remote write.
+    try { await this.onMutation(event); } catch { /* App callback reports local storage failures. */ }
+  }
+
+  async _performAuthenticatedRequest(endpoint, opts, {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
   }, consume = (response) => response) {
     for (let attempt = 0; attempt < 2; attempt++) {

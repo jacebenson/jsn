@@ -160,6 +160,7 @@ export class OutputWriter {
     const format = this.effectiveFormat();
     const e = error.code ? error : { code: 'unknown', message: String(error), hint: '' };
     const resp = { ok: false, error: e.message, code: e.code, hint: e.hint || '' };
+    if (e.context) resp.context = e.context;
     if (e.status === 401 || e.status === 403) resp.status = e.status;
     if (e.recovery) {
       resp.recovery = e.recovery;

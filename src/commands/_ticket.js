@@ -14,6 +14,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
     command: `${displayName} [subcommand]`,
     aliases: [table, alias],
     describe: `Manage ${displayName} (e.g. "${displayName} list --query priority=1")`,
+    discovery: { table, defaultColumns, benefits: ['Configured list columns', 'Ticket-specific create/update flags'] },
     builder: (yargs) => {
       return yargs
         .command({
