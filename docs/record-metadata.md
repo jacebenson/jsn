@@ -26,7 +26,9 @@ The report contains:
 - `related_lists`: configured entries plus discoverable dictionary reference and
   basic relationship candidates. Each descriptor carries `configured`, `kind`,
   `table`, `reference_field` and `query_status`. Configured entries additionally
-  carry source table, position, filter and ordering. Inherited reference targets
+  carry source table, position, filter and ordering. `filter_available` distinguishes
+  a visible empty filter from an ACL-omitted filter; unknown filters remain a
+  coverage gap and must not be counted as an unfiltered collection. Inherited reference targets
   are included. Configured advanced `REL:` IDs are read individually by id when
   not included in the basic relationship search.
 - `coverage`: `observed` or `partial`, a scope limitation and source warnings.

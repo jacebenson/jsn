@@ -33,8 +33,8 @@ function fixture({ batch = false, deny = '', malformed = '', custom = false, scr
       ];
       case 'sys_ui_related_list_entry': return [
         { related_list: 'x_note.parent', position: '0', filter: 'active=true', order_by: 'sys_created_on' },
-        { related_list: `REL:${id('e')}`, position: '1' },
-        { related_list: `REL:${id('f')}`, position: '2' },
+        { related_list: `REL:${id('e')}`, position: '1', filter: '' },
+        { related_list: `REL:${id('f')}`, position: '2', filter: '' },
       ];
       case 'sys_ui_section': return [{ sys_id: id('3'), caption: 'Details' }, { sys_id: id('4'), caption: 'Header' }];
       case 'sys_ui_element': return [
@@ -210,4 +210,24 @@ test('canonical Default view wins over a distinct view literally named default',
   assert.equal(metadata.view_sys_id, id('c'));
   assert.ok(metadata.form);
   assert.equal(metadata.coverage.state, 'observed');
+});
+
+
+test('hidden or display-only configured filters remain unavailable rather than becoming an unfiltered relationship', async () => {
+  for (const entry of [
+    { related_list: 'x_note.parent', position: '0' },
+    { related_list: 'x_note.parent', position: '0', filter: { display_value: 'Active is true' } },
+    { related_list: 'x_note.parent', position: '0', filter: 42 },
+    { related_list: 'x_note.parent', position: '0', filter: undefined },
+  ]) {
+    const { sdk } = fixture();
+    const original = sdk.list;
+    sdk.list = (table, params) => table === 'sys_ui_related_list_entry' ? Promise.resolve([entry]) : original(table, params);
+    const metadata = await createRecordMetadataReader(sdk).read({ table: 'x_case' });
+    assert.equal(metadata.related_lists.find(item => item.configured).filter_available, false);
+    assert.equal(metadata.coverage.state, 'partial');
+    assert.ok(metadata.coverage.warnings.some(warning => /configured filter/.test(warning.reason)));
+  }
+  const known = await createRecordMetadataReader(fixture().sdk).read({ table: 'x_case' });
+  assert.ok(known.related_lists.filter(item => item.configured).every(item => item.filter_available));
 });
