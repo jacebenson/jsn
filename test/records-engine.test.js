@@ -45,6 +45,14 @@ test('exact, prefix and suffix lookups are bounded and never pick ambiguous or m
   await assert.rejects(resolveRecord(memorySdk([{ sys_id: 'same' }, { sys_id: 'same' }]), { table: 'x_custom', identifier: 'same' }), error => error.code === 'ambiguous' && error.resolution.mode === 'exact');
   assert.ok(calls.every(call => call.params.sysparm_limit === '2'));
 });
+test('display-only sys_id wrappers cannot become mutation destinations', async () => {
+  let writes = 0;
+  const sdk = { list: async () => [{ sys_id: { display_value: 'not-a-raw-id' } }],
+    update: async () => { writes++; }, delete: async () => { writes++; } };
+  await assert.rejects(updateRecord(sdk, { table: 'x_custom', identifier: 'Named', data: {} }), /no readable sys_id/);
+  await assert.rejects(deleteRecord(sdk, { table: 'x_custom', identifier: 'Named' }), /no readable sys_id/);
+  assert.equal(writes, 0);
+});
 test('explicit human fields do not fall back to partial ids and validation precedes reads', async () => {
   const calls = [], sdk = memorySdk([{ sys_id: 'has-fragment' }], calls);
   await assert.rejects(resolveRecord(sdk, { table: 'x_custom', identifier: 'fragment', identifierField: 'number' }), error => error.code === 'not_found');
