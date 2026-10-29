@@ -14,7 +14,7 @@ compatibility: |
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
 metadata:
   author: jacebenson
-  version: "4.3.10"
+  version: "4.3.12"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -151,8 +151,5 @@ Check order (priority):
 
 ## Configuration
 
-```
-~/.config/servicenow/
-├── config.json               # Profiles and settings
-└── credentials/              # Auth tokens (fallback, one file per key)
-```
+Use `jsn setup` for interactive configuration. `jsn setup --help` lists the
+scriptable `jsn auth` equivalents and secure authentication input options.

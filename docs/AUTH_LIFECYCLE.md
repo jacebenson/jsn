@@ -143,4 +143,12 @@ status SDKs do not install runtime recovery. Offline commands do not require it.
 
 A legacy bare credential or bare pending PKCE state has no reliable username identity. JSN therefore does not claim to distinguish users before a profile identity is known. Users should re-authenticate legacy/no-profile entries before operating multiple identities on the same instance.
 
-For a browser-session profile, `jsn auth refresh` renews the session through the shared browser login flow. In an interactive terminal it opens the browser; automation must explicitly pass `--browser` or supply `--headers`. OAuth profiles continue using their refresh token.
+For a browser-session profile, `jsn auth refresh` renews the session through the shared browser login flow. In an interactive terminal it opens the browser; automation must explicitly pass `--browser` or supply `--headers-file <path>` (`-` reads stdin). OAuth profiles continue using their refresh token.
+
+`auth login` accepts the same `--headers-file` input. Files and piped input use
+the existing captured-session parser and verification, without a paste prompt or
+session data in command arguments. Empty/unreadable input and conflicting method
+flags fail before authentication changes. Inline `--headers` remains available
+for compatibility. `setup --help` maps all wizard actions to scriptable commands;
+Basic uses environment credentials, and OAuth can read its code through the
+existing `--print-url --wait-file <path>` flow.

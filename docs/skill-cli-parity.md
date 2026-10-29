@@ -20,7 +20,7 @@ linked implementation issues are complete.
 | Table/raw REST examples | Remove duplicated examples | `records list --help`, `records get --help`, `rest --help`; CLI-level checks in `test/records-rest-help.test.js`. All REST methods remain blocked on read-only connections. |
 | Docs tutorial | Keep pending #324 | Offline docs exist, but the agreed snapshot distribution redesign is not implemented. |
 | Field troubleshooting | Keep / deferred | Human explicitly deferred review; requires a separate audit. |
-| Configuration paths | Keep pending #323 | Full wizard/noninteractive capability parity and diagnostics need verification before removal. |
+| Configuration paths | Replace with discovery pointer | `setup --help` maps every management action to canonical auth commands. `test/setup-parity.test.js` verifies secure file/stdin session input, settings, default selection, status, logout and removal; existing shared-workflow tests cover Basic/OAuth creation. |
 
 ## Distribution proof
 
