@@ -17,6 +17,7 @@ Runtime deps — keep this list short, every addition needs a reason:
 | `@inquirer/prompts` + `@inquirer/core` | Interactive pickers (TTY list views, setup wizard) |
 | `better-sqlite3` | `jsn docs` search index — native module, needs build tools on git installs (node:sqlite lacks FTS5 on some platforms) |
 | `js-yaml` | YAML frontmatter parsing and serialization for docs markdown |
+| `saxes` | Strict, entity-safe XML inspection before native update-set upload |
 | `turndown` | HTML → markdown for docs ingestion |
 
 The docs site is a separate npm project in `docs/`; its Eleventy dependency
