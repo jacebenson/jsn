@@ -118,6 +118,13 @@ one. Defaults change only through a human choice, `--make-default`, or
 bot's `auth modify` request is idempotent. Noninteractive commands never open
 implicit prompts or browsers.
 
+## CI search
+
+`cmdb search` is a read-only, literal substring lookup across four common CI
+identity fields. Every OR branch keeps the exact class restriction. Stable
+name/sys_id ordering and one-row lookahead provide bounded pagination without
+claiming an unreadable count is zero. Failed strict reads remain errors.
+
 ## Record metadata reader
 
 An invocation-scoped SDK-bound reader of shared form layouts, table inheritance,

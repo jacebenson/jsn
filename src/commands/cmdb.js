@@ -15,6 +15,7 @@ import {
   resolveFieldsParam,
 } from '../helpers.js';
 import { errNotFound, errUsage } from '../errors.js';
+import { cmdbSearchCmd } from './cmdb-search.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
 const MAX_DEPTH = 5;
@@ -371,6 +372,7 @@ export function cmdbCmd(wrap) {
     }),
     builder: (yargs) => {
       return yargs
+        .command(cmdbSearchCmd(wrap))
         .command({
           command: 'list',
           describe: 'List CIs from the CMDB (cmdb_ci)',

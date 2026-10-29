@@ -72,6 +72,15 @@ an explicitly selected profile or instance. `updatesets show` also offers a scan
 hint. Recommendation/generation of new checks is not part of this command;
 JSN contains no AI and does not infer missing business requirements.
 
+### CMDB search
+
+`jsn cmdb search "web" --profile work` searches names, FQDNs, IP addresses and
+serial numbers on `cmdb_ci`. Use `--class cmdb_ci_server` for an exact class
+match (excluding subclasses), and bounded `--limit`/`--offset` pagination.
+Search text is literal; encoded-query operators and query scripts are rejected.
+Existing `cmdb list --query` remains available for deliberate encoded queries.
+Results include show/relationship hints and preserve the selected connection.
+
 ### Supported versions
 
 Only the current release and the two preceding releases in each channel are
