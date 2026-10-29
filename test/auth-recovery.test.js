@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => { process.env = savedEnv; });
 
-function fixture(t, method = 'oauth', { reauth, interactive, accept = true, refreshToken = true, argv = {} } = {}) {
+function fixture(t, method = 'oauth', { reauth, interactive, accept = true, refreshToken = true, argv = {}, renewError } = {}) {
   const profile = { instance_url: instance, username: 'selected-user', auth_method: method, reauth };
   const app = new App({ ...createConfig(), activeProfile: 'selected', profiles: { selected: profile } });
   const credentials = new Map([
@@ -45,6 +45,7 @@ function fixture(t, method = 'oauth', { reauth, interactive, accept = true, refr
     renewBrowser: async (request) => {
       assert.deepEqual(request, { profile: 'selected', browser: true });
       counts.browsers++;
+      if (renewError) throw renewError;
       credentials.set('selected-user', { auth_method: 'gck', access_token: secrets[4], cookies: 'JSESSIONID=replaced' });
     },
   };
@@ -87,6 +88,83 @@ for (const method of ['request', 'rawRequest']) {
     assert.ok(result);
     assert.deepEqual(f.counts, { calls: 2, refreshes: 1, browsers: 0, prompts: 0 });
     assert.equal(f.credentials.get('selected-user').access_token, 'refreshed-access');
+  });
+}
+
+for (const method of ['request', 'rawRequest']) {
+  test(`concurrent OAuth 401s share one refresh and replay both ${method} calls once`, async t => {
+    const f = fixture(t); f.respond([401, 401, 200, 200]);
+    const results = await Promise.all([
+      f.sdk[method](`${instance}/api/first`),
+      f.sdk[method](`${instance}/api/second`),
+    ]);
+    for (const result of results) {
+      if (method === 'rawRequest') assert.deepEqual(JSON.parse(result), { result: { success: true } });
+      else assert.deepEqual(result, { result: { success: true } });
+    }
+    assert.deepEqual(f.counts, { calls: 4, refreshes: 1, browsers: 0, prompts: 0 });
+  });
+
+  test(`later OAuth 401 reuses successful recovery for ${method} without refreshing again`, async t => {
+    const f = fixture(t); f.respond([401, 200, 401, 200]);
+    await f.sdk[method](`${instance}/api/first`);
+    const result = await f.sdk[method](`${instance}/api/second`);
+    if (method === 'rawRequest') assert.deepEqual(JSON.parse(result), { result: { success: true } });
+    else assert.deepEqual(result, { result: { success: true } });
+    assert.deepEqual(f.counts, { calls: 4, refreshes: 1, browsers: 0, prompts: 0 });
+  });
+}
+
+test('failed OAuth recovery is shared by concurrent and later requests without another refresh', async t => {
+  const f = fixture(t); f.respond([401], { refreshStatus: 400 });
+  const results = await Promise.allSettled([
+    f.sdk.request(`${instance}/api/first`),
+    f.sdk.request(`${instance}/api/second`),
+  ]);
+  for (const result of results) {
+    assert.equal(result.status, 'rejected');
+    actionable(result.reason);
+    assert.equal(result.reason, results[0].reason);
+  }
+  await assert.rejects(f.sdk.request(`${instance}/api/later`), error => {
+    actionable(error);
+    assert.equal(error, results[0].reason);
+    return true;
+  });
+  assert.deepEqual(f.counts, { calls: 3, refreshes: 1, browsers: 0, prompts: 0 });
+});
+
+test('concurrent GCK confirm 401s share one prompt and browser renewal', async t => {
+  const f = fixture(t, 'gck', { reauth: 'confirm', interactive: true });
+  f.respond([401, 401, 200, 200, 401, 200]);
+  const results = await Promise.all([
+    f.sdk.request(`${instance}/api/first`),
+    f.sdk.request(`${instance}/api/second`),
+  ]);
+  for (const result of results) assert.deepEqual(result, { result: { success: true } });
+  assert.deepEqual(f.counts, { calls: 4, refreshes: 0, browsers: 1, prompts: 1 });
+  assert.deepEqual(await f.sdk.request(`${instance}/api/later`), { result: { success: true } });
+  assert.deepEqual(f.counts, { calls: 6, refreshes: 0, browsers: 1, prompts: 1 });
+});
+
+for (const accept of [true, false]) {
+  test(`failed GCK recovery never repeats the prompt or browser flow; accept=${accept}`, async t => {
+    const f = fixture(t, 'gck', {
+      reauth: 'confirm', interactive: true, accept, renewError: new Error('browser renewal failed'),
+    });
+    f.respond([401]);
+    let firstError;
+    await assert.rejects(f.sdk.request(`${instance}/api/first`), error => {
+      actionable(error, 'jsn auth refresh --profile selected --browser');
+      firstError = error;
+      return true;
+    });
+    await assert.rejects(f.sdk.request(`${instance}/api/later`), error => {
+      actionable(error, 'jsn auth refresh --profile selected --browser');
+      assert.equal(error, firstError);
+      return true;
+    });
+    assert.deepEqual(f.counts, { calls: 2, refreshes: 0, browsers: accept ? 1 : 0, prompts: 1 });
   });
 }
 
@@ -220,9 +298,10 @@ test('POST success after 401 is returned; a 500 on retry is final', async t => {
   const f = fixture(t); f.respond();
   assert.deepEqual(await f.sdk.create('fixture', { name: 'value' }), { success: true });
   assert.equal(f.counts.calls, 2); assert.equal(f.counts.refreshes, 1);
+  // This SDK already recovered; the later 401 replays without another refresh.
   f.counts.calls = 0; f.counts.refreshes = 0; f.respond([401, 500]);
   await assert.rejects(f.sdk.create('fixture', {}), { code: 'api_error', status: 500 });
-  assert.equal(f.counts.calls, 2); assert.equal(f.counts.refreshes, 1);
+  assert.equal(f.counts.calls, 2); assert.equal(f.counts.refreshes, 0);
 });
 
 test('selected SDK identity stays pinned even if the active profile changes', async t => {

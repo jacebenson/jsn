@@ -30,40 +30,45 @@ export function createAuthRecovery({ app, session, argv = () => app._authArgv ||
         : `Run: ${error.recovery}`;
     return error;
   }
+  // Keep the settled promise too: this provider gets only one recovery attempt.
+  let recoveryAttempt;
   const provider = {
     error: failure(),
     async recover({ status }) {
       if (status !== 401) return false;
-      let creds;
-      try {
-        creds = await app.auth.getCredentialsFor(instance, username, {
-          username, authMethod: profile?.auth_method, refresh: false,
-        });
-      } catch { throw provider.error; }
-      const method = profile?.auth_method || creds.auth_method;
-      provider.error = failure(method);
-      if (method === 'oauth' && creds.refresh_token) {
-        try {
-          await app.auth.refreshToken(instance, creds, username ?? null);
-          return true;
-        } catch { throw provider.error; }
-      }
-      if (method === 'gck' && profileName && ['auto', 'confirm'].includes(profile?.reauth ?? 'confirm')
-        && canInteract(app, argv())) {
-        try {
-          if ((profile?.reauth ?? 'confirm') === 'confirm'
-            && !await prompt({ message: `Sign in again in a browser for ${label}?`, default: false })) throw provider.error;
-          // Reuse the canonical GCK refresh/login operation without emitting a
-          // second success envelope or replacing the in-flight command's SDK.
-          const targetApp = Object.create(app);
-          targetApp.ok = () => {};
-          targetApp.sdk = app.getSDKForProfile(instance, { profile, authMethod: 'gck', username });
-          await renewBrowser({ profile: profileName, browser: true }, targetApp);
-          return true;
-        } catch { throw provider.error; }
-      }
-      throw provider.error;
+      return recoveryAttempt ??= recoverOnce();
     },
   };
+  async function recoverOnce() {
+    let creds;
+    try {
+      creds = await app.auth.getCredentialsFor(instance, username, {
+        username, authMethod: profile?.auth_method, refresh: false,
+      });
+    } catch { throw provider.error; }
+    const method = profile?.auth_method || creds.auth_method;
+    provider.error = failure(method);
+    if (method === 'oauth' && creds.refresh_token) {
+      try {
+        await app.auth.refreshToken(instance, creds, username ?? null);
+        return true;
+      } catch { throw provider.error; }
+    }
+    if (method === 'gck' && profileName && ['auto', 'confirm'].includes(profile?.reauth ?? 'confirm')
+      && canInteract(app, argv())) {
+      try {
+        if ((profile?.reauth ?? 'confirm') === 'confirm'
+          && !await prompt({ message: `Sign in again in a browser for ${label}?`, default: false })) throw provider.error;
+        // Reuse the canonical GCK refresh/login operation without emitting a
+        // second success envelope or replacing the in-flight command's SDK.
+        const targetApp = Object.create(app);
+        targetApp.ok = () => {};
+        targetApp.sdk = app.getSDKForProfile(instance, { profile, authMethod: 'gck', username });
+        await renewBrowser({ profile: profileName, browser: true }, targetApp);
+        return true;
+      } catch { throw provider.error; }
+    }
+    throw provider.error;
+  }
   return provider;
 }
