@@ -32,13 +32,13 @@ export function cancelBackgroundChecks() {
   backgroundChecks.clear();
 }
 
-export async function checkLatest({ timeout = 1500, background = false, version = getVersion() } = {}) {
+export async function checkLatest({ timeout = 1500, background = false, version = getVersion(), channel = getReleaseChannel(version) } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   timer.unref();
   if (background) backgroundChecks.add(controller);
   try {
-    const res = await fetch(`https://registry.npmjs.org/${NPM_PKG}/${getReleaseChannel(version)}`, { signal: controller.signal });
+    const res = await fetch(`https://registry.npmjs.org/${NPM_PKG}/${channel}`, { signal: controller.signal });
     if (!res.ok) return null;
     const data = await res.json();
     return typeof data.version === 'string' ? data.version : null;

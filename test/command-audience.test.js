@@ -40,6 +40,7 @@ test('selected profiles filter help, JSON, discover and completion without remov
   writeFileSync(path.join(home, 'servicenow/config.json'), JSON.stringify({ default_profile: 'limited', profiles: {
     admin: { ...profile('admin'), instance_url: 'https://example.invalid' },
     limited: { ...profile('basic'), instance_url: 'https://example.invalid' },
+    readonly: { ...profile('basic'), read_only: true },
   } }));
   const run = args => {
     const result = spawnSync(process.execPath, [cli, ...args], { cwd: home, encoding: 'utf8', env: {
@@ -61,5 +62,21 @@ test('selected profiles filter help, JSON, discover and completion without remov
     assert(names(['--profile', 'limited', 'discover', '--all-commands', '--json']).includes('eval'));
     assert.match(run(['--profile', 'limited', 'eval', '--help']), /Execute background/);
     assert.doesNotMatch(run(['--profile', 'limited', '--get-yargs-completions', '']), /^eval$/m);
+    // Self-update changes the local installation, not ServiceNow records. Its
+    // canonical registration and update alias must be reachable for everyone.
+    for (const name of ['limited', 'admin', 'readonly']) {
+      assert.match(run(['--profile', name, '--help']), /jsn upgrade/);
+      const entry = JSON.parse(run(['--profile', name, '--json'])).data.commands.find(c => c.name === 'upgrade');
+      assert.ok(entry.aliases.includes('update'));
+      assert.ok(names(['--profile', name, 'discover', 'update', '--json']).includes('upgrade'));
+      const completions = run(['--profile', name, '--get-yargs-completions', '']);
+      assert.match(completions, /^upgrade$/m);
+      assert.match(completions, /^update$/m);
+      for (const command of ['upgrade', 'update']) {
+        const result = JSON.parse(run(['--profile', name, command, '--dry-run', '--json']));
+        assert.equal(result.data.dryRun, true);
+        assert.match(result.data.installCmd, /^npm install -g @jacebenson\/jsn@/);
+      }
+    }
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
