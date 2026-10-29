@@ -27,3 +27,7 @@ For development:
 4. Offer to create ATFs and instance scans to verify the outcomes.
 5. Ask whether anything else belongs in the update set. If the user confirms
    it is finished, complete it with notes.
+
+For incoming update sets: import the XML, preview the set, and resolve preview
+errors with the human where needed. Once the preview is clear, commit the set
+and verify the results.
