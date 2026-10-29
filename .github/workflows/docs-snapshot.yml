@@ -19,8 +19,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       DOCS_PUBLISH_TOKEN: ${{ secrets.DOCS_PUBLISH_TOKEN }}
       DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL || 'https://jsn.jace.pro' }}
-      JSN_DATA_HOME: ${{ runner.temp }}/jsn-docs-build
     steps:
+      - name: Isolate documentation build data
+        run: echo "JSN_DATA_HOME=$RUNNER_TEMP/jsn-docs-build" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
