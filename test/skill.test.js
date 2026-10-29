@@ -180,3 +180,51 @@ describe('Skill hermesSkillDir', () => {
     assert.ok(skillDir.includes(path.join('skills', 'servicenow')));
   });
 });
+
+describe('Packaged skill lifecycle', () => {
+  it('detects same-version edits immediately and replaces all recorded copies offline', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-skill-lifecycle-'));
+    const env = { ...process.env, XDG_CONFIG_HOME: directory,
+      JSN_HERMES_BASE_DIR: path.join(directory, 'hermes'), JSN_DATA_HOME: directory,
+      JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' };
+    const preload = path.join(directory, 'offline.mjs');
+    fs.writeFileSync(preload, 'globalThis.fetch = () => { throw new Error("Network access forbidden"); };');
+    const run = (...args) => {
+      const result = spawnSync(process.execPath, ['--import', preload, 'bin/jsn.js', 'skill', ...args],
+        { cwd: new URL('..', import.meta.url), env, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout;
+    };
+    try {
+      const bundled = fs.readFileSync(new URL('../skills/servicenow/SKILL.md', import.meta.url), 'utf8');
+      const destination = path.join(directory, 'custom');
+      run('install', destination, '--json');
+      const installed = path.join(destination, 'SKILL.md');
+      const second = path.join(directory, 'second.md');
+      fs.writeFileSync(second, bundled);
+      const configPath = path.join(directory, 'servicenow', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      config.skillLocations = [installed, second];
+      fs.writeFileSync(configPath, JSON.stringify(config));
+      fs.appendFileSync(installed, '\nLocal changes with the same version.\n');
+      let check = JSON.parse(run('check', '--json')).data;
+      assert.equal(check.current, false);
+      assert.equal(check.installed_version, check.bundled_version);
+      assert.equal(check.copies[0].status, 'different');
+      assert.ok(check.copies[0].first_different_line > 0);
+      assert.match(run('check', '--styled'), /first difference: line/);
+      fs.unlinkSync(second);
+      check = JSON.parse(run('check', '--json')).data;
+      assert.equal(check.copies[1].status, 'missing');
+      run('install', '--json');
+      assert.equal(fs.readFileSync(installed, 'utf8'), bundled);
+      assert.equal(fs.readFileSync(second, 'utf8'), bundled);
+      assert.equal(JSON.parse(run('check', '--json')).data.current, true);
+      assert.equal(run('fetch'), bundled);
+      assert.equal(JSON.parse(run('path', '--json')).data.raw_url, undefined);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});

@@ -172,7 +172,9 @@ mutable `main`. Skill guidance may omit safeguards only after the matching CLI
 implements them, so a newer skill cannot safely be installed by an older CLI.
 Installation, `skill show`, and `skill check` use the same bundled source and
 version. Upgrade JSN and reinstall the skill to update both together.
-`skill fetch` remains an explicit way to inspect the latest development text.
+`skill fetch` prints the packaged text offline. Checks compare complete contents,
+including edits with unchanged versions. A plain reinstall replaces all recorded
+installation files; explicit targets select a new set of managed copies.
 
 ## 2026-10-28: Declarative record command profiles
 

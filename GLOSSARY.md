@@ -507,3 +507,11 @@ separate payload-operation summary distinguish captured updates from subsidiary
 operations that would run on a later platform commit. `platform_default` means
 that a payload record omitted an explicit action; inspection does not infer it.
 Reopening is an explicit local state change, independent of selection or export.
+
+## Managed agent skill copies
+
+The packaged ServiceNow skill is the source for `skill show`, `fetch`, `check`
+and `install`. Installation records all selected file locations; the legacy
+`skillLocation` points to the first. A plain reinstall replaces that recorded set.
+Explicit destinations select a new managed set. Freshness means identical file
+contents, including edits that leave the frontmatter version unchanged.
