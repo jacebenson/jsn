@@ -115,5 +115,8 @@ claim. Parent execution outside that restriction measured the expanded counts
 above and passed full ESLint. After the deterministic clock rewrite, direct
 execution of `sdk-processflow-actions.test.js` passes all 86 cases (0.392s); an
 explicit no-DELETE assertion was then added alongside the single-POST check.
-Final combined suite validation is pending in the parent audit PR and will be
-reported there before publication.
+Final combined validation passed all 1,611 cases apart from the two unchanged
+integration skips (1,609 passed, zero failures). This area's per-file runner
+counts were 321 cases: 320 passed and one skipped. Full-tree ESLint and diff
+checks passed. The earlier standalone full run also passed: 1,631 passed,
+two skipped, zero failures. See the combined table in `TEST_AUDIT.md`.

@@ -6,6 +6,36 @@ claim that every suite has been audited. Keep `node:test`. The proposed 50-test
 goal is abandoned: there is no count ceiling, deletion percentage, or coverage
 quota. Count changes below describe the result, not a target.
 
+## Combined audit scope
+
+The completed review inventories all **153 tracked test files** on this base:
+17 safety/authentication files below, 31 in [the CLI/SDK report](TEST_AUDIT_CLI_SDK.md),
+and 105 in [the remaining-suite report](TEST_AUDIT_REMAINING.md). The manifests
+are disjoint and their union matches the tracked suite. Every file received
+source screening; candidate changes received detailed test/production review.
+This does not establish exhaustive behavior or mutation coverage. The earlier
+116-file count described an older checkout and is superseded by this inventory.
+
+All changes are test or contributor-guidance changes. Keep the suite's
+meaningful scenarios rather than reducing it to a predetermined size.
+
+| Area | Files reviewed | Cases before | Cases after |
+| --- | ---: | ---: | ---: |
+| Safety/authentication and pilot | 17 | 249 | 239 |
+| CLI/SDK | 31 | 326 | 321 |
+| Remaining suite | 105 | 1,063 | 1,051 |
+| Total | 153 | 1,638 | 1,611 |
+
+The clean baseline executed 1,638 cases: 1,636 passed, two skipped, no failures.
+The final combined run executed 1,611 cases: **1,609 passed, two skipped, no
+failures**, with full-tree ESLint and diff checks passing. A per-file event
+reporter measured the final partition above; original registrations and the
+verified change deltas reconcile the safety/remaining baseline partitions with
+the whole-suite baseline. CLI/SDK also had an independently executed baseline.
+The same integration gates remain skipped; their internal live cases were not
+executed. Baseline/final full-run durations were 154.7/82.9 seconds, but differing
+concurrent host load makes these diagnostic samples, not a speedup claim.
+
 ## Upstream examples examined before updating AGENTS.md
 
 | Source | Concrete pattern to adopt | What not to import |

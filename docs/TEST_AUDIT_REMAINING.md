@@ -65,9 +65,10 @@ so this pass does not delete it merely because it reads source.
 
 The opt-in `integration.test.js` and other live gates remain unchanged and were
 not run against an instance. Its update case has a weak `assert.ok(true)` after
-an awaited update; improving it needs a safe live fixture with readback, rather
-than claiming the offline audit verified live persistence. No live records were
-created, updated or deleted by this audit.
+an awaited update; the adjacent readback checks existence rather than field
+values. A disposable fixture already exists, so these are candidates for a
+separate live-test improvement and validation. This offline audit does not prove
+live persistence. No live records were created, updated or deleted by this audit.
 
 A source-review follow-up is `records/inspect.js`'s use of display-first
 `getStringField` for a resolved `sys_id`. Its normal lookup requests plain values;
@@ -93,7 +94,13 @@ The changed 11 files passed the local Node runner (11 file-level results); a
 direct `node test/inspect.test.js` run passed all six inspection cases. File-level
 results are not presented as the number of individual cases.
 
-Parent full-tree ESLint passed. Full post-change suite: pending parent validation; update before merge.
+Parent full-tree ESLint passed. The standalone post-change full suite passed:
+1,626 cases, 1,624 passed, two skipped, zero failures (114.1 seconds).
+After consolidating all three audits, the full suite passed 1,609 cases with two
+skipped and zero failures (1,611 total). Per-file reporting measured this area's
+1,051 cases: 1,050 passed, one skipped. The 1,063-case original partition follows
+from those registrations plus the verified net reduction of 12, and reconciles
+with the clean whole-suite baseline. See `TEST_AUDIT.md` for all areas.
 
 ## Owned file manifest
 
