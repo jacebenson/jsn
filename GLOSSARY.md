@@ -294,6 +294,15 @@ Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
   (`--json`/`--quiet`/`--styled`/`--markdown`/`--csv`) beat `--format`, and the
   last shortcut applied wins (`csv` > `markdown` > `styled` > `quiet` > `json`).
 
+## Catalog ordering
+
+`catalogitems search/describe/order` uses the native Service Catalog API for
+requester access and fulfillment. Ordering is a declared mutation with its own
+confirmation and read-only guard. It is exempt from development capture-context
+selection because it submits runtime business requests, not metadata changes.
+A preview never posts; unknown submission outcomes never cause automatic replay.
+Inputs are catalog variables, not arbitrary fields on an RITM or request header.
+
 ## Catalog item enrichment
 
 `src/commands/catalog/enrich.js`. `enrichCatalogItem({ sdk, instanceUrl,
