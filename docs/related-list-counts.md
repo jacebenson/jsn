@@ -29,7 +29,8 @@ partial coverage; a list absent from metadata is not evidence that no relationsh
 exists.
 
 Safe ordinary reference relationships, including inherited references, can be
-counted. Only a conservative AND-only literal subset of configured filters is
+counted. A configured filter hidden by metadata access makes that list unavailable;
+an explicitly empty visible filter remains valid. Only a conservative AND-only literal subset of configured filters is
 combined with the resolved parent reference. OR/NQ branches, JavaScript/dynamic
 logic, unknown operators and malformed filters are unavailable rather than risk
 widening the query. Custom/advanced relationships requiring platform scripts are

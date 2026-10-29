@@ -159,3 +159,10 @@ it('bounds default descriptor fanout and individual aggregate concurrency with a
   assert.equal(result.lists[50].count, null); assert.match(result.lists[50].command, /parent50=record/);
   assert.match(result.lists[50].command, /--profile selected/); assert.deepEqual(result.nonempty, []);
 });
+
+it('does not broaden a configured list when its filter is hidden by metadata access', async () => {
+  const f = fixture([reference('hidden-filter', { filter_available: false, filter: '' })]);
+  const result = await f.reader.read({ table: 'incident', recordId: 'record' });
+  assert.equal(f.calls.length, 0); assert.equal(result.lists[0].count, null);
+  assert.match(result.lists[0].reason, /filter is not visible/); assert.equal(result.lists[0].command, undefined);
+});

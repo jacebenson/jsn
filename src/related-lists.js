@@ -63,6 +63,7 @@ export function createRelatedListReader(sdk, { metadataReader, maxLists = 50 } =
       let reason;
       const filter = safeRelatedFilter(list.filter || '');
       if (list.query_status !== 'reference' || !isName(list.table) || !isName(list.reference_field)) reason = list.reason || 'Related list requires platform relationship logic or unavailable metadata.';
+      else if (list.configured && list.filter_available === false) reason = 'Configured related-list filter is not visible; count was not requested.';
       else if (filter === null) reason = 'Related-list filter uses unsupported dynamic or disjunctive query logic; count was not requested.';
       if (reason) {
         result.reason = reason; warnings.push({ source: list.id, reason }); return { result };
