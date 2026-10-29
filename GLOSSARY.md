@@ -440,3 +440,15 @@ and read methods (`mutationContextReadMethods`) separately from mutation paths.
 Creating/selecting an application or update set remains possible to resolve unsafe
 context. REST GET bypasses capture-context approval but remains blocked on read-only
 profiles, along with every other raw REST request.
+
+## Documentation snapshot
+
+A documentation snapshot is an immutable compressed SQLite FTS5 index, built once
+from a recorded source revision with the existing ingestion code. Its manifest
+identifies format/schema compatibility, source revision, sizes, checksum and an
+artifact-storage URL. A lightweight Rails service records build/publication state
+and exposes the last good manifest; the CLI downloads artifact bytes directly
+from storage. Documentation remains optional, independently installed from local
+mutation-history storage. Snapshot installation uses cooperative local reader and
+installer leases and validates the staged database before replacing the index.
+Local search remains available offline; freshness work cannot delay it.

@@ -1,18 +1,35 @@
 // Ingest ServiceNow markdown docs into a SQLite database with FTS5 full-text search.
 
 import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { docsReaderLease } from './locks.js';
+import { installDatabase } from './replace.js';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { withDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots } from './db.js';
+import { withDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function ingestDocs(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const staging = `${dbPath}.${randomUUID()}.building`;
+  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir() : null);
+  if (resource) fs.mkdirSync(path.dirname(resource), { recursive: true });
+  const releaseSource = resource && !opts.sourceLeaseHeld ? docsReaderLease(resource) : () => {};
+  try {
+    const result = ingestStagedDocs({ ...opts, dbPath: staging });
+    if (result.errors) throw new Error(`Documentation ingestion failed for ${result.errors} files; existing index retained`);
+    installDatabase(staging, dbPath, { afterInstall: () => fs.rmSync(`${dbPath}.snapshot.json`, { force: true }) });
+    return { ...result, dbPath };
+  } finally { releaseSource(); fs.rmSync(staging, { force: true }); }
+}
+function ingestStagedDocs(opts = {}) {
+  const dbPath = opts.dbPath || getDocsDbPath();
   const embed = opts.embed !== false;
   const roots = opts.roots || defaultDocsRoots(opts);
 
-  // Fresh build each run.
-  if (fs.existsSync(dbPath)) fs.rmSync(dbPath);
+  // The caller provides a fresh staging path; never unlink the installed index.
 
   return withDocsDb({ dbPath }, (db) => {
     initDocsSchema(db);
