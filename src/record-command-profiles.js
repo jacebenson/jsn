@@ -18,7 +18,7 @@ export default {
   appmenu: { table: 'sys_app_application', aliases: ['app-menu', 'menu'], columns: ['name', 'active', 'sys_scope'],
     options: { singular: 'application menu', scopeValidation: true } },
   acls: { table: 'sys_security_acl', aliases: ['acl'], columns: ['name', 'operation', 'type', 'active', 'sys_scope'],
-    options: { singular: 'ACL', scopeValidation: true } },
+    options: { singular: 'ACL', scopeValidation: true, help: 'Investigate table, field, wildcard and inherited ACL names for the relevant operation. Exact name=incident alone does not cover incident.caller_id, incident.*, *.caller_id or inherited-table ACLs. Roles, conditions and scripts affect effective access; rows alone do not prove access. See jsn columns --help for field investigation paths.' } },
   roles: { table: 'sys_user_role', aliases: ['role', 'r'], columns: ['name', 'description', 'elevated_privilege', 'sys_scope'],
     options: { singular: 'role', scopeValidation: true } },
   properties: { table: 'sys_properties', aliases: ['property', 'prop'], columns: ['name', 'value', 'description', 'sys_scope'],

@@ -210,6 +210,16 @@ and supplementary metadata/counts are separate and never fetch these children
 implicitly. UI policies declare actions as essential, replacing console-only
 output with the same children in JSON and human record sections.
 
+## Constrained table views
+
+A table factory's `extraQuery` defines a fixed list filter, not a default that a
+user query replaces. `src/constrained-query.js` combines that filter with
+literal AND predicates and ordering. OR/NQ/dynamic directives are rejected
+before requests because encoded queries have no portable grouping syntax that
+would preserve the fixed constraint. Generic records retain unrestricted
+encoded-query support. `b4rules` specifically constrains `when=before` and the
+Boolean `action_query=true`; rule order is not the classification.
+
 ## Session
 
 The composite answer to "which instance am I talking to, as whom, with what
