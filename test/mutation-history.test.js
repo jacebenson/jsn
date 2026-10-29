@@ -96,6 +96,13 @@ test('real CLI generic and specialized writes share automatic history and JSON q
     assert.ok(entries.every(e => e.reason === 'maintenance' && e.sys_id === 'full-resolved-id'));
     assert.doesNotMatch(result.stdout, /never-store-this|fixture-secret/);
     assert.equal(JSON.parse(result.stdout).ok, true);
+    const human = run(['history', '--styled']);
+    assert.equal(human.status, 0, human.stderr);
+    assert.match(human.stdout, /WHEN\s+ACTION/);
+    const details = run(['history', 'list', '--details', '--styled']);
+    assert.equal(details.status, 0, details.stderr);
+    assert.match(details.stdout, /full-resolved-id/);
+    assert.match(details.stdout, /maintenance/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -142,4 +149,22 @@ test('App surfaces a local storage failure once without throwing or printing det
     else process.env.JSN_DATA_HOME = previous;
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('human history uses local time and compact columns with full detail available', async () => {
+  const { renderHistory } = await import('../src/commands/history.js');
+  const entries = [{ timestamp: '2026-10-29T07:23:01.648Z', operation: 'delete', table: 'ecc_agent',
+    sys_id: 'dcd9a31493d4d31016c8fd18dd03d6d4', outcome: 'succeeded',
+    instance: 'https://example.service-now.com', profile: 'pdi', reason: 'test cleanup' }];
+  const compact = renderHistory(entries, { timeZone: 'America/Chicago' });
+  assert.match(compact, /29 Oct, 02:23/);
+  assert.match(compact, /WHEN\s+ACTION\s+TABLE\s+RECORD\s+RESULT\s+CONNECTION/);
+  assert.match(compact, /dcd9a31493d…/);
+  assert.doesNotMatch(compact, /https:\/\//);
+  const detailed = renderHistory(entries, { details: true, timeZone: 'America/Chicago' });
+  assert.ok(detailed.includes(entries[0].sys_id));
+  assert.ok(detailed.includes(entries[0].instance));
+  assert.ok(detailed.includes(entries[0].reason));
+  assert.equal(entries[0].timestamp, '2026-10-29T07:23:01.648Z');
+  assert.equal(renderHistory([]), 'No local mutations in the last seven days.');
 });

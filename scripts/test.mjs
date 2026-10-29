@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -11,9 +12,15 @@ function collect(directory) {
     return entry.isFile() && entry.name.endsWith('.test.js') ? [filename] : [];
   });
 }
-const result = spawnSync(process.execPath, [
-  '--experimental-test-module-mocks', '--test', '--test-concurrency=4',
-  ...process.argv.slice(2), ...collect(path.join(root, 'test')).sort(),
-], { cwd: root, stdio: 'inherit' });
-if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+// Fixture mutations must never enter the developer's personal history store.
+const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-suite-data-'));
+try {
+  const result = spawnSync(process.execPath, [
+    '--experimental-test-module-mocks', '--test', '--test-concurrency=4',
+    ...process.argv.slice(2), ...collect(path.join(root, 'test')).sort(),
+  ], { cwd: root, stdio: 'inherit', env: { ...process.env, JSN_DATA_HOME: path.join(dataHome, '.jsn') } });
+  if (result.error) throw result.error;
+  process.exitCode = result.status ?? 1;
+} finally {
+  fs.rmSync(dataHome, { recursive: true, force: true });
+}

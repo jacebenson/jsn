@@ -125,7 +125,7 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
     readonly: { instance_url: instance, auth_method: 'basic', read_only: true },
   } }));
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
-  Object.assign(env, { XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret',
+  Object.assign(env, { JSN_DATA_HOME: path.join(directory, 'data'), XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret',
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
   async function run(args, code = 0, profile = 'selected') {
     let result;

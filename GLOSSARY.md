@@ -463,7 +463,10 @@ table, resolved record ID, operation, outcome and an optional non-sensitive
 reason; request/response bodies and credentials are never serialized. A definitive
 HTTP rejection is failed; an uncertain transport outcome is unknown. Local storage
 failure warns without changing the remote operation's result. This convenience
-history is not a durable ServiceNow audit log.
+history is not a durable ServiceNow audit log. Human output uses local time and
+a compact table; `--details` expands identifiers and reasons. Structured output
+retains full IDs, instance origins and ISO timestamps. Fixture test runs use a
+disposable history store instead of the developer's store.
 
 ### Mutation capture-context approval
 
