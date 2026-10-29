@@ -4,11 +4,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
 describe('Scopes Command Structure', () => {
-  it('should export scopesCmd', async () => {
-    const { scopesCmd } = await import('../src/commands/scopes.js');
-    assert.strictEqual(typeof scopesCmd, 'function');
-  });
-
   it('should define all subcommands', async () => {
     const { scopesCmd } = await import('../src/commands/scopes.js');
     const wrap = (fn) => fn;
