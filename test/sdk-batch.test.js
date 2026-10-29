@@ -85,7 +85,7 @@ it('validates all requests before sending any, rejects writes, cross-instance UR
     for (const requests of [
       [{ url: '/api/now/table/incident', method: 'POST' }], [{ url: '/api/now/table/incident', body: '' }],
       [{ url: 'https://other.invalid/api/now/table/incident' }], [{ url: '/api/now/table/incident', headers: { Authorization: 'bad' } }],
-      [{ url: '/api/now/v1/batch' }], [{ id: 'same', url: '/api/now/table/incident' }, { id: 'same', url: '/api/now/table/incident' }],
+      [{ url: 'https://[invalid' }], [{ url: '/api/now/v1/batch' }], [{ id: 'same', url: '/api/now/table/incident' }, { id: 'same', url: '/api/now/table/incident' }],
       [{ url: '/api/now/table/incident' }, { url: '/not-an-api' }],
     ]) await assert.rejects(f.sdk.batch(requests), { code: 'usage_error' });
     assert.equal(f.calls.length, 0);

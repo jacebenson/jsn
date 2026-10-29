@@ -20,7 +20,8 @@ function normalizeRequests(sdk, requests) {
       throw errUsage('SDK batch supports GET reads only; send writes through ordinary SDK methods with their existing safety and history contracts.');
     }
     if (typeof item.url !== 'string' || !item.url.trim()) throw errUsage('Each batch request needs a same-instance API URL.');
-    const url = new URL(item.url, `${sdk.baseURL}/`);
+    let url;
+    try { url = new URL(item.url, `${sdk.baseURL}/`); } catch { throw errUsage('Invalid batch API URL.'); }
     if (url.origin !== new URL(sdk.baseURL).origin || url.username || url.password || url.hash
       || !url.pathname.startsWith('/api/') || /\/batch\/?$/.test(url.pathname)) {
       throw errUsage('Batch URLs must target a same-instance API endpoint; nested batches, credentials, and fragments are unsupported.');
@@ -94,6 +95,7 @@ async function individual(sdk, request, timeout) {
  * @param {{fallback?: boolean, chunkSize?: number, timeout?: number}} options
  */
 export async function batchRead(sdk, requests, { fallback = true, chunkSize = 50, timeout = sdk.timeout } = {}) {
+  if (typeof fallback !== 'boolean') throw errUsage('Batch fallback must be a boolean.');
   const normalized = normalizeRequests(sdk, requests);
   if (!Number.isInteger(chunkSize) || chunkSize < 1 || chunkSize > 1000) throw errUsage('Batch chunkSize must be an integer from 1 to 1000.');
   const results = [], transports = new Set();
