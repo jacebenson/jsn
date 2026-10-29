@@ -8,7 +8,8 @@ This follow-up changes tests and verification tooling, not runtime behavior.
 Validation of this checkout: full suite **1,551 passed, 2 skipped, 0 failed**
 (1,553 total); affected engine/performance tests **9 passed**; full lint and lint
 of the benchmark script passed. The local docs drive returned three JSON results
-and human output, and cleanup retained evidence. No instance-backed drive ran.
+and human output, and cleanup retained evidence. The separate bounded PDI check
+below ran afterward on the exact runtime/test checkout.
 
 ## Acceptance evidence
 
@@ -54,12 +55,26 @@ budgets and bounds, never unstable wall-clock thresholds.
 
 ## Actual instance evidence and limits
 
-Existing component runs, rather than this fixture benchmark, establish actual
+A fresh read-only PDI check ran on source `5da45b6` after a successful doctor
+(authenticated/verified true) at 2026-10-29 05:41 UTC. The actual command was:
+
+```sh
+JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1 node bin/jsn.js --profile pdi records list --table sys_db_object --query name=incident --columns name,label --limit 1 --offset 0 --no-count --json --get data.pagination
+```
+
+It exited 0 and returned exactly `{"limit":1,"offset":0}`, without a total field.
+Cleanup completed. [Sanitized terminal evidence](321-records-pdi.json) records
+the source, command, doctor projection and result. This verifies live output
+behavior, not a live HTTP-request budget or timing result. No writes or credential
+renewal occurred during this proof. Subsequent commits only record evidence.
+
+Existing component runs, rather than this fixture benchmark, establish further actual
 read-only PDI behavior: [records engine and compact profiles](records-engine.md),
 [batch](sdk-batch-live-check.md), [metadata](317-metadata.md) and
 [specialized related counts](318-specialized-live.json). These records retain
 the tested source revisions, doctor results, commands and sanitized outcomes.
-They are not newly repeated live tests or live timing measurements for this PR.
+Those earlier component runs are not newly repeated live tests or live timing
+measurements for this PR.
 No PDI access, refresh, login, instance write or private data collection occurs
 in the new test/benchmark commands. Live mutation behavior, effective ACL access,
 large live forms and live unsupported-batch fallback are not claimed; their

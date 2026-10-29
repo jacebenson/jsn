@@ -1,0 +1,21 @@
+{
+  "kind": "read_only_pdi_pagination",
+  "source_commit": "5da45b698e25e384843bc030bd9f0164e8270299",
+  "checked_at": "2026-10-29T05:41:06.906Z",
+  "doctor": {
+    "profile": "pdi",
+    "authenticated": true,
+    "verified": true,
+    "auth_method": "oauth",
+    "auth_source": "keyring",
+    "probe_status": "succeeded"
+  },
+  "command": "JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1 node bin/jsn.js --profile pdi records list --table sys_db_object --query name=incident --columns name,label --limit 1 --offset 0 --no-count --json --get data.pagination",
+  "exit_code": 0,
+  "stdout": {
+    "limit": 1,
+    "offset": 0
+  },
+  "cleanup_completed": true,
+  "limits": "Read-only metadata pagination/count-opt-out output proof. No live HTTP budget or timing measurement; no instance writes or credential renewal during this proof. Hostname and opaque record IDs omitted."
+}
