@@ -148,7 +148,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             const recordName = getStringField(record, 'name') || getStringField(record, 'sys_id');
             record._context = { instance_url: app.getEffectiveInstance(), table };
             if (opts.onShow) {
-              await opts.onShow(record, app);
+              await opts.onShow(record, app, argv);
             }
             app.ok(record, {
               summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${recordName}`,
@@ -181,7 +181,11 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         command: opts.resolveIdentifier ? 'show [identifier]' : 'show <identifier>',
         aliases: ['get'],
         describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
-        builder: y => recordOptions(y),
+        builder: y => {
+          const command = recordOptions(y);
+          return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true,
+            describe: 'Fetch profile-declared essential children; --no-essential skips them. Supplementary lists remain lazy.' }) : command;
+        },
         handler: wrap(async (argv, app) => {
           const id = opts.resolveIdentifier ? await opts.resolveIdentifier(argv, app) : argv.identifier;
           if (id === undefined) return;
@@ -197,7 +201,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           };
 
           if (opts.onShow) {
-            await opts.onShow(record, app);
+            await opts.onShow(record, app, argv);
           }
 
           const summary = typeof showSummary === 'function' ? showSummary(record, id) : showSummary;

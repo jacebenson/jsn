@@ -126,10 +126,14 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           command: 'show <number>',
           aliases: ['get'],
           describe: `Show a specific ${displayName}`,
-          builder: y => recordOptions(y),
+          builder: y => {
+            const command = recordOptions(y);
+            return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true, describe: 'Fetch declared essential children; use --no-essential to skip' }) : command;
+          },
           handler: wrap(async (argv, app) => {
             const number = argv.number;
             const record = await getRecord(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
+            if (opts.onShow) await opts.onShow(record, app, argv);
             record._context = {
               instance_url: app.getEffectiveInstance(),
               table,

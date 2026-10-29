@@ -198,6 +198,18 @@ show enrichment, custom resolvers) remain code and extend the configured command
 The command's `recordProfile` metadata is the same validated definition used to
 implement it; it is not a separate discovery-only map.
 
+## Essential related records
+
+A specialized record profile opts in through `relationships.essential` entries
+(name, table, foreignKey, columns, ordering, bounded limit). Its show operation
+reads those children in parallel and attaches `_essential` results with records,
+loaded count, visible-row/ACL coverage, truncation and an exact retrieval hint.
+`--no-essential` skips those reads. Unavailable sources stay explicit; they never
+become successful empty arrays. Profile hooks remain composable. Generic get
+and supplementary metadata/counts are separate and never fetch these children
+implicitly. UI policies declare actions as essential, replacing console-only
+output with the same children in JSON and human record sections.
+
 ## Session
 
 The composite answer to "which instance am I talking to, as whom, with what
