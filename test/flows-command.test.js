@@ -269,7 +269,7 @@ test('publish handler resolves a named flow, declares mutation, and emits JSON',
 
   assert.deepEqual(calls[0], ['list', 'sys_hub_flow', {
     sysparm_query: 'name=flow-name',
-    sysparm_limit: '1',
+    sysparm_limit: '2',
     sysparm_display_value: 'all',
   }]);
   assert.equal(calls[1][1], 'https://example.service-now.com/api/now/processflow/flow/flow-1?sysparm_transaction_scope=scope-1');

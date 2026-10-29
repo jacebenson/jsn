@@ -1,7 +1,8 @@
 // Generic table-based CRUD command builder
 
 import { formatRecordForDisplay, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
-import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { unwrapSysId } from '../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -120,7 +121,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         command: 'list',
         aliases: ['ls'],
         describe: `List ${name}`,
-        builder: (y) => y
+        builder: (y) => recordOptions(y)
           .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true^priority=1")' })
           .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "name,label,super_class")' })
           .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
@@ -147,7 +148,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             const recordName = getStringField(record, 'name') || getStringField(record, 'sys_id');
             record._context = { instance_url: app.getEffectiveInstance(), table };
             if (opts.onShow) {
-              await opts.onShow(record, app);
+              await opts.onShow(record, app, argv);
             }
             app.ok(record, {
               summary: `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${recordName}`,
@@ -160,19 +161,15 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           }
 
           // Non-interactive: text/table output
-          const params = new URLSearchParams();
-          params.set('sysparm_limit', String(limit));
-          params.set('sysparm_display_value', 'all');
-          params.set('sysparm_fields', ['sys_id', ...columns].join(','));
           const baseQ = extraQuery ? extraQuery + '^' : '';
           const q = query ? query + '^ORDERBYDESCsys_updated_on' : (baseQ + 'ORDERBYDESCsys_updated_on');
-          params.set('sysparm_query', q);
-          const records = await app.sdk.list(table, params);
+          const params = recordListParams({ limit, fields: ['sys_id', ...columns], query: q });
+          const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
           app.ok({
             table,
             count: records.length,
             columns,
-            records: records.map(r => formatRecordForDisplay(r, columns)),
+            records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, columns)),
             context: { instance_url: app.getEffectiveInstance() },
           }, {
             summary: `${records.length} ${name}(s)`,
@@ -184,6 +181,11 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         command: opts.resolveIdentifier ? 'show [identifier]' : 'show <identifier>',
         aliases: ['get'],
         describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
+        builder: y => {
+          const command = recordOptions(y);
+          return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true,
+            describe: 'Fetch profile-declared essential children; --no-essential skips them. Supplementary lists remain lazy.' }) : command;
+        },
         handler: wrap(async (argv, app) => {
           const id = opts.resolveIdentifier ? await opts.resolveIdentifier(argv, app) : argv.identifier;
           if (id === undefined) return;
@@ -192,14 +194,14 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const fields = (showFields && showFields.length > 0)
             ? [...new Set(['sys_id', ...showFields])]
             : undefined;
-          const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular, fields });
+          const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'name', resource: singular, fields });
           record._context = {
             instance_url: app.getEffectiveInstance(),
             table,
           };
 
           if (opts.onShow) {
-            await opts.onShow(record, app);
+            await opts.onShow(record, app, argv);
           }
 
           const summary = typeof showSummary === 'function' ? showSummary(record, id) : showSummary;
@@ -214,14 +216,14 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         .command({
           command: 'create',
           describe: `Create a new ${singular}`,
-          builder: (y) => y
+          builder: (y) => recordOptions(y, false)
             .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
             .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const recordData = buildRecordPayload(argv);
-            const record = await app.sdk.create(table, recordData);
+            const record = await createRecord(app.sdk, { table, data: recordData });
             app.ok(record, {
               summary: `Created ${singular}`,
               breadcrumbs: [
@@ -233,31 +235,31 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         .command({
           command: 'update <identifier>',
           describe: `Update ${vowelArticle(singular)} ${singular}`,
-          builder: (y) => y
+          builder: (y) => recordOptions(y, false)
             .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
             .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular });
+            const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'name', resource: singular });
             if (scopeValidation) {
               await guardScope(app.sdk, record);
             }
 
             const sysID = unwrapSysId(record);
             const recordData = buildRecordPayload(argv);
-            const updated = await app.sdk.update(table, sysID, recordData);
+            const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
             app.ok(updated, { summary: `Updated ${singular} ${id}` });
           }),
         })
         .command({
           command: 'delete <identifier>',
           describe: `Delete ${vowelArticle(singular)} ${singular}`,
-          builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+          builder: (y) => recordOptions(y, false).option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
-            const record = await resolveRecord(app.sdk, { table, identifier: id, matchField: 'name', resource: singular });
+            const record = await getRecord(app.sdk, { table, identifier: id, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'name', resource: singular });
             if (scopeValidation) {
               await guardScope(app.sdk, record);
             }
@@ -267,7 +269,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
 
             await confirmDelete(app, argv, `Delete ${singular} '${recordName}'`);
 
-            await app.sdk.delete(table, sysID);
+            await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
             app.ok({ name: recordName, sys_id: sysID, deleted: true }, { summary: `Deleted ${singular} '${recordName}'` });
           }),
         });

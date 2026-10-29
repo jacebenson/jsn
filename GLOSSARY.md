@@ -168,14 +168,47 @@ record. `resolveRecord(sdk, { table, identifier, matchField, resource })` → th
 record (with display values) or a standard `not_found` error; `resolveSysId`
 returns just the id; `isSysId` / `unwrapSysId` are the primitives.
 
-Behind the interface: identifier classification (32-char hex → `sys_id`, else
-the table's human field like `number`/`name`/`user_name`), safe-exact-match
-assertion, `sysparm_display_value=all`, single-record extraction, sys_id
-unwrapping. Commands do "resolve → mutate → report."
+Behind the interface: configured human-field precedence for nonhex identifiers,
+explicit `identifierField` disambiguation (including legacy/nonhex sys_ids),
+exact lookup followed by sys_id prefix then suffix. Each query requests at most
+two rows; multiple matches fail with `ambiguous`, zero with `not_found`. Errors
+carry machine-readable `resolution` metadata. Explicit human fields never use
+partial matching. `isSysId` remains a 32-hex precedence heuristic, not a claim
+that other values cannot be sys_ids. Commands do "resolve → mutate → report."
+
+`src/records-engine.js` supplies shared in-process list/get/create/update/delete
+operations. Generic records, ticket and table factories call this engine while
+retaining their payload, confirmation, scope, picker and output policies. Read
+commands accept explicit `--display-values raw|display|both`; omitted preserves
+existing reference representation. No engine operation spawns another CLI.
 
 > Replaced: ~12 divergent hand-rolled "query by identifier, throw if empty"
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,
 > `catalog.js`.
+
+## Record command profiles
+
+`src/record-command-profiles.js` owns table/alias/default-column, identifier,
+reference representation, list projection and essential/supplementary relationship
+policy for the migrated table and ticket factories. `src/record-profiles.js`
+validates immutable definitions and builds actual commands through the existing
+factories. `buildRecordProfile` accepts an additional declarative definition;
+`buildProfileCommand` selects a bundled one. Executable hooks (scope checks,
+show enrichment, custom resolvers) remain code and extend the configured command.
+The command's `recordProfile` metadata is the same validated definition used to
+implement it; it is not a separate discovery-only map.
+
+## Essential related records
+
+A specialized record profile opts in through `relationships.essential` entries
+(name, table, foreignKey, columns, ordering, bounded limit). Its show operation
+reads those children in parallel and attaches `_essential` results with records,
+loaded count, visible-row/ACL coverage, truncation and an exact retrieval hint.
+`--no-essential` skips those reads. Unavailable sources stay explicit; they never
+become successful empty arrays. Profile hooks remain composable. Generic get
+and supplementary metadata/counts are separate and never fetch these children
+implicitly. UI policies declare actions as essential, replacing console-only
+output with the same children in JSON and human record sections.
 
 ## Session
 

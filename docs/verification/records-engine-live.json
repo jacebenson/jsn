@@ -1,0 +1,89 @@
+{
+  "at": "2026-10-29T04:29:05.878Z",
+  "profile": "pdi",
+  "mode": "read_only_instance_operations",
+  "writes_performed": false,
+  "authentication": {
+    "doctor_ok": true,
+    "authenticated": true,
+    "verified": true,
+    "probe_status": "succeeded"
+  },
+  "checks": [
+    {
+      "label": "generic exact human-field lookup on built-in table metadata",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier incident --identifier-field name --columns name,label,super_class --json",
+      "exit": 0,
+      "result": {
+        "ok": true,
+        "name": "incident",
+        "label": "Incident"
+      }
+    },
+    {
+      "label": "unambiguous sys_id prefix resolves to the same built-in table",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --sys-id <metadata-id-prefix> --columns name,label --json",
+      "exit": 0,
+      "result": {
+        "ok": true,
+        "name": "incident",
+        "same_record": true
+      }
+    },
+    {
+      "label": "zero exact human-field matches produce structured resolution metadata",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier jsn_missing_metadata_probe_20261028 --identifier-field name --json",
+      "exit": 1,
+      "result": {
+        "ok": false,
+        "code": "not_found",
+        "resolution": {
+          "table": "sys_db_object",
+          "field": "name",
+          "mode": "exact",
+          "matches": 0,
+          "attempts": [
+            {
+              "table": "sys_db_object",
+              "field": "name",
+              "mode": "exact",
+              "matches": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "profile-built specialized table command",
+      "command": "node bin/jsn.js --profile pdi tables show incident --json --get data.name",
+      "exit": 0,
+      "result": {
+        "display_value": "incident",
+        "value": "incident"
+      }
+    },
+    {
+      "label": "explicit both reference/value representation",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier incident --identifier-field name --display-values both --json --get data.name",
+      "exit": 0,
+      "result": {
+        "display_value": "incident",
+        "value": "incident"
+      }
+    },
+    {
+      "label": "existing policy essential-action read (count only; no policy fields dumped)",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --json --get data._essential.actions.loaded",
+      "exit": 0,
+      "result": {
+        "loaded": 1
+      }
+    },
+    {
+      "label": "existing policy essential-action read status",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --json --get data._essential.actions.status",
+      "exit": 0,
+      "result": "loaded"
+    }
+  ]
+}
