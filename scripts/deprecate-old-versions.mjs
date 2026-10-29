@@ -9,8 +9,16 @@ const KEEP = 3; // Current release and two releases back, independently per chan
 // A publish returns before the registry edge serves the updated packument, so the
 // dist-tag read a second later still names the previous version. Poll until it
 // catches up instead of failing the publish job on the propagation lag.
-export const TAG_CATCH_UP_ATTEMPTS = 20;
-export const TAG_CATCH_UP_INTERVAL_MS = 3000;
+//
+// The lag is minutes, not seconds: two dev publishes on 2026-10-29 recorded their
+// tarball in the registry 1.8 and 4 minutes after npm publish returned. A 20-read
+// 3-second window gave up first both times and marked a successful publish red.
+// The schedule below spends six minutes with a growing interval, which covers the
+// observed lag without polling flat out for the whole time.
+export const TAG_CATCH_UP_ATTEMPTS = 15;
+export const TAG_CATCH_UP_INTERVAL_MS = 5000;
+export const TAG_CATCH_UP_BACKOFF = 1.6;
+export const TAG_CATCH_UP_MAX_INTERVAL_MS = 30000;
 
 export async function fetchMetadata(fetchImpl = fetch, registry = REGISTRY) {
   // The cache key includes the query string, so a timestamp bypasses the stale edge copy.
@@ -27,9 +35,14 @@ export async function waitForChannelTag(channel, published, options = {}) {
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const attempts = options.attempts ?? TAG_CATCH_UP_ATTEMPTS;
   const intervalMs = options.intervalMs ?? TAG_CATCH_UP_INTERVAL_MS;
+  const backoff = options.backoff ?? TAG_CATCH_UP_BACKOFF;
+  const maxIntervalMs = options.maxIntervalMs ?? TAG_CATCH_UP_MAX_INTERVAL_MS;
   let observed;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await sleep(intervalMs);
+    if (attempt > 0) {
+      const delay = Math.min(maxIntervalMs, Math.round(intervalMs * backoff ** (attempt - 1)));
+      await sleep(delay);
+    }
     const metadata = await readMetadata();
     observed = metadata?.['dist-tags']?.[channel];
     if (observed === published && metadata.versions?.[published]) return metadata;
