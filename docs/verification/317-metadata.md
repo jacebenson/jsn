@@ -85,9 +85,15 @@ The live PDI run proves the default incident layout and current visible relation
 metadata. Inherited/custom views, denial cases and batch behavior are validated
 by local fixtures here; their full range was not exercised on the connected PDI.
 
-Final full regression suite: 1456 passed, 2 skipped, 0 failed (1458 total).
+Final full regression suite after the filter-availability guard: 1457 passed, 2 skipped, 0 failed (1459 total).
 The styled-output CLI test was also rerun after strengthening its assertions.
 
 A follow-up regression verifies that missing/display-only configured filters are
 marked `filter_available:false`, so count consumers cannot broaden an unknown
 filter into an unfiltered collection. The 15 focused tests pass after this guard.
+
+The current filter guard was also rerun on PDI after a fresh successful doctor
+at 04:44:42 UTC. The 04:45:41 UTC metadata command exited 0 with the same layout
+and descriptor counts shown above; `unavailable_filter_count:0` across the seven
+configured entries. The one unresolved relationship still kept coverage partial.
+Only counts/status were retained.
