@@ -119,9 +119,8 @@ function saveSkillConfig(updates) {
   fs.writeFileSync(globalConfigPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
 }
 
-function recordSkillInstall(targetPath) {
-  const bundled = readBundledSkill();
-  const version = extractVersion(bundled) || 'unknown';
+function recordSkillInstall(targetPath, content) {
+  const version = extractVersion(content) || 'unknown';
   saveSkillConfig({
     skillLocation: targetPath,
     skillVersion: version,
@@ -260,7 +259,7 @@ export function skillCmd(wrap) {
         })
         .command({
           command: 'install [dir]',
-          describe: 'Download and save the latest skill file',
+          describe: 'Install the bundled skill matched to this CLI version',
           builder: (y) => y
             .positional('dir', {
               type: 'string',
@@ -271,9 +270,10 @@ export function skillCmd(wrap) {
               describe: 'Target agent(s): hermes, copilot, vscode, claude, cursor, agents, opencode, openclaw, codex, or "all" (comma-separated). Omit for interactive picker.',
             }),
           handler: wrap(async (argv, app) => {
-            const res = await fetch(SKILL_RAW_URL);
-            if (!res.ok) throw new Error(`Failed to fetch skill: ${res.status} ${res.statusText}`);
-            const content = await res.text();
+            const content = readBundledSkill();
+            if (!content) {
+              throw new Error('Skill file not found in package (expected at skills/servicenow/SKILL.md). Reinstall jsn to restore it.');
+            }
 
             // Resolve target directories
             let targets = [];
@@ -389,7 +389,7 @@ export function skillCmd(wrap) {
             }
 
             // Record install location so checkSkill knows where to look
-            recordSkillInstall(targets[0].path);
+            recordSkillInstall(targets[0].path, content);
 
             const installed = targets.reduce((acc, t) => { acc[t.name] = t.path; return acc; }, {});
             const summary = targets.length === 1
@@ -399,7 +399,7 @@ export function skillCmd(wrap) {
             const okOpts = {
               summary,
               breadcrumbs: [
-                { action: 'reinstall', cmd: 'jsn skill install', description: 'Re-download and reinstall to default target' },
+                { action: 'reinstall', cmd: 'jsn skill install', description: 'Reinstall the bundled skill to default target' },
               ],
             };
 
@@ -407,7 +407,7 @@ export function skillCmd(wrap) {
               okOpts.notice = 'Installed to multiple agents. Restart or reload your agent to pick up the skill.';
             }
 
-            app.ok({ installed, from: SKILL_RAW_URL }, okOpts);
+            app.ok({ installed, from: SKILL_REPO_PATH }, okOpts);
           }),
         });
     },

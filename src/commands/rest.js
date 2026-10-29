@@ -10,6 +10,10 @@ export function restCmd(wrap) {
     describe: 'Make raw REST API calls',
     builder: (yargs) => {
       return yargs
+        .positional('endpoint', {
+          type: 'string',
+          describe: 'API path, optionally including query parameters; with --table, a record sys_id',
+        })
         .option('method', {
           alias: 'X',
           type: 'string',
@@ -34,7 +38,16 @@ export function restCmd(wrap) {
         .option('query', {
           type: 'string',
           describe: 'Query parameters string',
-        });
+        })
+        .epilogue([
+          'Prefer a specific jsn command or records for normal table operations.',
+          'Raw REST is blocked on read-only profiles for every method, including GET.',
+          'Examples:',
+          '  jsn rest "/api/now/table/incident?sysparm_limit=3" --json',
+          '  jsn rest --table incident --query "sysparm_limit=3" --json',
+          '  jsn rest /stats.do --raw',
+          'Use either query parameters in the endpoint or --query, rather than both.',
+        ].join('\n'));
     },
     handler: wrap(async (argv, app) => {
       const validMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];

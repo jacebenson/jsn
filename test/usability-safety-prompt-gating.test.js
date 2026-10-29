@@ -320,13 +320,25 @@ describe('skill install honors the prompt gate', () => {
       };
       await install.handler({ _: ['skill', 'install'] }, app);
 
-      assert.equal(fetchCalls, 1, 'the bundled/remote fetch is stubbed — no live network');
+      assert.equal(fetchCalls, 0, 'installation must use the packaged skill without network access');
       assert.deepEqual(Object.keys(result.data.installed), ['Hermes Agent'],
         'a disabled picker must fall back to the single documented default target');
       const installedPath = result.data.installed['Hermes Agent'];
       assert.equal(fs.existsSync(installedPath), true, `expected ${installedPath} to exist`);
       assert.equal(path.resolve(installedPath).startsWith(path.resolve(base)), true,
         'installs stay inside the isolated hermes base dir');
+      const bundled = fs.readFileSync(new URL('../skills/servicenow/SKILL.md', import.meta.url), 'utf-8');
+      assert.equal(fs.readFileSync(installedPath, 'utf-8'), bundled);
+      const savedConfig = JSON.parse(fs.readFileSync(path.join(configHome, 'servicenow', 'config.json'), 'utf-8'));
+      assert.equal(savedConfig.skillLocation, installedPath);
+      const { extractVersion, checkSkill } = await import('../src/commands/skill.js');
+      assert.equal(savedConfig.skillVersion, extractVersion(bundled));
+      delete savedConfig.skillLastChecked;
+      fs.writeFileSync(path.join(configHome, 'servicenow', 'config.json'), JSON.stringify(savedConfig));
+      assert.equal(checkSkill().current, true);
+      fs.writeFileSync(installedPath, 'obsolete skill');
+      await install.handler({ _: ['skill', 'install'] }, app);
+      assert.equal(fs.readFileSync(installedPath, 'utf-8'), bundled, 'reinstall replaces a stale skill with packaged guidance');
     } finally {
       globalThis.fetch = prevFetch;
       if (prevBase === undefined) delete process.env.JSN_HERMES_BASE_DIR; else process.env.JSN_HERMES_BASE_DIR = prevBase;

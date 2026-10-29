@@ -1,5 +1,5 @@
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile } from '../config.js';
-import { errUsage, errUsageHint } from '../errors.js';
+import { errUsage, errUsageHint, errConfirmationRequired } from '../errors.js';
 import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
@@ -803,10 +803,33 @@ Examples:
   }
   const target = resolveTargetProfile(argv, app.config, instanceURL);
   const username = target.profile?.username ?? null;
-  if (username || canLogoutBareProfile(app, instanceURL, target.profile, !!argv.profile)) {
-    app.auth.logout(instanceURL, username);
+  if (!username && !canLogoutBareProfile(app, instanceURL, target.profile, !!target.name)) {
+    throw errUsageHint('Cannot identify which stored credentials to clear.', 'Choose an unambiguous identity with --profile <name>.');
   }
-  app.ok({ logged_out: true, instance: instanceURL }, { summary: `✓ Logged out from ${instanceURL}` });
+  const selector = target.name ? `--profile ${quoteShellArg(target.name)}` : quoteShellArg(instanceURL);
+  const rerun = `jsn auth logout ${selector}`;
+  const warning = `Clear locally stored credentials for ${target.name ? `profile "${target.name}" at ` : ''}${instanceURL}${username ? ` (user ${username})` : ''}? You will need to authenticate again. The profile is retained; environment credentials and ServiceNow/Chrome sessions are unaffected.`;
+  if (!argv.force) {
+    if (!canUsePicker(app, argv)) throw errConfirmationRequired(warning, rerun);
+    const { confirm } = await import('../prompts.js');
+    if (!await confirm({ message: warning, default: false })) {
+      app.ok({ logged_out: false, credentials_cleared: false, profile: target.name, instance: instanceURL },
+        { summary: 'Logout cancelled; stored credentials were retained.' });
+      return;
+    }
+  }
+  const cleared = app.auth.logout(instanceURL, username) === true;
+  const nextActions = cleared ? [
+    { action: 'Authenticate again', cmd: `jsn auth login ${selector}`, description: 'Restore locally stored authentication' },
+    ...(target.name ? [{ action: 'Remove retained profile', cmd: `jsn auth remove ${quoteShellArg(target.name)}`, description: 'Remove this connection if no longer needed' }] : []),
+  ] : [];
+  app.ok({ logged_out: cleared, credentials_cleared: cleared, profile: target.name, instance: instanceURL,
+    profile_retained: !!target.name, environment_credentials_affected: false, remote_session_terminated: false,
+    next_actions: nextActions }, {
+    summary: cleared ? `✓ Cleared local credentials for ${target.name || instanceURL}. Profile retained; environment credentials and ServiceNow/Chrome sessions are unaffected.`
+      : `No stored credentials were cleared for ${target.name || instanceURL}. Environment credentials and ServiceNow/Chrome sessions are unaffected.`,
+    breadcrumbs: nextActions,
+  });
 }
 
 export async function showAuthStatus(argv, app) {
@@ -1094,7 +1117,8 @@ export function authCmd(wrap) {
         })
         .command({
           command: 'logout [instance]',
-          describe: 'Clear stored credentials (keeps the instance entry — use "auth remove" to delete it)',
+          describe: 'Clear local credentials after approval; retains the profile. Unnecessary after ordinary operations; does not sign out of ServiceNow/Chrome or clear environment credentials.',
+          builder: sub => sub.option('force', { type: 'boolean', describe: 'Clear credentials only after explicit approval for this exact logout' }),
           handler: wrap(logoutProfile),
         })
         .command({
