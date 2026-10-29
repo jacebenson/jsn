@@ -71,6 +71,7 @@ import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { approvalsCmd } from './commands/approvals.js';
+import { historyCmd } from './commands/history.js';
 import { perfCmd } from './commands/perf.js';
 import { customizationsCmd } from './commands/customizations.js';
 import { midserversCmd } from './commands/midservers.js';
@@ -146,6 +147,8 @@ export function buildCLI() {
       },
     ])
     .options({
+      reason: { type: 'string', describe: 'Optional non-sensitive reason saved in local mutation history' },
+
       force: {
         type: 'boolean',
         description: 'Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation',
@@ -416,6 +419,7 @@ export function buildCLI() {
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
+    .command(historyCmd(wrap))
     .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
     .command(diffCmd(wrap))
