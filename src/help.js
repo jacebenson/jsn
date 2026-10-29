@@ -132,6 +132,7 @@ const CONFIG_COMMANDS = [
 ];
 
 const DEVELOPER_COMMANDS = [
+  { name: 'scan', desc: 'Instance Scan checks, suites, explicit targets, progress and findings' },
   { name: 'atf', desc: 'Automated Test Framework (list, suites, run, results)' },
   { name: 'eval', desc: 'Run server-side JavaScript' },
   { name: 'rest', desc: 'Raw REST API calls' },

@@ -24,7 +24,7 @@ For development:
 1. Choose or create the application scope and update set.
 2. Do the work, keeping related changes together.
 3. Verify the results on the instance and report where changes were captured.
-4. Offer to create ATFs and instance scans to verify the outcomes.
+4. Offer to run relevant existing ATFs and instance scans, or create missing checks.
 5. Ask whether anything else belongs in the update set. If the user confirms
    it is finished, complete it with notes.
 

@@ -72,6 +72,7 @@ import { logsCmd } from './commands/logs.js';
 import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
+import { scanCmd } from './commands/scan.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { historyCmd } from './commands/history.js';
 import { perfCmd } from './commands/perf.js';
@@ -421,6 +422,7 @@ export function buildCLI() {
     .command(codesearchCmd(wrap))
     // DEVELOPER
     .command(atfCmd(wrap))
+    .command(scanCmd(wrap))
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
