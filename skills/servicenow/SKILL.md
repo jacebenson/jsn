@@ -14,7 +14,7 @@ compatibility: |
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
 metadata:
   author: jacebenson
-  version: "4.3.9"
+  version: "4.3.10"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -74,41 +74,17 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 
 ### Customization evidence
 
+Use `jsn customizations --help` to discover bounded read-only capture and offline
+review/comparison. For example:
+
 ```sh
 jsn customizations capture --label review --customer-scope x_acme_app --json
-jsn customizations list --json
-jsn customizations show <run_id> --get data.categories
-jsn customizations show <run_id> --get data.triage
-jsn customizations html <run_id> [--out review.html]
-jsn customizations compare <baseline_id> <new_id> --json
+jsn customizations show <run_id> --json
 ```
 
-Capture performs bounded GET-only table reads and saves local reports. It never
-evals or creates, updates or deletes instance records. Standard authentication
-may refresh OAuth tokens, store refreshed credentials locally and bootstrap a
-session/GCK using authentication POSTs. List/show/compare are offline.
-Declare customer ownership with repeatable `--customer-scope` values or sys_ids;
-never infer customer ownership from a non-global scope. The declaration is
-caller evidence, not independent publisher verification. OOTB findings reflect
-historical upgrade skips, not a current verified baseline deviation. The upgrade
-history is read server-side for the skip dispositions and every observed skipped
-`file_name` is resolved against `sys_metadata` by chunked
-`sys_update_nameIN<chunk>` lookups, so the OOTB inventory covers the observed
-skipped artifacts; the broad `sys_metadata` read is an arbitrary `sys_id`-ordered
-slice and is reported as a bounded sample, not an inventory, describing only the
-unclassified and declared-customer categories. Unresolved skipped names and
-failed lookup chunks stay explicit rather than becoming absent artifacts, and a
-resolved artifact can lack a scope name when its scope record was outside the
-bounded `sys_scope` read. Missing
-ACL access, pagination limits and unmatched evidence remain explicit. All
-reports are incomplete; no findings is not proof of no customizations.
-Comparisons cover captured metadata/evidence, not source payloads. Removals mean
-no longer observed, not proven deletion. Reversion impact and dependencies
-remain unknown until separately investigated. Never recommend automatic reversion.
-
-Upgrade history joins `file_name` to metadata `sys_update_name`. Raw disposition
-`4` or `104` is skipped-customization evidence; resolution `reviewed_reverted`
-excludes that history row. Use raw values, not display labels or other skip reasons.
+Read the CLI's interpretation, coverage and per-artifact triage before drawing
+conclusions. Verify ownership and current behavior before proposing changes;
+never recommend automatic reversion.
 
 ### Complete an update set
 

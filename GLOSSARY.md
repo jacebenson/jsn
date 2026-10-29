@@ -330,3 +330,12 @@ existing deprecations are preserved and no package versions are unpublished.
 Credential storage, OAuth/PKCE helpers, browser-session input parsing and pure
 credential-state classification live under `src/auth/`. This separation does
 not change credential keys, environment precedence or probe side effects.
+
+## Customization interpretation
+
+`interpretation` is derived guidance shared by customization help, JSON/text
+review and comparison, and offline HTML reports. It explains evidence meaning,
+coverage limits and safe next steps without changing captured evidence or the
+stored capture schema. Older captures receive the same guidance when viewed;
+no report migration is required. Per-artifact `triage` remains the classification
+and confidence assessment, separate from unverified runtime/reversion risk.
