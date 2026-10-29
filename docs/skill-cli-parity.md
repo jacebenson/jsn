@@ -9,7 +9,7 @@ linked implementation issues are complete.
 | Discovery, picker mechanics | Keep pending #320 | `records list --help` now explains its picker accurately; other list implementations still need a full audit. |
 | Machine output | Keep | Concise `--json` guidance remains agent behavior. |
 | Full sys_id requirement | Keep pending #314 | `src/resolve-record.js` currently limits lookup to one result; ambiguity-safe central resolution is not implemented. |
-| Auth preflight | Keep pending #311/#327 | `src/sdk.js` throws on HTTP failures; proactive token refresh is not equivalent to safe runtime recovery. |
+| Auth preflight | Keep pending #327 | Runtime recovery shipped in #329. Verify normal command and offline parity before removing the skill preflight rule in #327. |
 | Blanket logout prohibition | Remove | `auth logout --help` explains local-only clearing and approval. `test/auth-logout.test.js` covers approval/decline, noninteractive errors, identities, no-op/failed deletion, and next actions. |
 | Intended instance | Rewrite / keep | Explicit `--profile` targeting and verification of the intended instance remain agent decisions. |
 | Eval safeguards | Rewrite / keep | Explicit approval and no bypass of ServiceNow protections remain agent decisions. |
