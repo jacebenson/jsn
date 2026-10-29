@@ -124,6 +124,15 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
   Read-only profiles block these. See *capability registry*.
 
+## Command discovery
+
+`jsn discover` searches the live command registrations used for dispatch. Root
+names, aliases, descriptions and child help paths are derived from the command
+tree. Factory-built commands additionally expose their actual table/default
+column configuration and supported view benefits through optional `discovery`
+metadata on the command definition. This metadata is additive to the existing
+root JSON registry; it is not a second command inventory or a mutation policy.
+
 ## Capability registry
 
 `src/capabilities.js`. The single source of truth for command metadata the

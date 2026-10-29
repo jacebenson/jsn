@@ -200,14 +200,20 @@ function renderFlags(options) {
   return `\nFLAGS\n${lines.join('\n')}`;
 }
 
-function renderTips() {
+export function renderTips() {
   return `
 TIPS
-  --query is available on every list command (e.g. "incidents list --query priority=1")
+  Find commands by task words: "jsn discover catalog"; by configured table: "jsn discover --table incident"
+  Cross-table task searches and custom tables: "jsn records list --help"
+  Specialized commands offer configured columns, lookup, and table-specific views; inspect discovery results for details
+  Raw endpoints when needed: "jsn rest --help"; examples and intent guidance: "jsn discover --help"
   Use "jsn <command> --help" for details, or "jsn <command> list --help" for list options
   "jsn --json" prints the registered command surface as JSON for scripts and agents
 
 LEARN MORE
+  Some list commands offer a picker in an interactive terminal with automatic output.
+  Arrow keys browse (10 visible items); type to search; scroll to load more; Enter selects; Esc cancels.
+  Picker eligibility and search fields vary by command. Explicit output formats (including --json) skip pickers.
   Use "jsn <command> --help" for more information about a command.`;
 }
 
