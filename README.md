@@ -132,3 +132,26 @@ This applies to root help, root JSON, `discover`, and root shell completion.
 Use `jsn --all-commands --help` or `jsn discover --all-commands --json` to inspect
 every registered command. Explicit command paths remain available and ServiceNow
 ACLs decide access. Reauthenticate (or refresh OAuth) after roles change.
+
+### Ordering catalog items
+
+Use `jsn catalogitems search "laptop" --profile work`, then
+`jsn catalogitems describe <item-sys-id> --profile work` to inspect pricing and
+variable definitions through the native Service Catalog API. Create a JSON file
+mapping variable names to values, then preview with
+`jsn catalogitems order <item-sys-id> --variables-file variables.json --dry-run --profile work`.
+Omit `--dry-run` to submit after confirmation. `--quantity` defaults to one;
+`--requested-for` accepts a user sys_id subject to instance delegation rules.
+
+Orders use `order_now`, preserving catalog fulfillment rather than inserting an
+RITM directly. The command handles standard catalog items; record producers and
+order guides require separate workflows. Server rules validate mandatory and
+dynamic variables at submission; a preview does not validate those rules. Preview
+output lists variable names, not entered values. This operation requires a
+write-enabled profile (also for previews), but no development update set.
+Confirmation follows the existing profile policy; automation can supply `--force`
+only for an approved order. Timeout or incomplete response is an uncertain
+outcome: inspect requests before retrying. JSN does not automatically submit a
+second order. `create/list/show` retain their definition-management behavior.
+
+See the [Service Catalog API reference](https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html).

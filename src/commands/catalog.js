@@ -1,9 +1,10 @@
-import { getStringField, interactiveList, resolveItemOptionType } from '../helpers.js';
+import { getStringField, interactiveList, resolveItemOptionType, formatCommandList, quoteShellArg } from '../helpers.js';
+import { catalogOrderCommands } from './catalog-order.js';
 import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 import { enrichCatalogItem, buildCatalogFormatted } from './catalog/enrich.js';
 
-declareCapabilities('catalogitems', { mutationSubcommands: ['create'] });
+declareCapabilities('catalogitems', { mutationSubcommands: ['create', 'order'], mutationContextExemptSubcommands: ['order'], localPreviewSubcommands: ['order'] });
 
 export function catalogCmd(wrap) {
   return {
@@ -11,6 +12,7 @@ export function catalogCmd(wrap) {
     aliases: ['ci'],
     describe: 'Manage Service Catalog items',
     builder: (yargs) => {
+      for (const command of catalogOrderCommands(wrap)) yargs.command(command);
       return yargs
         .command({
           command: 'create',
@@ -148,14 +150,10 @@ export function catalogCmd(wrap) {
           }),
         });
     },
-    handler: () => {
-      console.log('Service Catalog management.');
-      console.log('');
-      console.log('Commands:');
-      console.log('  create     Create a catalog item');
-      console.log('  list       Browse catalog items');
-      console.log('  show <id>  Show catalog item');
-    },
+    handler: wrap(async (argv, app) => app.ok({ subcommands: argv.subcommands || [],
+      _formatted: formatCommandList({ title: 'Service Catalog', commands: argv.subcommands || [] }) },
+    { summary: 'Service Catalog: search, describe and order items; manage definitions with create/list/show',
+      breadcrumbs: [{ action: 'search', cmd: 'jsn catalogitems search <text>' + (argv.profile ? ` --profile ${quoteShellArg(argv.profile)}` : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : ''), description: 'Find requestable items' }] })),
   };
 }
 
