@@ -13,6 +13,47 @@ jsn setup
 
 See the [setup guide](docs/docs-setup.md) to connect an instance safely.
 
+### Dev channel
+
+For the newest changes from `main`, including changes that may be unstable:
+
+```bash
+npm install -g @jacebenson/jsn@dev
+```
+
+Dev builds check the dev channel for updates during normal use, at most once
+per day. Run `jsn version --check` to check immediately. To install the newest
+dev build, run `npm install -g @jacebenson/jsn@dev` again. Updates are manual.
+Return to stable with `npm install -g @jacebenson/jsn@latest`.
+
+Pushes to `main` promote the commit to `dev` and publish a tested prerelease
+under npm's `dev` tag. Versions include the workflow run number and attempt
+(for example, `4.3.9-dev.123.1`); they do not move npm's stable `latest` tag.
+The npm trusted publisher for `publish-dev.yml` must authorize the repository's
+`dev` GitHub environment, alongside the production publishing configuration.
+
+### Supported versions
+
+Only the current release and the two preceding releases in each channel are
+supported (three stable releases and three dev builds). For example, with
+stable `4.3.11`, versions `4.3.11`, `4.3.10`, and `4.3.9` are supported.
+Update to the newest version in your channel before reporting an issue.
+
+After each successful npm publish, deployment deprecates older versions in that
+channel. Deprecated versions remain installable and appear in history, but npm
+prints an update warning on installation. Existing deprecation messages are
+preserved. No versions are unpublished.
+
+The deprecation step uses the repository's `NPM_TOKEN` secret with permission to
+modify `@jacebenson/jsn` and noninteractive authentication (including bypass 2FA
+where required). Publishing continues to use OIDC. A deprecation failure fails
+the workflow after publishing; it does not roll back the published package.
+To retry only deprecation after fixing authentication, use the matching release
+checkout and run `node scripts/deprecate-old-versions.mjs latest --apply` (or
+`dev --apply`) with npm authentication configured and `NODE_AUTH_TOKEN` set.
+Omit `--apply` to preview the affected versions without changing npm. The script
+requires the checkout's package version to match the channel's current npm tag.
+
 ## Try it
 
 ```bash

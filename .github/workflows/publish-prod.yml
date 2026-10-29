@@ -17,6 +17,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: publish-prod
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Publish production package
@@ -60,3 +64,9 @@ jobs:
 
       - name: Publish production package
         run: npm publish --access public --provenance --tag latest
+
+      - name: Deprecate unsupported prod versions
+        env:
+          # npm deprecate requires token auth; publishing above stays on OIDC.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/deprecate-old-versions.mjs latest --apply

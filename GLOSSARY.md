@@ -288,6 +288,19 @@ Dispatch is not success; log and artifact readback are required.
 
 ---
 
+## Release channel
+
+The installed package version determines the npm update channel: versions with
+`-dev.` use the `dev` dist-tag; stable versions use `latest`. Both the daily
+notification and `version --check` query that channel and offer its install
+command. Daily checks are throttled separately per channel. Updates require an
+explicit npm install; JSN does not replace itself.
+
+Each channel supports its current release plus its two previous releases, ordered
+by version. After publishing, versions outside that window are deprecated with an
+update-before-reporting-issues notice. Stable and dev windows are independent;
+existing deprecations are preserved and no package versions are unpublished.
+
 ## Invariants (things that must stay true)
 
 - **Mutations are declared, not listed.** Adding a mutating subcommand means
