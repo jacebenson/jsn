@@ -289,7 +289,7 @@ export class OutputWriter {
   writeStyled(data, opts) {
     // ── The `_formatted` interface ──────────────────────────────────────
     // Commands may ship a pre-rendered styled view as `data._formatted`
-    // (a plain string). The writer prints it verbatim and suppresses both
+    // (a plain string). The writer ensures a trailing newline and suppresses both
     // opts.summary and the records table / field-dump renderers — the
     // curated visual IS the output. JSON/quiet/markdown/csv formats ignore
     // `_formatted` entirely and serialize the full envelope as usual, so
@@ -316,7 +316,7 @@ export class OutputWriter {
       }
     } else if (data && typeof data === 'object') {
       if (data._formatted) {
-        this.writer.write(data._formatted);
+        this.writer.write(data._formatted.endsWith('\n') ? data._formatted : data._formatted + '\n');
       }
 
       const { isRecord, tableName } = detectRecord(data);
