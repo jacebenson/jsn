@@ -2,7 +2,7 @@
 
 import { batchRead } from './sdk-batch.js';
 import { gunzipSync } from 'node:zlib';
-import { CodeAuth, errAuth, errAPI, errNetwork } from './errors.js';
+import { AppError, CodeAPI, CodeAuth, errAuth, errAPI, errNetwork, errUsage } from './errors.js';
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
@@ -766,6 +766,72 @@ export class SDKClient {
       method: 'GET',
       headers: cookies ? { Cookie: cookies } : {},
     });
+  }
+
+  /** Load through the native XML upload processor, then verify the exact envelope. */
+  async importUpdateSet(xml, inspection, filename = 'update-set.xml') {
+    const { sys_id: id, remote_sys_id: sourceID } = inspection;
+    const params = new URLSearchParams({
+      sysparm_query: `sys_id=${id}^ORremote_sys_id=${sourceID}`,
+      sysparm_fields: 'sys_id,name,state', sysparm_limit: '2', sysparm_display_value: 'false',
+    });
+    if ((await this.list('sys_remote_update_set', params)).length) {
+      throw errUsage('This retrieved update set already exists on the target; refusing to overwrite it. Inspect it before retrying.');
+    }
+    // Native INSERT_OR_UPDATE must not move/overwrite a member belonging to another set.
+    for (let offset = 0; offset < inspection.members.length; offset += 50) {
+      const ids = inspection.members.slice(offset, offset + 50).map(member => member.sys_id).join(',');
+      const existing = await this.list('sys_update_xml', new URLSearchParams({
+        sysparm_query: `sys_idIN${ids}`, sysparm_fields: 'sys_id', sysparm_limit: '1',
+      }));
+      if (existing.length) throw errUsage('An XML member already exists on the target; refusing to overwrite or move existing updates.');
+    }
+    const cookies = await this._warmSession();
+    const formURL = `${this.baseURL}/upload.do?sysparm_target=sys_remote_update_set`;
+    const html = await this.rawRequest(formURL, { method: 'GET', headers: cookies ? { Cookie: cookies } : {} });
+    const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
+    if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) {
+      throw errUsage('The native XML upload form is unavailable; no XML was uploaded. Check admin access and session authentication.');
+    }
+    const form = new FormData();
+    form.set('sysparm_ck', csrf);
+    form.set('sysparm_target', 'sys_remote_update_set');
+    form.set('sysparm_upload_prefix', '');
+    form.set('sysparm_referring_url', 'sys_remote_update_set_list.do');
+    form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
+    let outcome = 'unknown';
+    try {
+      await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form,
+        headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
+      });
+      const records = await this.list('sys_remote_update_set', params);
+      if (records.length !== 1) throw new Error('Could not identify exactly one uploaded retrieved update set');
+      const record = records[0];
+      const importedID = getStringField(record, 'sys_id');
+      const state = getStringField(record, 'state');
+      if (state !== 'loaded' || getStringField(record, 'name') !== inspection.name) throw new Error('Uploaded update set name/state did not match the loaded export');
+      const members = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = await this.list('sys_update_xml', new URLSearchParams({
+          sysparm_query: `remote_update_set=${importedID}^ORDERBYsys_id`, sysparm_limit: '500',
+          sysparm_offset: String(offset), sysparm_display_value: 'false', sysparm_fields: 'sys_id,name,action',
+        }));
+        members.push(...page);
+        if (members.length > inspection.count) throw new Error('Uploaded update set contains unexpected extra members');
+        if (page.length < 500) break;
+      }
+      const actual = new Map(members.map(member => [getStringField(member, 'sys_id'), member]));
+      if (actual.size !== inspection.count || inspection.members.some(expected => {
+        const member = actual.get(expected.sys_id);
+        return !member || getStringField(member, 'name') !== expected.name || getStringField(member, 'action') !== expected.action;
+      })) throw new Error('Uploaded update set members did not match the XML export');
+      outcome = 'succeeded';
+      return { sys_id: importedID, state, count: members.length, link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${importedID}` };
+    } catch (error) {
+      throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying. No automatic retry was attempted.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
+    } finally {
+      if (this.onMutation) await this._reportMutation({ table: 'sys_remote_update_set', sys_id: id, operation: 'create', outcome });
+    }
   }
 
   /**

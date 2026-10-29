@@ -10,7 +10,7 @@ import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
-import { noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
@@ -258,6 +258,7 @@ export function buildCLI() {
     .middleware(async (argv) => {
       // Session (incl. --instance/--profile overrides) was already applied
       // by the middleware above — nothing to re-apply here.
+      if (isLocalPreview(argv)) return;
       const cmd = (argv._[0] || '').toString();
       // Daily-check + context-header skip-list is derived from command
       // capability declarations (skipDailyChecks: true).

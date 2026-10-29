@@ -220,3 +220,20 @@ The central builder reuses Node ingestion and publishes the stable manifest only
 after artifact verification/upload. CLI installation, website deployment and index
 publication have independent pipelines. See `docs-distribution-architecture.md`
 for the pre-migration audit, host configuration gate and rollback path.
+
+## 2026-10-29: Import update sets through the native XML loader
+
+Use the instance's authenticated `upload.do` / `sys_upload.do` flow rather than
+recreating update XML rows with Table API or executing background scripts. Strict
+local XML inspection uses `saxes` (a small SAX parser with no external-entity
+loader), rejects DTDs and unrelated envelope tables, and reports primary and
+subsidiary payload operations. Existing retrieved sets and existing member IDs
+are refused before upload to avoid implicit overwrites. An uncertain upload is
+reported for inspection without an automatic retry or attempted rollback.
+
+Import stops at a loaded retrieved set. Preview/commit, local conversion, name or
+state overrides, and context switching are deliberately separate from retrieval.
+Export never changes state and defaults to a sanitized filename in a terminal;
+pipes keep raw XML, with explicit `--stdout`, `--out`, and `--out-dir` controls.
+Files are exclusively created to preserve existing exports. `reopen` is the
+explicit path back to an in-progress local set, without selecting it.

@@ -134,3 +134,8 @@ export function mutationPaths(caps = collectCapabilities()) {
 export function _resetCapabilities() {
   REGISTRY.clear();
 }
+
+/** Declared local-only previews bypass instance access, including context headers. */
+export function isLocalPreview(argv, caps = collectCapabilities()) {
+  return argv.dryRun === true && caps.get(argv._?.[0])?.localPreviewSubcommands?.includes(argv._?.[1]) === true;
+}

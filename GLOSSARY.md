@@ -462,3 +462,16 @@ from storage. Documentation remains optional, independently installed from local
 mutation-history storage. Snapshot installation uses cooperative local reader and
 installer leases and validates the staged database before replacing the index.
 Local search remains available offline; freshness work cannot delay it.
+
+### Retrieved update-set XML
+
+A retrieved update set (`sys_remote_update_set`) is an inert promotion artifact,
+separate from the current local capture set (`sys_update_set`). `updatesets import`
+loads a validated XML export through the native upload processor, verifies its
+member identities/actions, and leaves it loaded and uncommitted. It never changes
+the current capture context or completes a set. Its declared `--dry-run` preview
+is local only, including on read-only profiles. XML member summaries and the
+separate payload-operation summary distinguish captured updates from subsidiary
+operations that would run on a later platform commit. `platform_default` means
+that a payload record omitted an explicit action; inspection does not infer it.
+Reopening is an explicit local state change, independent of selection or export.

@@ -32,6 +32,7 @@
     "@inquirer/prompts": "^7.5.1",
     "better-sqlite3": "^13.0.3",
     "js-yaml": "^5.5.0",
+    "saxes": "^6.0.0",
     "turndown": "^7.2.4"
   },
   "devDependencies": {
