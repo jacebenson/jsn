@@ -84,3 +84,6 @@ The local docs fixture doctor/drive/cleanup also passed.
 The live PDI run proves the default incident layout and current visible relation
 metadata. Inherited/custom views, denial cases and batch behavior are validated
 by local fixtures here; their full range was not exercised on the connected PDI.
+
+Final full regression suite: 1456 passed, 2 skipped, 0 failed (1458 total).
+The styled-output CLI test was also rerun after strengthening its assertions.
