@@ -1,9 +1,10 @@
+import { fieldBehaviorHelp } from '../field-behavior.js';
 import { buildDevCmd } from './_generic.js';
 
 export const columnsCmd = (wrap) => {
   const base = buildDevCmd('columns', 'sys_dictionary', ['column', 'col'],
     ['element', 'column_label', 'internal_type', 'mandatory', 'max_length', 'active'],
-    wrap, { singular: 'column', scopeValidation: true });
+    wrap, { singular: 'column', scopeValidation: true, help: fieldBehaviorHelp });
 
   // Add --table filter
   const origBuilder = base.builder;

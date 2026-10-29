@@ -1,3 +1,4 @@
+import { constrainQuery, constrainedQueryHelp } from '../constrained-query.js';
 import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic table-based CRUD command builder
 
@@ -122,19 +123,24 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         command: 'list',
         aliases: ['ls'],
         describe: `List ${name}`,
-        builder: (y) => recordOptions(y)
-          .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true^priority=1")' })
-          .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "name,label,super_class")' })
-          .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
+        builder: (y) => {
+          const command = recordOptions(y)
+            .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true^priority=1")' })
+            .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "name,label,super_class")' })
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' });
+          const help = [opts.help, extraQuery ? constrainedQueryHelp(extraQuery) : ''].filter(Boolean).join('\n');
+          return help ? command.epilogue(help) : command;
+        },
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
+          const constrainedQuery = constrainQuery(query, extraQuery);
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
           const limit = argv.limit;
 
           // Interactive picker with pagination
           if (canPrompt() && app.output.getFormat() === FormatAuto && !query) {
             const picked = await interactiveList({
-              app, table, singular, columns: ['name', 'sys_scope'], limit, query: extraQuery,
+              app, table, singular, columns: ['name', 'sys_scope'], limit, query: constrainedQuery,
               labelField: 'name',
               message: `Select ${vowelArticle(singular)} ${singular}`,
               formatLabel: (r) => {
@@ -162,8 +168,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           }
 
           // Non-interactive: text/table output
-          const baseQ = extraQuery ? extraQuery + '^' : '';
-          const q = query ? query + '^ORDERBYDESCsys_updated_on' : (baseQ + 'ORDERBYDESCsys_updated_on');
+          const q = `${constrainedQuery}${constrainedQuery ? '^' : ''}ORDERBYDESCsys_updated_on`;
           const params = recordListParams({ limit, fields: ['sys_id', ...columns], query: q });
           const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
           app.ok({
@@ -277,13 +282,14 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         });
     }
 
-    return y;
+    const help = [opts.help, extraQuery ? constrainedQueryHelp(extraQuery) : ''].filter(Boolean).join('\n');
+    return help ? y.epilogue(help) : y;
   };
 
   return {
     command: `${name} [subcommand]`,
     aliases: aliases || [],
-    describe: `Manage ${name} (e.g. "${name} list --query nameLIKEincident")`,
+    describe: opts.describe || `Manage ${name} (e.g. "${name} list --query nameLIKEincident")`,
     discovery: {
       table,
       defaultColumns,

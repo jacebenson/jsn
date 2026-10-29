@@ -200,6 +200,16 @@ is reported as unknown, preserving commands on service accounts without falsely
 classifying them as Global + Default. The guard supplements existing update-set
 name disambiguation and completion checks; it does not complete sets automatically.
 
+
+## 2026-10-28: Fixed filters remain invariant in constrained table views
+
+Additional list queries cannot replace a factory's fixed `extraQuery`. These
+views accept bounded literal AND filters and ordering; OR/NQ/dynamic clauses
+fail before transport instead of escaping the view through encoded-query
+branch semantics. Generic records continue to accept advanced encoded queries.
+Field-investigation help documents schema, overrides, query rules and ACL
+coverage by symptom, without claiming a universal priority or effective-access
+proof from a list of ACL records.
 ## Rails serves existing documentation output and distributes an independent index
 
 Keep the documentation service in `site/`, beside the Node CLI and existing
