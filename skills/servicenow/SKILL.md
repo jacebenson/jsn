@@ -14,7 +14,7 @@ compatibility: |
   Works with Claude Code, OpenCode, Cursor, and agentskills-compatible tools.
 metadata:
   author: jacebenson
-  version: "4.3.10"
+  version: "4.3.11"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -42,10 +42,9 @@ All `list` subcommands use a paginated interactive picker in TTY mode:
 
 1. **Output modes** — `--json` when parsing data; text when presenting to humans
 2. **Use sys_id for updates** — All update/delete operations require sys_id
-3. **Check auth first** — Run `jsn auth status` before operations
-4. **Verify the intended instance** — Use `--profile <name>` for explicit targeting; never assume the default is right. `jsn auth switch <name>` changes the default.
-5. **Eval safety** — Prefer purpose-built or `records` commands. Never use `eval` to bypass a blocked business rule, ACL, or other ServiceNow protection. If eval is genuinely needed, explain why and obtain explicit user approval.
-6. **CONFIRM before destructive operations** — Show what will be created/updated/deleted and ask for approval.
+3. **Verify the intended instance** — Use `--profile <name>` for explicit targeting; never assume the default is right. `jsn auth switch <name>` changes the default.
+4. **Eval safety** — Prefer purpose-built or `records` commands. Never use `eval` to bypass a blocked business rule, ACL, or other ServiceNow protection. If eval is genuinely needed, explain why and obtain explicit user approval.
+5. **CONFIRM before destructive operations** — Show what will be created/updated/deleted and ask for approval.
 
 ## Command Hierarchy
 

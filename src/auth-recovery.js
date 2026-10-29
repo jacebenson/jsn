@@ -1,4 +1,4 @@
-import { errAPI } from './errors.js';
+import { errAPI, errAuth } from './errors.js';
 import { canUsePicker, quoteShellArg } from './helpers.js';
 import { confirm } from './prompts.js';
 
@@ -34,6 +34,15 @@ export function createAuthRecovery({ app, session, argv = () => app._authArgv ||
   let recoveryAttempt;
   const provider = {
     error: failure(),
+    credentialError(cause) {
+      // Local validation can fail before any HTTP response. Keep its precise
+      // reason, but target recovery to this invocation rather than the default.
+      const error = errAuth(`${cause.message} (${label}).`);
+      error.profile = profileName || null;
+      error.recovery = `jsn auth login ${target}`;
+      error.hint = `Run: ${error.recovery}`;
+      return error;
+    },
     async recover({ status }) {
       if (status !== 401) return false;
       return recoveryAttempt ??= recoverOnce();

@@ -68,6 +68,11 @@ The skill tells an agent to use the most specific command first, then fall back 
 4. Use `jsn rest` when the CLI does not expose the endpoint yet.
 5. Treat `jsn eval` as a last resort.
 
+Invoke instance commands directly; JSN handles authentication at the point of
+use or returns an actionable error. Use `jsn auth status` for explicit diagnostics
+when needed. It is not a prerequisite to each operation. Local documentation and
+saved customization reviews remain usable without instance authentication.
+
 For machine-readable results, add `--json`:
 
 ```bash
