@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { App } from '../src/app.js';
 import { createConfig } from '../src/config.js';
@@ -372,13 +372,13 @@ test('OAuth retry discards cached cookies and reconstructs the existing session'
 });
 
 function isolatedCLI(t) {
-  const directory = mkdtempSync(path.join(tmpdir(), 'jsn-recovery-test-'));
+  const directory = mkdtempSync(path.join(tmpdir(), 'jsn recovery test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const preload = path.join(directory, 'offline.mjs');
   writeFileSync(preload, `globalThis.fetch = () => { throw new Error('unexpected network call'); };\n`);
   const env = { ...process.env, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, HOME: directory,
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', PATH: '' };
-  const run = args => spawnSync(process.execPath, ['--import', preload, cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 5000 });
+  const run = args => spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 5000 });
   return { directory, run };
 }
 
