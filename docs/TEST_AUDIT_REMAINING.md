@@ -102,6 +102,13 @@ skipped and zero failures (1,611 total). Per-file reporting measured this area's
 from those registrations plus the verified net reduction of 12, and reconciles
 with the clean whole-suite baseline. See `TEST_AUDIT.md` for all areas.
 
+The PR's Windows matrix subsequently exposed an existing portability error in
+the packaged-skill lifecycle fixture: Node's `--import` was passed an absolute
+drive path rather than a file URL. The fixture now uses `pathToFileURL`, keeping
+the offline preload and lifecycle assertions intact. This adds no test case or
+production change; its focused tests and lint pass, with Windows verification
+provided by the PR matrix.
+
 ## Owned file manifest
 
 `Retain` means no justified removal or rewrite was established in this pass; it
