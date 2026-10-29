@@ -1,0 +1,40 @@
+# History presentation — checkout binary, disposable local fixture
+
+$ node bin/jsn.js history --styled
+Recent mutations · America/Chicago
+
+WHEN           ACTION  TABLE     RECORD        RESULT     CONNECTION
+29 Oct, 03:26  update  incident  0123456789a…  succeeded  pdi
+
+Use --details for full IDs, URLs and reasons; --json for structured history.
+$ node bin/jsn.js history --details --styled
+Recent mutations · America/Chicago
+
+WHEN           ACTION  TABLE     RECORD        RESULT     CONNECTION
+29 Oct, 03:26  update  incident  0123456789a…  succeeded  pdi
+  2026-10-29T08:26:30.635Z · incident/0123456789abcdef0123456789abcdef
+  https://example.service-now.com · Disposable fixture verification
+$ node bin/jsn.js history --json
+{
+  "ok": true,
+  "data": {
+    "entries": [
+      {
+        "id": 1,
+        "timestamp": "2026-10-29T08:26:30.635Z",
+        "instance": "https://example.service-now.com",
+        "profile": "pdi",
+        "table": "incident",
+        "sys_id": "0123456789abcdef0123456789abcdef",
+        "operation": "update",
+        "outcome": "succeeded",
+        "reason": "Disposable fixture verification",
+        "http_status": null
+      }
+    ],
+    "retentionDays": 7,
+    "_formatted": "Recent mutations · America/Chicago\n\nWHEN           ACTION  TABLE     RECORD        RESULT     CONNECTION\n29 Oct, 03:26  update  incident  0123456789a…  succeeded  pdi\n\nUse --details for full IDs, URLs and reasons; --json for structured history."
+  },
+  "summary": "",
+  "breadcrumbs": []
+}

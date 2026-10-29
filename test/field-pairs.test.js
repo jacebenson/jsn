@@ -169,7 +169,7 @@ describe('repeated -f survives the real CLI parser', () => {
     const instance = `http://127.0.0.1:${server.address().port}`;
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SN_') && !key.startsWith('SERVICENOW_')));
     Object.assign(env, {
-      XDG_CONFIG_HOME: directory, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
+      JSN_DATA_HOME: path.join(directory, 'data'), XDG_CONFIG_HOME: directory, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
       SN_USERNAME: 'probe', SN_PASSWORD: 'probe',
     });
 
