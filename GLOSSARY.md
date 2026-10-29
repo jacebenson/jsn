@@ -301,6 +301,14 @@ sysID })` → an enriched catalog item: variables fetched and grouped by variabl
 set, flow/workflow/delivery-plan names resolved. Pure async data-shaping —
 no yargs, no output formatting. `catalog.js` keeps wiring, create/submit, list.
 
+## Knowledge search
+
+`knowledge` (`kb`) searches and reads through the native Knowledge API, keeping
+article access decisions on the instance. It never retries via the Table API.
+Search text is passed as a query parameter, not interpolated into an encoded
+table query. Article HTML stays intact in JSON and renders as Markdown for
+humans. Read commands omit parameters that explicitly increment view counts.
+
 ## Docs data layer
 
 `src/commands/docs/{db,search,ingest,sync,refresh}.js`. All SQLite/FTS5 schema
