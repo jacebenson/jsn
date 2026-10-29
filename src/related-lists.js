@@ -39,7 +39,7 @@ function hint(table, query, { profile, instance }) {
 
 /** Invocation-bound reader. Metadata/aggregate failures are coverage gaps, not
  * zero counts. Optional batch owns endpoint fallback; items never replay. */
-export function createRelatedListReader(sdk, { metadataReader, maxLists = 100 } = {}) {
+export function createRelatedListReader(sdk, { metadataReader, maxLists = 50 } = {}) {
   if (!Number.isInteger(maxLists) || maxLists < 1 || maxLists > 1000) throw errUsage('Related-list limit must be an integer from 1 to 1000.');
   const cache = new Map();
   let reader = metadataReader;
@@ -61,13 +61,17 @@ export function createRelatedListReader(sdk, { metadataReader, maxLists = 100 } 
         status: 'unavailable', count: null };
       let reason;
       const filter = safeRelatedFilter(list.filter || '');
-      if (index >= maxLists) reason = `Related-list limit ${maxLists} reached; count was not requested.`;
-      else if (list.query_status !== 'reference' || !namePattern.test(list.table) || !namePattern.test(list.reference_field)) reason = list.reason || 'Related list requires platform relationship logic or unavailable metadata.';
+      if (list.query_status !== 'reference' || !namePattern.test(list.table) || !namePattern.test(list.reference_field)) reason = list.reason || 'Related list requires platform relationship logic or unavailable metadata.';
       else if (filter === null) reason = 'Related-list filter uses unsupported dynamic or disjunctive query logic; count was not requested.';
       if (reason) {
         result.reason = reason; warnings.push({ source: list.id, reason }); return { result };
       }
       const query = `${list.reference_field}=${id}${filter ? `^${filter}` : ''}`;
+      if (index >= maxLists) {
+        const reason = `Related-list limit ${maxLists} reached; count was not requested. Open this specific list explicitly or raise --related-limit.`;
+        warnings.push({ source: list.id, reason });
+        return { result: { ...result, reason, query, command: hint(list.table, query, { profile, instance }) } };
+      }
       const params = new URLSearchParams({ sysparm_count: 'true', sysparm_query: query });
       const url = `/api/now/stats/${list.table}?${params}`;
       return { result, query, url };
@@ -89,13 +93,22 @@ export function createRelatedListReader(sdk, { metadataReader, maxLists = 100 } 
             return unique.map(() => ({ count: null, status: error.status || null, reason: error.message || 'Aggregate batch failed.' }));
           }
         }
-        return Promise.all(unique.map(async url => {
+        const individual = async url => {
           try {
             const body = await sdk.request(`${sdk.baseURL}${url}`, { method: 'GET', readOnly: true });
             const count = parseCount(body);
             return { count, ...(count === null ? { reason: 'Aggregate response did not contain a valid count.' } : {}) };
           } catch (error) { return { count: null, status: error.status || null, reason: error.message || 'Aggregate request failed.' }; }
+        };
+        const results = new Array(unique.length);
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(4, unique.length) }, async () => {
+          while (next < unique.length) {
+            const index = next++;
+            results[index] = await individual(unique[index]);
+          }
         }));
+        return results;
       })();
       unique.forEach((url, index) => cache.set(url, pending.then(items => items[index])));
     }
@@ -119,9 +132,11 @@ export function createRelatedListReader(sdk, { metadataReader, maxLists = 100 } 
 /** Specialized show hook; ordinary shows and generic records get do no work. */
 export async function enrichRelatedLists(record, { table, argv = {}, app }) {
   if (!argv.related) return record;
-  if (!app.relatedListReader || app._relatedListReaderSDK !== app.sdk) {
-    app.relatedListReader = createRelatedListReader(app.sdk);
+  const limit = argv['related-limit'] ?? 50;
+  if (!app.relatedListReader || app._relatedListReaderSDK !== app.sdk || (app._relatedListReaderLimit !== undefined && app._relatedListReaderLimit !== limit)) {
+    app.relatedListReader = createRelatedListReader(app.sdk, { maxLists: limit });
     app._relatedListReaderSDK = app.sdk;
+    app._relatedListReaderLimit = limit;
   }
   record._related = await app.relatedListReader.read({ table, recordId: record.sys_id,
     view: argv.view || 'Default view', profile: app.session?.profileName || argv.profile || '',

@@ -110,3 +110,52 @@ it('accepts an ungrouped single aggregate row but refuses grouped or ambiguous r
     assert.equal(result.lists[0].count, expected);
   }
 });
+it('integrates inherited metadata and clears SDK-bound caches when the selected connection changes', async () => {
+  const calls = [];
+  function sdk(count) {
+    return { baseURL: 'https://fixture.invalid', list: async (table, params) => {
+      calls.push(table);
+      if (table === 'sys_db_object') return params.get('sysparm_query') === 'name=incident'
+        ? [{ sys_id: 'incident_table', name: 'incident', super_class: 'task_table' }]
+        : [{ sys_id: 'task_table', name: 'task', super_class: '' }];
+      if (table === 'sys_ui_view') return [{ sys_id: 'view', name: '', title: 'Default view' }];
+      if (table === 'sys_dictionary') return [{ name: 'task_sla', element: 'task', reference: 'task', column_label: 'Task SLAs' }];
+      if (table === 'sys_ui_related_list') return [{ sys_id: 'list', name: 'task', view: 'view' }];
+      if (table === 'sys_ui_related_list_entry') return [{ related_list: 'task_sla.task', filter: 'active=true', position: '0' }];
+      return [];
+    }, request: async (url, options) => {
+      calls.push('aggregate'); assert.equal(options.readOnly, true);
+      assert.equal(new URL(url).searchParams.get('sysparm_query'), 'task=resolved^active=true');
+      return { result: { stats: { count: String(count) } } };
+    } };
+  }
+  const app = { sdk: sdk(2), session: { profileName: 'selected' }, getEffectiveInstance: () => 'https://fixture.invalid' };
+  const record = { sys_id: 'resolved' };
+  await enrichRelatedLists(record, { table: 'incident', app, argv: { related: true } });
+  assert.equal(record._related.nonempty[0].count, 2);
+  assert.equal(record._related.nonempty[0].configured, true);
+  assert.ok(calls.includes('sys_ui_related_list_entry'));
+  assert.equal(calls.includes('task_sla'), false);
+  const firstCalls = calls.length;
+  await enrichRelatedLists(record, { table: 'incident', app, argv: { related: true } });
+  assert.equal(calls.length, firstCalls);
+  app.sdk = sdk(5);
+  await enrichRelatedLists(record, { table: 'incident', app, argv: { related: true } });
+  assert.equal(record._related.nonempty[0].count, 5);
+});
+it('bounds default descriptor fanout and individual aggregate concurrency with actionable skipped-list hints', async () => {
+  let calls = 0, active = 0, maximum = 0;
+  const sdk = { baseURL: 'https://fixture.invalid', request: async () => {
+    calls++; active++; maximum = Math.max(maximum, active);
+    await new Promise(resolve => setTimeout(resolve, 2)); active--;
+    return { result: { stats: { count: 0 } } };
+  } };
+  const reader = createRelatedListReader(sdk, { metadataReader: { read: async () => ({
+    related_lists: Array.from({ length: 60 }, (_, index) => reference(`list${index}`, { reference_field: `parent${index}` })),
+    coverage: { state: 'observed', warnings: [] },
+  }) } });
+  const result = await reader.read({ table: 'incident', recordId: 'record', profile: 'selected' });
+  assert.equal(calls, 50); assert.ok(maximum <= 4); assert.equal(result.coverage.state, 'partial');
+  assert.equal(result.lists[50].count, null); assert.match(result.lists[50].command, /parent50=record/);
+  assert.match(result.lists[50].command, /--profile selected/); assert.deepEqual(result.nonempty, []);
+});
