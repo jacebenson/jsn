@@ -8,6 +8,7 @@
 // command handlers that already call them.
 
 import { AuthManager } from './auth.js';
+import { createAuthRecovery } from './auth-recovery.js';
 import { SDKClient } from './sdk.js';
 import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled, hyperlink } from './output.js';
 import { saveConfig } from './config.js';
@@ -53,8 +54,11 @@ export class App {
 
   /** Build (or rebuild) the SDK client for an instance + session. */
   _buildSdk(instance, session = this.session) {
-    this.sdk = new SDKClient(instance, this.auth, {
+    this.sdk = new SDKClient(instance, this.auth.createProfileProvider(instance, {
+      username: session?.username, authMethod: session?.profile?.auth_method,
+    }), {
       domain: session?.domain || '',
+      recovery: createAuthRecovery({ app: this, session }),
     });
   }
 

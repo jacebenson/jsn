@@ -213,6 +213,7 @@ export function buildCLI() {
               hint: 'Run "jsn auth status" to list profiles.',
             });
           }
+          app._authArgv = argv;
           applySession(app, session);
         } catch (err) {
           guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });

@@ -31,7 +31,7 @@ test('text and JSON requests reject API errors while raw responses remain inspec
   sdk._setAuth = async () => {};
   t.mock.method(globalThis, 'fetch', async () => new Response('denied', { status: 403 }));
   for (const method of ['request', 'rawRequest']) {
-    await assert.rejects(sdk[method]('https://example.invalid'), (error) => error.status === 403);
+    await assert.rejects(sdk[method]('https://example.invalid'), (error) => error.status === 403 && error.code === 'forbidden');
   }
   assert.equal((await sdk.fetchResponse('https://example.invalid')).status, 403);
 });

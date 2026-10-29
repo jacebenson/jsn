@@ -1,5 +1,26 @@
 # JSN decisions
 
+## Runtime auth recovery reacts to rejection, not session age
+
+Issue #311 adds an App-owned recovery provider to the SDK. Only a real command's
+HTTP 401 permits one refresh/reauthentication and one retry. Bootstrap requests,
+403, network errors, aborts, timeouts and 5xx never invoke recovery. Replaying a
+mutation is allowed only after that definitive 401 rejection; an uncertain
+outcome is never replayed. The SDK imports no app/config policy.
+
+OAuth retains the existing identity-scoped token refresh and the declared-expiry
+refresh in `AuthManager.getCredentialsFor`. The latter uses `expires_at` and is
+intentionally unchanged. There is no new preflight or fixed session-age rule.
+Basic never renews. Browser renewal uses the existing bounded GCK login flow,
+with profile `reauth` defaulting to `confirm`; `auto` and `never` are explicit
+settings through `auth modify`. Noninteractive and machine-output invocations
+never prompt or launch a browser. Setup does not duplicate this setting.
+
+401 and 403 errors omit provider bodies, which may contain credentials. 401
+errors carry profile-specific recovery guidance; 403 reports an ACL/role problem.
+Other statuses keep their existing API error behavior. Diagnostics remain
+read-only and offline commands do not acquire credentials.
+
 ## Setup collects answers for the canonical auth operations
 
 Setup remains the human front door, with add/reconnect/status/default/settings/
