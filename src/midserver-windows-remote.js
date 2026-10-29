@@ -194,7 +194,14 @@ $phase='enforce-permissions'
 Import-Module -Name $modules[0].FullName -Force -ErrorAction Stop
 $enforce=Get-Command -Name enforcePerms -CommandType Function -ErrorAction Stop
 if ($enforce.Module.Path -ne $modules[0].FullName) { throw 'Wrong enforcement module' }
-enforcePerms -folder $agent -serviceName $p.serviceName -debug $false -additionWhiteListedGroups $values['mid.windows_host.file_permissions.allow_list'] | Out-Null
+# The vendor allow-list includes a second service principal when USERDOMAIN
+# resolves it. Match the LocalService runtime context so its saved list/hash is
+# identical on startup; let the unmodified vendor module compute the hash.
+$previousUserDomain=$env:USERDOMAIN
+try {
+  $env:USERDOMAIN=($s.StartName -split '\\',2)[0]
+  enforcePerms -folder $agent -serviceName $p.serviceName -debug $false -additionWhiteListedGroups $values['mid.windows_host.file_permissions.allow_list'] | Out-Null
+} finally { $env:USERDOMAIN=$previousUserDomain }
 $serviceRules=@((Get-Acl -LiteralPath $agent).Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-19' -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq [Security.AccessControl.FileSystemRights]::FullControl })
 if (!$serviceRules.Count) { throw 'Runtime account lacks enforced permissions' }
 foreach ($receipt in @('fileperm.aclsave','fileperm.grphash')) { if (!(Test-Path -LiteralPath (Join-Path (Join-Path $agent 'etc') $receipt) -PathType Leaf)) { throw 'Vendor enforcement receipt missing' } }

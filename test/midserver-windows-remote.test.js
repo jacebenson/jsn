@@ -135,6 +135,14 @@ test('Windows install uses official URL, stdin secrets, restricted runtime ACL a
   assert.ok(call.script.indexOf('bin\\mid.bat install') < call.script.indexOf('enforcePerms -folder $agent'));
   assert.match(call.script, /-additionWhiteListedGroups \$values\['mid.windows_host.file_permissions.allow_list'\]/);
   assert.match(call.script, /FileSystemRights\]::FullControl/);
+  const domainSave = call.script.indexOf('$previousUserDomain=$env:USERDOMAIN');
+  const domainSet = call.script.indexOf('$env:USERDOMAIN=($s.StartName -split');
+  const enforce = call.script.indexOf('enforcePerms -folder $agent');
+  const domainRestore = call.script.indexOf('finally { $env:USERDOMAIN=$previousUserDomain }');
+  assert.ok(domainSave < domainSet && domainSet < enforce && enforce < domainRestore);
+  assert.ok(call.script.includes('unmodified vendor module compute the hash'));
+  assert.ok(!call.script.includes('5b311f9827e6a221'));
+  assert.ok(!call.script.includes('Set-Content -LiteralPath $WHITELIST_HASH_FILE'));
   assert.match(call.script, /fileperm.aclsave/);
   assert.match(call.script, /fileperm.grphash/);
   assert.ok(!call.script.includes('Start-Service'));
