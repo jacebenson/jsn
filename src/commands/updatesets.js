@@ -365,6 +365,7 @@ export async function formatUpdateSetDetail(app, record) {
   const stateRaw = String(full.state?.value ?? full.state ?? '').toLowerCase();
   const isClosed = ['complete', 'committed'].includes(stateRaw);
   const hints = [];
+  hints.push({ action: 'scan', cmd: `jsn scan run --update-set ${sysID}${app.session?.profileName ? ` --profile ${quoteShellArg(app.session.profileName)}` : ''}`, description: 'Offer an explicit scan of current records before completing or promoting this set' });
   if (isClosed) {
     hints.push({
       action: 'set',

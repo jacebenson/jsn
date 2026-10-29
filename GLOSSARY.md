@@ -118,6 +118,13 @@ one. Defaults change only through a human choice, `--make-default`, or
 bot's `auth modify` request is idempotent. Noninteractive commands never open
 implicit prompts or browsers.
 
+## CI search
+
+`cmdb search` is a read-only, literal substring lookup across four common CI
+identity fields. Every OR branch keeps the exact class restriction. Stable
+name/sys_id ordering and one-row lookahead provide bounded pagination without
+claiming an unreadable count is zero. Failed strict reads remain errors.
+
 ## Record metadata reader
 
 An invocation-scoped SDK-bound reader of shared form layouts, table inheritance,
@@ -294,12 +301,29 @@ Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
   (`--json`/`--quiet`/`--styled`/`--markdown`/`--csv`) beat `--format`, and the
   last shortcut applied wins (`csv` > `markdown` > `styled` > `quiet` > `json`).
 
+## Catalog ordering
+
+`catalogitems search/describe/order` uses the native Service Catalog API for
+requester access and fulfillment. Ordering is a declared mutation with its own
+confirmation and read-only guard. It is exempt from development capture-context
+selection because it submits runtime business requests, not metadata changes.
+A preview never posts; unknown submission outcomes never cause automatic replay.
+Inputs are catalog variables, not arbitrary fields on an RITM or request header.
+
 ## Catalog item enrichment
 
 `src/commands/catalog/enrich.js`. `enrichCatalogItem({ sdk, instanceUrl,
 sysID })` → an enriched catalog item: variables fetched and grouped by variable
 set, flow/workflow/delivery-plan names resolved. Pure async data-shaping —
 no yargs, no output formatting. `catalog.js` keeps wiring, create/submit, list.
+
+## Knowledge search
+
+`knowledge` (`kb`) searches and reads through the native Knowledge API, keeping
+article access decisions on the instance. It never retries via the Table API.
+Search text is passed as a query parameter, not interpolated into an encoded
+table query. Article HTML stays intact in JSON and renders as Markdown for
+humans. Read commands omit parameters that explicitly increment view counts.
 
 ## Docs data layer
 
@@ -518,3 +542,13 @@ and `install`. Installation records all selected file locations; the legacy
 `skillLocation` points to the first. A plain reinstall replaces that recorded set.
 Explicit destinations select a new managed set. Freshness means identical file
 contents, including edits that leave the frontmatter version unchanged.
+## Instance Scan
+
+`jsn scan` separates check definitions (`checks`), groups of checks (`suites`),
+explicit targets (`run`), execution progress (`status`), and findings/coverage
+(`results`). Activation changes eligibility without starting an execution.
+Provider execution success is separate from findings and recorded check counts;
+unreadable or truncated coverage must never become a clean zero. Scan dispatch
+is not automatically retried, and an expired local wait does not cancel the
+provider's execution. Instance-wide runs require explicit `--full`, including
+when reusing a previous instance-wide target.

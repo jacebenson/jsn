@@ -2,12 +2,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
 describe('SDKClient', () => {
-  it('exports SDKClient class', async () => {
-    const { SDKClient } = await import('../src/sdk.js');
-    assert.ok(SDKClient);
-    assert.strictEqual(typeof SDKClient, 'function');
-  });
-
   it('constructs with baseURL and authProvider', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const auth = { getCredentials: () => ({ auth_method: 'oauth', access_token: 'test-token' }) };
@@ -305,14 +299,4 @@ describe('SDKClient', () => {
     assert.ok(calls[0].opts.headers.Cookie.includes('JSESSIONID=abc'));
   });
 
-  it('does not have domain-specific methods', async () => {
-    const { SDKClient } = await import('../src/sdk.js');
-    const forbiddenPatterns = ['ListForm', 'ListList', 'GetSP', 'ListSP'];
-    const protoProps = Object.getOwnPropertyNames(SDKClient.prototype);
-    for (const prop of protoProps) {
-      for (const pattern of forbiddenPatterns) {
-        assert.ok(!prop.includes(pattern), `Should not have domain method: ${prop}`);
-      }
-    }
-  });
 });

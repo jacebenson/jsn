@@ -87,16 +87,23 @@ describe('local CLI adapter', () => {
 
   it('calls the registered completion callback with yargs-compatible arguments', async () => {
     let call;
-    await yargs(['--get-yargs-completions', 'jsn', 'r'])
-      .command({ command: 'records' })
-      .completion('__completion', false, (current, argv, completionFilter, finish) => {
-        call = { current, argv, completionFilter };
-        completionFilter((err, values) => finish([...values, 'custom']));
-      })
-      .parse();
+    const output = [];
+    const original = process.stdout.write;
+    process.stdout.write = text => { output.push(text); return true; };
+    try {
+      await yargs(['--get-yargs-completions', 'jsn', 'r'])
+        .command({ command: 'records' })
+        .completion('__completion', false, (current, argv, completionFilter, finish) => {
+          call = { current, argv, completionFilter };
+          completionFilter((err, values) => finish([...values, 'related']));
+        })
+        .parse();
+    } finally {
+      process.stdout.write = original;
+    }
     assert.equal(call.current, 'r');
     assert.deepEqual(call.argv._, []);
-    assert.equal(typeof call.completionFilter, 'function');
+    assert.deepEqual(output.join('').trim().split('\n'), ['records', 'related']);
   });
 
   it('rejects invalid choices and numeric values', async () => {

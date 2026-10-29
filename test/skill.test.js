@@ -5,6 +5,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 // ─── extractVersion ───
 
@@ -191,7 +192,7 @@ describe('Packaged skill lifecycle', () => {
     const preload = path.join(directory, 'offline.mjs');
     fs.writeFileSync(preload, 'globalThis.fetch = () => { throw new Error("Network access forbidden"); };');
     const run = (...args) => {
-      const result = spawnSync(process.execPath, ['--import', preload, 'bin/jsn.js', 'skill', ...args],
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, 'bin/jsn.js', 'skill', ...args],
         { cwd: new URL('..', import.meta.url), env, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       return result.stdout;

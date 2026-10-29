@@ -91,6 +91,39 @@ daily checks — set these in tests), `JSN_HERMES_BASE_DIR` (skill tests).
 CLI-level tests spawn `bin/jsn.js` via `spawnSync` — see
 `test/completion.test.js` for the pattern.
 
+### Writing and reviewing tests
+
+Keep Node's built-in `node:test`. Choose the observable contract first: public
+CLI/API results, output, error codes, persisted data, or side effects. Exercise it
+at the lowest useful layer. Use CLI tests when parsing, middleware, permissions,
+formatting, or confirmation is the boundary under test; do not repeat an SDK
+assertion through a subprocess without a distinct contract.
+
+Distinguish public contracts from deliberate architecture invariants and
+incidental internals. A structural restriction needs a documented rationale in
+`GLOSSARY.md` or `docs/DECISIONS.md`, linked from the test. Otherwise avoid private
+method names, prototype layouts, source-regex checks, and forbidden implementation
+patterns. A behavior-preserving refactor should not require restoring obsolete
+internals just to satisfy a test.
+
+Recipe for new tests or an audit:
+
+1. Name the contract and the regression that would violate it.
+2. Pick the lowest useful layer; inject credentials/transports rather than depend
+   on personal keyrings, profiles, or a live instance.
+3. Reuse a focused fixture or helper. Table cases should keep distinct inputs,
+   expectations, and useful failure labels; fewer declarations alone are no win.
+4. Include meaningful edge and failure paths, especially evidence that rejected
+   operations made no write. Preserve auth, read-only, mutation confirmation,
+   update-set, and write-back safeguards.
+5. Run the affected tests, then `npm test` and `npm run lint`. Live tests remain
+   explicit opt-in. Report existing failures honestly instead of weakening tests.
+
+For cleanup, explain where each removed scenario remains covered, and report
+actual test cases, test lines, and comparable runtime. Do not pursue a numeric
+ceiling (including a 50-test goal), deletion percentage, or coverage quota.
+See `docs/TEST_AUDIT.md` for the initial audit and upstream examples.
+
 ## Git flow
 
 PRs against `main` on github.com/jacebenson/jsn, squash-merged
