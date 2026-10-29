@@ -191,3 +191,14 @@ capture-context approval for write-enabled profiles. Missing or unreadable conte
 is reported as unknown, preserving commands on service accounts without falsely
 classifying them as Global + Default. The guard supplements existing update-set
 name disambiguation and completion checks; it does not complete sets automatically.
+
+## Rails serves existing documentation output and distributes an independent index
+
+Keep the documentation service in `site/`, beside the Node CLI and existing
+Eleventy content project. Preserve the generated public URL tree while replacing
+the serving layer with Rails. Build metadata/manifests live in the service's own
+database; immutable downloadable indexes live on GitHub Releases/object storage.
+The central builder reuses Node ingestion and publishes the stable manifest only
+after artifact verification/upload. CLI installation, website deployment and index
+publication have independent pipelines. See `docs-distribution-architecture.md`
+for the pre-migration audit, host configuration gate and rollback path.

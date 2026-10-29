@@ -19,9 +19,24 @@ function formatBytes(n) {
 export function docsCmd(wrap) {
   return {
     command: 'docs [subcommand]',
-    describe: 'Search ServiceNow documentation locally (sync, status, search, serve)',
+    describe: 'Search ServiceNow documentation locally (install, sync, status, search, serve)',
     builder: (yargs) => {
       return yargs
+        .command({ command: 'install', describe: 'Install optional docs: raw GitHub files or a verified prebuilt searchable database',
+          builder: y => y.option('source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Explicit source; raw GitHub estimated ~5 minutes; snapshot estimate comes from manifest' })
+            .option('manifest-url', { type: 'string', describe: 'HTTPS snapshot manifest mirror' }),
+          handler: wrap(async (argv, app) => {
+            const { installDocumentation, offerDocumentation } = await import('./install.js');
+            const { canUsePicker } = await import('../../helpers.js');
+            const result = argv.source ? await installDocumentation(argv.source, { manifestURL: argv['manifest-url'] })
+              : canUsePicker(app, argv) ? await offerDocumentation(app, argv) : await installDocumentation(undefined);
+            app.ok(result, { summary: result.skipped ? 'Documentation skipped' : 'Documentation installed' });
+          }),
+        })
+        .command({ command: 'rollback', describe: 'Restore the previously installed local docs database', handler: wrap(async (_argv, app) => {
+          const { rollbackSnapshot } = await import('./snapshot.js');
+          app.ok(rollbackSnapshot(), { summary: 'Previous documentation index restored' });
+        }) })
         .command({
           command: 'sync',
           describe: 'Clone/update ServiceNowDocs and build the docs.db index',
@@ -77,8 +92,14 @@ export function docsCmd(wrap) {
               sock.connect(3000, '127.0.0.1');
             });
 
+            const { docsSnapshotStatus } = await import('./snapshot.js');
+            const snapshot = docsSnapshotStatus();
+            let available = null;
+            try { available = JSON.parse(fs.readFileSync(`${dbPath}.available.json`, 'utf8')); } catch { /* No background update information. */ }
             app.ok({
               state,
+              ...(snapshot ? { snapshot: { revision: snapshot.revision, schema: snapshot.schema } } : {}),
+              ...(snapshot && available?.installed === snapshot.revision && available.revision !== snapshot.revision ? { updateAvailable: { revision: available.revision, command: 'jsn docs install --source snapshot' } } : {}),
               downloaded: { ok: downloaded, path: repoDir },
               db: { ok: dbExists, path: dbPath },
               embedded: { ok: embedded },
@@ -99,6 +120,8 @@ export function docsCmd(wrap) {
             .option('doc-type', { type: 'string', describe: 'Filter by doc type' })
             .option('mode', { type: 'string', choices: ['keyword', 'hybrid'], default: 'hybrid', describe: 'Search mode' }),
           handler: wrap(async (argv, app) => {
+            const { ensureDocumentation } = await import('./install.js');
+            await ensureDocumentation(app, argv);
             const { searchDocs } = await import('./search.js');
             const result = searchDocs({
               query: argv.query,
@@ -259,7 +282,7 @@ export function docsCmd(wrap) {
     handler: wrap(async (argv, app) => {
       const { getDocsDbPath } = await import('./db.js');
       const subcommands = argv.subcommands || [];
-      const summary = 'jsn docs — ServiceNow documentation search (sync, status, search, show, serve).';
+      const summary = 'jsn docs — optional local documentation (install, sync, status, search, show, serve, rollback).';
       app.ok({
         command: 'docs',
         subcommands,

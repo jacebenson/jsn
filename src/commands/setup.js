@@ -14,6 +14,7 @@ const HUB_CHOICES = [
   { name: 'Change settings', value: 'modify', command: 'jsn auth modify --profile <name> --read-only --confirm-deletes --no-include-counts' },
   { name: 'Sign out (keep the profile)', value: 'logout', command: 'jsn auth logout --profile <name> --force (only after explicit approval)' },
   { name: 'Remove a connection', value: 'remove', command: 'jsn auth remove <name>' },
+  { name: 'Install optional offline documentation', value: 'docs', command: 'jsn docs install --source snapshot|github|skip' },
 ];
 
 const setupHelp = () => [
@@ -101,8 +102,13 @@ export function setupCmd(wrap) {
   return {
     command: 'setup',
     describe: 'Set up and manage your ServiceNow instances (interactive)',
-    builder: y => y.epilogue(setupHelp()),
+    builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' }).epilogue(setupHelp()),
     handler: wrap(async (argv, app) => {
+      if (argv['docs-source']) {
+        const { installDocumentation } = await import('./docs/install.js');
+        app.ok(await installDocumentation(argv['docs-source']));
+        return;
+      }
       const { canUsePicker } = await import('../helpers.js');
       if (!app.isInteractive() || !canUsePicker(app, argv)) {
         throw errUsageHint('"jsn setup" is interactive. Use explicit auth commands instead.', setupHelp());
@@ -111,10 +117,20 @@ export function setupCmd(wrap) {
       if (profileNames.length === 0) {
         const result = await loginWizard(app, argv);
         await showAuthStatus({ ...argv, profile: result.profileName }, app);
+        const { docsDbExists } = await import('./docs/db.js');
+        if (!docsDbExists()) {
+          const { offerDocumentation } = await import('./docs/install.js');
+          app.ok(await offerDocumentation(app, argv));
+        }
         return;
       }
       const action = await authHubMenu();
       if (action === undefined) return;
+      if (action === 'docs') {
+        const { offerDocumentation } = await import('./docs/install.js');
+        app.ok(await offerDocumentation(app, argv));
+        return;
+      }
       const result = await dispatchSetupAction(app, argv, action);
       if (action !== 'status') await showAuthStatus({ ...argv, profile: result?.profile || result?.profileName }, app);
     }),

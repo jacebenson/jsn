@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { docsInstallLease, docsHaveReaders } from './locks.js';
 import { spawnSync } from 'node:child_process';
 import { getDocsSourceDir, getDocsSourceMarkdownDir, getDocsDbPath, docsDbExists } from './db.js';
 import { ingestDocs } from './ingest.js';
@@ -21,6 +22,15 @@ function git(args, cwd, stdio = 'inherit') {
 }
 
 export function syncDocs(opts = {}) {
+  const repoDir = opts.repoDir || getDocsSourceDir();
+  fs.mkdirSync(path.dirname(repoDir), { recursive: true });
+  const release = docsInstallLease(repoDir);
+  try {
+    if (docsHaveReaders(repoDir)) throw new Error('Raw documentation source is in use; retry after the current refresh finishes.');
+    return syncDocsLocked(opts);
+  } finally { release(); }
+}
+function syncDocsLocked(opts = {}) {
   const repoDir = opts.repoDir || getDocsSourceDir();
   const markdownDir = opts.markdownDir || getDocsSourceMarkdownDir();
   const dbPath = opts.dbPath || getDocsDbPath();
@@ -68,11 +78,11 @@ export function syncDocs(opts = {}) {
   // If the DB already exists, use incremental refresh. Otherwise, full ingest.
   if (docsDbExists()) {
     process.stderr.write(`Docs DB found — running incremental refresh...\n`);
-    const result = refreshDocs({ docsDir: markdownDir, dbPath });
+    const result = refreshDocs({ docsDir: markdownDir, dbPath, sourceResource: repoDir, sourceLeaseHeld: true });
     return { repoDir, markdownDir, dbPath, ingested: true, incremental: true, ...result };
   }
 
   process.stderr.write('No existing DB — running full ingest...\n');
-  const result = ingestDocs({ docsDir: markdownDir, dbPath, embed });
+  const result = ingestDocs({ docsDir: markdownDir, dbPath, embed, sourceResource: repoDir, sourceLeaseHeld: true });
   return { repoDir, markdownDir, dbPath, ingested: true, incremental: false, ...result };
 }

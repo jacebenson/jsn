@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import Database from 'better-sqlite3';
+import { docsReaderLease } from './locks.js';
 
 const LEGACY_DOCS_DIR_NAME = 'servicenow-cli/docs';
 const DOCS_DIR_NAME = 'docs';
@@ -131,7 +132,14 @@ export function defaultDocsRoots(opts = {}) {
 export function openDocsDb(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
   ensureDocsCacheDir();
-  const db = new Database(dbPath);
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const release = docsReaderLease(dbPath);
+  let db;
+  try {
+    db = new Database(dbPath);
+  } catch (error) { release(); throw error; }
+  const close = db.close.bind(db);
+  db.close = () => { try { return close(); } finally { release(); } };
   try {
     db.exec('PRAGMA journal_mode = WAL');
     return db;
