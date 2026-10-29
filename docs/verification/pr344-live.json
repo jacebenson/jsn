@@ -1,0 +1,105 @@
+{
+  "pr": "344",
+  "at": "2026-10-29T04:47:43.363Z",
+  "source_commit": "503de7145a56a878c36c47d594ec4ab97c60d798",
+  "profile": "pdi",
+  "instance_operations": "read_only",
+  "live_writes": false,
+  "doctor": {
+    "command": "node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi",
+    "exit": 0,
+    "authenticated": true,
+    "verified": true,
+    "probe_status": "succeeded"
+  },
+  "checks": [
+    {
+      "label": "exact human-field lookup",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier incident --identifier-field name --columns name,label --json",
+      "exit": 0,
+      "result": {
+        "ok": true,
+        "name": "incident",
+        "label": "Incident"
+      }
+    },
+    {
+      "label": "unambiguous prefix lookup",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --sys-id <metadata-id-prefix> --columns name --json",
+      "exit": 0,
+      "result": {
+        "ok": true,
+        "name": "incident",
+        "same_record": true
+      }
+    },
+    {
+      "label": "exact zero-match error",
+      "command": "node bin/jsn.js --profile pdi records get --table sys_db_object --identifier jsn_missing_schema_probe_20261028 --identifier-field name --json",
+      "exit": 1,
+      "result": {
+        "ok": false,
+        "code": "not_found",
+        "resolution": {
+          "table": "sys_db_object",
+          "field": "name",
+          "mode": "exact",
+          "matches": 0,
+          "attempts": [
+            {
+              "table": "sys_db_object",
+              "field": "name",
+              "mode": "exact",
+              "matches": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "profile-built tables command/alias",
+      "command": "node bin/jsn.js --profile pdi tables show incident --json --get data.name",
+      "exit": 0,
+      "result": {
+        "display_value": "incident",
+        "value": "incident"
+      }
+    },
+    {
+      "label": "profile-built table command/alias",
+      "command": "node bin/jsn.js --profile pdi table show incident --json --get data.name",
+      "exit": 0,
+      "result": {
+        "display_value": "incident",
+        "value": "incident"
+      }
+    },
+    {
+      "label": "existing UI policy essential-action count",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --json --get data._essential.actions.loaded",
+      "exit": 0,
+      "result": {
+        "loaded": 1
+      }
+    },
+    {
+      "label": "existing UI policy essential-action status",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --json --get data._essential.actions.status",
+      "exit": 0,
+      "result": "loaded"
+    },
+    {
+      "label": "essential opt-out retains the primary record",
+      "command": "node bin/jsn.js --profile pdi uipolicies show <existing-policy-id> --no-essential --json --get data.sys_id",
+      "exit": 0,
+      "result": {
+        "same_record": true
+      }
+    }
+  ],
+  "registry": {
+    "file": "src/record-command-profiles.js",
+    "lines": 70
+  },
+  "cleanup": "passed"
+}

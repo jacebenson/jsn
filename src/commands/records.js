@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
+import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
+import { unwrapSysId } from '../resolve-record.js';
+import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
@@ -67,6 +70,15 @@ function getDefaultColumns(table) {
   return tableDefaultColumns[table] || ['sys_id'];
 }
 
+function recordLookup(argv) {
+  const sysId = argv['sys-id'];
+  if ((sysId === undefined) === (argv.identifier === undefined)) throw errUsage('Supply exactly one of --sys-id or --identifier.');
+  if (sysId !== undefined && argv.identifierField && argv.identifierField !== 'sys_id') throw errUsage('--sys-id cannot be combined with a different --identifier-field.');
+  return { table: argv.table, identifier: sysId ?? argv.identifier,
+    identifierField: sysId !== undefined ? 'sys_id' : (argv.identifierField || 'sys_id'),
+    displayValues: argv.displayValues, resource: 'Record' };
+}
+
 export function recordsCmd(wrap) {
   return {
     command: 'records [subcommand]',
@@ -83,6 +95,7 @@ export function recordsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { type: 'number', default: 20, describe: 'Max records' })
             .option('offset', { type: 'number', default: 0, describe: 'Offset' })
+            .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
             .option('count', { type: 'boolean', default: true, describe: 'Include the total-matching count (use --no-count to opt out)' })
             .epilogue([
               'In an interactive terminal with automatic output, browse a picker (10 visible items).',
@@ -130,15 +143,10 @@ export function recordsCmd(wrap) {
             }
 
             // Text/table fallback (or sys-id direct lookup)
-            const params = new URLSearchParams();
-            params.set('sysparm_limit', argv['sys-id'] ? '1' : String(argv.limit));
-            params.set('sysparm_offset', String(argv.offset));
-            params.set('sysparm_display_value', 'all');
             const fields = resolveFieldsParam(columns);
-            if (fields) params.set('sysparm_fields', fields);
-            if (query) params.set('sysparm_query', query);
-            const records = await app.sdk.list(table, params);
-            const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const params = recordListParams({ limit: argv['sys-id'] ? 1 : argv.limit, offset: argv.offset, fields, query });
+            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues });
+            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, columns)) : records;
 
             // include_counts: default opt-in on every list. Opt out per-profile
             // (config include_counts:false) or per-invocation (--no-count).
@@ -190,28 +198,23 @@ export function recordsCmd(wrap) {
         })
         .command({
           command: 'get',
-          describe: 'Get a single record by sys_id',
+          describe: 'Get one record by sys_id or an explicit identifier field',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
+            .option('sys-id', { type: 'string', describe: 'Full or unambiguous partial record sys_id (including legacy IDs)' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
+            .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('attachments', { type: 'boolean', default: false, describe: 'Also list the record\'s attachments' })
-            .epilogue('Example: jsn records get --table incident --sys-id <sys_id> --json'),
+            .epilogue('Exact lookup precedes sys_id prefix, then suffix. Ambiguous matches fail.\nExample: jsn records get --table incident --sys-id <sys_id> --json\nExample: jsn records get --table incident --identifier INC0010001 --identifier-field number --json'),
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv['sys-id']);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `sys_id=${argv['sys-id']}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'true');
-            if (argv.columns && argv.columns !== '*') params.set('sysparm_fields', `sys_id,${argv.columns}`);
-            const records = await app.sdk.list(argv.table, params);
-            if (records.length === 0) {
-              throw new Error(`Record not found: ${argv['sys-id']}`);
-            }
-            const record = records[0];
+            const lookup = recordLookup(argv);
+            const fields = argv.columns && argv.columns !== '*' ? argv.columns.split(',') : undefined;
+            const record = await getRecord(app.sdk, { ...lookup, fields, displayValue: 'true' });
             if (argv.attachments) {
               try {
-                const atts = await app.sdk.listAttachments(argv['sys-id']);
+                const atts = await app.sdk.listAttachments(unwrapSysId(record));
                 record._attachments = atts;
               } catch {
                 record._attachments = [];
@@ -241,7 +244,7 @@ export function recordsCmd(wrap) {
             for (const w of warnings) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
-            const record = await app.sdk.create(argv.table, recordData);
+            const record = await createRecord(app.sdk, { table: argv.table, data: recordData });
             const sysID = getStringField(record, 'sys_id');
             const mismatches = await verifyWriteBack(app, argv.table, sysID, recordData);
             for (const m of mismatches) {
@@ -258,7 +261,9 @@ export function recordsCmd(wrap) {
           describe: 'Update an existing record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
+            .option('sys-id', { type: 'string', describe: 'Full or unambiguous partial record sys_id (including legacy IDs)' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
             .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
@@ -270,8 +275,10 @@ export function recordsCmd(wrap) {
             for (const w of warnings) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
-            const record = await app.sdk.update(argv.table, argv['sys-id'], recordData);
-            const mismatches = await verifyWriteBack(app, argv.table, argv['sys-id'], recordData);
+            const lookup = recordLookup(argv);
+            const resolved = await getRecord(app.sdk, lookup);
+            const record = await updateRecord(app.sdk, { table: argv.table, record: resolved, data: recordData });
+            const mismatches = await verifyWriteBack(app, argv.table, unwrapSysId(resolved), recordData);
             for (const m of mismatches) {
               process.stderr.write(`⚠ field "${m.field}" was not persisted (sent: "${m.sent}", got: "${m.got}")\n`);
             }
@@ -286,12 +293,15 @@ export function recordsCmd(wrap) {
           describe: 'Delete a record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
+            .option('sys-id', { type: 'string', describe: 'Full or unambiguous partial record sys_id (including legacy IDs)' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
-            await confirmDelete(app, argv, `Delete record from ${argv.table} (${argv['sys-id']})`);
-            await app.sdk.delete(argv.table, argv['sys-id']);
-            app.ok({ message: 'Record deleted', table: argv.table, sys_id: argv['sys-id'] }, { summary: `Deleted record from ${argv.table}` });
+            const lookup = recordLookup(argv);
+            await confirmDelete(app, argv, `Delete record from ${argv.table} (${lookup.identifier})`);
+            const sysID = await deleteRecord(app.sdk, lookup);
+            app.ok({ message: 'Record deleted', table: argv.table, sys_id: sysID }, { summary: `Deleted record from ${argv.table}` });
           }),
         })
         .command({
@@ -369,6 +379,7 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', describe: 'Encoded query to constrain the aggregation' })
             .option('group-by', { type: 'string', describe: 'Comma-separated fields to group by' })
+            .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
             .option('count', { type: 'boolean', default: true, describe: 'Include record counts' })
             .option('avg-fields', { type: 'string', describe: 'Comma-separated fields to average' })
             .option('sum-fields', { type: 'string', describe: 'Comma-separated fields to sum' })
