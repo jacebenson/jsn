@@ -147,7 +147,7 @@ export async function enrichRelatedLists(record, { table, argv = {}, app }) {
 }
 
 export function relatedListOptions(y) {
-  return y.option('related', { type: 'boolean', default: false, describe: 'Count visible related lists and suggest commands; supplementary records remain lazy' })
+  return y.option('related', { type: 'boolean', default: false, describe: 'Count related lists under Aggregate API access; suggest commands without loading supplementary records' })
     .option('view', { type: 'string', describe: 'Form view for --related metadata (default: Default view)' })
     .option('related-limit', { type: 'number', describe: 'Max related-list descriptors to count with --related (default 50)' });
 }

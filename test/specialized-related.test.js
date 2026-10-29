@@ -52,6 +52,7 @@ test('actual specialized CLI --related performs aggregate reads and leaves suppl
     const url = new URL(request.url, 'http://fixture.invalid'); requests.push(url);
     response.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/angular.do') { response.end('{}'); return; }
+    if (url.pathname === '/api/now/v1/batch') { response.statusCode = 404; response.end('{"error":"Batch endpoint unsupported in this fixture"}'); return; }
     assert.equal(request.method, 'GET');
     if (url.pathname === '/api/now/stats/x_child') {
       assert.equal(url.searchParams.get('sysparm_query'), `parent=${parent}`);
