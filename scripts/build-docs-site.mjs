@@ -19,5 +19,6 @@ function walk(dir) {
   }
 }
 walk(source);
+fs.mkdirSync(path.join(root, 'site', 'tmp'), { recursive: true });
 fs.writeFileSync(path.join(root, 'site', 'tmp', 'preserved-urls.json'), JSON.stringify(urls));
 process.stdout.write(`Copied existing documentation output; ${urls.length} HTML URLs preserved.\n`);
