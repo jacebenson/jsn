@@ -144,3 +144,17 @@ describe('detectRecord via _context.table', () => {
     assert.ok(!out.includes('relationships:'), 'relationships array must not dump into Other as a raw field');
   });
 });
+
+
+describe('preformatted styled output newline', () => {
+  for (const formatted of ['discover result', 'discover result\n']) {
+    it(`terminates output without adding an extra newline (${JSON.stringify(formatted)})`, async () => {
+      const { OutputWriter } = await import('../src/output.js');
+      const chunks = [];
+      const output = new OutputWriter({ format: 'styled' });
+      output.writer = { write: (chunk) => chunks.push(chunk) };
+      output.writeStyled({ _formatted: formatted }, {});
+      assert.strictEqual(chunks.join(''), 'discover result\n');
+    });
+  }
+});
