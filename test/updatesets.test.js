@@ -6,11 +6,6 @@ import assert from 'node:assert';
 // ─── Command Structure ───
 
 describe('UpdateSets Command Structure', () => {
-  it('should export updateSetsCmd', async () => {
-    const { updateSetsCmd } = await import('../src/commands/updatesets.js');
-    assert.strictEqual(typeof updateSetsCmd, 'function');
-  });
-
   it('should define all subcommands', async () => {
     const { updateSetsCmd } = await import('../src/commands/updatesets.js');
     const wrap = (fn) => fn;

@@ -5,11 +5,6 @@ import assert from 'node:assert';
 import { captureSubcommands } from './support/command-test-helpers.js';
 
 describe('Domains Command Structure', () => {
-  it('should export domainsCmd', async () => {
-    const { domainsCmd } = await import('../src/commands/domains.js');
-    assert.strictEqual(typeof domainsCmd, 'function');
-  });
-
   it('defines list, show, current, set subcommands', async () => {
     const { domainsCmd } = await import('../src/commands/domains.js');
     const wrap = (fn) => fn;

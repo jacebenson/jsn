@@ -7,11 +7,6 @@ import assert from 'node:assert';
 // ─── Command Structure Tests ───
 
 describe('Records Command Structure', () => {
-  it('should export recordsCmd', async () => {
-    const { recordsCmd } = await import('../src/commands/records.js');
-    assert.strictEqual(typeof recordsCmd, 'function');
-  });
-
   it('should define all CRUD subcommands', async () => {
     const { recordsCmd } = await import('../src/commands/records.js');
     const wrap = (fn) => fn;
@@ -46,22 +41,6 @@ describe('Records Command Structure', () => {
     // died with "Not enough non-option arguments" before the handler ran.
     assert.match(cmd.command, /records \[subcommand\]/);
     assert.doesNotMatch(cmd.command, /records <subcommand>/);
-  });
-});
-
-// ─── SDK Helper Function Tests ───
-
-describe('SDK Helper Functions', () => {
-  it('should properly construct list params', () => {
-    const params = new URLSearchParams();
-    params.set('sysparm_limit', '20');
-    params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'sys_id,number,short_description');
-    params.set('sysparm_query', 'active=true^ORDERBYDESCsys_updated_on');
-
-    assert.strictEqual(params.get('sysparm_limit'), '20');
-    assert.strictEqual(params.get('sysparm_fields'), 'sys_id,number,short_description');
-    assert.strictEqual(params.get('sysparm_query'), 'active=true^ORDERBYDESCsys_updated_on');
   });
 });
 

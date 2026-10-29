@@ -388,12 +388,22 @@ for (const [label, options, code] of [
   });
 }
 
-test('wait timeout is bounded, reports context and never cancels execution', async () => {
+test('wait timeout is bounded, reports context and never cancels execution', async (t) => {
   const { sdk, calls } = testing({ running: true });
-  const started = Date.now();
+  let now = 0;
+  t.mock.method(Date, 'now', () => now);
+  const request = sdk.request;
+  sdk.request = async (url, options) => {
+    const response = await request(url, options);
+    // Model a context read consuming the wait budget; CPU scheduling must not
+    // decide whether the timeout contract passes.
+    if (new URL(url).pathname.includes('sys_flow_context')) now += 31;
+    return response;
+  };
   await assert.rejects(sdk.testProcessFlowAction(ID, SCOPE, definition(), {}, { wait: true, timeout: 0.03 }), e => e.code === 'action_test_timeout' && e.details.context === CONTEXT);
-  assert.ok(Date.now() - started < 500);
+  assert.equal(calls.filter(c => c.url.pathname.includes('sys_flow_context')).length, 1);
   assert.equal(calls.filter(c => c.method === 'POST').length, 1);
+  assert.equal(calls.some(c => c.method === 'DELETE'), false);
   assert.ok(calls.filter(c => c.url.pathname.includes('sys_flow_context')).every(c => c.opts.timeout <= 30));
 });
 
