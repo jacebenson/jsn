@@ -60,3 +60,10 @@ source snapshots kept the combined full-suite checkout stable.
 Opaque IDs are masked; schema labels and scalar child counts are retained. These
 checks performed no live writes. The earlier PRs merged into dependency branches;
 #344 is the explicit main-targeted integration of their reviewed implementations.
+
+The combined #344 checkout passed the full suite: 1,513 passed, 2 skipped,
+0 failed (1,515 total). Its focused engine/profile/essential checks passed 20
+tests and mutation-history checks passed 6. Lint and the local docs
+drive/cleanup lane passed after the integration fixture correction. The live
+proof above uses the same runtime source; subsequent changes add verification
+records and adapt the local HTTP history fixture to the resolver's exact lookup.
