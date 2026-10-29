@@ -1,5 +1,9 @@
 # Direct MID Server ZIP installation
 
+For SSH installation, native Windows services and remote Linux background
+runtimes, see [remote MID management](mid-remote-management.md). The commands below
+describe installation on the local controller.
+
 ```sh
 jsn midservers add --install-method direct --name worker1
 ```

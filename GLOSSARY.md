@@ -17,8 +17,20 @@ An owned native ZIP installation, identified by `.jsn-mid-direct.json`, separate
 from a Docker Compose installation. Prepared means extracted and configured but
 not started. Started means the native launcher completed; registration requires
 an instance read showing Up. Readiness additionally requires raw `validated=true`
-after the user performs the manual Validate trust operation. Windows currently
-uses a foreground console and does not register a system service.
+after an explicitly approved platform Validate trust operation. Local Windows
+direct mode uses a foreground console; remote Windows mode registers a uniquely
+named vendor service under LocalService.
+
+## Remote MID deployment
+
+An SSH-targeted runtime with a private local ownership receipt and independently
+verified remote ownership. Docker deployments bind an engine ID and labels to
+exact container, volume, network and image names. Native deployments bind a UUID
+marker and private directory to a Windows service executable/account or Linux
+SSH-user process. Credentials travel on stdin, never in local receipts or SSH
+arguments. Runtime start, instance registration Up and trust validation are
+separate facts. Teardown must stop and verify the owned runtime before deleting
+its files/resources or instance MID record; failure retains an uncertain receipt.
 
 ## Customization capture
 
