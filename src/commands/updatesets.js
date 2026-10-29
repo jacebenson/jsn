@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { editor, confirm } from '../prompts.js';
-import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
@@ -11,6 +11,7 @@ import { unwrapSysId } from '../resolve-record.js';
 
 declareCapabilities('updatesets', {
   mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent'],
+  mutationContextExemptSubcommands: ['create', 'set'],
 });
 
 /**
@@ -27,7 +28,7 @@ export function scopeMismatchWarning(updateSetApp, currentApp) {
   const updateSetAppId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
   if (!updateSetAppId || !currentApp.appSysId || updateSetAppId === currentApp.appSysId) return '';
   const name = updateSetApp?.display_value || updateSetApp;
-  return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes won't land here. Run: jsn scopes set ${name}`;
+  return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes may not be captured in this set. Run: jsn scopes set ${quoteShellArg(updateSetAppId)}`;
 }
 
 /** Format a picker label for an update set: "Name [State] (app/scope)". */
@@ -424,7 +425,7 @@ export function updateSetsCmd(wrap) {
   return {
     command: 'updatesets [subcommand]',
     aliases: ['updateset', 'us'],
-    describe: 'Manage update sets',
+    describe: 'Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.',
     builder: (yargs) => {
       return yargs
         .command({
