@@ -202,6 +202,13 @@ jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # 
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
 jsn records list --table incident --limit 10 --csv                            # output CSV
 
+# Attachment transfers (standalone, also discoverable via jsn attachments --help)
+jsn attachments list --sys-id <record-id> --json
+jsn attachments download <attachment-id> --out ./report.pdf
+jsn attachments upload ./report.pdf --table incident --sys-id <record-id>
+# get/add alias download/upload; uploads require confirmation, or --force after approval.
+# Downloads refuse existing files unless --overwrite is explicitly supplied.
+
 # Read-only cross-profile record diff
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --ignore state
@@ -473,7 +480,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 

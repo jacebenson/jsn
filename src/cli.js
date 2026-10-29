@@ -1,3 +1,4 @@
+import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
 import yargs, { hideBin } from './cli-adapter.js';
@@ -19,6 +20,7 @@ import { discoverCmd } from './commands/discover.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
+import { attachmentsCmd } from './commands/attachments.js';
 import { cmdbCmd } from './commands/cmdb.js';
 import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
@@ -147,6 +149,7 @@ export function buildCLI() {
       },
     ])
     .options({
+      'all-commands': { type: 'boolean', describe: 'Show the full command list, including admin and developer tools' },
       reason: { type: 'string', describe: 'Optional non-sensitive reason saved in local mutation history' },
 
       force: {
@@ -409,6 +412,7 @@ export function buildCLI() {
     // DATA
     .command(cmdbCmd(wrap))
     .command(recordsCmd(wrap))
+    .command(attachmentsCmd(wrap))
     .command(transactionsCmd(wrap))
 
     .command(platformCmd(wrap))
@@ -430,7 +434,7 @@ export function buildCLI() {
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
-    .command(discoverCmd(wrap, () => cliInstance.commandRegistry()))
+    .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry(), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     // Completion plumbing under a hidden command name, so the explicit
     // 'completion' command below owns the UX. (#176)
@@ -449,6 +453,12 @@ export function buildCLI() {
         const depth = (argv._ || []).length;
         if (current && !current.startsWith('-') && depth === 0) {
           out = [...new Set([...out, ...rootCommands])];
+        }
+        const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
+        const visible = visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(options), options);
+        if (!depth) {
+          const names = new Set(visible.commands.flatMap(command => [command.name, ...command.aliases]));
+          out = out.filter(value => value.startsWith('-') || names.has(value));
         }
         done([...new Set(out)]);
       });
@@ -486,7 +496,7 @@ export function buildCLI() {
     })
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of
-      // its own (records attachments, docs community, and any future parent) —
+      // its own (attachments, docs community, and any future parent) —
       // the adapter used to fall through and exit 0 having printed nothing.
       // Children come from the registry, description included, so this list
       // cannot drift from the registrations the way a hand-written one did.
@@ -555,7 +565,7 @@ export function buildCLI() {
           if (typeof formatArgv?.get === 'string' && formatArgv.get) {
             app.output.setJqFilter(formatArgv.get);
           }
-          const { commands } = cliInstance.commandRegistry();
+          const { commands } = visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv);
           try {
             app.ok({ commands }, {
               summary: `${commands.length} registered commands — run "jsn <command> --json" for a command's subcommands.`,
@@ -565,7 +575,7 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp(loadConfig(), cliInstance.commandRegistry()) + '\n');
+        process.stdout.write(renderHelp(loadConfig(formatArgv), visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv)) + '\n');
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,
@@ -584,6 +594,12 @@ export function buildCLI() {
       }
       exitWithError(new AppError(CodeUsage, msg, hint), { app });
     });
+
+  cliInstance.rootHelpRenderer = () => {
+    const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
+    const config = loadConfig(options);
+    return renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, options));
+  };
 
   // Snapshot the root command names (plus aliases) for the completion
   // filter. Done before any parse — command builders mutate the registry.

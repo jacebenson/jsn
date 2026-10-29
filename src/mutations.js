@@ -33,7 +33,7 @@ function currentPaths(paths) {
  * Prefix match: a command whose argv._ path begins with a mutation pattern
  * IS that mutation (trailing positionals like a sys_id or file path don't
  * change the intent). This lets positional mutation subcommands (e.g.
- * `records attachments <id> add <file>`) be gated on read-only profiles.
+ * `attachments upload <file>`) be gated on read-only profiles.
  *
  * @param {object} argv — yargs parsed argv with `_` array
  * @param {Array<string[]>} [paths] — mutation path patterns; defaults to

@@ -249,3 +249,28 @@ All deployments use unique ownership markers/labels; cleanup stops on mismatches
 or uncertain runtime state. Explicit trust uses MIDServerAjax's platform Validate
 action, never a direct write to the validated field. Runtime availability and
 instance readiness are verified separately. See mid-remote-management.md.
+
+## 2026-10-29: Present commands for the authenticated account
+
+Cache the account's admin role at connection authentication, scoped to the
+profile's username and instance origin. Compact discovery emphasizes tickets,
+generic records, people/groups and local connection tools. A failed role probe
+uses the same compact presentation while recording `role_check: unavailable`.
+Legacy profiles remain complete until reauthenticated. This keeps help offline
+and avoids probing instance roles on every invocation.
+
+Keep every command callable and expose `--all-commands` in global help. Command
+visibility does not replace ServiceNow ACLs: non-admin users can have delegated
+development access, and role snapshots may age. Generic `requests` remains RITM
+management; a new catalog ordering/record-producer workflow requires separate
+API and mutation design and is not invented as part of help filtering.
+
+## 2026-10-29: Attachment transfers have a standalone command
+
+Expose `attachments list/download/upload` at the root so transfer operations are
+discoverable without knowing the record command tree. `get`/`add` remain action
+aliases; remove the nested transfer subtree rather than register duplicate
+implementations. Preserve optional attachment enrichment on record/request views.
+Downloads identify the attachment directly and derive only a safe local basename
+from remote metadata; local overwrites are explicit. Uploads retain declared
+mutation guards and confirmation.

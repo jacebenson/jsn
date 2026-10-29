@@ -169,7 +169,7 @@ it('persists new basic logins under the returned username and keeps it on the pr
       config: { ...mockApp.config, profiles: {} },
       auth,
       isInteractive: () => false,
-      getSDKForProfile: () => ({ getCurrentUser: async () => null }),
+      getSDKForProfile: () => ({ getCurrentUser: async () => null, listStrict: async () => [] }),
       sdk: null,
       ok: () => {},
     };
@@ -191,6 +191,10 @@ it('persists new basic logins under the returned username and keeps it on the pr
       assert.strictEqual(records.get(`${instance}\\0new-admin`).username, 'new-admin');
       const profile = Object.values(app.config.profiles)[0];
       assert.strictEqual(profile.username, 'new-admin');
+      assert.strictEqual(profile.command_audience.mode, 'basic');
+      assert.strictEqual(profile.command_audience.username, 'new-admin');
+      assert.strictEqual(profile.command_audience.instance_url, instance);
+      assert.strictEqual(profile.command_audience.role_check, 'verified');
     } finally {
       if (oldUser === undefined) delete process.env.SN_USERNAME; else process.env.SN_USERNAME = oldUser;
       if (oldPassword === undefined) delete process.env.SN_PASSWORD; else process.env.SN_PASSWORD = oldPassword;

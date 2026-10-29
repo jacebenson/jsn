@@ -35,7 +35,7 @@ export function discoverCmd(wrap, getRegistry) {
         'Use --json for structured results or --json --get data.commands for only matches.',
       ].join('\n')),
     handler: wrap(async (argv, app) => {
-      const commands = discoverCommands(getRegistry(), { query: argv.query, table: argv.table });
+      const commands = discoverCommands(getRegistry(argv), { query: argv.query, table: argv.table });
       const lines = commands.flatMap(command => [
         `${command.name}: ${command.description}`,
         ...(command.discovery ? [

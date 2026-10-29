@@ -78,3 +78,17 @@ npm test
 ## License
 
 MIT
+
+
+### Commands for the connected account
+
+Login and OAuth refresh check for the current account's `admin` role. Profiles
+without that role show a compact command list focused on tickets, generic
+records, people/groups, documentation, and connection management. If the role
+check is unavailable, the profile also uses compact help; this does not assert
+that the account lacks admin. Existing profiles keep full help until renewed.
+
+This applies to root help, root JSON, `discover`, and root shell completion.
+Use `jsn --all-commands --help` or `jsn discover --all-commands --json` to inspect
+every registered command. Explicit command paths remain available and ServiceNow
+ACLs decide access. Reauthenticate (or refresh OAuth) after roles change.

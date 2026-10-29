@@ -145,6 +145,16 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
   Read-only profiles block these. See *capability registry*.
 
+## Attachment transfer
+
+`attachments` is the standalone owner of file listing, download and upload.
+`download`/`get` identifies the attachment itself, without requiring its parent;
+`upload`/`add` identifies the destination table and parent record and declares a
+mutation capability. The former `records attachments` subtree is removed.
+`records get --attachments` remains an optional record-view enrichment. Download
+metadata cannot choose directories or device filenames, and existing local
+files require explicit `--overwrite`. Results use the normal output envelope.
+
 ## Command discovery
 
 `jsn discover` searches the live command registrations used for dispatch. Root
@@ -153,6 +163,16 @@ tree. Factory-built commands additionally expose their actual table/default
 column configuration and supported view benefits through optional `discovery`
 metadata on the command definition. This metadata is additive to the existing
 root JSON registry; it is not a second command inventory or a mutation policy.
+
+After login or OAuth refresh, the selected profile caches a command audience
+bound to its account and instance. A verified `admin` role shows the full
+surface. Other authenticated accounts see a compact task and connection surface;
+an unavailable role check also uses that compact presentation and records the
+uncertainty. Existing profiles without a cached audience retain the full surface
+until authentication is renewed. Root help, root JSON, `discover`, and root shell
+completion share this policy. `--all-commands` restores the full surface.
+Explicit command paths are always registered; this is presentation, never an
+ACL or an authorization claim. Role changes are picked up on authentication.
 
 ## Capability registry
 

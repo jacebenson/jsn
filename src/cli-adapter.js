@@ -332,6 +332,10 @@ export class LocalCLI {
   }
 
   _help(node, path = []) {
+    if (!path.length && this.rootHelpRenderer) {
+      process.stdout.write(this.rootHelpRenderer() + "\n");
+      return;
+    }
     const lines = [node.usageText || `Usage: ${this.script} ${path.join(' ') || '<command>'}`];
     if (node.definition.describe) lines.push(`\n${node.definition.describe}`);
     if (node.children.length) lines.push('\nCommands:\n' + node.children.filter((n) => n.name !== this.completionCommand).map((n) => `  ${n.definition.command}  ${n.definition.describe || ''}`).join('\n'));
