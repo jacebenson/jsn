@@ -428,16 +428,16 @@ test('GCK recovery uses canonical refresh/login, preserves settings and emits no
   } finally { process.chdir(previousCwd); }
 });
 
-test('auth modify persists reauth idempotently and rejects invalid policy without changing config', t => {
+test('auth modify persists reauth idempotently and rejects invalid policy without changing config', async t => {
   const { directory, run } = isolatedCLI(t);
   const configFile = path.join(directory, 'servicenow', 'config.json');
   // saveConfig creates only the private fixture directory, never real config.
   const app = new App({ ...createConfig(), profiles: { selected: { instance_url: instance, auth_method: 'gck' } } });
   process.env.XDG_CONFIG_HOME = directory;
   const previousCwd = process.cwd(); process.chdir(directory);
-  t.after(() => process.chdir(previousCwd));
   // CLI fixture seed is plain profile metadata, not credentials.
-  return import('../src/config.js').then(({ saveConfig }) => {
+  try {
+    const { saveConfig } = await import('../src/config.js');
     saveConfig(app.config);
     for (const reauth of ['auto', 'confirm', 'never']) {
       for (let repeat = 0; repeat < 2; repeat++) {
@@ -450,5 +450,5 @@ test('auth modify persists reauth idempotently and rejects invalid policy withou
     const before = readFileSync(configFile, 'utf8');
     assert.equal(run(['auth', 'modify', '--profile', 'selected', '--reauth', 'always', '--json']).status, 2);
     assert.equal(readFileSync(configFile, 'utf8'), before);
-  });
+  } finally { process.chdir(previousCwd); }
 });
