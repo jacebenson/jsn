@@ -1,7 +1,7 @@
 // ServiceNow REST API client
 
 import { gunzipSync } from 'node:zlib';
-import { errAuth, errAPI, errNetwork } from './errors.js';
+import { CodeAuth, errAuth, errAPI, errNetwork } from './errors.js';
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
@@ -59,7 +59,13 @@ export class SDKClient {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
-    const creds = await this.authProvider.getCredentials();
+    let creds;
+    try {
+      creds = await this.authProvider.getCredentials();
+    } catch (error) {
+      if (error.code === CodeAuth && this.recovery?.credentialError) throw this.recovery.credentialError(error);
+      throw error;
+    }
     if (!creds) {
       throw errAuth('No valid credentials');
     }

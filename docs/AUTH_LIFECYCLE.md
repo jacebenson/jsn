@@ -135,6 +135,12 @@ guidance, not a request to log in. Neither classification includes provider
 response bodies. Errors without a usable HTTP status retain their existing
 classification rather than guessing whether authentication failed.
 
+Missing, invalid or expired credentials can fail locally before any request.
+Those errors preserve the validation reason and identify the selected profile
+with an explicit `jsn auth login --profile <name>` recovery command, even when
+another profile is the default. They do not claim an HTTP status or trigger a
+network preflight. `auth status` remains available for explicit diagnostics.
+
 The existing declared-expiry refresh in `AuthManager.getCredentialsFor` remains:
 it uses the token's own `expires_at`, not elapsed session age. Read-only auth
 status SDKs do not install runtime recovery. Offline commands do not require it.
