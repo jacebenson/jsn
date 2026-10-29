@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 const root = fileURLToPath(new URL('..', import.meta.url));
 let dir;
@@ -29,7 +29,7 @@ mock.module(${JSON.stringify(new URL('../src/sdk.js', import.meta.url).href)}, {
 });
 after(() => rmSync(dir, { recursive: true, force: true }));
 function run(args, env = {}) {
-  return spawnSync(process.execPath, ['--experimental-test-module-mocks', '--import', path.join(dir, 'fixture.mjs'), path.join(root, 'bin/jsn.js'), ...args], {
+  return spawnSync(process.execPath, ['--experimental-test-module-mocks', '--import', pathToFileURL(path.join(dir, 'fixture.mjs')).href, path.join(root, 'bin/jsn.js'), ...args], {
     cwd: dir, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: dir, JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', ...env },
   });
 }
