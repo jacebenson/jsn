@@ -416,8 +416,10 @@ command. Daily checks are throttled separately per channel. Updates require an
 explicit npm install; JSN does not replace itself.
 
 Each channel supports its current release plus its two previous releases, ordered
-by version. After publishing, versions outside that window are deprecated with an
-update-before-reporting-issues notice. Stable and dev windows are independent;
+by version. Stable and dev windows are independent. Publishing advances the
+channel's dist-tag through OIDC without deprecating older versions or requiring
+an npm access-token secret. Older versions remain available outside the support
+window. Deprecation is an optional, separately authenticated maintenance action;
 existing deprecations are preserved and no package versions are unpublished.
 
 ## Invariants (things that must stay true)
