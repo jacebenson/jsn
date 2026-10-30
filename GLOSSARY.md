@@ -556,3 +556,14 @@ unreadable or truncated coverage must never become a clean zero. Scan dispatch
 is not automatically retried, and an expired local wait does not cancel the
 provider's execution. Instance-wide runs require explicit `--full`, including
 when reusing a previous instance-wide target.
+
+## Configured domain and browser-session domain
+
+`session.domain` is the selected profile's configured `X-Now-Domain` header;
+it is not a snapshot of the platform's actual session domain. `domains current`
+reports configuration. Explicit `domains session-*` commands read or change the
+server-side domain using saved browser-session credentials. These requests omit
+the configured header without mutating SDK or profile state. Picker results are
+paged and limited by the actual session domain. Resetting to global is an
+explicit mutation, never an implicit prerequisite to listing or selecting.
+Session changes require readback verification and may affect a shared browser.
