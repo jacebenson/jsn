@@ -15,7 +15,7 @@ COPY src/ src/
 
 FROM ruby:3.4-slim AS service
 WORKDIR /app/site
-RUN apt-get update && apt-get install --no-install-recommends -y build-essential libyaml-dev libsqlite3-dev git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install --no-install-recommends -y build-essential libyaml-dev libsqlite3-dev git curl && rm -rf /var/lib/apt/lists/*
 COPY site/Gemfile site/Gemfile.lock ./
 RUN bundle config set without 'development test' && bundle install
 COPY --from=indexer /usr/local/bin/node /usr/local/bin/node
