@@ -103,20 +103,15 @@ supported (three stable releases and three dev builds). For example, with
 stable `4.3.11`, versions `4.3.11`, `4.3.10`, and `4.3.9` are supported.
 Update to the newest version in your channel before reporting an issue.
 
-After each successful npm publish, deployment deprecates older versions in that
-channel. Deprecated versions remain installable and appear in history, but npm
-prints an update warning on installation. Existing deprecation messages are
-preserved. No versions are unpublished.
+Publishing uses npm trusted publishing (OIDC) and advances the channel's dist-tag.
+CI/CD does not deprecate older versions or require an `NPM_TOKEN` secret. Older
+versions remain available; their availability does not extend the support window.
 
-The deprecation step uses the repository's `NPM_TOKEN` secret with permission to
-modify `@jacebenson/jsn` and noninteractive authentication (including bypass 2FA
-where required). Publishing continues to use OIDC. A deprecation failure fails
-the workflow after publishing; it does not roll back the published package.
-To retry only deprecation after fixing authentication, use the matching release
-checkout and run `node scripts/deprecate-old-versions.mjs latest --apply` (or
-`dev --apply`) with npm authentication configured and `NODE_AUTH_TOKEN` set.
-Omit `--apply` to preview the affected versions without changing npm. The script
-requires the checkout's package version to match the channel's current npm tag.
+The optional maintenance script `scripts/deprecate-old-versions.mjs` can preview
+older versions with `node scripts/deprecate-old-versions.mjs latest` (or `dev`).
+Applying deprecations with `--apply` requires npm authentication and
+`NODE_AUTH_TOKEN`; it is separate from publishing. The script requires the
+checkout's package version to match the channel's current npm tag.
 
 ## Try it
 
