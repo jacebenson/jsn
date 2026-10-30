@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => { process.env = savedEnv; });
 
-function fixture(t, method = 'oauth', { reauth, interactive, accept = true, refreshToken = true, argv = {}, renewError } = {}) {
+function fixture(t, method = 'oauth', { reauth, interactive, accept, refreshToken = true, argv = {}, renewError } = {}) {
   const profile = { instance_url: instance, username: 'selected-user', auth_method: method, reauth };
   const app = new App({ ...createConfig(), activeProfile: 'selected', profiles: { selected: profile } });
   const credentials = new Map([
@@ -41,7 +41,7 @@ function fixture(t, method = 'oauth', { reauth, interactive, accept = true, refr
   t.mock.method(app.auth, 'refreshToken', async (...args) => { counts.refreshes++; return originalRefresh(...args); });
   const recoveryOptions = {
     app, session: app.session, argv: () => argv,
-    prompt: async ({ default: defaultValue }) => { assert.equal(defaultValue, false); counts.prompts++; return accept; },
+    prompt: async ({ default: defaultValue }) => { assert.equal(defaultValue, true); counts.prompts++; return accept ?? defaultValue; },
     renewBrowser: async (request) => {
       assert.deepEqual(request, { profile: 'selected', browser: true });
       counts.browsers++;
@@ -134,7 +134,7 @@ test('failed OAuth recovery is shared by concurrent and later requests without a
   assert.deepEqual(f.counts, { calls: 3, refreshes: 1, browsers: 0, prompts: 0 });
 });
 
-test('concurrent GCK confirm 401s share one prompt and browser renewal', async t => {
+test('concurrent GCK confirm 401s accept default Yes and share one browser renewal', async t => {
   const f = fixture(t, 'gck', { reauth: 'confirm', interactive: true });
   f.respond([401, 401, 200, 200, 401, 200]);
   const results = await Promise.all([
