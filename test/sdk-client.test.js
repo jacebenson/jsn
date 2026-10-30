@@ -300,3 +300,26 @@ describe('SDKClient', () => {
   });
 
 });
+
+describe('Request domain header override', () => {
+  it('omits the configured header only on explicitly unscoped requests', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'gck', access_token: 'test-token' }),
+    }, { domain: 'profile-domain' });
+    const previousFetch = globalThis.fetch;
+    const domains = [];
+    globalThis.fetch = async request => {
+      domains.push(request.headers.get('X-Now-Domain'));
+      return new Response('{}');
+    };
+    try {
+      await client.request(`${client.baseURL}/api/now/ui/concoursepicker/current`, { domain: '' });
+      await client.request(`${client.baseURL}/api/now/table/domain`);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+    assert.deepEqual(domains, [null, 'profile-domain']);
+    assert.equal(client.domain, 'profile-domain');
+  });
+});

@@ -276,3 +276,14 @@ implementations. Preserve optional attachment enrichment on record/request views
 Downloads identify the attachment directly and derive only a safe local basename
 from remote metadata; local overwrites are explicit. Uploads retain declared
 mutation guards and confirmation.
+
+## 2026-10-30: Explicit browser-session domain commands
+
+Preserve local domain-header configuration for existing auth methods. Add
+session-current/list/set/reset for saved browser-session credentials using the
+platform picker endpoints. Keep reset separate because broadening to global
+changes a potentially shared browser session. Select by exact picker sys_id and
+verify reset/selection with current-domain readback. Do not call touch-session:
+the supplied successful diagnostic sequence did not require it. Surface probe
+errors unless the platform explicitly reports an invalid domain table. The
+Windows shutdown assertion remains a separate investigation.

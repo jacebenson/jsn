@@ -189,7 +189,7 @@ export class SDKClient {
   }
 
   async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, readOnly = false, touchLastSeen, ...requestOptions } = opts;
+    const { timeout = this.timeout, readOnly = false, touchLastSeen, domain = this.domain, ...requestOptions } = opts;
     if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
     return this._withAuthenticatedRequest(endpoint, requestOptions, {
       timeout,
@@ -199,7 +199,7 @@ export class SDKClient {
         if (requestOptions.body && typeof requestOptions.body === 'string') {
           req.headers.set('Content-Type', 'application/json');
         }
-        if (this.domain) req.headers.set('X-Now-Domain', this.domain);
+        if (domain) req.headers.set('X-Now-Domain', domain);
       },
     }, async (resp) => {
       const body = await resp.text();

@@ -174,3 +174,35 @@ outcome: inspect requests before retrying. JSN does not automatically submit a
 second order. `create/list/show` retain their definition-management behavior.
 
 See the [Service Catalog API reference](https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html).
+
+## Domain configuration and browser sessions
+
+`jsn domains current` reports the selected profile's configured `X-Now-Domain`
+header. `domains set <name-or-id>` and `domains set clear` configure that header
+locally. Header effectiveness depends on the instance; clearing it does not
+reset the actual server session domain.
+
+With saved browser-session (`gck`) credentials, use these explicit commands:
+
+```bash
+jsn domains session-current --profile example --json
+jsn domains session-list --profile example --search '*Internal' --limit 20 --offset 0 --json
+jsn domains session-reset --profile example --json
+jsn domains session-list --profile example --json
+jsn domains session-set <domain-sys-id> --profile example --json
+```
+
+`session-list` returns one picker-visible page (`items`, `offset`, `limit`,
+`next_offset`). Search matches a name prefix, or a substring with a leading `*`.
+Visibility depends on the actual session domain. For cross-branch selection,
+explicitly reset to global, then list and select a domain from that result.
+Neither listing nor selecting silently resets the session. `session-current`
+reports both `configured_domain` and `session_domain`.
+
+**Session reset and selection may affect a browser sharing these credentials.**
+Both commands verify the resulting domain with a separate readback. They leave
+profile configuration unchanged and omit the configured domain header on picker
+requests. Save the original domain ID from `session-current` if you intend to
+restore it afterward. A failed readback can leave the session changed; inspect
+`session-current` before retrying. These commands do not call `touch-session`.
+Other authentication methods retain the existing profile configuration flow.
