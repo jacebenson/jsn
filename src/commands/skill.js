@@ -189,6 +189,7 @@ export function skillCmd(wrap) {
             }
             app.ok({
               content,
+              _formatted: content.endsWith('\n') ? content : `${content}\n`,
               bundled: SKILL_REPO_PATH,
             }, {
               summary: 'jsn AI agent skill file (bundled)',
