@@ -199,6 +199,12 @@ describe('Packaged skill lifecycle', () => {
     };
     try {
       const bundled = fs.readFileSync(new URL('../skills/servicenow/SKILL.md', import.meta.url), 'utf8');
+      assert.equal(run('show', '--styled'), bundled.endsWith('\n') ? bundled : `${bundled}\n`,
+        'human output must show the complete skill, not only the summary');
+      assert.equal(JSON.parse(run('show', '--json')).data.content, bundled);
+      assert.equal(JSON.parse(run('show', '--get', 'data.content')), bundled);
+      assert.ok(run('show', '--markdown').includes(JSON.stringify(bundled)),
+        'Markdown keeps the skill content in its structured payload');
       const destination = path.join(directory, 'custom');
       run('install', destination, '--json');
       const installed = path.join(destination, 'SKILL.md');
