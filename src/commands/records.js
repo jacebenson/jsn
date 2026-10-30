@@ -101,6 +101,9 @@ export function recordsCmd(wrap) {
               'and press Enter to select or Esc to cancel. --sys-id skips the picker.',
               'Use --json for noninteractive structured output; pipes and explicit formats also skip the picker.',
               'Example: jsn records list --table incident --query "active=true" --limit 5 --json',
+              'JSON shape (abbreviated): {"ok":true,"data":{"records":[{"sys_id":"...","number":"INC0010001"}]},...}',
+              'Records are at data.records; fields are directly on each record (e.g. record.number).',
+              'Array only: jsn records list --table incident --get data.records',
               'Discover fields with: jsn columns --table incident',
             ].join('\n')),
           handler: wrap(async (argv, app) => {
