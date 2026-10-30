@@ -29,7 +29,7 @@ Go back to the released version with:
 npm install -g @jacebenson/jsn
 ```
 
-**Note:** git installs build `better-sqlite3` (docs search) from source, so the machine needs build tools (Python, make, a C++ compiler).
+**Note:** git installs build `better-sqlite3` from source, so the machine needs build tools (Python, make, a C++ compiler).
 
 ## Direct MID installation
 

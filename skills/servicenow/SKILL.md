@@ -54,7 +54,7 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 
 1. **Specific commands** — `jsn flows`, `jsn rules`, `jsn catalogitems`, etc.
 2. **`jsn records --table <name>`** — generic CRUD on any table
-3. **`jsn docs search <query>`** — offline ServiceNow documentation search (no instance needed)
+3. **`jsn docs search <query>`** — hosted ServiceNow documentation search (no instance needed)
 4. **`jsn rest`** — raw Table API escape hatch
 5. **`jsn eval`** — ⚠️ **LAST RESORT ONLY**
 6. **Ask the human** — if none of the above work
@@ -70,7 +70,7 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 | **UX** | `forms` (section/element layout), `lists`, `clientscripts`, `uipolicies` |
 | **Data** | `tables`, `columns`, `includes`, `logs`, `properties`, `records` |
 | **Config** | `setup`, `auth`, `updatesets`, `scopes` |
-| **Docs** | `docs sync`, `docs status`, `docs search`, `docs serve` |
+| **Docs** | `docs search`, `docs show`, `docs status` |
 | **Developer** | `eval`, `rest`, `skill`, `version` |
 
 ### Customization evidence
@@ -140,29 +140,23 @@ jsn records get --table incident --sys-id abc123... --json
 jsn rest "/api/now/table/incident?sysparm_limit=3" --json
 ```
 
-### `jsn docs` — offline documentation search
+### `jsn docs` — hosted documentation search
 
-No ServiceNow instance required. Searches the full ServiceNow docs locally with FTS5 + semantic hybrid search.
+No ServiceNow instance or account is required. Search and read through the public
+REST service; internet access is required. The server owns daily GitHub sync and
+indexing. Nothing is downloaded or indexed locally.
 
 ```bash
-# First run: download docs and build the index (~45k files, ~3-5 min)
-jsn docs sync
-
-# Check state
-jsn docs status
-
-# Search (keyword + semantic hybrid)
 jsn docs search "GlideRecord query" --limit 5 --json
-
-# Filter by bundle
-jsn docs search "REST API" --bundle it-service-management --json
-
-# Start the web UI
-jsn docs serve
-
+jsn docs show "api-reference/c_GlideRecordClientSideAPI.md" --json
+jsn docs status
 ```
 
-**Re-running `jsn docs sync`** does a smart incremental refresh — pulls latest docs and only rebuilds changed files (seconds, not minutes).
+Use exact paths from search for stable references. When using numeric IDs, pass
+`--revision` with the revision returned by search to detect index changes.
+`JSN_DOCS_URL` selects another deployment (for local development,
+`JSN_DOCS_URL=http://localhost:3000`). Local sync, serve, refresh, embed and
+community commands have been retired from the CLI.
 
 ## Troubleshooting Field Behavior
 

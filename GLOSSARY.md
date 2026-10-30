@@ -256,3 +256,30 @@ Dispatch is not success; log and artifact readback are required.
   discovery fallback runs outside any command, but its `app.ok` can still throw
   (a missing `--get` path does), and an unwrapped rejection exits through a Node
   stack instead of the structured error contract.
+
+## Website account and feature recording
+
+A website account is a SQLite-backed identity for the Rails documentation site,
+independent of CLI profiles and ServiceNow credentials. Site administrators are provisioned from a terminal; public signup is disabled. Browser sessions expire and can be revoked on logout.
+A feature recording is an administrator-published HTTPS video/watch URL associated
+with an existing feature slug. Documentation and feature pages remain public.
+
+## Hosted documentation index
+
+A server-owned SQLite FTS5 database, built from the public documentation Git
+mirror using JSN's existing ingestion/refresh functions. Public browser and REST
+readers share the published file. Daily sync stages changes and atomically swaps
+in a validated index; a failed sync never replaces the live file. Its Git source
+revision scopes numeric document IDs; paths provide stable references. Site
+administrators are provisioned locally; there is no public account registration.
+
+## Hosted documentation CLI client
+
+`jsn docs search`, `show`, and `status` call the public documentation REST service,
+independently of ServiceNow profiles and credentials. They require connectivity
+and do not create, download, or refresh a local documentation database. The
+`JSN_DOCS_URL` override selects a deployment; the default is `https://jsn.jace.pro`.
+The server owns GitHub synchronization and indexing. Exact paths identify documents
+across index revisions; an ID read can be pinned with `--revision` to reject stale
+IDs. Local sync/serve/embed/refresh/community commands are no longer registered;
+the underlying ingestion helpers remain available to the server.

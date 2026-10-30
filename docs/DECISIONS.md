@@ -78,3 +78,47 @@ compares the SHA-256 digest of the base payload captured during review plus the
 artifact's meaningful base fields. A fake provider that returns the same version
 record after the write cannot expose this, so the regression test simulates the
 provider's new record.
+
+## Local Rails feature library and accounts
+
+The Rails site owns the homepage and feature pages, with the existing Eleventy
+content builder retaining documentation URLs. Feature data is exported from the
+existing catalog during the site build. Each feature can have a SQLite-backed
+recording URL managed by the site administrator. Unrecorded features still offer
+examples rather than presenting a nonfunctional player.
+
+Adapt Joomdeck's email/password, browser-session, and first-user-admin behavior
+without its Devise/bcrypt dependencies: use Rails forms and middleware, Ruby
+OpenSSL password derivation, and revocable SQLite session records. Website login
+is independent from CLI and publisher authentication. No mail or external session
+service is introduced.
+
+## Public documentation service with daily GitHub ingestion
+
+Serve server-side SQLite FTS5 search and Markdown reads publicly through Rails;
+visitors do not need a local database or an account. Reuse the existing Node
+GitHub documentation ingester rather than implementing a second parser in Ruby.
+A separate worker fetches the ServiceNowDocs Australia branch daily, incrementally
+updates a staged SQLite backup, checks integrity, and atomically publishes it.
+Failures retain the last good index, and unchanged revisions skip indexing.
+
+Administration is terminal-provisioned; public signup is removed. Existing
+admin login protects feature video publishing. Web and API readers share one
+read-only documentation index, separate from the account/video database. Paths
+are stable document references; ID reads can require a matching source revision.
+The CLI's migration to these endpoints is separate from implementing this service.
+
+## JSN docs commands consume the hosted REST API
+
+Replace CLI-local docs indexing and serving with `docs search`, `docs show`, and
+remote `docs status`. These commands use the public service without instance
+credentials, login, local index initialization, or dataset downloads. Preserve
+JSON envelopes, full Markdown bodies, `--get`, styled previews and pagination.
+Use `JSN_DOCS_URL` for a local or alternate deployment. The default production
+host still requires deployment of the Rails service before those APIs work.
+
+Retire the local sync/serve/embed/refresh/community command surface; retain Node
+indexing helpers for the site worker. No new runtime dependencies are introduced.
+Exact document paths are stable; optional `--revision` protects numeric ID reads
+against index changes. Connectivity failures are explicit rather than silently
+falling back to a stale local database.

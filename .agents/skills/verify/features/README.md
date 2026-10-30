@@ -8,6 +8,6 @@ This map names user-facing JSN surfaces and the proof that matters. Read the sou
 | Profiles and auth status | `auth status`, `auth switch` | Selected profile, host, auth method, and auth state without credential contents |
 | Command discovery | `--help`, `<command> --help`, `completion` | Stable command names and documented options match the installed binary |
 | Raw REST | `rest` | GET-only request against a disposable read-only profile, with JSON or raw text shape checked |
-| Local docs fixture | `docs status`, `docs search` | Search succeeds in JSON and Markdown without an instance |
+| Hosted docs service | `docs status`, `docs search` | Search succeeds in JSON and Markdown against the local Rails service without an instance |
 
-The current checkout has no authenticated disposable ServiceNow profile. The local docs fixture is the only live drive recorded today. Records and raw REST remain gated recipes until a safe profile is established.
+The current checkout has no authenticated disposable ServiceNow profile. The hosted docs service is the only live drive recorded today. Records and raw REST remain gated recipes until a safe profile is established.

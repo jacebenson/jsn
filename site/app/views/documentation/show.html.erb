@@ -1,0 +1,25 @@
+<% content_for :title, "#{@document['title']} · JSN Docs" %>
+<div class="reader-shell">
+  <aside class="reader-sidebar" aria-label="Documentation navigation">
+    <a href="/documentation" class="reader-library-link"><span aria-hidden="true">▤</span> Documentation</a>
+    <%= form_with url: '/documentation', method: :get, class: 'sidebar-search' do |f| %><%= f.label :q, 'Search documentation', class: 'visually-hidden' %><%= f.search_field :q, placeholder: 'Search the docs…', required: true, maxlength: 200 %><%= f.button '↵', aria: { label: 'Search documentation' } %><% end %>
+    <p class="sidebar-label">EXPLORE THE DOCS</p>
+    <a href="/documentation?q=GlideRecord" class="sidebar-item <%= 'selected' if @document['path'].include?('GlideRecord') %>">Database & records <span>↗</span></a>
+    <a href="/documentation?q=GlideAjax" class="sidebar-item">Client & server scripts <span>↗</span></a>
+    <a href="/documentation?q=REST+API" class="sidebar-item">APIs & integrations <span>↗</span></a>
+    <a href="/documentation?q=business+rules" class="sidebar-item">Business rules <span>↗</span></a>
+    <a href="/documentation?q=flow+designer" class="sidebar-item">Flow Designer <span>↗</span></a>
+    <div class="sidebar-note"><span class="status-dot"></span> Built from the source<p>ServiceNow’s public documentation, indexed for quick answers.</p><a href="/api/docs/status">Index status ↗</a></div>
+    <a class="sidebar-bottom" href="/#features">New to JSN? Explore the toolkit →</a>
+  </aside>
+  <article class="reader-article">
+    <nav class="reader-breadcrumb" aria-label="Breadcrumb"><a href="/documentation">Documentation</a><span>/</span><span><%= documentation_category(@document) %></span></nav>
+    <header class="reader-heading"><div class="reader-meta"><span class="release-tag"><%= @document['release'].presence&.humanize || 'ServiceNow' %></span><span>REFERENCE GUIDE</span></div><h1><%= @document['title'].presence || @document['path'] %></h1><div class="reader-byline"><span>ServiceNow documentation</span><span class="byline-dot">·</span><span id="reading-time"><%= [(@document['body'].to_s.split.length / 220.0).ceil, 1].max %> min read</span><a href="<%= 'https://github.com/ServiceNow/ServiceNowDocs/blob/' + ENV.fetch('DOCS_SOURCE_BRANCH', 'australia') + '/markdown/' + @document['path'] %>" target="_blank" rel="noopener noreferrer">View source ↗</a></div></header>
+    <details class="mobile-contents"><summary>On this page</summary><nav id="mobile-toc" aria-label="Page contents"></nav></details>
+    <div class="reader-content" id="document-content"><%= documentation_markdown(@document['body']) %></div>
+    <div class="reader-end"><span class="end-mark" aria-hidden="true">✳</span><h2>Keep exploring.</h2><p>Find another answer, or bring this documentation into your own tools.</p><div class="actions"><a class="button" href="/documentation">Search the library →</a><%= link_to 'Read via the REST API ↗', '/api/docs/document?' + { path: @document['path'] }.to_query %></div></div>
+  </article>
+  <aside class="reader-toc"><p class="sidebar-label">ON THIS PAGE</p><nav id="desktop-toc" aria-label="Page contents"></nav><a href="#" class="back-to-top">↑ Back to top</a><div class="reader-tip"><span aria-hidden="true">⌘</span><p>Less searching.<br>More building.</p><a href="/#features">Meet JSN →</a></div></aside>
+</div>
+<script type="application/json" id="document-data"><%= raw json_escape({ body: @document['body'], title: @document['title'], path: @document['path'], branch: ENV.fetch('DOCS_SOURCE_BRANCH', 'australia') }.to_json) %></script>
+<script src="/docs-assets/marked.js" defer></script><script src="/docs-assets/purify.js" defer></script><script src="/docs-assets/markdown.js" defer></script><script src="/docs-assets/reader.js" defer></script>

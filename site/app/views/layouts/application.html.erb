@@ -1,0 +1,5 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title><%= content_for?(:title) ? yield(:title) : "JSN · A little less clicking." %></title><%= csrf_meta_tags %><link rel="stylesheet" href="/site.css"></head>
+<body><header class="shell masthead"><a href="/" class="brand">jsn<span> / ServiceNow, simplified.</span></a><nav aria-label="Main navigation"><a href="/documentation">Search docs</a><a href="/#features">Features</a><a href="/docs/install/">Get started</a><% if current_user %><a href="/account">My account</a><% else %><a href="/login">Admin <span aria-hidden="true">↗</span></a><% end %></nav></header>
+<main><% if flash[:notice] || flash[:alert] %><p class="shell notice" role="status"><%= flash[:notice] || flash[:alert] %></p><% end %><%= yield %></main>
+<footer class="shell footer"><a href="/" class="brand">jsn.</a><span>Less clicking. More getting things done.</span><a href="https://github.com/jacebenson/jsn">Made in the open ↗</a></footer></body></html>

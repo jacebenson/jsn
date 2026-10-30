@@ -37,3 +37,21 @@ npm test
 ## License
 
 MIT
+
+## Documentation search
+
+Search the hosted documentation service without a ServiceNow login or a local
+database download:
+
+```bash
+jsn docs search "GlideRecord" --limit 5
+jsn docs show "api-reference/c_GlideRecordClientSideAPI.md"
+jsn docs status
+```
+
+The default service is `https://jsn.jace.pro`. For the local Rails site, use
+`JSN_DOCS_URL=http://localhost:3000`. The Rails service must be deployed before
+the default URL can serve these endpoints. Exact document paths are stable;
+numeric IDs can be pinned using `docs show <id> --revision <search-revision>`.
+The server handles daily GitHub synchronization. CLI local-index commands
+(`sync`, `serve`, `embed`, `refresh`, `community`) are no longer registered.

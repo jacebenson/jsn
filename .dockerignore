@@ -1,0 +1,17 @@
+.git
+.verification
+node_modules
+**/node_modules
+site/.bundle
+site/vendor/bundle
+site/storage/*
+!site/storage/.keep
+site/log/*
+!site/log/.keep
+site/tmp
+site/public
+docs/_site
+.env
+.env.*
+**/.env
+**/.env.*
