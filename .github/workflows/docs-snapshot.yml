@@ -22,10 +22,10 @@ jobs:
     steps:
       - name: Isolate documentation build data
         run: echo "JSN_DATA_HOME=$RUNNER_TEMP/jsn-docs-build" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -94,7 +94,7 @@ jobs:
         if: env.DOCS_PUBLISHER_CONFIGURED == 'false'
         run: |
           echo "::notice title=Docs manifest not promoted::DOCS_PUBLISH_TOKEN is not configured, so the immutable release was uploaded and the stable manifest was left unchanged. Promotion resumes automatically once the secret exists; docs distribution is being reworked in #359."
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: docs-snapshot-build-manifest
