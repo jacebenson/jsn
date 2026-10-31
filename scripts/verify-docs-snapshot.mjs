@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { installSnapshot, validateManifest } from '../src/commands/docs/snapshot.js';
+import { installSnapshot, validateManifest } from '../cli/src/commands/docs/snapshot.js';
 const directory = process.argv[2];
 const manifest = validateManifest(JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'))));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-snapshot-verify-'));

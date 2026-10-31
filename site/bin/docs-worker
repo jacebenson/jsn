@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+# A separate, restartable scheduler process. No queue service or scheduler gem.
+require 'json'
+require 'time'
+root = File.expand_path('..', __dir__)
+storage = ENV.fetch('DOCS_STORAGE_DIR', File.join(root, 'storage/docs'))
+loop do
+  begin
+    status = JSON.parse(File.read(File.join(storage, 'status.json')))
+    checked = Time.parse(status.fetch('checkedAt'))
+    interval = status['state'] == 'ready' ? 86_400 : 3_600
+    due = Time.now >= checked + interval
+  rescue Errno::ENOENT, JSON::ParserError, KeyError, ArgumentError
+    due = true
+  end
+  if due
+    system(File.join(root, 'bin/rails'), 'docs:sync', chdir: root)
+  end
+  sleep 60
+end

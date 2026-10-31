@@ -1,0 +1,805 @@
+[
+  {
+    "id": "auth",
+    "title": "Auth & setup",
+    "tagline": "The interactive setup wizard: instance, OAuth or basic, read-only mode and per-profile toggles.",
+    "commands": [
+      {
+        "cmd": "jsn setup",
+        "what": "Interactive wizard: add/switch/remove/modify instances"
+      },
+      {
+        "cmd": "jsn auth modify <name>",
+        "what": "Toggle read-only, skip confirmations, include counts, domain"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn setup",
+        "text": "# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\nPROFILE   USER      [SCOPE]           UPDATE SET\ndev227772 System... [x_8821_test]     Default\n\n? What would you like to do?\n❯ Add a new instance\n  Switch to a different instance\n  Remove an instance\n  Modify an instance\n\n↑↓ navigate • ⏎ select"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ What would you like to do? Add a new instance\nWelcome to JSN - ServiceNow CLI\n\nServiceNow instance URL (e.g., dev12345.service-now.com): "
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "Instance: https://dev12345.service-now.com\nProfile name (default): "
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "Authentication method (OAuth/Basic) [OAuth]: \n\nOAuth is recommended — token-based, auto-refreshed.\nBasic sends username/password on every request."
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "? Read-only profile (blocks mutation commands)? (y/N)"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ Read-only profile (blocks mutation commands)? No\n? Skip confirmations (deletes run without prompting)? (y/N)"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ Skip confirmations (deletes run without prompting)? No\n? Include result totals on list commands? (Y/n)"
+      },
+      {
+        "cmd": "jsn setup",
+        "text": "✔ Include result totals on list commands? Yes\n\nLogin now? [Y/n]: "
+      }
+    ],
+    "group": "Connect",
+    "canonicalSlug": "servicenow-cli-auth-setup",
+    "seoTitle": "ServiceNow CLI authentication and setup",
+    "seoDescription": "Configure JSN for a ServiceNow instance with OAuth or basic authentication, profiles, read-only mode, and safe mutation settings.",
+    "seoQuery": "How do I connect a ServiceNow instance from the command line?",
+    "demoText": ""
+  },
+  {
+    "id": "skill",
+    "title": "Agent skill installer",
+    "tagline": "One command drops the full playbook into any AI agent — no MCP server to stand up.",
+    "commands": [
+      {
+        "cmd": "jsn skill install",
+        "what": "Install for Hermes, Claude, Codex, Cursor, OpenCode, Copilot and more"
+      }
+    ],
+    "demo": "skill",
+    "group": "Automate",
+    "canonicalSlug": "servicenow-agent-skill-installer",
+    "seoTitle": "Agent skill installer",
+    "seoDescription": "One command drops the full playbook into any AI agent — no MCP server to stand up.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": "? Where should the jsn skill be installed?\n❯◉ Hermes Agent\n ◯ GitHub Copilot\n ◯ VS Code (Copilot Instructions)\n ◯ Claude Code\n ◉ Cursor\n ◯ Agents (open standard)\n ◯ OpenCode\n\n~/.hermes/profiles/holly/skills/servicenow/SKILL.md\n(space to toggle, enter to confirm)\n"
+  },
+  {
+    "id": "docs-cli",
+    "title": "The docs, from the terminal",
+    "tagline": "Search and read the hosted ServiceNow library from your terminal. No account or local index needed.",
+    "commands": [
+      {
+        "cmd": "jsn docs search \"GlideRecord\" --limit 5",
+        "what": "Search the hosted documentation library"
+      },
+      {
+        "cmd": "jsn docs show \"api-reference/c_GlideRecordClientSideAPI.md\"",
+        "what": "Read a document by its exact path"
+      },
+      {
+        "cmd": "jsn docs status",
+        "what": "Check the shared index and sync status"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-documentation-search-cli",
+    "seoTitle": "Search ServiceNow documentation from the CLI",
+    "seoDescription": "Search and read hosted ServiceNow documentation from the terminal with JSN, without downloading a local index.",
+    "seoQuery": "How can I search ServiceNow documentation from the command line?",
+    "demoText": ""
+  },
+  {
+    "id": "docs-web",
+    "title": "The docs, in the browser",
+    "tagline": "Search and read the same hosted documentation in your browser, with formatted reference pages.",
+    "commands": [
+      {
+        "cmd": "jsn docs search \"Flow Designer\"",
+        "what": "Find documents in the same library used by the website"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-documentation-browser",
+    "seoTitle": "The docs, in the browser",
+    "seoDescription": "Search and read the same hosted documentation in your browser, with formatted reference pages.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "read",
+    "title": "Read & query records",
+    "tagline": "Any table, encoded queries, counts on every list.",
+    "commands": [
+      {
+        "cmd": "jsn records list --table incident --limit 4",
+        "what": "Query any table with styled output"
+      },
+      {
+        "cmd": "jsn records list --table incident --query \"priority=1\" --json",
+        "what": "Encoded queries, JSON for pipes"
+      }
+    ],
+    "demo": "read",
+    "group": "Explore",
+    "canonicalSlug": "servicenow-cli-query-records",
+    "seoTitle": "Query ServiceNow records from the command line",
+    "seoDescription": "Query any ServiceNow table with encoded queries, limits, counts, and JSON output using the JSN CLI.",
+    "seoQuery": "How do I query ServiceNow records from a terminal?",
+    "demoText": "4 incident(s)\n\n\nnumber          short_description                                 priority        state       assigned_to      \n--------------  ------------------------------------------------  --------------  ----------  ---------------  \nINC0000014      Missing my home directory test-1                  1 - Critical    Closed      Bud Richman      \nINC0000601      The USB port on my PC stopped working             5 - Planning    Closed                       \nINC0009004      Defect tracking tool is down.                     3 - Moderate    Closed                       \nINC0000005      CPU load high for over 10 minutes                 1 - Critical    Closed      Bud Richman      \n\n  → create: jsn inc create --description \"...\" — Create a new incidents\n  → filter: jsn inc list --query \"priority=1\" — Filter: critical only\n  → next: jsn inc list --limit 4 --offset 4 — Next page (offset 4)\n"
+  },
+  {
+    "id": "create",
+    "title": "Create & update records",
+    "tagline": "Create records with the right fields for the table. The strict write-back check confirms every field persisted.",
+    "commands": [
+      {
+        "cmd": "jsn incidents create --description \"Demo: read me in the hero\" --data '{\"urgency\":\"3\",\"impact\":\"3\"}'",
+        "what": "Create an incident with fields"
+      },
+      {
+        "cmd": "jsn records create --table incident --data '{\"short_description\":\"...\"}'",
+        "what": "Any table"
+      }
+    ],
+    "demo": "create",
+    "group": "Change",
+    "canonicalSlug": "servicenow-cli-create-update-records",
+    "seoTitle": "Create and update ServiceNow records from the CLI",
+    "seoDescription": "Create and update ServiceNow records from the terminal with explicit fields and write-back verification.",
+    "seoQuery": "How do I create or update a ServiceNow record from the command line?",
+    "demoText": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  ⚠  Default update set in scope [x_8821_test]\n  Changes are contained to this scope, but a named\n  update set is still recommended for tracking.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nCreated incidents INC0010019\n\n\nINC0010019 (incident)\n\n─ Core ─\n  number:  INC0010019\n  sys_id:  3b753e3c83be8f10f7bfc670ceaad3e7\n  sys_class_name:  incident\n  state:  1\n  active:  true\n  short_description:  Demo: read me in the hero\n  description:  \n  priority:  5\n  urgency:  3\n  impact:  3\n\n─ People ─\n  opened_by:  6816f79cc0a8016401c5a33be04be441\n\n─ Status ─\n  approval:  not requested\n  escalation:  0\n  made_sla:  true\n\n─ Dates & Times ─\n  opened_at:  2026-08-17 03:13:22\n  sys_created_on:  2026-08-17 03:13:22\n\n  → view: jsn inc show INC0010019 — View the new incidents\n"
+  },
+  {
+    "id": "catalog-create",
+    "title": "Catalog item one-liner",
+    "tagline": "Create a catalog item with its variables in a single command.",
+    "commands": [
+      {
+        "cmd": "jsn catalogitems create --name \"Demo Hero Laptop\" --variable \"model:string:Model\" --variables '{\"model\":\"X1 Carbon\"}'",
+        "what": "Item + variables, one shot"
+      },
+      {
+        "cmd": "jsn catalogitems show <id>",
+        "what": "See the item with variables resolved"
+      }
+    ],
+    "demo": "catalog-create",
+    "group": "Change",
+    "canonicalSlug": "servicenow-catalog-create",
+    "seoTitle": "Catalog item one-liner",
+    "seoDescription": "Create a catalog item with its variables in a single command.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": "Created: Demo Hero Laptop (1 variable(s))\n"
+  },
+  {
+    "id": "delete",
+    "title": "Delete records, safely",
+    "tagline": "Read-only by default. Deletes need --force; read-only profiles block writes entirely.",
+    "commands": [
+      {
+        "cmd": "jsn records delete --table incident --sys-id <id>",
+        "what": "Deletes are blocked without --force"
+      },
+      {
+        "cmd": "jsn records delete --table incident --sys-id <id> --force",
+        "what": "Force flag skips the confirmation"
+      }
+    ],
+    "demo": "delete",
+    "group": "Change",
+    "canonicalSlug": "safe-servicenow-record-deletion-cli",
+    "seoTitle": "Safely delete ServiceNow records from the CLI",
+    "seoDescription": "Delete ServiceNow records with confirmation gates, force flags, and read-only profiles that block destructive commands.",
+    "seoQuery": "How can I safely delete ServiceNow records from a terminal?",
+    "demoText": "Error: Delete record from incident (57e8723483fe8f10f7bfc670ceaad3aa) — confirmation required. Pass --force to skip, or set skip_confirmations on the profile to disable prompts.\n\nThis is a destructive action. Ask your user to confirm, then re-run:\n  jsn records delete --force\nOr set skip_confirmations on the profile to disable prompts:\n  jsn auth login <instance> --skip-confirmations\n\n$ jsn records delete --table incident --sys-id 57e8723483fe8f10f7bfc670ceaad3aa --force\nDeleted record from incident\n"
+  },
+  {
+    "id": "bulk",
+    "title": "Bulk operations",
+    "tagline": "Update thousands of records by query. Dry-run by default — preview before you commit.",
+    "commands": [
+      {
+        "cmd": "jsn records bulk --table incident --query \"active=true\" --set '{\"state\":\"2\"}'",
+        "what": "Dry-run: shows the count + sample first"
+      },
+      {
+        "cmd": "jsn records bulk ... --execute",
+        "what": "Commit after reviewing"
+      }
+    ],
+    "demo": "bulk",
+    "group": "Change",
+    "canonicalSlug": "servicenow-cli-bulk-operations",
+    "seoTitle": "Bulk ServiceNow record operations",
+    "seoDescription": "Run controlled bulk updates and deletes against ServiceNow tables with explicit queries and safety checks.",
+    "seoQuery": "How do I perform bulk ServiceNow updates from the command line?",
+    "demoText": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  ⚠  Default update set in scope [x_8821_test]\n  Changes are contained to this scope, but a named\n  update set is still recommended for tracking.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nDry run: 40 record(s) in incident would be updated\n"
+  },
+  {
+    "id": "cmdb",
+    "title": "CMDB relationship traversal",
+    "tagline": "Walk the dependency graph: parents above, children below, cycles collapsed.",
+    "commands": [
+      {
+        "cmd": "jsn cmdb relationships --ci <sys_id>",
+        "what": "BFS traversal, zero deps"
+      },
+      {
+        "cmd": "jsn cmdb relationships --ci <sys_id> --depth 5 --type \"Depends on\"",
+        "what": "Depth, type, class filters"
+      }
+    ],
+    "demo": "cmdb",
+    "group": "Explore",
+    "canonicalSlug": "servicenow-cmdb-relationship-traversal",
+    "seoTitle": "Traverse ServiceNow CMDB relationships from the CLI",
+    "seoDescription": "Follow ServiceNow CMDB relationships from the terminal to inspect connected configuration items and dependencies.",
+    "seoQuery": "How do I inspect ServiceNow CMDB relationships without clicking through forms?",
+    "demoText": "CMDB: ThinkStation S20 (Computer)\nSys ID: 01a9ec0d3790200044e0bfc8bcbe5dc3\n────────────────────────────────────────────────────────\n▶ RELATIONSHIPS (23)\n────────────────────────────────────────────────────────\n▶ PARENTS\n  (none)\n\n**YOU ARE HERE** ThinkStation S20 (Computer)\n\n▶ CHILDREN\n└─ ↓ Blackberry (Service) — Applicative Flow To::Applicative Flow From\n   ├─ ↓ Email (Service) — Depends on::Used by\n   │  ├─ ↓ IronMail-SD-01 (Email Server) — Depends on::Used by\n   │  ├─ ↓ IronMail-SD-02 (Email Server) — Depends on::Used by\n   │  └─ ↓ EXCHANGE-NY-02 (Email Server) — Depends on::Used by\n   └─ ↓ INSIGHT-NY-03 (Server) — Depends on::Used by\n\n\n  → show: jsn cmdb show 01a9ec0d3790200044e0bfc8bcbe5dc3 — Full record for the root CI\n  → impact: jsn cmdb relationships --ci 01a9ec0d3790200044e0bfc8bcbe5dc3 --impact — Impact analysis: upstream only\n  → deeper: jsn cmdb relationships --ci 01a9ec0d3790200044e0bfc8bcbe5dc3 --depth 5 — Traverse deeper (max depth 5)\n  → filter: jsn cmdb relationships --ci 01a9ec0d3790200044e0bfc8bcbe5dc3 --type \"<rel type>\" --class \"<ci class>\" — Filter by relationship type or CI class\n"
+  },
+  {
+    "id": "flows",
+    "title": "Flow subflow context",
+    "tagline": "See the whole flow structure — triggers, actions, nested subflows.",
+    "commands": [
+      {
+        "cmd": "jsn flows show \"Service Catalog item request\"",
+        "what": "Flow structure with subflow expansion"
+      }
+    ],
+    "demo": "flows",
+    "group": "Automate",
+    "canonicalSlug": "servicenow-flow-subflow-context",
+    "seoTitle": "Flow subflow context",
+    "seoDescription": "See the whole flow structure — triggers, actions, nested subflows.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": "Flow: Service Catalog item request\n\n  Status: Active | Version: 2\n  Sys ID: 30f3d26187e92300e0ef0cf888cb0b91\n  Link: https://dev227772.service-now.com/sys_hub_flow.do?sys_id=30f3d26187e92300e0ef0cf888cb0b91\n\n▶ TRIGGER\n──────────────────────────────────────────────────\n  Name: Service Catalog\n  Type: Service Catalog\n\n⚡ FLOW STRUCTURE\n──────────────────────────────────────────────────\n1. ↪ Requested Item Manager Approval\n   1. Ask For Approval\n     Record: {{subflow.requested_item}}\n     Table: Requested Item\n     Approval Field: approval\n     Journal Field: approval_history\n     Rules: ApprovesAnyU[{{subflow.requested_item.requested_for.manager}}]OrRejectsAnyU[{{subflow.requested_item.requested_for.manager}}]\n     Due Date: {\"action\":\"none\",\"date_type\":\"actual\",\"date\":\"{{}}\",\"duration\":1,\"duration_type\":\"days\",\"schedule\":\"\",\"schedule_label\":\"\"}\n"
+  },
+  {
+    "id": "catalog",
+    "title": "Catalog variables",
+    "tagline": "A request item with its variables resolved — plain REST doesn't do this.",
+    "commands": [
+      {
+        "cmd": "jsn requests show RITM0010001",
+        "what": "Request with catalog variables"
+      }
+    ],
+    "demo": "catalog",
+    "group": "Explore",
+    "canonicalSlug": "servicenow-catalog-variables",
+    "seoTitle": "Catalog variables",
+    "seoDescription": "A request item with its variables resolved — plain REST doesn't do this.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": "Request RITM0010001\n\n\nRITM0010001 (Requested Item)\n\n─ Core ─\n  number:  RITM0010001\n  sys_id:  02dedb44839e8b10f7bfc670ceaad36c\n  sys_class_name:  Requested Item\n  state:  Open\n  active:  true\n  short_description:  Submit a nulledge knowledge speaking session\n  description:  \n  priority:  4 - Low\n  urgency:  3 - Low\n  impact:  3 - Low\n\n─ People ─\n  opened_by:  System Administrator\n\n─ Status ─\n  approval:  Approved\n  approval_set:  2026-07-20 18:47:16\n  escalation:  Normal\n  made_sla:  true\n\n─ Dates & Times ─\n  opened_at:  2026-07-20 18:47:11\n  sys_created_on:  2026-07-20 18:47:11\n  sys_updated_on:  2026-07-20 18:47:16\n  due_date:  2026-07-22 18:47:11\n  sla_due:  UNKNOWN\n  activity_due:  UNKNOWN\n\n─ System ─\n  sys_domain:  global\n  sys_domain_path:  /\n  sys_created_by:  admin\n  sys_updated_by:  system\n  sys_mod_count:  2\n\n─ Other ─\n  backordered:  false\n  billable:  false\n  business_duration:  \n  business_service:  \n  calendar_duration:  \n  cat_item:  Knowledge Speaking Session\n  close_notes:  \n  cmdb_ci:  \n  comments:  \n  comments_and_work_notes:  \n  company:  \n  configuration_item:  \n  contact_type:  \n  context:  \n  contract:  \n  correlation_display:  \n  correlation_id:  \n  delivery_plan:  DEFAULT\n  delivery_task:  \n  estimated_delivery:  \n  flow_context:  \n  follow_up:  \n  group_list:  \n  knowledge:  false\n  location:  \n  order:  \n  order_guide:  \n  parent:  \n  price:  $0.00\n  quantity:  1\n  reassignment_count:  0\n  recurring_frequency:  \n  recurring_price:  $0.00\n  request:  REQ0010001\n  requested_for:  System Administrator\n  route_reason:  \n  sc_catalog:  \n  service_offering:  \n  skills:  \n  stage:  Assess or Scope Task\n  task_effective_number:  RITM0010001\n  task_for:  \n  time_worked:  \n  universal_request:  \n  upon_approval:  Proceed to Next Task\n  upon_reject:  Cancel all future Tasks\n  user_input:  \n  work_notes:  \n  work_notes_list:  \n\n─ Catalog Variables ─\n  Topic:  Moveworks!  What is Slate?  He can tell you!\n  Speaker:  Teo\n\nLink:  https://dev227772.service-now.com/requested_item.do?sys_id=02dedb44839e8b10f7bfc670ceaad36c\n\n\n  → update: jsn req update RITM0010001 --data '{...}' — Update this request\n  → list: jsn req list — Back to all requests\n"
+  },
+  {
+    "id": "updatesets",
+    "title": "Update set handling",
+    "tagline": "List, set, complete, ignore — and export any set to XML.",
+    "commands": [
+      {
+        "cmd": "jsn updatesets list",
+        "what": "See every set and its state"
+      },
+      {
+        "cmd": "jsn updatesets complete \"My Set\" --notes \"Fixed validation\"",
+        "what": "Complete a set with notes in its Description"
+      },
+      {
+        "cmd": "jsn updatesets export \"My Set\" --out set.xml",
+        "what": "Export to XML via the fluent endpoint"
+      }
+    ],
+    "demo": "updatesets",
+    "group": "Change",
+    "canonicalSlug": "servicenow-update-set-cli",
+    "seoTitle": "Manage ServiceNow update sets from the CLI",
+    "seoDescription": "Inspect, select, complete, and export ServiceNow update sets while making changes from the terminal.",
+    "seoQuery": "How do I manage a ServiceNow update set from the command line?",
+    "demoText": "3 update set(s)\n\n\nname                            state       application           application.scope     \n------------------------------  ----------  --------------------  --------------------  \nHolly Export Test C             In prog...  test                  x_8821_test           \nHolly Export Test B             In prog...  test                  x_8821_test           \nHolly Export Test A             Complete    test                  x_8821_test\n"
+  },
+  {
+    "id": "updatesets-complete",
+    "title": "Update set completion notes",
+    "tagline": "Completing a set records what changed, in the set's own Description.",
+    "commands": [
+      {
+        "cmd": "jsn updatesets complete \"My Set\" --notes \"Fixed validation\"",
+        "what": "Complete a named set with notes"
+      },
+      {
+        "cmd": "jsn updatesets complete --notes \"Fixed validation\" --json",
+        "what": "Complete the current set, machine-readable"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn updatesets list",
+        "text": "3 update set(s)\n\nname                            state       application           application.scope\n------------------------------  ----------  --------------------  --------------------\nCheckout approvals              In prog...  test                  x_8821_test\nCatalog copy fixes              In prog...  test                  x_8821_test\nReleased fixes                  Complete    test                  x_8821_test"
+      },
+      {
+        "cmd": "jsn updatesets complete \"Catalog copy fixes\" --notes 'Copied the approved catalog text' --force",
+        "text": "Update set marked complete: Catalog copy fixes"
+      },
+      {
+        "cmd": "jsn updatesets complete \"Catalog copy fixes\" --notes 'Copied the approved catalog text' --force --json",
+        "text": "{\n  \"ok\": true,\n  \"data\": {\n    \"update_set\": \"Catalog copy fixes\",\n    \"state\": \"complete\",\n    \"description\": \"- Copied the approved catalog text\"\n  },\n  \"summary\": \"Update set marked complete: Catalog copy fixes\",\n  \"breadcrumbs\": []\n}"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-update-set-completion-notes",
+    "seoTitle": "Complete a ServiceNow update set with notes",
+    "seoDescription": "Record what changed when you complete a ServiceNow update set, keeping the notes in the set's Description field.",
+    "seoQuery": "How do I complete a ServiceNow update set from the command line?",
+    "demoText": ""
+  },
+  {
+    "id": "atf",
+    "title": "ATF test execution",
+    "tagline": "Discover tests and suites, run them, and poll results.",
+    "commands": [
+      {
+        "cmd": "jsn atf list",
+        "what": "Find tests"
+      },
+      {
+        "cmd": "jsn atf run <test_sys_id>",
+        "what": "Run + poll (confirm-gated)"
+      }
+    ],
+    "demo": "atf",
+    "group": "Verify",
+    "canonicalSlug": "servicenow-atf-test-execution-cli",
+    "seoTitle": "Run ServiceNow ATF tests from the CLI",
+    "seoDescription": "Discover and execute ServiceNow Automated Test Framework tests from the terminal and inspect their results.",
+    "seoQuery": "How do I run ServiceNow ATF tests from a terminal?",
+    "demoText": "3 record(s)\n\n\nname                            sys_class_name        active                sys_updated_on          \n------------------------------  --------------------  --------------------  ----------------------  \nSKILLS MGMT: Skill level in...  Test                  false                 2019-11-23 23:13:07     \nCHG:High Risk With Ui Actio...  Test                  false                 2019-09-12 06:32:32     \nRecordAction With Mappings      Test                  true                  2016-07-18 15:17:04\n"
+  },
+  {
+    "id": "scripts",
+    "title": "Background script execution",
+    "tagline": "Run GlideScript on the instance from your terminal.",
+    "commands": [
+      {
+        "cmd": "jsn eval --script 'gs.info(\"hello\");'",
+        "what": "Execute on the instance, session + CSRF handled"
+      }
+    ],
+    "demo": "scripts",
+    "group": "Automate",
+    "canonicalSlug": "servicenow-background-scripts",
+    "seoTitle": "Background script execution",
+    "seoDescription": "Run GlideScript on the instance from your terminal.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  ⚠  Default update set in scope [x_8821_test]\n  Changes are contained to this scope, but a named\n  update set is still recommended for tracking.\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nScript executed ⚠️ Records without explicit sys_scope will land in global. Use $scopeSysId variable.\n\n\n  → eval: jsn eval --script '...' — Execute a background script on the ServiceNow instance\n"
+  },
+  {
+    "id": "performance",
+    "title": "Performance capture and comparison",
+    "tagline": "Save read-only performance snapshots locally, then compare two runs.",
+    "commands": [
+      {
+        "cmd": "jsn perf capture --label baseline",
+        "what": "Capture a read-only performance snapshot"
+      },
+      {
+        "cmd": "jsn perf show RUN_ID",
+        "what": "Display the saved capture and its collectors"
+      },
+      {
+        "cmd": "jsn perf compare RUN_A RUN_B",
+        "what": "Compare two saved captures"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn perf capture --label baseline",
+        "text": "Performance capture 20260912T003811Z: complete\nStatus: complete\njsn version: 4.3.3\nCollectors: ecc_queue, error_warning_summary, event_queue, flow_executions, platform_health, record_counts, scheduled_and_cleanup, transactions\nECC queue: 385"
+      },
+      {
+        "cmd": "jsn perf show 20260912T003811Z --json",
+        "text": "Performance capture 20260912T003811Z\nRun: baseline\nStatus: complete\nProfile: pdi\nCollectors: all successful\nPlatform: 1 online node, queue 0, active sessions 9\nTransactions: 810,337 daily, mean 44.28 ms, median 18 ms, p90 50 ms"
+      },
+      {
+        "cmd": "jsn perf compare 20260912T003811Z 20260912T003107Z --json",
+        "text": "Performance comparison: incomplete\nBaseline: 20260912T003811Z\nNew: 20260912T003107Z\n\nECC queue: 385 → 384  (-1)\nPlatform mean transaction time: 44.28 ms → 44.28 ms  (0 ms)\nForm average response: 114.38 ms → 114.38 ms  (0 ms)"
+      }
+    ],
+    "group": "Diagnose",
+    "canonicalSlug": "servicenow-performance-capture-cli",
+    "seoTitle": "Capture and compare ServiceNow performance",
+    "seoDescription": "Capture repeatable ServiceNow performance snapshots and compare runs from the JSN command line.",
+    "seoQuery": "How do I capture and compare ServiceNow performance from the CLI?",
+    "demoText": ""
+  },
+  {
+    "id": "platform-health",
+    "title": "Platform health",
+    "tagline": "Inspect cluster nodes, queues, semaphores, sessions, memory pressure, and transaction health.",
+    "commands": [
+      {
+        "cmd": "jsn platform health --all-nodes",
+        "what": "Read node and platform health"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn platform health --all-nodes --json",
+        "text": "Platform health: 1 node(s)\n\nNODE STATUS  TYPE             QUEUE  AGE  SESSIONS  DEFAULT SEM  DB\n-----------  ---------------  -----  ---  --------  -----------  --\nonline       db272e3277020010bf05d4082b106185      0    0         9         0/16  44.28071283922618 ms\n\nSecurity: raw XML excluded, sensitive fields excluded"
+      }
+    ],
+    "group": "Diagnose",
+    "canonicalSlug": "servicenow-platform-health-cli",
+    "seoTitle": "Check ServiceNow platform health from the CLI",
+    "seoDescription": "Inspect ServiceNow nodes, queues, sessions, semaphores, memory pressure, and transaction health from one terminal command.",
+    "seoQuery": "How do I check ServiceNow instance health from the command line?",
+    "demoText": ""
+  },
+  {
+    "id": "transactions",
+    "title": "Transaction summaries",
+    "tagline": "Group transaction counts and response times by transaction type.",
+    "commands": [
+      {
+        "cmd": "jsn transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)'",
+        "what": "Summarize count, average, minimum, and maximum response time"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)' --json",
+        "text": "Transactions by type: 8 type(s)\n\nCLASS       TYPE           COUNT  AVG       MIN       MAX\n----------  -------------  -----  --------  --------  --------\napi         batch_rest        21  60 ms     20 ms     308 ms\nui          form            1018  114.38 ms  6 ms      6133 ms\napi         rest            2554  62.42 ms   8 ms     7383 ms\njob         scheduler        602  24548.24 ms 36 ms     234718 ms"
+      }
+    ],
+    "group": "Diagnose",
+    "canonicalSlug": "servicenow-transaction-summaries",
+    "seoTitle": "Transaction summaries",
+    "seoDescription": "Group transaction counts and response times by transaction type.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "logs",
+    "title": "System log monitoring",
+    "tagline": "Query system logs or follow new entries from the terminal.",
+    "commands": [
+      {
+        "cmd": "jsn logs list --limit 3",
+        "what": "Find matching log entries"
+      },
+      {
+        "cmd": "jsn logs follow --level error --tail 3 --interval 500",
+        "what": "Tail new errors until stopped"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn logs list --limit 3 --json",
+        "text": "3 log entry(s)\n\nWarning  QueryEventLogger  Invalid query detected, please check logs for details [Unknown field name in table sys_ui_policy]\nError    sn_codesearch     Search table record for null in search group sn_devstudio.Studio Search Group\nWarning  QueryEventLogger  Invalid query detected, please check logs for details [Unknown field duration in table sys_flow_context]"
+      },
+      {
+        "cmd": "jsn logs follow --level error --tail 3 --interval 500",
+        "text": "[jsn logs follow] watching syslog every 500ms — Ctrl+C to stop"
+      }
+    ],
+    "group": "Diagnose",
+    "canonicalSlug": "servicenow-system-log-monitoring-cli",
+    "seoTitle": "Monitor ServiceNow system logs from the CLI",
+    "seoDescription": "List and inspect ServiceNow system log entries from the terminal to diagnose warnings and failures.",
+    "seoQuery": "How do I monitor ServiceNow system logs from a terminal?",
+    "demoText": ""
+  },
+  {
+    "id": "codesearch",
+    "title": "ServiceNow code search",
+    "tagline": "Search code across ServiceNow artifacts and application scopes.",
+    "commands": [
+      {
+        "cmd": "jsn codesearch search GlideAjax --limit 5",
+        "what": "Search script and client-side artifacts"
+      },
+      {
+        "cmd": "jsn codesearch search approval --scope x_my_app --limit 5",
+        "what": "Restrict a search to an application scope"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn codesearch search GlideAjax --limit 5 --json",
+        "text": "5 code match(es) for \"GlideAjax\"\n\nsys_ui_page  $pwd_change  .client_script\n    var ga = new GlideAjax('PwdAjaxChangePassword');\nsys_ui_page  $pwd_enrollment_form_container  .client_script\n    function sendRequest() {"
+      },
+      {
+        "cmd": "jsn codesearch search approval --scope x_my_app --limit 5 --json",
+        "text": "10 code match(es) for \"approval\"\n\nsys_ui_page  approval_engines  .name\n    approval_engines\nsys_ui_page  approval_engines  .client_script\n    var hasEngine = false;"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-code-search-cli",
+    "seoTitle": "Search ServiceNow application code from the CLI",
+    "seoDescription": "Search ServiceNow scripts, script includes, business rules, and other application code from the terminal.",
+    "seoQuery": "How do I search ServiceNow application code from the command line?",
+    "demoText": ""
+  },
+  {
+    "id": "snippets",
+    "title": "Saved query snippets",
+    "tagline": "Save a table query locally and run it again against the active profile.",
+    "commands": [
+      {
+        "cmd": "jsn snippets save docs-open-inc --table incident --query 'active=true'",
+        "what": "Save a named query locally"
+      },
+      {
+        "cmd": "jsn snippets run docs-open-inc",
+        "what": "Run the saved query against ServiceNow"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn snippets save docs-open-inc --table incident --query 'active=true' --json",
+        "text": "Saved snippet \"docs-open-inc\""
+      },
+      {
+        "cmd": "jsn snippets run docs-open-inc --profile pdi --json",
+        "text": "20 record(s) from incident (snippet \"docs-open-inc\")\nQuery: active=true"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-snippets",
+    "seoTitle": "Saved query snippets",
+    "seoDescription": "Save a table query locally and run it again against the active profile.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "record-tools",
+    "title": "Record tools beyond CRUD",
+    "tagline": "Work with attachments, aggregates, and table inspection alongside normal record queries.",
+    "commands": [
+      {
+        "cmd": "jsn records attachments --help",
+        "what": "List, inspect, and add record attachments"
+      },
+      {
+        "cmd": "jsn records aggregate --table incident --count",
+        "what": "Aggregate records without downloading every row"
+      },
+      {
+        "cmd": "jsn records inspect incident INC0000060",
+        "what": "Inspect a record and its table context"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn records attachments --help",
+        "text": "Work with attachments on a record\n\nCommands:\n  list  List attachments on a record\n  get <attachment-id>  Download an attachment to a local file\n  add <file>  Upload a file as a new attachment on a record (mutation)"
+      },
+      {
+        "cmd": "jsn records aggregate --table incident --count --json",
+        "text": "Aggregated incident\nTable: incident\nCount: 70"
+      },
+      {
+        "cmd": "jsn records inspect incident INC0000060 --json",
+        "text": "Inspected incident INC0000060\nAudit history, business rules, and running flows returned"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-record-tools",
+    "seoTitle": "Record tools beyond CRUD",
+    "seoDescription": "Work with attachments, aggregates, and table inspection alongside normal record queries.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "scopes-domains",
+    "title": "Scopes and domain separation",
+    "tagline": "Control application scope and domain context alongside update sets.",
+    "commands": [
+      {
+        "cmd": "jsn scopes list --limit 3",
+        "what": "List application scopes"
+      },
+      {
+        "cmd": "jsn domains current",
+        "what": "Show the current domain context"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn scopes list --limit 3 --json",
+        "text": "3 scope(s)\n\nContact card component       sn_contact_card       active\nAsset Management for mobile  sn_me_assets           active\n@servicenow/sn-cb-slide-modal sn_cb_slide_modal      active"
+      },
+      {
+        "cmd": "jsn domains current --json",
+        "text": "Error: Domain separation is not installed on this instance. The domain table does not exist."
+      }
+    ],
+    "group": "Change",
+    "canonicalSlug": "servicenow-scopes-domain-separation",
+    "seoTitle": "Scopes and domain separation",
+    "seoDescription": "Control application scope and domain context alongside update sets.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "flow-operations",
+    "title": "Flow operations and diagnostics",
+    "tagline": "Inspect executions, check status, diagnose flows, and manage their lifecycle.",
+    "commands": [
+      {
+        "cmd": "jsn flows executions --limit 3",
+        "what": "Inspect flow executions"
+      },
+      {
+        "cmd": "jsn flows doctor",
+        "what": "Run flow diagnostics"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn flows executions --limit 3 --json",
+        "text": "3 flow execution(s)\n\nFLOW                            STATUS    DURATION\nsend_notifications               Complete  92 seconds\nsend_notifications               Complete  104 seconds\nScheduled Document Collaboration Complete 67 seconds"
+      },
+      {
+        "cmd": "jsn flows doctor --json",
+        "text": "✅ Flow publishing\n✅ wfa_fluent REST API\n✅ POST /activate_flows operation\n✅ ServiceNow IDE Platform: active\n✅ ServiceNow IDE Runtime Services: active"
+      }
+    ],
+    "group": "Diagnose",
+    "canonicalSlug": "servicenow-flow-debugging-cli",
+    "seoTitle": "Inspect and diagnose ServiceNow flows from the CLI",
+    "seoDescription": "Inspect ServiceNow flows, actions, executions, and diagnostics without navigating the Flow Designer UI.",
+    "seoQuery": "How do I inspect or debug ServiceNow flows from a terminal?",
+    "demoText": ""
+  },
+  {
+    "id": "form-behavior",
+    "title": "Form and UI behavior inspection",
+    "tagline": "Inspect form layouts, client scripts, and UI policies from the terminal.",
+    "commands": [
+      {
+        "cmd": "jsn forms show incident",
+        "what": "Inspect sections and form elements"
+      },
+      {
+        "cmd": "jsn clientscripts list --query 'nameLIKEincident' --limit 3",
+        "what": "Find client scripts affecting a table"
+      },
+      {
+        "cmd": "jsn uipolicies list --query 'nameLIKEincident' --limit 3",
+        "what": "Find UI policies affecting a table"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn forms show incident",
+        "text": "Form: incident → Default view\n\n── Notes ──\n  watch_list\n  work_notes_list\n  comments\n  work_notes\n\n── Related Records ──\n  parent_incident\n  problem_id\n  rfc\n  caused_by"
+      },
+      {
+        "cmd": "jsn clientscripts list --query 'nameLIKEincident' --limit 3 --json",
+        "text": "2 clientscripts(s)\nSet Resolution notes for Parent Incident  incident  true  onChange\nCreateChildIncident                       incident  true  onLoad"
+      },
+      {
+        "cmd": "jsn uipolicies list --query 'nameLIKEincident' --limit 3 --json",
+        "text": "3 uipolicies(s)\nMake assignment group mandatory  task  true"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-form-ui-behavior",
+    "seoTitle": "Form and UI behavior inspection",
+    "seoDescription": "Inspect form layouts, client scripts, and UI policies from the terminal.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "integrations",
+    "title": "Integration artifacts",
+    "tagline": "Inspect scripted REST APIs, REST messages, SOAP messages, email, and import definitions.",
+    "commands": [
+      {
+        "cmd": "jsn scrapi list --limit 3",
+        "what": "List scripted REST API operations"
+      },
+      {
+        "cmd": "jsn restmessage list --limit 3",
+        "what": "List REST message definitions"
+      },
+      {
+        "cmd": "jsn soapmessages list --limit 3",
+        "what": "List SOAP message definitions"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn scrapi list --limit 3 --json",
+        "text": "3 operation(s)\nGet Conversations          GET    /conversations\nGet Is Generated By AI     GET    /{scopeId}/getIsGeneratedByAI\nUpdate Message             PATCH  /conversations/{conversationId}/messages/{messageId}"
+      },
+      {
+        "cmd": "jsn restmessage list --limit 3 --json",
+        "text": "3 restmessage(s)\nAI Provider Call\nModels.dev Pricing Lookup\nFirebase Cloud Messaging Send"
+      },
+      {
+        "cmd": "jsn soapmessages list --limit 3 --json",
+        "text": "3 soapmessages(s)\nInstance Clone Schedule\nProvision ServiceNow Accounts\nServiceNow getRecords"
+      }
+    ],
+    "group": "Change",
+    "canonicalSlug": "servicenow-integration-artifacts",
+    "seoTitle": "Integration artifacts",
+    "seoDescription": "Inspect scripted REST APIs, REST messages, SOAP messages, email, and import definitions.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "metadata",
+    "title": "Schema and platform metadata",
+    "tagline": "Inspect tables, columns, relationships, script includes, and instance properties.",
+    "commands": [
+      {
+        "cmd": "jsn tables list --limit 3",
+        "what": "Discover tables"
+      },
+      {
+        "cmd": "jsn columns list --query 'name=incident' --limit 5",
+        "what": "Inspect a table's columns"
+      },
+      {
+        "cmd": "jsn includes list --limit 3",
+        "what": "List script includes"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn tables list --limit 3 --json",
+        "text": "3 tables(s)\nsn_build_agent_conversation  Build Agent Conversation\nsn_build_agent_message       Build Agent Message\nevent telemetry              Event telemetry"
+      },
+      {
+        "cmd": "jsn columns list --query 'name=incident' --limit 5 --json",
+        "text": "5 columns(s)\nclose_code       Resolution code    String\ncause            Probable cause     String\nbusiness_impact  Business impact    String\nhold_reason      On hold reason     Integer"
+      },
+      {
+        "cmd": "jsn includes list --limit 3 --json",
+        "text": "3 includes(s)\nBuildAgentUtil\nBuildAgentEngine\nBuildAgentLogger"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-schema-platform-metadata",
+    "seoTitle": "Schema and platform metadata",
+    "seoDescription": "Inspect tables, columns, relationships, script includes, and instance properties.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "rest",
+    "title": "Raw REST escape hatch",
+    "tagline": "Call a ServiceNow REST endpoint when no specific command exists.",
+    "commands": [
+      {
+        "cmd": "jsn rest --table incident --query 'sysparm_limit=3'",
+        "what": "Make a raw REST API request"
+      }
+    ],
+    "screens": [
+      {
+        "cmd": "jsn rest --table incident --query 'sysparm_limit=3' --json",
+        "text": "GET api/now/table/incident\nReturned incident: INC0000060\nShort description: Unable to connect to email\nState: 7\nPriority: 3"
+      }
+    ],
+    "group": "Extend",
+    "canonicalSlug": "servicenow-rest-api-cli",
+    "seoTitle": "Call the ServiceNow REST API from the CLI",
+    "seoDescription": "Use JSN as a practical raw REST escape hatch when a higher-level ServiceNow command does not exist.",
+    "seoQuery": "How do I call the ServiceNow REST API from a terminal?",
+    "demoText": ""
+  }
+]

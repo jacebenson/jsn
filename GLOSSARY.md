@@ -445,6 +445,42 @@ existing deprecations are preserved and no package versions are unpublished.
   (a missing `--get` path does), and an unwrapped rejection exits through a Node
   stack instead of the structured error contract.
 
+## Website account and feature recording
+
+A website account is a SQLite-backed identity for the Rails documentation site,
+independent of CLI profiles and ServiceNow credentials. Site administrators are provisioned from a terminal; public signup is disabled. Browser sessions expire and can be revoked on logout.
+A feature recording is an administrator-published HTTPS video/watch URL associated
+with an existing feature slug. Documentation and feature pages remain public.
+
+## Hosted documentation index
+
+A server-owned SQLite FTS5 database, built from the public documentation Git
+mirror using JSN's existing ingestion/refresh functions. Public browser and REST
+readers share the published file. Daily sync stages changes and atomically swaps
+in a validated index; a failed sync never replaces the live file. Its Git source
+revision scopes numeric document IDs; paths provide stable references. Site
+administrators are provisioned locally; there is no public account registration.
+
+## Documentation source and shared service
+
+`jsn docs "query"` searches and `jsn docs --path <path>` reads through the public
+HTTP API, independently of ServiceNow profiles and credentials. Hosted mode is
+the default and creates no local database. Installation-wide setup preferences
+can instead select a JSN-managed local service or a custom service base URL.
+`JSN_DOCS_URL` overrides that selection. Local and hosted readers reuse the same
+Node SQLite query and summary implementation; the Rails website is an adapter.
+The server owns Git synchronization, daily refresh and atomic publication.
+IDs may be pinned with `--revision`; exact paths identify documents across revisions.
+Legacy search/show/status spellings remain callable but hidden from normal help.
+
+## Defaults for future connections
+
+Installation-wide `connection_defaults` contain read-only, delete confirmation
+and result-total preferences. New connections copy these values after one
+confirmation or customization step. Existing profiles preserve their explicit
+settings and historical defaults for omitted fields. Editing global preferences
+does not rewrite existing profiles. Documentation source is also installation-wide,
+not a per-instance setting; project-local configuration cannot override either.
 ## Auth implementation modules
 
 `src/auth.js` preserves the public auth API and identity-aware `AuthManager`.

@@ -9,21 +9,21 @@ This project-local skill is the JSN CLI driver for OpenCode. It follows the psta
 
 ## Launch
 
-JSN is a short-lived Node CLI. There is no server to keep alive and no build step.
+JSN is a short-lived Node CLI with no build step. Hosted docs verification requires the Rails site to be running.
 
 ```bash
-npm install
-node bin/jsn.js --version
+npm --prefix cli install
+node cli/bin/jsn.js --version
 ```
 
 For a global-style executable without publishing anything:
 
 ```bash
-npm link
+npm --prefix cli link
 jsn --version
 ```
 
-Use `node bin/jsn.js` in evidence so the checkout under test is unambiguous. The package requires Node >=22.5.0.
+Use `node cli/bin/jsn.js` in evidence so the checkout under test is unambiguous. The package requires Node >=22.5.0.
 
 ## Doctor
 
@@ -33,7 +33,7 @@ Run the read-only doctor before any instance-backed drive:
 node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
 ```
 
-The doctor proves the repository binary, package version, selected profile name, configured instance hostname, auth method, and authentication state. It prints no usernames, tokens, cookies, passwords, or credential contents. `--allow-unauthenticated` is only for the local-fixture lane. Without it, an unauthenticated or stale profile fails and must not be driven.
+The doctor proves the repository binary, package version, selected profile name, configured instance hostname, auth method, and authentication state. It prints no usernames, tokens, cookies, passwords, or credential contents. `--allow-unauthenticated` is only for the hosted-docs lane, which does not use instance credentials. Without it, an unauthenticated or stale profile fails and must not be driven.
 
 The last verified `pdi` doctor run found an authenticated, verified profile for `dev354702.service-now.com`. It is not marked read-only, so use it only for explicitly read-only commands in this kitchen. Do not refresh credentials, log in, mutate records, or use mutation-capable commands unless a disposable profile is separately established and the mutation has an explicit approval.
 
@@ -46,33 +46,33 @@ Runtime references only:
 
 ## Drive
 
-The safe, end-to-end lane uses JSN's local documentation fixture. It contacts no ServiceNow instance:
+The safe, end-to-end lane uses the Rails documentation REST service. It contacts no ServiceNow instance:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
+JSN_DOCS_URL=http://localhost:3000 node .agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
 ```
 
 The helper captures both machine-readable JSON and human-readable Markdown output. The underlying commands are existing JSN commands:
 
 ```bash
-node bin/jsn.js docs status --json
-node bin/jsn.js docs search "GlideRecord" --limit 3 --json
-node bin/jsn.js docs search "GlideRecord" --limit 3 --markdown
+node cli/bin/jsn.js docs status --json
+node cli/bin/jsn.js docs search "GlideRecord" --limit 3 --json
+node cli/bin/jsn.js docs search "GlideRecord" --limit 3 --markdown
 ```
 
 For an authenticated disposable profile only, use existing read-only commands and run the doctor again immediately before driving:
 
 ```bash
 node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile <disposable-read-only-profile>
-node bin/jsn.js --profile <disposable-read-only-profile> records list --table incident --limit 3 --columns number,short_description --json
-node bin/jsn.js --profile <disposable-read-only-profile> rest --method GET --table incident --query "sysparm_limit=3" --json
+node cli/bin/jsn.js --profile <disposable-read-only-profile> records list --table incident --limit 3 --columns number,short_description --json
+node cli/bin/jsn.js --profile <disposable-read-only-profile> rest --method GET --table incident --query "sysparm_limit=3" --json
 ```
 
 Never substitute `eval`, `create`, `update`, `delete`, `bulk --execute`, or a non-read-only REST method for this lane.
 
 ## Feature map
 
-Read `features/README.md` first. It maps records, profile/auth status, command discovery, and raw REST to user-visible entry points and proof checks. The local docs search drive is the fixture-backed proof available in this checkout today.
+Read `features/README.md` first. It maps records, profile/auth status, command discovery, and raw REST to user-visible entry points and proof checks. The docs drive uses the local Rails site; it must be running with a published index.
 
 ## Evidence
 
@@ -100,8 +100,8 @@ The helper is executable and owns redaction, evidence capture, exit-code checks,
 
 ```bash
 node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
-node .agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
+JSN_DOCS_URL=http://localhost:3000 node .agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
 node .agents/skills/verify/scripts/verify-jsn.mjs cleanup
 ```
 
-A successful local-fixture proof requires the doctor result, one JSON drive result, one human-readable drive result, evidence surviving cleanup, and no secret-like keys in the evidence files.
+A successful hosted-docs proof requires the doctor result, one JSON drive result, one human-readable drive result, evidence surviving cleanup, and no secret-like keys in the evidence files.

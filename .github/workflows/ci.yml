@@ -4,47 +4,83 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/jsn-site-preview]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  test-matrix:
-    name: Tests (${{ matrix.os }}, Node ${{ matrix.node }})
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.changes.outputs.cli }}
+      site: ${{ steps.changes.outputs.site }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/changed-components.mjs "$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+  cli:
+    name: CLI tests
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
     strategy:
       fail-fast: false
       matrix:
-        # Pin Windows to the VS 2022 toolchain recognized by node-gyp.
         os: [ubuntu-latest, windows-2022]
         node: ['22', '24']
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cli
     steps:
       - uses: actions/checkout@v7
-
-      - name: Validate package metadata
-        run: node -e "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')); console.log('package.json is valid JSON')"
-
-      - name: Set up Node
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
-          # better-sqlite3 (docs search, PR #134) needs Node >= 22 for FTS5
-          node-version: ${{ matrix.node }}
-          cache: 'npm'
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - name: Verify npm package contents
+        run: npm pack --dry-run
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Run lint
-        run: npm run lint
+  site:
+    name: Website tests
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build website and shared documentation engine
+        run: docker build -f site/Dockerfile -t jsn-site:test .
+      - name: Verify website routes and documentation API
+        run: docker run --rm --entrypoint bin/test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
+      - name: Verify shared sync and Markdown handling
+        run: >-
+          docker run --rm --entrypoint node jsn-site:test
+          --test test/sync-docs.test.mjs test/markdown.test.mjs
 
   test:
     name: Tests
-    needs: test-matrix
     if: always()
+    needs: [changes, cli, site]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every test matrix job to pass
+      - name: Require successful checks for affected applications
         env:
-          MATRIX_RESULT: ${{ needs.test-matrix.result }}
-        run: test "$MATRIX_RESULT" = success
+          CHANGES: ${{ needs.changes.result }}
+          CLI: ${{ needs.cli.result }}
+          SITE: ${{ needs.site.result }}
+        run: |
+          test "$CHANGES" = success
+          test "$CLI" = success || test "$CLI" = skipped
+          test "$SITE" = success || test "$SITE" = skipped

@@ -26,6 +26,9 @@ jobs:
     name: Publish production package
     runs-on: ubuntu-latest
     environment: prod
+    defaults:
+      run:
+        working-directory: cli
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,6 +40,7 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
 
       # npm trusted publishing needs npm 11.5.1 or newer for OIDC.
       - name: Update npm for trusted publishing

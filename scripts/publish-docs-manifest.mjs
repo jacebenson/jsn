@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { validateManifest } from '../src/commands/docs/snapshot.js';
+import { validateManifest } from '../cli/src/commands/docs/snapshot.js';
 const manifest = validateManifest(JSON.parse(fs.readFileSync(process.argv[2])));
 const base = process.env.DOCS_SITE_URL || 'https://jsn.jace.pro';
 if (new URL(base).protocol !== 'https:') throw new Error('Publisher requires HTTPS');
