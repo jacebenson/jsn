@@ -9,14 +9,14 @@ import { declareCapabilities } from '../capabilities.js';
 declareCapabilities('setup', { noInstance: true, skipContextHeader: true });
 
 const HUB_CHOICES = [
-  { name: 'Add a connection', value: 'add', command: 'jsn auth login <instance> --name <name> --basic' },
-  { name: 'Sign in again', value: 'login', command: 'jsn auth login --profile <name> (with the authentication options below)' },
-  { name: 'Check connections', value: 'status', command: 'jsn auth status --details --json (use --local to skip instance probes)' },
-  { name: 'Choose the default profile', value: 'switch', command: 'jsn auth switch <name>' },
-  { name: 'Change settings', value: 'modify', command: 'jsn auth modify --profile <name> --read-only --confirm-deletes --no-include-counts' },
-  { name: 'Sign out (keep the profile)', value: 'logout', command: 'jsn auth logout --profile <name> --force (only after explicit approval)' },
-  { name: 'Remove a connection', value: 'remove', command: 'jsn auth remove <name>' },
-  { name: 'Advanced settings', value: 'advanced', command: 'jsn setup' },
+  { section: 'Connections', name: 'Check connections', value: 'status', command: 'jsn auth status --details --json (use --local to skip instance probes)' },
+  { section: 'Connections', name: 'Choose default connection', value: 'switch', command: 'jsn auth switch <name>' },
+  { section: 'Connections', name: 'Add a connection', value: 'add', command: 'jsn auth login <instance> --name <name> --basic' },
+  { section: 'Connections', name: 'Sign in again', value: 'login', command: 'jsn auth login --profile <name> (with the authentication options below)' },
+  { section: 'Connections', name: 'Change connection settings', value: 'modify', command: 'jsn auth modify --profile <name> --read-only --confirm-deletes --no-include-counts' },
+  { section: 'JSN settings', name: 'Defaults and documentation', value: 'advanced', command: 'jsn setup' },
+  { section: 'Cleanup', name: 'Sign out (keep connection)', value: 'logout', command: 'jsn auth logout --profile <name> --force (only after explicit approval)' },
+  { section: 'Cleanup', name: 'Remove a connection', value: 'remove', command: 'jsn auth remove <name>' },
 ];
 
 const setupHelp = () => [
@@ -62,9 +62,14 @@ export const authHubPrompt = async (...args) => {
     const page = usePagination({
       items: choices,
       active,
-      pageSize: choices.length,
+      // Pagination budgets terminal lines, including the section headings.
+      pageSize: choices.length + new Set(choices.map(choice => choice.section)).size * 2 - 1,
       loop: false,
-      renderItem: ({ item, isActive }) => `${isActive ? '❯' : ' '} ${item.name}`,
+      renderItem: ({ item, isActive }) => {
+        const index = choices.indexOf(item);
+        const heading = choices[index - 1]?.section !== item.section ? `${index ? '\n' : ''}  ${item.section}\n` : '';
+        return `${heading}${isActive ? '❯' : ' '} ${item.name}`;
+      },
     });
     return `${config.message}\n${page}\n\n↑↓ navigate • ⏎ select • q/Esc exit`;
   })(...args);
@@ -94,7 +99,7 @@ export async function dispatchSetupAction(app, argv, action) {
   } else if (action === 'remove') {
     return removeConnection(argv, app);
   } else if (action === 'advanced') {
-    const setting = await select({ message: 'Advanced settings', choices: [
+    const setting = await select({ message: 'JSN settings', choices: [
       { name: 'Defaults for future connections', value: 'defaults' },
       { name: 'Documentation source', value: 'docs' },
       { name: 'Back', value: 'back' },

@@ -29,7 +29,24 @@ describe('authHubMenu', () => {
 
     assert.strictEqual(action, 'modify');
     const values = capturedChoices.map(c => c.value);
-    assert.deepStrictEqual(values, ['add', 'login', 'status', 'switch', 'modify', 'logout', 'remove', 'advanced']);
+    assert.deepStrictEqual(values, ['status', 'switch', 'add', 'login', 'modify', 'advanced', 'logout', 'remove']);
+  });
+
+  it('shows section headings without making them keyboard choices', async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let rendered = '';
+    output.on('data', chunk => { rendered += chunk.toString(); });
+    const { authHubMenu } = await import('../src/commands/setup.js');
+    const pending = authHubMenu({ input, output });
+    for (let index = 0; index < 5; index++) {
+      await new Promise(resolve => setImmediate(resolve));
+      input.write('\x1b[B');
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    input.write('\r');
+    assert.equal(await pending, 'advanced');
+    for (const heading of ['Connections', 'JSN settings', 'Cleanup']) assert.ok(rendered.includes(heading));
   });
 
   it('returns undefined when q exits the interactive hub', async () => {
