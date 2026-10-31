@@ -1,0 +1,49 @@
+{
+  "name": "@jacebenson/jsn",
+  "version": "4.3.9",
+  "description": "A command-line interface for ServiceNow that follows the Unix philosophy: simple, composable, and scriptable.",
+  "type": "module",
+  "bin": {
+    "jsn": "bin/jsn.js"
+  },
+  "main": "src/cli.js",
+  "scripts": {
+    "test": "node --experimental-test-module-mocks --test --test-concurrency=4 $(find test -name '*.test.js')",
+    "test:mutation": "stryker run",
+    "lint": "npx eslint src/ bin/ test/",
+    "start": "node bin/jsn.js",
+    "docs": "npm --prefix ../docs run build",
+    "docs:serve": "npm --prefix ../docs run serve"
+  },
+  "keywords": [
+    "servicenow",
+    "cli",
+    "rest-api",
+    "automation"
+  ],
+  "author": "Jace Benson",
+  "repository": "https://github.com/jacebenson/jsn",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@inquirer/core": "^10.1.0",
+    "@inquirer/prompts": "^7.5.1",
+    "better-sqlite3": "^13.0.3",
+    "js-yaml": "^4.1.1",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "globals": "^17.6.0"
+  },
+  "files": [
+    "bin/jsn.js",
+    "src/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ]
+}

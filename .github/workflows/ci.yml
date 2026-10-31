@@ -4,33 +4,80 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/jsn-site-preview]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  test:
-    name: Tests
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.changes.outputs.cli }}
+      site: ${{ steps.changes.outputs.site }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/changed-components.mjs "$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+  cli:
+    name: CLI tests
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - name: Verify npm package contents
+        run: npm pack --dry-run
+
+  site:
+    name: Website tests
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build website and shared documentation engine
+        run: docker build -f site/Dockerfile -t jsn-site:test .
+      - name: Verify website routes and documentation API
+        run: >-
+          docker run --rm --entrypoint sh -e RAILS_ENV=test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
+          -c 'bin/rails db:prepare && bundle exec ruby -Itest -e '\''Dir["test/*_test.rb"].sort.each { |file| require_relative file }'\'''
+      - name: Verify shared sync and Markdown handling
+        run: >-
+          docker run --rm --entrypoint node jsn-site:test
+          --test test/sync-docs.test.mjs test/markdown.test.mjs
 
-      - name: Validate package metadata
-        run: node -e "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')); console.log('package.json is valid JSON')"
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          # better-sqlite3 (docs search, PR #134) needs Node >= 22 for FTS5
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Run lint
-        run: npm run lint
+  test:
+    name: Tests
+    if: always()
+    needs: [changes, cli, site]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful checks for affected applications
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CLI: ${{ needs.cli.result }}
+          SITE: ${{ needs.site.result }}
+        run: |
+          test "$CHANGES" = success
+          test "$CLI" = success || test "$CLI" = skipped
+          test "$SITE" = success || test "$SITE" = skipped

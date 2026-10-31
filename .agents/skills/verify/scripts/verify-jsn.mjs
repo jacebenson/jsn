@@ -5,10 +5,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
-const cli = path.join(root, 'bin', 'jsn.js');
+const cli = path.join(root, 'cli', 'bin', 'jsn.js');
 const evidenceDir = path.join(root, '.verification', 'evidence');
 const scratchDir = path.join(root, '.verification', 'scratch');
-const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'cli', 'package.json'), 'utf8'));
 
 fs.mkdirSync(evidenceDir, { recursive: true });
 fs.mkdirSync(scratchDir, { recursive: true });

@@ -3,6 +3,10 @@ name: Promote main to dev
 on:
   push:
     branches: [main]
+    paths:
+      - 'cli/**'
+      - '.github/workflows/publish-dev.yml'
+      - '.github/workflows/promote-main-to-dev.yml'
 
 permissions:
   actions: write

@@ -7,7 +7,8 @@ source in `skills/`) or README.md.
 ## Stack
 
 Node.js (see `engines` in package.json for the floor), ESM (`"type": "module"`),
-no build step, no TypeScript. Entry: `bin/jsn.js` → `src/cli.js`.
+no build step, no TypeScript. The npm package lives in `cli/`. Paths in the CLI layout below are relative to `cli/`.
+Entry: `cli/bin/jsn.js` → `cli/src/cli.js`.
 
 Runtime deps — keep this list short, every addition needs a reason:
 
@@ -95,3 +96,5 @@ CLI-level tests spawn `bin/jsn.js` via `spawnSync` — see
 PRs against `main` on github.com/jacebenson/jsn, squash-merged
 (`gh pr merge --squash`). Production releases run through the GitHub Actions
 release workflow; don't push release tags manually.
+
+Run dependency installation and package/release commands in `cli/` (`npm --prefix cli ci`). Root `npm test` and `npm run lint` forward to that package. Website deployment uses the repository root as Docker build context, with `site/Dockerfile`.

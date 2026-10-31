@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { ingestDocs } from '../../src/commands/docs/ingest.js';
-import { refreshDocs } from '../../src/commands/docs/refresh.js';
+import { ingestDocs } from '../../cli/src/commands/docs/ingest.js';
+import { refreshDocs } from '../../cli/src/commands/docs/refresh.js';
 
 const defaultStorage = fileURLToPath(new URL('../storage/docs/', import.meta.url));
 function git(args) {

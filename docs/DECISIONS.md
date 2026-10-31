@@ -122,3 +122,13 @@ indexing helpers for the site worker. No new runtime dependencies are introduced
 Exact document paths are stable; optional `--revision` protects numeric ID reads
 against index changes. Connectivity failures are explicit rather than silently
 falling back to a stale local database.
+
+## Separate application roots
+
+The published npm package (including tests, examples and bundled skills) lives in
+`cli/`; Rails stays in `site/`, and Eleventy reference sources stay in `docs/`.
+The repository-root npm package is private and only forwards developer commands.
+The website uses the documentation engine shipped by the CLI, avoiding a second
+package/release stream. CI selects application checks from changed paths; shared
+docs engine or dependency changes check both applications. Dev npm publication
+is limited to CLI and release-workflow changes. Production releases remain explicit.

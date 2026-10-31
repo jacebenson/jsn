@@ -10,7 +10,7 @@ for publishing administration and are separate from ServiceNow/CLI credentials.
 From the repository root, build the static JSN setup/reference pages once:
 
 ```sh
-npm ci
+npm --prefix cli ci
 npm --prefix docs ci
 node scripts/build-docs-site.mjs
 cd site
@@ -27,7 +27,7 @@ that initial build is published. Existing indexes remain searchable during later
 builds. There is no account requirement for the public API or documentation.
 
 Use `bin/bundle` to bypass the host's unconfigured Bundler shim. Node (see the
-root package's engine floor), Git, Ruby 3.4, and the existing npm/gem dependencies
+CLI package's engine floor), Git, Ruby 3.4, and the existing npm/gem dependencies
 are required. No queue service or additional package dependencies were added.
 
 ## Sync and recovery
@@ -46,7 +46,7 @@ is exposed at `/api/docs/status` and on the admin page. Detailed failures remain
 in `storage/docs/status.json` and the worker logs.
 
 The service owns `storage/docs/source`; never point it at a developer's checkout.
-It fetches the upstream branch, then reuses `src/commands/docs/ingest.js` and
+It fetches the upstream branch, then reuses `cli/src/commands/docs/ingest.js` and
 `refresh.js`. First build omits semantic embeddings; searches use FTS5.
 Subsequent revisions incrementally apply additions, edits and deletions to a
 SQLite backup of the published index. Unchanged Git revisions skip rebuilding.
@@ -176,3 +176,11 @@ Until footage has been recorded and edited, it deliberately says “Video coming
 soon.” Its ten chapter descriptions follow the install/connect/update-set/build/
 test/complete story. Admins can later publish the “Homepage introduction” URL;
 MP4/WebM links become a native player, while watch-page links open the recording.
+
+## Deployment change filters
+
+Keep the Docker build context at repository root and Dockerfile at `site/Dockerfile`.
+For Coolify automatic deployments, watch `site/**`, `docs/**`,
+`cli/src/commands/docs/**`, `cli/package.json`, `cli/package-lock.json`, and
+`scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
+Coolify watch paths are application settings and must be set when this branch is deployed.
