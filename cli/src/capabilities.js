@@ -14,6 +14,12 @@
 //     // Skip the once-per-day npm-version / skill freshness checks and the
 //     // interactive context header.
 //     skipDailyChecks: true,
+//     // Suppress the current instance header for profile management commands.
+//     skipContextHeader: true,
+//     // Remediation commands bypass mutation capture-context approval only.
+//     mutationContextExemptSubcommands: ['create', 'set'],
+//     // REST methods that are reads (read-only profile policy is separate).
+//     mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'],
 //   }
 //
 // cli.js derives every skip-list and the mutation guard's path list from
@@ -91,6 +97,14 @@ export function dailyCheckSkipCommands(caps = collectCapabilities()) {
   return out;
 }
 
+export function contextHeaderSkipCommands(caps = collectCapabilities()) {
+  const out = dailyCheckSkipCommands(caps);
+  for (const [name, capability] of caps) {
+    if (capability.skipContextHeader) out.add(name);
+  }
+  return out;
+}
+
 /**
  * Derive the mutation command-path list (argv._ token arrays) from the
  * capability registry. Each entry is a prefix pattern: an argv._ path that
@@ -119,4 +133,9 @@ export function mutationPaths(caps = collectCapabilities()) {
 /** Test hook: clear the registry between isolated buildCLI() runs. */
 export function _resetCapabilities() {
   REGISTRY.clear();
+}
+
+/** Declared local-only previews bypass instance access, including context headers. */
+export function isLocalPreview(argv, caps = collectCapabilities()) {
+  return argv.dryRun === true && caps.get(argv._?.[0])?.localPreviewSubcommands?.includes(argv._?.[1]) === true;
 }

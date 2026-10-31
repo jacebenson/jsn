@@ -18,8 +18,6 @@ const SKILL_REPO_PATH = path.join(
   '..', '..', 'skills', SKILL_NAME, 'SKILL.md'
 );
 
-const SKILL_RAW_URL = 'https://raw.githubusercontent.com/jacebenson/jsn/main/skills/servicenow/SKILL.md';
-
 /**
  * Resolve the user's real home directory, even when Hermes overrides $HOME.
  */
@@ -119,62 +117,56 @@ function saveSkillConfig(updates) {
   fs.writeFileSync(globalConfigPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
 }
 
-function recordSkillInstall(targetPath) {
-  const bundled = readBundledSkill();
-  const version = extractVersion(bundled) || 'unknown';
+function replaceSkill(targetPath, content) {
+  const temporary = `${targetPath}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(temporary, content, { encoding: 'utf-8', mode: 0o600 });
+    fs.renameSync(temporary, targetPath);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
+function recordSkillInstall(targetPaths, content) {
+  const version = extractVersion(content) || 'unknown';
   saveSkillConfig({
-    skillLocation: targetPath,
+    skillLocation: targetPaths[0],
+    skillLocations: targetPaths,
     skillVersion: version,
     skillLastChecked: new Date().toISOString(),
   });
 }
 
-// ── Skill version check (once per day, uses recorded location) ──
-
-export function checkSkill() {
+// Compare bytes, including edits that retain the same version number.
+export function checkSkill({ warn = true } = {}) {
   const cfg = loadSkillConfig();
-  const location = cfg.skillLocation;
-  if (!location) return { current: true, note: 'Skill not installed — run "jsn skill install"' };
-
-  // Throttle: skip if checked within last 24 hours
-  if (cfg.skillLastChecked) {
-    const elapsed = Date.now() - new Date(cfg.skillLastChecked).getTime();
-    if (elapsed < 86400000) return { current: true, note: 'Checked within 24h — skipping' };
-  }
-
-  let installed;
-  try {
-    installed = fs.readFileSync(location, 'utf-8');
-  } catch {
-    return { current: true, note: `Skill file not found at ${location} — run "jsn skill install"` };
-  }
-
-  const installedVersion = extractVersion(installed);
+  const locations = cfg.skillLocations || (cfg.skillLocation ? [cfg.skillLocation] : []);
   const bundled = readBundledSkill();
-  const bundledVersion = extractVersion(bundled);
-
-  if (!installedVersion || !bundledVersion) {
-    return { current: true, error: 'Could not determine skill version' };
-  }
-
-  const current = installedVersion === bundledVersion;
-
-  if (!current) {
-    process.stderr.write(
-      `\n⚠ jsn: ServiceNow skill is outdated (installed v${installedVersion}, bundled v${bundledVersion}).\n` +
-      `  Run "jsn skill install" to update.\n\n`
-    );
-  }
-
-  // Update last-checked timestamp
+  if (bundled === null) return { current: false, error: 'Bundled skill missing; reinstall jsn.' };
+  if (!locations.length) return { current: false, note: 'Skill not installed — run "jsn skill install"' };
+  const copies = locations.map(location => {
+    let installed;
+    try { installed = fs.readFileSync(location, 'utf-8'); } catch {
+      return { location, current: false, status: 'missing' };
+    }
+    const current = installed === bundled;
+    const actual = installed.split('\n');
+    const expected = bundled.split('\n');
+    const line = current ? undefined : Array.from({ length: Math.max(actual.length, expected.length) }, (_, i) => i)
+      .find(i => actual[i] !== expected[i]) + 1;
+    return { location, current, status: current ? 'matching' : 'different',
+      installed_version: extractVersion(installed), first_different_line: line };
+  });
+  const current = copies.every(copy => copy.current);
+  if (!current && warn) process.stderr.write('ServiceNow skill differs from the packaged copy. Run "jsn skill check" for locations or "jsn skill install" to replace it.\n');
   saveSkillConfig({ skillLastChecked: new Date().toISOString() });
-
-  return { current, installed_version: installedVersion, bundled_version: bundledVersion };
+  return { current, installed_version: copies[0].installed_version,
+    bundled_version: extractVersion(bundled), copies };
 }
 
 function extractVersion(content) {
   // Matches version in YAML frontmatter (top-level or nested under metadata:)
-  const m = content.match(/^\s*version:\s*["']?(.+?)["']?\s*$/m);
+  const m = (content || '').match(/^\s*version:\s*["']?(.+?)["']?\s*$/m);
   return m ? m[1] : null;
 }
 
@@ -197,6 +189,7 @@ export function skillCmd(wrap) {
             }
             app.ok({
               content,
+              _formatted: content.endsWith('\n') ? content : `${content}\n`,
               bundled: SKILL_REPO_PATH,
             }, {
               summary: 'jsn AI agent skill file (bundled)',
@@ -205,9 +198,9 @@ export function skillCmd(wrap) {
         })
         .command({
           command: 'check',
-          describe: 'Check if the installed skill matches the bundled version',
+          describe: 'Compare installed skill contents with the packaged skill',
           handler: wrap(async (_argv, app) => {
-            const result = checkSkill();
+            const result = checkSkill({ warn: false });
 
             let summary;
             if (result.error) {
@@ -215,21 +208,21 @@ export function skillCmd(wrap) {
             } else if (result.note) {
               summary = result.note;
             } else if (result.current) {
-              summary = `✓ Skill is current (v${result.installed_version} matches bundled v${result.bundled_version})`;
+              summary = `✓ Skill contents match the packaged copy (v${result.bundled_version})`;
             } else {
-              summary = `⚠ Skill outdated: installed v${result.installed_version} vs bundled v${result.bundled_version} — run "jsn skill install" to update`;
+              summary = `⚠ Skill contents differ — run "jsn skill install" to replace installed copies`;
             }
 
-            app.ok(result, { summary });
+            const details = result.copies?.map(copy => `${copy.status}: ${copy.location}${copy.first_different_line ? ` (first difference: line ${copy.first_different_line})` : ''}`).join('\n');
+            app.ok({ ...result, _formatted: [summary, details].filter(Boolean).join('\n') }, { summary });
           }),
         })
         .command({
           command: 'fetch',
-          describe: 'Download the latest skill file from GitHub to stdout',
+          describe: 'Print the packaged skill to stdout (offline)',
           handler: wrap(async (_argv, _app) => {
-            const res = await fetch(SKILL_RAW_URL);
-            if (!res.ok) throw new Error(`Failed to fetch skill: ${res.status} ${res.statusText}`);
-            const content = await res.text();
+            const content = readBundledSkill();
+            if (content === null) throw new Error('Bundled skill missing; reinstall jsn.');
             process.stdout.write(content);
           }),
         })
@@ -246,7 +239,6 @@ export function skillCmd(wrap) {
             app.ok({
               bundled: SKILL_REPO_PATH,
               targets: allPaths,
-              raw_url: SKILL_RAW_URL,
             }, {
               summary: 'Skill file locations and install targets',
               breadcrumbs: [
@@ -260,7 +252,7 @@ export function skillCmd(wrap) {
         })
         .command({
           command: 'install [dir]',
-          describe: 'Download and save the latest skill file',
+          describe: 'Install the bundled skill matched to this CLI version',
           builder: (y) => y
             .positional('dir', {
               type: 'string',
@@ -268,12 +260,13 @@ export function skillCmd(wrap) {
             })
             .option('target', {
               type: 'string',
-              describe: 'Target agent(s): hermes, copilot, vscode, claude, cursor, agents, opencode, openclaw, codex, or "all" (comma-separated). Omit for interactive picker.',
+              describe: 'Target agent(s): hermes, copilot, vscode, claude, cursor, agents, opencode, openclaw, codex, or "all" (comma-separated). Omit to replace recorded copies, or choose targets on first install.',
             }),
           handler: wrap(async (argv, app) => {
-            const res = await fetch(SKILL_RAW_URL);
-            if (!res.ok) throw new Error(`Failed to fetch skill: ${res.status} ${res.statusText}`);
-            const content = await res.text();
+            const content = readBundledSkill();
+            if (!content) {
+              throw new Error('Skill file not found in package (expected at skills/servicenow/SKILL.md). Reinstall jsn to restore it.');
+            }
 
             // Resolve target directories
             let targets = [];
@@ -283,7 +276,7 @@ export function skillCmd(wrap) {
               const p = path.resolve(argv.dir);
               fs.mkdirSync(p, { recursive: true });
               const targetPath = path.join(p, 'SKILL.md');
-              fs.writeFileSync(targetPath, content, 'utf-8');
+              replaceSkill(targetPath, content);
               targets.push({ name: path.basename(argv.dir), path: targetPath });
             } else if (argv.target) {
               // Explicit --target: install to specified agents
@@ -296,44 +289,47 @@ export function skillCmd(wrap) {
                   if (key === 'cursor') {
                     fs.mkdirSync(dir, { recursive: true });
                     const targetPath = path.join(dir, `${SKILL_NAME}.mdc`);
-                    fs.writeFileSync(targetPath, content, 'utf-8');
+                    replaceSkill(targetPath, content);
                     targets.push({ name: TARGET_NAMES[key], path: targetPath });
                   } else {
                     fs.mkdirSync(dir, { recursive: true });
                     const targetPath = path.join(dir, 'SKILL.md');
-                    fs.writeFileSync(targetPath, content, 'utf-8');
+                    replaceSkill(targetPath, content);
                     targets.push({ name: TARGET_NAMES[key], path: targetPath });
                   }
                 }
+              }
+            } else if (loadSkillConfig().skillLocation) {
+              const cfg = loadSkillConfig();
+              for (const targetPath of cfg.skillLocations || [cfg.skillLocation]) {
+                fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+                replaceSkill(targetPath, content);
+                targets.push({ name: targetPath, path: targetPath });
               }
             } else if (canUsePicker(app, argv)) {
               // Interactive: show multi-select picker. canUsePicker() (not a
               // bare stdin TTY check) keeps a PTY allocated for an agent,
               // CI, JSN_NO_PROMPTS, --json/--quiet or --get out of a prompt.
-              const fetchedVersion = extractVersion(content);
               // Check if any existing installed copies are outdated
               const outdated = [];
-              if (fetchedVersion) {
-                for (const [key, dir] of Object.entries(AGENT_SKILL_DIRS)) {
+              for (const [key, dir] of Object.entries(AGENT_SKILL_DIRS)) {
                   const skillPath = key === 'cursor'
                     ? path.join(dir, `${SKILL_NAME}.mdc`)
                     : path.join(dir, 'SKILL.md');
                   try {
                     const existing = fs.readFileSync(skillPath, 'utf-8');
-                    const existingVersion = extractVersion(existing);
-                    if (existingVersion && existingVersion !== fetchedVersion) {
+                    if (existing !== content) {
                       outdated.push(TARGET_NAMES[key]);
                     }
                   } catch {
                     // Not installed — skip
                   }
-                }
               }
               const promptMsg = outdated.length > 0
                 ? `Where should the jsn skill be installed? (${outdated.length} outdated)`
                 : 'Where should the jsn skill be installed?';
 
-              const { checkbox } = await import('@inquirer/prompts');
+              const { checkbox } = await import('../prompts.js');
               const choices = Object.entries(TARGET_NAMES).map(([key, label]) => {
                 const dir = AGENT_SKILL_DIRS[key];
                 const targetPath = key === 'cursor'
@@ -366,12 +362,12 @@ export function skillCmd(wrap) {
                 if (key === 'cursor') {
                   fs.mkdirSync(dir, { recursive: true });
                   const targetPath = path.join(dir, `${SKILL_NAME}.mdc`);
-                  fs.writeFileSync(targetPath, content, 'utf-8');
+                  replaceSkill(targetPath, content);
                   targets.push({ name: TARGET_NAMES[key], path: targetPath });
                 } else {
                   fs.mkdirSync(dir, { recursive: true });
                   const targetPath = path.join(dir, 'SKILL.md');
-                  fs.writeFileSync(targetPath, content, 'utf-8');
+                  replaceSkill(targetPath, content);
                   targets.push({ name: TARGET_NAMES[key], path: targetPath });
                 }
               }
@@ -380,7 +376,7 @@ export function skillCmd(wrap) {
               const dir = AGENT_SKILL_DIRS.hermes;
               fs.mkdirSync(dir, { recursive: true });
               const targetPath = path.join(dir, 'SKILL.md');
-              fs.writeFileSync(targetPath, content, 'utf-8');
+              replaceSkill(targetPath, content);
               targets.push({ name: TARGET_NAMES.hermes, path: targetPath });
             }
 
@@ -389,7 +385,7 @@ export function skillCmd(wrap) {
             }
 
             // Record install location so checkSkill knows where to look
-            recordSkillInstall(targets[0].path);
+            recordSkillInstall(targets.map(target => target.path), content);
 
             const installed = targets.reduce((acc, t) => { acc[t.name] = t.path; return acc; }, {});
             const summary = targets.length === 1
@@ -399,7 +395,7 @@ export function skillCmd(wrap) {
             const okOpts = {
               summary,
               breadcrumbs: [
-                { action: 'reinstall', cmd: 'jsn skill install', description: 'Re-download and reinstall to default target' },
+                { action: 'reinstall', cmd: 'jsn skill install', description: 'Replace recorded copies with the packaged skill' },
               ],
             };
 
@@ -407,7 +403,7 @@ export function skillCmd(wrap) {
               okOpts.notice = 'Installed to multiple agents. Restart or reload your agent to pick up the skill.';
             }
 
-            app.ok({ installed, from: SKILL_RAW_URL }, okOpts);
+            app.ok({ installed, from: SKILL_REPO_PATH }, okOpts);
           }),
         });
     },
@@ -416,7 +412,8 @@ export function skillCmd(wrap) {
       console.log('');
       console.log('Available subcommands:');
       console.log('  show       Show the bundled skill file');
-      console.log('  fetch      Download the latest skill from GitHub');
+      console.log('  fetch      Print the packaged skill (offline)');
+      console.log('  check      Show whether installed contents differ');
       console.log('  path       Show skill file locations');
       console.log('  install    Install skill file to agents directory');
       console.log('');

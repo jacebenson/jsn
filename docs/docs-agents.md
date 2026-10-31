@@ -27,6 +27,12 @@ jsn skill install
 ```
 
 The default interactive installer lets you choose one or more supported targets.
+Installation uses the skill bundled with your JSN version and works without a
+network connection. After upgrading JSN, run `jsn skill install` again to update
+your agent's copy. `jsn skill fetch` prints the packaged skill offline. `jsn skill check` reports
+missing or edited copies, including the first differing line. A plain reinstall
+replaces the recorded copies, including local edits. Use an explicit directory or
+`--target` to choose new installation locations.
 
 ## Supported harnesses
 
@@ -63,6 +69,11 @@ The skill tells an agent to use the most specific command first, then fall back 
 3. Use `jsn docs` for ServiceNow documentation through the configured hosted or local service.
 4. Use `jsn rest` when the CLI does not expose the endpoint yet.
 5. Treat `jsn eval` as a last resort.
+
+Invoke instance commands directly; JSN handles authentication at the point of
+use or returns an actionable error. Use `jsn auth status` for explicit diagnostics
+when needed. It is not a prerequisite to each operation. Local documentation and
+saved customization reviews remain usable without instance authentication.
 
 For machine-readable results, add `--json`:
 

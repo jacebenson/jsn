@@ -21,4 +21,10 @@ process.emitWarning = function emitWarning(warning, ...args) {
   return originalEmitWarning.apply(this, [warning, ...args]);
 };
 
-import('../src/cli.js').then((m) => m.cli.parse());
+import('../src/cli.js').then(async (m) => {
+  try {
+    await m.cli.parse();
+  } finally {
+    m.cancelBackgroundChecks();
+  }
+});

@@ -1,10 +1,11 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, parseDataArg, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, assertSafeExactMatch, verifyWriteBack } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
+import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
+import { unwrapSysId } from '../resolve-record.js';
+import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
-  mutationSubcommands: ['create', 'update', 'delete', 'bulk', 'attachments add'],
+  mutationSubcommands: ['create', 'update', 'delete', 'bulk'],
 });
 
 const tableDefaultColumns = {
@@ -67,6 +68,15 @@ function getDefaultColumns(table) {
   return tableDefaultColumns[table] || ['sys_id'];
 }
 
+function recordLookup(argv) {
+  const sysId = argv['sys-id'];
+  if ((sysId === undefined) === (argv.identifier === undefined)) throw errUsage('Supply exactly one of --sys-id or --identifier.');
+  if (sysId !== undefined && argv.identifierField && argv.identifierField !== 'sys_id') throw errUsage('--sys-id cannot be combined with a different --identifier-field.');
+  return { table: argv.table, identifier: sysId ?? argv.identifier,
+    identifierField: sysId !== undefined ? 'sys_id' : (argv.identifierField || 'sys_id'),
+    displayValues: argv.displayValues, resource: 'Record' };
+}
+
 export function recordsCmd(wrap) {
   return {
     command: 'records [subcommand]',
@@ -83,7 +93,19 @@ export function recordsCmd(wrap) {
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { type: 'number', default: 20, describe: 'Max records' })
             .option('offset', { type: 'number', default: 0, describe: 'Offset' })
-            .option('count', { type: 'boolean', default: true, describe: 'Include the total-matching count (use --no-count to opt out)' }),
+            .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
+            .option('count', { type: 'boolean', default: true, describe: 'Include the total-matching count (use --no-count to opt out)' })
+            .epilogue([
+              'In an interactive terminal with automatic output, browse a picker (10 visible items).',
+              'Use arrow keys to browse, type to search sys_id on the server, scroll to load more,',
+              'and press Enter to select or Esc to cancel. --sys-id skips the picker.',
+              'Use --json for noninteractive structured output; pipes and explicit formats also skip the picker.',
+              'Example: jsn records list --table incident --query "active=true" --limit 5 --json',
+              'JSON shape (abbreviated): {"ok":true,"data":{"records":[{"sys_id":"...","number":"INC0010001"}]},...}',
+              'Records are at data.records; fields are directly on each record (e.g. record.number).',
+              'Array only: jsn records list --table incident --get data.records',
+              'Discover fields with: jsn columns --table incident',
+            ].join('\n')),
           handler: wrap(async (argv, app) => {
             const table = argv.table;
             const columns = argv.columns ? argv.columns.split(',') : getDefaultColumns(table);
@@ -122,15 +144,10 @@ export function recordsCmd(wrap) {
             }
 
             // Text/table fallback (or sys-id direct lookup)
-            const params = new URLSearchParams();
-            params.set('sysparm_limit', argv['sys-id'] ? '1' : String(argv.limit));
-            params.set('sysparm_offset', String(argv.offset));
-            params.set('sysparm_display_value', 'all');
             const fields = resolveFieldsParam(columns);
-            if (fields) params.set('sysparm_fields', fields);
-            if (query) params.set('sysparm_query', query);
-            const records = await app.sdk.list(table, params);
-            const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const params = recordListParams({ limit: argv['sys-id'] ? 1 : argv.limit, offset: argv.offset, fields, query });
+            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues });
+            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, columns)) : records;
 
             // include_counts: default opt-in on every list. Opt out per-profile
             // (config include_counts:false) or per-invocation (--no-count).
@@ -142,7 +159,7 @@ export function recordsCmd(wrap) {
             }
 
             const breadcrumbs = [
-              { action: 'create', cmd: `jsn records create --table ${table} --data '{...}'`, description: 'Create a new record' },
+              { action: 'create', cmd: `jsn records create --table ${table} -f name=value`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
               { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View available columns' },
             ];
@@ -182,27 +199,23 @@ export function recordsCmd(wrap) {
         })
         .command({
           command: 'get',
-          describe: 'Get a single record by sys_id',
+          describe: 'Get one record by sys_id or an explicit identifier field',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
+            .option('sys-id', { type: 'string', describe: 'Full or unambiguous partial record sys_id (including legacy IDs)' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
+            .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
-            .option('attachments', { type: 'boolean', default: false, describe: 'Also list the record\'s attachments' }),
+            .option('attachments', { type: 'boolean', default: false, describe: 'Also list the record\'s attachments' })
+            .epilogue('Exact lookup precedes sys_id prefix, then suffix. Ambiguous matches fail.\nExample: jsn records get --table incident --sys-id <sys_id> --json\nExample: jsn records get --table incident --identifier INC0010001 --identifier-field number --json'),
           handler: wrap(async (argv, app) => {
-            assertSafeExactMatch(argv['sys-id']);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', `sys_id=${argv['sys-id']}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_display_value', 'true');
-            if (argv.columns && argv.columns !== '*') params.set('sysparm_fields', `sys_id,${argv.columns}`);
-            const records = await app.sdk.list(argv.table, params);
-            if (records.length === 0) {
-              throw new Error(`Record not found: ${argv['sys-id']}`);
-            }
-            const record = records[0];
+            const lookup = recordLookup(argv);
+            const fields = argv.columns && argv.columns !== '*' ? argv.columns.split(',') : undefined;
+            const record = await getRecord(app.sdk, { ...lookup, fields, displayValue: 'true' });
             if (argv.attachments) {
               try {
-                const atts = await app.sdk.listAttachments(argv['sys-id']);
+                const atts = await app.sdk.listAttachments(unwrapSysId(record));
                 record._attachments = atts;
               } catch {
                 record._attachments = [];
@@ -221,17 +234,18 @@ export function recordsCmd(wrap) {
           describe: 'Create a new record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
+            .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('strict', { type: 'boolean', default: false, describe: 'Exit non-zero if any supplied field was not persisted (write-back check)' }),
           handler: wrap(async (argv, app) => {
-            const recordData = parseDataArg(argv);
+            const recordData = buildRecordPayload(argv);
             const warnings = checkDerivedFields(argv.table, recordData);
             for (const w of warnings) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
-            const record = await app.sdk.create(argv.table, recordData);
+            const record = await createRecord(app.sdk, { table: argv.table, data: recordData });
             const sysID = getStringField(record, 'sys_id');
             const mismatches = await verifyWriteBack(app, argv.table, sysID, recordData);
             for (const m of mismatches) {
@@ -248,19 +262,24 @@ export function recordsCmd(wrap) {
           describe: 'Update an existing record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
-            .option('data', { type: 'string', describe: 'JSON fields (e.g. \'{"state":"2"}\')' })
+            .option('sys-id', { type: 'string', describe: 'Full or unambiguous partial record sys_id (including legacy IDs)' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
+            .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
             .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin (pipe-friendly)' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('strict', { type: 'boolean', default: false, describe: 'Exit non-zero if any supplied field was not persisted (write-back check)' }),
           handler: wrap(async (argv, app) => {
-            const recordData = parseDataArg(argv);
+            const recordData = buildRecordPayload(argv);
             const warnings = checkDerivedFields(argv.table, recordData);
             for (const w of warnings) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
-            const record = await app.sdk.update(argv.table, argv['sys-id'], recordData);
-            const mismatches = await verifyWriteBack(app, argv.table, argv['sys-id'], recordData);
+            const lookup = recordLookup(argv);
+            const resolved = await getRecord(app.sdk, lookup);
+            const record = await updateRecord(app.sdk, { table: argv.table, record: resolved, data: recordData });
+            const mismatches = await verifyWriteBack(app, argv.table, unwrapSysId(resolved), recordData);
             for (const m of mismatches) {
               process.stderr.write(`⚠ field "${m.field}" was not persisted (sent: "${m.sent}", got: "${m.got}")\n`);
             }
@@ -275,81 +294,16 @@ export function recordsCmd(wrap) {
           describe: 'Delete a record',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
-            .option('sys-id', { type: 'string', demandOption: true, describe: 'Record sys_id' })
+            .option('sys-id', { type: 'string', describe: 'Full or unambiguous partial record sys_id (including legacy IDs)' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
-            await confirmDelete(app, argv, `Delete record from ${argv.table} (${argv['sys-id']})`);
-            await app.sdk.delete(argv.table, argv['sys-id']);
-            app.ok({ message: 'Record deleted', table: argv.table, sys_id: argv['sys-id'] }, { summary: `Deleted record from ${argv.table}` });
+            const lookup = recordLookup(argv);
+            await confirmDelete(app, argv, `Delete record from ${argv.table} (${lookup.identifier})`);
+            const sysID = await deleteRecord(app.sdk, lookup);
+            app.ok({ message: 'Record deleted', table: argv.table, sys_id: sysID }, { summary: `Deleted record from ${argv.table}` });
           }),
-        })
-        .command({
-          command: 'attachments',
-          describe: 'Work with attachments on a record',
-          builder: (y) => y
-            .command({
-              command: 'list',
-              describe: 'List attachments on a record',
-              builder: (yy) => yy
-                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id' })
-                .option('table', { type: 'string', describe: 'Parent table name (context only)' }),
-              handler: wrap(async (argv, app) => {
-                app.requireInstance();
-                const attachments = await app.sdk.listAttachments(argv['sys-id']);
-                app.ok({
-                  sys_id: argv['sys-id'],
-                  table: argv.table || '',
-                  count: attachments.length,
-                  attachments,
-                  context: { instance_url: app.getEffectiveInstance() },
-                }, { summary: `${attachments.length} attachment(s) on record ${argv['sys-id']}` });
-              }),
-            })
-            .command({
-              command: 'get <attachment-id>',
-              describe: 'Download an attachment to a local file',
-              builder: (yy) => yy
-                .positional('attachment-id', { describe: 'Attachment sys_id', type: 'string' })
-                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id (used to resolve the file name)' })
-                .option('out', { alias: 'o', type: 'string', describe: 'Output file path (default: attachment file name in cwd)' }),
-              handler: wrap(async (argv, app) => {
-                app.requireInstance();
-                const buf = await app.sdk.getAttachment(argv['attachment-id']);
-                let name = argv.out;
-                if (!name) {
-                  // Best-effort: derive the file name from the attachment row.
-                  let fileName = `${argv['attachment-id']}.bin`;
-                  try {
-                    const rows = await app.sdk.listAttachments(argv['sys-id']);
-                    const hit = (rows || []).find((a) => getStringField(a, 'sys_id') === argv['attachment-id']);
-                    const fn = getStringField(hit, 'file_name');
-                    if (fn) fileName = fn;
-                  } catch { /* keep default */ }
-                  name = fileName;
-                }
-                await fs.promises.writeFile(name, buf);
-                app.ok({ sys_id: argv['attachment-id'], out: name, bytes: buf.length }, { summary: `Wrote ${buf.length} bytes to ${name}` });
-              }),
-            })
-            .command({
-              command: 'add <file>',
-              describe: 'Upload a file as a new attachment on a record (mutation)',
-              builder: (yy) => yy
-                .positional('file', { describe: 'Local file path to upload', type: 'string' })
-                .option('sys-id', { alias: 's', type: 'string', demandOption: true, describe: 'Parent record sys_id' })
-                .option('table', { type: 'string', demandOption: true, describe: 'Parent table for the record (e.g. incident)' })
-                .option('name', { type: 'string', describe: 'Display file name (default: basename of --file)' })
-                .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
-              handler: wrap(async (argv, app) => {
-                app.requireInstance();
-                await confirmDelete(app, argv, `Upload "${argv.file}" as an attachment on ${argv.table} ${argv['sys-id']}?`);
-                const content = await fs.promises.readFile(argv.file);
-                const fileName = argv.name || path.basename(argv.file);
-                const created = await app.sdk.addAttachment(argv.table, argv['sys-id'], content, fileName);
-                app.ok({ sys_id: created?.sys_id, file_name: fileName, table: argv.table, recordsys_id: argv['sys-id'] }, { summary: `Attached ${fileName}` });
-              }),
-            })
-            .demandCommand(1, 'Specify an attachment action: list, get, or add'),
         })
         .command({
           command: 'aggregate',
@@ -358,6 +312,7 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', describe: 'Encoded query to constrain the aggregation' })
             .option('group-by', { type: 'string', describe: 'Comma-separated fields to group by' })
+            .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
             .option('count', { type: 'boolean', default: true, describe: 'Include record counts' })
             .option('avg-fields', { type: 'string', describe: 'Comma-separated fields to average' })
             .option('sum-fields', { type: 'string', describe: 'Comma-separated fields to sum' })
@@ -401,22 +356,15 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', demandOption: true, describe: 'Encoded query selecting the records to update (e.g. "priority=1^state=1")' })
-            .option('set', { type: 'string', demandOption: true, describe: 'JSON object of fields to set (e.g. \'{"state":"3"}\')' })
+            .option('set', { type: 'string', describe: 'JSON object of fields to set' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('dry-run', { type: 'boolean', default: true, describe: 'Preview the count + a sample without mutating (default)' })
             .option('execute', { type: 'boolean', default: false, describe: 'Perform the update after confirmation' })
             .option('limit', { type: 'number', default: 200, describe: 'Max records to update when executing' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            let set;
-            try {
-              set = JSON.parse(argv.set);
-            } catch (e) {
-              throw new Error(`Invalid --set JSON: ${e.message}`, { cause: e });
-            }
-            if (!set || typeof set !== 'object' || Array.isArray(set)) {
-              throw new Error('--set must be a JSON object of field=value pairs');
-            }
+            const set = buildRecordPayload({ ...argv, data: argv.set }, { required: true });
             if (!argv['dry-run'] && !argv.execute) {
               argv.execute = true; // explicit --no-dry-run implies execute intent
             }

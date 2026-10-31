@@ -7,11 +7,6 @@ import assert from 'node:assert';
 import { collectHandlers, makeApp, makeSDK } from './support/cmdb-fixtures.js';
 
 describe('cmdb command structure', () => {
-  it('exports cmdbCmd', async () => {
-    const { cmdbCmd } = await import('../src/commands/cmdb.js');
-    assert.strictEqual(typeof cmdbCmd, 'function');
-  });
-
   it('defines the relationships subcommand', async () => {
     const subs = await collectHandlers();
     assert.ok(subs.some((s) => s.command === 'relationships'));

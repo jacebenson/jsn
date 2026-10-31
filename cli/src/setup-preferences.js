@@ -1,4 +1,5 @@
-import { confirm, select, input } from '@inquirer/prompts';
+import * as prompts from './prompts.js';
+const { confirm, select, input } = prompts;
 import { ensureLocalDocumentation } from './commands/docs/local.js';
 import { saveConfig } from './config.js';
 import { docsServiceUrl, DEFAULT_DOCS_URL } from './commands/docs/client.js';

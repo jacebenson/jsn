@@ -1,7 +1,5 @@
-import { buildTicketCommands } from './_ticket.js';
-
-const incidentDefaultColumns = ['number', 'short_description', 'priority', 'state', 'assigned_to'];
+import { buildProfileCommand } from '../record-profiles.js';
 
 export function incidentsCmd(wrap) {
-  return buildTicketCommands('incident', 'incidents', 'inc', incidentDefaultColumns, {}, null, wrap);
+  return buildProfileCommand('incidents', wrap);
 }

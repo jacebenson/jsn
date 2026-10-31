@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { getVersion } from './commands/version.js';
 import { classifyCustomization } from './customizations-report.js';
+import { customizationGuidance, formatCustomizationGuidance } from './customization-guidance.js';
 
 // Raw provider choices: 4 = Skipped, 104 = Skipped (second pass). Other skip
 // dispositions do not establish a preserved customization, so the upgrade
@@ -290,22 +291,28 @@ export function compareReports(baseline, newer) {
   const unknowns = ['Additions/removals mean newly observed/no longer observed, not proven creation/deletion. ACLs, limits and concurrent changes can affect visibility.', 'Only captured metadata and evidence are compared, not full artifact content or OOTB baselines.', 'Ownership declarations, scope visibility and evidence coverage can cause category changes without an artifact change.'];
   if (unreliable) unknowns.push(`Unavailable or empty sources make observed additions/removals unreliable: baseline [${impaired.baseline.join(', ') || 'none'}], new [${impaired.new.join(', ') || 'none'}]. They may reflect missing coverage rather than a real change and must not be read as mass creation or deletion.`);
   return { baseline_run_id: baseline.run_id, new_run_id: newer.run_id, instance: baseline.instance, status: unreliable ? 'unreliable' : 'incomplete', additions, removals, changes,
-    impaired_sources: impaired,
+    impaired_sources: impaired, interpretation: customizationGuidance(),
     coverage: { baseline: baseline.coverage, new: newer.coverage },
     unknowns };
 }
 
-function formatReportDetailed(report) {
-  const lines = [`Customization capture ${report.run_id}${report.label ? ` (${report.label})` : ''}`, `Instance: ${report.instance}`, `Status: ${report.status}`, '', 'COVERAGE'];
-  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}${coverage.kind ? ` [${coverage.kind}]` : ''}: ${coverage.status}, ${coverage.fetched} fetched of ${coverage.available === null || coverage.available === undefined ? 'unknown' : coverage.available} available. ${coverage.reason}`);
-  for (const limitation of report.coverage.limitations) lines.push(`Unknown: ${limitation}`);
-  if (report.coverage.unmatched_customer_scopes.length) lines.push(`Unmatched customer declarations: ${report.coverage.unmatched_customer_scopes.join(', ')}`);
+function coverageLines(report) {
+  const lines = [];
+  for (const [source, coverage] of Object.entries(report.coverage.sources || {})) lines.push(`${source}${coverage.kind ? ` [${coverage.kind}]` : ''}: ${coverage.status}, ${coverage.fetched} fetched of ${coverage.available === null || coverage.available === undefined ? 'unknown' : coverage.available} available. ${coverage.reason}`);
+  for (const limitation of report.coverage.limitations || []) lines.push(`Unknown: ${limitation}`);
+  if (report.coverage.unmatched_customer_scopes?.length) lines.push(`Unmatched customer declarations: ${report.coverage.unmatched_customer_scopes.join(', ')}`);
   const upgrade = report.coverage.upgrade_evidence;
   if (upgrade) {
-    lines.push(`Observed skipped upgrade rows: ${upgrade.skipped_rows_observed}; distinct update names: ${upgrade.update_names_observed}; resolved by direct name lookup: ${upgrade.resolved_by_lookup}; unresolved: ${upgrade.unresolved_update_names.length}${upgrade.lookup_failures ? `; failed lookup chunks: ${upgrade.lookup_failures}` : ''}`);
-    if (upgrade.unresolved_update_names.length) lines.push(`Unresolved skipped update names (not visible in sys_metadata): ${upgrade.unresolved_update_names.slice(0, 20).join(', ')}${upgrade.unresolved_update_names.length > 20 ? `, ... and ${upgrade.unresolved_update_names.length - 20} more` : ''}`);
+    const unresolved = upgrade.unresolved_update_names;
+    lines.push(`Observed skipped upgrade rows: ${upgrade.skipped_rows_observed}; distinct update names: ${upgrade.update_names_observed}; resolved by direct name lookup: ${upgrade.resolved_by_lookup}; unresolved: ${unresolved?.length ?? 'unknown'}${upgrade.lookup_failures ? `; failed lookup chunks: ${upgrade.lookup_failures}` : ''}`);
+    if (unresolved?.length) lines.push(`Unresolved skipped update names (not visible in sys_metadata): ${unresolved.slice(0, 20).join(', ')}${unresolved.length > 20 ? `, ... and ${unresolved.length - 20} more` : ''}`);
   }
-  lines.push(`Unmatched upgrade history records: ${report.coverage.unmatched_upgrade_records}`);
+  lines.push(`Unmatched upgrade history records: ${report.coverage.unmatched_upgrade_records ?? 'unknown'}`);
+  return lines;
+}
+
+function formatReportDetailed(report) {
+  const lines = [`Customization capture ${report.run_id}${report.label ? ` (${report.label})` : ''}`, `Instance: ${report.instance}`, `Status: ${report.status}`, '', 'COVERAGE', ...coverageLines(report), '', 'INTERPRETATION', formatCustomizationGuidance()];
   for (const [category, items] of Object.entries(report.categories)) {
     lines.push('', `${category.toUpperCase()} (${items.length})`);
     for (const item of items) {
@@ -357,8 +364,13 @@ export function formatReport(report, { groupBy = 'type', filter = '' } = {}) {
   }
   lines.push('', 'Expand a group with --filter <group-name>. File-type filters accept the friendly label or table name. Regroup with --group-by scope or --group-by updated-by.', 'Examples:', `  jsn customizations show ${report.run_id} --filter "Script Include"`, `  jsn customizations show ${report.run_id} --group-by scope`, `  jsn customizations show ${report.run_id} --group-by updated-by`);
   lines.push('', 'Coverage and limitations are shared across these artifacts.');
-  for (const [source, coverage] of Object.entries(report.coverage.sources)) lines.push(`${source}: ${coverage.status}, ${coverage.fetched}/${coverage.available ?? 'unknown'} rows${coverage.kind ? ` (${coverage.kind})` : ''}`);
-  lines.push('Limits: metadata is a bounded sample; skipped-upgrade evidence is historical, not proof of a current OOTB difference. Scope and updater are clues, not proof of ownership.');
+  lines.push(...coverageLines(report), '', 'INTERPRETATION', formatCustomizationGuidance());
+  for (const [category, records] of Object.entries(report.categories)) {
+    if (!records.length) continue;
+    const triage = classifyCustomization(category);
+    lines.push(`${triage.label}: ${triage.confidence}. ${triage.summary}`);
+    for (const step of triage.next_steps) lines.push(`Next: ${step}`);
+  }
   return lines.join('\n') + '\n';
 }
 
@@ -395,18 +407,21 @@ function fieldChanges(before, after) {
 function describeComparedItem(item) {
   const identity = item?.identity || {};
   const scope = item?.scope || {};
+  const triage = classifyCustomization(item?.category);
   return [
     `Artifact: ${identity.table || 'unknown'}:${identity.sys_id || 'unknown'} "${identity.name || identity.update_name || 'unnamed'}"`,
     `Category: ${item?.category || 'unknown'}`,
     `Scope: ${scope.scope || scope.sys_id || 'unknown'}${scope.name ? ` (${scope.name})` : ''}`,
     `Evidence: ${(item?.evidence || []).map(evidence => `${evidence.source}:${evidence.sys_id}`).join(', ') || 'none captured'}`,
     `Risk: ${item?.risk?.rating || 'unknown'}`,
+    `Triage: ${triage.label} (${triage.confidence}). ${triage.summary}`,
+    ...triage.next_steps.map(step => `Next: ${step}`),
     `Recommendation: ${item?.recommendation || 'not recorded'}`,
   ];
 }
 
 export function formatReportComparison(result) {
-  const lines = [`Customization comparison: ${result.status}`, `Baseline: ${result.baseline_run_id}`, `New: ${result.new_run_id}`, ...result.unknowns];
+  const lines = [`Customization comparison: ${result.status}`, `Baseline: ${result.baseline_run_id}`, `New: ${result.new_run_id}`, ...result.unknowns, '', 'INTERPRETATION', formatCustomizationGuidance()];
   const impaired = result.impaired_sources || { baseline: [], new: [] };
   if (impaired.baseline.length) lines.push(`Unreliable baseline sources: ${impaired.baseline.join(', ')}`);
   if (impaired.new.length) lines.push(`Unreliable new sources: ${impaired.new.join(', ')}`);
@@ -511,7 +526,7 @@ export async function captureCustomizations({ sdk, customerScopes = [], pageSize
       },
       unmatched_upgrade_records: data.sys_upgrade_history_log.filter(row => !visibleNames.has(text(row.file_name))).length,
       unmatched_customer_scopes: customerScopes.filter(id => !data.sys_scope.some(row => text(row.sys_id) === id || text(row.scope) === id)),
-      limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', `Upgrade history is read server-side for raw dispositions ${SKIP_DISPOSITIONS.join(' and ')} only; unmatched upgrade counts describe that filtered population, not all upgrade history.`, 'Coverage compares rows fetched with the Stats API count for the same query; a short page never implies exhaustion and an unavailable count leaves completeness unknown.', `The broad sys_metadata source is a bounded sample of an arbitrary sys_id-ordered slice, not an inventory, so unclassified and declared-customer categories only describe sampled artifacts. Skipped-upgrade artifacts are separate: they are resolved by the update names the filtered history read observed (${RESOLUTION_SOURCE}).`, 'Name resolution only looks up artifacts with skipped-upgrade evidence, so customizations with no upgrade-skip history are not discovered by it.', 'A resolved artifact can show a scope sys_id without a scope name when that scope record was outside the bounded sys_scope read.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
+      limitations: ['Inventory covers visible sys_metadata and upgrade history only, not every customization mechanism.', `Upgrade history is read server-side for raw dispositions ${SKIP_DISPOSITIONS.join(' and ')} only; unmatched upgrade counts describe that filtered population, not all upgrade history.`, 'Coverage compares rows fetched with the Stats API count for the same query; a short page never implies exhaustion and an unavailable count leaves completeness unknown.', `The broad sys_metadata source is a bounded sample of an arbitrary sys_id-ordered slice, not an inventory, so unclassified and declared-customer categories are not complete inventories; they can include sampled artifacts and artifacts resolved by skipped-history lookups. Skipped-upgrade artifacts are separate: they are resolved by the update names the filtered history read observed (${RESOLUTION_SOURCE}).`, 'Name resolution only looks up artifacts with skipped-upgrade evidence, so customizations with no upgrade-skip history are not discovered by it.', 'A resolved artifact can show a scope sys_id without a scope name when that scope record was outside the bounded sys_scope read.', 'Row/field ACL filtering and concurrent changes cannot be ruled out.', 'No current baseline, source payloads or dependency graph captured. Comparisons detect captured metadata/evidence changes only.', 'OOTB category means historical skipped-upgrade evidence, not a verified current deviation. Customer scopes are caller declarations.'],
     },
   };
 }

@@ -30,11 +30,6 @@ after(() => {
 });
 
 describe('Auth Command Structure', () => {
-  it('should export authCmd function', async () => {
-    const { authCmd } = await import('../src/commands/auth.js');
-    assert.strictEqual(typeof authCmd, 'function');
-  });
-
   it('should define auth command with correct properties', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const wrap = (fn) => fn;

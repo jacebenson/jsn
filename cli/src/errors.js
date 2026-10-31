@@ -77,6 +77,16 @@ export function errNetwork(cause) {
 }
 
 export function errAPI(status, msg) {
+  // Authentication/authorization bodies can echo credentials. Never render them.
+  if (status === 401) {
+    const error = new AppError(CodeAuth, 'Authentication rejected for the active profile (HTTP 401).', 'Run: jsn auth login', 401);
+    error.recovery = 'jsn auth login';
+    return error;
+  }
+  if (status === 403) {
+    return new AppError(CodeForbidden, 'Access forbidden (HTTP 403).',
+      'This is an authorization/ACL/role problem, not a login problem. Check access to this endpoint.', 403);
+  }
   let hint = 'Check the API documentation for this endpoint.';
   if (status >= 500) {
     hint = 'The ServiceNow instance may be experiencing issues. Try again later.';
@@ -203,7 +213,7 @@ export function isErrorCode(err, code) {
  * back to argv.format for callers without an App (unit tests).
  */
 function resolveJsonMode(app, argv) {
-  if (app?.output) return app.output.effectiveFormat() === 'json';
+  if (app?.output) return ['json', 'quiet'].includes(app.output.effectiveFormat());
   return argv?.format === 'json';
 }
 
@@ -219,7 +229,20 @@ function resolveJsonMode(app, argv) {
  *   text is null when the error was rendered through app.err (envelope).
  */
 export function renderAppError(err, { app = null, argv = null, identifier = '' } = {}) {
+  if (err.name === 'PromptCancelled') return { stream: 'stderr', text: 'Cancelled.\n', exitCode: 0 };
   const code = err.code || 'unknown';
+
+  if (code === CodeAuth) {
+    if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    let text = `Error (auth): ${err.message}\n`;
+    if (err.hint) text += `\nHint: ${err.hint}\n`;
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
+  if (code === CodeForbidden) {
+    if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    return { stream: 'stderr', text: `Error (forbidden): ${err.message}\n\nHint: ${err.hint}\n`, exitCode: 1 };
+  }
 
   if (code === CodeConfirmationRequired) {
     // Structured error for AI agents / piped consumers: the JSON envelope
@@ -230,6 +253,13 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
     }
     let text = `Error: ${err.message}\n`;
     if (err.hint) text += `\n${err.hint}\n`;
+    return { stream: 'stderr', text, exitCode: 1 };
+  }
+
+  if (err.resolution) {
+    if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+    const lookup = err.resolution;
+    const text = `Error (${code}): ${err.message}\nLookup: ${lookup.mode} ${lookup.table}.${lookup.field}; ${lookup.at_least ? 'at least ' : ''}${lookup.matches} matches.\n${err.hint ? `\nHint: ${err.hint}\n` : ''}`;
     return { stream: 'stderr', text, exitCode: 1 };
   }
 

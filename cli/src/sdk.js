@@ -1,7 +1,8 @@
 // ServiceNow REST API client
 
+import { batchRead } from './sdk-batch.js';
 import { gunzipSync } from 'node:zlib';
-import { errAuth, errAPI, errNetwork } from './errors.js';
+import { AppError, CodeAPI, CodeAuth, errAuth, errAPI, errNetwork, errUsage } from './errors.js';
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
@@ -47,9 +48,12 @@ export class SDKClient {
   constructor(baseURL, authProvider, opts = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.authProvider = authProvider;
+    this.recovery = opts.recovery;
+    this.onMutation = opts.onMutation;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
     this.oauthCookies = null;
+    this._sessionPromise = null;
     this.sessionUserToken = '';
   }
 
@@ -57,7 +61,13 @@ export class SDKClient {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
-    const creds = await this.authProvider.getCredentials();
+    let creds;
+    try {
+      creds = await this.authProvider.getCredentials();
+    } catch (error) {
+      if (error.code === CodeAuth && this.recovery?.credentialError) throw this.recovery.credentialError(error);
+      throw error;
+    }
     if (!creds) {
       throw errAuth('No valid credentials');
     }
@@ -94,74 +104,122 @@ export class SDKClient {
     }
   }
 
-  async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, readOnly = false, touchLastSeen, ...requestOptions } = opts;
-    if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-
+  // Keep the timeout alive through body consumption for text/JSON requests.
+  // Raw-response callers retain their existing timeout boundary at headers.
+  async _withAuthenticatedRequest(endpoint, opts, settings, consume = (response) => response) {
+    const url = new URL(endpoint);
+    const match = url.pathname.match(/^\/api\/now\/table\/([^/]+)(?:\/([^/]+))?\/?$/);
+    const operation = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }[(opts.method || 'GET').toUpperCase()];
+    const event = match && operation && this.onMutation ? {
+      table: decodeURIComponent(match[1]), sys_id: match[2] ? decodeURIComponent(match[2]) : null, operation,
+    } : null;
+    let result;
     try {
-      const req = new Request(endpoint, {
-        ...requestOptions,
-        signal: controller.signal,
+      result = await this._performAuthenticatedRequest(endpoint, opts, settings, async response => {
+        if (event) event.http_status = response.status;
+        const value = await consume(response);
+        if (event && value instanceof Response && response.ok && operation === 'create') {
+          try { event.sys_id = (await response.clone().json())?.result?.sys_id || null; } catch { /* ID remains unknown. */ }
+        }
+        return value;
       });
-      req.headers.set('Accept', 'application/json');
-      if (requestOptions.body && typeof requestOptions.body === 'string') {
-        req.headers.set('Content-Type', 'application/json');
-      }
-      if (this.domain) {
-        req.headers.set('X-Now-Domain', this.domain);
-      }
-      // readOnly guards the data request, not standard authentication bootstrap.
-      // OAuth refresh and session/GCK negotiation are not instance-record writes.
-      await this._setAuth(req);
+    } catch (error) {
+      if (event) await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
+        ? 'failed' : 'unknown', http_status: error.status || null });
+      throw error;
+    }
+    if (event) {
+      let body = result;
+      if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = null; } }
+      const id = body?.result?.sys_id;
+      if (typeof id === 'string') event.sys_id = id;
+      else if (typeof id?.value === 'string') event.sys_id = id.value;
+      await this._reportMutation({ ...event, outcome: event.http_status >= 400
+        ? (event.http_status < 500 && event.http_status !== 408 ? 'failed' : 'unknown')
+        : (event.sys_id ? 'succeeded' : 'unknown') });
+    }
+    return result;
+  }
 
-      const resp = await fetch(req);
-      const body = await resp.text();
+  async _reportMutation(event) {
+    // History failures must never change the outcome of a completed remote write.
+    try { await this.onMutation(event); } catch { /* App callback reports local storage failures. */ }
+  }
 
-      if (!resp.ok) {
-        throw errAPI(resp.status, body || resp.statusText);
-      }
-
-      if (resp.status === 204 || body === '') {
-        return null;
-      }
-
-      // Stamp last_seen on successful API call
+  async _performAuthenticatedRequest(endpoint, opts, {
+    timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
+  }, consume = (response) => response) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      let rejection;
       try {
-        // readOnly suppresses the credential last-seen write unconditionally: a
-        // caller passing touchLastSeen cannot override it (GLOSSARY contract).
+        const req = new Request(endpoint, { ...opts, signal: controller.signal });
+        if (prepare) prepare(req);
+        await this._setAuth(req, { skipOAuthSession });
+        const response = await fetch(req);
+        if (!skipOAuthSession && response.status === 401 && this.recovery) {
+          // Only a definitive HTTP rejection permits replay, including POST.
+          // Do not consume/echo the provider's potentially sensitive body.
+          rejection = { status: response.status, method: req.method, url: req.url };
+          await response.body?.cancel();
+        } else {
+          return await consume(response);
+        }
+      } catch (err) {
+        if (normalizeErrors) {
+          if (err.name === 'AbortError') throw errNetwork(new Error('Request timed out'));
+          if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
+            throw errNetwork(err);
+          }
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+      // Browser renewal has its own existing hard timeout. Never leave a
+      // request timeout running while waiting for the human to authenticate.
+      if (attempt === 0 && await this.recovery.recover(rejection)) {
+        this.oauthCookies = null;
+        this.sessionUserToken = '';
+        continue;
+      }
+      throw this.recovery.error || errAPI(401, '');
+    }
+  }
+
+  async request(endpoint, opts = {}) {
+    const { timeout = this.timeout, readOnly = false, touchLastSeen, domain = this.domain, ...requestOptions } = opts;
+    if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
+      timeout,
+      normalizeErrors: true,
+      prepare: (req) => {
+        req.headers.set('Accept', 'application/json');
+        if (requestOptions.body && typeof requestOptions.body === 'string') {
+          req.headers.set('Content-Type', 'application/json');
+        }
+        if (domain) req.headers.set('X-Now-Domain', domain);
+      },
+    }, async (resp) => {
+      const body = await resp.text();
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (resp.status === 204 || body === '') return null;
+
+      // Preserve read-only credential-write suppression and the existing empty-body behavior.
+      try {
         const shouldTouch = readOnly ? false : (touchLastSeen ?? true);
         if (shouldTouch && this.authProvider && typeof this.authProvider.touchLastSeen === 'function') {
           this.authProvider.touchLastSeen(this.baseURL);
         }
       } catch { /* non-fatal */ }
-
       return JSON.parse(body);
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        throw errNetwork(new Error('Request timed out'));
-      }
-      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-        throw errNetwork(err);
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+    });
   }
 
-  // _fetchWithAuth makes an authenticated fetch and returns the Response object.
+  // Authentication bootstrap bypasses session warming to avoid recursion.
   async _fetchWithAuth(endpoint, opts = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-    try {
-      const req = new Request(endpoint, { ...opts, signal: controller.signal });
-      await this._setAuth(req, { skipOAuthSession: true });
-      return await fetch(req);
-    } finally {
-      clearTimeout(timer);
-    }
+    return this._withAuthenticatedRequest(endpoint, opts, { skipOAuthSession: true });
   }
 
   // Public raw-response seam for callers that must inspect non-2xx bodies.
@@ -170,38 +228,23 @@ export class SDKClient {
   }
 
   async rawRequest(endpoint, opts = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const req = new Request(endpoint, {
-        ...opts,
-        signal: controller.signal,
-      });
-      if (opts.body && typeof opts.body === 'string') {
-        req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
-      }
-      await this._setAuth(req);
-
-      const resp = await fetch(req);
+    return this._withAuthenticatedRequest(endpoint, opts, {
+      normalizeErrors: true,
+      prepare: (req) => {
+        if (opts.body && typeof opts.body === 'string') {
+          req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
+        }
+      },
+    }, async (resp) => {
       const body = await resp.text();
-
-      if (!resp.ok) {
-        throw errAPI(resp.status, body || resp.statusText);
-      }
-
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
       return body;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        throw errNetwork(new Error('Request timed out'));
-      }
-      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT') {
-        throw errNetwork(err);
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+    });
+  }
+
+  // Explicit opt-in; ordinary SDK methods remain unbatched.
+  async batch(requests, options = {}) {
+    return batchRead(this, requests, options);
   }
 
   async getSkippedUpdateBaseline(sysID) {
@@ -725,6 +768,72 @@ export class SDKClient {
     });
   }
 
+  /** Load through the native XML upload processor, then verify the exact envelope. */
+  async importUpdateSet(xml, inspection, filename = 'update-set.xml') {
+    const { sys_id: id, remote_sys_id: sourceID } = inspection;
+    const params = new URLSearchParams({
+      sysparm_query: `sys_id=${id}^ORremote_sys_id=${sourceID}`,
+      sysparm_fields: 'sys_id,name,state', sysparm_limit: '2', sysparm_display_value: 'false',
+    });
+    if ((await this.list('sys_remote_update_set', params)).length) {
+      throw errUsage('This retrieved update set already exists on the target; refusing to overwrite it. Inspect it before retrying.');
+    }
+    // Native INSERT_OR_UPDATE must not move/overwrite a member belonging to another set.
+    for (let offset = 0; offset < inspection.members.length; offset += 50) {
+      const ids = inspection.members.slice(offset, offset + 50).map(member => member.sys_id).join(',');
+      const existing = await this.list('sys_update_xml', new URLSearchParams({
+        sysparm_query: `sys_idIN${ids}`, sysparm_fields: 'sys_id', sysparm_limit: '1',
+      }));
+      if (existing.length) throw errUsage('An XML member already exists on the target; refusing to overwrite or move existing updates.');
+    }
+    const cookies = await this._warmSession();
+    const formURL = `${this.baseURL}/upload.do?sysparm_target=sys_remote_update_set`;
+    const html = await this.rawRequest(formURL, { method: 'GET', headers: cookies ? { Cookie: cookies } : {} });
+    const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
+    if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) {
+      throw errUsage('The native XML upload form is unavailable; no XML was uploaded. Check admin access and session authentication.');
+    }
+    const form = new FormData();
+    form.set('sysparm_ck', csrf);
+    form.set('sysparm_target', 'sys_remote_update_set');
+    form.set('sysparm_upload_prefix', '');
+    form.set('sysparm_referring_url', 'sys_remote_update_set_list.do');
+    form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
+    let outcome = 'unknown';
+    try {
+      await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form,
+        headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
+      });
+      const records = await this.list('sys_remote_update_set', params);
+      if (records.length !== 1) throw new Error('Could not identify exactly one uploaded retrieved update set');
+      const record = records[0];
+      const importedID = getStringField(record, 'sys_id');
+      const state = getStringField(record, 'state');
+      if (state !== 'loaded' || getStringField(record, 'name') !== inspection.name) throw new Error('Uploaded update set name/state did not match the loaded export');
+      const members = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = await this.list('sys_update_xml', new URLSearchParams({
+          sysparm_query: `remote_update_set=${importedID}^ORDERBYsys_id`, sysparm_limit: '500',
+          sysparm_offset: String(offset), sysparm_display_value: 'false', sysparm_fields: 'sys_id,name,action',
+        }));
+        members.push(...page);
+        if (members.length > inspection.count) throw new Error('Uploaded update set contains unexpected extra members');
+        if (page.length < 500) break;
+      }
+      const actual = new Map(members.map(member => [getStringField(member, 'sys_id'), member]));
+      if (actual.size !== inspection.count || inspection.members.some(expected => {
+        const member = actual.get(expected.sys_id);
+        return !member || getStringField(member, 'name') !== expected.name || getStringField(member, 'action') !== expected.action;
+      })) throw new Error('Uploaded update set members did not match the XML export');
+      outcome = 'succeeded';
+      return { sys_id: importedID, state, count: members.length, link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${importedID}` };
+    } catch (error) {
+      throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying. No automatic retry was attempted.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
+    } finally {
+      if (this.onMutation) await this._reportMutation({ table: 'sys_remote_update_set', sys_id: id, operation: 'create', outcome });
+    }
+  }
+
   /**
    * Execute a background script on the ServiceNow instance via sys.scripts.do.
    * Uses a 3-step session-establishment flow compatible with OAuth tokens:
@@ -791,18 +900,26 @@ export class SDKClient {
 
     const result = { _record: records[0] };
 
-    for (const rel of related) {
-      try {
-        const relParams = new URLSearchParams();
-        relParams.set('sysparm_display_value', 'all');
-        relParams.set('sysparm_fields', (rel.fields || []).join(','));
-        relParams.set('sysparm_query', `${rel.queryField}=${rel.queryValue}`);
-        relParams.set('sysparm_limit', '100');
-        result[rel.displayAs] = await this.list(rel.table, relParams);
-      } catch {
-        result[rel.displayAs] = [];
+    // Four workers bound instance load while overlapping independent reads.
+    let next = 0;
+    const values = new Array(related.length);
+    await Promise.all(Array.from({ length: Math.min(4, related.length) }, async () => {
+      while (next < related.length) {
+        const index = next++;
+        const rel = related[index];
+        try {
+          const relParams = new URLSearchParams();
+          relParams.set('sysparm_display_value', 'all');
+          relParams.set('sysparm_fields', (rel.fields || []).join(','));
+          relParams.set('sysparm_query', `${rel.queryField}=${rel.queryValue}`);
+          relParams.set('sysparm_limit', '100');
+          values[index] = await this.list(rel.table, relParams);
+        } catch {
+          values[index] = [];
+        }
       }
-    }
+    }));
+    related.forEach((rel, index) => { result[rel.displayAs] = values[index]; });
 
     return result;
   }
@@ -859,6 +976,15 @@ export class SDKClient {
 
   async _warmSession() {
     if (this.oauthCookies) return this.oauthCookies;
+    if (!this._sessionPromise) {
+      this._sessionPromise = this._initializeSession().finally(() => {
+        this._sessionPromise = null;
+      });
+    }
+    return this._sessionPromise;
+  }
+
+  async _initializeSession() {
     try {
       const creds = await this.authProvider.getCredentials();
       if (creds.auth_method === 'oauth') {

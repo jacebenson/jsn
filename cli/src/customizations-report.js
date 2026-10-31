@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { customizationGuidance, formatCustomizationGuidance } from './customization-guidance.js';
 
 const CLASSIFICATIONS = {
   ootb_modifications: {
@@ -94,6 +95,7 @@ export function buildActionableReport(report) {
     start_time: report.start_time,
     artifacts,
     coverage: report.coverage,
+    interpretation: customizationGuidance(),
   };
 }
 
@@ -119,6 +121,7 @@ export function renderCustomizationHtml(report) {
 <section class="toolbar" aria-label="Report filters"><label class="control grow">Search artifacts<input id="search" type="search" placeholder="Name, table, scope, updater, evidence"></label><label class="control">Classification<select id="category"><option value="">All classifications</option>${categoryOptions}</select></label><label class="control">Group by<select id="group-by"><option value="type">File type</option><option value="scope">Scope</option><option value="updated_by">Updated by</option></select></label></section>
 <section id="results" aria-live="polite"></section>
 <details class="coverage"><summary>Capture coverage and limitations</summary><div id="coverage-content"></div></details>
+<details class="coverage"><summary>How to interpret this evidence</summary>${formatCustomizationGuidance().split('\n').map(line => `<p>${escapeHtml(line)}</p>`).join('')}</details>
 <script id="report-data" type="application/json">${data}</script>
 <script>
 'use strict';
@@ -146,6 +149,9 @@ function render(){
 for(const [categoryName,items] of Object.entries(report.artifacts.reduce((groups,item)=>{groups[item.category]=(groups[item.category]||0)+1;return groups;},{})))document.getElementById('stats').append(el('span',categoryName.replaceAll('_',' ')+': '+items,'stat'));
 search.addEventListener('input',render);category.addEventListener('change',render);groupBy.addEventListener('change',render);render();
 const coverage=document.getElementById('coverage-content');const ul=el('ul');for(const [source,details] of Object.entries(report.coverage.sources||{})){ul.append(el('li',source+': '+details.status+', '+details.fetched+'/'+(details.available??'unknown')+' rows. '+details.reason));}coverage.append(ul);for(const note of report.coverage.limitations||[])coverage.append(el('p',note));
+coverage.append(el('p','Unmatched upgrade history records: '+(report.coverage.unmatched_upgrade_records??'unknown')));
+if(report.coverage.unmatched_customer_scopes?.length)coverage.append(el('p','Unmatched customer declarations: '+report.coverage.unmatched_customer_scopes.join(', ')));
+const upgrade=report.coverage.upgrade_evidence;if(upgrade){coverage.append(el('p','Observed skipped rows: '+upgrade.skipped_rows_observed+'; update names: '+upgrade.update_names_observed+'; resolved by lookup: '+upgrade.resolved_by_lookup+'; failed lookup chunks: '+upgrade.lookup_failures));if(upgrade.unresolved_update_names?.length)coverage.append(el('p','Unresolved skipped update names: '+upgrade.unresolved_update_names.join(', ')));}
 </script>
 </main></body></html>\n`;
 }

@@ -14,24 +14,30 @@ describe('Setup Handler — zero profiles', () => {
   it('routes straight to the login wizard (no hub menu)', async () => {
     let wizardCalled = false;
     let selectCalled = false;
+    let defaultsConfigured = false;
 
     mock.module('../src/commands/auth.js', {
       namedExports: {
         loginWizard: async () => { wizardCalled = true; return { instanceURL: 'https://dev.service-now.com', profileName: 'dev', loggedIn: false }; },
         modifyProfile: async () => {},
-        removeProfile: async () => {},
-        pickProfile: async () => 'dev',
+        loginProfile: async () => {},
+        showAuthStatus: async () => {},
+        switchProfile: async () => {},
+        logoutProfile: async () => {},
+        removeConnection: async () => {},
       },
     });
-    mock.module('../src/setup-preferences.js', { namedExports: {
-      configureGlobalDefaults: async config => { config.connectionDefaults = { read_only: false, skip_confirmations: false, include_counts: true }; },
-      configureDocumentation: async () => {},
-    } });
+    mock.module('../src/helpers.js', { namedExports: { canUsePicker: () => true } });
     mock.module('@inquirer/prompts', {
       namedExports: {
         select: async () => { selectCalled = true; return 'add'; },
       },
     });
+
+    mock.module('../src/setup-preferences.js', { namedExports: {
+      configureGlobalDefaults: async config => { defaultsConfigured = true; config.connectionDefaults = {}; config.docs = { source: 'hosted' }; },
+      configureDocumentation: async () => {},
+    } });
 
     const { setupCmd } = await import('../src/commands/setup.js');
     const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
@@ -45,6 +51,7 @@ describe('Setup Handler — zero profiles', () => {
 
     await cmd.handler({ app, _: ['setup'] });
     assert.ok(wizardCalled, 'loginWizard should be called with zero profiles');
+    assert.ok(defaultsConfigured, 'global preferences should be configured before the connection wizard');
     assert.ok(!selectCalled, 'hub menu must NOT be shown with zero profiles');
   });
 });

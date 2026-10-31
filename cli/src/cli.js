@@ -1,3 +1,4 @@
+import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
 import yargs, { hideBin } from './cli-adapter.js';
@@ -7,18 +8,21 @@ import fs from 'node:fs';
 import { loadConfig, globalConfigDir } from './config.js';
 import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
-import { renderHelp } from './help.js';
+import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
-import { noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
 // Command modules
+import { discoverCmd } from './commands/discover.js';
 import { setupCmd } from './commands/setup.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
+import { attachmentsCmd } from './commands/attachments.js';
 import { cmdbCmd } from './commands/cmdb.js';
+import { knowledgeCmd } from './commands/knowledge.js';
 import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
 import { incidentsCmd } from './commands/incidents.js';
@@ -35,8 +39,9 @@ import { transactionsCmd } from './commands/transactions.js';
 import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
+import { upgradeCmd } from './commands/upgrade.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
-import { getVersion, checkLatest } from './commands/version.js';
+import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
 import { docsCmd } from './commands/docs/docs.js';
 
 // Table and platform commands registered at root level for progressive disclosure
@@ -69,7 +74,9 @@ import { logsCmd } from './commands/logs.js';
 import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
+import { scanCmd } from './commands/scan.js';
 import { approvalsCmd } from './commands/approvals.js';
+import { historyCmd } from './commands/history.js';
 import { perfCmd } from './commands/perf.js';
 import { customizationsCmd } from './commands/customizations.js';
 import { midserversCmd } from './commands/midservers.js';
@@ -116,6 +123,7 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
+      await app.guardMutationContext(argv);
       await handler(argv, app);
     } catch (err) {
       // All error rendering goes through the unified renderer in
@@ -144,6 +152,13 @@ export function buildCLI() {
       },
     ])
     .options({
+      'all-commands': { type: 'boolean', describe: 'Show the full command list, including admin and developer tools' },
+      reason: { type: 'string', describe: 'Optional non-sensitive reason saved in local mutation history' },
+
+      force: {
+        type: 'boolean',
+        description: 'Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation',
+      },
       instance: {
         type: 'string',
         description: 'ServiceNow instance URL',
@@ -213,6 +228,7 @@ export function buildCLI() {
               hint: 'Run "jsn auth status" to list profiles.',
             });
           }
+          app._authArgv = argv;
           applySession(app, session);
         } catch (err) {
           guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });
@@ -248,6 +264,7 @@ export function buildCLI() {
     .middleware(async (argv) => {
       // Session (incl. --instance/--profile overrides) was already applied
       // by the middleware above — nothing to re-apply here.
+      if (isLocalPreview(argv)) return;
       const cmd = (argv._[0] || '').toString();
       // Daily-check + context-header skip-list is derived from command
       // capability declarations (skipDailyChecks: true).
@@ -290,7 +307,7 @@ export function buildCLI() {
         }
       }
       if (!skipNpmCheck) {
-        const cacheFile = path.join(globalConfigDir(), '.last-npm-check');
+        const cacheFile = path.join(globalConfigDir(), `.last-npm-check-${getReleaseChannel()}`);
         let shouldCheck = true;
         try {
           const mtime = fs.statSync(cacheFile).mtimeMs;
@@ -303,9 +320,9 @@ export function buildCLI() {
 
         if (shouldCheck) {
           const version = getVersion();
-          checkLatest().then(latest => {
+          checkLatest({ background: true, version }).then(latest => {
             if (latest && version !== latest) {
-              process.stderr.write(`\n⚠ jsn ${latest} available (you have ${version}) — run "npm install -g @jacebenson/jsn" to update\n\n`);
+              process.stderr.write(`\n⚠ jsn ${latest} available (you have ${version}) — run "${getInstallCommand(version)}" to update\n\n`);
             }
           }).catch(() => {});
 
@@ -320,7 +337,7 @@ export function buildCLI() {
       }
 
       // Print context header for interactive terminals
-      if (!dailySkips.has(cmd)) {
+      if (!contextHeaderSkipCommands().has(cmd)) {
         await argv.app.printContextHeader(argv);
       }
     })
@@ -397,7 +414,9 @@ export function buildCLI() {
     .command(propertiesCmd(wrap))
     // DATA
     .command(cmdbCmd(wrap))
+    .command(knowledgeCmd(wrap))
     .command(recordsCmd(wrap))
+    .command(attachmentsCmd(wrap))
     .command(transactionsCmd(wrap))
 
     .command(platformCmd(wrap))
@@ -406,9 +425,11 @@ export function buildCLI() {
     .command(codesearchCmd(wrap))
     // DEVELOPER
     .command(atfCmd(wrap))
+    .command(scanCmd(wrap))
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
+    .command(historyCmd(wrap))
     .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
     .command(diffCmd(wrap))
@@ -418,6 +439,8 @@ export function buildCLI() {
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
+    .command(upgradeCmd(wrap))
+    .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry(), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     // Completion plumbing under a hidden command name, so the explicit
     // 'completion' command below owns the UX. (#176)
@@ -436,6 +459,12 @@ export function buildCLI() {
         const depth = (argv._ || []).length;
         if (current && !current.startsWith('-') && depth === 0) {
           out = [...new Set([...out, ...rootCommands])];
+        }
+        const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
+        const visible = visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(options), options);
+        if (!depth) {
+          const names = new Set(visible.commands.flatMap(command => [command.name, ...command.aliases]));
+          out = out.filter(value => value.startsWith('-') || names.has(value));
         }
         done([...new Set(out)]);
       });
@@ -473,7 +502,7 @@ export function buildCLI() {
     })
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of
-      // its own (records attachments, docs community, and any future parent) —
+      // its own (attachments, docs community, and any future parent) —
       // the adapter used to fall through and exit 0 having printed nothing.
       // Children come from the registry, description included, so this list
       // cannot drift from the registrations the way a hand-written one did.
@@ -498,6 +527,7 @@ export function buildCLI() {
         }, { summary });
       })(argv);
     })
+    .epilogue(renderTips())
     .help('help', 'Show help')
     .version(false)
     .strictCommands()
@@ -541,7 +571,7 @@ export function buildCLI() {
           if (typeof formatArgv?.get === 'string' && formatArgv.get) {
             app.output.setJqFilter(formatArgv.get);
           }
-          const { commands } = cliInstance.commandRegistry();
+          const { commands } = visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv);
           try {
             app.ok({ commands }, {
               summary: `${commands.length} registered commands — run "jsn <command> --json" for a command's subcommands.`,
@@ -551,7 +581,7 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp(loadConfig(), cliInstance.commandRegistry()) + '\n');
+        process.stdout.write(renderHelp(loadConfig(formatArgv), visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv)) + '\n');
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,
@@ -571,6 +601,12 @@ export function buildCLI() {
       exitWithError(new AppError(CodeUsage, msg, hint), { app });
     });
 
+  cliInstance.rootHelpRenderer = () => {
+    const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
+    const config = loadConfig(options);
+    return renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, options));
+  };
+
   // Snapshot the root command names (plus aliases) for the completion
   // filter. Done before any parse — command builders mutate the registry.
   rootCommands = cliInstance.getInternalMethods().getCommandInstance().getCommands();
@@ -584,3 +620,5 @@ export function buildCLI() {
 
 // Run if invoked directly (bin/jsn.js calls cli.parse())
 export const cli = buildCLI();
+
+export { cancelBackgroundChecks } from './commands/version.js';

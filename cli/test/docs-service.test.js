@@ -12,7 +12,18 @@ import { ensureLocalDocumentation, documentationService } from '../src/commands/
 import { searchHostedDocs, getHostedDoc } from '../src/commands/docs/client.js';
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-docs-service-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  t.after(async () => {
+    // Windows cannot remove the daemon's open log files until it exits.
+    let pid;
+    try { pid = JSON.parse(fs.readFileSync(path.join(root, 'service/server.json'), 'utf8')).pid; } catch { /* no daemon */ }
+    if (pid) {
+      try { process.kill(pid, 'SIGTERM'); } catch { /* stopped */ }
+      for (let attempt = 0; attempt < 40; attempt++) {
+        try { process.kill(pid, 0); await delay(50); } catch { break; }
+      }
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   const source = path.join(root, 'upstream'), storage = path.join(root, 'service');
   fs.mkdirSync(path.join(source, 'markdown', 'api-reference'), { recursive: true });
   fs.writeFileSync(path.join(source, 'markdown/api-reference/GlideRecord.md'), '---\ntitle: GlideRecord\ndescription: Query **records** with the server API.\nproduct: Server APIs\n---\n# GlideRecord\n\nA useful reference for querying and updating records using the server API.\n');

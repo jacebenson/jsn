@@ -31,29 +31,32 @@ describe('OutputWriter format methods', () => {
 });
 
 describe('printContextHeader', () => {
-  it('suppressed for JSON format', async () => {
-    const { OutputWriter, FormatJSON } = await import('../src/output.js');
-    // Mock app with json format
-    const app = {
-      getEffectiveInstance: () => 'https://dev123.service-now.com',
-      output: new OutputWriter(),
-      sdk: {
-        getUser: async () => ({ sys_id: 'abc', name: 'admin' }),
-        list: async () => [],
-      },
-    };
-    app.output.setFormat('json');
-    // Should return without writing (no error)
-    await app.output; // verify no crash
-    assert.strictEqual(app.output.getFormat(), FormatJSON);
-  });
-
-  it('suppressed for quiet format', async () => {
-    const { OutputWriter } = await import('../src/output.js');
-    const ow = new OutputWriter();
-    ow.setFormat('quiet');
-    assert.strictEqual(ow.getFormat(), 'quiet');
-  });
+  for (const format of ['json', 'quiet']) {
+    it(`suppressed for ${format} format without making API requests`, async (t) => {
+      const { App } = await import('../src/app.js');
+      const { OutputWriter } = await import('../src/output.js');
+      const app = {
+        getEffectiveInstance: () => 'https://example.service-now.com',
+        output: new OutputWriter({ format }),
+        sdk: {
+          list: () => assert.fail('Suppressed header must not query the instance'),
+          get: () => assert.fail('Suppressed header must not query the instance'),
+        },
+      };
+      // Ensure this tests the output-format guard rather than an environment override.
+      const previous = process.env.JSN_NO_HEADER;
+      delete process.env.JSN_NO_HEADER;
+      t.after(() => {
+        if (previous === undefined) delete process.env.JSN_NO_HEADER;
+        else process.env.JSN_NO_HEADER = previous;
+      });
+      const stdout = t.mock.method(process.stdout, 'write', () => true);
+      const stderr = t.mock.method(process.stderr, 'write', () => true);
+      await App.prototype.printContextHeader.call(app);
+      assert.equal(stdout.mock.callCount(), 0);
+      assert.equal(stderr.mock.callCount(), 0);
+    });
+  }
 });
 
 describe('writeRecordsTable numeric cells', () => {
@@ -140,4 +143,18 @@ describe('detectRecord via _context.table', () => {
     assert.ok(out.includes('↑ Workstation FLX (Computer) — Depends on::Used by'), 'upstream relationship should render with arrow');
     assert.ok(!out.includes('relationships:'), 'relationships array must not dump into Other as a raw field');
   });
+});
+
+
+describe('preformatted styled output newline', () => {
+  for (const formatted of ['discover result', 'discover result\n']) {
+    it(`terminates output without adding an extra newline (${JSON.stringify(formatted)})`, async () => {
+      const { OutputWriter } = await import('../src/output.js');
+      const chunks = [];
+      const output = new OutputWriter({ format: 'styled' });
+      output.writer = { write: (chunk) => chunks.push(chunk) };
+      output.writeStyled({ _formatted: formatted }, {});
+      assert.strictEqual(chunks.join(''), 'discover result\n');
+    });
+  }
 });

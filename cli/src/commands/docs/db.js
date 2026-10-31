@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import Database from 'better-sqlite3';
+import { docsReaderLease } from './locks.js';
 
 const LEGACY_DOCS_DIR_NAME = 'servicenow-cli/docs';
 const DOCS_DIR_NAME = 'docs';
@@ -130,11 +131,21 @@ export function defaultDocsRoots(opts = {}) {
 
 export function openDocsDb(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
-  // Explicit service databases must not create or migrate a user CLI cache.
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  return db;
+  const release = docsReaderLease(dbPath);
+  let db;
+  try {
+    db = new Database(dbPath);
+  } catch (error) { release(); throw error; }
+  const close = db.close.bind(db);
+  db.close = () => { try { return close(); } finally { release(); } };
+  try {
+    db.exec('PRAGMA journal_mode = WAL');
+    return db;
+  } catch (error) {
+    closeDocsDb(db);
+    throw error;
+  }
 }
 
 export function closeDocsDb(db) {
@@ -246,4 +257,19 @@ export function getDocsIndexStats(db) {
 
 export function setMeta(db, key, value) {
   db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(key, value);
+}
+
+/** Own a synchronous docs connection and roll back unfinished work on failure. */
+export function withDocsDb(opts, operation) {
+  const db = openDocsDb(opts);
+  try {
+    return operation(db);
+  } catch (error) {
+    if (db.inTransaction) {
+      try { db.exec('ROLLBACK'); } catch { /* Preserve the original error. */ }
+    }
+    throw error;
+  } finally {
+    closeDocsDb(db);
+  }
 }

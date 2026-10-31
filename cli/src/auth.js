@@ -5,75 +5,20 @@
 // same instance have separate credential slots.
 
 import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { password as passwordPrompt } from '@inquirer/prompts';
-import { globalConfigDir, normalizeInstanceURL } from './config.js';
+import { password as passwordPrompt } from './prompts.js';
+import { normalizeInstanceURL } from './config.js';
 import { errAuth } from './errors.js';
+import { pendingBrowserLogin } from './browser-auth.js';
+import { defaultCredentialStore } from './auth/credential-store.js';
+import { savePKCEState, loadPKCEState, removePKCEState, getOAuthClientID, generatePKCE, buildAuthURL, REDIRECT_URI } from './auth/oauth.js';
+import { parseBrowserSessionInput } from './auth/browser-session.js';
+import { normalizeAuthMethod, normalizeAuthSource, sourceMethod, probeFailure, classifyProbeError, classifyCredentialState } from './auth/credential-state.js';
 
-// ─── Credential key helpers ───
+// Preserve the public auth module API while implementation stays separated.
+export { sanitizeKeyPart } from './auth/credential-store.js';
+export { parseBrowserSessionInput } from './auth/browser-session.js';
+export { classifyCredentialState } from './auth/credential-state.js';
 
-/**
- * Sanitize an instance URL into a filesystem/arg-safe key part.
- *
- * Whitelist approach (issue #143 findings #2/#3): first map the `://`
- * protocol separator to `_` exactly as the Go version's encoding does
- * (so existing keyring keys like `https_dev437538.service-now.com` keep
- * matching), then drop everything outside [a-zA-Z0-9._-]. Blacklist
- * stripping of just `/` and `:` left quotes, `$()`, backticks, `;`,
- * spaces, and backslashes — which broke out of double-quoted shell args
- * in keyring calls and, on Windows, out of path.join() credential dirs.
- */
-export function sanitizeKeyPart(instance) {
-  return instance.replace(/:\/\//g, '_').replace(/[^a-zA-Z0-9._-]/g, '_');
-}
-
-/**
- * Build a compound key for credential storage: <username>@<instance>
- * When username is omitted (legacy), just the normalized instance URL is used.
- */
-function credKey(instance, username) {
-  const normalized = sanitizeKeyPart(instance);
-  if (!username) return normalized;
-  return `${username.replace(/[^a-zA-Z0-9._@-]/g, '_')}@${normalized}`;
-}
-
-// ─── PKCE state persistence (shared with Go version) ───
-
-function pkceStatePath(instance, username) {
-  const dir = path.join(globalConfigDir(), 'pkce');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // A known profile identity gets its own pending-login slot. Keep the bare
-  // instance slot for legacy/no-profile flows, where no identity exists yet.
-  const filename = credKey(instance, username) + '.json';
-  return path.join(dir, filename);
-}
-
-function savePKCEState(instance, pkce, username) {
-  const filePath = pkceStatePath(instance, username);
-  fs.writeFileSync(filePath, JSON.stringify(pkce, null, 2), { mode: 0o600 });
-}
-
-function loadPKCEState(instance, username) {
-  try {
-    const data = fs.readFileSync(pkceStatePath(instance, username), 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
-}
-
-function removePKCEState(instance, username) {
-  try {
-    fs.unlinkSync(pkceStatePath(instance, username));
-  } catch {
-    // ignore
-  }
-}
-
-const DEFAULT_OAUTH_CLIENT_ID = '543e5655f77746a28228c6009a599dfb';
-const REDIRECT_URI = '/sdk-oauth.do';
 
 // ─── Basic auth from environment variables ───
 // SN_USERNAME / SN_PASSWORD — global credentials
@@ -109,320 +54,8 @@ function getBasicAuthFromEnv(instance) {
   return null;
 }
 
-// Keychain constants — same as Go version (internal/auth/store.go)
-const KEYRING_SERVICE = 'servicenow-cli';
-const KEYRING_ATTR_SERVICE = 'service';
-const KEYRING_ATTR_USERNAME = 'username';
-
-function credentialsFilePath(key) {
-  const dir = path.join(globalConfigDir(), 'credentials');
-  // Match Go's filename encoding: replace :// and / and : with _
-  const filename = key + '.json';
-  return path.join(dir, filename);
-}
-
-function credentialsPath(key) {
-  const filePath = credentialsFilePath(key);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  return filePath;
-}
-
-function getOAuthClientID() {
-  return process.env.SERVICENOW_OAUTH_CLIENT_ID || DEFAULT_OAUTH_CLIENT_ID;
-}
-
-function generatePKCE() {
-  const verifier = crypto.randomBytes(32).toString('base64url');
-  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-  const state = crypto.randomBytes(16).toString('base64url');
-  return { code_verifier: verifier, code_challenge: challenge, state };
-}
-
-function buildAuthURL(instanceURL, clientID, pkce) {
-  const u = new URL('/oauth_auth.do', instanceURL);
-  u.searchParams.set('response_type', 'code');
-  u.searchParams.set('client_id', clientID);
-  u.searchParams.set('redirect_uri', REDIRECT_URI);
-  u.searchParams.set('state', pkce.state);
-  u.searchParams.set('code_challenge', pkce.code_challenge);
-  u.searchParams.set('code_challenge_method', 'S256');
-  u.searchParams.set('scope', 'openid');
-  u.searchParams.set('approval_prompt', 'force');
-  return u.toString();
-}
-
-// ─── Keyring via secret-tool (libsecret, same backend as Go's go-keyring) ───
-
-function keyringLookup(key) {
-  try {
-    // execFileSync with an arg array — no shell, so `key` can never
-    // break out into command injection (issue #143 finding #2).
-    const result = execFileSync(
-      'secret-tool',
-      ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
-      { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
-    );
-    const trimmed = result.trim();
-    if (!trimmed) return null;
-    const parsed = JSON.parse(trimmed);
-    // Spread all fields from keyring first, then normalize known fields
-    // so username, password, and other extras are preserved.
-    return {
-      ...parsed,
-      auth_method: parsed.auth_method || 'oauth',
-      access_token: parsed.access_token || parsed.AccessToken || '',
-      refresh_token: parsed.refresh_token || parsed.RefreshToken || '',
-      expires_at: parsed.expires_at || parsed.ExpiresAt || 0,
-      created_at: parsed.created_at || parsed.CreatedAt || 0,
-      auth_source: ['oauth', 'env_token', 'env_basic', undefined].includes(parsed.auth_source)
-        ? (parsed.auth_method === 'gck' ? 'gck' : 'keyring')
-        : parsed.auth_source,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function keyringStore(key, creds) {
-  try {
-    execFileSync(
-      'secret-tool',
-      ['store', `--label=Password for '${key}' on '${KEYRING_SERVICE}'`,
-        KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
-      { stdio: ['pipe', 'ignore', 'ignore'], input: JSON.stringify(creds) }
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function keyringDelete(key) {
-  try {
-    execFileSync(
-      'secret-tool',
-      ['clear', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
-      { stdio: 'ignore' }
-    );
-  } catch {
-    // ignore
-  }
-}
-
-// ─── File-based storage (fallback) ───
-
-/**
- * Load credentials for an instance keyed by <username>@<instance>.
- * When username is omitted (legacy configs without profile user), uses
- * bare instance key for lookup.
- */
-function loadCredentials(instance, username, injectedStore) {
-  if (injectedStore) return injectedStore.load(instance, username);
-  const key = username ? credKey(instance, username) : credKey(instance);
-  const keyringCreds = keyringLookup(key);
-  if (keyringCreds) {
-    return {
-      ...keyringCreds,
-      auth_source: keyringCreds.auth_source || (keyringCreds.auth_method === 'gck' ? 'gck' : 'keyring'),
-    };
-  }
-  try {
-    const data = fs.readFileSync(credentialsFilePath(key), 'utf-8');
-    const creds = JSON.parse(data);
-    return {
-      ...creds,
-      auth_source: ['oauth', 'env_token', 'env_basic', undefined].includes(creds.auth_source)
-        ? (creds.auth_method === 'gck' ? 'gck' : 'file')
-        : creds.auth_source,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Save credentials for an instance.
- * Uses <username>@<instance> key when username is available.
- */
-function saveCredentials(instance, creds, username, injectedStore) {
-  if (injectedStore) {
-    creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
-    return injectedStore.save(instance, creds, username);
-  }
-  const key = username ? credKey(instance, username) : credKey(instance);
-  // Stamp last_seen on every credential save
-  creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
-  // Try keyring first, fall back to file
-  if (!keyringStore(key, creds)) {
-    fs.writeFileSync(credentialsPath(key), JSON.stringify(creds, null, 2), { mode: 0o600 });
-  }
-}
-
-/**
- * Delete credentials for an instance keyed by <username>@<instance>.
- */
-function deleteCredentials(instance, username, injectedStore) {
-  if (injectedStore) return injectedStore.delete(instance, username);
-  const key = username ? credKey(instance, username) : credKey(instance);
-  keyringDelete(key);
-  try {
-    fs.unlinkSync(credentialsPath(key));
-  } catch {
-    // ignore
-  }
-}
-
-const defaultCredentialStore = {
-  load: loadCredentials,
-  save: saveCredentials,
-  delete: deleteCredentials,
-};
-
 function askHidden(promptText) {
   return passwordPrompt({ message: promptText });
-}
-
-/**
- * Extract the browser session token and cookies from pasted DevTools headers
- * or a "Copy as cURL" command. Only these two values are retained.
- */
-export function parseBrowserSessionInput(input) {
-  const text = String(input || '');
-  const tokenMatch = text.match(/(?:x-usertoken|x-user-token)\s*:\s*([^\s'";,]+)/i);
-  const cookieArgMatch = text.match(/(?:^|\s)(?:-b|--cookie)\s+(['"])(.*?)\1/s);
-  const quotedCookieMatch = text.match(/cookie\s*:\s*(['"])(.*?)\1/i);
-  const plainCookieMatch = text.match(/cookie\s*:\s*([^\r\n]+)/i);
-  const token = tokenMatch?.[1]?.trim() || '';
-  const cookies = (cookieArgMatch?.[2] || quotedCookieMatch?.[2] || plainCookieMatch?.[1] || '')
-    .trim()
-    .replace(/['"`]\s*(?:\\\s*)?$/, '');
-  if (!token) throw errAuth('No X-UserToken header found');
-  if (!cookies) throw errAuth('No Cookie header found. Paste the complete request headers or cURL command.');
-  return { auth_method: 'gck', access_token: token, cookies, auth_source: 'gck' };
-}
-
-const AUTH_METHODS = new Set(['oauth', 'basic', 'gck']);
-const AUTH_SOURCES = new Set(['env_token', 'env_basic', 'gck', 'keyring', 'file', 'unavailable']);
-
-function normalizeAuthMethod(value, fallback = 'unconfigured') {
-  return AUTH_METHODS.has(value) ? value : fallback;
-}
-
-function normalizeAuthSource(value, fallback = 'unavailable') {
-  return AUTH_SOURCES.has(value) ? value : fallback;
-}
-
-function sourceMethod(source) {
-  return { env_token: 'oauth', env_basic: 'basic', gck: 'gck' }[source] || null;
-}
-
-const PROBE_FAILURES = {
-  missing_credentials: {
-    message: 'Credentials are not available for this profile.',
-    hint: 'Run: jsn auth login',
-  },
-  credentials_expired: {
-    message: 'Credentials have expired and cannot be refreshed.',
-    hint: 'Run: jsn auth login',
-  },
-  refresh_required: {
-    message: 'Credentials require refresh before probing.',
-    hint: 'Run: jsn auth refresh',
-  },
-  refresh_failed: {
-    message: 'Credential refresh failed before the authenticated probe.',
-    hint: 'Run: jsn auth login',
-  },
-  invalid_browser_session: {
-    message: 'Browser session credentials are incomplete or invalid.',
-    hint: 'Capture a fresh ServiceNow browser request and run: jsn auth login --gck',
-  },
-  malformed_credentials: {
-    message: 'Credentials are malformed for the selected authentication method.',
-    hint: 'Run: jsn auth login',
-  },
-  permission_denied: {
-    message: 'The authenticated user lacks permission for the current-user probe.',
-    hint: 'Ask an administrator to grant access to the sys_user table/API.',
-  },
-  unauthorized: {
-    message: 'The instance rejected the selected credentials.',
-    hint: 'Run: jsn auth login',
-  },
-  network: {
-    message: 'The authenticated probe could not reach the instance.',
-    hint: 'Check your internet connection and instance URL.',
-  },
-  unknown: {
-    message: 'The authenticated probe failed for an unknown reason.',
-    hint: 'Retry the probe; if it persists, check the instance logs.',
-  },
-  missing_instance: {
-    message: 'No instance is configured for this profile.',
-    hint: 'Set an instance URL and run: jsn auth login',
-  },
-  sdk_construction_failed: {
-    message: 'The authenticated probe could not be initialized for this profile.',
-    hint: 'Check the profile configuration and run: jsn auth status again',
-  },
-};
-
-const PROBE_CLASSIFICATIONS = {
-  missing_credentials: 'unavailable', credentials_expired: 'expired', refresh_required: 'refresh_required',
-  refresh_failed: 'refresh_failed', invalid_browser_session: 'browser_session_invalid',
-  malformed_credentials: 'malformed', permission_denied: 'permission_denied', unauthorized: 'unauthorized',
-  network: 'network_error', unknown: 'unknown',
-  missing_instance: 'unavailable', sdk_construction_failed: 'configuration_error',
-};
-
-function probeFailure(code, status = 'failed') {
-  return { status, code, classification: PROBE_CLASSIFICATIONS[code] || 'unknown', ...PROBE_FAILURES[code] };
-}
-
-function classifyProbeError(error, method) {
-  if (error?.status === 401 || error?.status === 403) {
-    return error.status === 403 ? 'permission_denied' : 'unauthorized';
-  }
-  if (error?.code === 'network_error' || ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT'].includes(error?.code)) {
-    return 'network';
-  }
-  const text = String(error?.message || '').toLowerCase();
-  if (error?.code === 'auth_error' && text.includes('refresh')) return 'refresh_failed';
-  if (method === 'gck' && error?.code === 'auth_error') return 'invalid_browser_session';
-  return 'unknown';
-}
-
-/**
- * Classify credentials without returning or logging any credential material.
- * This is deliberately pure so diagnostics cannot refresh, persist, or probe.
- */
-export function classifyCredentialState(credentials, method, now = Date.now()) {
-  if (!credentials) return 'missing';
-  if (!AUTH_METHODS.has(method)) return 'malformed';
-
-  if (method === 'basic') {
-    const hasUser = typeof credentials.username === 'string' && credentials.username.length > 0;
-    const hasPassword = typeof credentials.password === 'string' && credentials.password.length > 0;
-    return hasUser && hasPassword ? 'available' : 'malformed';
-  }
-
-  if (method === 'gck') {
-    const hasToken = typeof credentials.access_token === 'string' && credentials.access_token.length > 0;
-    const hasCookies = typeof credentials.cookies === 'string' && credentials.cookies.length > 0;
-    return hasToken && hasCookies ? 'available' : 'malformed';
-  }
-
-  if (credentials.access_token !== undefined && typeof credentials.access_token !== 'string') return 'malformed';
-  if (credentials.refresh_token !== undefined && typeof credentials.refresh_token !== 'string') return 'malformed';
-
-  const hasToken = typeof credentials.access_token === 'string' && credentials.access_token.length > 0;
-  if (!hasToken) return credentials.refresh_token ? 'refreshable' : 'missing';
-  if (credentials.expires_at !== undefined && credentials.expires_at !== null && credentials.expires_at !== 0) {
-    const expiresAt = Number(credentials.expires_at);
-    if (!Number.isFinite(expiresAt)) return 'malformed';
-    if (now >= (expiresAt - 300) * 1000) return credentials.refresh_token ? 'refreshable' : 'expired';
-  }
-  return 'available';
 }
 
 export class AuthManager {
@@ -699,7 +332,7 @@ export class AuthManager {
     if (method === 'basic' && (!resolved.username || !resolved.password)) throw errAuth('Invalid basic auth credentials');
     if (method === 'oauth' && !resolved.access_token) throw errAuth('Invalid OAuth credentials');
     // Check expiry — refresh if less than 5 minutes remaining
-    if (resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
+    if (options.refresh !== false && resolved.expires_at && Date.now() >= (resolved.expires_at - 300) * 1000) {
       if (resolved.refresh_token) return this.refreshToken(instance, resolved, credentialUsername);
       throw errAuth('Token expired, please login again');
     }
@@ -712,17 +345,17 @@ export class AuthManager {
     const pkce = generatePKCE();
     const authURL = buildAuthURL(instanceURL, clientID, pkce);
 
-    console.log();
-    console.log('Open this URL in your browser to authenticate:');
-    console.log(authURL);
-    console.log();
-    console.log('(The browser is not opened automatically — if a browser tab opens,');
-    console.log(' use the URL above if the opened page shows an error.)');
-    console.log();
+    console.error();
+    console.error('Open this URL in your browser to authenticate:');
+    console.error(authURL);
+    console.error();
+    console.error('(The browser is not opened automatically — if a browser tab opens,');
+    console.error(' use the URL above if the opened page shows an error.)');
+    console.error();
 
-    console.log('After authenticating in the browser, copy the authorization code shown on the page.');
-    console.log('(input is hidden for security — just paste and press Enter)');
-    console.log();
+    console.error('After authenticating in the browser, copy the authorization code shown on the page.');
+    console.error('(input is hidden for security — just paste and press Enter)');
+    console.error();
 
     const authCode = await askHidden('Authorization code (hidden on paste for security): ');
     const code = authCode.trim();
@@ -730,7 +363,7 @@ export class AuthManager {
       throw errAuth('Authorization code is required');
     }
 
-    console.log('\nExchanging authorization code for tokens...');
+    console.error('\nExchanging authorization code for tokens...');
     const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
     // Save with the selected profile username when one is already known.
     this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
@@ -751,10 +384,10 @@ export class AuthManager {
     savePKCEState(instanceURL, pkce, username);
     const url = buildAuthURL(instanceURL, clientID, pkce);
     if (waitFile) {
-      console.log(url);
-      console.log();
-      console.log(`Waiting for authorization code in file: ${waitFile}`);
-      console.log('(polling every 2 seconds — write the code to the file to complete login)');
+      console.error(url);
+      console.error();
+      console.error(`Waiting for authorization code in file: ${waitFile}`);
+      console.error('(polling every 2 seconds — write the code to the file to complete login)');
       return this._waitForCodeFile(instanceURL, clientID, pkce, waitFile, 300000, username);
     }
     return url;
@@ -764,18 +397,15 @@ export class AuthManager {
     const start = Date.now();
     const pollInterval = 2000;
     while (Date.now() - start < timeout) {
-      try {
-        const code = fs.readFileSync(filePath, 'utf-8').trim();
-        if (code) {
-          console.log(`\nAuthorization code found in ${filePath}`);
-          removePKCEState(instanceURL, username);
-          const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
-          this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
-          console.log('Token exchange successful!\n');
-          return newCreds;
-        }
-      } catch {
-        // File not ready yet
+      let code = '';
+      try { code = fs.readFileSync(filePath, 'utf-8').trim(); } catch { /* File not ready yet. */ }
+      if (code) {
+        console.error(`\nAuthorization code found in ${filePath}`);
+        const newCreds = await this.exchangeCode(instanceURL, clientID, code, pkce);
+        removePKCEState(instanceURL, username);
+        this.saveCredentials(instanceURL, newCreds, username || newCreds.username);
+        console.error('Token exchange successful!\n');
+        return newCreds;
       }
       await new Promise(r => setTimeout(r, pollInterval));
     }
@@ -787,11 +417,13 @@ export class AuthManager {
    * Reads SN_USERNAME/SN_PASSWORD (or SN_<INSTANCE>_USERNAME/SN_<INSTANCE>_PASSWORD).
    * Stores the basic auth credentials so they persist across sessions.
    */
-  async loginWithPassword(instanceURL, username = this._activeUsername()) {
+  async loginWithPassword(instanceURL, username = this._activeUsername(), suppliedCredentials) {
     instanceURL = normalizeInstanceURL(instanceURL);
     const envCreds = getBasicAuthFromEnv(instanceURL);
     const storedCreds = this.loadCredentials(instanceURL, username);
-    const creds = envCreds || storedCreds;
+    const creds = suppliedCredentials
+      ? { auth_method: 'basic', ...suppliedCredentials }
+      : envCreds || storedCreds;
     if (!creds || creds.auth_method !== 'basic' || !creds.username || !creds.password) {
       throw errAuth(
         `No basic auth credentials found in environment or stored profile.\n\n` +
@@ -802,8 +434,10 @@ export class AuthManager {
         `  jsn auth login --basic ${instanceURL}`
       );
     }
+    if (username && creds.username !== username) {
+      throw errAuth('The Basic credentials do not match the selected profile user. Use matching credentials or create a new named profile.');
+    }
     this.saveCredentials(instanceURL, creds, creds.username);
-    console.log(`✓ Basic auth credentials saved for ${instanceURL}`);
     return creds;
   }
 
@@ -812,28 +446,69 @@ export class AuthManager {
    * The PKCE state must have been saved by an earlier buildAuthURL() call.
    */
   async loginWithGck(instanceURL, input, username = this._activeUsername()) {
+    return this._loginWithBrowserSession(instanceURL, parseBrowserSessionInput(input), username);
+  }
+
+  async loginWithBrowser(instanceURL, options = {}, username = this._activeUsername()) {
+    if (options.launch) {
+      const { launchBrowserSession } = await import('./browser-launch.js');
+      const credentials = await launchBrowserSession(instanceURL, {
+        ...options,
+        verify: (creds, verification) => this._verifyBrowserSession(instanceURL, creds, username, { ...verification, requireIdentity: true }),
+      });
+      this.saveCredentials(normalizeInstanceURL(instanceURL), credentials, credentials.username);
+      return credentials;
+    }
+    const { readBrowserSession } = await import('./browser-auth.js');
+    const creds = await readBrowserSession(instanceURL, options);
+    return this._loginWithBrowserSession(instanceURL, creds, username, { requireIdentity: true });
+  }
+
+  async _loginWithBrowserSession(instanceURL, creds, username, { requireIdentity = false } = {}) {
+    const credentials = await this._verifyBrowserSession(instanceURL, creds, username, { requireIdentity });
+    this.saveCredentials(normalizeInstanceURL(instanceURL), credentials, credentials.username);
+    return credentials;
+  }
+
+  async _verifyBrowserSession(instanceURL, creds, username, { requireIdentity = false, signal, timeout = this.httpClient.timeout } = {}) {
     instanceURL = normalizeInstanceURL(instanceURL);
-    const creds = parseBrowserSessionInput(input);
+    const query = new URLSearchParams({
+      sysparm_limit: '1',
+      sysparm_fields: 'user_name',
+      sysparm_query: 'user_name=javascript:gs.getUserName()',
+    });
     let response;
     try {
-      response = await fetch(`${instanceURL}/api/now/table/sys_user?sysparm_limit=1`, {
+      response = await fetch(`${instanceURL}/api/now/table/sys_user?${query}`, {
         method: 'GET',
+        redirect: 'error',
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
         headers: {
           Accept: 'application/json',
           'X-UserToken': creds.access_token,
           Cookie: creds.cookies,
         },
       });
-    } catch (error) {
-      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck (${error.message})`);
+    } catch {
+      throw errAuth(`Could not test the browser session against ${instanceURL}. Nothing was saved. Retry browser-session login.`);
     }
     if (!response.ok) {
+      if (requireIdentity && [401, 403].includes(response.status)) {
+        throw pendingBrowserLogin('The session is not authorized for current-user verification. Finish signing in, or check current-user API access.');
+      }
       throw errAuth(`Browser session rejected by ${instanceURL} (HTTP ${response.status}). Nothing was saved. Retry with: jsn auth login ${instanceURL} --gck`);
     }
-    const body = await response.json();
+    let body;
+    try { body = await response.json(); } catch { throw errAuth('Browser session verification did not return JSON. Nothing was saved.'); }
     const user = body?.result?.[0];
     const verifiedUsername = typeof user?.user_name === 'string' ? user.user_name : username;
-    this.saveCredentials(instanceURL, { ...creds, username: verifiedUsername || undefined }, verifiedUsername || undefined);
+    if (requireIdentity && verifiedUsername === 'guest') throw pendingBrowserLogin('Waiting for browser login.');
+    if (requireIdentity && (!user?.user_name || typeof user.user_name !== 'string')) {
+      throw pendingBrowserLogin('Could not verify the browser account. Nothing was saved. Check current-user API access.');
+    }
+    if (requireIdentity && username && username !== verifiedUsername) {
+      throw errAuth('The browser account does not match the selected profile. Nothing was saved. Use the matching account or create a new profile.');
+    }
     return { ...creds, username: verifiedUsername || undefined };
   }
 
@@ -937,7 +612,9 @@ export class AuthManager {
     if (!instance) {
       throw errAuth('No instance specified');
     }
+    const existed = !!this.credentialStore.load(instance, username);
     this.credentialStore.delete(instance, username);
+    return existed && !this.credentialStore.load(instance, username);
   }
 
   /**
@@ -959,4 +636,5 @@ export class AuthManager {
   }
 }
 
-export { saveCredentials, loadCredentials, deleteCredentials, askHidden };
+export { saveCredentials, loadCredentials, deleteCredentials } from './auth/credential-store.js';
+export { askHidden };

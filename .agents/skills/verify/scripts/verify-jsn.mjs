@@ -48,7 +48,7 @@ function doctor() {
   const profile = valueAfter('--profile') ?? 'pdi';
   const allowUnauthenticated = args.includes('--allow-unauthenticated');
   const versionResult = runJsn(['version', '--json']);
-  const statusResult = runJsn(args.includes('--profile') ? ['--profile', profile, 'auth', 'status', '--json'] : ['auth', 'status', '--json']);
+  const statusResult = runJsn(args.includes('--profile') ? ['--profile', profile, 'auth', 'status', '--details', '--json'] : ['auth', 'status', '--details', '--json']);
   const version = parseJson(versionResult, 'version');
   const status = parseJson(statusResult, 'auth status');
   const selected = (status.data?.profiles ?? []).find((item) => item.name === profile);

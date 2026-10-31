@@ -331,7 +331,7 @@ test('observed skipped upgrade names are resolved by direct lookup, not left to 
 // Defect 7: an unresolvable skipped name stays visible as a gap, and a failed
 // lookup chunk is reported instead of being hidden behind the sample.
 test('unresolved skipped names and failed lookup chunks are reported, never silently dropped', async () => {
-  const { captureCustomizations } = await import('../src/customizations.js');
+  const { captureCustomizations, formatReport } = await import('../src/customizations.js');
   const { sdk } = queryAwareSdk({
     sys_metadata: [{ sys_id: 'm1', sys_update_name: 'sys_script_present', sys_name: 'Present', sys_scope: 'global', sys_class_name: 'sys_script' }],
     sys_upgrade_history_log: [
@@ -364,6 +364,48 @@ test('unresolved skipped names and failed lookup chunks are reported, never sile
   assert.match(lookup.reason, /ACL visibility or a read error/);
   assert.equal(blocked.coverage.upgrade_evidence.lookup_failures, 1);
   assert.equal(blocked.categories.ootb_modifications.length, 1);
+  for (const options of [{}, { filter: 'sys_script' }]) {
+    const text = formatReport(blocked, options);
+    assert.match(text, /permission_denied/);
+    assert.match(text, /failed lookup chunks: 1/);
+    assert.match(text, /ACL visibility or a read error/);
+  }
+  assert.match(formatReport(result), /Unresolved skipped update names.*sys_script_absent/);
+});
+
+test('reverted skip lookups can add unclassified artifacts outside the broad sample without establishing a modification', async () => {
+  const { captureCustomizations, formatReport } = await import('../src/customizations.js');
+  const sample = { sys_id: 'sample', sys_update_name: 'sys_script_sample', sys_name: 'Sample', sys_scope: 'global', sys_class_name: 'sys_script' };
+  const outside = { ...sample, sys_id: 'outside', sys_update_name: 'sys_script_outside', sys_name: 'Reverted' };
+  const { sdk } = queryAwareSdk({
+    sys_metadata: [sample, outside],
+    sys_upgrade_history_log: [{ sys_id: 'skip', file_name: outside.sys_update_name, disposition: '4', resolution_status: 'reviewed_reverted' }],
+  });
+  const report = await captureCustomizations({ sdk, pageSize: 1, maxPages: 1 });
+  assert.equal(report.coverage.sources.sys_metadata.fetched, 1);
+  assert.equal(report.categories.ootb_modifications.length, 0);
+  assert.ok(report.categories.unclassified.some(item => item.identity.sys_id === outside.sys_id));
+  assert.match(report.coverage.limitations.join(' '), /not complete inventories/);
+  assert.match(formatReport(report), /artifacts found by skipped-history lookups/);
+});
+
+test('empty captures retain uncertainty and viewing older captures does not rewrite stored evidence', async () => {
+  const { captureReport, getReport, formatReport, compareReports } = await import('../src/customizations.js');
+  const { buildActionableReport } = await import('../src/customizations-report.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customization-legacy-'));
+  try {
+    const report = await captureReport({ sdk: readOnlySdk({}), instance: 'https://mock.example', dir });
+    const before = JSON.stringify(report);
+    assert.equal(report.interpretation, undefined, 'interpretation is a derived view, not a capture schema migration');
+    assert.match(formatReport(report), /No findings is not proof/);
+    const view = buildActionableReport(report);
+    assert.equal(view.interpretation.automated_remediation, false);
+    assert.deepEqual(view.artifacts, []);
+    const compared = compareReports(report, report);
+    assert.deepEqual(compared.interpretation, view.interpretation);
+    assert.equal(JSON.stringify(report), before);
+    assert.equal(JSON.stringify(getReport(report.run_id, { dir })), before);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 // Defect 3: a 200 with an unexpected body is not an empty table.

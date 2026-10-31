@@ -1,0 +1,50 @@
+{
+  "kind": "actual-pdi-attachment-roundtrip",
+  "source_commit": "1c6f4492ea476d19dd6f5f58a0b9e537f4fc5f46",
+  "checked_at": "2026-10-29T06:27:00.661Z",
+  "doctor": {
+    "authenticated": true,
+    "verified": true,
+    "profile": "pdi",
+    "at": "2026-10-29T06:24:23.317Z"
+  },
+  "automatic_oauth_refresh_disabled": true,
+  "steps": [
+    {
+      "command": "records create --table sys_user_preference -f name=jsn354.<unique> -f value=disposable-attachment-proof --force --json",
+      "exit_code": 0,
+      "owned_fixture_verified": true
+    },
+    {
+      "command": "attachments upload <owned-tiny-file> --table sys_user_preference --sys-id <owned-parent> --name jsn354-proof.txt --force --json",
+      "exit_code": 0,
+      "attachment_id_present": true
+    },
+    {
+      "command": "attachments list --sys-id <owned-parent> --json",
+      "exit_code": 0,
+      "count": 1,
+      "uploaded_attachment_present": true
+    },
+    {
+      "command": "attachments download <owned-attachment> --json",
+      "exit_code": 0,
+      "parent_id_required": false,
+      "filename_matches": true,
+      "bytes": 57,
+      "exact_bytes_match": true
+    },
+    {
+      "command": "records delete exact owned sys_attachment and sys_user_preference IDs --force; re-list both",
+      "exit_code": 0,
+      "attachment_gone": true,
+      "fixture_gone": true
+    },
+    {
+      "context_unchanged": true,
+      "scope_or_update_set_selection_commands": 0
+    }
+  ],
+  "ok": true,
+  "privacy": "Only unique disposable preference and tiny public harmless text; IDs, hostname and credentials omitted."
+}

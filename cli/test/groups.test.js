@@ -13,9 +13,6 @@ for (const [name, factory, expected] of [
   ['GroupRoles', groupRolesCmd, ['list', 'add', 'remove']],
 ]) {
   describe(`${name} Command`, () => {
-    it('exports the command factory', () => {
-      assert.strictEqual(typeof factory, 'function');
-    });
     it('defines the expected subcommands', () => {
       const names = captureCommands(factory(wrapHandler)).map(s => s.command.split(' ')[0]);
       for (const name of expected) assert.ok(names.includes(name), `should have ${name}`);

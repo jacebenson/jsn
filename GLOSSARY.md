@@ -17,8 +17,20 @@ An owned native ZIP installation, identified by `.jsn-mid-direct.json`, separate
 from a Docker Compose installation. Prepared means extracted and configured but
 not started. Started means the native launcher completed; registration requires
 an instance read showing Up. Readiness additionally requires raw `validated=true`
-after the user performs the manual Validate trust operation. Windows currently
-uses a foreground console and does not register a system service.
+after an explicitly approved platform Validate trust operation. Local Windows
+direct mode uses a foreground console; remote Windows mode registers a uniquely
+named vendor service under LocalService.
+
+## Remote MID deployment
+
+An SSH-targeted runtime with a private local ownership receipt and independently
+verified remote ownership. Docker deployments bind an engine ID and labels to
+exact container, volume, network and image names. Native deployments bind a UUID
+marker and private directory to a Windows service executable/account or Linux
+SSH-user process. Credentials travel on stdin, never in local receipts or SSH
+arguments. Runtime start, instance registration Up and trust validation are
+separate facts. Teardown must stop and verify the owned runtime before deleting
+its files/resources or instance MID record; failure retains an uncertain receipt.
 
 ## Customization capture
 
@@ -57,6 +69,73 @@ Upgrade history joins `file_name` to metadata `sys_update_name`. Raw disposition
 `4` and `104` identify preserved-customization skips; `reviewed_reverted` resolution
 excludes that row. Display labels and other skip reasons are not equivalent evidence.
 
+## Browser session import
+
+An explicit `auth login --browser` operation launches a chosen installed
+Chromium-family browser with a fresh temporary profile and waits for login.
+Its loopback DevTools port is assigned automatically. It obtains the
+page's `g_ck` and only cookies applicable to the current-user API URL, verifies
+the current account, and persists standard `gck` credentials. It never chooses
+between multiple matching tabs or imports a different account into an existing
+named identity. Import is also available in setup's browser-session flow.
+The login browser is closed and its temporary profile removed after completion,
+cancellation, or failure. `--browser-url` retains an advanced connection path
+that does not launch or close the user's existing browser.
+Browser import is a credential acquisition path, not a fourth auth method;
+Firefox and normal-profile browser integration remain future work.
+
+## Runtime authentication recovery
+
+`src/auth-recovery.js` creates the App-owned, identity-scoped recovery provider
+passed to the SDK as `opts.recovery`. Its `recover({ status, method, url })`
+returns true only after replacing credentials. Its safe `error` supplies guidance
+if the single retry is rejected. Only HTTP 401 from a non-bootstrap request may
+recover and replay once; uncertain mutation outcomes never replay.
+
+Browser profiles persist `reauth: auto | confirm | never`; missing means
+`confirm`. Both `auto` and `confirm` require a prompt-capable invocation through
+`canUsePicker`. The interactive `confirm` prompt defaults to Yes; explicitly
+declining keeps the browser closed and does not replay the rejected command.
+OAuth refreshes the selected credential identity; Basic never
+renews. HTTP 401 is `auth_error` with status and recovery guidance, HTTP 403 is
+`forbidden` with ACL/role guidance. Neither exposes provider bodies.
+
+## Authentication status
+
+A status report separates saved credential availability from live connection
+verification. Its default table and machine output omit user identity and
+instance URLs; `auth status --details` explicitly reveals those fields, with
+**User** as the identity column label. `--local` reports saved metadata without
+an instance request. Profile names remain visible as selection identifiers.
+
+## Authentication operations
+
+The operations exported by `src/commands/auth.js` are the common implementation
+for both `auth` command handlers and the human `setup` menu. The setup wizard
+collects answers and calls `loginProfile`; it does not store credentials or
+persist profiles independently. Login owns identity verification, preferences,
+and saving. `--name` creates a new connection; `--profile` reconnects an existing
+one. Defaults change only through a human choice, `--make-default`, or
+`auth switch`. Public settings flags assign explicit values, so repeating a
+bot's `auth modify` request is idempotent. Noninteractive commands never open
+implicit prompts or browsers.
+
+## CI search
+
+`cmdb search` is a read-only, literal substring lookup across four common CI
+identity fields. Every OR branch keeps the exact class restriction. Stable
+name/sys_id ordering and one-row lookahead provide bounded pagination without
+claiming an unreadable count is zero. Failed strict reads remain errors.
+
+## Record metadata reader
+
+An invocation-scoped SDK-bound reader of shared form layouts, table inheritance,
+and related-list definitions. It caches metadata reads in-process, uses optional
+GET-only batching and bulk section queries, and reports coverage uncertainty.
+It retrieves definitions rather than related record data. Static references can
+be described declaratively; scripted relationships remain platform-required.
+Generic record retrieval does not automatically fetch form metadata.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as
@@ -75,6 +154,35 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
   Read-only profiles block these. See *capability registry*.
 
+## Attachment transfer
+
+`attachments` is the standalone owner of file listing, download and upload.
+`download`/`get` identifies the attachment itself, without requiring its parent;
+`upload`/`add` identifies the destination table and parent record and declares a
+mutation capability. The former `records attachments` subtree is removed.
+`records get --attachments` remains an optional record-view enrichment. Download
+metadata cannot choose directories or device filenames, and existing local
+files require explicit `--overwrite`. Results use the normal output envelope.
+
+## Command discovery
+
+`jsn discover` searches the live command registrations used for dispatch. Root
+names, aliases, descriptions and child help paths are derived from the command
+tree. Factory-built commands additionally expose their actual table/default
+column configuration and supported view benefits through optional `discovery`
+metadata on the command definition. This metadata is additive to the existing
+root JSON registry; it is not a second command inventory or a mutation policy.
+
+After login or OAuth refresh, the selected profile caches a command audience
+bound to its account and instance. A verified `admin` role shows the full
+surface. Other authenticated accounts see a compact task and connection surface;
+an unavailable role check also uses that compact presentation and records the
+uncertainty. Existing profiles without a cached audience retain the full surface
+until authentication is renewed. Root help, root JSON, `discover`, and root shell
+completion share this policy. `--all-commands` restores the full surface.
+Explicit command paths are always registered; this is presentation, never an
+ACL or an authorization claim. Role changes are picked up on authentication.
+
 ## Capability registry
 
 `src/capabilities.js`. The single source of truth for command metadata the
@@ -86,7 +194,10 @@ The middleware **derives** the skip-lists (instance guard, daily checks,
 context header) and the mutation-guard path list from this registry — it never
 matches `argv._[0]` against hand-written string lists.
 
-Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`.
+Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`,
+`skipContextHeader`. Auth and setup declare `skipContextHeader` so profile
+management does not display or probe the old instance's scope/user/update set.
+Daily checks remain independently controlled.
 
 > Replaced: hand-maintained skip-lists in `cli.js` plus the hand-written
 > mutation registry in `mutations.js`.
@@ -98,14 +209,57 @@ record. `resolveRecord(sdk, { table, identifier, matchField, resource })` → th
 record (with display values) or a standard `not_found` error; `resolveSysId`
 returns just the id; `isSysId` / `unwrapSysId` are the primitives.
 
-Behind the interface: identifier classification (32-char hex → `sys_id`, else
-the table's human field like `number`/`name`/`user_name`), safe-exact-match
-assertion, `sysparm_display_value=all`, single-record extraction, sys_id
-unwrapping. Commands do "resolve → mutate → report."
+Behind the interface: configured human-field precedence for nonhex identifiers,
+explicit `identifierField` disambiguation (including legacy/nonhex sys_ids),
+exact lookup followed by sys_id prefix then suffix. Each query requests at most
+two rows; multiple matches fail with `ambiguous`, zero with `not_found`. Errors
+carry machine-readable `resolution` metadata. Explicit human fields never use
+partial matching. `isSysId` remains a 32-hex precedence heuristic, not a claim
+that other values cannot be sys_ids. Commands do "resolve → mutate → report."
+
+`src/records-engine.js` supplies shared in-process list/get/create/update/delete
+operations. Generic records, ticket and table factories call this engine while
+retaining their payload, confirmation, scope, picker and output policies. Read
+commands accept explicit `--display-values raw|display|both`; omitted preserves
+existing reference representation. No engine operation spawns another CLI.
 
 > Replaced: ~12 divergent hand-rolled "query by identifier, throw if empty"
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,
 > `catalog.js`.
+
+## Record command profiles
+
+`src/record-command-profiles.js` owns table/alias/default-column, identifier,
+reference representation, list projection and essential/supplementary relationship
+policy for the migrated table and ticket factories. `src/record-profiles.js`
+validates immutable definitions and builds actual commands through the existing
+factories. `buildRecordProfile` accepts an additional declarative definition;
+`buildProfileCommand` selects a bundled one. Executable hooks (scope checks,
+show enrichment, custom resolvers) remain code and extend the configured command.
+The command's `recordProfile` metadata is the same validated definition used to
+implement it; it is not a separate discovery-only map.
+
+## Essential related records
+
+A specialized record profile opts in through `relationships.essential` entries
+(name, table, foreignKey, columns, ordering, bounded limit). Its show operation
+reads those children in parallel and attaches `_essential` results with records,
+loaded count, visible-row/ACL coverage, truncation and an exact retrieval hint.
+`--no-essential` skips those reads. Unavailable sources stay explicit; they never
+become successful empty arrays. Profile hooks remain composable. Generic get
+and supplementary metadata/counts are separate and never fetch these children
+implicitly. UI policies declare actions as essential, replacing console-only
+output with the same children in JSON and human record sections.
+
+## Constrained table views
+
+A table factory's `extraQuery` defines a fixed list filter, not a default that a
+user query replaces. `src/constrained-query.js` combines that filter with
+literal AND predicates and ordering. OR/NQ/dynamic directives are rejected
+before requests because encoded queries have no portable grouping syntax that
+would preserve the fixed constraint. Generic records retain unrestricted
+encoded-query support. `b4rules` specifically constrains `when=before` and the
+Boolean `action_query=true`; rule order is not the classification.
 
 ## Session
 
@@ -117,6 +271,8 @@ credentials and flags?" — effective instance URL, active profile (name +
 an instance or profile without mutating the saved active profile.
 
 The provider's authenticated HTTP session is separate from this local identity.
+Concurrent requests on one SDK client share session initialization; failed
+initialization can be retried by a later request.
 Its effective application and capture update set are selected through the
 concourse picker API in `src/context.js`, with session readback before success.
 Writing a `sys_user_preference` row does not synchronize an already-warmed HTTP
@@ -147,12 +303,29 @@ Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
   (`--json`/`--quiet`/`--styled`/`--markdown`/`--csv`) beat `--format`, and the
   last shortcut applied wins (`csv` > `markdown` > `styled` > `quiet` > `json`).
 
+## Catalog ordering
+
+`catalogitems search/describe/order` uses the native Service Catalog API for
+requester access and fulfillment. Ordering is a declared mutation with its own
+confirmation and read-only guard. It is exempt from development capture-context
+selection because it submits runtime business requests, not metadata changes.
+A preview never posts; unknown submission outcomes never cause automatic replay.
+Inputs are catalog variables, not arbitrary fields on an RITM or request header.
+
 ## Catalog item enrichment
 
 `src/commands/catalog/enrich.js`. `enrichCatalogItem({ sdk, instanceUrl,
 sysID })` → an enriched catalog item: variables fetched and grouped by variable
 set, flow/workflow/delivery-plan names resolved. Pure async data-shaping —
 no yargs, no output formatting. `catalog.js` keeps wiring, create/submit, list.
+
+## Knowledge search
+
+`knowledge` (`kb`) searches and reads through the native Knowledge API, keeping
+article access decisions on the instance. It never retries via the Table API.
+Search text is passed as a query parameter, not interpolated into an encoded
+table query. Article HTML stays intact in JSON and renders as Markdown for
+humans. Read commands omit parameters that explicitly increment view counts.
 
 ## Docs data layer
 
@@ -234,6 +407,21 @@ Dispatch is not success; log and artifact readback are required.
 
 ---
 
+## Release channel
+
+The installed package version determines the npm update channel: versions with
+`-dev.` use the `dev` dist-tag; stable versions use `latest`. Both the daily
+notification and `version --check` query that channel and offer its install
+command. Daily checks are throttled separately per channel. Updates require an
+explicit npm install; JSN does not replace itself.
+
+Each channel supports its current release plus its two previous releases, ordered
+by version. Stable and dev windows are independent. Publishing advances the
+channel's dist-tag through OIDC without deprecating older versions or requiring
+an npm access-token secret. Older versions remain available outside the support
+window. Deprecation is an optional, separately authenticated maintenance action;
+existing deprecations are preserved and no package versions are unpublished.
+
 ## Invariants (things that must stay true)
 
 - **Mutations are declared, not listed.** Adding a mutating subcommand means
@@ -293,3 +481,125 @@ confirmation or customization step. Existing profiles preserve their explicit
 settings and historical defaults for omitted fields. Editing global preferences
 does not rewrite existing profiles. Documentation source is also installation-wide,
 not a per-instance setting; project-local configuration cannot override either.
+## Auth implementation modules
+
+`src/auth.js` preserves the public auth API and identity-aware `AuthManager`.
+Credential storage, OAuth/PKCE helpers, browser-session input parsing and pure
+credential-state classification live under `src/auth/`. This separation does
+not change credential keys, environment precedence or probe side effects.
+
+## Customization interpretation
+
+`interpretation` is derived guidance shared by customization help, JSON/text
+review and comparison, and offline HTML reports. It explains evidence meaning,
+coverage limits and safe next steps without changing captured evidence or the
+stored capture schema. Older captures receive the same guidance when viewed;
+no report migration is required. Per-artifact `triage` remains the classification
+and confidence assessment, separate from unverified runtime/reversion risk.
+
+### Supplementary related-list observations
+
+A **related-list count** is an opt-in aggregate observation attached as `_related`
+to a specialized show result. It is distinct from eager essential-child data.
+Safe reference metadata and AND-only literal filters bind each aggregate query
+to the resolved parent record. Only actual aggregate zero means zero; denied,
+unserviced, malformed, unknown and capped descriptors retain unavailable counts
+and partial coverage. Counts are scoped to Aggregate API permissions. Nonempty
+lists suggest exact, connection-pinned commands rather than fetching related
+records. Descriptor fanout defaults to 50, individual reads use at most four
+concurrent calls, and caches are SDK/invocation-bound. Generic get is unchanged.
+
+### Optional batch reads
+
+A **batch read** is an explicit `SDKClient.batch` operation over independent,
+same-instance GET subrequests. The native Batch API envelope is correlated by ID;
+per-item failures, unserviced IDs, and missing responses stay distinct. Only an
+explicitly unsupported outer endpoint permits sequential read fallback. Normal
+SDK methods stay unbatched, writes are rejected before dispatch, and authentication
+or ACL errors never silently trigger fallback. See `docs/sdk-batch.md`.
+
+## Local mutation history
+
+Table API creates, updates and deletes invoked by the CLI record one final local
+history event after authentication retries finish. The seven-day SQLite store is
+independent of documentation indexes. Events contain instance origin, profile,
+table, resolved record ID, operation, outcome and an optional non-sensitive
+reason; request/response bodies and credentials are never serialized. A definitive
+HTTP rejection is failed; an uncertain transport outcome is unknown. Local storage
+failure warns without changing the remote operation's result. This convenience
+history is not a durable ServiceNow audit log. Human output uses local time and
+a compact table; `--details` expands identifiers and reasons. Structured output
+retains full IDs, instance origins and ISO timestamps. Fixture test runs use a
+disposable history store instead of the developer's store.
+
+### Mutation capture-context approval
+
+A **capture-context guard** resolves the selected application and update set before
+an instance mutation, independently of output headers and delete-confirmation
+preferences. Confirmed Global scope plus the exact Default update-set name requires
+explicit approval; `--force` records approval for that invocation. A missing scope
+preference or failed lookup is unknown context, never evidence of Global scope.
+Scope mismatches are warnings with a concrete selection command; selected completed
+capture sets are errors. Success JSON carries `context.mutation`; blocked commands
+carry `context` with stable diagnostic codes, severity, remediation, and approval
+state. Ordinary creates/updates in other contexts need no confirmation.
+
+Capabilities declare remediation exemptions (`mutationContextExemptSubcommands`)
+and read methods (`mutationContextReadMethods`) separately from mutation paths.
+Creating/selecting an application or update set remains possible to resolve unsafe
+context. REST GET bypasses capture-context approval but remains blocked on read-only
+profiles, along with every other raw REST request.
+
+## Documentation snapshot
+
+A documentation snapshot is an immutable compressed SQLite FTS5 index, built once
+from a recorded source revision with the existing ingestion code. Its manifest
+identifies format/schema compatibility, source revision, sizes, checksum and an
+artifact-storage URL. A lightweight Rails service records build/publication state
+and exposes the last good manifest; the CLI downloads artifact bytes directly
+from storage. Documentation remains optional, independently installed from local
+mutation-history storage. Snapshot installation uses cooperative local reader and
+installer leases and validates the staged database before replacing the index.
+Local search remains available offline; freshness work cannot delay it.
+
+### Retrieved update-set XML
+
+A retrieved update set (`sys_remote_update_set`) is an inert promotion artifact,
+separate from the current local capture set (`sys_update_set`). `updatesets import`
+loads a validated XML export through the native upload processor, verifies its
+member identities/actions, and leaves it loaded and uncommitted. It never changes
+the current capture context or completes a set. Its declared `--dry-run` preview
+is local only, including on read-only profiles. XML member summaries and the
+separate payload-operation summary distinguish captured updates from subsidiary
+operations that would run on a later platform commit. `platform_default` means
+that a payload record omitted an explicit action; inspection does not infer it.
+Reopening is an explicit local state change, independent of selection or export.
+
+## Managed agent skill copies
+
+The packaged ServiceNow skill is the source for `skill show`, `fetch`, `check`
+and `install`. Installation records all selected file locations; the legacy
+`skillLocation` points to the first. A plain reinstall replaces that recorded set.
+Explicit destinations select a new managed set. Freshness means identical file
+contents, including edits that leave the frontmatter version unchanged.
+## Instance Scan
+
+`jsn scan` separates check definitions (`checks`), groups of checks (`suites`),
+explicit targets (`run`), execution progress (`status`), and findings/coverage
+(`results`). Activation changes eligibility without starting an execution.
+Provider execution success is separate from findings and recorded check counts;
+unreadable or truncated coverage must never become a clean zero. Scan dispatch
+is not automatically retried, and an expired local wait does not cancel the
+provider's execution. Instance-wide runs require explicit `--full`, including
+when reusing a previous instance-wide target.
+
+## Configured domain and browser-session domain
+
+`session.domain` is the selected profile's configured `X-Now-Domain` header;
+it is not a snapshot of the platform's actual session domain. `domains current`
+reports configuration. Explicit `domains session-*` commands read or change the
+server-side domain using saved browser-session credentials. These requests omit
+the configured header without mutating SDK or profile state. Picker results are
+paged and limited by the actual session domain. Resetting to global is an
+explicit mutation, never an implicit prerequisite to listing or selecting.
+Session changes require readback verification and may affect a shared browser.

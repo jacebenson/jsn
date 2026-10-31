@@ -15,3 +15,4 @@ docs/_site
 .env.*
 **/.env
 **/.env.*
+site/config/master.key

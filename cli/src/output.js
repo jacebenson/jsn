@@ -160,6 +160,13 @@ export class OutputWriter {
     const format = this.effectiveFormat();
     const e = error.code ? error : { code: 'unknown', message: String(error), hint: '' };
     const resp = { ok: false, error: e.message, code: e.code, hint: e.hint || '' };
+    if (e.resolution) resp.resolution = e.resolution;
+    if (e.context) resp.context = e.context;
+    if (e.status === 401 || e.status === 403) resp.status = e.status;
+    if (e.recovery) {
+      resp.recovery = e.recovery;
+      if (Object.hasOwn(e, 'profile')) resp.profile = e.profile;
+    }
     switch (format) {
       case FormatJSON:
       case FormatQuiet:
@@ -282,7 +289,7 @@ export class OutputWriter {
   writeStyled(data, opts) {
     // ── The `_formatted` interface ──────────────────────────────────────
     // Commands may ship a pre-rendered styled view as `data._formatted`
-    // (a plain string). The writer prints it verbatim and suppresses both
+    // (a plain string). The writer ensures a trailing newline and suppresses both
     // opts.summary and the records table / field-dump renderers — the
     // curated visual IS the output. JSON/quiet/markdown/csv formats ignore
     // `_formatted` entirely and serialize the full envelope as usual, so
@@ -309,7 +316,7 @@ export class OutputWriter {
       }
     } else if (data && typeof data === 'object') {
       if (data._formatted) {
-        this.writer.write(data._formatted);
+        this.writer.write(data._formatted.endsWith('\n') ? data._formatted : data._formatted + '\n');
       }
 
       const { isRecord, tableName } = detectRecord(data);
@@ -505,6 +512,31 @@ export class OutputWriter {
         const arrow = rel.direction === 'upstream' ? '↑' : '↓';
         this.writer.write(`  ${arrow} ${rel.name} (${rel.class}) — ${rel.type}\n`);
       }
+      this.writer.write('\n');
+    }
+
+    if (data._essential && typeof data._essential === 'object') {
+      for (const [name, related] of Object.entries(data._essential)) {
+        this.writer.write(`─ Essential: ${name} (${related.loaded} loaded${related.has_more ? ', more available' : ''}) ─\n`);
+        if (related.status !== 'loaded') this.writer.write(`  Unavailable: ${related.error?.message || 'Read could not be completed.'}\n`);
+        for (const row of related.records || []) {
+          const fields = Object.entries(row).filter(([field]) => field !== 'sys_id').map(([field, value]) => `${field}: ${getDisplayValue(value)}`);
+          this.writer.write(`  ${fields.join(' | ')}\n`);
+        }
+        this.writer.write(`  ${related.visibility}\n`);
+        if (related.command) this.writer.write(`  Retrieve: ${related.command}\n`);
+        this.writer.write('\n');
+      }
+    }
+
+    if (data._related && typeof data._related === 'object') {
+      this.writer.write('─ Related lists ─\n');
+      for (const list of data._related.nonempty || []) {
+        this.writer.write(`  ${list.label}: ${list.count}\n`);
+        if (list.command) this.writer.write(`  Retrieve: ${list.command}\n`);
+      }
+      this.writer.write(`  Coverage: ${data._related.coverage?.state || 'unknown'}; counts reflect aggregate API access and visible metadata.\n`);
+      for (const warning of data._related.coverage?.warnings || []) this.writer.write(`  Unknown (${warning.source}): ${warning.reason}\n`);
       this.writer.write('\n');
     }
 

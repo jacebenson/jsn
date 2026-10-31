@@ -67,10 +67,4 @@ describe('Auth', () => {
     await assert.rejects(() => auth.getCredentials(), /No instance configured/);
   });
 
-  it('generates PKCE params', async () => {
-    const { AuthManager } = await import('../src/auth.js');
-    // We can validate PKCE indirectly by testing exchangeCode would reject
-    const auth = new AuthManager({ getEffectiveInstance: () => '' });
-    assert.ok(auth.httpClient);
-  });
 });

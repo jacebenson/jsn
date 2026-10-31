@@ -259,7 +259,7 @@ it('focused auth status keeps configured default instance semantics', async () =
       return mockYargs;
     } };
     cmd.builder(mockYargs);
-    await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', _: ['status'] });
+    await subcommands.find(s => s.def === 'status').handler({ app, profile: 'second', details: true, _: ['status'] });
     assert.strictEqual(output[0].default_instance, 'https://default.example.com');
     assert.strictEqual(output[0].profiles[0].default, false);
   });
@@ -373,28 +373,6 @@ it('auth status supports --get-compatible diagnostics paths', async () => {
     assert.strictEqual(JSON.parse(chunks.join('')), 'missing_credentials');
   });
 
-it('auth status should not throw', async () => {
-    const { authCmd } = await import('../src/commands/auth.js');
-    const wrap = (fn) => async (argv) => { await fn(argv, argv.app); };
-
-    const cmd = authCmd(wrap);
-    const subcommands = [];
-    const mockYargs = {
-      command: (c, ...rest) => {
-        subcommands.push({ def: typeof c === 'string' ? c : c.command, builder: typeof c === 'object' ? c.builder : rest[0], handler: typeof c === 'object' ? c.handler : rest[1] });
-        return mockYargs;
-      },
-    };
-    cmd.builder(mockYargs);
-
-    const statusCmd = subcommands.find(s => s.def.startsWith('status'));
-    assert.ok(statusCmd, 'status subcommand not found');
-
-    await statusCmd.handler({ app: mockApp, _: ['status'] });
-    // Should not throw
-    assert.ok(true);
-  });
-
 it('auth status probes through AuthManager and keeps the SDK probe read-only', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const { AuthManager } = await import('../src/auth.js');
@@ -446,7 +424,7 @@ it('auth status probes through AuthManager and keeps the SDK probe read-only', a
     cmd.builder(mockYargs);
 
     const statusCmd = subcommands.find(s => s.def === 'status');
-    await statusCmd.handler({ app, _: ['status'] });
+    await statusCmd.handler({ app, details: true, _: ['status'] });
 
     assert.strictEqual(probeCalls.length, 1);
     assert.strictEqual(probeCalls[0].instance, instance);

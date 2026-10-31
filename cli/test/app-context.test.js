@@ -2,12 +2,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
 describe('App context', () => {
-  it('exports App class', async () => {
-    const { App } = await import('../src/app.js');
-    assert.ok(App);
-    assert.strictEqual(typeof App, 'function');
-  });
-
   it('creates App with config', async () => {
     const { App } = await import('../src/app.js');
     const cfg = { instanceURL: 'https://test.service-now.com', profiles: {}, activeProfile: '' };

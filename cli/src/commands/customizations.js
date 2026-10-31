@@ -4,6 +4,7 @@ import { canUsePicker } from '../helpers.js';
 import { paginatedSearch } from '../paginated-search.js';
 import { captureReport, listReports, getReport, compareReports, formatReport, formatReportList, formatReportComparison } from '../customizations.js';
 import { buildActionableReport, writeCustomizationHtml } from '../customizations-report.js';
+import { customizationGuidance, formatCustomizationGuidance } from '../customization-guidance.js';
 
 // Only capture needs an instance. Saved reports never need network access.
 declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
@@ -25,7 +26,7 @@ async function pickReport(app, argv, exclude = null, message = 'Select a customi
 function show(app, report, options = {}) {
   const actionable = buildActionableReport(report);
   const triage = actionable.artifacts.map(({ category, category_label, identity, triage: classification }) => ({ category, category_label, identity, ...classification }));
-  app.ok({ ...report, triage, _formatted: formatReport(report, options) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
+  app.ok({ ...report, interpretation: customizationGuidance(), triage, _formatted: formatReport(report, options) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
 }
 export function customizationsCmd(wrap) {
   return {
@@ -36,7 +37,8 @@ export function customizationsCmd(wrap) {
         builder: b => b.option('label', { type: 'string', describe: 'Label for this capture' })
           .option('customer-scope', { type: 'string', array: true, default: [], describe: 'Declared customer-owned scope value or sys_id, repeatable; ownership is not inferred' })
           .option('page-size', { type: 'number', default: 100, describe: 'Records per table page, 1..1000' })
-          .option('max-pages', { type: 'number', default: 10, describe: 'Maximum pages per source, 1..100' }),
+          .option('max-pages', { type: 'number', default: 10, describe: 'Maximum pages per source, 1..100' })
+          .epilogue(`${customizationGuidance().capture}\n${formatCustomizationGuidance()}\nExample: jsn customizations capture --label review --customer-scope x_acme_app --json`),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
           if (!Number.isInteger(argv.pageSize) || argv.pageSize < 1 || argv.pageSize > 1000 || !Number.isInteger(argv.maxPages) || argv.maxPages < 1 || argv.maxPages > 100) throw errUsage('page-size must be 1..1000 and max-pages 1..100');
@@ -55,18 +57,21 @@ export function customizationsCmd(wrap) {
       })
       .command({ command: 'show [run_id]', describe: 'Review a saved capture offline', builder: b => b
         .option('group-by', { type: 'string', choices: ['type', 'scope', 'updated-by'], default: 'type', describe: 'Group summary by file type, scope or last updater' })
-        .option('filter', { type: 'string', describe: 'Expand a group shown in the summary (friendly or table name for file types)' }), handler: wrap(async (argv, app) => {
+        .option('filter', { type: 'string', describe: 'Expand a group shown in the summary (friendly or table name for file types)' })
+        .epilogue(`Offline review: inspect coverage, interpretation and triage in --json output.\n${formatCustomizationGuidance()}\nExample: jsn customizations show <run_id> --get data.triage`), handler: wrap(async (argv, app) => {
         const report = argv.run_id ? requireReport(argv.run_id) : await pickReport(app, argv);
         if (report) show(app, report, { groupBy: argv.groupBy, filter: argv.filter || '' });
       }) })
       .command({ command: 'html [run_id]', describe: 'Write a searchable, self-contained HTML review of a saved capture', builder: b => b
-        .option('out', { type: 'string', describe: 'Output HTML path (must not already exist)' }), handler: wrap(async (argv, app) => {
+        .option('out', { type: 'string', describe: 'Output HTML path (must not already exist)' })
+        .epilogue('Offline review with the same interpretation and coverage as show; writes a local file without changing instance records.\nExample: jsn customizations html <run_id> --out review.html'), handler: wrap(async (argv, app) => {
         const report = argv.run_id ? requireReport(argv.run_id) : await pickReport(app, argv);
         if (!report) return;
         const file = writeCustomizationHtml(report, { out: argv.out });
-        app.ok({ run_id: report.run_id, file, artifacts: Object.values(report.categories).reduce((total, items) => total + items.length, 0) }, { summary: `Wrote offline customization review: ${file}`, breadcrumbs: [listHint, showHint(report.run_id)] });
+        app.ok({ run_id: report.run_id, file, artifacts: Object.values(report.categories).reduce((total, items) => total + items.length, 0), interpretation: customizationGuidance() }, { summary: `Wrote offline customization review: ${file}`, breadcrumbs: [listHint, showHint(report.run_id)] });
       }) })
-      .command({ command: 'compare [baseline] [new]', describe: 'Compare two saved captures from the same instance', handler: wrap(async (argv, app) => {
+      .command({ command: 'compare [baseline] [new]', describe: 'Compare two saved captures from the same instance',
+        builder: b => b.epilogue(`Offline metadata/evidence comparison; inspect both captures' coverage before interpreting changes.\n${formatCustomizationGuidance()}\nExample: jsn customizations compare <baseline_id> <new_id> --json`), handler: wrap(async (argv, app) => {
         if (!!argv.baseline !== !!argv.new) throw errUsage('Compare requires exactly two report IDs');
         if (argv.baseline && argv.baseline === argv.new) throw errUsage('Compare requires two different report IDs');
         const baseline = argv.baseline ? requireReport(argv.baseline) : await pickReport(app, argv, null, 'Select the baseline capture');
@@ -76,7 +81,8 @@ export function customizationsCmd(wrap) {
         if (baseline.instance !== newer.instance) throw errUsage('Customization reports must describe the same instance');
         const result = compareReports(baseline, newer);
         app.ok({ ...result, _formatted: formatReportComparison(result) }, { summary: `Customization comparison: ${result.status}`, breadcrumbs: [listHint, showHint(baseline.run_id), showHint(newer.run_id)] });
-      }) }),
+      }) })
+      .epilogue(`${customizationGuidance().capture}\n${formatCustomizationGuidance()}\nStart: jsn customizations capture --help\nReview: jsn customizations show --help\nCompare: jsn customizations compare --help`),
     handler: wrap(async (_argv, app) => app.ok({ command: 'customizations', subcommands: ['capture', 'list', 'show', 'html', 'compare'] }, { summary: 'Use `jsn customizations <subcommand> --help` for details.' })),
   };
 }

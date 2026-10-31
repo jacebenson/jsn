@@ -15,8 +15,9 @@ permissions:
   contents: read
   id-token: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+concurrency:
+  group: publish-dev
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -27,10 +28,10 @@ jobs:
       run:
         working-directory: cli
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -53,5 +54,5 @@ jobs:
       - name: Publish dev prerelease
         run: |
           version=$(node -p "require('./package.json').version")
-          npm version "${version}-dev.${GITHUB_RUN_NUMBER}" --no-git-tag-version
+          npm version "${version}-dev.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" --no-git-tag-version
           npm publish --access public --provenance --tag dev

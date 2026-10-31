@@ -45,7 +45,7 @@ function cli(args, env) {
   });
 }
 test('docs exposes hosted search, show and status, without local index commands', () => {
-  assert.deepEqual(captureCommands(docsCmd(handler => handler)).map(command => command.command), ['search <query..>', 'show <id-or-path>', 'status']);
+  assert.deepEqual(captureCommands(docsCmd(handler => handler)).map(command => command.command), ['install', 'search <query..>', 'show <id-or-path>', 'status']);
 });
 test('hosted client sends only public API requests and preserves pagination, paths and revisions', async t => {
   const fixtureServer = await fixture(t);

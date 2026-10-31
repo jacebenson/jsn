@@ -20,6 +20,7 @@ export function captureCommands(command) {
     strict: () => yargs,
     check: () => yargs,
     middleware: () => yargs,
+    epilogue: () => yargs,
   };
   command.builder(yargs);
   return commands;

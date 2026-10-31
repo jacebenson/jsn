@@ -8,11 +8,6 @@ import assert from 'node:assert';
 // ─── Command Structure ───
 
 describe('Setup Command Structure', () => {
-  it('should export setupCmd function', async () => {
-    const { setupCmd } = await import('../src/commands/setup.js');
-    assert.strictEqual(typeof setupCmd, 'function');
-  });
-
   it('should define setup command with correct properties', async () => {
     const { setupCmd } = await import('../src/commands/setup.js');
     const wrap = (fn) => fn;
@@ -29,7 +24,7 @@ describe('dispatchSetupAction', () => {
   // Each test isolates saveConfig via temp XDG_CONFIG_HOME + cwd so the
   // REAL ~/.config/servicenow/config.json can never be clobbered.
   async function isolate(fn) {
-    const { mkdtempSync } = await import('node:fs');
+    const { mkdtempSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
     const origXdg = process.env.XDG_CONFIG_HOME;
@@ -43,10 +38,11 @@ describe('dispatchSetupAction', () => {
       process.chdir(origCwd);
       if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = origXdg;
+      rmSync(tmpDir, { recursive: true, force: true });
     }
   }
 
-  it('switch action activates the picked profile (no re-auth)', async () => {
+  it('switch action requires a name when multiple profiles exist without a prompt', async () => {
     await isolate(async () => {
       const { dispatchSetupAction } = await import('../src/commands/setup.js');
       const app = {
@@ -61,10 +57,9 @@ describe('dispatchSetupAction', () => {
         isInteractive: () => false,
         ok: (result, opts) => { app._lastResult = result; app._lastSummary = opts.summary; },
       };
-      await dispatchSetupAction(app, {}, 'switch');
-      // pickProfile with isInteractive false returns the first profile
+      await assert.rejects(dispatchSetupAction(app, {}, 'switch'), /Which profile/);
       assert.strictEqual(app.config.activeProfile, 'dev');
-      assert.strictEqual(app._lastResult.active_profile, 'dev');
+      assert.strictEqual(app._lastResult, undefined);
     });
   });
 
@@ -83,9 +78,14 @@ describe('dispatchSetupAction', () => {
         isInteractive: () => false,
         ok: (result) => { app._lastResult = result; },
       };
-      await dispatchSetupAction(app, {}, 'switch');
-      // The real setActiveProfile flips both active + default
-      assert.ok(app._lastResult.active_profile);
+      await dispatchSetupAction(app, { name: 'prod' }, 'switch');
+      assert.strictEqual(app.config.activeProfile, 'prod');
+      assert.strictEqual(app.config.defaultProfile, 'prod');
+      assert.strictEqual(app._lastResult.active_profile, 'prod');
+      const { loadConfig } = await import('../src/config.js');
+      const saved = loadConfig();
+      assert.strictEqual(saved.activeProfile, 'prod');
+      assert.strictEqual(saved.defaultProfile, 'prod');
     });
   });
 

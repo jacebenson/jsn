@@ -1,12 +1,14 @@
+import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
-import { resolveRecord, resolveSysId } from '../resolve-record.js';
+import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
+import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
 
-export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap) {
+export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap, opts = {}) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
   // Root-level command only.
   declareCapabilities(displayName, { mutationSubcommands: ['create', 'update', 'delete'] });
@@ -14,13 +16,14 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
     command: `${displayName} [subcommand]`,
     aliases: [table, alias],
     describe: `Manage ${displayName} (e.g. "${displayName} list --query priority=1")`,
+    discovery: { table, defaultColumns, benefits: ['Configured list columns', 'Ticket-specific create/update flags'] },
     builder: (yargs) => {
       return yargs
         .command({
           command: 'list',
           aliases: ['ls'],
           describe: `List ${table}`,
-          builder: (y) => y
+          builder: (y) => recordOptions(y)
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Max records' })
@@ -73,24 +76,19 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               app.ok(record, {
                 summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
                 breadcrumbs: [
-                  { action: 'update', cmd: `jsn ${alias} update ${number} --data '{...}'`, description: `Update this ${displayName}` },
+                  { action: 'update', cmd: `jsn ${alias} update ${number} -f state=2`, description: `Update this ${displayName}` },
                   { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
                 ],
               });
               return;
             }
 
-            const params = new URLSearchParams();
-            params.set('sysparm_limit', String(limit));
-            params.set('sysparm_offset', String(offset));
-            params.set('sysparm_display_value', 'all');
             const fields = resolveFieldsParam(columns);
-            if (fields) params.set('sysparm_fields', fields);
             const q = query ? query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
-            params.set('sysparm_query', q);
+            const params = recordListParams({ limit, offset, fields, query: q });
 
-            const records = await app.sdk.list(table, params);
-            const displayRecords = fields ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
+            const displayRecords = fields && !argv.displayValues && opts.listProjection !== 'full' ? records.map(r => formatRecordForDisplay(r, columns)) : records;
 
             const breadcrumbs = [
               { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },
@@ -129,9 +127,15 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
           command: 'show <number>',
           aliases: ['get'],
           describe: `Show a specific ${displayName}`,
+          builder: y => {
+            const command = relatedListOptions(recordOptions(y));
+            return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true, describe: 'Fetch declared essential children; use --no-essential to skip' }) : command;
+          },
           handler: wrap(async (argv, app) => {
             const number = argv.number;
-            const record = await resolveRecord(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
+            const record = await getRecord(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
+            if (opts.onShow) await opts.onShow(record, app, argv);
+            await enrichRelatedLists(record, { table, argv, app });
             record._context = {
               instance_url: app.getEffectiveInstance(),
               table,
@@ -139,7 +143,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             app.ok(record, {
               summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
               breadcrumbs: [
-                { action: 'update', cmd: `jsn ${alias} update ${number} --data '{...}'`, description: `Update this ${displayName}` },
+                { action: 'update', cmd: `jsn ${alias} update ${number} -f state=2`, description: `Update this ${displayName}` },
                 { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
               ],
             });
@@ -148,21 +152,21 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
         .command({
           command: 'create',
           describe: `Create a new ${displayName}`,
-          builder: (y) => y
+          builder: (y) => recordOptions(y, false)
             .option('description', { alias: 'd', type: 'string', describe: 'Short description' })
             .option('priority', { type: 'string', describe: 'Priority (1-5)' })
-            .option('data', { type: 'string', describe: 'JSON data for additional fields' }),
+            .option('data', { type: 'string', describe: 'JSON data for additional fields' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
-            const recordData = {};
-            if (argv.data) {
-              Object.assign(recordData, JSON.parse(argv.data));
-            }
+            const recordData = buildRecordPayload(argv, { required: false });
             if (argv.description) recordData.short_description = argv.description;
             if (argv.priority) recordData.priority = argv.priority;
             if (!recordData.short_description) {
-              throw new Error('short_description is required (use --description or --data)');
+              throw new Error('short_description is required (use --description, -f short_description=..., or --data)');
             }
-            const record = await app.sdk.create(table, recordData);
+            const record = await createRecord(app.sdk, { table, data: recordData });
             app.ok(record, {
               summary: `Created ${displayName} ${getStringField(record, 'number')}`,
               breadcrumbs: [
@@ -174,13 +178,16 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
         .command({
           command: 'update <number>',
           describe: `Update a ${displayName}`,
-          builder: (y) => y
-            .option('data', { type: 'string', demandOption: true, describe: 'JSON data to update' }),
+          builder: (y) => recordOptions(y, false)
+            .option('data', { type: 'string', describe: 'JSON data to update' })
+            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
-            const recordData = JSON.parse(argv.data);
-            const sysID = await resolveSysId(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
-            const updated = await app.sdk.update(table, sysID, recordData);
+            const recordData = buildRecordPayload(argv);
+            const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
+            const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
             app.ok(updated, {
               summary: `Updated ${displayName} ${number}`,
               breadcrumbs: [
@@ -192,12 +199,12 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
         .command({
           command: 'delete <number>',
           describe: `Delete a ${displayName}`,
-          builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+          builder: (y) => recordOptions(y, false).option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const number = argv.number;
             await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
-            const sysID = await resolveSysId(app.sdk, { table, identifier: number, matchField: 'number', resource: displayName });
-            await app.sdk.delete(table, sysID);
+            const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
+            await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
             app.ok({ number, message: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} deleted` }, {
               summary: `Deleted ${displayName} ${number}`,
             });

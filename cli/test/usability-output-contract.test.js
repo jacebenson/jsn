@@ -447,15 +447,13 @@ describe('#264 follow-up: discovery failures use the shared error renderer', () 
     // its own — if that stops being true the assertion below fails loudly rather
     // than quietly testing the wrong path.
     const { cli } = buildRegistry();
-    const records = cli.root.children.find((command) => command.name === 'records');
-    records.build();
-    const attachments = records.children.find((command) => command.name === 'attachments');
+    const attachments = cli.root.children.find((command) => command.name === 'attachments');
     assert.equal(attachments.definition.handler, undefined,
-      'records attachments must stay handler-less for this regression to cover the fallback');
+      'attachments must stay handler-less for this regression to cover the fallback');
     attachments.build();
     assert.ok(attachments.children.length > 0);
 
-    const miss = run(['records', 'attachments', '--json', '--get', 'data.nope']);
+    const miss = run(['attachments', '--json', '--get', 'data.nope']);
     assert.equal(miss.status, 1, `want exit 1 — ${miss.stdout} ${miss.stderr}`);
     assert.doesNotMatch(miss.stderr, /at LocalCLI|AppError:/, 'a miss must not print a Node stack');
     const envelope = JSON.parse(miss.stdout);
@@ -463,18 +461,18 @@ describe('#264 follow-up: discovery failures use the shared error renderer', () 
     assert.equal(envelope.code, CodeExtractionNotFound);
     assert.match(envelope.error, /data\.nope/);
 
-    const hit = run(['records', 'attachments', '--json', '--get', 'data.command']);
+    const hit = run(['attachments', '--json', '--get', 'data.command']);
     assert.equal(hit.status, 0, `${hit.stdout} ${hit.stderr}`);
-    assert.equal(JSON.parse(hit.stdout), 'records attachments');
+    assert.equal(JSON.parse(hit.stdout), 'attachments');
   });
 
   it('the handler-less parent still answers with its discovery envelope', () => {
-    const result = run(['records', 'attachments', '--json']);
+    const result = run(['attachments', '--json']);
     assert.equal(result.status, 0, `${result.stdout} ${result.stderr}`);
     const envelope = JSON.parse(result.stdout);
     assert.equal(envelope.ok, true);
-    assert.equal(envelope.data.command, 'records attachments');
-    assert.deepEqual(envelope.data.subcommands.map((child) => child.name), ['list', 'get', 'add']);
+    assert.equal(envelope.data.command, 'attachments');
+    assert.deepEqual(envelope.data.subcommands.map((child) => child.name), ['list', 'download', 'upload']);
   });
 });
 

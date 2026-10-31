@@ -44,6 +44,22 @@ private files and offers a foreground console, not native service registration.
 See [direct MID installation](mid-direct-install.md) for security boundaries,
 lifecycle commands and the untested Windows host phases. Docker remains available.
 
+## Create an update set in a scope
+
+```sh
+jsn updatesets create --name "Workspace changes" --scope sn_sow
+```
+
+`--scope` accepts a scope value, application sys_id, or display name, using the
+same resolver as `jsn scopes set`. JSN selects and verifies the application
+before creating the update set in that application, then selects the new set.
+An unknown, ambiguous, or unselectable scope stops creation. Omit `--scope`
+to keep the existing behavior.
+
+The scope switch persists if creation later fails. If creation succeeds but
+selecting the new set fails, the output reports the created record and a warning.
+Inspect that record rather than rerunning create and making a duplicate.
+
 ## Customization reports
 
 ```sh
@@ -185,6 +201,13 @@ jsn records list --table incident --limit 10 --no-count                       # 
 jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
 jsn records list --table incident --limit 10 --csv                            # output CSV
+
+# Attachment transfers (standalone, also discoverable via jsn attachments --help)
+jsn attachments list --sys-id <record-id> --json
+jsn attachments download <attachment-id> --out ./report.pdf
+jsn attachments upload ./report.pdf --table incident --sys-id <record-id>
+# get/add alias download/upload; uploads require confirmation, or --force after approval.
+# Downloads refuse existing files unless --overwrite is explicitly supplied.
 
 # Read-only cross-profile record diff
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
@@ -349,8 +372,8 @@ wizard. In those modes provide identifiers and required scope/record/data
 explicitly. Tests, publish and deletion require `--force` or the profile's
 existing explicit skip-confirmations setting when prompting is unavailable.
 Read-only profiles still block mutations before authentication or prompting.
-Press Escape in record pickers or Ctrl+C in any wizard to cancel. Refusing a
-final confirmation leaves the instance untouched.
+Press Escape in any prompt or record picker to cancel; Ctrl+C aborts as well.
+Refusing a final confirmation leaves the instance untouched.
 
 Existing action/flow scopes come from saved raw identifiers. New scopes offer
 the active application preference if available, then a searchable scope picker.
@@ -457,7 +480,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records` (list/get/create/update/delete/count/bulk/attachments), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 
@@ -487,17 +510,20 @@ to JSN and must be corrected before the update. Use a read-back command or
 Switch between instances without re-authenticating.
 
 ```bash
-jsn setup                    # Interactive: add, switch, remove, or modify instances
-jsn auth status              # Dashboard — auth state, read-only 🔒, skip-confirmations ⚡
+jsn setup                    # Guided login and connection management
+jsn auth status              # Compact profile status table
 ```
 
-`jsn setup` is the human front door — one command, interactive menu. For scripts and CI, use the atomic commands:
+`jsn setup` is the human front door. It collects answers and calls the same
+operations as `auth`: add, sign in again, status, choose a default, change
+settings, sign out, and remove. For scripts and CI, use explicit commands
+(Basic login below reads SN_USERNAME/SN_PASSWORD from the environment):
 
 ```bash
-jsn auth login https://dev12345.service-now.com   # Add + authenticate (scripted)
-jsn auth refresh                                  # Manually refresh the OAuth token
-jsn auth switch dev12345                          # Flip the active profile (scripted)
-jsn auth modify dev12345                          # Toggle read-only / skip confirmations
+jsn auth login dev12345 --name work --basic --read-only --make-default --json
+jsn auth refresh --profile work                   # Refresh an OAuth profile
+jsn auth switch work                             # Explicitly choose the default
+jsn auth modify work --read-only --no-include-counts --confirm-deletes --json
 ```
 
 ## Output Formats
@@ -513,6 +539,29 @@ jsn auth modify dev12345                          # Toggle read-only / skip conf
 
 ## Authentication
 
+`jsn auth status` shows a compact table of profiles, methods, credential state,
+connection verification, and read-only/delete-confirmation/count settings.
+The selected and default profiles are labeled explicitly. Usernames and
+instance URLs are hidden by default, including in JSON; add `--details` to
+include the **User** and **Instance** columns and their JSON fields. Use
+`jsn --profile <name> auth status` to focus on one profile, or add `--local`
+to inspect saved state without contacting any instance. Scripts extracting
+`default_instance`, `profiles.*.instance`, `username`, or `verified_as` must
+include `--details`.
+
+When `jsn auth login <instance>` creates a profile interactively, it offers the
+same read-only, delete-confirmation, and result-count options as setup. Scripts
+can supply `--read-only`, `--no-include-counts`, and `--confirm-deletes`.
+The compatible `--skip-confirmations` disables delete prompts.
+`jsn auth modify <profile>` accepts the same setting flags; repeating a request
+sets the same values. Without flags, humans get a settings picker; scripts get
+a structured usage error. Reauthentication preserves existing preferences.
+
+Use `--name <new-name>` to create another connection, including a second user
+on the same instance, and `--profile <existing-name>` to reconnect. Setup asks
+whether to use a connection by default. Scripts must pass `--make-default` or
+run `auth switch`; even a first login does not silently set a default.
+
 JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth. Credentials are stored in the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/` when the keyring is unavailable.
 
 ```bash
@@ -521,6 +570,71 @@ jsn auth login https://dev12345.service-now.com
 
 For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
+
+### OAuth from scripts or a remote terminal
+
+```bash
+jsn auth login dev12345 --name work --oauth --print-url --json
+jsn auth login dev12345 --name work --oauth --code "$CODE" --read-only --json
+```
+
+The first result contains `data.authorization_url` and a completion command.
+Keep the same instance and profile name when exchanging the code. The existing
+`--print-url --wait-file <path>` flow remains available. Progress goes to
+stderr; JSON results and auth errors remain machine-readable. Noninteractive
+login without a code or URL request returns a usage error instead of prompting.
+
+### Log in using a browser (experimental)
+
+Run `jsn setup`, enter the instance and profile name, and choose **Browser
+session**. Choose an installed browser when prompted, then sign in in the
+window JSN opens. JSN continues automatically after verifying your account.
+There are no debugging-port or request-header prompts.
+
+The direct command is:
+
+```bash
+jsn auth login dev12345 --browser
+jsn auth login dev12345 --browser --browser-name chromium
+```
+
+Installed Chromium, Chrome, and Edge are detected. Chromium is the first
+validated launch integration; Firefox is not supported yet. `--browser-name`
+accepts `chromium`, `chrome`, or `edge`; without it, interactive login offers
+installed browsers and noninteractive login selects the first available one.
+
+JSN opens a fresh, temporary login window, so another window's account is not
+silently reused. Finish signing in within five minutes. JSN verifies access to
+the current user's `sys_user` record, saves standard GCK credentials, then
+closes its login window and removes its temporary browser profile. Press Ctrl+C
+or close the login window to cancel. Your normal browser windows stay open.
+An existing profile's username must match the browser account.
+
+When the session expires, log in again:
+
+```bash
+jsn auth login --profile limited --browser
+```
+
+Interactive `auth login` on an existing GCK profile launches browser login.
+Bots must request that explicitly with `--browser`; JSON/piped commands never
+open a browser implicitly.
+Pages without a readable `g_ck` still need the explicit `--gck` paste flow.
+Login is explicit; JSN does not renew browser sessions in the background.
+
+For an already configured local debugging browser, the advanced connection
+path remains available without launching or closing that browser:
+
+```bash
+jsn auth login dev12345 --browser --browser-url http://127.0.0.1:9222
+```
+
+That endpoint must be loopback-only. Chrome requires a non-default browser data
+directory for this connection
+([Chrome documentation](https://developer.chrome.com/blog/remote-debugging-port)).
+Keep one logged-in application tab open for the instance; multiple matching
+tabs are rejected. The debugging connection grants access to that browser
+profile, so close it when finished.
 
 For CI/CD, set environment variables:
 
@@ -572,3 +686,5 @@ Releases run from the GitHub Actions workflow. Dispatch `Release production` wit
 ## License
 
 MIT
+
+Auth and setup prompts show **Esc to cancel**, as does every other prompt. Press Esc to leave the current workflow without accepting the highlighted choice. `jsn auth status` includes hints for switching profiles, renewing OAuth/browser sessions, and changing profile settings.

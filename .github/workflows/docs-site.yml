@@ -1,0 +1,39 @@
+name: Documentation site
+on:
+  pull_request:
+    paths: ['site/**', 'docs/**', 'cli/src/commands/docs/**', 'cli/package*.json', 'scripts/build-docs-site.mjs', '.github/workflows/docs-site.yml']
+  push:
+    branches: [main]
+    paths: ['site/**', 'docs/**', 'cli/src/commands/docs/**', 'cli/package*.json', 'scripts/build-docs-site.mjs', '.github/workflows/docs-site.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm --prefix cli ci
+      - run: npm --prefix docs ci
+      - run: node scripts/build-docs-site.mjs
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+          working-directory: site
+      - run: bundle exec rails db:prepare
+        working-directory: site
+        env:
+          RAILS_ENV: test
+      - run: bundle exec ruby test/site_test.rb
+        working-directory: site
+        env:
+          RAILS_ENV: test
+      - run: docker build -f site/Dockerfile -t jsn-docs-validation .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-site-url-inventory
+          path: site/tmp/preserved-urls.json

@@ -1,14 +1,20 @@
 import fs from 'node:fs';
-import { editor, confirm } from '@inquirer/prompts';
-import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack } from '../helpers.js';
+import path from 'node:path';
+import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '../update-set-xml.js';
+import { editor, confirm } from '../prompts.js';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
-import { errAPI, errUsage, errConfirmationRequired } from '../errors.js';
+import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRequired } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
+import { resolveScope } from './scopes.js';
+import { unwrapSysId } from '../resolve-record.js';
 
 declareCapabilities('updatesets', {
-  mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent'],
+  mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen'],
+  mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen'],
+  localPreviewSubcommands: ['import'],
 });
 
 /**
@@ -25,7 +31,7 @@ export function scopeMismatchWarning(updateSetApp, currentApp) {
   const updateSetAppId = updateSetApp?.value || (typeof updateSetApp === 'string' ? updateSetApp : '');
   if (!updateSetAppId || !currentApp.appSysId || updateSetAppId === currentApp.appSysId) return '';
   const name = updateSetApp?.display_value || updateSetApp;
-  return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes won't land here. Run: jsn scopes set ${name}`;
+  return ` ⚠️ update set is in app "${name}", but current app is "${currentApp.scope}" — changes may not be captured in this set. Run: jsn scopes set ${quoteShellArg(updateSetAppId)}`;
 }
 
 /** Format a picker label for an update set: "Name [State] (app/scope)". */
@@ -359,6 +365,7 @@ export async function formatUpdateSetDetail(app, record) {
   const stateRaw = String(full.state?.value ?? full.state ?? '').toLowerCase();
   const isClosed = ['complete', 'committed'].includes(stateRaw);
   const hints = [];
+  hints.push({ action: 'scan', cmd: `jsn scan run --update-set ${sysID}${app.session?.profileName ? ` --profile ${quoteShellArg(app.session.profileName)}` : ''}`, description: 'Offer an explicit scan of current records before completing or promoting this set' });
   if (isClosed) {
     hints.push({
       action: 'set',
@@ -379,7 +386,7 @@ export async function formatUpdateSetDetail(app, record) {
   });
   hints.push({
     action: 'export',
-    cmd: `jsn updatesets export "${name}" --out ${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.xml`,
+    cmd: `jsn updatesets export "${name}" --out ${quoteShellArg(updateSetFilename(name))}`,
     description: 'Export this update set to XML',
   });
   if (!isClosed) {
@@ -422,7 +429,7 @@ export function updateSetsCmd(wrap) {
   return {
     command: 'updatesets [subcommand]',
     aliases: ['updateset', 'us'],
-    describe: 'Manage update sets',
+    describe: 'Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.',
     builder: (yargs) => {
       return yargs
         .command({
@@ -475,11 +482,14 @@ export function updateSetsCmd(wrap) {
         })
         .command({
           command: 'export <name>',
-          describe: 'Export an update set to XML (raw XML to stdout, or --out file)',
+          describe: 'Export XML without changing state; auto-name a file in a terminal, preserve piped stdout',
           builder: (y) => y
             .positional('name', { describe: 'Update set name', type: 'string' })
-            .option('out', { alias: 'o', type: 'string', describe: 'Write XML to this file instead of stdout' }),
+            .option('out', { alias: 'o', type: 'string', describe: 'Write XML to this file instead of stdout' })
+            .option('out-dir', { type: 'string', describe: 'Write an automatically named XML file in this directory' })
+            .option('stdout', { type: 'boolean', describe: 'Write raw XML to stdout, including in a terminal' }),
           handler: wrap(async (argv, app) => {
+            if ([Boolean(argv.out), Boolean(argv.outDir), Boolean(argv.stdout)].filter(Boolean).length > 1) throw errUsage('Choose one of --out, --out-dir, or --stdout');
             app.requireInstance();
             const record = await resolveUpdateSetByName(app, argv.name);
             const sysID = getStringField(record, 'sys_id');
@@ -501,14 +511,16 @@ export function updateSetsCmd(wrap) {
             }
 
             const bytes = Buffer.byteLength(xml, 'utf-8');
-            if (argv.out) {
-              await fs.promises.writeFile(argv.out, xml);
+            const out = argv.out || (argv.outDir || (process.stdout.isTTY && !argv.stdout && !argv.json && argv.format !== 'json')
+              ? path.join(argv.outDir || '.', updateSetFilename(getStringField(record, 'name'))) : null);
+            if (out) {
+              await fs.promises.writeFile(out, xml, { flag: 'wx' });
               app.ok({
                 update_set: getStringField(record, 'name'),
                 sys_id: sysID,
-                out: argv.out,
+                out,
                 bytes,
-              }, { summary: `Exported update set "${getStringField(record, 'name')}" (${bytes} bytes) to ${argv.out}` });
+              }, { summary: `Exported update set "${getStringField(record, 'name')}" (${bytes} bytes) to ${out}` });
               return;
             }
 
@@ -516,7 +528,7 @@ export function updateSetsCmd(wrap) {
             // (`jsn updatesets export "X" > set.xml`). Only wrap in the JSON
             // envelope when the user explicitly asks for it — auto format
             // detection must NOT hijack the payload for piped consumers.
-            if (argv.json || argv.format === 'json') {
+            if (!argv.stdout && (argv.json || argv.format === 'json')) {
               app.ok({
                 update_set: getStringField(record, 'name'),
                 sys_id: sysID,
@@ -526,6 +538,47 @@ export function updateSetsCmd(wrap) {
               return;
             }
             process.stdout.write(xml + (xml.endsWith('\n') ? '' : '\n'));
+          }),
+        })
+        .command({
+          command: 'import <file>',
+          describe: 'Load XML as a retrieved update set; never preview, commit, or select it automatically',
+          builder: y => y
+            .positional('file', { type: 'string', describe: 'Update set XML export' })
+            .option('dry-run', { type: 'boolean', describe: 'Inspect locally without any instance requests' })
+            .option('yes', { type: 'boolean', describe: 'Confirm loading the displayed XML into the selected target' }),
+          handler: wrap(async (argv, app) => {
+            const stat = await fs.promises.stat(argv.file);
+            if (!stat.isFile() || stat.size > MAX_UPDATE_SET_BYTES) throw errUsage('Expected an XML file no larger than 50 MiB');
+            const xml = await fs.promises.readFile(argv.file, 'utf8');
+            const inspection = inspectUpdateSetXML(xml);
+            const { members, ...summary } = inspection;
+            if (argv.dryRun) return app.ok({ ...summary, members, dry_run: true }, { summary: `XML: ${inspection.name}; ${inspection.count} updates (local inspection only)` });
+            app.requireInstance();
+            const question = `Load "${inspection.name}" (${inspection.count} updates) into ${app.getEffectiveInstance()} as a retrieved update set? This does not commit its changes.`;
+            if (!argv.yes) {
+              if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
+                throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
+                  `Rerun: ${buildRerunCommand(argv, { rerun: ['updatesets', 'import', argv.file, '--yes'] })}`);
+              }
+              if (!await confirm({ message: question, default: false })) return;
+            }
+            const result = await app.sdk.importUpdateSet(xml, inspection, path.basename(argv.file));
+            app.ok({ ...summary, ...result, committed: false }, { summary: `Loaded retrieved update set "${inspection.name}" (${result.count} updates); not committed` });
+          }),
+        })
+        .command({
+          command: 'reopen <name>',
+          describe: 'Explicitly return a complete or ignored local update set to in progress; does not select it',
+          handler: wrap(async (argv, app) => {
+            const target = await resolveCompletionTarget(app, argv.name);
+            const record = await fetchUpdateSetById(app, target.sys_id);
+            const state = String(record?.state?.value ?? record?.state ?? '').toLowerCase();
+            if (!['complete', 'ignore'].includes(state)) throw errUsage(`Cannot reopen an update set in state "${state}"; expected complete or ignore`);
+            await app.sdk.update('sys_update_set', target.sys_id, { state: 'in progress' });
+            const mismatches = await verifyWriteBack(app, 'sys_update_set', target.sys_id, { state: 'in progress' });
+            if (mismatches.length) throw errAPI(200, 'Reopen could not be verified; inspect the update set before retrying');
+            app.ok({ update_set: target.name, sys_id: target.sys_id, state: 'in progress' }, { summary: `Reopened update set: ${target.name}` });
           }),
         })
         .command({
@@ -612,12 +665,22 @@ export function updateSetsCmd(wrap) {
           describe: 'Create a new update set (auto-sets as current)',
           builder: (y) => y
             .option('name', { alias: 'n', type: 'string', demandOption: true, describe: 'Update set name' })
-            .option('description', { type: 'string', describe: 'Description' }),
+            .option('description', { type: 'string', describe: 'Description' })
+            .option('scope', { type: 'string', describe: 'Switch to this application before creating (scope value, sys_id, or name)' }),
           handler: wrap(async (argv, app) => {
+            let scopeSysID;
+            if (argv.scope !== undefined) {
+              if (!String(argv.scope).trim()) throw errUsage('Scope must not be empty');
+              const scope = await resolveScope(app.sdk, argv.scope);
+              scopeSysID = unwrapSysId(scope);
+              const userSysID = await requireCurrentUserSysId(app.sdk);
+              await setCurrentApplication(app.sdk, userSysID, scopeSysID);
+            }
             const record = await app.sdk.create('sys_update_set', {
               name: argv.name,
               description: argv.description || argv.name,
               state: 'in progress',
+              ...(scopeSysID ? { application: scopeSysID } : {}),
             });
 
             // Auto-set as current update set
@@ -725,6 +788,8 @@ export function updateSetsCmd(wrap) {
         console.log('  list           List update sets (shows scope)');
         console.log('  show <name>    Show an update set (type counts + risky items)');
         console.log('  export <name>  Export an update set to XML (stdout or --out)');
+        console.log('  import <file>  Load retrieved XML (--dry-run inspects locally; --yes confirms)');
+        console.log('  reopen <name>  Explicitly return a closed set to in progress');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete [name] Complete a named or current set with --notes (editor when omitted)');

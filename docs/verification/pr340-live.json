@@ -1,0 +1,40 @@
+{
+  "pr": "340",
+  "at": "2026-10-29T04:49:09.606Z",
+  "source_commit": "5c780b2a3d1784d74227a95164395d359384858c",
+  "profile": "pdi",
+  "instance_operations": "read_only",
+  "live_writes": false,
+  "doctor": {
+    "command": "node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi",
+    "exit": 0,
+    "authenticated": true,
+    "verified": true,
+    "probe_status": "succeeded"
+  },
+  "checks": [
+    {
+      "label": "profile-built tables command/alias",
+      "command": "node bin/jsn.js --profile pdi tables show incident --json --get data.name",
+      "exit": 0,
+      "result": {
+        "display_value": "incident",
+        "value": "incident"
+      }
+    },
+    {
+      "label": "profile-built table command/alias",
+      "command": "node bin/jsn.js --profile pdi table show incident --json --get data.name",
+      "exit": 0,
+      "result": {
+        "display_value": "incident",
+        "value": "incident"
+      }
+    }
+  ],
+  "registry": {
+    "file": "src/record-command-profiles.js",
+    "lines": 66
+  },
+  "cleanup": "passed"
+}

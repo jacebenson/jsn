@@ -53,7 +53,7 @@ describe('Users command', () => {
     const calls = [];
     const app = makeApp({ sdk: { list: async (table, params) => { calls.push([table, Object.fromEntries(params)]); return [record]; } } });
     await handler('show')({ app, identifier: 'john.doe' });
-    assert.deepEqual(calls, [['sys_user', { sysparm_query: 'user_name=john.doe', sysparm_limit: '1', sysparm_display_value: 'all' }]]);
+    assert.deepEqual(calls, [['sys_user', { sysparm_query: 'user_name=john.doe', sysparm_limit: '2', sysparm_display_value: 'all' }]]);
     assert.deepEqual(app.outputCalls, [{ data: record, opts: { summary: 'User john.doe' } }]);
   });
 
@@ -100,7 +100,7 @@ describe('Users command', () => {
       } });
       await handler(name)({ app, identifier: 'todelete', ...(name === 'update' ? { data: '{"active":false}' } : {}) });
       assert.deepEqual(calls, [
-        ['list', 'sys_user', { sysparm_query: 'user_name=todelete', sysparm_limit: '1', sysparm_display_value: 'all', sysparm_fields: 'sys_id' }],
+        ['list', 'sys_user', { sysparm_query: 'user_name=todelete', sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id' }],
         name === 'update' ? ['update', 'sys_user', 'abc123', { active: false }] : ['delete', 'sys_user', 'abc123'],
       ]);
       const expected = name === 'update'
@@ -130,7 +130,7 @@ describe('Users command', () => {
     });
 
     for (const [identifier, expectedError, expectedCalls] of [
-      ['ghost', { code: 'not_found', message: 'User not found: ghost' }, ['list']],
+      ['ghost', { code: 'not_found', message: 'User not found: ghost' }, ['list', 'list', 'list', 'list']],
       ['x^OR1=1', /Unsafe identifier/, []],
     ]) {
       it(`${name} rejects ${identifier === 'ghost' ? 'not-found' : 'unsafe'} identifiers without mutating`, async () => {

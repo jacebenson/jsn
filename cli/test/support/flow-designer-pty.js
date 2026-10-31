@@ -185,10 +185,14 @@ sdk.list = async (table, params) => {
   }
   if (table === 'sys_dictionary') return [{ element: disp('number') }];
   if (table === 'sys_scope') return [{ sys_id: SCOPE, name: 'Disposable scope' }];
-  if (table === 'sys_hub_action_type_definition') return [
+  if (table === 'sys_hub_action_type_definition') {
+    const rows = [
     { sys_id: disp(ID), name: disp('Disposable action'), active: disp('true'), published: disp('true') },
     { sys_id: disp(LOG_ID), name: disp('Log'), active: disp('true'), published: disp('true') },
-  ];
+    ];
+    const exact = params.get('sysparm_query')?.match(/^sys_id=([^^]+)$/);
+    return exact ? rows.filter(row => row.sys_id.value === exact[1]) : rows;
+  }
   if (table === 'sys_hub_trigger_category') return [
     { sys_id: disp(CATEGORY), name: disp('Record') },
     { sys_id: disp(SCHEDULED_CATEGORY), name: disp('Scheduled') },

@@ -14,6 +14,7 @@ import {
   mutationPaths,
   noInstanceCommands,
   dailyCheckSkipCommands,
+  contextHeaderSkipCommands,
 } from '../src/capabilities.js';
 
 describe('capabilities registry', () => {
@@ -26,8 +27,8 @@ describe('capabilities registry', () => {
     // A read-only factory command declares no mutations
     assert.deepStrictEqual(caps.get('sppages'), { mutationSubcommands: [] });
     // No-instance commands declare themselves
-    assert.deepStrictEqual(caps.get('auth'), { noInstance: true });
-    assert.deepStrictEqual(caps.get('setup'), { noInstance: true });
+    assert.deepStrictEqual(caps.get('auth'), { noInstance: true, skipContextHeader: true });
+    assert.deepStrictEqual(caps.get('setup'), { noInstance: true, skipContextHeader: true });
     assert.deepStrictEqual(caps.get('skill'), { noInstance: true, skipDailyChecks: true });
     assert.deepStrictEqual(caps.get('docs'), { noInstance: true, skipDailyChecks: true });
     // Built-ins
@@ -81,7 +82,7 @@ describe('capabilities registry', () => {
 
   it('derives dailyCheckSkipCommands including offline customization reports', () => {
     const skip = dailyCheckSkipCommands();
-    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'docs', 'help', 'skill', 'version']);
+    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'discover', 'docs', 'help', 'history', 'skill', 'update', 'upgrade', 'version']);
   });
 
   it('derives mutation paths for root CRUD commands', () => {
@@ -104,9 +105,11 @@ describe('capabilities registry', () => {
     assert.ok(has(['tickets', 'create']));
     assert.ok(has(['users', 'delete']));
     assert.ok(has(['groups', 'update']));
-    // records bulk + attachments add
+    // records bulk + standalone attachment uploads
     assert.ok(has(['records', 'bulk']));
-    assert.ok(has(['records', 'attachments', 'add']));
+    assert.ok(has(['attachments', 'upload']));
+    assert.ok(has(['attachments', 'add']));
+    assert.ok(!has(['records', 'attachments', 'add']));
     // atf + approvals
     assert.ok(has(['atf', 'run']));
     assert.ok(has(['atf', 'run-suite']));
@@ -114,4 +117,12 @@ describe('capabilities registry', () => {
     assert.ok(has(['approvals', 'reject']));
     assert.ok(has(['approvals', 'submit']));
   });
+});
+
+it('suppresses the old instance header for auth/setup without disabling daily checks', () => {
+  for (const command of ['auth', 'setup']) {
+    assert.ok(contextHeaderSkipCommands().has(command));
+    assert.ok(!dailyCheckSkipCommands().has(command));
+  }
+  assert.ok(!contextHeaderSkipCommands().has('incidents'));
 });

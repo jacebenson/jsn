@@ -1,19 +1,20 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { rmSync } from 'node:fs';
+import path from 'node:path';
 import { getDocsDbPath, getDocsSourceDir, getDocsSourceMarkdownDir } from '../src/commands/docs/db.js';
 
 describe('Docs DB paths', () => {
   it('should resolve docs DB path under the JSN data home', () => {
     const dbPath = getDocsDbPath();
-    assert.ok(dbPath.endsWith('.jsn/docs/docs.db'));
+    assert.ok(dbPath.endsWith(path.join('.jsn', 'docs', 'docs.db')));
   });
 
   it('should resolve source markdown dir under source dir', () => {
     const src = getDocsSourceDir();
     const md = getDocsSourceMarkdownDir();
     assert.ok(md.startsWith(src));
-    assert.ok(md.endsWith('/markdown'));
+    assert.ok(md.endsWith(path.sep + 'markdown'));
   });
 });
 

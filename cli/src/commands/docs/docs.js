@@ -51,6 +51,14 @@ export function docsCmd(wrap) {
       .option('revision', { type: 'string', describe: 'Require the revision returned by search (recommended with IDs)' })
       .option('lines', { type: 'number', default: 80, describe: 'Preview lines; JSON contains the full Markdown body' })
       // Compatibility spellings remain callable without becoming another menu.
+      .command({ command: 'install', hidden: true,
+        builder: y => y.option('source', { type: 'string', choices: ['snapshot', 'github', 'skip'] })
+          .option('manifest-url', { type: 'string' }),
+        handler: wrap(async (argv, app) => {
+          const { installDocumentation } = await import('./install.js');
+          app.ok(await installDocumentation(argv.source, { manifestURL: argv['manifest-url'] }));
+        }),
+      })
       .command({ command: 'search <query..>', hidden: true, handler: wrap(search) })
       .command({ command: 'show <id-or-path>', hidden: true, handler: wrap(read) })
       .command({ command: 'status', hidden: true, handler: wrap(async (_argv, app) => {

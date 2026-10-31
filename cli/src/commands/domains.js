@@ -1,22 +1,73 @@
-// Domain separation commands — list/show/current/set
-//
-// Domain separation (plugin) adds a `domain` table holding the domain
-// hierarchy. Each domain-separated table's rows carry `sys_domain` +
-// `sys_domain_path`, and queries are auto-filtered to the session domain
-// plus its children. There is NO durable platform-side "current domain"
-// preference a CLI can write (the picker sets the in-memory session only,
-// and `sys_user.domain` is write-protected even for admin). So jsn stores
-// the chosen domain in the active profile and sends it on every request
-// via the `X-Now-Domain` header — the same scoping the platform applies
-// to its own picker sessions.
+// Domain separation commands. Profile configuration sends X-Now-Domain;
+// explicit session-* commands manage the server-side browser session instead.
+// Header effectiveness depends on the instance and is not a session switch.
 
 import { getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 
 // `domains set` writes the chosen domain into the profile config.
-declareCapabilities('domains', { mutationSubcommands: ['set'] });
+declareCapabilities('domains', { mutationSubcommands: ['set', 'session-set', 'session-reset'] });
 
 const DETAIL_FIELDS = 'sys_id,name,parent,sys_domain_path,description,active,sys_created_on,sys_updated_on';
+
+async function sessionRequest(app, path, options = {}) {
+  const credentials = await app.sdk.authProvider?.getCredentials();
+  if (credentials?.auth_method !== 'gck') {
+    throw new Error('Session domain commands require browser-session (gck) credentials. Use domains set for profile header configuration.');
+  }
+  return app.sdk.request(`${app.sdk.baseURL}${path}`, { ...options, domain: '' });
+}
+
+export async function readSessionDomain(app) {
+  const response = await sessionRequest(app, '/api/now/ui/concoursepicker/current');
+  const current = response?.result?.currentDomain;
+  if (!current || typeof current.value !== 'string' || !current.value) {
+    throw new Error('Invalid session domain response: expected result.currentDomain.value.');
+  }
+  return current;
+}
+
+export async function listSessionDomains(app, { search = '', offset = 0, limit = 20 } = {}) {
+  if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Picker offset must be a nonnegative integer and limit must be between 1 and 100.');
+  }
+  const contains = search.startsWith('*');
+  const term = contains ? search.slice(1) : search;
+  if (term) assertSafeExactMatch(term);
+  const response = await sessionRequest(app, '/angular.do?sysparm_type=ref_list_data', {
+    method: 'POST',
+    body: JSON.stringify({
+      sysparm_domain: 'picker', table: 'domain', sysparm_for_impersonation: false,
+      qualifier: 'active=true', count: limit, start: offset,
+      p: `domain;q:name${contains ? 'CONTAINS' : 'STARTSWITH'}${term}^nameISNOTEMPTY;r:active=true`,
+    }),
+  });
+  const items = response?.items ?? response?.result?.items;
+  if (!Array.isArray(items)) throw new Error('Invalid domain picker response: expected items array.');
+  return { items, offset, limit, next_offset: items.length === limit ? offset + items.length : null };
+}
+
+export async function switchSessionDomain(app, value) {
+  if (value !== 'global' && !/^[a-f0-9]{32}$/i.test(value)) {
+    throw new Error('Supply a domain sys_id from session-list; use session-reset for global.');
+  }
+  // Probe before changing anything, so authentication/readback failures occur early.
+  await readSessionDomain(app);
+  await sessionRequest(app, '/api/now/ui/concoursepicker/domain', {
+    method: 'PUT', ...(value === 'global' ? {} : { body: JSON.stringify({ value }) }),
+  });
+  let current;
+  try {
+    current = await readSessionDomain(app);
+  } catch (err) {
+    err.message += ' The session may have changed; inspect domains session-current before retrying.';
+    throw err;
+  }
+  if (current.value !== value) {
+    throw new Error(`Session domain verification failed: expected ${value}, received ${current.value}. The session may have changed; inspect domains session-current before retrying.`);
+  }
+  return current;
+}
 
 /**
  * Gate: domain separation must be installed. The `domain` table only
@@ -30,8 +81,11 @@ export async function isDomainSeparationInstalled(app) {
     params.set('sysparm_fields', 'sys_id,name');
     await app.sdk.list('domain', params);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // Only the platform's explicit invalid-table response establishes absence.
+    // Authentication, ACL, transport, and unrelated 404 errors must surface.
+    if ((!err.status || [400, 404].includes(err.status)) && /invalid table(?:\s+|:\s*)["'`]?domain\b/i.test(err.message)) return false;
+    throw err;
   }
 }
 
@@ -206,31 +260,71 @@ export function domainsCmd(wrap) {
           describe: 'Show the configured domain for this profile',
           handler: wrap(async (argv, app) => {
             await requireDomainSeparation(app);
-            const domain = app._profileDomain(app.config);
+            const domain = app.session.domain;
             if (!domain) {
               app.ok({ domain: '', scoping: 'none' }, {
-                summary: 'No domain configured — requests are not domain-scoped',
+                summary: 'No domain header configured — server session scoping may still apply',
               });
               return;
             }
             // Resolve the configured value to a display name if it's a sys_id
             let label = domain;
-            try {
+            {
               const params = new URLSearchParams();
               params.set('sysparm_query', `sys_id=${domain}`);
               params.set('sysparm_limit', '1');
               params.set('sysparm_fields', 'sys_id,name');
               const records = await app.sdk.list('domain', params);
               if (records.length > 0) label = `${getStringField(records[0], 'name')} (${domain})`;
-            } catch { /* non-fatal — show raw value */ }
+            }
             app.ok({ domain, scoping: 'X-Now-Domain header' }, {
               summary: `Configured domain: ${label}`,
             });
           }),
         })
         .command({
+          command: 'session-current',
+          describe: 'Read actual browser-session domain (separate from profile configuration)',
+          handler: wrap(async (argv, app) => {
+            const current = await readSessionDomain(app);
+            app.ok({ configured_domain: app.session.domain, session_domain: current }, {
+              summary: `Session domain: ${current.displayValue || current.value}`,
+            });
+          }),
+        })
+        .command({
+          command: 'session-list',
+          describe: 'List picker-visible session domains; reset explicitly to global for cross-branch selection',
+          builder: y => y
+            .option('search', { type: 'string', default: '', describe: 'Name prefix; leading * searches by substring' })
+            .option('offset', { type: 'number', default: 0, describe: 'Picker page offset' })
+            .option('limit', { type: 'number', default: 20, describe: 'Picker page size' }),
+          handler: wrap(async (argv, app) => {
+            const page = await listSessionDomains(app, argv);
+            app.ok(page, { summary: `${page.items.length} picker-visible domain(s)` });
+          }),
+        })
+        .command({
+          command: 'session-set <domain>',
+          describe: 'Switch shared browser session to a picker domain sys_id and verify (may affect your browser)',
+          builder: y => y.positional('domain', { type: 'string', describe: 'Exact picker sys_id; use session-reset for global' }),
+          handler: wrap(async (argv, app) => {
+            if (!/^[a-f0-9]{32}$/i.test(argv.domain)) throw new Error('Supply a domain sys_id from session-list; use session-reset for global.');
+            const current = await switchSessionDomain(app, argv.domain);
+            app.ok({ session_domain: current }, { summary: `Session domain: ${current.displayValue || current.value}` });
+          }),
+        })
+        .command({
+          command: 'session-reset',
+          describe: 'Reset shared browser session to global and verify (may affect your browser)',
+          handler: wrap(async (argv, app) => {
+            const current = await switchSessionDomain(app, 'global');
+            app.ok({ session_domain: current }, { summary: 'Session domain reset to global' });
+          }),
+        })
+        .command({
           command: 'set [domain]',
-          describe: 'Set the configured domain for this profile (interactive picker when run bare; omit to clear)',
+          describe: 'Set the profile domain header (picker when bare; "clear" to unset)',
           handler: wrap(async (argv, app) => {
             await requireDomainSeparation(app);
             let domainArg = argv.domain;
@@ -240,27 +334,22 @@ export function domainsCmd(wrap) {
               domainArg = picked;
             } else if (domainArg.toLowerCase() === 'none' || domainArg.toLowerCase() === 'clear') {
               app.setDomain('');
-              app.ok({ domain: '' }, { summary: 'Domain cleared — requests are no longer domain-scoped' });
+              app.ok({ domain: '' }, { summary: 'Domain header cleared — server session scoping may still apply' });
               return;
             }
 
             const sysID = await resolveDomainSysId(app, domainArg);
             app.setDomain(sysID);
             app.ok({ domain: sysID, name: domainArg }, {
-              summary: `Configured domain: ${domainArg} — all requests scoped to it`,
+              summary: `Configured domain: ${domainArg} — X-Now-Domain header configured`,
             });
           }),
         });
     },
-    handler: async (argv) => {
+    handler: wrap(async (argv, app) => {
       if (!argv._[1]) {
-        const app = argv.app;
         let installed = false;
-        try {
-          if (app && app.sdk) installed = await isDomainSeparationInstalled(app);
-        } catch {
-          installed = false;
-        }
+        if (app && app.sdk) installed = await isDomainSeparationInstalled(app);
         if (!installed) {
           if (app && app.sdk) {
             console.log('Domain separation is not installed on this instance.');
@@ -277,10 +366,12 @@ export function domainsCmd(wrap) {
         console.log('  current         Show the configured domain for this profile');
         console.log('  set  [domain]   Configure the domain for this profile (picker when bare; "clear" to unset)');
         console.log('\nDomains are applied per-request via the X-Now-Domain header —');
-        console.log('the platform filters every query to the domain and its children.');
+        console.log('header effectiveness depends on the instance.');
+        console.log('Use session-current/list/set/reset for browser-session domains.');
+        console.log('Session changes may affect a browser sharing these credentials.');
         console.log('Run "jsn domains <command> --help" for details.');
       }
-    },
+    }),
   };
 }
 

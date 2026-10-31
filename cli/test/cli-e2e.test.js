@@ -61,7 +61,7 @@ after(async () => {
 });
 
 describe('CLI adapter production probes', () => {
-  it('exits cleanly when a downstream consumer closes the JSON pipe', () => {
+  it('exits cleanly when a downstream consumer closes the JSON pipe', { skip: process.platform === 'win32' }, () => {
     const result = spawnSync('bash', ['-o', 'pipefail', '-c', 'node "$1" version --json | head -c 0', '_', CLI], {
       encoding: 'utf-8',
       cwd: path.resolve('.'),

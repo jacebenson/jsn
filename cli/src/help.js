@@ -28,6 +28,7 @@ function renderGroup(name, commands) {
 }
 
 const CORE_COMMANDS = [
+  { name: 'knowledge', alias: 'kb', desc: 'Search and read knowledge articles' },
   { name: 'incidents', alias: 'inc', desc: 'Manage incidents' },
   { name: 'changes', alias: 'chg', desc: 'Manage change requests' },
   { name: 'requests', alias: 'req', desc: 'Manage service catalog requests' },
@@ -132,6 +133,7 @@ const CONFIG_COMMANDS = [
 ];
 
 const DEVELOPER_COMMANDS = [
+  { name: 'scan', desc: 'Instance Scan checks, suites, explicit targets, progress and findings' },
   { name: 'atf', desc: 'Automated Test Framework (list, suites, run, results)' },
   { name: 'eval', desc: 'Run server-side JavaScript' },
   { name: 'rest', desc: 'Raw REST API calls' },
@@ -200,14 +202,22 @@ function renderFlags(options) {
   return `\nFLAGS\n${lines.join('\n')}`;
 }
 
-function renderTips() {
+export function renderTips() {
   return `
 TIPS
-  --query is available on every list command (e.g. "incidents list --query priority=1")
+  Show every command, including admin and developer tools: "jsn --all-commands --help"
+  Command visibility follows the selected profile at authentication; explicit commands still use ServiceNow ACLs.
+  Find commands by task words: "jsn discover catalog"; by configured table: "jsn discover --table incident"
+  Cross-table task searches and custom tables: "jsn records list --help"
+  Specialized commands offer configured columns, lookup, and table-specific views; inspect discovery results for details
+  Raw endpoints when needed: "jsn rest --help"; examples and intent guidance: "jsn discover --help"
   Use "jsn <command> --help" for details, or "jsn <command> list --help" for list options
   "jsn --json" prints the registered command surface as JSON for scripts and agents
 
 LEARN MORE
+  Some list commands offer a picker in an interactive terminal with automatic output.
+  Arrow keys browse (10 visible items); type to search; scroll to load more; Enter selects; Esc cancels.
+  Picker eligibility and search fields vary by command. Explicit output formats (including --json) skip pickers.
   Use "jsn <command> --help" for more information about a command.`;
 }
 

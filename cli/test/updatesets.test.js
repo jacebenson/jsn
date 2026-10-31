@@ -6,11 +6,6 @@ import assert from 'node:assert';
 // ─── Command Structure ───
 
 describe('UpdateSets Command Structure', () => {
-  it('should export updateSetsCmd', async () => {
-    const { updateSetsCmd } = await import('../src/commands/updatesets.js');
-    assert.strictEqual(typeof updateSetsCmd, 'function');
-  });
-
   it('should define all subcommands', async () => {
     const { updateSetsCmd } = await import('../src/commands/updatesets.js');
     const wrap = (fn) => fn;
@@ -71,7 +66,7 @@ describe('formatUpdateSetDetail', () => {
     assert.ok(detail._formatted.includes('Updates:   2'));
     assert.ok(detail._formatted.includes('    b.xml'));
     // open set → set/parent/export/complete/ignore hints
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'export', 'complete', 'ignore']);
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['scan', 'set', 'parent', 'export', 'complete', 'ignore']);
   });
 
   it('closed sets get a cannot-set hint and no complete hint', async () => {
@@ -85,8 +80,8 @@ describe('formatUpdateSetDetail', () => {
       },
     };
     const detail = await formatUpdateSetDetail(app, { sys_id: 'x1', name: 'Shipped' });
-    assert.deepStrictEqual(detail.hints.map(h => h.action), ['set', 'parent', 'export']);
-    assert.ok(detail.hints[0].description.includes('Cannot set as current'));
+    assert.deepStrictEqual(detail.hints.map(h => h.action), ['scan', 'set', 'parent', 'export']);
+    assert.ok(detail.hints.find(h => h.action === 'set').description.includes('Cannot set as current'));
   });
 
   it('classes children by type (name fallback) and flags risky items', async () => {
@@ -284,7 +279,7 @@ describe('scopeMismatchWarning', () => {
       { scope: 'x_8821_test', appSysId: '0fbc46c58335c314f7bfc670ceaad3dc' },
     );
     assert.ok(warn.includes('in app "Global"'));
-    assert.ok(warn.includes('jsn scopes set Global'));
+    assert.ok(warn.includes('jsn scopes set abc123'));
   });
 
   it('handles a plain-string application field (non-display-value path)', async () => {
@@ -425,15 +420,19 @@ describe('updatesets export', () => {
     assert.strictEqual(app._ok.data.bytes, Buffer.byteLength(XML));
   });
 
-  it('writes to --out file and reports the path', async () => {
+  it('writes to --out file and reports the path', async (t) => {
     const exportCmd = await findExportCmd();
     const { app } = makeApp();
-    await exportCmd.handler({ app, name: 'My Feature', out: '/tmp/jsn-export-test.xml' }, app);
     const fs = await import('node:fs');
-    assert.strictEqual(fs.readFileSync('/tmp/jsn-export-test.xml', 'utf-8'), XML);
-    assert.strictEqual(app._ok.data.out, '/tmp/jsn-export-test.xml');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-export-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const out = path.join(directory, 'export.xml');
+    await exportCmd.handler({ app, name: 'My Feature', out }, app);
+    assert.strictEqual(fs.readFileSync(out, 'utf-8'), XML);
+    assert.strictEqual(app._ok.data.out, out);
     assert.strictEqual(app._ok.data.bytes, Buffer.byteLength(XML));
-    fs.rmSync('/tmp/jsn-export-test.xml', { force: true });
   });
 
   it('calls exportUpdateSet with the resolved sys_id and scope', async () => {

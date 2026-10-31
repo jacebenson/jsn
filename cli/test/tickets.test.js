@@ -7,9 +7,6 @@ import { captureCommands, findHandler, wrapHandler } from './support/command-tes
 const command = ticketsCmd(wrapHandler);
 
 describe('Tickets Command Structure', () => {
-  it('should export ticketsCmd', () => {
-    assert.strictEqual(typeof ticketsCmd, 'function');
-  });
   it('should define all CRUD subcommands', () => {
     const names = captureCommands(command).map(s => s.command.split(' ')[0]);
     for (const name of ['list', 'show', 'create', 'update', 'delete']) assert.ok(names.includes(name));
@@ -24,7 +21,7 @@ describe('Tickets resolve behavior', () => {
       list: async (table, params) => { calls.push([table, Object.fromEntries(params)]); return rows; },
     } });
     await findHandler(command, 'show')({ app, number: 'TASK001', _: ['show', 'TASK001'] });
-    assert.deepStrictEqual(calls, [['task', { sysparm_query: 'number=TASK001', sysparm_limit: '1', sysparm_display_value: 'all' }]]);
+    assert.deepStrictEqual(calls, [['task', { sysparm_query: 'number=TASK001', sysparm_limit: '2', sysparm_display_value: 'all' }]]);
     assert.deepStrictEqual(app.outputCalls, [{ data: rows[0], opts: { summary: 'Ticket TASK001' } }]);
   });
 
