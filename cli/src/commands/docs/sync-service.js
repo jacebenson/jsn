@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import { ingestDocs } from './ingest.js';
 import { refreshDocs } from './refresh.js';
+import { installSnapshot } from './snapshot.js';
+import { publishServiceSnapshot } from './service-snapshot.js';
 
 const defaultStorage = path.join(process.env.JSN_DATA_HOME || path.join(os.homedir(), '.jsn'), 'docs-service');
 function git(args) {
@@ -39,6 +41,38 @@ async function performSync(options = {}) {
   const startedAt = new Date().toISOString();
   writeStatus(storage, { ...previous, state: 'syncing', startedAt });
   try {
+    // Only the first installation uses the hosted seed. Updates always use GitHub.
+    // Custom source repositories must never be seeded with an unrelated corpus.
+    if (!fs.existsSync(live) && ((!options.source && !process.env.DOCS_SOURCE_URL) || options.manifestURL) && branch === 'australia') {
+      try {
+        const seed = await installSnapshot({ dbPath: live,
+          manifestURL: options.manifestURL || process.env.DOCS_BOOTSTRAP_MANIFEST_URL,
+          fetchFn: options.fetchFn });
+        const db = new Database(live);
+        try {
+          db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('source_revision', ?)").run(seed.revision);
+          db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('source_branch', ?)").run(branch);
+          db.pragma('wal_checkpoint(TRUNCATE)'); db.pragma('journal_mode = DELETE');
+        } finally { db.close(); }
+        previous = { ...previous, revision: seed.revision, documents: seed.documents, seededFrom: 'snapshot' };
+      } catch (error) {
+        // An unavailable seed never prevents the original GitHub build path.
+        previous = { ...previous, bootstrapError: error.message };
+      }
+    }
+    if (!fs.existsSync(path.join(repo, '.git')) && fs.existsSync(live) && !options.force) {
+      const remote = git(['ls-remote', '--', source, `refs/heads/${branch}`]).split(/\s/)[0];
+      const db = new Database(live, { readonly: true });
+      let current;
+      try { current = db.prepare("SELECT value FROM meta WHERE key='source_revision'").get()?.value; }
+      finally { db.close(); }
+      if (remote && current === remote) {
+        await publishServiceSnapshot(storage);
+        const status = { ...previous, state: 'ready', revision: current, checkedAt: new Date().toISOString(), startedAt, error: null, changed: false };
+        writeStatus(storage, status);
+        return status;
+      }
+    }
     if (!fs.existsSync(path.join(repo, '.git'))) {
       const cloning = path.join(storage, `clone-${randomUUID()}`);
       try {
@@ -63,13 +97,14 @@ async function performSync(options = {}) {
       } finally { db.close(); }
     }
     if (oldRevision === revision && !options.force) {
+      await publishServiceSnapshot(storage);
       const status = { ...previous, state: 'ready', revision, checkedAt: new Date().toISOString(), startedAt, error: null, changed: false };
       writeStatus(storage, status);
       return status;
     }
     const roots = [{ dir: markdown, prefix: '' }];
     const result = fs.existsSync(staging)
-      ? refreshDocs({ roots, dbPath: staging })
+      ? refreshDocs({ roots, dbPath: staging, sourceLeaseHeld: true })
       : ingestDocs({ roots, dbPath: staging, embed: false });
     if (result.errors) throw new Error(`Indexing skipped ${result.errors} documents; retaining the published index`);
     const db = new Database(staging);
@@ -86,6 +121,7 @@ async function performSync(options = {}) {
       db.pragma('journal_mode = DELETE');
     } finally { db.close(); }
     fs.renameSync(staging, live);
+    await publishServiceSnapshot(storage);
     const status = { state: 'ready', revision, documents: count, startedAt, checkedAt: new Date().toISOString(), publishedAt: new Date().toISOString(), changed: true, error: null, result };
     writeStatus(storage, status);
     return status;

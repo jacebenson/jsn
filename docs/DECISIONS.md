@@ -363,3 +363,11 @@ publishing workflows, and website Node stages follow the LTS alias. Documentatio
 directs users to Node.js LTS rather than promising a historical minimum. The CLI
 does not declare its own numeric engine floor; dependency engine requirements
 remain intact. Older release lines are not part of the compatibility contract.
+
+## Seed empty documentation services from the hosted index (2026-10-31)
+
+Download a validated, consistent SQLite snapshot only when service storage is
+empty. GitHub remains authoritative for revision checks and incremental updates.
+Publish snapshots from the live documentation index without re-ingesting source
+files; never include the Rails accounts database. Bootstrap failure falls back
+to the existing Git build and never removes a working index.

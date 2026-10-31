@@ -9,7 +9,7 @@ loop do
     status = JSON.parse(File.read(File.join(storage, 'status.json')))
     checked = Time.parse(status.fetch('checkedAt'))
     interval = status['state'] == 'ready' ? 86_400 : 3_600
-    due = Time.now >= checked + interval
+    due = Time.now >= checked + interval || !File.exist?(File.join(storage, 'snapshots/manifest.json'))
   rescue Errno::ENOENT, JSON::ParserError, KeyError, ArgumentError
     due = true
   end
