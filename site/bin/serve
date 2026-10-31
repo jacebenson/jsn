@@ -18,8 +18,13 @@ begin
     children << Process.spawn(File.join(root, 'bin/docs-worker'), chdir: root, pgroup: true)
   end
   children << Process.spawn(File.join(root, 'bin/rails'), 'server', *ARGV, chdir: root, pgroup: true)
-  _, status = Process.wait2
-  exit(status.exitstatus || 1)
+  loop do
+    pid, status = Process.wait2
+    # As container PID 1, Ruby also adopts orphaned descendants. Their exit
+    # must not stop the web server or the daily documentation worker.
+    next unless children.include?(pid)
+    exit(status.exitstatus || 1)
+  end
 ensure
   stop.call
 end
