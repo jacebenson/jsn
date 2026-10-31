@@ -55,13 +55,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # npm only commits and tags when it runs from the repository root, and this
+      # job works inside cli/. Bump the package without touching git, then read
+      # the tag from the package itself instead of git describe, which returns an
+      # unrelated docs-index tag when one points at HEAD.
       - name: Bump package version
         id: version
+        working-directory: ${{ github.workspace }}
         env:
           RELEASE_TYPE: ${{ inputs.release_type }}
         run: |
-          npm version "$RELEASE_TYPE" --tag-version-prefix=v --message "chore: release %s"
-          echo "tag=$(git describe --tags --exact-match HEAD)" >> "$GITHUB_OUTPUT"
+          npm --prefix cli version "$RELEASE_TYPE" --no-git-tag-version
+          version=$(node -p "require('./cli/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Commit release commit and tag
+        working-directory: ${{ github.workspace }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git add cli/package.json cli/package-lock.json
+          git commit -m "chore: release $TAG"
+          git tag "$TAG"
 
       - name: Push release commit and tag
         env:
