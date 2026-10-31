@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import { getDocsDbPath, hasEmbeddings, openDocsDb, closeDocsDb, withDocsDb, getMeta } from './db.js';
+import { sanitizeFts5Query } from './fts.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
 function safeParse(s) {
@@ -28,9 +29,12 @@ export function getDocByIdOrPath(idOrPath, opts = {}) {
     } else {
       row = db.prepare('SELECT * FROM docs WHERE path LIKE ?').get(`%${idOrPath}%`);
       if (!row) {
-        row = db.prepare(
-          `SELECT d.* FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ? LIMIT 1`
-        ).get(idOrPath);
+        const ftsQuery = sanitizeFts5Query(idOrPath);
+        if (ftsQuery) {
+          row = db.prepare(
+            `SELECT d.* FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH ? LIMIT 1`
+          ).get(ftsQuery);
+        }
       }
     }
     return row;
@@ -58,8 +62,13 @@ export function searchDocs(opts = {}) {
     const mode = opts.mode === 'keyword' ? 'keyword' : 'hybrid';
     const useHybrid = mode === 'hybrid' && hasEmbeddings(db);
 
+    const ftsQuery = sanitizeFts5Query(q);
+    if (!ftsQuery) {
+      return { query: q, mode: useHybrid ? 'hybrid' : 'keyword', total: 0, count: 0, results: [] };
+    }
+
     const filters = [];
-    const params = { q, limit, offset };
+    const params = { q: ftsQuery, limit, offset };
     if (bundle) {
       filters.push('d.bundle = @bundle');
       params.bundle = bundle;
@@ -73,7 +82,7 @@ export function searchDocs(opts = {}) {
     // Total matching docs (for pagination)
     const total = db
       .prepare(`SELECT COUNT(*) AS n FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid WHERE docs_fts MATCH @q${where}`)
-      .get({ q, ...(bundle && { bundle }), ...(docType && { docType }) }).n;
+      .get({ q: ftsQuery, ...(bundle && { bundle }), ...(docType && { docType }) }).n;
 
     let rows;
     if (!useHybrid) {
@@ -91,7 +100,7 @@ export function searchDocs(opts = {}) {
         )
         .all(params);
     } else {
-      const candParams = { q, cand: (limit + offset) * 4 + 20 };
+      const candParams = { q: ftsQuery, cand: (limit + offset) * 4 + 20 };
       if (bundle) candParams.bundle = bundle;
       if (docType) candParams.docType = docType;
       const candidates = db
