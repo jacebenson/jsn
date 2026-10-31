@@ -4,7 +4,7 @@ A command-line interface for ServiceNow. Read and update records, manage flows, 
 
 ## Install
 
-Requires Node.js 22.5.0 or newer. Supports macOS, Linux, and Windows.
+Supports the current Node.js LTS release. Supports macOS, Linux, and Windows.
 
 ```bash
 npm install -g @jacebenson/jsn

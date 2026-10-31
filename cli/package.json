@@ -24,9 +24,6 @@
   "author": "Jace Benson",
   "repository": "https://github.com/jacebenson/jsn",
   "license": "MIT",
-  "engines": {
-    "node": ">=22.5.0"
-  },
   "dependencies": {
     "@inquirer/core": "^10.3.2",
     "@inquirer/prompts": "^7.10.1",

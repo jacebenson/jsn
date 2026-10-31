@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS docs
+FROM node:lts-bookworm-slim AS docs
 WORKDIR /app
 COPY docs/package*.json docs/
 RUN npm --prefix docs ci
@@ -6,7 +6,7 @@ COPY docs/ docs/
 COPY scripts/build-docs-site.mjs scripts/
 RUN mkdir -p site/tmp && node scripts/build-docs-site.mjs
 
-FROM node:24-bookworm-slim AS indexer
+FROM node:lts-bookworm-slim AS indexer
 WORKDIR /app
 RUN apt-get update && apt-get install --no-install-recommends -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/cli
