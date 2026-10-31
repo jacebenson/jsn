@@ -20,14 +20,15 @@ bin/dev
 ```
 
 Open http://localhost:3000/documentation. `bin/dev` runs the web server and a
-separate daily sync worker. The first sync clones the public
-`https://github.com/ServiceNow/ServiceNowDocs.git` repository's `australia` branch
-and builds its FTS5 index. Search reports that preparation is in progress until
+separate daily sync worker. The first sync downloads a verified database snapshot from
+`https://jsn.jace.pro/docs-index/manifest.json`, then checks the public
+`https://github.com/ServiceNow/ServiceNowDocs.git` repository's `australia` branch.
+If the revision matches, it skips cloning and indexing. If the snapshot is
+unavailable or invalid, it clones GitHub and builds the FTS5 index instead. Search reports that preparation is in progress until
 that initial build is published. Existing indexes remain searchable during later
 builds. There is no account requirement for the public API or documentation.
 
-Use `bin/bundle` to bypass the host's unconfigured Bundler shim. Node (see the
-CLI package's engine floor), Git, Ruby 3.4, and the existing npm/gem dependencies
+Use `bin/bundle` to bypass the host's unconfigured Bundler shim. Current Node.js LTS, Git, Ruby 3.4, and the existing npm/gem dependencies
 are required. No queue service or additional package dependencies were added.
 
 ## Sync and recovery
@@ -189,3 +190,20 @@ Coolify watch paths are application settings and must be set when this branch is
 The Rails documentation adapter invokes `cli/src/commands/docs/index-worker.js`;
 search SQL and summaries belong to that shared Node engine. The CLI can also
 run its HTTP adapter directly with `jsn docs --serve`, using the same sync worker.
+
+## Container database bootstrap
+
+Only an empty documentation storage directory uses the hosted snapshot. Existing
+volumes retain their index. Daily updates continue to check GitHub; the hosted
+snapshot never replaces that update source. A changed Git revision is applied
+with the existing incremental refresh; download or sync failures leave the last
+working database available. Custom Git sources skip the default hosted seed.
+`DOCS_BOOTSTRAP_MANIFEST_URL` can point to a compatible snapshot mirror.
+
+After each successful sync, the service publishes a consistent SQLite backup
+under `storage/docs/snapshots/`. The public manifest and immutable compressed
+artifacts contain only the documentation corpus, never website accounts or CLI
+credentials. Checksums, compressed/uncompressed size bounds, SQLite schema,
+integrity and source revision are verified before a seed is installed. The
+primary hosted service can build from GitHub when no seed exists, so its initial
+startup does not depend on downloading its own database successfully.

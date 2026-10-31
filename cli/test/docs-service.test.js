@@ -66,3 +66,43 @@ test('explicit endpoint overrides local mode without starting its server', async
   try { assert.equal(await documentationService({ docs: { source: 'local' } }), 'https://example.test/docs/'); }
   finally { if (saved === undefined) delete process.env.JSN_DOCS_URL; else process.env.JSN_DOCS_URL = saved; }
 });
+
+test('fresh service downloads a snapshot, skips cloning at the same revision, then updates from Git', async t => {
+  const f = fixture(t);
+  await syncDocumentation(f);
+  const snapshots = path.join(f.storage, 'snapshots');
+  const manifest = JSON.parse(fs.readFileSync(path.join(snapshots, 'manifest.json')));
+  const artifact = fs.readFileSync(path.join(snapshots, path.basename(manifest.url)));
+  const target = path.join(f.storage, '../downloaded');
+  let downloads = 0;
+  const options = { source: f.source, storage: target, manifestURL: 'https://fixture.test/manifest.json',
+    fetchFn: async url => { downloads++; return new Response(String(url).endsWith('manifest.json') ? JSON.stringify(manifest) : artifact); } };
+  const seeded = await syncDocumentation(options);
+  assert.equal(seeded.revision, manifest.revision);
+  assert.equal(downloads, 2);
+  assert.equal(fs.existsSync(path.join(target, 'source')), false, 'unchanged Git revision needs no checkout');
+  fs.writeFileSync(path.join(f.source, 'markdown/added.md'), '---\ntitle: New reference\n---\nNew documentation from GitHub.');
+  const git = (...args) => execFileSync('git', ['-C', f.source, ...args], { stdio: 'pipe' });
+  git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'update');
+  const updated = await syncDocumentation(options);
+  assert.notEqual(updated.revision, manifest.revision);
+  assert.equal(updated.documents, 2);
+  assert.equal(downloads, 2, 'subsequent updates never download the hosted seed');
+  const index = new DocumentationIndex(target);
+  try { assert.match(index.document({ path: 'added.md' }).body, /GitHub/); } finally { index.close(); }
+  const lastGood = fs.readFileSync(path.join(target, 'docs.sqlite3'));
+  fs.rmSync(f.source, { recursive: true });
+  await assert.rejects(syncDocumentation(options));
+  assert.deepEqual(fs.readFileSync(path.join(target, 'docs.sqlite3')), lastGood);
+});
+test('corrupt bootstrap falls back to Git without publishing the downloaded bytes', async t => {
+  const f = fixture(t);
+  await syncDocumentation(f);
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.storage, 'snapshots/manifest.json')));
+  const target = path.join(f.storage, '../fallback');
+  const result = await syncDocumentation({ source: f.source, storage: target, manifestURL: 'https://fixture.test/manifest.json',
+    fetchFn: async url => new Response(String(url).endsWith('manifest.json') ? JSON.stringify(manifest) : 'corrupt') });
+  assert.equal(result.state, 'ready');
+  assert.equal(result.documents, 1);
+  assert.equal(fs.existsSync(path.join(target, 'source/.git')), true);
+});

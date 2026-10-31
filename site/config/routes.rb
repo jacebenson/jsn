@@ -22,6 +22,7 @@ Rails.application.routes.draw do
   get '/up', to: 'rails/health#show', as: :rails_health_check
   get '/docs-index/manifest.json', to: 'snapshots#show'
   get '/docs-index/download', to: 'snapshots#download'
+  get '/docs-index/artifacts/:filename', to: 'snapshots#artifact', constraints: { filename: /docs-[a-f0-9]{7,64}-[a-f0-9]{64}\.sqlite\.gz/ }, format: false
   post '/internal/docs-builds', to: 'builds#create'
   # Preserve links copied from the old GitHub Pages base path on this host.
   get '/jsn(/*path)', to: redirect { |params, request| "/#{params[:path].to_s.sub(/\A\/+/, '')}#{request.query_string.present? ? "?#{request.query_string}" : ''}" }
