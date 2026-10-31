@@ -6,6 +6,7 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import Database from 'better-sqlite3';
 import { getDocsDbPath, hasEmbeddings, closeDocsDb } from './db.js';
+import { sanitizeFts5Query } from './fts.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
 const PUBLIC_DIR = path.join(import.meta.dirname, 'public');
@@ -115,8 +116,13 @@ export function serveDocs(opts = {}) {
         let mode = (url.searchParams.get('mode') || (hasEmb ? 'hybrid' : 'keyword')).toString();
         if (mode === 'hybrid' && !hasEmb) mode = 'keyword';
 
+        const ftsQuery = sanitizeFts5Query(q);
+        if (!ftsQuery) {
+          return sendJSON(res, 200, { query: q, mode, count: 0, results: [] });
+        }
+
         const filters = [];
-        const params = { q, limit, offset };
+        const params = { q: ftsQuery, limit, offset };
         if (bundle) {
           filters.push('d.bundle = @bundle');
           params.bundle = bundle;
@@ -145,7 +151,7 @@ export function serveDocs(opts = {}) {
             return sendJSON(res, 200, { query: q, mode, count: rows.length, results: rows });
           }
 
-          const candParams = { q, cand: (limit + offset) * 4 + 20 };
+          const candParams = { q: ftsQuery, cand: (limit + offset) * 4 + 20 };
           if (bundle) candParams.bundle = bundle;
           if (docType) candParams.docType = docType;
           const candidates = db
