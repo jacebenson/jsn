@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['src/commands/docs/**', 'scripts/build-docs-snapshot.mjs', '.github/workflows/docs-snapshot.yml']
+    paths: ['cli/src/commands/docs/**', 'scripts/build-docs-snapshot.mjs', '.github/workflows/docs-snapshot.yml']
 permissions:
   contents: write
 concurrency:
@@ -29,14 +29,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+          cache-dependency-path: cli/package-lock.json
+      - run: npm --prefix cli ci
       - name: Identify source revision and existing published artifact
         id: source
         shell: bash
         run: |
           source_revision=$(git ls-remote https://github.com/ServiceNow/ServiceNowDocs refs/heads/australia | cut -f1)
           [[ "$source_revision" =~ ^[a-f0-9]{40}$ ]]
-          builder_revision=$(git log -1 --format=%H -- src/commands/docs scripts/build-docs-snapshot.mjs .github/workflows/docs-snapshot.yml)
+          builder_revision=$(git log -1 --format=%H -- cli/src/commands/docs scripts/build-docs-snapshot.mjs .github/workflows/docs-snapshot.yml)
           artifact_tag="docs-index-1-${source_revision}-${builder_revision}"
           echo "revision=$source_revision" >> "$GITHUB_OUTPUT"
           echo "tag=$artifact_tag" >> "$GITHUB_OUTPUT"

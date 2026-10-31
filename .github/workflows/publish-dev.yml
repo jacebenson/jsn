@@ -3,6 +3,9 @@ name: Publish dev channel
 on:
   push:
     branches: [dev]
+    paths:
+      - 'cli/**'
+      - '.github/workflows/publish-dev.yml'
   workflow_dispatch:
 
 # One-time npm setup:
@@ -21,6 +24,9 @@ jobs:
     name: Publish dev package
     runs-on: ubuntu-latest
     environment: dev
+    defaults:
+      run:
+        working-directory: cli
     steps:
       - uses: actions/checkout@v7
 
@@ -30,6 +36,7 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
 
       # npm trusted publishing needs npm 11.5.1 or newer for OIDC.
       - name: Update npm for trusted publishing

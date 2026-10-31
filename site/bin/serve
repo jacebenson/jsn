@@ -1,0 +1,30 @@
+#!/usr/bin/env ruby
+# Keep web and daily sync as separate processes, and stop both on shutdown.
+root = File.expand_path('..', __dir__)
+children = []
+stop = proc do
+  children.each do |pid|
+    begin
+      Process.kill('TERM', -pid)
+    rescue Errno::ESRCH
+      # Already exited.
+    end
+  end
+end
+trap('INT') { stop.call }
+trap('TERM') { stop.call }
+begin
+  unless ENV['DOCS_SYNC_DISABLED'] == '1'
+    children << Process.spawn(File.join(root, 'bin/docs-worker'), chdir: root, pgroup: true)
+  end
+  children << Process.spawn(File.join(root, 'bin/rails'), 'server', *ARGV, chdir: root, pgroup: true)
+  loop do
+    pid, status = Process.wait2
+    # As container PID 1, Ruby also adopts orphaned descendants. Their exit
+    # must not stop the web server or the daily documentation worker.
+    next unless children.include?(pid)
+    exit(status.exitstatus || 1)
+  end
+ensure
+  stop.call
+end

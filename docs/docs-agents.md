@@ -66,7 +66,7 @@ The skill tells an agent to use the most specific command first, then fall back 
 
 1. Use a domain command such as `jsn flows`, `jsn catalogitems`, `jsn forms`, or `jsn logs`.
 2. Use generic records for a table that does not have a dedicated command.
-3. Use `jsn docs search` for offline ServiceNow documentation.
+3. Use `jsn docs` for ServiceNow documentation through the configured hosted or local service.
 4. Use `jsn rest` when the CLI does not expose the endpoint yet.
 5. Treat `jsn eval` as a last resort.
 

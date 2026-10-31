@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+export RAILS_ENV=test
+bin/rails db:prepare
+bundle exec ruby -Itest -e 'Dir["test/*_test.rb"].sort.each { |file| require_relative file }'

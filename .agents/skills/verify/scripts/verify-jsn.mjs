@@ -5,10 +5,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
-const cli = path.join(root, 'bin', 'jsn.js');
+const cli = path.join(root, 'cli', 'bin', 'jsn.js');
 const evidenceDir = path.join(root, '.verification', 'evidence');
 const scratchDir = path.join(root, '.verification', 'scratch');
-const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'cli', 'package.json'), 'utf8'));
 
 fs.mkdirSync(evidenceDir, { recursive: true });
 fs.mkdirSync(scratchDir, { recursive: true });
@@ -88,21 +88,27 @@ function drive() {
   const json = runJsn(['docs', 'search', query, '--limit', '3', '--json']);
   const human = runJsn(['docs', 'search', query, '--limit', '3', '--markdown']);
   const parsed = parseJson(json, 'docs search');
+  const first = parsed.data?.results?.[0];
+  const read = first ? runJsn(['docs', 'show', String(first.id), '--revision', parsed.data.revision, '--json']) : null;
+  const document = read ? parseJson(read, 'docs show') : null;
+  const readOkay = !read || (read.status === 0 && document.ok === true && typeof document.data?.body === 'string');
   const evidence = {
-    kind: 'jsn-local-fixture-drive',
-    fixture: 'local ServiceNow documentation index',
+    kind: 'jsn-hosted-docs-drive',
+    fixture: 'public documentation REST service (JSN_DOCS_URL or default deployment)',
     query,
     commands: {
       docs_status: status.status,
       docs_search_json: json.status,
       docs_search_markdown: human.status,
+      docs_show_json: read?.status ?? null,
     },
     json: parsed,
+    read: document ? { id: document.data?.id, path: document.data?.path, revision: document.data?.revision, body_length: document.data?.body?.length ?? 0 } : null,
     human_readable: human.stdout,
   };
   const file = writeEvidence('drive', evidence);
-  console.log(JSON.stringify({ ok: status.status === 0 && json.status === 0 && human.status === 0 && parsed.ok === true, evidence: file, query, json_records: parsed.data?.results?.length ?? parsed.data?.records?.length ?? null, human_preview: human.stdout.slice(0, 500) }, null, 2));
-  if (status.status !== 0 || json.status !== 0 || human.status !== 0 || parsed.ok !== true) process.exitCode = 2;
+  console.log(JSON.stringify({ ok: status.status === 0 && json.status === 0 && human.status === 0 && parsed.ok === true && readOkay, evidence: file, query, json_records: parsed.data?.results?.length ?? parsed.data?.records?.length ?? null, human_preview: human.stdout.slice(0, 500) }, null, 2));
+  if (status.status !== 0 || json.status !== 0 || human.status !== 0 || parsed.ok !== true || !readOkay) process.exitCode = 2;
 }
 
 function cleanup() {
