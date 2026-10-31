@@ -1,7 +1,7 @@
 # Mutation testing
 
 Run `npm run test:mutation` from the repository root after `npm ci`.
-StrykerJS 10 and its Babel dependencies require Node 22.18+ on the Node 22 line or Node 24.11+. This is a development-tool requirement, not a change to jsn's runtime support.
+Use the current Node.js LTS release for development tools as well as the CLI. Dependency engine requirements still apply.
 
 The default mutates only `src/mutations.js`, the classifier used by the read-only-profile guard. It runs these existing offline tests with Node's test runner:
 

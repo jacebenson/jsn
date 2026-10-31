@@ -6,7 +6,7 @@ source in `skills/`) or README.md.
 
 ## Stack
 
-Node.js (see `engines` in package.json for the floor), ESM (`"type": "module"`),
+Current Node.js LTS (CI follows `lts/*`; no fixed minimum-version promise), ESM (`"type": "module"`),
 no build step, no TypeScript. The npm package lives in `cli/`. Paths in the CLI layout below are relative to `cli/`.
 Entry: `cli/bin/jsn.js` → `cli/src/cli.js`.
 
@@ -28,7 +28,7 @@ Tests: `node:test` runner + eslint.
 
 ## Layout
 
-- `bin/jsn.js` — entry, patches out node:sqlite experimental warning, calls `cli.parse()`
+- `bin/jsn.js` — entry, handles closed pipes, calls `cli.parse()`
 - `src/cli.js` — `buildCLI()`: global options, middleware, command registration
 - `src/app.js` — `App`: instance resolution, SDK handle, output controller
 - `src/config.js` — profile config (XDG config dir)

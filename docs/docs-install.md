@@ -11,7 +11,7 @@ permalink: /docs/install/
 
 ## Install
 
-JSN runs locally on Windows, macOS, and Linux wherever Node.js and npm are available.
+JSN runs locally on Windows, macOS, and Linux with the current Node.js LTS release and npm. Older Node.js release lines are not tested or supported.
 
 ```bash
 npm install -g @jacebenson/jsn

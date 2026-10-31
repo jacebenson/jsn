@@ -355,3 +355,11 @@ verify reset/selection with current-domain readback. Do not call touch-session:
 the supplied successful diagnostic sequence did not require it. Surface probe
 errors unless the platform explicitly reports an invalid domain table. The
 Windows shutdown assertion remains a separate investigation.
+
+## Current Node.js LTS support (2026-10-31)
+
+Support and test the current Node.js LTS release on Linux and Windows. CI,
+publishing workflows, and website Node stages follow the LTS alias. Documentation
+directs users to Node.js LTS rather than promising a historical minimum. The CLI
+does not declare its own numeric engine floor; dependency engine requirements
+remain intact. Older release lines are not part of the compatibility contract.

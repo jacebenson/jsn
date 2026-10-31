@@ -10,7 +10,7 @@ Works standalone or with AI agents (Claude Code, OpenCode, Hermes, Cursor, Copil
 npm install -g @jacebenson/jsn
 ```
 
-Node.js 22.5.0 or newer. macOS, Linux, Windows.
+Current Node.js LTS release. macOS, Linux, Windows.
 
 The install also copies an AI agent skill file to `~/.agents/skills/servicenow/SKILL.md`.
 

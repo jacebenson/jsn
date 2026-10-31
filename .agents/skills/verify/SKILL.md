@@ -23,7 +23,7 @@ npm --prefix cli link
 jsn --version
 ```
 
-Use `node cli/bin/jsn.js` in evidence so the checkout under test is unambiguous. The package requires Node >=22.5.0.
+Use `node cli/bin/jsn.js` in evidence so the checkout under test is unambiguous. Use the current Node.js LTS release; older release lines are not tested or supported.
 
 ## Doctor
 
