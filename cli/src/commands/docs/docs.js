@@ -78,7 +78,7 @@ export function docsCmd(wrap) {
       const service = await documentationService(app.config);
       const summary = 'Search ServiceNow documentation';
       app.ok({ command: 'docs', service,
-        _formatted: `jsn docs "search terms"\njsn docs --path <exact-path>\n\nService: ${service}\nChange documentation preferences in jsn setup → Advanced settings.\nNo ServiceNow connection is needed. Hosted mode downloads no database.\n`,
+        _formatted: `jsn docs "search terms"\njsn docs --path <exact-path>\n\nService: ${service}\nChange documentation preferences in jsn setup → Defaults and documentation.\nNo ServiceNow connection is needed. Hosted mode downloads no database.\n`,
       }, { summary });
     }),
   };

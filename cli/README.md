@@ -219,7 +219,7 @@ No ServiceNow connection is required. Hosted docs at `https://jsn.jace.pro` are
 the default and download no database. `jsn setup` asks once for defaults for new
 connections and whether to use hosted documentation. Decline hosted docs to let
 JSN start a local server, or decline that too and enter your own service base URL.
-Later changes live under **Advanced settings** in setup. Existing connections
+Later changes live under **Defaults and documentation** in setup. Existing connections
 keep their saved settings.
 
 Local mode downloads the public documentation on first use and checks for updates
