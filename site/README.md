@@ -60,6 +60,7 @@ Configuration:
 - `DOCS_SOURCE_URL`: public source clone URL (default ServiceNowDocs above).
 - `DOCS_SOURCE_BRANCH`: release branch (default `australia`).
 - `NODE_BIN`: optional Node executable for the Rails sync task.
+- `NODE`: optional Node executable for the shared search adapter.
 
 The metadata database in `storage/development.sqlite3` (or production equivalent)
 contains accounts and video links, not the documentation corpus. Back up both
@@ -184,3 +185,7 @@ For Coolify automatic deployments, watch `site/**`, `docs/**`,
 `cli/src/commands/docs/**`, `cli/package.json`, `cli/package-lock.json`, and
 `scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
 Coolify watch paths are application settings and must be set when this branch is deployed.
+
+The Rails documentation adapter invokes `cli/src/commands/docs/index-worker.js`;
+search SQL and summaries belong to that shared Node engine. The CLI can also
+run its HTTP adapter directly with `jsn docs --serve`, using the same sync worker.

@@ -273,13 +273,23 @@ in a validated index; a failed sync never replaces the live file. Its Git source
 revision scopes numeric document IDs; paths provide stable references. Site
 administrators are provisioned locally; there is no public account registration.
 
-## Hosted documentation CLI client
+## Documentation source and shared service
 
-`jsn docs search`, `show`, and `status` call the public documentation REST service,
-independently of ServiceNow profiles and credentials. They require connectivity
-and do not create, download, or refresh a local documentation database. The
-`JSN_DOCS_URL` override selects a deployment; the default is `https://jsn.jace.pro`.
-The server owns GitHub synchronization and indexing. Exact paths identify documents
-across index revisions; an ID read can be pinned with `--revision` to reject stale
-IDs. Local sync/serve/embed/refresh/community commands are no longer registered;
-the underlying ingestion helpers remain available to the server.
+`jsn docs "query"` searches and `jsn docs --path <path>` reads through the public
+HTTP API, independently of ServiceNow profiles and credentials. Hosted mode is
+the default and creates no local database. Installation-wide setup preferences
+can instead select a JSN-managed local service or a custom service base URL.
+`JSN_DOCS_URL` overrides that selection. Local and hosted readers reuse the same
+Node SQLite query and summary implementation; the Rails website is an adapter.
+The server owns Git synchronization, daily refresh and atomic publication.
+IDs may be pinned with `--revision`; exact paths identify documents across revisions.
+Legacy search/show/status spellings remain callable but hidden from normal help.
+
+## Defaults for future connections
+
+Installation-wide `connection_defaults` contain read-only, delete confirmation
+and result-total preferences. New connections copy these values after one
+confirmation or customization step. Existing profiles preserve their explicit
+settings and historical defaults for omitted fields. Editing global preferences
+does not rewrite existing profiles. Documentation source is also installation-wide,
+not a per-instance setting; project-local configuration cannot override either.

@@ -21,7 +21,7 @@ jsn records list --table incident --limit 10 --json
 jsn flows list
 ```
 
-Run `jsn --help` for the command list. See the [CLI guide](docs/cli-guide.md) for authentication, output formats, development, and examples. The [docs site](https://jacebenson.github.io/jsn/) has feature guides.
+Run `jsn --help` for the command list. See the [CLI guide](https://github.com/jacebenson/jsn/blob/main/docs/cli-guide.md) for authentication, output formats, development, and examples. The [docs site](https://jacebenson.github.io/jsn/) has feature guides.
 
 ## AI agents
 
@@ -29,8 +29,11 @@ JSN includes a skill for Claude Code, OpenCode, Hermes, Cursor, Copilot, and oth
 
 ## Development
 
+From a repository checkout:
+
 ```bash
-npm install
+cd cli
+npm ci
 npm test
 ```
 
@@ -40,18 +43,29 @@ MIT
 
 ## Documentation search
 
-Search the hosted documentation service without a ServiceNow login or a local
-database download:
-
 ```bash
-jsn docs search "GlideRecord" --limit 5
-jsn docs show "api-reference/c_GlideRecordClientSideAPI.md"
-jsn docs status
+jsn docs "GlideRecord" --limit 5
+jsn docs --path "api-reference/c_GlideRecordClientSideAPI.md"
 ```
 
-The default service is `https://jsn.jace.pro`. For the local Rails site, use
-`JSN_DOCS_URL=http://localhost:3000`. The Rails service must be deployed before
-the default URL can serve these endpoints. Exact document paths are stable;
-numeric IDs can be pinned using `docs show <id> --revision <search-revision>`.
-The server handles daily GitHub synchronization. CLI local-index commands
-(`sync`, `serve`, `embed`, `refresh`, `community`) are no longer registered.
+No ServiceNow connection is required. Hosted docs at `https://jsn.jace.pro` are
+the default and download no database. `jsn setup` asks once for defaults for new
+connections and whether to use hosted documentation. Decline hosted docs to let
+JSN start a local server, or decline that too and enter your own service base URL.
+Later changes live under **Advanced settings** in setup. Existing connections
+keep their saved settings.
+
+Local mode downloads the public documentation on first use and checks for updates
+daily while running. The server starts again automatically when needed. A first
+search can report that the index is still being prepared; later updates preserve
+the last working index if offline. Local storage lives under
+`~/.jsn/docs-service` (`JSN_DATA_HOME` overrides the parent directory).
+
+To host the same service yourself, run `jsn docs --serve --host 0.0.0.0 --port 3000`.
+It manages its own index; expose it through your normal HTTPS proxy. The hosted
+website and this server share one search engine. `JSN_DOCS_URL` temporarily
+overrides the saved choice without starting a local server.
+
+Exact paths remain stable across revisions. Numeric IDs can be pinned with
+`--revision <search-revision>`. Older `docs search`, `docs show` and `docs status`
+spellings remain compatible but are omitted from the everyday help menu.

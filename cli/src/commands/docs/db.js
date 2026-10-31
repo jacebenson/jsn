@@ -130,7 +130,8 @@ export function defaultDocsRoots(opts = {}) {
 
 export function openDocsDb(opts = {}) {
   const dbPath = opts.dbPath || getDocsDbPath();
-  ensureDocsCacheDir();
+  // Explicit service databases must not create or migrate a user CLI cache.
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.exec('PRAGMA journal_mode = WAL');
   return db;

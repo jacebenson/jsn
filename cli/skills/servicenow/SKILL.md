@@ -54,7 +54,7 @@ Pick the most specific tool for the job. **Never default to eval** — it's the 
 
 1. **Specific commands** — `jsn flows`, `jsn rules`, `jsn catalogitems`, etc.
 2. **`jsn records --table <name>`** — generic CRUD on any table
-3. **`jsn docs search <query>`** — hosted ServiceNow documentation search (no instance needed)
+3. **`jsn docs <query>`** — hosted ServiceNow documentation search (no instance needed)
 4. **`jsn rest`** — raw Table API escape hatch
 5. **`jsn eval`** — ⚠️ **LAST RESORT ONLY**
 6. **Ask the human** — if none of the above work
@@ -147,8 +147,8 @@ REST service; internet access is required. The server owns daily GitHub sync and
 indexing. Nothing is downloaded or indexed locally.
 
 ```bash
-jsn docs search "GlideRecord query" --limit 5 --json
-jsn docs show "api-reference/c_GlideRecordClientSideAPI.md" --json
+jsn docs "GlideRecord query" --limit 5 --json
+jsn docs --path "api-reference/c_GlideRecordClientSideAPI.md" --json
 jsn docs status
 ```
 

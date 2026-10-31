@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const context = vm.createContext({});
 vm.runInContext(fs.readFileSync(new URL('../app/assets/javascripts/markdown.js', import.meta.url), 'utf8'), context);
-vm.runInContext(fs.readFileSync(new URL('../../src/commands/docs/public/vendor/marked.min.js', import.meta.url), 'utf8'), context);
+vm.runInContext(fs.readFileSync(new URL('../../cli/src/commands/docs/public/vendor/marked.min.js', import.meta.url), 'utf8'), context);
 const normalize = context.JSNMarkdown.normalize;
 const render = source => context.marked.parse(normalize(source));
 test('renders upstream HTML tables joined directly to Markdown tables', () => {

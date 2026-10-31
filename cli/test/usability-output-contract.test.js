@@ -134,7 +134,7 @@ describe('#2 usage failures have one contract: exit 2 + structured JSON', () => 
 });
 
 describe('#3 parent commands are machine-readable and never silently succeed', () => {
-  const parents = ['cmdb', 'platform', 'records', 'docs'];
+  const parents = ['cmdb', 'platform', 'records'];
 
   for (const parent of parents) {
     it(`${parent} --json returns structured child signatures`, () => {
@@ -152,6 +152,15 @@ describe('#3 parent commands are machine-readable and never silently succeed', (
       }
     });
   }
+
+  it('docs discovery describes direct search without a submenu', () => {
+    const result = run(['docs', '--json']);
+    assert.equal(result.status, 0);
+    const envelope = JSON.parse(result.stdout);
+    assert.equal(envelope.data.command, 'docs');
+    assert.equal(typeof envelope.data.service, 'string');
+    assert.equal(envelope.data.subcommands, undefined);
+  });
 
   it('a handler-less parent no longer exits 0 with no output', () => {
     // cmdb and platform declared no default handler: both used to exit 0

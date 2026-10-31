@@ -3,6 +3,8 @@ import { loginWizard, modifyProfile, removeProfile, pickProfile } from './auth.j
 import { setActiveProfile } from '../config.js';
 import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
+import { configureGlobalDefaults, configureDocumentation } from '../setup-preferences.js';
+import { select } from '@inquirer/prompts';
 
 // Setup manages local profile config — runs without a configured instance.
 // (Not in the daily-check skip-list: legacy behavior checks for updates here.)
@@ -13,6 +15,7 @@ const HUB_CHOICES = [
   { name: 'Switch to a different instance', value: 'switch' },
   { name: 'Remove an instance', value: 'remove' },
   { name: 'Modify an instance', value: 'modify' },
+  { name: 'Advanced settings', value: 'advanced' },
 ];
 
 /** The setup hub prompt; q and Escape resolve with no selected action. */
@@ -44,8 +47,9 @@ export const authHubPrompt = createPrompt((config, done) => {
 });
 
 /** Interactive hub: what do you want to do? Returns an action or undefined on exit. */
-export async function authHubMenu({ promptFn = authHubPrompt, input, output } = {}) {
-  return promptFn({ message: 'What would you like to do?', choices: HUB_CHOICES }, { input, output });
+export async function authHubMenu({ promptFn = authHubPrompt, input, output, hasProfiles = true } = {}) {
+  const choices = hasProfiles ? HUB_CHOICES : HUB_CHOICES.filter(choice => ['add', 'advanced'].includes(choice.value));
+  return promptFn({ message: 'What would you like to do?', choices }, { input, output });
 }
 
 /**
@@ -65,6 +69,15 @@ export async function dispatchSetupAction(app, argv, action) {
     await removeProfile(app, name);
   } else if (action === 'modify') {
     await modifyProfile(app, argv);
+  } else if (action === 'advanced') {
+    const setting = await select({ message: 'Advanced settings', choices: [
+      { name: 'Defaults for future connections', value: 'defaults' },
+      { name: 'Documentation source', value: 'docs' },
+      { name: 'Back', value: 'back' },
+    ] });
+    if (setting === 'defaults') await configureGlobalDefaults(app.config, { documentation: false });
+    if (setting === 'docs') await configureDocumentation(app.config);
+    if (setting !== 'back') app.ok({ settings: setting }, { summary: 'Settings saved; existing connections unchanged' });
   }
 }
 
@@ -75,18 +88,21 @@ export async function dispatchSetupAction(app, argv, action) {
 export function setupCmd(wrap) {
   return {
     command: 'setup',
-    describe: 'Set up and manage your ServiceNow instances (interactive)',
+    describe: 'Set up JSN defaults and manage documentation and instance connections (interactive)',
     handler: wrap(async (argv, app) => {
       if (!app.isInteractive()) {
         throw errUsage('"jsn setup" is interactive. Use the specific commands:\n  jsn auth login <instance>\n  jsn auth refresh\n  jsn auth status');
       }
       const profileNames = Object.keys(app.config.profiles || {});
-      if (profileNames.length === 0) {
+      const firstSetup = !app.config.connectionDefaults;
+      if (firstSetup) await configureGlobalDefaults(app.config);
+      else if (!app.config.docs) await configureDocumentation(app.config);
+      if (profileNames.length === 0 && firstSetup) {
         const result = await loginWizard(app, argv);
         app.ok({ setup: true, ...result }, { summary: 'Setup complete' });
         return;
       }
-      const action = await authHubMenu();
+      const action = await authHubMenu({ hasProfiles: profileNames.length > 0 });
       if (action === undefined) return;
       await dispatchSetupAction(app, argv, action);
     }),

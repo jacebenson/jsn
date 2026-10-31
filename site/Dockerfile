@@ -28,8 +28,9 @@ COPY --from=indexer /app/cli/src /app/cli/src
 COPY site/ ./
 COPY --from=docs /app/site/public ./public
 COPY --from=docs /app/site/config/features.json ./config/features.json
+COPY --from=docs /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json
 ENV RAILS_ENV=production PORT=3000
-RUN groupadd --system jsn && useradd --system --gid jsn jsn && chown -R jsn:jsn /app/site
+RUN groupadd --system jsn && useradd --system --create-home --gid jsn jsn && chown -R jsn:jsn /app/site
 USER jsn
 EXPOSE 3000
 CMD ["sh", "-c", "bin/rails db:prepare && exec bin/serve -b 0.0.0.0"]

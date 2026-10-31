@@ -12,6 +12,7 @@ export function captureCommands(command) {
         : definition);
       return yargs;
     },
+    usage: () => yargs,
     option: () => yargs,
     options: () => yargs,
     positional: () => yargs,

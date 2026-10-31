@@ -4,7 +4,7 @@ import process from 'node:process';
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const names = (x) => typeof x === 'string' ? [x] : (x || []);
 const commandName = (command) => command.trim().split(/\s+/)[0];
-const positionSpec = (command) => [...command.matchAll(/([<[])([^>\]]+)[>\]]/g)].map((m) => ({ name: m[2], required: m[1] === '<' }));
+const positionSpec = (command) => [...command.matchAll(/([<[])([^>\]]+)[>\]]/g)].map((m) => ({ name: m[2].replace(/\.\.$/, ''), array: m[2].endsWith('..'), required: m[1] === '<' }));
 
 class CommandNode {
   constructor(definition) {
@@ -277,7 +277,7 @@ export class LocalCLI {
    * parent's children are only registered when its builder is invoked.
    */
   commandRegistry() {
-    const visible = (node) => node.name !== this.completionCommand;
+    const visible = (node) => node.name !== this.completionCommand && !node.definition.hidden;
     const serialize = (node) => {
       node.build();
       return {
@@ -303,7 +303,7 @@ export class LocalCLI {
   /** Structured child signatures for a parent node, built on demand. */
   subcommandsOf(node) {
     return node.children
-      .filter((child) => child.name !== this.completionCommand)
+      .filter((child) => child.name !== this.completionCommand && !child.definition.hidden)
       .map((child) => {
         child.build();
         return {
@@ -318,7 +318,8 @@ export class LocalCLI {
   _help(node, path = []) {
     const lines = [node.usageText || `Usage: ${this.script} ${path.join(' ') || '<command>'}`];
     if (node.definition.describe) lines.push(`\n${node.definition.describe}`);
-    if (node.children.length) lines.push('\nCommands:\n' + node.children.filter((n) => n.name !== this.completionCommand).map((n) => `  ${n.definition.command}  ${n.definition.describe || ''}`).join('\n'));
+    const children = node.children.filter(n => n.name !== this.completionCommand && !n.definition.hidden);
+    if (children.length) lines.push('\nCommands:\n' + children.map((n) => `  ${n.definition.command}  ${n.definition.describe || ''}`).join('\n'));
     if (node.options.size) lines.push('\nOptions:\n' + [...node.options].map(([name, s]) => `  --${name}${s.alias ? `, -${names(s.alias).join(', -')}` : ''}  ${s.describe || s.description || ''}`).join('\n'));
     if (node.epilogueText) lines.push(`\n${node.epilogueText}`);
     process.stdout.write(lines.join('\n') + '\n');
@@ -333,7 +334,7 @@ export class LocalCLI {
       node.build();
       const argv = { _: path.map((n) => n.name) };
       const completionFilter = (callback) => {
-        const values = [...node.children].filter((n) => n.name !== this.completionCommand)
+        const values = [...node.children].filter((n) => n.name !== this.completionCommand && !n.definition.hidden)
           .flatMap((n) => path.length ? [n.name] : [n.name, ...n.aliases]);
         const opts = [...this._optionConfig(path)].map(([name]) => `--${name}`);
         callback(null, [...new Set([...values, ...opts])]);
@@ -365,7 +366,7 @@ export class LocalCLI {
       return this._fail(`Unknown command: ${firstWord}`);
     }
     if (this.strictCmd && path.length && node.children.length && firstWord
-      && !this._lookup(node.children, firstWord)) {
+      && !node.definition.defaultPositionals && !this._lookup(node.children, firstWord)) {
       return this._fail(`Unknown command: ${firstWord}`);
     }
     if (!path.length && this.root.demand) return this._fail(this.root.demand.message);
@@ -381,7 +382,14 @@ export class LocalCLI {
     const positions = positionSpec(node.definition.command || '').map((position) => ({
       ...position, ...node.positionals.get(position.name), name: position.name,
     }));
-    parsed.positionals.forEach((value, i) => { if (positions[i]) argv[positions[i].name] = value; });
+    let positionalIndex = 0;
+    for (const position of positions) {
+      if (position.array) {
+        const values = parsed.positionals.slice(positionalIndex);
+        if (values.length) argv[position.name] = values;
+        positionalIndex = parsed.positionals.length;
+      } else if (parsed.positionals[positionalIndex] !== undefined) argv[position.name] = parsed.positionals[positionalIndex++];
+    }
     for (const spec of specs) if (spec.demandOption && argv[spec.name] === undefined) return this._fail(`Missing required argument: --${spec.name}`);
     for (const pos of positions) if (pos.required && argv[pos.name] === undefined) return this._fail(`Missing required argument: ${pos.name}`);
     for (const middleware of this.middlewares) await middleware(argv);

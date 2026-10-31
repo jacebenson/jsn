@@ -12,6 +12,9 @@ export function docsServiceUrl(value = process.env.JSN_DOCS_URL || DEFAULT_DOCS_
   url.pathname = url.pathname.replace(/\/+$/, '') + '/';
   return url.toString();
 }
+export function configuredDocsService(config = {}) {
+  return docsServiceUrl(process.env.JSN_DOCS_URL || config.docs?.url || DEFAULT_DOCS_URL);
+}
 async function request(endpoint, params, options = {}) {
   const service = docsServiceUrl(options.serviceUrl);
   const url = new URL(endpoint, service);
@@ -27,7 +30,7 @@ async function request(endpoint, params, options = {}) {
       chunks.push(chunk);
     }
     try { data = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-    catch { throw new AppError('api_error', 'Documentation service did not return JSON.', 'Check JSN_DOCS_URL points to the Rails documentation service.'); }
+    catch { throw new AppError('api_error', 'Documentation service did not return JSON.', 'Check JSN_DOCS_URL points to a JSN documentation service.'); }
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError('network_error', 'Could not reach the documentation service.', `Check your connection and JSN_DOCS_URL (${service}).`, 0, error);

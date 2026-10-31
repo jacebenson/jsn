@@ -58,9 +58,7 @@ jobs:
       - name: Build website and shared documentation engine
         run: docker build -f site/Dockerfile -t jsn-site:test .
       - name: Verify website routes and documentation API
-        run: >-
-          docker run --rm --entrypoint sh -e RAILS_ENV=test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
-          -c 'bin/rails db:prepare && bundle exec ruby -Itest -e '\''Dir["test/*_test.rb"].sort.each { |file| require_relative file }'\'''
+        run: docker run --rm --entrypoint bin/test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
       - name: Verify shared sync and Markdown handling
         run: >-
           docker run --rm --entrypoint node jsn-site:test

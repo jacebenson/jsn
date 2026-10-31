@@ -29,7 +29,14 @@ describe('authHubMenu', () => {
 
     assert.strictEqual(action, 'modify');
     const values = capturedChoices.map(c => c.value);
-    assert.deepStrictEqual(values, ['add', 'switch', 'remove', 'modify']);
+    assert.deepStrictEqual(values, ['add', 'switch', 'remove', 'modify', 'advanced']);
+  });
+
+  it('offers advanced settings without any saved instance', async () => {
+    const { authHubMenu } = await import('../src/commands/setup.js');
+    await authHubMenu({ hasProfiles: false, promptFn: async ({ choices }) => {
+      assert.deepStrictEqual(choices.map(choice => choice.value), ['add', 'advanced']);
+    } });
   });
 
   it('returns undefined when q exits the interactive hub', async () => {

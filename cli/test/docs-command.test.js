@@ -45,7 +45,7 @@ function cli(args, env) {
   });
 }
 test('docs exposes hosted search, show and status, without local index commands', () => {
-  assert.deepEqual(captureCommands(docsCmd(handler => handler)).map(command => command.command), ['status', 'search <query>', 'show <id-or-path>']);
+  assert.deepEqual(captureCommands(docsCmd(handler => handler)).map(command => command.command), ['search <query..>', 'show <id-or-path>', 'status']);
 });
 test('hosted client sends only public API requests and preserves pagination, paths and revisions', async t => {
   const fixtureServer = await fixture(t);
@@ -93,8 +93,12 @@ test('CLI uses hosted summaries, correct next offsets, full JSON bodies and --ge
   assert.equal(JSON.parse(result.stdout).data.count, 0);
   result = await cli(['docs', 'status', '--json'], env);
   assert.equal(JSON.parse(result.stdout).data.state, 'ready');
-  result = await cli(['docs', 'sync'], env);
-  assert.notEqual(result.status, 0);
+  result = await cli(['docs', 'GlideRecord', 'query', '--json'], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).data.query, 'GlideRecord query');
+  result = await cli(['docs', '--path', 'api/record.md', '--get', 'data.path'], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /api\/record.md/);
   assert.equal(existsSync(path.join(dir, 'docs', 'docs.db')), false);
   assert.equal(existsSync(path.join(dir, 'docs', 'source')), false);
 });

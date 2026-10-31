@@ -3,6 +3,7 @@ import { errUsage, errUsageHint } from '../errors.js';
 import { canUsePicker } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
+import { connectionPreferences, chooseConnectionPreferences } from '../setup-preferences.js';
 
 // Auth manages local credentials/profiles — runs without a configured
 // instance. (Not in the daily-check skip-list: legacy behavior checks for
@@ -242,7 +243,7 @@ export async function loginWizard(app, argv = {}) {
   }
 
   const profileName = (await ask('Profile name (default): ')) || 'default';
-  const profile = { instance_url: instance };
+  const profile = { instance_url: instance, ...connectionPreferences(app.config, app.config.profiles?.[profileName], argv) };
   if (argv['read-only']) {
     profile.read_only = true;
   }
@@ -292,10 +293,9 @@ export async function loginWizard(app, argv = {}) {
     // on Windows Git Bash: leaving both readers attached can make the later
     // OAuth question see EOF and let Node exit instead of waiting for input.
     rl.close();
-    const { confirm } = await import('@inquirer/prompts');
-    profile.read_only = await confirm({ message: 'Read-only profile (blocks mutation commands)?', default: profile.read_only || false });
-    profile.skip_confirmations = await confirm({ message: 'Skip confirmations (deletes run without prompting)?', default: profile.skip_confirmations || false });
-    profile.include_counts = await confirm({ message: 'Include result totals on list commands?', default: profile.include_counts !== false });
+    Object.assign(profile, await chooseConnectionPreferences(app.config, {
+      'read-only': profile.read_only, 'skip-confirmations': profile.skip_confirmations, 'include-counts': profile.include_counts,
+    }));
     console.log('');
   }
 
@@ -583,12 +583,10 @@ export function authCmd(wrap) {
             .option('read-only', {
               describe: 'Mark the created profile as read-only (blocks mutation commands)',
               type: 'boolean',
-              default: false,
             })
             .option('skip-confirmations', {
               describe: 'Skip delete confirmations on this profile (deletes run without prompting)',
               type: 'boolean',
-              default: false,
             })
             .option('include-counts', {
               describe: 'Include result totals on list commands (default on; pass --no-include-counts to opt out)',
@@ -734,12 +732,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
 
             app.config.profiles[profileName] = {
               ...(app.config.profiles[profileName] || {}),
+              ...connectionPreferences(app.config, app.config.profiles[profileName], argv),
               instance_url: instanceURL,
               auth_method: useGck ? 'gck' : useBasic ? 'basic' : 'oauth',
               username: username || undefined,
-              read_only: argv['read-only'] || undefined,
-              skip_confirmations: argv['skip-confirmations'] || undefined,
-              include_counts: argv['include-counts'] === true ? true : argv['include-counts'] === false ? false : undefined,
             };
 
             // Re-save OAuth credentials with username now that we have it,

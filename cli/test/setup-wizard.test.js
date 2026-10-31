@@ -23,6 +23,10 @@ describe('Setup Handler — zero profiles', () => {
         pickProfile: async () => 'dev',
       },
     });
+    mock.module('../src/setup-preferences.js', { namedExports: {
+      configureGlobalDefaults: async config => { config.connectionDefaults = { read_only: false, skip_confirmations: false, include_counts: true }; },
+      configureDocumentation: async () => {},
+    } });
     mock.module('@inquirer/prompts', {
       namedExports: {
         select: async () => { selectCalled = true; return 'add'; },

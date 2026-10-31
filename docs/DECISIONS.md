@@ -132,3 +132,18 @@ The website uses the documentation engine shipped by the CLI, avoiding a second
 package/release stream. CI selects application checks from changed paths; shared
 docs engine or dependency changes check both applications. Dev npm publication
 is limited to CLI and release-workflow changes. Production releases remain explicit.
+
+## One documentation engine for hosted and local use
+
+The npm package owns a Node/SQLite query engine and HTTP service. Rails delegates
+queries through a bounded JSON-lines child process, retaining one database handle
+for a request so revision checks and ID lookup use the same published snapshot.
+This adds process startup overhead but avoids a second search implementation or
+an additional deployment service. Both server modes use the same mirror/sync code,
+with exclusive publication, staged validation and atomic index replacement.
+
+Setup offers hosted documentation with a default-yes question. Declining offers
+a managed local service, also default-yes; only declining both asks for a base URL.
+The managed service listens on loopback, starts on demand and refreshes daily;
+self-hosting uses `jsn docs --serve`. No separate package, Docker or LLM setup is required.
+Global connection preferences apply to future connections, never retroactively.

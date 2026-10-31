@@ -126,3 +126,19 @@ describe('local CLI adapter', () => {
     assert.match(output.join(''), /Record commands/);
   });
 });
+
+it('allows variadic default docs queries while retaining strict handling elsewhere', async () => {
+  let seen;
+  const cli = yargs(['docs', 'business', 'rules']).strictCommands().command({
+    command: 'docs [query..]', defaultPositionals: true,
+    builder: y => y.command({ command: 'search <query..>', hidden: true, handler: argv => { seen = argv.query; } }),
+    handler: argv => { seen = argv.query; },
+  });
+  await cli.parse();
+  assert.deepEqual(seen, ['business', 'rules']);
+  assert.equal(cli.subcommandsOf(cli.root.children[0]).length, 0);
+  const failures = [];
+  await yargs(['users', 'typo']).strictCommands().command({ command: 'users', builder: y => y.command({ command: 'list', handler() {} }) })
+    .fail(message => failures.push(message)).parse();
+  assert.match(failures[0], /Unknown command/);
+});

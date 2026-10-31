@@ -46,6 +46,11 @@ function loadFromFile(cfg, filePath, source) {
   try {
     const data = fs.readFileSync(filePath, 'utf-8');
     const fileCfg = JSON.parse(data);
+    // Installation-wide preferences are never taken from a project config.
+    if (source === 'global') {
+      if (fileCfg.connection_defaults && typeof fileCfg.connection_defaults === 'object') cfg.connectionDefaults = fileCfg.connection_defaults;
+      if (fileCfg.docs && typeof fileCfg.docs === 'object') cfg.docs = fileCfg.docs;
+    }
     if (fileCfg.instance_url) {
       cfg.instanceURL = fileCfg.instance_url;
       cfg.sources.instance_url = source;
@@ -87,6 +92,8 @@ export function createConfig() {
     activeProfile: '',
     format: 'auto',
     sources: {},
+    connectionDefaults: null,
+    docs: null,
   };
 }
 
@@ -120,6 +127,8 @@ export function saveConfig(cfg) {
   const dir = globalConfigDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
   const payload = {
+    connection_defaults: cfg.connectionDefaults || undefined,
+    docs: cfg.docs || undefined,
     instance_url: cfg.instanceURL || undefined,
     profiles: Object.keys(cfg.profiles).length > 0 ? cfg.profiles : undefined,
     default_profile: cfg.defaultProfile || undefined,
