@@ -84,6 +84,14 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin HEAD:main "$TAG"
 
+      # The push above uses GITHUB_TOKEN, which starts no workflow, so promote
+      # the release commit to the dev channel explicitly.
+      - name: Dispatch dev channel promotion
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run promote-main-to-dev.yml --ref main
+
       - name: Dispatch production npm publish
         env:
           GH_TOKEN: ${{ github.token }}

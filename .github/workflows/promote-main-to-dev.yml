@@ -7,6 +7,9 @@ on:
       - 'cli/**'
       - '.github/workflows/publish-dev.yml'
       - '.github/workflows/promote-main-to-dev.yml'
+  # Release commits are pushed by the release workflow with GITHUB_TOKEN, which
+  # starts no push workflow, so a release would otherwise leave dev behind.
+  workflow_dispatch:
 
 permissions:
   actions: write
