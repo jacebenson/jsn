@@ -132,3 +132,20 @@ PRs against `main` on github.com/jacebenson/jsn, squash-merged
 release workflow; don't push release tags manually.
 
 Run dependency installation and package/release commands in `cli/` (`npm --prefix cli ci`). Root `npm test` and `npm run lint` forward to that package. Website deployment uses the repository root as Docker build context, with `site/Dockerfile`.
+
+## Before pushing development changes
+
+Use a feature branch and target `main` on the canonical GitHub repository above.
+From the repository root, run `npm test` and `npm run lint`; these forward to
+`cli/` and match the CLI checks in CI. Fix failures before pushing. If an existing
+failure blocks verification, report its baseline and impact explicitly rather
+than treating it as a passing gate. CI remains the enforced merge/release check;
+a local pass does not replace the checks on the reviewed commit.
+
+Keep the actual test exit status. Do not pipe a test command into `tail` (or
+another command) and use the pipeline's success to authorize a push. Run checks
+separately, or use a shell with `pipefail` when capturing filtered output.
+
+Let the release workflow apply the approved semantic-version change to the CLI
+package and lockfile. Do not copy the retired skill's automatic per-change
+version bumps or assume only one version file needs updating.
