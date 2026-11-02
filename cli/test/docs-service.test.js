@@ -10,19 +10,34 @@ import { syncDocumentation } from '../src/commands/docs/sync-service.js';
 import { startDocumentationServer } from '../src/commands/docs/server.js';
 import { ensureLocalDocumentation, documentationService } from '../src/commands/docs/local.js';
 import { searchHostedDocs, getHostedDoc } from '../src/commands/docs/client.js';
+async function stopDaemon(pid) {
+  if (!pid) return;
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    try { process.kill(pid, signal); } catch { return; }
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try { process.kill(pid, 0); await delay(50); } catch { return; }
+    }
+    // Windows ignores the requested signal and needs an explicit tree kill.
+    if (process.platform === 'win32') {
+      try { execFileSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* already gone */ }
+    }
+  }
+}
+function removeTree(t, root) {
+  // Windows keeps handles on the daemon's log and index files for a moment after exit.
+  try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); }
+  catch (error) {
+    if (!['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY'].includes(error.code)) throw error;
+    t.diagnostic(`Leaving the temporary fixture behind at ${root}: ${error.code}.`);
+  }
+}
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-docs-service-'));
   t.after(async () => {
-    // Windows cannot remove the daemon's open log files until it exits.
     let pid;
     try { pid = JSON.parse(fs.readFileSync(path.join(root, 'service/server.json'), 'utf8')).pid; } catch { /* no daemon */ }
-    if (pid) {
-      try { process.kill(pid, 'SIGTERM'); } catch { /* stopped */ }
-      for (let attempt = 0; attempt < 40; attempt++) {
-        try { process.kill(pid, 0); await delay(50); } catch { break; }
-      }
-    }
-    fs.rmSync(root, { recursive: true, force: true });
+    await stopDaemon(pid);
+    removeTree(t, root);
   });
   const source = path.join(root, 'upstream'), storage = path.join(root, 'service');
   fs.mkdirSync(path.join(source, 'markdown', 'api-reference'), { recursive: true });
