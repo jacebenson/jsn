@@ -218,6 +218,11 @@ jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b p
 jsn eval "gs.info('Hello World')"
 cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
 
+# Interactive background-script mode for trying successive scripts.
+# Each .exec is its own server request: variables do not persist between
+# submissions, while database writes do. .clear .help .exit; Ctrl+D exits.
+jsn eval --repl --profile dev --scope x_my_app
+
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)
 jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
 cat incident.graphql | jsn graphql --stdin --variables '{"limit":2}'

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { declareCapabilities } from '../capabilities.js';
+import { runRepl } from '../eval-repl.js';
 
 // The whole command is a mutation surface (runs arbitrary server-side JS) —
 // declared as `['']` so the root `jsn eval` command are gated.
@@ -9,12 +10,13 @@ declareCapabilities('eval', { mutationSubcommands: [''] });
 export function evalCmd(wrap) {
   return {
     command: 'eval',
-    describe: 'Execute background scripts on the instance',
+    describe: 'Execute background scripts on the instance (--repl for interactive mode)',
     builder: (yargs) => {
       return yargs
         .option('script', { alias: 's', type: 'string', describe: 'JavaScript code to execute (single-quote the script, double quotes inside: --script \'gs.log("Hello")\')' })
         .option('file', { alias: 'f', type: 'string', describe: 'Read script from file (avoids shell quoting issues)' })
         .option('stdin', { type: 'boolean', describe: 'Read script from stdin (pipe-friendly, e.g. cat script.js | jsn eval --stdin)' })
+        .option('repl', { type: 'boolean', default: false, describe: 'Interactive mode: type a script, submit with .exec (requires a terminal)' })
         .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: active scope from banner)' })
         // Script-mode flags (issue #177) — map to the Script Background form checkboxes
         .option('rollback', { type: 'boolean', default: true, describe: 'Record rollback context (--no-rollback to skip)' })
@@ -49,6 +51,33 @@ export function evalCmd(wrap) {
         if (!scopeSysId) {
           throw new Error(`Scope not found: ${scope}`);
         }
+      }
+
+      if (argv.repl) {
+        const conflicts = [];
+        if (argv.script) conflicts.push('--script');
+        if (argv.file) conflicts.push('--file');
+        if (argv.stdin) conflicts.push('--stdin');
+        if (conflicts.length) {
+          throw new Error(`--repl cannot be combined with ${conflicts.join(', ')}`);
+        }
+        if (!process.stdin.isTTY || !process.stdout.isTTY) {
+          throw new Error('--repl needs an interactive terminal. Use --script, --file or --stdin for scripts and agents.');
+        }
+        await runRepl({
+          instance: app.getEffectiveInstance(),
+          scope: scope || 'global',
+          runScript: (text) => {
+            const withScope = scopeSysId ? `var $scopeSysId = '${scopeSysId}';\n${text}` : text;
+            return app.sdk.executeScript(withScope, scopeSysId || '', {
+              rollback: argv.rollback,
+              quotaManagedTransaction: argv.quotaManagedTransaction,
+              sandbox: argv.sandbox,
+              scriptlet: argv.scriptlet,
+            });
+          },
+        });
+        return;
       }
 
       if (argv.file) {
