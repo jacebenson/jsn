@@ -422,6 +422,31 @@ an npm access-token secret. Older versions remain available outside the support
 window. Deprecation is an optional, separately authenticated maintenance action;
 existing deprecations are preserved and no package versions are unpublished.
 
+## Store application lifecycle
+
+`src/store.js` owns ServiceNow Store discovery, inspection and the explicit
+install/update lifecycle; `src/commands/store.js` keeps only argv and output
+adaptation. Discovery (`list`, `search`) and inspection (`show`, `status`) are
+read-only; `install` and `update` are declared mutations. The App Client search
+endpoint is POST-shaped but performs no mutation.
+
+A Store application is identified by a `sys_store_app` sys_id, an exact scope or
+an exact name. Company application-repository applications (`sys_app`) are a
+different source and are refused, never treated as Store apps. Version lists,
+entitlement/licensing flags, dependencies and compatibility data are reported as
+the platform supplies them; the platform does not say whether a refusal is an
+entitlement, licensing or compatibility problem, and jsn never infers purchase
+authorization or accepts commercial terms.
+
+A submitted lifecycle request returns an asynchronous tracker id, and submission
+is not a completed installation. A tracker's terminal success is still verified
+by reading the installed version back from `sys_store_app`: a mismatch is a
+failure, and an unreadable record is reported as unverified rather than
+successful. An expired wait keeps the tracker id without cancelling or
+resubmitting, and a submission without a tracker id is an error that is never
+retried. The App Client wire contract is unverified against a live
+Store-entitled instance; only discovery/inspection is proven by tests.
+
 ## Invariants (things that must stay true)
 
 - **Mutations are declared, not listed.** Adding a mutating subcommand means
