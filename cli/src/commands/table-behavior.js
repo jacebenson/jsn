@@ -35,8 +35,8 @@ export function withTableBehavior(command, wrap) {
       .option('direct-only', { type: 'boolean', default: false, describe: 'Only configuration associated with this exact table; no ancestors or global actions' })
       .option('include-inactive', { type: 'boolean', default: false, describe: 'Include inactive configuration (active-only by default)' })
       .option('name', { type: 'string', describe: 'Filter artifact names with a LIKE match (no encoded-query characters)' })
-      .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Maximum items per category (1-200)' })
-      .option('max-bytes', { type: 'number', default: 65536, describe: 'Response size budget in bytes (4096-1048576); oversized pages are omitted whole' })
+      .option('limit', { alias: 'l', type: 'number', default: 200, describe: 'Maximum items per category (1-200)' })
+      .option('max-bytes', { type: 'number', default: 524288, describe: 'Response size budget in bytes (4096-1048576); oversized pages are omitted whole' })
       .option('cursor', { type: 'string', array: true, describe: 'Continuation token from a category next_cursor; repeatable' })
       .epilogue([
         'Read-only: this inventories configuration with GET requests and never executes scripts or evaluates conditions.',

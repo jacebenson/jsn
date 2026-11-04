@@ -45,6 +45,94 @@ const BR_ROWS = [
   { sys_id: id('b'), name: 'Inherited rule', collection: 'task', active: 'true', sys_scope: 'global', order: '200', when: 'after', action_insert: 'true', action_update: 'false', action_delete: 'false', action_query: 'false', advanced: 'false', abort_action: 'false', script: 'gs.info(2)' },
 ];
 
+const sid = value => value.toString(16).padStart(32, '0');
+
+const CLIENT_FIELDS = ['sys_id', 'name', 'table', 'active', 'type', 'field', 'ui_type', 'view', 'global', 'applies_extended', 'isolate_script', 'condition', 'script'];
+const ACTION_FIELDS = ['sys_id', 'name', 'action_name', 'table', 'active', 'condition', 'client', 'roles', 'form_button', 'form_link', 'form_context_menu', 'list_button', 'list_link', 'list_context_menu', 'list_banner_button', 'list_choice', 'show_insert', 'show_update', 'ui_type', 'form_button_v2', 'form_menu_button_v2', 'format_for_configurable_workspace', 'script', 'onclick', 'client_script_v2'];
+const UI_POLICY_FIELDS = ['sys_id', 'short_description', 'table', 'active', 'sys_scope', 'conditions', 'on_load', 'reverse_if_false', 'inherit', 'global', 'view', 'run_scripts', 'ui_type', 'script_true', 'script_false'];
+const UI_POLICY_ACTION_FIELDS = ['sys_id', 'ui_policy', 'field', 'mandatory', 'disabled', 'visible', 'cleared', 'value_action', 'value', 'field_message_type', 'field_message'];
+const DATA_POLICY_FIELDS = ['sys_id', 'short_description', 'model_table', 'active', 'conditions', 'inherit', 'reverse_if_false', 'apply_import_set', 'apply_soap', 'enforce_ui'];
+const DATA_POLICY_RULE_FIELDS = ['sys_id', 'sys_data_policy', 'field', 'mandatory', 'disabled'];
+
+/**
+ * Realistic incident-sized inventory: more than 50 business rules and UI
+ * actions, five categories, and >64 KiB of returned evidence. The long
+ * conditions keep the fixture above the old 65536-byte default.
+ */
+function bigIncidentFixture() {
+  const businessRules = Array.from({ length: 138 }, (_, index) => ({
+    sys_id: sid(index + 1),
+    name: `Business rule ${index + 1}`,
+    collection: index % 5 === 0 ? 'task' : 'incident',
+    active: 'true',
+    sys_scope: 'global',
+    order: String(index),
+    when: 'before',
+    action_update: 'true',
+    action_insert: 'false',
+    action_delete: 'false',
+    action_query: 'false',
+    advanced: 'false',
+    abort_action: 'false',
+    filter_condition: `state=${index % 7}^short_descriptionLIKE${'x'.repeat(480)}`,
+    script: 'gs.info("rule")',
+  }));
+  const clientScripts = Array.from({ length: 60 }, (_, index) => ({
+    sys_id: sid(1000 + index),
+    name: `Client script ${index + 1}`,
+    table: 'incident',
+    active: 'true',
+    type: 'onChange',
+    field: 'state',
+    condition: `state=${index % 7}`,
+    script: 'function onChange() { return true; }',
+  }));
+  const uiActions = Array.from({ length: 94 }, (_, index) => ({
+    sys_id: sid(2000 + index),
+    name: `UI action ${index + 1}`,
+    action_name: `action_${index + 1}`,
+    table: index % 10 === 0 ? 'task' : 'incident',
+    active: 'true',
+    condition: `state=${index % 7}^short_descriptionLIKE${'y'.repeat(80)}`,
+    client: 'true',
+    form_button: 'true',
+    script: '',
+    onclick: '',
+    client_script_v2: '',
+  }));
+  const uiPolicies = Array.from({ length: 30 }, (_, index) => ({
+    sys_id: sid(3000 + index),
+    short_description: `UI policy ${index + 1}`,
+    table: index % 4 === 0 ? 'task' : 'incident',
+    active: 'true',
+    conditions: `state=${index % 7}`,
+    inherit: 'true',
+    script_true: '',
+    script_false: '',
+  }));
+  const dataPolicies = Array.from({ length: 10 }, (_, index) => ({
+    sys_id: sid(4000 + index),
+    short_description: `Data policy ${index + 1}`,
+    model_table: index % 5 === 0 ? 'task' : 'incident',
+    active: 'true',
+    conditions: `state=${index % 7}`,
+    inherit: 'true',
+  }));
+  return {
+    totals: { business_rules: 138, client_scripts: 60, ui_actions: 94, ui_policies: 30, data_policies: 10 },
+    responses: [
+      ...hierarchyRows(),
+      dictionary(BR_FIELDS), response(businessRules),
+      dictionary(CLIENT_FIELDS), response(clientScripts),
+      dictionary(ACTION_FIELDS), response(uiActions),
+      dictionary(UI_POLICY_FIELDS), response(uiPolicies),
+      dictionary(UI_POLICY_ACTION_FIELDS), response([]),
+      dictionary(DATA_POLICY_FIELDS), response(dataPolicies),
+      dictionary(DATA_POLICY_RULE_FIELDS), response([]),
+    ],
+  };
+}
+
 describe('table behavior discovery', () => {
   it('resolves parent ancestry and labels direct versus inherited business rules using GET only', async () => {
     const mock = withMockFetch([
@@ -79,7 +167,7 @@ describe('table behavior discovery', () => {
       assert.ok(mock.captured.requests.every(request => new URL(request.url).pathname.startsWith('/api/now/table/')));
       const scriptQuery = mock.captured.requests.find(request => new URL(request.url).pathname.endsWith('/sys_script'));
       const query = new URL(scriptQuery.url).searchParams.get('sysparm_query');
-      assert.equal(query, 'collectionINincident,task^active=true^ORDERBYsys_id');
+      assert.equal(query, 'collectionINincident,task,global^active=true^ORDERBYsys_id');
     } finally {
       mock.restore();
     }
@@ -293,6 +381,131 @@ describe('table behavior discovery', () => {
       );
     } finally {
       mock.restore();
+    }
+  });
+
+  it('uses defaults that return a full incident-sized inventory beyond 64 KiB', async () => {
+    const fixture = bigIncidentFixture();
+    const mock = withMockFetch(fixture.responses);
+    try {
+      const data = await discoverTableBehavior(sdk(), 'incident');
+      assert.equal(data.filters.limit, 200);
+      assert.equal(data.filters.max_bytes, 524288);
+      const byCategory = Object.fromEntries(data.categories.map(section => [section.category, section]));
+      for (const [category, expected] of Object.entries(fixture.totals)) {
+        assert.equal(byCategory[category].returned, expected, `${category} returns its full inventory by default`);
+        assert.equal(byCategory[category].truncated, false, `${category} is not budget-truncated by default`);
+        assert.equal(byCategory[category].has_more, false, `${category} has no continuation by default`);
+        assert.equal(byCategory[category].status, 'complete', `${category} status`);
+      }
+      assert.ok(Buffer.byteLength(JSON.stringify(data), 'utf8') > 65536, 'fixture exceeds the old default budget');
+      assert.deepEqual(data.totals, {
+        returned: 332, direct: 284, inherited: 48,
+        unavailable_categories: 0, unsupported_categories: 0, partial_categories: 0,
+      });
+    } finally {
+      mock.restore();
+    }
+  });
+
+  it('includes active global business rules for root tables and keeps direct-only semantics', async () => {
+    const rootHierarchy = [response([{ sys_id: TASK, name: 'task', label: 'Task', super_class: '' }])];
+    const rows = [
+      { sys_id: id('a'), name: 'Direct rule', collection: 'task', active: 'true' },
+      { sys_id: id('b'), name: 'Global rule', collection: 'global', active: 'true' },
+    ];
+    const root = withMockFetch([...rootHierarchy, dictionary(BR_FIELDS), response(rows)]);
+    try {
+      const data = await discoverTableBehavior(sdk(), 'task', { categories: ['business_rules'] });
+      assert.deepEqual(data.ancestors, []);
+      const section = data.categories[0];
+      assert.equal(section.returned, 2);
+      assert.equal(section.direct_count, 1);
+      assert.equal(section.inherited_count, 1);
+      const globalRule = section.items.find(item => item.name === 'Global rule');
+      assert.equal(globalRule.association, 'inherited');
+      assert.equal(globalRule.association_detail, 'global_actions');
+      assert.equal(globalRule.inherited, true);
+      const query = new URL(root.captured.requests.at(-1).url).searchParams.get('sysparm_query');
+      assert.equal(query, 'collectionINtask,global^active=true^ORDERBYsys_id');
+    } finally {
+      root.restore();
+    }
+
+    const includeInactive = withMockFetch([...rootHierarchy, dictionary(BR_FIELDS), response(rows)]);
+    try {
+      await discoverTableBehavior(sdk(), 'task', { categories: ['business_rules'], includeInactive: true });
+      const query = new URL(includeInactive.captured.requests.at(-1).url).searchParams.get('sysparm_query');
+      assert.equal(query, 'collectionINtask,global^ORDERBYsys_id');
+    } finally {
+      includeInactive.restore();
+    }
+
+    const direct = withMockFetch([...rootHierarchy, dictionary(BR_FIELDS), response([rows[0]])]);
+    try {
+      const data = await discoverTableBehavior(sdk(), 'task', { categories: ['business_rules'], directOnly: true });
+      assert.deepEqual(data.categories[0].items.map(item => item.association), ['direct']);
+      const query = new URL(direct.captured.requests.at(-1).url).searchParams.get('sysparm_query');
+      assert.equal(query, 'collection=task^active=true^ORDERBYsys_id');
+    } finally {
+      direct.restore();
+    }
+  });
+
+  it('accepts bounded non-hex ids and never sends query metacharacters from ids', async () => {
+    const uiActions = withMockFetch([
+      ...hierarchyRows(),
+      dictionary(ACTION_FIELDS),
+      response(['sysverb_query', 'sysverb_post_update'].map(sys_id => ({
+        sys_id, name: sys_id, table: 'global', active: 'true', script: '', onclick: '', client_script_v2: '',
+      }))),
+    ]);
+    try {
+      const data = await discoverTableBehavior(sdk(), 'incident', { categories: ['ui_actions'] });
+      assert.equal(data.categories[0].returned, 2);
+      assert.equal(data.categories[0].status, 'complete');
+      assert.deepEqual(data.categories[0].items.map(item => item.reference.sys_id), ['sysverb_query', 'sysverb_post_update']);
+      assert.ok(data.categories[0].items.every(item => item.association_detail === 'global_actions'));
+    } finally {
+      uiActions.restore();
+    }
+
+    const policyRows = [
+      { sys_id: 'sysverb_query', short_description: 'Non-hex policy', table: 'incident', active: 'true' },
+      { sys_id: 'bad^table=incident', short_description: 'Malicious policy', table: 'incident', active: 'true' },
+    ];
+    const policies = withMockFetch([
+      ...hierarchyRows(),
+      dictionary(UI_POLICY_FIELDS),
+      response(policyRows),
+      dictionary(UI_POLICY_ACTION_FIELDS),
+      response([]),
+    ]);
+    try {
+      const data = await discoverTableBehavior(sdk(), 'incident', { categories: ['ui_policies'] });
+      const section = data.categories[0];
+      assert.equal(section.returned, 1);
+      assert.equal(section.items[0].reference.sys_id, 'sysverb_query');
+      assert.ok(section.warnings.some(warning => warning.code === 'malformed_response'));
+      const relatedRequest = policies.captured.requests.find(request => new URL(request.url).pathname.endsWith('/sys_ui_policy_action'));
+      assert.ok(relatedRequest, 'safe non-hex policy ids reach the related read');
+      assert.equal(new URL(relatedRequest.url).searchParams.get('sysparm_query'), 'ui_policyINsysverb_query');
+      assert.ok(policies.captured.requests.every(request => !decodeURIComponent(request.url).includes('bad^table=incident')));
+    } finally {
+      policies.restore();
+    }
+
+    const badHierarchy = withMockFetch([
+      response([{ sys_id: INCIDENT, name: 'incident', super_class: 'x^active=true' }]),
+    ]);
+    try {
+      await assert.rejects(
+        () => discoverTableBehavior(sdk(), 'incident', { categories: ['business_rules'] }),
+        /Invalid parent table reference/
+      );
+      assert.equal(badHierarchy.captured.callCount, 1, 'the unsafe parent id stops the hierarchy walk');
+    } finally {
+      badHierarchy.restore();
     }
   });
 });

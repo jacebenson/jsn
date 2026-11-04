@@ -20,13 +20,16 @@ export const BEHAVIOR_CATEGORIES = [
   'data_policies',
 ];
 
-const DEFAULT_LIMIT = 50;
+const DEFAULT_LIMIT = 200;
 const MAX_LIMIT = 200;
-const DEFAULT_MAX_BYTES = 65536;
+const DEFAULT_MAX_BYTES = 524288;
 const MIN_MAX_BYTES = 4096;
 const MAX_MAX_BYTES = 1048576;
 const TABLE_NAME = /^[a-zA-Z][a-zA-Z0-9_]*$/;
-const SYS_ID = /^[a-f0-9]{32}$/i;
+// ServiceNow sys_ids are normally 32 hex characters, but some platform records
+// (for example sysverb_query/sysverb_post_update) use bounded word ids. Allow
+// only characters that cannot change encoded-query structure.
+const SAFE_SYS_ID = /^[A-Za-z0-9_]{1,64}$/;
 const CATEGORY_ALIASES = new Map([
   ['business_rules', 'business_rules'], ['business-rules', 'business_rules'], ['businessrules', 'business_rules'], ['rules', 'business_rules'],
   ['client_scripts', 'client_scripts'], ['client-scripts', 'client_scripts'], ['clientscripts', 'client_scripts'],
@@ -47,7 +50,7 @@ const SOURCES = {
     label: 'Business rules', layer: 'server', enforcement: 'server',
     summary: 'Server-side rules. Client-side requirements are not proof of server enforcement.',
     sources: [{
-      table: 'sys_script', target: 'collection', inherit: null,
+      table: 'sys_script', target: 'collection', inherit: null, includeGlobal: true,
       fields: ['when', 'action_insert', 'action_update', 'action_delete', 'action_query', 'filter_condition', 'condition', 'advanced', 'abort_action', 'add_message', 'message', 'change_fields', 'role_conditions'],
       scripts: ['script'],
     }],
@@ -181,7 +184,7 @@ async function loadHierarchy(sdk, requested) {
     nodes.push({ name, sys_id: text(row, 'sys_id'), label: text(row, 'label') || undefined });
     const parent = rawValue(row, 'super_class');
     if (!parent) return nodes;
-    if (!SYS_ID.test(String(parent))) throw new Error(`Invalid parent table reference while resolving ${requested}.`);
+    if (!SAFE_SYS_ID.test(String(parent))) throw new Error(`Invalid parent table reference while resolving ${requested}.`);
     query = `sys_id=${parent}`;
   }
   throw new Error(`Table hierarchy exceeds 32 levels: ${requested}`);
@@ -246,9 +249,9 @@ function quoteList(values) {
   return values.join(',');
 }
 
-function associationFor(category, source, rowTable, requested, ancestors) {
+function associationFor(source, rowTable, requested, ancestors) {
   if (rowTable === requested) return { association: 'direct', detail: 'exact_table', inherited: false };
-  if (category === 'ui_actions' && rowTable === 'global') {
+  if (source.includeGlobal && rowTable === 'global') {
     return { association: 'inherited', detail: 'global_actions', inherited: true };
   }
   if (ancestors.includes(rowTable)) {
@@ -285,8 +288,8 @@ function summarize(category, source, row, fields, context) {
   const { requested, ancestors } = context;
   const rowTable = source.target ? text(row, source.target) : '';
   const sysId = text(row, 'sys_id');
-  if (!SYS_ID.test(sysId)) throw new Error(`Metadata record in ${source.table} lacks a valid sys_id.`);
-  const association = associationFor(category, source, rowTable, requested, ancestors);
+  if (!SAFE_SYS_ID.test(sysId)) throw new Error(`Metadata record in ${source.table} lacks a valid sys_id.`);
+  const association = associationFor(source, rowTable, requested, ancestors);
   const item = {
     reference: { kind: category, source_table: source.table, sys_id: sysId },
     source_table: source.table,
@@ -352,7 +355,7 @@ function summarize(category, source, row, fields, context) {
       value: text(action, 'value') || undefined,
       field_message_type: text(action, 'field_message_type') || undefined,
       field_message: text(action, 'field_message') || undefined,
-      reference: SYS_ID.test(text(action, 'sys_id')) ? { kind: category, source_table: 'sys_ui_policy_action', sys_id: text(action, 'sys_id') } : undefined,
+      reference: SAFE_SYS_ID.test(text(action, 'sys_id')) ? { kind: category, source_table: 'sys_ui_policy_action', sys_id: text(action, 'sys_id') } : undefined,
     }));
   } else if (category === 'data_policies') {
     item.conditions = text(row, 'conditions') || undefined;
@@ -365,7 +368,7 @@ function summarize(category, source, row, fields, context) {
       field: text(action, 'field') || undefined,
       mandatory: text(action, 'mandatory') || undefined,
       disabled: text(action, 'disabled') || undefined,
-      reference: SYS_ID.test(text(action, 'sys_id')) ? { kind: category, source_table: 'sys_data_policy_rule', sys_id: text(action, 'sys_id') } : undefined,
+      reference: SAFE_SYS_ID.test(text(action, 'sys_id')) ? { kind: category, source_table: 'sys_data_policy_rule', sys_id: text(action, 'sys_id') } : undefined,
     }));
   }
 
@@ -383,7 +386,7 @@ async function readRelated(sdk, source, items, warnings) {
   const related = new Map();
   if (!source.related || !items.length) return related;
   const { table, foreignKey, fields } = source.related;
-  const ids = items.map(item => item.reference.sys_id).filter(id => SYS_ID.test(id));
+  const ids = items.map(item => item.reference.sys_id).filter(id => SAFE_SYS_ID.test(id));
   if (!ids.length) return related;
   try {
     const available = await dictionaryFields(sdk, table);
@@ -524,11 +527,11 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
       }
 
       const parts = [];
-      if (directOnly || ancestors.length === 0) {
+      if (directOnly) {
         parts.push(`${source.target}=${table}`);
       } else if (source.inherit) {
         parts.push(`${source.target}=${table}`);
-        parts.push(`${source.target}IN${quoteList(ancestors)}^${source.inherit}=true`);
+        if (ancestors.length) parts.push(`${source.target}IN${quoteList(ancestors)}^${source.inherit}=true`);
         if (source.includeGlobal) parts.push(`${source.target}=global`);
       } else {
         const associated = source.includeGlobal ? [...ancestors, 'global'] : ancestors;

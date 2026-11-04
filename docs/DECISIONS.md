@@ -15,17 +15,23 @@ The inventory resolves the `sys_db_object` ancestor chain (bounded to 32 levels)
 and applies each artifact's inheritance semantics: business rules inherit
 through `collection`, client scripts only through `applies_extended`, UI actions
 through `table` plus `global`, and UI/data policies through their `inherit`
-flag. Items report `association` (`direct`/`inherited`) and
+flag. Business rules and UI actions also include the platform `global`
+collection, including for root tables with no ancestors, and mark those rows
+with `association_detail: global_actions`. Items report `association`
+(`direct`/`inherited`) and
 `association_detail`, optionally attached field actions from
 `sys_ui_policy_action`/`sys_data_policy_rule`. `sys_overrides` is retained as
 evidence only — effective override resolution is not simulated. Client-side
 requirements are reported separately from server enforcement. Conditions are
 inventoried, never evaluated; scripts are not retrieved in Phase 1, so no
-script body can be cut.
+script body can be cut. Metadata identifiers are validated against a bounded
+`[A-Za-z0-9_]` allowlist before they enter related queries, so ordinary 32-hex
+sys_ids and platform word ids such as `sysverb_query` both work while encoded
+query metacharacters are rejected.
 
-Output is bounded per category (`--limit`, max 200) and by `--max-bytes`
-(4096–1048576) with whole-item omission, per-category cursors and explicit
-`truncated`/`has_more` metadata. Sources are probed through `sys_dictionary`
+Output is bounded per category (`--limit`, default 200, max 200) and by
+`--max-bytes` (4096–1048576, default 524288) with whole-item omission,
+per-category cursors and explicit `truncated`/`has_more` metadata. Sources are probed through `sys_dictionary`
 before querying; permission, missing-layout and malformed-response failures
 become `unavailable`/`unsupported` category statuses, never empty results.
 Every read is a GET through the existing authenticated SDK (`listStrict`); no

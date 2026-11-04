@@ -353,7 +353,7 @@ requested table, or `inherited` otherwise. **Association detail** records the
 basis: `exact_table`, `ancestor_table` (platform inheritance, business rules and
 UI actions), `ancestor_applies_extended` (`sys_script_client.applies_extended`),
 `ancestor_inherit_flag` (`sys_ui_policy.inherit`, `sys_data_policy2.inherit`), or
-`global_actions` (UI actions on `global`). `sys_overrides` links are preserved as
+`global_actions` (`global` business rules and UI actions). `sys_overrides` links are preserved as
 **override evidence**; effective override resolution is not simulated.
 
 A **category status** is `complete`, `partial`, `unavailable` or `unsupported`.
@@ -363,7 +363,8 @@ continuation, response-budget truncation, child-read failures and
 ACL-restricted fields. Results describe **accessible configuration** only.
 
 Discovery defaults to active configuration, applies per-category bounds
-(`--limit`, default 50, max 200) and a response-byte budget (`--max-bytes`).
+(`--limit`, default 200, max 200) and a response-byte budget (`--max-bytes`,
+default 524288, max 1048576).
 Oversized items are omitted whole with explicit truncation metadata; script
 bodies are never requested or cut in Phase 1. A **behavior cursor** is a
 stateless per-category offset token tied to the table and filter signature; it
