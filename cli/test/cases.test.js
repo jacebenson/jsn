@@ -99,6 +99,7 @@ test('ACL-denied case access reports forbidden for every candidate instead of an
 test('an explicit table that is missing or unreadable names the table in the error', async () => {
   const { app } = setup(() => { throw httpError(400); });
   await assert.rejects(run('list')(argv({ table: CSM, app }), app), error => {
+    assert.equal(error.code, 'usage_error', 'a missing table is a caller mistake, not an opaque api_error that skips the JSON envelope');
     assert.match(error.message, new RegExp(`Reading ${CSM} failed`));
     assert.match(error.hint, /cases tables/);
     return true;

@@ -164,11 +164,20 @@ Omit `--dry-run` to submit after confirmation. `--quantity` defaults to one;
 `--requested-for` accepts a user sys_id subject to instance delegation rules.
 
 `describe` returns the item's `variables` as `{name, label, type, friendly_type,
-mandatory}` entries plus `required_variables`, so a script can build the payload
-without guessing question names or types. `order` refuses locally when a
-mandatory variable is missing (only when the item's variable list was readable);
-an unknown variable name is reported as `unknown_variable_names` without
-blocking. The server remains the authority.
+mandatory, instance_supplied}` entries plus `required_variables`, so a script can
+build the payload without guessing question names or types. Layout entries that
+draw the form but hold no value — containers, labels, HTML and rich text blocks,
+breaks and UI macros — are not reported as variables; only their container
+children are walked. `required_variables` lists the mandatory names a caller must answer and
+excludes `instance_supplied_variables`: "Requested for" (type 31) is mandatory in
+the API payload, but the instance fills it from the session, and `--requested-for`
+overrides it. `order` refuses locally when a required variable is missing (only
+when the item's variable list was readable); an unknown variable name is reported
+as `unknown_variable_names` without blocking. The server remains the authority.
+What the API returns is what a caller can send: questions withheld by a catalog UI
+policy are absent, and a policy-applied mandatory flag is not visible here, so the
+server still decides at submission. Record producers and order guides expose their
+variables but are not orderable through `order`.
 
 Orders use `order_now`, preserving catalog fulfillment rather than inserting an
 RITM directly. `order_now` returns the request (REQ); JSN then reads the request's
@@ -208,11 +217,12 @@ jsn cases show CS0001001
 Visibility is not widened by JSN: application roles and ACLs decide which
 records are returned, and a denied table reports `forbidden` (HTTP 403) rather
 than an empty list. An instance without a case application reports which tables
-were unavailable instead of pretending there are no cases. To scope a list to
-the connected account, add a query term — field names differ per application,
-for example `--query "opened_by=javascript:gs.getUserID()"`. These commands only
-read; case work that changes state stays in the application UI or
-`jsn records update`.
+were unavailable instead of pretending there are no cases, and naming such a
+table with `--table` fails the same way (`Reading <table> failed (HTTP 400)`,
+exit 2) instead of printing an empty list. To scope a list to the connected
+account, add a query term — field names differ per application, for example
+`--query "opened_by=javascript:gs.getUserID()"`. These commands only read; case
+work that changes state stays in the application UI or `jsn records update`.
 
 HR cases are a thin addition over this generic path: `--hr` selects
 `sn_hr_core_case`. Employee self-service visibility depends on the HR roles and

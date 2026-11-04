@@ -130,6 +130,52 @@ test('catalog search and describe use native access-aware endpoints and strict r
   await assert.rejects(f.run('describe',{}),/readable item/);
 });
 
+test('describe reports only answerable questions and separates the instance-supplied Requested for', async () => {
+  const variables = [
+    { name: '', label: 'Options', type: 0, friendly_type: 'container_start', mandatory: false, children: [
+      { name: 'agree', label: 'I agree', type: 7, friendly_type: 'check_box', mandatory: false },
+    ] },
+    { name: 'note', label: '<p>Read this</p>', type: 32, friendly_type: 'rich_text_label', mandatory: false },
+    { name: 'rich_text', label: 'Name', type: 23, friendly_type: 'html', mandatory: false },
+    { name: 'macro_widget', label: 'Widget', type: 14, friendly_type: 'macro', mandatory: false },
+    { name: 'widget_dummy', label: 'Widget label', type: 17, friendly_type: 'macro_with_abel', mandatory: false },
+    { name: 'requested_for', label: 'Requested for', type: 31, friendly_type: 'requested_for', mandatory: true },
+  ];
+  const f=fixture({ variables });
+  await f.run('describe',{});
+  const { data } = f.output[0];
+  assert.deepEqual(data.variables.map(v=>v.name),['agree','requested_for']);
+  assert.deepEqual(data.required_variables,[],'a layout entry or the instance-supplied requester is not an answer to build');
+  assert.deepEqual(data.instance_supplied_variables,['requested_for']);
+  assert.equal(data.variables.find(v=>v.name==='requested_for').instance_supplied,true);
+  assert.equal(data.variables_reported,true);
+});
+
+test('a mandatory Requested for never blocks an order the instance can fill', async () => {
+  const variables = [
+    { name: 'requested_for', label: 'Requested for', type: 31, friendly_type: 'requested_for', mandatory: true },
+    ...VARIABLES,
+  ];
+  const f=fixture({ variables });
+  await f.run('order',{variables:'{"notes":"ok"}'});
+  assert.deepEqual(f.calls.map(c=>c.method),['GET','POST','GET']);
+  assert.equal(f.output[0].data.submitted,true);
+  assert.equal(f.output[0].data.request_number,'REQ001');
+  assert.deepEqual(f.output[0].data.unknown_variable_names,undefined);
+});
+
+test('a preview also accepts a mandatory Requested for without a payload value', async () => {
+  const variables = [
+    { name: 'requested_for', label: 'Requested for', type: 31, friendly_type: 'requested_for', mandatory: true },
+    ...VARIABLES,
+  ];
+  const f=fixture({ variables });
+  await f.run('order',{variables:'{"notes":"ok"}',dryRun:true,requestedFor:USER});
+  assert.deepEqual(f.calls.map(c=>c.method),['GET']);
+  assert.equal(f.output[0].data.submitted,false);
+  assert.deepEqual(f.output[0].data.required_variables,['notes']);
+});
+
 test('real CLI blocks both canonical and alias ordering for a read-only profile before transport', t => {
   catalogCmd(fn=>fn); refreshMutationCommands();
   assert.equal(isMutationCommand({_:['catalogitems','order']}),true);

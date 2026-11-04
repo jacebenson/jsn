@@ -36,8 +36,8 @@ function caseReadError(table, error) {
       'Case visibility follows the application roles and ACLs. Ask an administrator for access, or use a profile that has it.', 403);
   }
   if (status === 400 || status === 404) {
-    return new AppError('api_error', `Reading ${table} failed (HTTP ${status}).`,
-      'The case application may not be installed, or the query uses a field this table does not have. Try jsn cases tables, then --table with a supported table.', status);
+    return errUsageHint(`Reading ${table} failed (HTTP ${status}).`,
+      'The case application may not be installed, or the query uses a field this table does not have. Try jsn cases tables, then --table with a supported table.');
   }
   return error;
 }

@@ -5,8 +5,22 @@ const ID = /^[a-f0-9]{32}$/i;
 const API = '/api/sn_sc/servicecatalog/items';
 const RITM = '/api/now/table/sc_req_item';
 const MAX_REQUESTED_ITEMS = 10;
-const CONTAINER_TYPES = new Set(['container_start', 'container_end', 'container_split', 'label', 'break']);
+// Layout entries draw the form; they are not values a caller can send.
+// Containers are still walked for their children, everything else here is
+// skipped outright. ServiceNow reports these with their own friendly types
+// (verified on a live instance: macro and rich_text_label entries appear in
+// the `variables` tree next to real questions).
+const LAYOUT_TYPES = new Set([
+  'container_start', 'container_end', 'container_split',
+  'label', 'rich_text_label', 'html', 'break', 'formatter',
+  'macro', 'macro_with_abel', 'ui_macro',
+]);
+// "Requested for" (type 31) is mandatory in the API payload but is not a value
+// the caller builds: the instance fills it from the session and --requested-for
+// overrides it. It is reported separately so it never blocks a submission.
+const REQUESTED_FOR = 31;
 const object = v => v && typeof v === 'object' && !Array.isArray(v);
+const isInstanceSupplied = v => v?.friendly_type === 'requested_for' || v?.type === REQUESTED_FOR;
 
 function emit(app, argv, data, summary, breadcrumbs = []) {
   const connection = argv.profile ? ` --profile ${quoteShellArg(argv.profile)}` : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : '';
@@ -16,25 +30,28 @@ function requireId(id) { if (!ID.test(id || '')) throw errUsage('Use the full ca
 
 /**
  * Flatten the `variables` tree returned by the Service Catalog API into the
- * question definitions a caller can answer. Containers and labels are layout,
- * not inputs, but their children are still walked.
+ * question definitions a caller can answer. Layout entries (containers, labels,
+ * rich text, UI macros) are not inputs, but container children are still walked.
+ * A name is reported once: the API can repeat a variable inside a container.
  */
-function flattenVariables(list, out = []) {
+function flattenVariables(list, out = [], seen = new Set()) {
   if (!Array.isArray(list)) return out;
   for (const entry of list) {
     if (!object(entry)) continue;
     const friendly = typeof entry.friendly_type === 'string' ? entry.friendly_type : '';
     const name = typeof entry.name === 'string' ? entry.name : '';
-    if (name && !CONTAINER_TYPES.has(friendly)) {
+    if (name && !LAYOUT_TYPES.has(friendly) && !seen.has(name)) {
+      seen.add(name);
       out.push({
         name,
         label: entry.label || entry.question_text || name,
         type: entry.type ?? null,
         friendly_type: friendly || null,
         mandatory: entry.mandatory === true || entry.mandatory === 'true',
+        instance_supplied: isInstanceSupplied(entry),
       });
     }
-    if (Array.isArray(entry.children)) flattenVariables(entry.children, out);
+    if (Array.isArray(entry.children)) flattenVariables(entry.children, out, seen);
   }
   return out;
 }
@@ -66,7 +83,7 @@ function isAnswered(value) {
  * submission before a confirmation prompt or a POST.
  */
 function reviewVariables(variables, supplied) {
-  const required = variables.filter(v => v.mandatory);
+  const required = variables.filter(v => v.mandatory && !v.instance_supplied);
   return {
     requiredVariables: required.map(v => v.name),
     missing: required.filter(v => !isAnswered(supplied[v.name])).map(v => v.name),
@@ -119,7 +136,8 @@ export function catalogOrderCommands(wrap) {
         emit(app, argv, {
           ...item,
           variables,
-          required_variables: variables.filter(v => v.mandatory).map(v => v.name),
+          required_variables: variables.filter(v => v.mandatory && !v.instance_supplied).map(v => v.name),
+          instance_supplied_variables: variables.filter(v => v.instance_supplied).map(v => v.name),
           variables_reported: variablesReported,
         }, item.name || item.short_description || argv.id, itemHints(argv.id));
       }) },
@@ -130,7 +148,7 @@ export function catalogOrderCommands(wrap) {
         .option('quantity', { type: 'number', default: 1, describe: 'Positive integer quantity (max 1000)' })
         .option('requested-for', { type: 'string', describe: 'User sys_id; instance delegation rules still apply' })
         .option('dry-run', { type: 'boolean', default: false, describe: 'Read item details and preview variables; no order is submitted' })
-        .epilogue('Use describe to inspect variables and their types first. A preview only reads; submitting needs a write-enabled profile and an explicit confirmation (or --force). Server-side rules still validate the order, so a preview does not prove submission will succeed. Existing create/list/show commands manage definitions. Orders need no application/update-set selection.'),
+        .epilogue('Use describe to inspect variables and their types first. Requested for is supplied by the instance unless you pass --requested-for, so it is reported separately and never blocks an order. A preview only reads; submitting needs a write-enabled profile and an explicit confirmation (or --force). Server-side rules still validate the order, so a preview does not prove submission will succeed. Existing create/list/show commands manage definitions. Orders need no application/update-set selection.'),
       handler: wrap(async (argv, app) => {
         requireId(argv.id);
         if (!Number.isInteger(argv.quantity) || argv.quantity < 1 || argv.quantity > 1000) throw errUsage('--quantity must be an integer from 1 to 1000.');
