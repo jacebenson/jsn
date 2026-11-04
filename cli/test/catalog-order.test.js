@@ -46,16 +46,6 @@ test('catalog order submits once with typed variables and reports request plus r
   assert.equal('variables' in f.output[0].data,false);
 });
 
-test('describe lists catalog variables with their types and required flags', async () => {
-  const f=fixture({ variables: VARIABLES });
-  await f.run('describe',{});
-  assert.deepEqual(f.calls.map(c=>c.method),['GET']);
-  const { data } = f.output[0];
-  assert.deepEqual(data.variables.map(v=>[v.name,v.type,v.mandatory]),[['agree',7,false],['notes',2,true]]);
-  assert.deepEqual(data.required_variables,['notes']);
-  assert.equal(data.variables_reported,true);
-});
-
 test('preview validates a JSON file without submitting or echoing variable values', async t => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'jsn-order-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
@@ -121,34 +111,18 @@ test('an unreadable requested-item lookup still reports the placed order without
   assert.deepEqual(f.output[0].data.requested_items,[]);
 });
 
-test('catalog search and describe use native access-aware endpoints and strict result shapes', async () => {
+test('catalog search uses the native access-aware endpoint and strict result shapes', async () => {
   const f=fixture(); f.app.sdk.request=async(url,options)=>{f.calls.push({url,...options});return {result:[{sys_id:ID,name:'Laptop'}]};};
   await f.run('search',{text:'laptop & bag',limit:1,profile:'work'});
   assert.equal(new URL(f.calls[0].url).searchParams.get('sysparm_text'),'laptop & bag');
   assert.equal(f.output[0].data.possibly_truncated,true);
-  assert.ok(f.output[0].options.breadcrumbs[0].cmd.includes('describe'));
-  await assert.rejects(f.run('describe',{}),/readable item/);
+  assert.ok(f.output[0].options.breadcrumbs[0].cmd.includes('show'));
 });
 
-test('describe reports only answerable questions and separates the instance-supplied Requested for', async () => {
-  const variables = [
-    { name: '', label: 'Options', type: 0, friendly_type: 'container_start', mandatory: false, children: [
-      { name: 'agree', label: 'I agree', type: 7, friendly_type: 'check_box', mandatory: false },
-    ] },
-    { name: 'note', label: '<p>Read this</p>', type: 32, friendly_type: 'rich_text_label', mandatory: false },
-    { name: 'rich_text', label: 'Name', type: 23, friendly_type: 'html', mandatory: false },
-    { name: 'macro_widget', label: 'Widget', type: 14, friendly_type: 'macro', mandatory: false },
-    { name: 'widget_dummy', label: 'Widget label', type: 17, friendly_type: 'macro_with_abel', mandatory: false },
-    { name: 'requested_for', label: 'Requested for', type: 31, friendly_type: 'requested_for', mandatory: true },
-  ];
-  const f=fixture({ variables });
-  await f.run('describe',{});
-  const { data } = f.output[0];
-  assert.deepEqual(data.variables.map(v=>v.name),['agree','requested_for']);
-  assert.deepEqual(data.required_variables,[],'a layout entry or the instance-supplied requester is not an answer to build');
-  assert.deepEqual(data.instance_supplied_variables,['requested_for']);
-  assert.equal(data.variables.find(v=>v.name==='requested_for').instance_supplied,true);
-  assert.equal(data.variables_reported,true);
+test('an item the catalog API cannot read is refused instead of submitting against guessed questions', async () => {
+  const f=fixture(); f.app.sdk.request=async(url,options)=>{f.calls.push({url,...options});return {result:{}};};
+  await assert.rejects(f.run('order',{force:true}),/readable item/);
+  assert.deepEqual(f.calls.map(c=>c.method),['GET']);
 });
 
 test('a mandatory Requested for never blocks an order the instance can fill', async () => {
@@ -179,7 +153,7 @@ test('a preview also accepts a mandatory Requested for without a payload value',
 test('real CLI blocks both canonical and alias ordering for a read-only profile before transport', t => {
   catalogCmd(fn=>fn); refreshMutationCommands();
   assert.equal(isMutationCommand({_:['catalogitems','order']}),true);
-  assert.ok(captureCommands(catalogCmd(fn=>fn)).some(c=>c.command==='describe <id>'));
+  assert.ok(captureCommands(catalogCmd(fn=>fn)).some(c=>c.command==='show <id>'));
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'jsn-order-ro-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   fs.mkdirSync(path.join(root,'servicenow'));
   fs.writeFileSync(path.join(root,'servicenow','config.json'),JSON.stringify({activeProfile:'ro',profiles:{ro:{instance_url:'https://example.invalid',read_only:true}}}));

@@ -1,26 +1,12 @@
 import { parseDataArg, confirmDelete, quoteShellArg } from '../helpers.js';
 import { errAPI, errUsage } from '../errors.js';
+import { CATALOG_API, readCatalogApiItem, shapeVariables } from './catalog/enrich.js';
 
 const ID = /^[a-f0-9]{32}$/i;
-const API = '/api/sn_sc/servicecatalog/items';
+const API = CATALOG_API;
 const RITM = '/api/now/table/sc_req_item';
 const MAX_REQUESTED_ITEMS = 10;
-// Layout entries draw the form; they are not values a caller can send.
-// Containers are still walked for their children, everything else here is
-// skipped outright. ServiceNow reports these with their own friendly types
-// (verified on a live instance: macro and rich_text_label entries appear in
-// the `variables` tree next to real questions).
-const LAYOUT_TYPES = new Set([
-  'container_start', 'container_end', 'container_split',
-  'label', 'rich_text_label', 'html', 'break', 'formatter',
-  'macro', 'macro_with_abel', 'ui_macro',
-]);
-// "Requested for" (type 31) is mandatory in the API payload but is not a value
-// the caller builds: the instance fills it from the session and --requested-for
-// overrides it. It is reported separately so it never blocks a submission.
-const REQUESTED_FOR = 31;
 const object = v => v && typeof v === 'object' && !Array.isArray(v);
-const isInstanceSupplied = v => v?.friendly_type === 'requested_for' || v?.type === REQUESTED_FOR;
 
 function emit(app, argv, data, summary, breadcrumbs = []) {
   const connection = argv.profile ? ` --profile ${quoteShellArg(argv.profile)}` : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : '';
@@ -29,44 +15,17 @@ function emit(app, argv, data, summary, breadcrumbs = []) {
 function requireId(id) { if (!ID.test(id || '')) throw errUsage('Use the full catalog item sys_id; find it with catalogitems search.'); }
 
 /**
- * Flatten the `variables` tree returned by the Service Catalog API into the
- * question definitions a caller can answer. Layout entries (containers, labels,
- * rich text, UI macros) are not inputs, but container children are still walked.
- * A name is reported once: the API can repeat a variable inside a container.
+ * Item definition plus flattened question definitions.
+ *
+ * This is the request side of the catalog, not a second view command: the
+ * questions and the order come from the same payload, so `order` can never
+ * disagree with what `catalogitems show` printed. Items the catalog API cannot
+ * serve (record producers whose server scripts throw, non-catalog records)
+ * fail here rather than submitting against guessed definitions.
  */
-function flattenVariables(list, out = [], seen = new Set()) {
-  if (!Array.isArray(list)) return out;
-  for (const entry of list) {
-    if (!object(entry)) continue;
-    const friendly = typeof entry.friendly_type === 'string' ? entry.friendly_type : '';
-    const name = typeof entry.name === 'string' ? entry.name : '';
-    if (name && !LAYOUT_TYPES.has(friendly) && !seen.has(name)) {
-      seen.add(name);
-      out.push({
-        name,
-        label: entry.label || entry.question_text || name,
-        type: entry.type ?? null,
-        friendly_type: friendly || null,
-        mandatory: entry.mandatory === true || entry.mandatory === 'true',
-        instance_supplied: isInstanceSupplied(entry),
-      });
-    }
-    if (Array.isArray(entry.children)) flattenVariables(entry.children, out, seen);
-  }
-  return out;
-}
-
-async function describe(app, id) {
-  requireId(id);
-  const response = await app.sdk.request(`${app.sdk.baseURL}${API}/${id}`, { method: 'GET' });
-  if (!object(response?.result) || response.result.sys_id !== id) throw errAPI(200, 'Catalog API returned no readable item with the requested identity.');
-  return response.result;
-}
-
-/** Item definition plus flattened question definitions. */
 async function inspect(app, id) {
-  const item = await describe(app, id);
-  const variables = flattenVariables(item.variables);
+  const item = await readCatalogApiItem(app.sdk, id);
+  const variables = shapeVariables(item.variables);
   return { item, variables, variablesReported: Array.isArray(item.variables) };
 }
 
@@ -92,7 +51,7 @@ function reviewVariables(variables, supplied) {
 }
 
 function itemHints(id) {
-  return [{ action: 'describe', cmd: `jsn catalogitems describe ${id}`, description: 'Inspect catalog inputs and pricing' },
+  return [{ action: 'show', cmd: `jsn catalogitems show ${id}`, description: 'Read the item, its questions and required answers' },
     { action: 'preview', cmd: `jsn catalogitems order ${id} --dry-run --variables-file variables.json`, description: 'Preview an order without submitting' }];
 }
 
@@ -128,18 +87,6 @@ export function catalogOrderCommands(wrap) {
         emit(app, argv, { items: response.result, count: response.result.length, limit: argv.limit,
           possibly_truncated: response.result.length === argv.limit }, `${response.result.length} catalog item(s)`,
         response.result.flatMap(i => itemHints(i.sys_id).slice(0, 1)));
-      }) },
-    { command: 'describe <id>', aliases: ['inputs'], describe: 'Read requestable item details, pricing and variable definitions',
-      builder: y => y.positional('id', { type: 'string' }),
-      handler: wrap(async (argv, app) => {
-        const { item, variables, variablesReported } = await inspect(app, argv.id);
-        emit(app, argv, {
-          ...item,
-          variables,
-          required_variables: variables.filter(v => v.mandatory && !v.instance_supplied).map(v => v.name),
-          instance_supplied_variables: variables.filter(v => v.instance_supplied).map(v => v.name),
-          variables_reported: variablesReported,
-        }, item.name || item.short_description || argv.id, itemHints(argv.id));
       }) },
     { command: 'order <id>', describe: 'Submit a catalog order with explicit confirmation',
       builder: y => y.positional('id', { type: 'string' })

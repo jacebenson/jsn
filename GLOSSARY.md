@@ -311,10 +311,12 @@ confirmation and read-only guard. It is exempt from development capture-context
 selection because it submits runtime business requests, not metadata changes.
 A preview only reads and never posts; unknown submission outcomes never cause
 automatic replay. Inputs are catalog variables, not arbitrary fields on an RITM
-or request header. Item inspection flattens the API's variable tree into
-question definitions (`name`, `label`, `type`, `friendly_type`, `mandatory`,
-`instance_supplied`) and required names; layout entries (containers, labels, HTML
-and rich text blocks, breaks, UI macros) are not questions and are omitted. "Requested
+or request header. Item inspection is one command — `catalogitems show`, with
+`describe`/`inputs` as aliases — that reads the definition and the catalog API
+and reports which one answered (`variables_source`). Questions are
+`{name, label, type, friendly_type, mandatory, instance_supplied}` plus
+required names; layout entries (containers, labels, HTML and rich text blocks,
+breaks, UI macros) are not questions and are omitted. "Requested
 for" is instance-supplied — the API marks it mandatory, the instance fills it
 from the session, and `--requested-for` overrides it — so it is reported
 separately and never blocks an order. `order` refuses a locally provable missing

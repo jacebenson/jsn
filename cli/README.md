@@ -163,17 +163,26 @@ mapping variable names to values, then preview with
 Omit `--dry-run` to submit after confirmation. `--quantity` defaults to one;
 `--requested-for` accepts a user sys_id subject to instance delegation rules.
 
-`describe` returns the item's `variables` as `{name, label, type, friendly_type,
-mandatory, instance_supplied}` entries plus `required_variables`, so a script can
-build the payload without guessing question names or types. Layout entries that
-draw the form but hold no value — containers, labels, HTML and rich text blocks,
-breaks and UI macros — are not reported as variables; only their container
-children are walked. `required_variables` lists the mandatory names a caller must answer and
-excludes `instance_supplied_variables`: "Requested for" (type 31) is mandatory in
-the API payload, but the instance fills it from the session, and `--requested-for`
-overrides it. `order` refuses locally when a required variable is missing (only
-when the item's variable list was readable); an unknown variable name is reported
-as `unknown_variable_names` without blocking. The server remains the authority.
+`show` is the one view of an item — `describe` and `inputs` are aliases for it.
+It reads the item twice and answers once: the Table API gives the definition
+(`sc_cat_item` plus `item_option_new`), and
+`/api/sn_sc/servicecatalog/items/{id}` gives what this account can actually
+request. The catalog API wins when it answers; the definition list keeps the
+command working when it does not, with `variables_source` naming which one
+answered and `variables_api_error` carrying the reason for the fallback.
+
+Questions come back as `{name, label, type, friendly_type, mandatory,
+instance_supplied}` with `required_variables` and `instance_supplied_variables`,
+so a script can build the payload without guessing names or types. Layout
+entries that draw the form but hold no value — containers, labels, HTML and rich
+text blocks, breaks and UI macros — are not reported as questions; only their
+container children are walked. `required_variables` excludes the
+instance-supplied ones: "Requested for" (type 31) is mandatory in the API
+payload, but the instance fills it from the session and `--requested-for`
+overrides it. `order` refuses locally when a required question is missing and an
+unknown variable name is reported as `unknown_variable_names` without blocking.
+The server remains the authority.
+
 What the API returns is what a caller can send: questions withheld by a catalog UI
 policy are absent, and a policy-applied mandatory flag is not visible here, so the
 server still decides at submission. Record producers and order guides expose their
