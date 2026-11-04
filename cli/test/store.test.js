@@ -11,6 +11,7 @@ import {
   listApplications, showApplication, operationStatus, waitForOperation, verifyInstalledVersion,
 } from '../src/store.js';
 import { buildCLI } from '../src/cli.js';
+import { errNotFoundHint, renderAppError } from '../src/errors.js';
 import { needsMutationContext } from '../src/mutation-context.js';
 import { refreshMutationCommands } from '../src/mutations.js';
 
@@ -22,11 +23,30 @@ const DETAIL = {
   sys_id: APP, name: 'Demo App', scope: 'x_demo_app', vendor: 'Example', source: 'store',
   is_store_app: 'true', isAppstorePlugin: 'false',
   isInstalled: 'false', version: '', latest_version: '2.0.0', latest_version_display: '2.0.0',
+  install_date: 'Jun 12, 2026', update_date: 'Oct 14, 2026', indicators: [],
   versions: ['1.0.0', '2.0.0'], can_install_or_upgrade: 'true',
   can_install_or_upgrade_customization: 'true', needs_app_engine_licensing: 'false',
   price_type: 'free', isSubscriptionApplicable: 'false',
   compatibilities: { minimum_version: 'Washington' },
   dependencies: [{ name: 'Dependency App', version: '1.0.0' }],
+};
+
+// Payload shapes below are copied from a live instance (dev366743) so the
+// fixtures cannot drift into a shape the endpoint never returns.
+const LIST_INSTALLED = {
+  sys_id: APP, customization: null, name: 'sn-app-analytics-center', logo: '', vendor: null,
+  short_description: 'App Analytics Center', scope: 'sn_analytics_cen', latest_version: '8.4.5',
+  products: '[]', indicators: '[]', lob: '[]', ir_query_score: null, version: '8.4.1',
+  assigned_version: '8.4.1', update_available: '1', apps_in_jumbo: null, contains_plugins: '0',
+  optional_apps_available: null,
+};
+const LIST_AVAILABLE = {
+  sys_id: OTHER, customization: null, name: 'Skill Kit - Prompt Optimizer for Creator Tools', logo: '',
+  vendor: 'Work4Flow', short_description: 'Leveraging Agentic AI to refine your prompts', scope: 'x_w4f_sk_prompt_op',
+  latest_version: '1.0.2', products: '[]',
+  indicators: '[{"id":"not_available_for_instance_type","order":1,"message":"Unavailable for Instance","tooltip":"This application is unavailable on developer instances","type":"error","show_as_filter":true}]',
+  lob: '[]', ir_query_score: null, version: null, assigned_version: null, update_available: null,
+  apps_in_jumbo: null, contains_plugins: '0', optional_apps_available: '0',
 };
 
 function tableFilter(rows, params) {
@@ -87,8 +107,8 @@ function fixture(options = {}) {
   };
 }
 
-test('list maps tabs to App Client contexts and projects stable fields', async () => {
-  const f = fixture({ apps: [{ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', vendor: 'Example', isInstalled: 'true', version: '1.0.0', latest_version: '2.0.0', isInstalledAndUpdateAvailable: 'true', can_install_or_upgrade: 'true', isAppstorePlugin: 'false' }] });
+test('list reads installed and update state from the payload the endpoint actually returns', async () => {
+  const f = fixture({ apps: [LIST_INSTALLED] });
   await f.run(['list', '--tab', 'updates', '--limit', '5', '--offset', '10']);
   assert.equal(f.requests.length, 1);
   assert.equal(f.requests[0].method, 'POST');
@@ -102,12 +122,82 @@ test('list maps tabs to App Client contexts and projects stable fields', async (
   assert.equal(data.count, 1);
   assert.equal(data.page_full, false);
   assert.deepEqual(data.apps[0], {
-    sys_id: APP, name: 'Demo App', scope: 'x_demo_app', vendor: 'Example', source: '',
-    version: '1.0.0', latest_version: '2.0.0', installed: true, update_available: true,
-    installable: true, is_store_app: null, is_plugin: false, price_type: null,
-    needs_app_engine_licensing: false, short_description: null,
+    sys_id: APP, name: 'sn-app-analytics-center', scope: 'sn_analytics_cen', vendor: '', source: '',
+    version: '8.4.1', latest_version: '8.4.5', installed: true, update_available: true,
+    installable: null, is_store_app: null, is_plugin: null, price_type: null,
+    needs_app_engine_licensing: null, blocked: false, indicators: [],
+    short_description: 'App Analytics Center',
   });
   assert.match(meta.summary, /1 Store application/);
+});
+
+test('an available application reports not installed, and its block reason is surfaced', async () => {
+  const f = fixture({ apps: [LIST_AVAILABLE] });
+  await f.run(['list', '--tab', 'available']);
+  const row = f.output[0].data.apps[0];
+  assert.equal(row.version, null);
+  assert.equal(row.installed, false);
+  assert.equal(row.update_available, false);
+  assert.equal(row.blocked, true);
+  assert.deepEqual(row.indicators, [{
+    id: 'not_available_for_instance_type', type: 'error',
+    message: 'Unavailable for Instance', tooltip: 'This application is unavailable on developer instances',
+  }]);
+});
+
+test('the human view renders the applications themselves, not only a count', async () => {
+  // Styled output printed the summary and nothing else: the generic renderer
+  // only knows `data.records`, so a store payload rendered as an empty block.
+  const f = fixture({ apps: [LIST_INSTALLED] });
+  await f.run(['list', '--tab', 'installed']);
+  const { data } = f.output[0];
+  assert.match(data._formatted, /sn_analytics_cen/);
+  assert.match(data._formatted, /8\.4\.1/);
+  assert.match(data._formatted, /installed, update/);
+  // The curated view is a side channel: it must not leak into the JSON payload.
+  assert.equal(Object.keys(data).includes('_formatted'), false);
+  assert.equal(JSON.stringify(data).includes('NAME'), false);
+});
+
+test('the human view of one application shows its version, versions and entitlement', async () => {
+  const f = fixture();
+  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '1.0.0', active: 'true', install_date: '2025-01-02 03:04:05' });
+  f.setDetail({ ...DETAIL, isInstalled: 'true', version: '1.0.0', isInstalledAndUpdateAvailable: 'true' });
+  await f.run(['show', 'x_demo_app']);
+  const { data } = f.output[0];
+  assert.match(data._formatted, /installed 1\.0\.0/);
+  assert.match(data._formatted, /versions {5}1\.0\.0, 2\.0\.0/);
+  assert.match(data._formatted, /price {8}free/);
+});
+
+test('an application identifier is not the App context the CLI attaches to argv', async () => {
+  // cli.js installs `(argv) => { argv.app = app }` as a middleware for every
+  // command, so a positional named `app` arrives at the handler as the context
+  // object. That made `store show/install/update` fail with
+  // "store application not found: [object Object]" on every live invocation.
+  const f = fixture();
+  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '1.0.0', active: 'true', install_date: '2025-01-02 03:04:05' });
+  const context = { sdk: f.sdk, config: { profiles: {} }, ok: (data, meta) => f.output.push({ data, meta }) };
+  await yargs(['store', 'show', 'x_demo_app'])
+    .middleware([argv => { argv.app = context; }])
+    .option('profile', { type: 'string' }).option('force', { type: 'boolean' })
+    .command(storeCmd(fn => argv => fn(argv, context))).parse();
+  assert.equal(f.output.length, 1);
+  assert.equal(f.output[0].data.sys_id, APP);
+  assert.equal(f.output[0].data.matched_by, 'scope');
+});
+
+test('a not_found refusal renders the command-specific hint, not the generic identifier line', () => {
+  // The renderer used to drop err.hint for not_found and interpolate the
+  // subcommand name instead, so `jsn store show <missing>` told the operator
+  // that "show" was not found.
+  const rendered = renderAppError(
+    errNotFoundHint('store application', 'x_missing', 'Search the Store for it: jsn store search "x_missing".'),
+    { identifier: 'show' },
+  );
+  assert.equal(rendered.exitCode, 1);
+  assert.match(rendered.text, /jsn store search "x_missing"/);
+  assert.doesNotMatch(rendered.text, /The identifier "show" was not found/);
 });
 
 test('search sends the term and refuses missing terms, bad paging and unknown tabs before transport', async () => {
@@ -137,6 +227,11 @@ test('show reports installed version, available versions, entitlement, dependenc
   const { data } = f.output[0];
   assert.equal(data.matched_by, 'scope');
   assert.equal(data.installed.version, '1.0.0');
+  // The App Client detail reports its own dates; they are not left to a
+  // second table read that may not happen.
+  assert.equal(data.installed.install_date, 'Jun 12, 2026');
+  assert.equal(data.installed.update_date, 'Oct 14, 2026');
+  assert.equal(data.blocked, false);
   assert.equal(data.available.latest_version, '2.0.0');
   assert.equal(data.available.update_available, true);
   assert.deepEqual(data.available.versions, ['1.0.0', '2.0.0']);
@@ -212,6 +307,24 @@ test('an application the Store client reports as not installable is refused with
   f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
   await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
     error => error.code === 'store_app_not_installable' && /entitlement/.test(error.hint));
+  assert.deepEqual(f.dispatches(), []);
+});
+
+test('an application the instance blocks is refused before dispatch even when can_install_or_upgrade is true', async () => {
+  // Live detail for a developer-instance app: can_install_or_upgrade=true,
+  // block_install=true, and the reason only exists in `indicators`.
+  const f = fixture({
+    detail: {
+      ...DETAIL, can_install_or_upgrade: 'true', block_install: true, block_message: 'undefined',
+      indicators: [{
+        id: 'not_available_for_instance_type', order: 1, message: 'Unavailable for Instance',
+        tooltip: 'This application is unavailable on developer instances', type: 'error', show_as_filter: true,
+      }],
+    },
+  });
+  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
+  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
+    error => error.code === 'store_app_not_installable' && /Unavailable for Instance/.test(error.message));
   assert.deepEqual(f.dispatches(), []);
 });
 

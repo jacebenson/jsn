@@ -7,43 +7,98 @@ Discovery and inspection are read-only. `install` and `update` are declared
 mutations: read-only profiles block them, and they require confirmation unless
 the profile skips confirmations or `--force` is passed.
 
-> **Verification status.** The endpoints below come from the App Client
-> application's own REST surface (`sn_appclient.appmanager`) as implemented by
-> the reference Store CLI named in issue #400. They have **not** been verified
-> against a live Store-entitled instance from this repository — CI has no such
-> instance and no Store entitlement. Discovery/inspection is covered by mock
-> transport tests; the lifecycle path is implemented against the same contract
-> and is labelled unverified until a maintainer confirms it on a real instance.
+> **Verification status.** Discovery and inspection are verified against a live
+> instance (`dev366743`, 2026-11-04): 747 `sys_store_app` rows, 260 rows in the
+> App Client's `installed` tab, and every response shape below captured from the
+> wire. The lifecycle requests are registered on the same API and are exercised
+> in-tests, but a real install/update has not been run from this repository, so
+> the dispatch/tracker/readback path stays labelled unverified. See
+> [What is still unverified](#what-is-still-unverified).
 
 ## Commands
 
 ```sh
 jsn store list --tab available|installed|updates [--limit 20] [--offset 0]
 jsn store search "<term>" [--tab …] [--limit …] [--offset …]
-jsn store show <app>
+jsn store show <application>
 jsn store status <tracker-id>
-jsn store install <app> --version <version> [--demo-data] [--wait] [--dry-run]
-jsn store update  <app> [--version <version>] [--wait] [--dry-run]
+jsn store install <application> --version <version> [--demo-data] [--wait] [--dry-run]
+jsn store update  <application> [--version <version>] [--wait] [--dry-run]
 ```
 
-`<app>` is a 32-character store application sys_id, an application scope
+`<application>` is a 32-character store application sys_id, an application scope
 (`x_acme_app`), or an exact application name. Names and scopes resolve through
 `sys_store_app`, then through the Store search endpoint; a name shared by
 several applications fails as `ambiguous` instead of picking one. A company
 application-repository application (`sys_app`) is refused with
 `store_not_store_app` — `jsn store` handles ServiceNow Store applications only.
 
-### Read-only inspection
+## The App Client API, as measured
 
-`list` and `search` use the App Client's application list. The endpoint is
-POST-shaped (an empty JSON body) but performs no mutation. Each row reports
-`sys_id`, `name`, `scope`, `vendor`, `source`, installed `version`,
-`latest_version`, `installed`, `update_available`, `installable`,
-`is_store_app`, `is_plugin`, `price_type`, `needs_app_engine_licensing` and
-`short_description`.
+Everything under `/api/sn_appclient/appmanager` is the App Client's scripted
+REST service (`AppManager(Internal API)`, service id `appmanager`). Its
+operations are registered as:
 
-A 2xx body without `result.apps` is a **malformed response**, reported as an
-unavailable source — never an empty catalogue.
+| Operation | Method and path | Used for |
+| --- | --- | --- |
+| GetApps | `POST /apps` | `list`, `search` |
+| GetAppById | `GET /app/{appID}` | `show`, and every lifecycle precheck |
+| Install Application | `GET /app/install?app_id=&version=&load_demo_data=` | `install` |
+| Update Application | `GET /app/update?app_id=&version=` | `update` |
+| Execution Status | `GET /api/sn_cicd/progress/{trackerID}` | `status`, `--wait` |
+
+Measured behaviour:
+
+- `GET /apps` returns **405** (`Method not Supported: GET method not supported
+  for API`). The list call must be `POST` with an empty JSON body `{}`; the
+  parameters travel in the query string. The body is required, and the request
+  performs no mutation.
+- An unrecognized `tab_context` returns **200** with `{"result": {}}` — no
+  `apps` key. That is reported as `store_response_malformed` (an unavailable
+  source), never as an empty catalogue.
+- `GET /app/{appID}` returns `{"result": {"app_info_on_instance": {…}}}`.
+- `GET /api/sn_cicd/progress/{trackerID}` returns `status`, `status_label`,
+  `status_message`, `percent_complete` and `error`. **Not** the App Client's own
+  `/appmanager/progress/{trackerID}`, which returns a different shape
+  (`name`, `state`, `message`, `percent_complete`, `results`).
+- The `installed` tab reports only applications the instance has installed;
+  `version` is populated there and `null` on `available_for_you`. Sampled
+  scopes matched their `sys_store_app` rows exactly.
+
+### Roles
+
+The service enforces one ACL, `App Manager Security Rules` (type
+`REST_Endpoint`, operation `execute`), whose script grants access to:
+
+```
+admin || sn_appclient.app_client_user || unified_plugin_read_only
+      || sn_appclient.app_client_company_installer
+```
+
+The same gate covers list, detail, install and update — there is no separate
+read/write ACL. What still varies per application is entitlement: an application
+the account may not install reports `can_install_or_upgrade=false`, or reports
+`block_install=true` with an `indicators` entry. `admin` and
+`sn_appclient.app_client_user` are the roles that matter in practice;
+`unified_plugin_read_only` sees the catalogue but is not meant to install.
+
+## Read-only inspection
+
+`list` and `search` return one row per application with `sys_id`, `name`,
+`scope`, `vendor`, `source`, installed `version`, `latest_version`, `installed`,
+`update_available`, `installable`, `is_store_app`, `is_plugin`, `price_type`,
+`needs_app_engine_licensing`, `blocked`, `indicators` and `short_description`.
+
+The list payload is **not** the detail payload. It carries no `isInstalled`,
+`can_install_or_upgrade`, `is_store_app`, `isAppstorePlugin`, `price_type` or
+`needs_app_engine_licensing`; those fields are reported as `null` rather than
+guessed. What it does carry:
+
+- `version` — set only for installed applications (the installed marker);
+- `update_available` — `"1"` when an update exists;
+- `indicators` — a JSON-encoded string of platform reasons, for example
+  `not_available_for_instance_type` / "Unavailable for Instance" on a developer
+  instance. `jsn store` parses it into `indicators[]` and reports `blocked`.
 
 `show` reports, where the platform exposes them:
 
@@ -52,6 +107,8 @@ unavailable source — never an empty catalogue.
 - entitlement/licensing flags (`can_install_or_upgrade`,
   `can_install_or_upgrade_customization`, `needs_app_engine_licensing`,
   `price_type`, `subscription_applicable`);
+- `indicators` and `blocked`, the platform's own reason an application is not
+  available here;
 - `dependencies`;
 - `detail_unavailable` (`forbidden`/`not_found`) if the App Client detail read
   fails, so missing detail is never rendered as empty data;
@@ -59,7 +116,19 @@ unavailable source — never an empty catalogue.
   entitlement, licensing or compatibility, and that jsn never infers purchase
   authorization or accepts commercial terms.
 
-### Lifecycle operations
+### The version list
+
+`versions` is an array of objects, not strings. Each entry carries `version`,
+`version_display`, `sortable_version`, `publish_date`, `sys_id`, `dependencies`,
+`compatibilities`, `price_type`, and its own `block_install` / `indicators`. jsn
+reads `version` from each entry, so an unoffered version is refused against the
+real catalogue:
+
+```
+Error: Skill Kit - Prompt Optimizer for Creator Tools does not offer version 9.9.9.
+```
+
+## Lifecycle operations
 
 Before anything is sent, `install`/`update` resolve the exact application and
 version and refuse:
@@ -68,13 +137,19 @@ version and refuse:
 - a missing `--version` (installs always need an explicit version; updates
   default to the reported `latest_version`);
 - a version the Store did not offer (`store_version_unavailable`);
-- an application the client reports as not installable (`store_app_not_installable`);
+- an application blocked on this instance (`store_app_not_installable`) —
+  `block_install=true` or an `indicators` entry of type `error`. Note that
+  `can_install_or_upgrade` can stay `true` for a blocked application, so the
+  block flags are checked first;
+- an application the client reports as not installable
+  (`store_app_not_installable` when `can_install_or_upgrade=false`);
 - `install` of an already-installed application (`store_already_installed`);
 - `update` of an application that is not installed (`store_not_installed`) or to
   its current version (`store_version_unchanged`).
 
 `--dry-run` performs all of those reads, reports the intended operation and
-sends nothing.
+sends nothing. Every refusal above happens before `dispatchOperation`, so no
+request reaches `/app/install` or `/app/update`.
 
 A real operation: confirms, submits, and returns the asynchronous tracker id.
 **Submission is not a completed installation.** With `--wait`, jsn polls the
@@ -95,13 +170,14 @@ does not cancel or resubmit. A submission without a usable tracker id fails with
 `jsn store status <tracker-id>` reads the tracker directly: `status`,
 `status_label`, `status_message`, `percent_complete`, `terminal`, `succeeded`.
 
-## What a maintainer must confirm live
+## What is still unverified
 
-1. The App Client endpoints and their payloads on a Store-entitled instance,
-   including whether the list/search endpoint accepts the documented POST body.
-2. The roles required for `appmanager` search/detail and for install/update.
-3. The `versions` list shape (`string[]` vs objects) used to reject an
-   unavailable version.
-4. That a successful tracker plus a matching `sys_store_app.version` readback is
+1. That `GET /app/install` and `GET /app/update` accept exactly
+   `app_id`/`version`/`load_demo_data`, and what a real submission returns — the
+   operations are registered on the live instance, but the request has not been
+   sent.
+2. That a successful tracker plus a matching `sys_store_app.version` readback is
    sufficient proof of installation on supported ServiceNow versions.
-5. Repair/reinstall behaviour, which is deliberately not implemented here.
+3. Repair/reinstall behaviour, which is deliberately not implemented here. There
+   is also no uninstall: an application installed by `jsn store` must be removed
+   through Application Manager.

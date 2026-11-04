@@ -85,24 +85,64 @@ function requireIdentifier(value) {
   return text;
 }
 
-/** One row from the Store list, reduced to stable, documented fields. */
+/**
+ * The list endpoint ships `indicators` as a JSON-encoded string; the detail
+ * endpoint ships the same entries as a real array. Both carry the platform's
+ * own reason an application is unavailable here (for example
+ * `not_available_for_instance_type` -> "Unavailable for Instance" on a
+ * developer instance), which is the only place that reason appears.
+ */
+export function parseIndicators(value) {
+  if (value === undefined || value === null || value === '') return [];
+  const raw = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return []; } })() : value;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(item => item && typeof item === 'object').map(item => ({
+    id: storeText(item, 'id') || null,
+    type: storeText(item, 'type') || null,
+    message: storeText(item, 'message') || null,
+    tooltip: storeText(item, 'tooltip') || null,
+  }));
+}
+
+/** Reasons the platform gave for blocking an application here. */
+export function blockingIndicators(indicators) {
+  return parseIndicators(indicators).filter(item => item.type === 'error');
+}
+
+/**
+ * One row from the Store list, reduced to stable, documented fields.
+ *
+ * The list payload (POST /appmanager/apps) is NOT the detail payload: it has no
+ * `isInstalled`, `can_install_or_upgrade`, `is_store_app`, `isAppstorePlugin`,
+ * `price_type` or `needs_app_engine_licensing`. The installed marker on a list
+ * row is a non-empty `version` (an available row reports `version: null`), and
+ * the update marker is `update_available` ("1"). Reading the detail spellings
+ * off a list row reported every installed application as not installed.
+ */
 export function summarizeApplication(app) {
-  const installed = storeFlag(app?.isInstalled);
+  const version = storeText(app, 'version');
+  const indicators = parseIndicators(app?.indicators);
+  const blockedFlag = app?.block_install === undefined ? null : storeFlag(app.block_install);
+  // The list payload always carries `indicators` (an empty array when nothing
+  // blocks the app); only a payload without the key leaves the answer unknown.
+  const indicatorsReported = app?.indicators !== undefined && app?.indicators !== null;
   return {
     sys_id: storeText(app, 'sys_id'),
     name: storeText(app, 'name'),
     scope: storeText(app, 'scope'),
     vendor: storeText(app, 'vendor'),
     source: storeText(app, 'source'),
-    version: storeText(app, 'version') || null,
+    version: version || null,
     latest_version: storeText(app, 'latest_version') || storeText(app, 'latest_version_display') || null,
-    installed,
-    update_available: storeFlag(app?.isInstalledAndUpdateAvailable),
+    installed: storeFlag(app?.isInstalled) || Boolean(version),
+    update_available: storeFlag(app?.isInstalledAndUpdateAvailable) || storeFlag(app?.update_available),
     installable: app?.can_install_or_upgrade === undefined ? null : storeFlag(app.can_install_or_upgrade),
     is_store_app: app?.is_store_app === undefined ? null : storeFlag(app.is_store_app),
-    is_plugin: storeFlag(app?.isAppstorePlugin),
+    is_plugin: app?.isAppstorePlugin === undefined ? null : storeFlag(app.isAppstorePlugin),
     price_type: storeText(app, 'price_type') || null,
-    needs_app_engine_licensing: storeFlag(app?.needs_app_engine_licensing),
+    needs_app_engine_licensing: app?.needs_app_engine_licensing === undefined ? null : storeFlag(app.needs_app_engine_licensing),
+    blocked: blockedFlag === null && !indicatorsReported ? null : Boolean(blockedFlag) || blockingIndicators(indicators).length > 0,
+    indicators,
     short_description: storeText(app, 'short_description') || null,
   };
 }
@@ -245,12 +285,18 @@ export async function showApplication(sdk, identifier) {
   const installedVersion = storeText(detail, 'version') || (installedFromRecord ? storeText(record, 'version') : '');
   const latestVersion = storeText(detail, 'latest_version') || storeText(detail, 'latest_version_display') || storeText(record, 'latest_version');
   const versions = versionList(detail);
+  const indicators = Array.isArray(detail?.indicators) ? detail.indicators : parseIndicators(detail?.indicators);
+  const blocked = blockingIndicators(indicators);
   const notes = [];
   if (!detail) {
     notes.push('Store App Client detail is unavailable, so entitlement, dependency and compatibility data could not be read.');
   } else {
     if (detail.can_install_or_upgrade === undefined) notes.push('The Store client did not report whether this application can be installed by this account.');
     else if (!storeFlag(detail.can_install_or_upgrade)) notes.push('The Store client reports this application cannot be installed or upgraded by this account. The platform does not say whether entitlement, licensing, or compatibility is the cause.');
+    if (storeFlag(detail.block_install) || blocked.length) {
+      const reasons = blocked.map(item => item.message || item.tooltip).filter(Boolean).join('; ');
+      notes.push(`The Store client blocks this application on this instance${reasons ? `: ${reasons}` : ' (block_install=true)'}. A blocked application is refused before any install or update request is sent.`);
+    }
     if (!versions.length) notes.push('No version list was returned; requested versions cannot be checked locally against the Store catalogue.');
     notes.push('Compatibility and entitlement output is reported exactly as the platform supplies it; jsn does not infer purchase authorization or accept commercial terms.');
   }
@@ -266,8 +312,8 @@ export async function showApplication(sdk, identifier) {
     installed: installed ? {
       version: installedVersion || null,
       active: detail?.active === undefined && record?.active === undefined ? null : storeFlag(detail?.active ?? record?.active),
-      install_date: storeText(record, 'install_date') || null,
-      update_date: storeText(record, 'update_date') || null,
+      install_date: storeText(detail, 'install_date') || storeText(record, 'install_date') || null,
+      update_date: storeText(detail, 'update_date') || storeText(record, 'update_date') || null,
     } : null,
     available: detail ? {
       latest_version: latestVersion || null,
@@ -284,6 +330,8 @@ export async function showApplication(sdk, identifier) {
       subscription_applicable: storeFlag(detail.isSubscriptionApplicable),
     } : null,
     dependencies: detail?.dependencies ?? null,
+    indicators,
+    blocked: detail ? Boolean(storeFlag(detail.block_install) || blocked.length) : null,
     customization_available: storeFlag(detail?.isCustomizationUpdateAvailable),
     detail_unavailable: detailUnavailable,
     notes,
@@ -302,12 +350,23 @@ function assertOfferedVersion(detail, wanted, name) {
 
 function assertInstallable(detail, verb, name) {
   if (!detail) return false;
+  const blocked = blockingIndicators(detail.indicators);
+  if (storeFlag(detail.block_install) || blocked.length) {
+    const reasons = blocked.map(item => item.message || item.tooltip).filter(Boolean).join('; ');
+    const flag = storeFlag(detail.block_install) ? 'block_install=true' : `indicator ${blocked.map(item => item.id).filter(Boolean).join(', ')}`;
+    throw new AppError('store_app_not_installable',
+      `The Store client blocks ${verb === 'install' ? 'installing' : 'updating'} ${name || 'this application'} on this instance${reasons ? `: ${reasons}` : '.'}`,
+      `Reported flags: ${flag}. This is the platform's own refusal for this instance; `
+      + 'an application can report can_install_or_upgrade=true and still be blocked here '
+      + '(for example not_available_for_instance_type on a developer instance). '
+      + `Run jsn store show ${name || '<application>'} to see the reported indicators, entitlement and compatibility fields.`);
+  }
   if (detail.can_install_or_upgrade !== undefined && !storeFlag(detail.can_install_or_upgrade)) {
     throw new AppError('store_app_not_installable',
       `The Store client reports ${name || 'this application'} cannot be ${verb === 'install' ? 'installed' : 'updated'} by this account.`,
       'Reported flags: can_install_or_upgrade=false. '
       + 'The platform does not distinguish entitlement, licensing and compatibility as the cause, and jsn does not infer authorization to buy an application or accept commercial terms. '
-      + `Run jsn store show ${name || '<app>'} to see the entitlement and compatibility fields before asking a Store administrator.`);
+      + `Run jsn store show ${name || '<application>'} to see the entitlement and compatibility fields before asking a Store administrator.`);
   }
   return true;
 }

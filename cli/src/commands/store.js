@@ -1,4 +1,4 @@
-import { confirmDelete, quoteShellArg } from '../helpers.js';
+import { confirmDelete, quoteShellArg, truncateString } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import { AppError, errUsage } from '../errors.js';
 import {
@@ -22,6 +22,72 @@ declareCapabilities('store', {
 
 const hint = (action, cmd, description) => ({ action, cmd, description });
 
+// Styled views. The generic renderer only prints `data.records` or a flat
+// record, so a store payload (`apps[]` / nested installed+available blocks)
+// rendered as nothing but its summary line. `_formatted` is the documented
+// escape hatch; it is non-enumerable, so --json/--csv are unchanged.
+const cell = (value, width) => truncateString(String(value ?? ''), width).padEnd(width);
+
+function attachFormatted(data, text) {
+  Object.defineProperty(data, '_formatted', { value: text, enumerable: false, configurable: true });
+  return data;
+}
+
+function styledApplications(page) {
+  const lines = [
+    `${page.count} Store application${page.count === 1 ? '' : 's'} (${page.tab}${page.term ? `, search "${page.term}"` : ''})${page.page_full ? '; page full, more may exist' : ''}`,
+    '',
+  ];
+  if (!page.apps.length) {
+    lines.push('  (no applications reported for this tab)');
+    return lines.join('\n');
+  }
+  lines.push(`${cell('NAME', 34)} ${cell('SCOPE', 22)} ${cell('INSTALLED', 9)} ${cell('LATEST', 9)} FLAGS`);
+  for (const app of page.apps) {
+    const blocked = (app.indicators || []).find(item => item.type === 'error');
+    const flags = [
+      app.installed ? 'installed' : 'not installed',
+      app.update_available ? 'update' : '',
+      app.blocked ? `blocked${blocked?.message ? `: ${blocked.message}` : ''}` : '',
+    ].filter(Boolean).join(', ');
+    lines.push(`${cell(app.name, 34)} ${cell(app.scope, 22)} ${cell(app.version || '-', 9)} ${cell(app.latest_version || '-', 9)} ${flags}`);
+  }
+  return lines.join('\n');
+}
+
+function styledApplication(data) {
+  const line = (label, value) => `  ${label.padEnd(12)} ${value}`;
+  const lines = [
+    `${data.name || data.sys_id}${data.scope ? `  (${data.scope})` : ''}`,
+    data.installed ? `  installed ${data.installed.version || 'version unknown'}` : '  not installed on this instance',
+    '',
+  ];
+  if (data.installed) {
+    lines.push(line('active', data.installed.active === null ? 'unknown' : String(data.installed.active)));
+    if (data.installed.install_date) lines.push(line('installed on', data.installed.install_date));
+    if (data.installed.update_date) lines.push(line('updated on', data.installed.update_date));
+  }
+  if (data.available) {
+    lines.push(line('latest', data.available.latest_version || 'unknown'));
+    lines.push(line('update', data.available.update_available ? 'available' : 'none reported'));
+    lines.push(line('versions', data.available.versions?.length ? data.available.versions.join(', ') : 'none reported'));
+    if (data.available.compatibilities) lines.push(line('compatible', String(data.available.compatibilities)));
+  } else {
+    lines.push(line('store data', `unavailable (${data.detail_unavailable || 'no detail returned'})`));
+  }
+  if (data.entitlement) {
+    lines.push(line('installable', data.entitlement.can_install_or_upgrade === null ? 'not reported' : String(data.entitlement.can_install_or_upgrade)));
+    if (data.entitlement.price_type) lines.push(line('price', data.entitlement.price_type));
+  }
+  if (data.blocked) {
+    const reasons = (data.indicators || []).map(item => item.message || item.tooltip).filter(Boolean).join('; ');
+    lines.push(line('blocked', reasons || 'yes'));
+  }
+  if (data.dependencies) lines.push(line('depends on', String(data.dependencies)));
+  for (const note of data.notes || []) lines.push('', `  note: ${note}`);
+  return lines.join('\n');
+}
+
 function report(app, argv, data, options) {
   const connection = argv.profile ? ` --profile ${quoteShellArg(argv.profile)}`
     : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : '';
@@ -31,7 +97,10 @@ function report(app, argv, data, options) {
 const tabOption = p => p.option('tab', { type: 'string', default: 'available', choices: Object.keys(STORE_TABS), describe: 'Store tab context' });
 const pageOptions = p => p.option('limit', { type: 'number', default: 20, describe: 'Maximum applications (1–200)' })
   .option('offset', { type: 'number', default: 0, describe: 'Pagination offset' });
-const appOption = p => p.positional('app', { type: 'string', describe: 'Application name, scope, or sys_id' });
+// The positional is NOT named `app`: cli.js attaches the command's App context
+// as argv.app on every command, so a positional called `app` is overwritten
+// before the handler runs and every identifier arrives as the context object.
+const appOption = p => p.positional('application', { type: 'string', describe: 'Application name, scope, or sys_id' });
 const waitOptions = p => p.option('wait', { type: 'boolean', default: false, describe: 'Poll the tracker until it finishes' })
   .option('timeout', { type: 'number', default: 1800, describe: 'Maximum wait in seconds (1–14400); expiry does not cancel the operation' })
   .option('poll-interval', { type: 'number', default: 5, describe: 'Seconds between progress reads (0–300)' })
@@ -55,7 +124,7 @@ function listHints(page) {
 }
 
 function emitList(app, argv, page) {
-  report(app, argv, page, {
+  report(app, argv, attachFormatted(page, styledApplications(page)), {
     summary: `${page.count} Store application${page.count === 1 ? '' : 's'} (${page.tab}${page.term ? `, search "${page.term}"` : ''})${page.page_full ? '; page full, more may exist' : ''}`,
     breadcrumbs: listHints(page),
   });
@@ -63,7 +132,7 @@ function emitList(app, argv, page) {
 
 async function runLifecycle(argv, app, operation) {
   const prepare = operation === 'install' ? prepareInstall : prepareUpdate;
-  const plan = await prepare(app.sdk, argv.app, operation === 'install'
+  const plan = await prepare(app.sdk, argv.application, operation === 'install'
     ? { version: argv.version, demoData: argv.demoData === true }
     : { version: argv.version });
   const publicPlan = {
@@ -165,11 +234,12 @@ export function storeCmd(wrap) {
         }),
       })
       .command({
-        command: 'show <app>',
+        command: 'show <application>',
         describe: 'Inspect installed version, available versions, entitlement, dependencies and compatibility (read-only)',
         builder: appOption,
         handler: wrap(async (argv, app) => {
-          const data = await showApplication(app.sdk, argv.app);
+          const data = await showApplication(app.sdk, argv.application);
+          attachFormatted(data, styledApplication(data));
           report(app, argv, data, {
             summary: `Store application: ${data.name || data.sys_id}${data.installed ? ` (installed ${data.installed.version || 'version unknown'})` : ' (not installed)'}`,
             breadcrumbs: [
@@ -198,7 +268,7 @@ export function storeCmd(wrap) {
         }),
       })
       .command({
-        command: 'install <app>',
+        command: 'install <application>',
         describe: 'Install an exact Store application version (declared mutation; unverified against a live Store)',
         builder: p => waitOptions(appOption(p))
           .option('version', { type: 'string', describe: 'Exact version to install (required)' })
@@ -206,7 +276,7 @@ export function storeCmd(wrap) {
         handler: wrap(async (argv, app) => runLifecycle(argv, app, 'install')),
       })
       .command({
-        command: 'update <app>',
+        command: 'update <application>',
         describe: 'Update an installed Store application to an exact version (declared mutation; unverified against a live Store)',
         builder: p => waitOptions(appOption(p))
           .option('version', { type: 'string', describe: 'Exact target version; defaults to the reported latest_version' }),
