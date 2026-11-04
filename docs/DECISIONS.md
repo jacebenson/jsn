@@ -394,4 +394,9 @@ and user notification stay with the calling agent.
 
 Only a single-record subscription ships. Filtered table subscriptions are
 deferred until platform support and access behavior are validated on a live
-instance; the acceptance test in this change is mock-level.
+instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
+ack, cross-session delivery and the notification shape: the platform sends a
+`record` map of changed fields plus `sys_*` audit fields, not a `changes`
+array, and it omits `table`/`sys_id` (the subscription supplies them). Human
+output renders those changed fields. ACL denial with a non-admin identity,
+create/delete payloads and a real reconnect gap remain unverified.

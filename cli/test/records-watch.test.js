@@ -15,7 +15,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { OutputWriter, FormatJSON } from '../src/output.js';
+import { OutputWriter, FormatJSON, FormatStyled } from '../src/output.js';
 import { recordsCmd } from '../src/commands/records.js';
 
 const require = createRequire(import.meta.url);
@@ -69,9 +69,9 @@ async function watchHandler() {
 }
 
 /** Fake App whose SDK answers record lookups and record reads locally. */
-function fakeApp({ chunks, rows = [], ambSession } = {}) {
+function fakeApp({ chunks, rows = [], ambSession, format = FormatJSON } = {}) {
   return {
-    output: new OutputWriter({ format: FormatJSON, writer: { write: text => chunks.push(text), isTTY: false } }),
+    output: new OutputWriter({ format, writer: { write: text => chunks.push(text), isTTY: false } }),
     getEffectiveInstance: () => globalThis.__watchInstanceUrl,
     sdk: {
       ambSession: ambSession || (async () => ({ cookies: 'glide_session_store=abc', userToken: 'tok' })),
@@ -137,6 +137,41 @@ describe('records watch subcommand', () => {
     assert.equal(summary.reason, 'max_events');
     assert.equal(summary.events, 1);
     assert.equal(summary.gaps, 0);
+  });
+
+  it('renders the changed fields the live platform sends, not only a bare operation', async () => {
+    // The live payload carries a `record` map of the changed fields plus
+    // sys_* audit fields; it does not carry the `changes` array the mock
+    // originally used. Human output must not degrade to "updated" alone.
+    const server = await mockAmb({
+      onConnect: ({ json }) => json([{
+        channel: CHANNEL,
+        id: 'evt-live-1',
+        data: {
+          operation: 'update',
+          display_value: 'INC0010001',
+          record: {
+            short_description: { value: 'after', display_value: 'after' },
+            sys_updated_on: { value: '2026-11-04 18:00:45', display_value: '2026-11-04 10:00:45' },
+            sys_updated_by: { value: 'admin', display_value: 'admin' },
+          },
+        },
+      }]),
+    });
+    const chunks = [];
+    globalThis.__watchInstanceUrl = server.baseUrl;
+    try {
+      const { watch } = await watchHandler();
+      await watch.handler(argvFor({}), fakeApp({ chunks, format: FormatStyled }));
+    } finally {
+      await server.close();
+    }
+
+    const text = chunks.join('');
+    assert.match(text, /INC0010001 updated/);
+    assert.match(text, /short_description: after/);
+    assert.doesNotMatch(text, /sys_updated_on/, 'audit fields are not change detail');
+    assert.match(text, /unsubscribed \(max_events\)/, 'the stop reason is named');
   });
 
   it('reports a usage error when neither --sys-id nor --identifier is given', async () => {

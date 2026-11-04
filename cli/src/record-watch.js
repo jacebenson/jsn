@@ -170,9 +170,10 @@ export async function watchRecord({
       for (const message of messages) {
         if (signal?.aborted) return await finish('cancelled');
         const event = normalizeRecordWatcherEvent(message, { table, sysID }, new Date(now()).toISOString());
-        // The feed is scoped by the channel query, but a subscription that
-        // matches more than the intended record (or a server echo on a
-        // filter channel) must not be reported as this record's change.
+        // The channel query scopes delivery to this record. The live payload
+        // does not carry a sys_id (jsn fills it from the subscription), so this
+        // guard only bites on an instance that does send one — for example a
+        // table-level channel returning a different record.
         if (event.sys_id && sysID && event.sys_id !== sysID) continue;
 
         const shouldFetch = statePolicy === 'always'

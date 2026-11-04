@@ -121,6 +121,31 @@ describe('AMB client protocol', () => {
     }
   });
 
+  it('keeps the live record-watcher payload shape (record map, no changes/sys_id)', () => {
+    // Captured from dev366743 on 2026-11-04: the platform sends a `record`
+    // map of changed fields plus sys_* audit fields, and omits sys_id/table.
+    const normalized = normalizeRecordWatcherEvent({
+      channel: '/rw/default/incident/c3lzX2lkPTcwZDViYzJlOTM5MDkzNTAxNmM4ZmQxOGRkMDNkNjI2',
+      id: 'b836fc2e935c535016c8fd18dd03d611',
+      data: {
+        operation: 'update',
+        display_value: 'INC0010004',
+        record: {
+          short_description: { display_value: 'probe second update', value: 'probe second update' },
+          sys_updated_on: { display_value: '2026-11-04 10:00:45', value: '2026-11-04 18:00:45' },
+        },
+      },
+    }, { table: 'incident', sysID: SYS_ID });
+
+    assert.equal(normalized.operation, 'updated');
+    assert.equal(normalized.action, 'update');
+    assert.equal(normalized.sys_id, SYS_ID, 'identity comes from the subscription');
+    assert.equal(normalized.table, 'incident');
+    assert.equal(normalized.changes, undefined);
+    assert.equal(normalized.record.short_description.value, 'probe second update');
+    assert.equal(normalized.event_id, 'b836fc2e935c535016c8fd18dd03d611');
+  });
+
   it('returns an empty batch when the long-poll hits the local timeout', async () => {
     const server = await ambServer(({ url, messages, response }) => {
       if (url.pathname === '/amb/handshake') {

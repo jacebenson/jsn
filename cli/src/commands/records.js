@@ -234,14 +234,29 @@ export function recordsCmd(wrap) {
             process.once('SIGTERM', cancel);
 
             const emit = (data, line) => app.output.writeEvent(data, { line });
+            // A live record-watcher notification carries `record`: a map of the
+            // fields that changed plus sys_* audit fields. It does not carry the
+            // `changes` array. Render the changed fields so human output names
+            // what moved; the values are current, because the platform does not
+            // send the previous value.
+            const describeRecord = record => Object.entries(record && typeof record === 'object' ? record : {})
+              .filter(([field]) => !field.startsWith('sys_'))
+              .slice(0, 5)
+              .map(([field, entry]) => {
+                const value = entry && typeof entry === 'object' ? (entry.display_value ?? entry.value) : entry;
+                return `${field}: ${value === '' || value == null ? '(empty)' : value}`;
+              })
+              .join(', ');
             const formatEventLine = event => {
               if (event.type === 'record_change') {
                 const id = event.display_value || event.sys_id;
                 const changes = (event.changes || [])
                   .map(c => `${c.field}: ${c.previous_value ?? '?'} → ${c.display_value ?? c.value ?? '?'}`)
                   .join(', ');
-                return `${event.received_at} ${event.table} ${id} ${event.operation}${changes ? ` — ${changes}` : ''}`;
+                const detail = changes || describeRecord(event.record);
+                return `${event.received_at} ${event.table} ${id} ${event.operation}${detail ? ` — ${detail}` : ''}`;
               }
+              if (event.type === 'unsubscribed') return `unsubscribed${event.reason ? ` (${event.reason})` : ''}`;
               if (event.type === 'gap') return `⚠ connection gap since ${event.since}: ${event.reason} (events in this window were not observed)`;
               if (event.type === 'reconnected') return `⚠ reconnected after ${event.gaps} gap(s); missed events are not replayed`;
               if (event.type === 'watch_summary') {
