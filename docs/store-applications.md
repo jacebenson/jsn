@@ -199,6 +199,19 @@ What that proves: the endpoint, method and parameters are right — the request
 reaches the install plan for the exact application and version asked for, and
 the tracker is created. What it does not prove: that an operation can complete.
 
+What was actually sent is recorded by the instance itself, in
+`sn_appclient_progress_tracker.payload`:
+
+```
+install  {"load_demo_data":"false","app_id":"01ebede3c3212010a3a6ddaa7d40dd94","version":"30.1.2"}
+update   {"app_id":"3cc85c0107303010c7d559bf1ad30022","version":"9.1.5"}
+update   {"app_id":"13f82d59fad128f947b961972d2ccd14","version":"2.1.0"}
+```
+
+The `version=` blank in `status_detail` is the *customization* slot; the
+requested version lands in `baseVersion`. The app id and version are correct in
+every attempt.
+
 The cause is the instance, not the request. `syslog` shows its own outbound
 store downloads failing on credentials, before and during these attempts:
 
@@ -209,6 +222,11 @@ UADownloader-ua_app_fam:   Download request failed due to possible credential
                            error, status code = 403
 sn_entitlement:            Failed with status code (403) ... /api/now/v2/ualice
 ```
+
+The tracker's execution record names the operation and its verdict:
+`sys_execution_tracker` for the install above reads `state=3`,
+`name=Install from the App Repository`, `message=Unable to download app
+package`, `percent_complete=100`.
 
 The line between "works" and "does not" is exactly here. `POST /appmanager/apps`
 and `GET /appmanager/app/{appID}` answer from the instance's own store table.
