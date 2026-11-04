@@ -412,3 +412,31 @@ empty. GitHub remains authoritative for revision checks and incremental updates.
 Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
+
+## Table behavior mirrors the platform's Configurations inventory (2026-11-04)
+
+`jsn tables behavior` reports the families an administrator checks before changing
+a table, matching what ServiceNow's classic "Configurations for <table>" page
+shows. Sources: `sys_script`, `sys_script_client`, `sys_ui_action`,
+`sys_ui_policy`, `sys_data_policy2`, `sys_dictionary`, `sys_dictionary_override`,
+`sysevent_email_action` (by `collection`), `sys_security_acl` (by name pattern
+`*`, `*.`, `<table>`, `<table>.`, ancestors), `sys_ui_style` (by `name`),
+`sysrule_view` (by `table`) and `sys_flow_record_trigger` (by `table`).
+
+Two deliberate differences from the page's counts, because the page's number
+would hide configuration that actually runs:
+
+- Global business rules and global UI actions are included and labelled
+  `global_actions`. On the reference instance (dev366743, `incident`) that adds 83
+  business rules and 45 UI actions to a page that shows 72 and 51.
+- A `<ancestor>` UI policy with `inherit=false` is excluded, because it does not
+  apply to the child table.
+
+Ordering travels in `sysparm_query` (`ORDERBY` plus a second `ISEMPTY` phase so
+rows missing a primary key sort last), never as an in-memory sort of a returned
+page, so per-category cursors stay stable across pages. Rows that satisfy two
+ordering phases are de-duplicated by `sys_id`.
+
+Flow coverage is record triggers only. Flow templates and timer/catalog/REST/SLA
+triggers have no table-scoped join exposed by the platform, so they are reported
+as `unsupported` with the trigger type named rather than matched by text.

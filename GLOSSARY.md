@@ -338,9 +338,11 @@ knowledge lives here. `docs.js` command handlers stay thin: argv → options →
 
 `src/table-behavior.js` is the read-only discovery layer behind
 `jsn tables behavior <table>`. It inventories accessible configuration for a
-table and its ancestors: business rules, client scripts, UI actions, UI policies
-and server data policies. It never executes scripts, evaluates conditions, or
-claims to predict which artifact runs for a record.
+table and its ancestors: business rules, client scripts, UI actions, UI policies,
+server data policies, dictionary entries, dictionary overrides, notifications,
+access controls, styles, view rules and flow record triggers. It never executes
+scripts, flows or notifications, evaluates conditions, or claims to predict which
+artifact runs for a record.
 
 A **behavior category** is one artifact family with a fixed layer. Client
 requirements (`client_scripts`, `ui_actions`, `ui_policies`) stay distinct from
@@ -353,8 +355,21 @@ requested table, or `inherited` otherwise. **Association detail** records the
 basis: `exact_table`, `ancestor_table` (platform inheritance, business rules and
 UI actions), `ancestor_applies_extended` (`sys_script_client.applies_extended`),
 `ancestor_inherit_flag` (`sys_ui_policy.inherit`, `sys_data_policy2.inherit`), or
-`global_actions` (`global` business rules and UI actions). `sys_overrides` links are preserved as
-**override evidence**; effective override resolution is not simulated.
+`global_actions` (`global` business rules and UI actions). Access controls carry
+the clause that matched instead of a table field: `direct_table`, `direct_field`,
+`direct_table_wildcard`, `ancestor_table`, `ancestor_field`,
+`ancestor_table_wildcard`, `global_all` and `global_field`. Dictionary rows with
+no element are **table-level rows** (`level: table`) rather than columns.
+`sys_overrides` links are preserved as **override evidence**; effective override
+resolution is not simulated.
+
+Results are **ordered by the instance query**, never by sorting a returned page,
+so continuation stays stable: business rules by `when` (platform phase order,
+missing last) then `order` then `name`; UI actions by `order` then `name`;
+client scripts, notifications, styles, view rules and flows by `name`; access
+controls by `name` then `operation`; dictionary categories by `element`; policies
+by `order` then `name`. Rows missing a primary sort key are fetched in a second
+`ISEMPTY` phase so they sort last.
 
 A **category status** is `complete`, `partial`, `unavailable` or `unsupported`.
 `unavailable` (permission, missing table, malformed response) and `unsupported`
@@ -363,14 +378,19 @@ continuation, response-budget truncation, child-read failures and
 ACL-restricted fields. Results describe **accessible configuration** only.
 
 Discovery defaults to active configuration, applies per-category bounds
-(`--limit`, default 200, max 200) and a response-byte budget (`--max-bytes`,
+(`--limit`, default 200, max 500) and a response-byte budget (`--max-bytes`,
 default 524288, max 1048576).
-Oversized items are omitted whole with explicit truncation metadata; script
-bodies are never requested or cut in Phase 1. A **behavior cursor** is a
-stateless per-category offset token tied to the table and filter signature; it
-provides continuation, not snapshot isolation. Reading fields from
-`sys_dictionary` before filtering means a missing plugin/layout produces an
-`unsupported` status instead of an unfiltered query.
+Oversized items are omitted whole with explicit truncation metadata; script,
+message and notification bodies are never requested or cut. A **behavior
+cursor** is a stateless per-category phase+offset token tied to the table and
+filter signature; it provides continuation, not snapshot isolation. Reading
+fields from `sys_dictionary` before filtering means a missing plugin/layout
+produces an `unsupported` status instead of an unfiltered query.
+
+**Flow coverage is record triggers only** (`sys_flow_record_trigger`). Flow
+templates and other trigger families (timer, catalog, REST, SLA) are reported as
+`unsupported` with the trigger type named, because the platform exposes no
+table-scoped join for them; no text match over flow definitions is guessed.
 
 ## Flow inspection
 

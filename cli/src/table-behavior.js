@@ -18,10 +18,17 @@ export const BEHAVIOR_CATEGORIES = [
   'ui_actions',
   'ui_policies',
   'data_policies',
+  'dictionary_entries',
+  'dictionary_overrides',
+  'notifications',
+  'access_controls',
+  'styles',
+  'view_rules',
+  'flows',
 ];
 
 const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 200;
+const MAX_LIMIT = 500;
 const DEFAULT_MAX_BYTES = 524288;
 const MIN_MAX_BYTES = 4096;
 const MAX_MAX_BYTES = 1048576;
@@ -36,6 +43,13 @@ const CATEGORY_ALIASES = new Map([
   ['ui_actions', 'ui_actions'], ['ui-actions', 'ui_actions'], ['uiactions', 'ui_actions'], ['actions', 'ui_actions'],
   ['ui_policies', 'ui_policies'], ['ui-policies', 'ui_policies'], ['uipolicies', 'ui_policies'],
   ['data_policies', 'data_policies'], ['data-policies', 'data_policies'], ['datapolicies', 'data_policies'],
+  ['dictionary_entries', 'dictionary_entries'], ['dictionary-entries', 'dictionary_entries'], ['dictionaryentries', 'dictionary_entries'], ['dictionary', 'dictionary_entries'], ['columns', 'dictionary_entries'],
+  ['dictionary_overrides', 'dictionary_overrides'], ['dictionary-overrides', 'dictionary_overrides'], ['dictionaryoverrides', 'dictionary_overrides'], ['dictionary_overide', 'dictionary_overrides'], ['overrides', 'dictionary_overrides'],
+  ['notifications', 'notifications'], ['notification', 'notifications'], ['email_notifications', 'notifications'], ['email-notifications', 'notifications'],
+  ['access_controls', 'access_controls'], ['access-controls', 'access_controls'], ['accesscontrols', 'access_controls'], ['acls', 'access_controls'], ['acl', 'access_controls'],
+  ['styles', 'styles'], ['style', 'styles'],
+  ['view_rules', 'view_rules'], ['view-rules', 'view_rules'], ['viewrules', 'view_rules'], ['viewrule', 'view_rules'],
+  ['flows', 'flows'], ['flow', 'flows'], ['record_triggers', 'flows'], ['record-triggers', 'flows'],
 ]);
 
 const COMMON_FIELDS = ['sys_id', 'sys_class_name', 'name', 'short_description', 'description', 'active', 'sys_scope', 'sys_updated_on', 'order', 'sys_overrides'];
@@ -51,6 +65,14 @@ const SOURCES = {
     summary: 'Server-side rules. Client-side requirements are not proof of server enforcement.',
     sources: [{
       table: 'sys_script', target: 'collection', inherit: null, includeGlobal: true,
+      sortPhases: [
+        { query: 'when=before', order: ['order', 'name'] },
+        { query: 'when=after', order: ['order', 'name'] },
+        { query: 'when=async', order: ['order', 'name'] },
+        { query: 'when=display', order: ['order', 'name'] },
+        { query: 'whenNOT INbefore,after,async,display^whenISNOTEMPTY', order: ['when', 'order', 'name'] },
+        { query: 'whenISEMPTY', order: ['order', 'name'] },
+      ],
       fields: ['when', 'action_insert', 'action_update', 'action_delete', 'action_query', 'filter_condition', 'condition', 'advanced', 'abort_action', 'add_message', 'message', 'change_fields', 'role_conditions'],
       scripts: ['script'],
     }],
@@ -59,7 +81,7 @@ const SOURCES = {
     label: 'Client scripts', layer: 'client', enforcement: 'client',
     summary: 'Browser-side scripts. They shape the form but do not enforce server data.',
     sources: [{
-      table: 'sys_script_client', target: 'table', inherit: 'applies_extended',
+      table: 'sys_script_client', target: 'table', inherit: 'applies_extended', sort: ['name', 'order'],
       fields: ['type', 'field', 'ui_type', 'view', 'global', 'applies_extended', 'isolate_script', 'condition'],
       scripts: ['script'],
     }],
@@ -68,7 +90,7 @@ const SOURCES = {
     label: 'UI actions', layer: 'client', enforcement: 'client',
     summary: 'Form/list actions. Button visibility and conditions are client-side configuration.',
     sources: [{
-      table: 'sys_ui_action', target: 'table', inherit: null, includeGlobal: true,
+      table: 'sys_ui_action', target: 'table', inherit: null, includeGlobal: true, sort: ['order', 'name'],
       fields: ['action_name', 'condition', 'client', 'roles', 'form_button', 'form_link', 'form_context_menu', 'list_button', 'list_link', 'list_context_menu', 'list_banner_button', 'list_choice', 'show_insert', 'show_update', 'sys_overrides', 'ui_type', 'form_button_v2', 'form_menu_button_v2', 'format_for_configurable_workspace'],
       scripts: ['script', 'onclick', 'client_script_v2'],
     }],
@@ -77,7 +99,7 @@ const SOURCES = {
     label: 'UI policies', layer: 'client', enforcement: 'client',
     summary: 'Client-side field behavior. Mandatory/read-only actions here are not server enforcement.',
     sources: [{
-      table: 'sys_ui_policy', target: 'table', inherit: 'inherit',
+      table: 'sys_ui_policy', target: 'table', inherit: 'inherit', sort: ['order', 'name'],
       fields: ['conditions', 'on_load', 'reverse_if_false', 'inherit', 'global', 'view', 'run_scripts', 'ui_type'],
       scripts: ['script_true', 'script_false'],
       related: {
@@ -90,12 +112,91 @@ const SOURCES = {
     label: 'Server data policies', layer: 'server', enforcement: 'server',
     summary: 'Server-side field requirements (mandatory/read-only) from data policies.',
     sources: [{
-      table: 'sys_data_policy2', target: 'model_table', inherit: 'inherit',
+      table: 'sys_data_policy2', target: 'model_table', inherit: 'inherit', sort: ['order', 'name'],
       fields: ['conditions', 'reverse_if_false', 'inherit', 'apply_import_set', 'apply_soap', 'enforce_ui'],
       related: {
         table: 'sys_data_policy_rule', foreignKey: 'sys_data_policy',
         fields: ['field', 'mandatory', 'disabled'],
       },
+    }],
+  },
+  dictionary_entries: {
+    label: 'Dictionary entries', layer: 'schema', enforcement: 'schema',
+    summary: 'Column and table dictionary rows. Table-level rows have no element and are labelled explicitly; field labels and types are metadata, not effective UI behavior.',
+    sources: [{
+      table: 'sys_dictionary', target: 'name', inherit: null, includeGlobal: false, sort: ['element'], filterField: 'element',
+      fields: ['element', 'column_label', 'internal_type', 'max_length', 'mandatory', 'reference', 'default_value', 'active', 'sys_scope', 'sys_overrides'],
+    }],
+  },
+  dictionary_overrides: {
+    label: 'Dictionary overrides', layer: 'schema', enforcement: 'schema',
+    summary: 'Raw sys_dictionary_override rows for this table and its ancestors. Override fields are preserved as stored; effective dictionary resolution is not computed.',
+    sources: [{
+      table: 'sys_dictionary_override', target: 'name', inherit: null, includeGlobal: false, sort: ['element'], filterField: 'element', activeField: 'active',
+      fields: ['element', 'base_table', 'mandatory', 'mandatory_override', 'read_only', 'read_only_override', 'read_only_option', 'default_value', 'default_value_override', 'reference_qual', 'reference_qual_override', 'calculation', 'calculation_override', 'attributes', 'attributes_override', 'dependent', 'display_override'],
+    }],
+  },
+  notifications: {
+    label: 'Email notifications', layer: 'server', enforcement: 'server',
+    summary: 'Email notification actions. Message bodies are measured only; they are never returned inline.',
+    sources: [{
+      table: 'sysevent_email_action', target: 'collection', inherit: null, includeGlobal: false, sort: ['name'],
+      fields: ['event_name', 'type', 'condition', 'advanced_condition', 'subject', 'weight', 'recipient_fields', 'event_parm_1', 'event_parm_2', 'template', 'item', 'item_table', 'category', 'importance', 'digestable'],
+      scripts: ['message', 'message_html', 'message_text'],
+    }],
+  },
+  access_controls: {
+    label: 'Access controls', layer: 'server', enforcement: 'server',
+    summary: 'ACL rows matching global, table and field clauses. Rows are configuration evidence, not proof of effective access.',
+    sources: [{
+      table: 'sys_security_acl', target: 'name', inherit: null, includeGlobal: false, sort: ['name', 'operation'],
+      associationQuery: ({ table, ancestors, directOnly }) => {
+        const clauses = [];
+        if (!directOnly) clauses.push('name=*', 'nameSTARTSWITH*.');
+        clauses.push(`name=${table}`, `nameSTARTSWITH${table}.`);
+        if (!directOnly) {
+          for (const ancestor of ancestors) clauses.push(`name=${ancestor}`, `nameSTARTSWITH${ancestor}.`);
+        }
+        return clauses.join('^OR');
+      },
+      fields: ['operation', 'type', 'admin_overrides', 'decision_type', 'condition', 'applies_to', 'description'],
+      scripts: ['script'],
+    }],
+  },
+  styles: {
+    label: 'UI styles', layer: 'client', enforcement: 'client',
+    summary: 'Field style definitions for this table and its ancestors. Style values are shipped to the browser, not server enforcement.',
+    sources: [{
+      table: 'sys_ui_style', target: 'name', inherit: null, includeGlobal: false, sort: ['name', 'element'], activeField: 'active',
+      fields: ['element', 'value', 'style', 'alt', 'themed_style'],
+    }],
+  },
+  view_rules: {
+    label: 'View rules', layer: 'client', enforcement: 'client',
+    summary: 'List view rules. An empty result is a real accessible-empty inventory; inaccessible or malformed reads are reported separately.',
+    sources: [{
+      table: 'sysrule_view', target: 'table', inherit: null, includeGlobal: false, sort: ['view'], filterField: 'view',
+      fields: ['view', 'advanced', 'condition', 'script', 'match_conditions', 'device_type', 'overrides_user_preference'],
+    }],
+  },
+  flows: {
+    label: 'Flow record triggers', layer: 'server', enforcement: 'server',
+    summary: 'Record-triggered flows. Only sys_flow_record_trigger rows are inventoried; template and other trigger types are unsupported and are never guessed by text joins.',
+    triggerSupport: {
+      supported: ['record'],
+      unsupported: [
+        { type: 'template', table: 'sys_hub_trigger_template', reason: 'Template triggers attach to trigger templates, not a table field; no text join is guessed.' },
+        { type: 'catalog', table: 'sys_flow_catalog_trigger', reason: 'Catalog triggers are request/catalog scoped, not record triggers.' },
+        { type: 'email', table: 'sys_flow_email_trigger', reason: 'Email triggers are inbound-event scoped, not table-field scoped.' },
+        { type: 'knowledge', table: 'sys_flow_knowledge_trigger', reason: 'Knowledge triggers are article-event scoped, not table-field scoped.' },
+        { type: 'rest', table: 'sys_flow_rest_trigger', reason: 'REST triggers are endpoint scoped, not table-field scoped.' },
+        { type: 'timer', table: 'sys_flow_timer_trigger', reason: 'Timer triggers are schedule scoped, not table-field scoped.' },
+        { type: 'enhanced_timer', table: 'sys_flow_enhanced_timer_trigger', reason: 'Enhanced timer triggers are schedule scoped, not table-field scoped.' },
+      ],
+    },
+    sources: [{
+      table: 'sys_flow_record_trigger', target: 'table', inherit: null, includeGlobal: false, sort: ['name'], activeField: 'active',
+      fields: ['on_insert', 'on_update', 'on_delete', 'condition', 'run_flow_in', 'run_on_extended', 'run_when_user_list', 'run_when_setting'],
     }],
   },
 };
@@ -198,7 +299,7 @@ function categorySignature(table, category, options, ancestors) {
 }
 
 function decodeCursor(token, category, signature) {
-  if (!token) return 0;
+  if (!token) return { phase: 0, offset: 0 };
   if (typeof token !== 'string' || token.length > 512) throw errUsage('Invalid cursor token.');
   let parsed;
   try {
@@ -206,16 +307,19 @@ function decodeCursor(token, category, signature) {
   } catch {
     throw errUsage('Invalid cursor token.');
   }
-  if (!parsed || parsed.v !== 1 || parsed.c !== category || parsed.s !== signature
-    || !Number.isInteger(parsed.o) || parsed.o < 0 || parsed.o > 1000000) {
+  const version = parsed?.v;
+  const phase = version === 1 ? 0 : parsed?.p;
+  if (!parsed || ![1, 2].includes(version) || parsed.c !== category || parsed.s !== signature
+    || !Number.isInteger(parsed.o) || parsed.o < 0 || parsed.o > 1000000
+    || !Number.isInteger(phase) || phase < 0 || phase > 16) {
     throw errUsage('Cursor does not match this table, category, or filter set.',
       'Restart discovery without a cursor or keep the original filters.');
   }
-  return parsed.o;
+  return { phase, offset: parsed.o };
 }
 
-function encodeCursor(category, offset, signature) {
-  return Buffer.from(JSON.stringify({ v: 1, c: category, o: offset, s: signature }), 'utf8').toString('base64url');
+function encodeCursor(category, phase, offset, signature) {
+  return Buffer.from(JSON.stringify({ v: 2, c: category, p: phase, o: offset, s: signature }), 'utf8').toString('base64url');
 }
 
 function sourceError(error, sourceTable) {
@@ -262,6 +366,25 @@ function associationFor(source, rowTable, requested, ancestors) {
   return { association: 'inherited', detail: 'unrecognized_association', inherited: true };
 }
 
+/**
+ * ACL clauses are names such as `incident`, `incident.*`, `incident.field`,
+ * `*.field` or `*`. Keep the global/table/field distinction explicit instead
+ * of reducing every row to a generic inherited association.
+ */
+function aclAssociation(name, requested, ancestors) {
+  if (!name) return { association: 'inherited', detail: 'unrecognized_association', inherited: true };
+  if (name === '*') return { association: 'global', detail: 'global_all', inherited: true };
+  if (name.startsWith('*.')) return { association: 'global', detail: 'global_field', inherited: true };
+  for (const [index, table] of [requested, ...ancestors].entries()) {
+    const prefix = index === 0 ? 'direct' : 'ancestor';
+    const association = index === 0 ? 'direct' : 'inherited';
+    if (name === table) return { association, detail: `${prefix}_table`, inherited: index !== 0 };
+    if (name === `${table}.*`) return { association, detail: `${prefix}_table_wildcard`, inherited: index !== 0 };
+    if (name.startsWith(`${table}.`)) return { association, detail: `${prefix}_field`, inherited: index !== 0 };
+  }
+  return { association: 'inherited', detail: 'unrecognized_association', inherited: true };
+}
+
 function overrideEvidence(row, fields) {
   if (!fields.has('sys_overrides')) return undefined;
   const override = text(row, 'sys_overrides');
@@ -269,6 +392,107 @@ function overrideEvidence(row, fields) {
   return {
     sys_overrides: rawValue(row, 'sys_overrides') || override,
     note: 'Override link preserved as evidence; effective resolution is not simulated.',
+  };
+}
+
+/**
+ * Ordering is expressed in the instance query, not applied to a returned page.
+ * ServiceNow sorts empty values first for ORDERBY, so a primary sort key gets
+ * an ISEMPTY phase after its ISNOTEMPTY phase to keep missing keys last.
+ */
+function sortPhases(source) {
+  if (source.sortPhases?.length) return source.sortPhases;
+  const sort = source.sort || [];
+  if (!sort.length) return [{ query: '', order: [] }];
+  const [primary, ...rest] = sort;
+  return [
+    { query: `${primary}ISNOTEMPTY`, order: sort },
+    { query: `${primary}ISEMPTY`, order: rest },
+  ];
+}
+
+function associationParts(source, requested, ancestors, directOnly) {
+  if (source.associationQuery) {
+    return [source.associationQuery({ table: requested, ancestors, directOnly })];
+  }
+  if (directOnly) return [`${source.target}=${requested}`];
+  if (source.inherit) {
+    const parts = [`${source.target}=${requested}`];
+    if (ancestors.length) parts.push(`${source.target}IN${quoteList(ancestors)}^${source.inherit}=true`);
+    if (source.includeGlobal) parts.push(`${source.target}=global`);
+    return parts;
+  }
+  const associated = source.includeGlobal ? [...ancestors, 'global'] : ancestors;
+  return [`${source.target}IN${quoteList([requested, ...associated])}`];
+}
+
+function phaseQuery(parts, filters, phase) {
+  const order = [...new Set([...(phase.order || []), 'sys_id'])].map(field => `ORDERBY${field}`);
+  return parts
+    .map(part => [part, ...filters, phase.query, ...order].filter(Boolean).join('^'))
+    .join('^NQ');
+}
+
+function requiredField(source, fields, field) {
+  return fields.has(field) || field === source.target || field === source.activeField
+    || (source.sort || []).includes(field)
+    || (source.sortPhases || []).some(phase => (phase.order || []).includes(field))
+    || field === 'sys_id';
+}
+
+async function readOrderedRows(sdk, source, context) {
+  const { requested, ancestors, directOnly, includeInactive, name, fields, limit, cursor } = context;
+  const phases = sortPhases(source);
+  const parts = associationParts(source, requested, ancestors, directOnly);
+  const filters = [];
+  const activeField = source.activeField || (fields.has('active') ? 'active' : null);
+  if (!includeInactive) {
+    if (activeField) filters.push(`${activeField}=true`);
+  }
+  if (name) {
+    const nameField = source.filterField
+      || (fields.has('name') ? 'name' : fields.has('short_description') ? 'short_description' : null);
+    if (nameField) filters.push(`${nameField}LIKE${name}`);
+  }
+
+  const collected = [];
+  // A row can satisfy more than one ordering phase on a live instance (an empty
+  // value still matches ISNOTEMPTY for some field types), so keep the first
+  // occurrence and drop repeats. Ordering is preserved.
+  const seenIds = new Set();
+  for (let phaseIndex = cursor.phase; phaseIndex < phases.length && collected.length <= limit; phaseIndex++) {
+    const phase = phases[phaseIndex];
+    const offset = phaseIndex === cursor.phase ? cursor.offset : 0;
+    const remaining = limit + 1 - collected.length;
+    if (remaining <= 0) break;
+    const query = phaseQuery(parts, filters, phase);
+    const rows = await sdk.listStrict(source.table, new URLSearchParams({
+      sysparm_query: query,
+      sysparm_fields: context.wanted.join(','),
+      sysparm_limit: String(remaining),
+      sysparm_offset: String(offset),
+      sysparm_display_value: 'all',
+      sysparm_exclude_reference_link: 'true',
+      sysparm_no_count: 'true',
+    }));
+    for (let index = 0; index < rows.length; index++) {
+      const rowId = text(rows[index], 'sys_id');
+      if (rowId) {
+        if (seenIds.has(rowId)) continue;
+        seenIds.add(rowId);
+      }
+      collected.push({ row: rows[index], phase: phaseIndex, index: offset + index });
+    }
+    if (rows.length < remaining) continue;
+    break;
+  }
+
+  const hasMore = collected.length > limit;
+  const extra = hasMore ? collected[limit] : null;
+  return {
+    page: collected.slice(0, limit),
+    hasMore,
+    next: extra ? { phase: extra.phase, offset: extra.index } : null,
   };
 }
 
@@ -289,11 +513,14 @@ function summarize(category, source, row, fields, context) {
   const rowTable = source.target ? text(row, source.target) : '';
   const sysId = text(row, 'sys_id');
   if (!SAFE_SYS_ID.test(sysId)) throw new Error(`Metadata record in ${source.table} lacks a valid sys_id.`);
-  const association = associationFor(source, rowTable, requested, ancestors);
+  const rowName = text(row, 'name');
+  const association = category === 'access_controls'
+    ? aclAssociation(rowName, requested, ancestors)
+    : associationFor(source, rowTable, requested, ancestors);
   const item = {
     reference: { kind: category, source_table: source.table, sys_id: sysId },
     source_table: source.table,
-    name: text(row, 'name') || text(row, 'short_description') || sysId,
+    name: rowName || text(row, 'short_description') || sysId,
     table: rowTable || undefined,
     association: association.association,
     association_detail: association.detail,
@@ -370,6 +597,88 @@ function summarize(category, source, row, fields, context) {
       disabled: text(action, 'disabled') || undefined,
       reference: SAFE_SYS_ID.test(text(action, 'sys_id')) ? { kind: category, source_table: 'sys_data_policy_rule', sys_id: text(action, 'sys_id') } : undefined,
     }));
+  } else if (category === 'dictionary_entries') {
+    const element = text(row, 'element');
+    item.level = element ? 'column' : 'table';
+    item.element = element || undefined;
+    item.column_label = text(row, 'column_label') || undefined;
+    item.internal_type = text(row, 'internal_type') || undefined;
+    item.max_length = integer(row, 'max_length');
+    item.mandatory = bool(row, 'mandatory');
+    item.reference_table = text(row, 'reference') || undefined;
+    item.default_value = text(row, 'default_value') || undefined;
+    item.active = bool(row, 'active');
+    item.scope = text(row, 'sys_scope') || undefined;
+    item.sys_overrides = text(row, 'sys_overrides') || undefined;
+    if (!element) {
+      item.name = `${rowTable || 'unknown'} (table-level)`;
+      item.table_level = true;
+    } else {
+      item.name = text(row, 'column_label') ? `${element} (${text(row, 'column_label')})` : element;
+    }
+  } else if (category === 'dictionary_overrides') {
+    const element = text(row, 'element');
+    item.level = element ? 'column' : 'table';
+    for (const field of source.fields) item[field] = rawValue(row, field);
+    item.table_level = !element;
+    item.name = element || `${rowTable || 'unknown'} (table-level override)`;
+    item.interpretation = 'Raw override values; no effective dictionary resolution is computed.';
+  } else if (category === 'notifications') {
+    item.event_name = text(row, 'event_name') || undefined;
+    item.type = text(row, 'type') || undefined;
+    item.condition = text(row, 'condition') || undefined;
+    item.advanced_condition = text(row, 'advanced_condition') || undefined;
+    item.subject = text(row, 'subject') || undefined;
+    item.weight = integer(row, 'weight');
+    item.recipient_fields = text(row, 'recipient_fields') || undefined;
+    item.event_parm_1 = text(row, 'event_parm_1') || undefined;
+    item.event_parm_2 = text(row, 'event_parm_2') || undefined;
+    item.template = text(row, 'template') || undefined;
+    item.item = text(row, 'item') || undefined;
+    item.item_table = text(row, 'item_table') || undefined;
+    item.category = text(row, 'category') || undefined;
+    item.importance = text(row, 'importance') || undefined;
+    item.digestable = bool(row, 'digestable');
+    Object.assign(item, scriptSummary(row, source, fields));
+  } else if (category === 'access_controls') {
+    item.name = rowName || sysId;
+    item.operation = text(row, 'operation') || undefined;
+    item.type = text(row, 'type') || undefined;
+    item.active = bool(row, 'active');
+    item.admin_overrides = bool(row, 'admin_overrides');
+    item.decision_type = text(row, 'decision_type') || undefined;
+    item.condition = text(row, 'condition') || undefined;
+    item.applies_to = text(row, 'applies_to') || undefined;
+    item.description = text(row, 'description') || undefined;
+    Object.assign(item, scriptSummary(row, source, fields));
+  } else if (category === 'styles') {
+    item.element = text(row, 'element') || undefined;
+    item.value = text(row, 'value') || undefined;
+    item.style = text(row, 'style') || undefined;
+    item.alt = text(row, 'alt') || undefined;
+    item.themed_style = text(row, 'themed_style') || undefined;
+  } else if (category === 'view_rules') {
+    const view = text(row, 'view');
+    item.view = view || undefined;
+    item.view_empty = has('view') && 'view' in row && !view;
+    item.advanced = bool(row, 'advanced');
+    item.condition = text(row, 'condition') || undefined;
+    item.match_conditions = text(row, 'match_conditions') || undefined;
+    item.device_type = text(row, 'device_type') || undefined;
+    item.overrides_user_preference = bool(row, 'overrides_user_preference');
+    item.name = view ? `view: ${view}` : `${rowTable || 'unknown'} (view rule ${sysId})`;
+    Object.assign(item, scriptSummary(row, source, fields));
+  } else if (category === 'flows') {
+    item.trigger_type = 'record';
+    item.on_insert = bool(row, 'on_insert');
+    item.on_update = bool(row, 'on_update');
+    item.on_delete = bool(row, 'on_delete');
+    item.condition = text(row, 'condition') || undefined;
+    item.run_flow_in = text(row, 'run_flow_in') || undefined;
+    item.run_on_extended = bool(row, 'run_on_extended');
+    item.run_when_user_list = text(row, 'run_when_user_list') || undefined;
+    item.run_when_setting = text(row, 'run_when_setting') || undefined;
+    item.name = rowName || `record trigger ${sysId}`;
   }
 
   const critical = ['sys_id', 'name', source.target, 'active'].filter(field => field && fields.has(field));
@@ -472,6 +781,7 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
     return fieldsCache.get(sourceTable);
   };
 
+  const itemPositions = new WeakMap();
   for (const category of categories) {
     const definition = SOURCES[category];
     const section = {
@@ -482,6 +792,9 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
       source_tables: definition.sources.map(source => source.table),
       interpretation: definition.summary,
       status: 'complete',
+      supplied_sources: definition.sources.map(source => source.table),
+      supported_trigger_types: definition.triggerSupport?.supported,
+      unsupported_trigger_types: definition.triggerSupport?.unsupported,
       direct_count: 0,
       inherited_count: 0,
       returned: 0,
@@ -492,13 +805,20 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
       warnings: [],
       items: [],
     };
+    if (definition.triggerSupport) {
+      section.trigger_support = {
+        supported: definition.triggerSupport.supported,
+        unsupported: definition.triggerSupport.unsupported,
+        note: 'Only record triggers are inventoried; other trigger families are unsupported and are not guessed by text joins.',
+      };
+    }
     result.categories.push(section);
 
     for (const source of definition.sources) {
       const signature = categorySignature(table, category, { limit, directOnly, includeInactive, name }, ancestors);
-      let offset;
+      let cursor;
       try {
-        offset = decodeCursor(cursors[category], category, signature);
+        cursor = decodeCursor(cursors[category], category, signature);
       } catch (error) {
         if (error.code === 'usage_error') throw error;
         section.status = 'unavailable';
@@ -526,87 +846,78 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
         continue;
       }
 
-      const parts = [];
-      if (directOnly) {
-        parts.push(`${source.target}=${table}`);
-      } else if (source.inherit) {
-        parts.push(`${source.target}=${table}`);
-        if (ancestors.length) parts.push(`${source.target}IN${quoteList(ancestors)}^${source.inherit}=true`);
-        if (source.includeGlobal) parts.push(`${source.target}=global`);
-      } else {
-        const associated = source.includeGlobal ? [...ancestors, 'global'] : ancestors;
-        parts.push(`${source.target}IN${quoteList([table, ...associated])}`);
+      const activeField = source.activeField || (fields.has('active') ? 'active' : null);
+      if (!includeInactive && !activeField) {
+        section.warnings.push({ code: 'missing_fields', message: `Active status is unavailable on ${source.table}; candidates may be inactive.`, source_table: source.table });
       }
-      const filters = [];
-      if (!includeInactive) {
-        if (fields.has('active')) filters.push('active=true');
-        else section.warnings.push({ code: 'missing_fields', message: `Active status is unavailable on ${source.table}; candidates may be inactive.`, source_table: source.table });
+      const filterField = source.filterField
+        || (fields.has('name') ? 'name' : fields.has('short_description') ? 'short_description' : null);
+      if (name && !filterField) {
+        section.status = 'unsupported';
+        section.warnings.push({ code: 'unsupported_layout', message: `Name filtering is unavailable for ${source.table}.`, source_table: source.table });
+        continue;
       }
-      if (name) {
-        const nameField = fields.has('name') ? 'name' : fields.has('short_description') ? 'short_description' : null;
-        if (!nameField) {
-          section.status = 'unsupported';
-          section.warnings.push({ code: 'unsupported_layout', message: `Name filtering is unavailable for ${source.table}.`, source_table: source.table });
-          continue;
-        }
-        filters.push(`${nameField}LIKE${name}`);
-      }
-      const query = parts.map(part => [part, ...filters].join('^')).join('^NQ') + '^ORDERBYsys_id';
-      const wanted = [...new Set([...COMMON_FIELDS, source.target, ...source.fields, ...(source.scripts || [])])]
-        .filter(field => fields.has(field));
 
-      let rows;
+      const wanted = [...new Set([
+        ...COMMON_FIELDS,
+        source.target,
+        ...(source.fields || []),
+        ...(source.scripts || []),
+        ...(source.sort || []),
+        ...(source.sortPhases || []).flatMap(phase => phase.order || []),
+        ...(activeField ? [activeField] : []),
+      ])].filter(field => requiredField(source, fields, field));
+
+      let read;
       try {
-        rows = await sdk.listStrict(source.table, new URLSearchParams({
-          sysparm_query: query,
-          sysparm_fields: wanted.join(','),
-          sysparm_limit: String(limit + 1),
-          sysparm_offset: String(offset),
-          sysparm_display_value: 'all',
-          sysparm_exclude_reference_link: 'true',
-          sysparm_no_count: 'true',
-        }));
+        read = await readOrderedRows(sdk, source, {
+          requested: table, ancestors, directOnly, includeInactive, name,
+          fields, wanted, limit, cursor,
+        });
       } catch (error) {
         section.status = 'unavailable';
         section.warnings.push(sourceError(error, source.table));
         continue;
       }
 
-      const page = rows.slice(0, limit);
-      section.has_more = rows.length > limit;
-      const related = await readRelated(sdk, source, page.map(row => ({ reference: { sys_id: text(row, 'sys_id') } })), section.warnings);
+      section.has_more = read.hasMore;
+      const page = read.page;
+      const related = await readRelated(sdk, source, page.map(entry => ({ reference: { sys_id: text(entry.row, 'sys_id') } })), section.warnings);
       let truncatedAt = null;
       for (let index = 0; index < page.length; index++) {
+        const entry = page[index];
         let item;
         try {
-          item = summarize(category, source, page[index], fields, { requested: table, ancestors, related });
+          item = summarize(category, source, entry.row, fields, { requested: table, ancestors, related });
         } catch (error) {
-          section.warnings.push({ code: 'malformed_response', message: `Record ${text(page[index], 'sys_id') || '?'} in ${source.table} was skipped: ${error.message}`, source_table: source.table });
+          section.warnings.push({ code: 'malformed_response', message: `Record ${text(entry.row, 'sys_id') || '?'} in ${source.table} was skipped: ${error.message}`, source_table: source.table });
           continue;
         }
         section.items.push(item);
+        itemPositions.set(item, { phase: entry.phase, index: entry.index, signature, sourceTable: source.table });
         section.returned += 1;
         if (byteLength(result) > maxBytes - 1024) {
           section.items.pop();
           section.returned -= 1;
-          truncatedAt = offset + index;
+          truncatedAt = { phase: entry.phase, index: entry.index };
           section.truncated = true;
           break;
         }
       }
       if (truncatedAt !== null) {
+        section.has_more = true;
         section.omitted = page.length - section.items.length;
-        section.next_cursor = encodeCursor(category, truncatedAt, signature);
+        section.next_cursor = encodeCursor(category, truncatedAt.phase, truncatedAt.index, signature);
         section.warnings.push({
           code: 'truncated',
-          message: `Response budget reached at ${section.items.length} item(s) in ${category}. Script bodies are never cut. Continue with its cursor, raise --max-bytes, or lower --limit.`,
+          message: `Response budget reached at ${section.items.length} item(s) in ${category}. Items are omitted whole; no script or message body is returned. Continue with its cursor, raise --max-bytes, or lower --limit.`,
           source_table: source.table,
         });
         section.status = 'partial';
         continue;
       }
-      if (section.has_more) {
-        section.next_cursor = encodeCursor(category, offset + page.length, signature);
+      if (read.hasMore) {
+        section.next_cursor = encodeCursor(category, read.next.phase, read.next.offset, signature);
         section.status = 'partial';
       }
       if (section.warnings.length || section.items.some(item => item.warnings?.length)) section.status = 'partial';
@@ -615,9 +926,40 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
     section.direct_count = section.items.filter(item => item.association === 'direct').length;
     section.inherited_count = section.items.filter(item => item.inherited).length;
     if (section.next_cursor) result.next_cursors[category] = section.next_cursor;
-    if (byteLength(result) > maxBytes) {
-      throw errUsage(`Behavior output metadata exceeds --max-bytes (${maxBytes}). Increase --max-bytes or select fewer categories.`);
+  }
+
+  // Last-resort budget pass: remove items from the last categories first and
+  // record the exact continuation point for each. Categories are never dropped
+  // silently, and a tight budget never turns into a usage error.
+  if (byteLength(result) > maxBytes) {
+    for (let index = result.categories.length - 1; index >= 0 && byteLength(result) > maxBytes; index--) {
+      const section = result.categories[index];
+      while (section.items.length && byteLength(result) > maxBytes) {
+        const item = section.items.pop();
+        const position = itemPositions.get(item);
+        section.returned -= 1;
+        section.omitted += 1;
+        section.truncated = true;
+        section.has_more = true;
+        section.status = 'partial';
+        if (position) {
+          section.next_cursor = encodeCursor(section.category, position.phase, position.index, position.signature);
+        }
+        if (!section.warnings.some(warning => warning.code === 'truncated')) {
+          section.warnings.push({
+            code: 'truncated',
+            message: 'Response budget reached before this category could be returned in full. Items are omitted whole; continue with its cursor or raise --max-bytes.',
+            source_table: position?.sourceTable || section.source_tables[0],
+          });
+        }
+      }
     }
+  }
+  for (const section of result.categories) {
+    section.direct_count = section.items.filter(item => item.association === 'direct').length;
+    section.inherited_count = section.items.filter(item => item.inherited).length;
+    if (section.next_cursor) result.next_cursors[section.category] = section.next_cursor;
+    else delete result.next_cursors[section.category];
   }
 
   result.totals = {
@@ -629,7 +971,11 @@ export async function discoverTableBehavior(sdk, requestedTable, options = {}) {
     partial_categories: result.categories.filter(section => section.status === 'partial').length,
   };
   if (byteLength(result) > maxBytes) {
-    throw errUsage(`Behavior output metadata exceeds --max-bytes (${maxBytes}). Increase --max-bytes or select fewer categories.`);
+    result.budget_exceeded = true;
+    result.warnings.push({
+      code: 'budget_exceeded',
+      message: `Category metadata alone exceeds --max-bytes (${maxBytes}); no items remain to omit. Raise --max-bytes or select fewer categories.`,
+    });
   }
   return result;
 }
@@ -643,10 +989,24 @@ export function formatTableBehavior(data) {
   lines.push('   Accessible configuration only; conditions are not evaluated and scripts are not executed.');
   lines.push('');
   for (const section of data.categories) {
-    lines.push(`\u25B6 ${section.label.toUpperCase()} [${section.enforcement}] \u2014 ${section.status}${section.direct_count || section.inherited_count ? ` | ${section.direct_count} direct, ${section.inherited_count} inherited` : ''}`);
+    const breakdown = section.items.reduce((acc, item) => {
+      const key = item.association_detail === 'global_actions' ? 'global'
+        : item.association === 'direct' ? 'direct' : 'inherited';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const parts = [];
+    if (breakdown.direct) parts.push(`${breakdown.direct} direct`);
+    if (breakdown.inherited) parts.push(`${breakdown.inherited} inherited`);
+    if (breakdown.global) parts.push(`${breakdown.global} global`);
+    const counts = parts.length ? ` | ${parts.join(', ')}` : '';
+    lines.push(`\u25B6 ${section.label.toUpperCase()} [${section.enforcement}] \u2014 ${section.status}${counts}`);
     lines.push('\u2500'.repeat(58));
     if (section.warnings.length) {
       for (const warning of section.warnings) lines.push(`  ! ${warning.code}: ${warning.message}`);
+    }
+    if (section.trigger_support?.unsupported?.length) {
+      lines.push(`  unsupported trigger types: ${section.trigger_support.unsupported.map(trigger => `${trigger.type} (${trigger.table})`).join(', ')}. Only record triggers are inventoried.`);
     }
     if (!section.items.length) {
       lines.push(section.status === 'complete' ? '  (none in accessible configuration)' : '  (no results from available sources)');
@@ -655,6 +1015,19 @@ export function formatTableBehavior(data) {
       const flags = [item.association, item.table ? `on ${item.table}` : '', item.active === false ? 'inactive' : '', item.scope && item.scope !== 'global' ? item.scope : ''].filter(Boolean);
       lines.push(`  ${item.name}${flags.length ? ` \u2014 ${flags.join(', ')}` : ''}`);
       const meta = [];
+      if (item.level) meta.push(item.level === 'table' ? 'table-level' : 'column');
+      if (item.element) meta.push(`element ${item.element}`);
+      if (item.internal_type) meta.push(item.internal_type);
+      if (item.max_length !== undefined) meta.push(`max ${item.max_length}`);
+      if (item.base_table) meta.push(`base ${item.base_table}`);
+      if (item.operation) meta.push(item.operation);
+      if (item.event_name) meta.push(item.event_name);
+      if (item.view) meta.push(`view ${item.view}`);
+      if (item.view_empty) meta.push('view empty');
+      if (item.trigger_type) meta.push(`${item.trigger_type} trigger`);
+      if (item.on_insert || item.on_update || item.on_delete) {
+        meta.push(['insert', 'update', 'delete'].filter(operation => item[`on_${operation}`]).join('/'));
+      }
       if (item.when) meta.push(item.when);
       if (item.operations?.length) meta.push(item.operations.join('/'));
       if (item.order !== undefined) meta.push(`order ${item.order}`);
@@ -665,7 +1038,7 @@ export function formatTableBehavior(data) {
         const actions = item.field_actions.map(action => `${action.field || '?'}${action.mandatory && action.mandatory !== 'ignore' ? ` mandatory=${action.mandatory}` : ''}${action.disabled && action.disabled !== 'ignore' ? ` disabled=${action.disabled}` : ''}${action.visible && action.visible !== 'ignore' ? ` visible=${action.visible}` : ''}`);
         lines.push(`      field actions: ${actions.join('; ')}`);
       }
-      if (item.has_script) lines.push(`      script present (${item.script_bytes} bytes; not retrieved)`);
+      if (item.has_script) lines.push(`      content present (${item.script_bytes} bytes; not retrieved)`);
     }
     if (section.next_cursor) lines.push(`  ... more available; continue with --cursor ${section.next_cursor}`);
     if (section.omitted) lines.push(`  ${section.omitted} item(s) omitted by the response budget.`);
@@ -675,5 +1048,6 @@ export function formatTableBehavior(data) {
   if (data.totals.unavailable_categories || data.totals.unsupported_categories) {
     lines.push(`Unavailable categories: ${data.totals.unavailable_categories}; unsupported: ${data.totals.unsupported_categories}. These are not empty results.`);
   }
+  if (data.budget_exceeded) lines.push('Response budget exceeded by category metadata alone; reduce categories or raise --max-bytes.');
   return lines.join('\n');
 }

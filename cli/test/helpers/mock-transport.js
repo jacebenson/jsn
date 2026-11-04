@@ -21,7 +21,9 @@ export function createMockFetch(responses = [], captured = {}) {
     };
     capturedRequests.push(req);
 
-    const respCfg = responses[callCount] || responses[responses.length - 1] || {};
+    const respCfg = typeof responses === 'function'
+      ? await responses(req)
+      : responses[callCount] || responses[responses.length - 1] || {};
     callCount++;
 
     // Build a mock Response object that acts like fetch's Response

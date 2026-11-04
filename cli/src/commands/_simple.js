@@ -73,7 +73,7 @@ export const tablesCmd = (wrap) => withTableBehavior(buildProfileCommand('tables
     record._column_count = count;
     record._extension_info = { chain: extChain };
   },
-  extraSubcommands: [{ name: 'behavior', description: 'Read-only behavior inventory (inherited rules, scripts, actions, policies)' }],
+  extraSubcommands: [{ name: 'behavior', description: 'Read-only behavior inventory (dictionary, ACLs, rules, scripts, actions, policies, notifications, styles, views, flow triggers)' }],
 }), wrap);
 
 export { columnsCmd } from './columns.js';
