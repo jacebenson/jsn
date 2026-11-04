@@ -47,6 +47,13 @@ operations are registered as:
 | Update Application | `GET /app/update?app_id=&version=` | `update` |
 | Execution Status | `GET /api/sn_cicd/progress/{trackerID}` | `status`, `--wait` |
 
+ServiceNow's published OpenAPI for this service (`sn_appclient-AppManager
+_Internal_API`) lists the same operations, with `app_id` and `version` both
+**required** on install and update, `customization_version`/`load_demo_data`
+optional, and `tab_context` required on `POST /apps` (documented values:
+`available_for_you`, `installed`, `updates`). The implementation sends exactly
+those parameters.
+
 Measured behaviour:
 
 - `GET /apps` returns **405** (`Method not Supported: GET method not supported
@@ -170,20 +177,17 @@ does not cancel or resubmit. A submission without a usable tracker id fails with
 `jsn store status <tracker-id>` reads the tracker directly: `status`,
 `status_label`, `status_message`, `percent_complete`, `terminal`, `succeeded`.
 
-## The one lifecycle attempt, and what it proved
+## Lifecycle attempts, and what they proved
 
-`jsn store install sn_team_contacts_0 --version 30.1.2 --wait` was run once
-against the same instance. The dispatch was accepted:
+Twenty install/update requests were sent to this instance across nineteen
+applications (ten updates of installed apps, nine installs). **Every one was
+accepted and every one failed the same way.**
 
 ```
-GET /api/sn_appclient/appmanager/app/install?app_id=01ebede3c3212010a3a6ddaa7d40dd94
+GET /appmanager/app/install?app_id=01ebede3c3212010a3a6ddaa7d40dd94
     &version=30.1.2&load_demo_data=false
 -> tracker 4b54416e9314935016c8fd18dd03d642
-```
 
-The tracker then failed, and its detail names the operation it ran:
-
-```
 status=3  status_label=Failed  percent_complete=100  error=""
 status_message=Unable to download app package
 status_detail=operation=app_install, app=01ebede3c3212010a3a6ddaa7d40dd94,
@@ -191,11 +195,27 @@ status_detail=operation=app_install, app=01ebede3c3212010a3a6ddaa7d40dd94,
                isReinstallRequested=false
 ```
 
-So the request shape is accepted: `GET`, `app_id`, `version` and
-`load_demo_data` all reach the install plan for the right application. The
-failure is the instance's own package download, not the request. Nothing was
-installed — `sys_store_app` shows a placeholder row for the scope with an empty
-`version` and `active: false`.
+What that proves: the endpoint, method and parameters are right — the request
+reaches the install plan for the exact application and version asked for, and
+the tracker is created. What it does not prove: that an operation can complete.
+
+The cause is the instance, not the request. `syslog` shows its own outbound
+store downloads failing on credentials, before and during these attempts:
+
+```
+UADownloader-ua_blocking:  Download request failed due to possible credential
+                           error, status code = 403
+UADownloader-ua_app_fam:   Download request failed due to possible credential
+                           error, status code = 403
+sn_entitlement:            Failed with status code (403) ... /api/now/v2/ualice
+```
+
+ServiceNow's own documentation (`application-development/queued-app-operations`)
+describes exactly this path: a queued operation that "is unable to download an
+application package" logs an error, is retried up to
+`com.glide.update_operation.max_failure_count` times (default 3), and then "the
+tracker fails, and the job is removed from the queue". The failure text is the
+queue's, not jsn's.
 
 Two things this changed:
 
@@ -205,11 +225,17 @@ Two things this changed:
   `status_label`: the command used to say `failed: Failed.` and hide
   `Unable to download app package`.
 
+Side effects to clean up by hand: each failed install leaves an inert
+`sys_store_app` row for its scope with an empty `version` and `active: false`
+(nine of them here). Failed updates change nothing — every attempted app is
+still on its original version.
+
 ## What is still unverified
 
-1. A **successful** install or update. One attempt was made and the instance
-   failed to download the package; the request shape reached the plan, but the
-   dispatch-to-completion path has never completed.
+1. A **successful** install or update. Twenty requests were dispatched across
+   nineteen applications and all of them failed at package download with the
+   instance's own 403 credential errors. The request shape is proven; the
+   dispatch-to-completion path has never completed here.
 2. That a successful tracker plus a matching `sys_store_app.version` readback is
    sufficient proof of installation on supported ServiceNow versions.
 3. Repair/reinstall behaviour, which is deliberately not implemented here. There
