@@ -10,10 +10,11 @@ import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRe
 import { declareCapabilities } from '../capabilities.js';
 import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
+import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
 
 declareCapabilities('updatesets', {
-  mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen'],
-  mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen'],
+  mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen', 'preview', 'commit'],
+  mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen', 'preview', 'commit'],
   localPreviewSubcommands: ['import'],
 });
 
@@ -95,6 +96,90 @@ export async function resolveUpdateSetByName(app, name) {
 
   const scopes = records.map((r) => r.application?.display_value || r.application || '?').join(', ');
   throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.${scopeNote}\nRun bare "jsn updatesets set" and pick by scope.`);
+}
+
+const RETRIEVED_FIELDS = 'sys_id,name,state,remote_sys_id,sys_created_on,sys_updated_on';
+
+function remoteState(record) {
+  const raw = record?.state;
+  return String(raw?.value ?? raw ?? '').toLowerCase();
+}
+
+/**
+ * Resolve a *retrieved* update set (sys_remote_update_set) by exact name or
+ * sys_id. Imported XML lives here; local capture sets live in sys_update_set.
+ * @returns {Promise<object>} raw record
+ */
+export async function resolveRetrievedUpdateSet(app, identifier) {
+  assertSafeExactMatch(identifier);
+  const isSysID = /^[0-9a-f]{32}$/i.test(identifier);
+  const params = new URLSearchParams();
+  params.set('sysparm_query', isSysID ? `sys_id=${identifier}` : `name=${identifier}`);
+  params.set('sysparm_limit', isSysID ? '1' : '20');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', RETRIEVED_FIELDS);
+  const records = await app.sdk.list('sys_remote_update_set', params);
+  if (!records.length) {
+    throw errUsage(
+      `Retrieved update set not found: ${identifier}`,
+      `Load the XML first (jsn updatesets import <file>), or pass the sys_id of the retrieved set.`,
+    );
+  }
+  if (records.length > 1) {
+    throw errUsage(`Multiple retrieved update sets named "${identifier}". Pass the sys_id instead:\n${records.map((r) => `  ${getStringField(r, 'sys_id')}  ${remoteState(r)}`).join('\n')}`);
+  }
+  return records[0];
+}
+
+async function fetchRetrievedUpdateSet(app, sysID) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `sys_id=${sysID}`);
+  params.set('sysparm_limit', '1');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', RETRIEVED_FIELDS);
+  const [record] = await app.sdk.list('sys_remote_update_set', params);
+  return record || null;
+}
+
+/**
+ * Confirmation gate shared by updatesets mutations. Automation gets a
+ * confirmation-required error with a rerun command instead of a prompt.
+ * @returns {Promise<boolean>} false when the human declined
+ */
+async function confirmUpdateSetMutation(argv, app, question, rerun) {
+  if (argv.yes) return true;
+  if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
+    throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
+      `Rerun: ${buildRerunCommand(argv, { rerun })}`);
+  }
+  return confirm({ message: question, default: false });
+}
+
+function timeoutFrom(argv) {
+  const seconds = Number(argv.timeout ?? DEFAULT_OPERATION_TIMEOUT_MS / 1000);
+  if (!Number.isFinite(seconds) || seconds <= 0) throw errUsage('--timeout must be a positive number of seconds');
+  return Math.round(seconds * 1000);
+}
+
+/**
+ * Find the local update set a commit created. Ambiguity is reported, not
+ * guessed: duplicate names are legitimate on ServiceNow.
+ */
+async function findLocalUpdateSet(app, name) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `name=${name}^ORDERBYDESCsys_created_on`);
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_limit', '2');
+  params.set('sysparm_fields', 'sys_id,name,state,sys_created_on');
+  try {
+    const records = await app.sdk.list('sys_update_set', params);
+    if (records.length === 1) {
+      return { sys_id: getStringField(records[0], 'sys_id'), name: getStringField(records[0], 'name'), state: String(records[0].state?.value ?? records[0].state ?? ''), ambiguous: false };
+    }
+    return { ambiguous: true, count: records.length, note: records.length ? 'Multiple local update sets share this name' : 'No local update set with this name was found' };
+  } catch (error) {
+    return { ambiguous: false, unverified: true, note: `Could not read local update sets: ${error.message}` };
+  }
 }
 
 
@@ -546,8 +631,23 @@ export function updateSetsCmd(wrap) {
           builder: y => y
             .positional('file', { type: 'string', describe: 'Update set XML export' })
             .option('dry-run', { type: 'boolean', describe: 'Inspect locally without any instance requests' })
-            .option('yes', { type: 'boolean', describe: 'Confirm loading the displayed XML into the selected target' }),
+            .option('yes', { type: 'boolean', describe: 'Confirm loading the displayed XML into the selected target' })
+            .option('name', { type: 'string', describe: 'Unsupported: the set keeps the name in its XML envelope' })
+            .option('local', { type: 'boolean', describe: 'Unsupported: import always loads a retrieved update set' })
+            .option('state', { type: 'string', describe: 'Unsupported: import never changes state' }),
           handler: wrap(async (argv, app) => {
+            // The proposed import modifiers are refused explicitly so none of
+            // them can silently rewrite identity, convert the target table, or
+            // flip state. Preview/commit/reopen are the supported transitions.
+            if (argv.name !== undefined) {
+              throw errUsage('Import cannot rename a retrieved update set: its name, sys_id, and remote_sys_id come from the exported envelope, so rewriting them would change the set\'s identity.\nLoad it unchanged, then rename the retrieved set in ServiceNow if you need a different name.');
+            }
+            if (argv.local) {
+              throw errUsage('Import always creates a retrieved update set (sys_remote_update_set); it does not convert XML into a local capture set.\nPreview and commit it to apply the changes (jsn updatesets preview / commit).');
+            }
+            if (argv.state !== undefined) {
+              throw errUsage('Import never sets state. A loaded retrieved set is previewed and committed explicitly; a local set is reopened with "jsn updatesets reopen".');
+            }
             const stat = await fs.promises.stat(argv.file);
             if (!stat.isFile() || stat.size > MAX_UPDATE_SET_BYTES) throw errUsage('Expected an XML file no larger than 50 MiB');
             const xml = await fs.promises.readFile(argv.file, 'utf8');
@@ -556,15 +656,123 @@ export function updateSetsCmd(wrap) {
             if (argv.dryRun) return app.ok({ ...summary, members, dry_run: true }, { summary: `XML: ${inspection.name}; ${inspection.count} updates (local inspection only)` });
             app.requireInstance();
             const question = `Load "${inspection.name}" (${inspection.count} updates) into ${app.getEffectiveInstance()} as a retrieved update set? This does not commit its changes.`;
-            if (!argv.yes) {
-              if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
-                throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
-                  `Rerun: ${buildRerunCommand(argv, { rerun: ['updatesets', 'import', argv.file, '--yes'] })}`);
-              }
-              if (!await confirm({ message: question, default: false })) return;
-            }
+            if (!await confirmUpdateSetMutation(argv, app, question, ['updatesets', 'import', argv.file, '--yes'])) return;
             const result = await app.sdk.importUpdateSet(xml, inspection, path.basename(argv.file));
-            app.ok({ ...summary, ...result, committed: false }, { summary: `Loaded retrieved update set "${inspection.name}" (${result.count} updates); not committed` });
+            app.ok({ ...summary, ...result, committed: false }, {
+              summary: `Loaded retrieved update set "${inspection.name}" (${result.count} updates); not committed`,
+              breadcrumbs: [
+                { action: 'preview', cmd: `jsn updatesets preview ${quoteShellArg(result.sys_id)}`, description: 'Preview against this instance before committing' },
+                { action: 'problems', cmd: `jsn updatesets problems ${quoteShellArg(result.sys_id)}`, description: 'Review preview problems' },
+              ],
+            });
+          }),
+        })
+        .command({
+          command: 'preview <name>',
+          describe: 'Run the platform preview for a loaded retrieved update set and report its problems',
+          builder: y => y
+            .positional('name', { type: 'string', describe: 'Retrieved update set name or sys_id' })
+            .option('yes', { type: 'boolean', describe: 'Confirm starting the preview on the selected target' })
+            .option('timeout', { type: 'number', describe: 'Seconds to wait for the preview tracker (default 600)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const target = await resolveRetrievedUpdateSet(app, argv.name);
+            const sysID = getStringField(target, 'sys_id');
+            const state = remoteState(target);
+            if (!['loaded', 'previewed'].includes(state)) {
+              throw errUsage(`Cannot preview a retrieved update set in state "${state}"; expected loaded or previewed.\nInspect it first: jsn records get sys_remote_update_set ${sysID}`);
+            }
+            const question = `Preview retrieved update set "${getStringField(target, 'name')}" (state: ${state}) on ${app.getEffectiveInstance()}? Preview does not commit changes.`;
+            if (!await confirmUpdateSetMutation(argv, app, question, ['updatesets', 'preview', sysID, '--yes'])) return;
+            const progress = await app.sdk.previewUpdateSet(sysID, { timeoutMs: timeoutFrom(argv) });
+            const verified = await fetchRetrievedUpdateSet(app, sysID);
+            if (!verified || remoteState(verified) !== 'previewed') {
+              throw errAPI(200, `Preview reported "${progress.label}" but the retrieved update set is in state "${verified ? remoteState(verified) || 'unknown' : 'unreadable'}".\nInspect it in ServiceNow before committing; jsn will not commit a set the platform has not previewed.`);
+            }
+            const { problems, count, unresolved, truncated } = await app.sdk.listUpdateSetPreviewProblems(sysID);
+            app.ok({
+              update_set: getStringField(target, 'name'),
+              sys_id: sysID,
+              state: 'previewed',
+              preview: { status: progress.label, percent_complete: progress.percent_complete, message: progress.message, tracked: progress.tracked !== false },
+              problems: count,
+              unresolved: unresolved.length,
+              truncated,
+              problems_detail: problems,
+            }, {
+              summary: `Previewed retrieved update set "${getStringField(target, 'name')}": ${unresolved.length} unresolved problem(s) of ${count}`,
+              breadcrumbs: unresolved.length
+                ? [{ action: 'problems', cmd: `jsn updatesets problems ${quoteShellArg(sysID)}`, description: 'Review the problems a human must resolve' }]
+                : [{ action: 'commit', cmd: `jsn updatesets commit ${quoteShellArg(sysID)} --yes`, description: 'Commit after reviewing the preview' }],
+            });
+          }),
+        })
+        .command({
+          command: 'problems <name>',
+          aliases: ['preview-problems'],
+          describe: 'List preview problems for a retrieved update set (read-only; never resolves them)',
+          builder: y => y
+            .positional('name', { type: 'string', describe: 'Retrieved update set name or sys_id' })
+            .option('include-resolved', { type: 'boolean', describe: 'Include problems a human already accepted or skipped' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const target = await resolveRetrievedUpdateSet(app, argv.name);
+            const sysID = getStringField(target, 'sys_id');
+            const { problems, count, unresolved, truncated } = await app.sdk.listUpdateSetPreviewProblems(sysID);
+            const shown = argv.includeResolved ? problems : unresolved;
+            app.ok({
+              update_set: getStringField(target, 'name'),
+              sys_id: sysID,
+              state: remoteState(target),
+              count,
+              unresolved: unresolved.length,
+              truncated,
+              problems: shown,
+            }, {
+              summary: `${unresolved.length} unresolved preview problem(s) for "${getStringField(target, 'name')}" (${count} total)`,
+              breadcrumbs: [{ action: 'show', cmd: `jsn records get sys_remote_update_set ${quoteShellArg(sysID)}`, description: 'Open the retrieved update set record' }],
+            });
+          }),
+        })
+        .command({
+          command: 'commit <name>',
+          describe: 'Commit a previewed retrieved update set once its preview problems are resolved',
+          builder: y => y
+            .positional('name', { type: 'string', describe: 'Retrieved update set name or sys_id' })
+            .option('yes', { type: 'boolean', describe: 'Confirm applying the update set to the selected target' })
+            .option('timeout', { type: 'number', describe: 'Seconds to wait for the commit tracker (default 600)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const target = await resolveRetrievedUpdateSet(app, argv.name);
+            const sysID = getStringField(target, 'sys_id');
+            const name = getStringField(target, 'name');
+            const state = remoteState(target);
+            if (state === 'loaded') {
+              throw errUsage(`Retrieved update set "${name}" has not been previewed yet.\nRun: jsn updatesets preview ${quoteShellArg(sysID)}`);
+            }
+            if (state !== 'previewed') {
+              throw errUsage(`Cannot commit a retrieved update set in state "${state}"; expected previewed.`);
+            }
+            const previewProblems = await app.sdk.listUpdateSetPreviewProblems(sysID);
+            assertNoUnresolvedProblems(previewProblems);
+            const question = `Commit retrieved update set "${name}" (${previewProblems.count} preview problem(s), none unresolved) to ${app.getEffectiveInstance()}? This applies its changes to the instance.`;
+            if (!await confirmUpdateSetMutation(argv, app, question, ['updatesets', 'commit', sysID, '--yes'])) return;
+            const progress = await app.sdk.commitUpdateSet(sysID, { timeoutMs: timeoutFrom(argv) });
+            const verified = await fetchRetrievedUpdateSet(app, sysID);
+            if (!verified || remoteState(verified) !== 'committed') {
+              throw errAPI(200, `Commit reported "${progress.label}" but the retrieved update set is in state "${verified ? remoteState(verified) || 'unknown' : 'unreadable'}".\nThe commit may still be running; inspect Retrieved Update Sets on the target before retrying. jsn does not retry it.`);
+            }
+            const local = await findLocalUpdateSet(app, name);
+            app.ok({
+              update_set: name,
+              sys_id: sysID,
+              state: 'committed',
+              commit: { status: progress.label, percent_complete: progress.percent_complete, message: progress.message, tracked: progress.tracked !== false },
+              preview_problems: previewProblems.count,
+              local_update_set: local,
+            }, {
+              summary: `Committed retrieved update set "${name}"${local.sys_id ? ` as local update set ${local.sys_id}` : ` (${local.note || 'local update set not confirmed'})`}`,
+            });
           }),
         })
         .command({
@@ -789,6 +997,9 @@ export function updateSetsCmd(wrap) {
         console.log('  show <name>    Show an update set (type counts + risky items)');
         console.log('  export <name>  Export an update set to XML (stdout or --out)');
         console.log('  import <file>  Load retrieved XML (--dry-run inspects locally; --yes confirms)');
+        console.log('  preview <set>  Platform preview of a loaded retrieved set; reports problems');
+        console.log('  problems <set> List preview problems (read-only; never resolves them)');
+        console.log('  commit <set>   Commit a previewed retrieved set after problems are resolved');
         console.log('  reopen <name>  Explicitly return a closed set to in progress');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');

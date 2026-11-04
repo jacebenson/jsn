@@ -364,6 +364,27 @@ directs users to Node.js LTS rather than promising a historical minimum. The CLI
 does not declare its own numeric engine floor; dependency engine requirements
 remain intact. Older release lines are not part of the compatibility contract.
 
+## 2026-11-04: Preview and commit retrieved update sets through the CICD API
+
+Retrieval stops at a loaded retrieved update set; applying it is a separate,
+explicitly confirmed step. `updatesets preview` and `updatesets commit` call the
+platform's own CICD Update Set API (`POST /api/sn_cicd/update_set/preview|commit/
+{remote_update_set_id}`) and follow `GET /api/sn_cicd/progress/{id}`. Hidden Ajax
+processors and `GlideUpdateManager2` background scripts are not used: they bypass
+platform validation and are not a public contract. A missing plugin (404) or role
+(403) is reported as "nothing was started" instead of degrading silently.
+
+Preview problems live in `sys_update_preview_problem` keyed by `remote_update_set`.
+`updatesets problems` reports them read-only; jsn never accepts, skips, or ignores
+one, and commit refuses while any remains unresolved. Resolving a problem is a
+human decision made in ServiceNow. Both operations verify the retrieved set's
+state afterwards (`previewed`, `committed`) and report an unverified outcome as an
+error rather than assuming the platform applied it. Neither operation selects an
+update set or changes scope. The proposed import modifiers `--name`, `--local`, and
+`--state` are refused with the supported alternative: a retrieved set keeps the
+identity in its XML envelope, import never converts it to a local set, and state
+transitions are preview/commit for retrieved sets and `reopen` for local ones.
+
 ## Seed empty documentation services from the hosted index (2026-10-31)
 
 Download a validated, consistent SQLite snapshot only when service storage is

@@ -593,6 +593,20 @@ is not automatically retried, and an expired local wait does not cancel the
 provider's execution. Instance-wide runs require explicit `--full`, including
 when reusing a previous instance-wide target.
 
+## Retrieved update set promotion
+
+`import` loads an exported XML file as a retrieved update set
+(`sys_remote_update_set`) and stops there. `preview`, `problems`, and `commit`
+are the platform's own later steps, driven through the CICD Update Set API with
+its progress tracker; retrieval never converts the set to a local set or changes
+its state. Preview problems (`sys_update_preview_problem`, keyed by
+`remote_update_set`) are decisions for a human: jsn reports them read-only, never
+accepts or skips one, and refuses to commit while any is unresolved. Preview and
+commit verify `previewed`/`committed` by readback and report an unverified result
+as an error. Neither selects an update set or changes scope, and the proposed
+`--name`/`--local`/`--state` import modifiers are refused rather than silently
+approximated.
+
 ## Configured domain and browser-session domain
 
 `session.domain` is the selected profile's configured `X-Now-Domain` header;
