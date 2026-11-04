@@ -210,6 +210,22 @@ UADownloader-ua_app_fam:   Download request failed due to possible credential
 sn_entitlement:            Failed with status code (403) ... /api/now/v2/ualice
 ```
 
+The line between "works" and "does not" is exactly here. `POST /appmanager/apps`
+and `GET /appmanager/app/{appID}` answer from the instance's own store table.
+Every call that has to reach the actual Store fails with the same 403, including
+the read-only metadata one:
+
+```
+GET /appmanager/app_info_from_store/{appID}/{version}
+403  AppManagerIntegrationAPI.makeAPIRequest(): Error occurred while processing
+     request - {"apiName":"instance_api","params":{"sub_type":
+     "get_app_details_from_store",...},"method":"Get"}: instance_api
+```
+
+That is the instance's own store-integration credential (`instance_api`), the
+same one behind the `UADownloader` 403s in `syslog`. It is why an install cannot
+complete here, and why the app list still looks healthy.
+
 ServiceNow's own documentation (`application-development/queued-app-operations`)
 describes exactly this path: a queued operation that "is unable to download an
 application package" logs an error, is retried up to
