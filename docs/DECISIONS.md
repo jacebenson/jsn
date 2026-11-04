@@ -371,3 +371,31 @@ empty. GitHub remains authoritative for revision checks and incremental updates.
 Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
+
+## 2026-11-04: Batch manifests reference prior steps, they do not template them
+
+Batch orchestration is one shared engine over domain adapters, not a catalog
+bundle. The manifest schema is closed: unknown top-level keys, step keys, step
+types and adapter fields are validation errors, and an unsupported artifact type
+is rejected rather than approximated with a generic table write. References are
+exactly `{"$ref": "steps.<name>.<output>"}` — no string interpolation, script or
+expression evaluation — so the dependency graph is statically knowable before
+transport. Independent steps keep manifest order; references define order, and
+cycles are rejected with the whole issue list.
+
+Updates require an explicit target (full sys_id, or exact identifier plus
+adapter-declared literal scope) and creates reject targets, so a manifest never
+infers ownership from a matching name. `plan` is GET-only and is allowed on
+read-only profiles; `apply` resolves every update target before its first write.
+Apply is not atomic: successes persist, dependents of a failure are skipped,
+independent steps continue, and the result reports ids, statuses and recovery
+steps. Retrying the same create manifest creates new records, so reconciliation
+(convert completed creates into updates) is explicit, not an implicit
+idempotency claim.
+
+The read-only profile and capture-context rules are re-evaluated before every
+step; a context that becomes blocked stops the batch before that write instead
+of prompting mid-run. `apply` is a declared mutation through the capability
+registry, so no hand-maintained command list changes. The first delivered
+adapters are `catalog_item` and `catalog_variable`; further domains are adapters,
+not new orchestration paths. See `docs/batch-manifest.md`.

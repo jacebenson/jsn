@@ -25,6 +25,7 @@ import { cmdbCmd } from './commands/cmdb.js';
 import { knowledgeCmd } from './commands/knowledge.js';
 import { snippetsCmd } from './commands/snippets.js';
 import { catalogCmd } from './commands/catalog.js';
+import { batchCmd } from './commands/batch.js';
 import { incidentsCmd } from './commands/incidents.js';
 import { changesCmd } from './commands/changes.js';
 import { requestsCmd } from './commands/requests.js';
@@ -416,6 +417,7 @@ export function buildCLI() {
     .command(cmdbCmd(wrap))
     .command(knowledgeCmd(wrap))
     .command(recordsCmd(wrap))
+    .command(batchCmd(wrap))
     .command(attachmentsCmd(wrap))
     .command(transactionsCmd(wrap))
 

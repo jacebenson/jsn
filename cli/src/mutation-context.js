@@ -19,29 +19,44 @@ function diagnostic(code, message, command, severity = 'warning') {
   return { code, severity, message, remediation: { command } };
 }
 
-export async function guardMutationContext(app, argv, { ask = confirm, rawArgs = process.argv.slice(2) } = {}) {
-  if (!needsMutationContext(argv) || !app.sdk) return null;
+/**
+ * Read the caller's capture context (scope + update set) using GET-only
+ * requests. Batch orchestration re-reads this before every step, so the
+ * reader is shared with the command-level guard instead of duplicated.
+ * A failed read is unknown context, never evidence of Global + Default.
+ *
+ * @param {object} sdk
+ * @param {{userId?: string}} [options] — reuse a resolved user sys_id
+ * @returns {Promise<object>} context with scope, application_id, update_set, diagnostics
+ */
+export async function readCaptureContext(sdk, { userId } = {}) {
   let application, updateSet;
   try {
-    const user = await getCurrentUser(app.sdk);
+    const user = userId ? { sys_id: userId } : await getCurrentUser(sdk);
     if (user?.sys_id) [application, updateSet] = await Promise.all([
-      getCurrentApplication(app.sdk, user.sys_id, { unknownWhenMissing: true }),
-      getCurrentUpdateSet(app.sdk, user.sys_id),
+      getCurrentApplication(sdk, user.sys_id, { unknownWhenMissing: true }),
+      getCurrentUpdateSet(sdk, user.sys_id),
     ]);
   } catch {
     // Failed reads are unknown context, never evidence of Global + Default.
   }
+  const rawAppId = updateSet?.application?.value || getStringField(updateSet || {}, 'application') || null;
   const context = { scope: application?.scope || null, application_id: application?.appSysId || null,
-    update_set: updateSet ? { name: updateSet.name, sys_id: updateSet.sys_id, state: updateSet.state || null } : null,
+    update_set: updateSet ? { name: updateSet.name, sys_id: updateSet.sys_id, state: updateSet.state || null, application_id: rawAppId } : null,
     diagnostics: [], approval_required: false, approved: false };
   if (!context.scope || !updateSet) context.diagnostics.push(diagnostic('capture_context_unknown',
     'Capture context could not be determined. Identify the intended scope and update set before development changes.', 'jsn updatesets list'));
-  const appId = getStringField(updateSet || {}, 'application');
-  const rawAppId = updateSet?.application?.value || appId;
-  if (application?.appSysId && rawAppId && application.appSysId !== rawAppId) {
+  return context;
+}
+
+export async function guardMutationContext(app, argv, { ask = confirm, rawArgs = process.argv.slice(2) } = {}) {
+  if (!needsMutationContext(argv) || !app.sdk) return null;
+  const context = await readCaptureContext(app.sdk);
+  const updateSet = context.update_set;
+  if (context.application_id && updateSet?.application_id && context.application_id !== updateSet.application_id) {
     context.diagnostics.push(diagnostic('update_set_scope_mismatch',
       `Selected scope ${context.scope} and update set ${updateSet.name} belong to different applications; changes may not be captured in this set.`,
-      `jsn scopes set ${quoteShellArg(rawAppId)}`));
+      `jsn scopes set ${quoteShellArg(updateSet.application_id)}`));
   }
   if (updateSet?.state && !['in progress', 'in_progress'].includes(updateSet.state.toLowerCase())) {
     context.diagnostics.push(diagnostic('update_set_not_in_progress', `Selected update set ${updateSet.name} is ${updateSet.state}; select an in-progress capture set.`, 'jsn updatesets set', 'error'));

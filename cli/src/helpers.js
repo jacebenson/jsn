@@ -571,7 +571,7 @@ export function buildRecordPayload(argv = {}, { required = true } = {}) {
  * Maps common names like "date", "select", "multilinetext" to their integer IDs.
  * Passes through numeric values unchanged.
  */
-const ITEM_OPTION_TYPE_NAMES = {
+export const ITEM_OPTION_TYPE_NAMES = {
   '1': 1, 'yesno': 1, 'yes/no': 1, 'boolean': 1,
   '2': 2, 'multilinetext': 2, 'textarea': 2, 'multiline': 2,
   '3': 3, 'multiplechoice': 3,

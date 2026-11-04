@@ -319,6 +319,35 @@ sysID })` → an enriched catalog item: variables fetched and grouped by variabl
 set, flow/workflow/delivery-plan names resolved. Pure async data-shaping —
 no yargs, no output formatting. `catalog.js` keeps wiring, create/submit, list.
 
+## Batch manifest orchestration
+
+`jsn batch plan|apply --file` describes related artifact creates/updates as one
+versioned JSON manifest. A **step** has a unique local `name`, an adapter
+`type`, an `operation`, adapter-declared `fields` and (for updates only) an
+explicit `target`. A **reference** is exactly `{"$ref":
+"steps.<name>.<output>"}`: constrained, exact, and never string interpolation
+or script evaluation. References create the dependency graph; unknown steps,
+unknown outputs and cycles fail validation before any write. Independent steps
+keep manifest order.
+
+`src/batch-manifest.js` validates the closed schema and orders steps;
+`src/batch-engine.js` owns target preflight, per-step execution, statuses,
+partial results and the per-step read-only/capture-context re-check;
+`src/batch-adapters/` owns domain payloads. The first slice supports
+`catalog_item` and `catalog_variable`; other types are rejected, not
+approximated as table writes.
+
+A **plan** is read-only (GETs only, zero writes, allowed on read-only profiles)
+and shows targets, dependency order, payloads and pending generated values. An
+**apply** resolves every update target before its first write, applies in
+dependency order, skips only the dependents of a failed step, and reports
+`created`/`updated`/`failed`/`skipped` with resolved IDs. A batch is not an
+atomic ServiceNow transaction: successes persist, nothing is rolled back or
+retried automatically, and re-running a create manifest creates new records —
+completed creates must be reconciled/converted to update steps first. Safety is
+re-evaluated before every step; a context that becomes blocked stops the batch
+before that step. See `docs/batch-manifest.md`.
+
 ## Knowledge search
 
 `knowledge` (`kb`) searches and reads through the native Knowledge API, keeping
@@ -432,8 +461,9 @@ existing deprecations are preserved and no package versions are unpublished.
 - **Domain rendering lives with the domain.** `output.js` stays generic; a
   Command that needs a bespoke styled view ships `_formatted`.
 - **One canonical map per domain concept.** e.g. `item_option_new` types live
-  in `ITEM_OPTION_TYPE_NAMES` / `resolveItemOptionType` (helpers.js). A second
-  inline copy is a bug.
+  in `ITEM_OPTION_TYPE_NAMES` / `resolveItemOptionType` (helpers.js). Batch
+  adapters use the exported map through a strict resolver; they never keep a
+  second type table. A second inline copy is a bug.
 - **One owner per command token.** Registration (`CommandNode.register`) leaves
   exactly one command answering to any name or alias: a re-registration replaces
   the slot, a shared alias goes to the later registration, a canonical name that
