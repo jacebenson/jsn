@@ -2,12 +2,17 @@
 
 import { batchRead } from './sdk-batch.js';
 import { gunzipSync } from 'node:zlib';
-import { AppError, CodeAPI, CodeAuth, errAuth, errAPI, errNetwork, errUsage } from './errors.js';
-import { getStringField } from './helpers.js';
+import { AppError, CodeAPI, CodeAuth, CodeMfaRejected, CodeMfaRequired, errAuth, errAPI, errMfaRejected, errMfaRequired, errNetwork, errUsage } from './errors.js';
+import { canPrompt, getStringField } from './helpers.js';
+import { buildMfaVerificationBody, extractMfaFormTokens, MFA_REQUIRED_STATUS, mfaVerificationOutcome, normalizeTotpCode, parseLoginStatus } from './auth/mfa.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
 
 const DEFAULT_TIMEOUT = 30000;
+// ServiceNow invalidates a rejected TOTP code (they are single-use), so a retry
+// only makes sense with a freshly generated code. Three is the reference
+// client's bound; more attempts risk tripping instance lockout policy.
+const MAX_MFA_ATTEMPTS = 3;
 
 function collectSetCookies(cookieJar, response) {
   const values = response.headers.getSetCookie?.() || [];
@@ -54,7 +59,13 @@ export class SDKClient {
     this.domain = opts.domain || '';
     this.oauthCookies = null;
     this._sessionPromise = null;
+    this._sessionFailure = null;
     this.sessionUserToken = '';
+    // Injectable so tests can drive the challenge without a TTY. The default
+    // prompt loads @inquirer/prompts only when an MFA challenge actually
+    // happens, keeping ordinary Basic logins unchanged.
+    this.canInteract = opts.canInteract || canPrompt;
+    this.promptMfaCode = opts.promptMfaCode || null;
   }
 
   async _setAuth(req, { skipOAuthSession = false } = {}) {
@@ -124,8 +135,13 @@ export class SDKClient {
         return value;
       });
     } catch (error) {
-      if (event) await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
-        ? 'failed' : 'unknown', http_status: error.status || null });
+      // Authentication challenges and prompt cancellations happen before the
+      // request leaves the process. Recording a mutation outcome would claim
+      // an unknown remote effect that never existed.
+      if (event && !error?.notSent && error?.name !== 'PromptCancelled') {
+        await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
+          ? 'failed' : 'unknown', http_status: error.status || null });
+      }
       throw error;
     }
     if (event) {
@@ -151,12 +167,16 @@ export class SDKClient {
   }, consume = (response) => response) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      let timer;
       let rejection;
       try {
         const req = new Request(endpoint, { ...opts, signal: controller.signal });
         if (prepare) prepare(req);
         await this._setAuth(req, { skipOAuthSession });
+        // Start the clock only once authentication is settled. An MFA prompt
+        // can legitimately take minutes, and it must not consume — or trip —
+        // the per-request timeout while a human types a code.
+        timer = setTimeout(() => controller.abort(), timeout);
         const response = await fetch(req);
         if (!skipOAuthSession && response.status === 401 && this.recovery) {
           // Only a definitive HTTP rejection permits replay, including POST.
@@ -976,10 +996,18 @@ export class SDKClient {
 
   async _warmSession() {
     if (this.oauthCookies) return this.oauthCookies;
+    // A failed MFA challenge must not become a prompt-loop: every request in
+    // the command would otherwise retry the challenge and burn codes.
+    if (this._sessionFailure) throw this._sessionFailure;
     if (!this._sessionPromise) {
-      this._sessionPromise = this._initializeSession().finally(() => {
-        this._sessionPromise = null;
-      });
+      this._sessionPromise = this._initializeSession()
+        .catch((error) => {
+          if (isAuthenticationChallengeError(error)) this._sessionFailure = error;
+          throw error;
+        })
+        .finally(() => {
+          this._sessionPromise = null;
+        });
     }
     return this._sessionPromise;
   }
@@ -1019,6 +1047,13 @@ export class SDKClient {
         }).toString(),
       });
       collectSetCookies(cookieJar, loginResp);
+      // The login endpoint answers JSON, but a proxy or an older instance can
+      // return a page. Only a positively recognized mfa_code_required status
+      // enters the challenge; everything else keeps the historical fallback.
+      const loginStatus = parseLoginStatus(await loginResp.text());
+      if (loginStatus?.status === MFA_REQUIRED_STATUS) {
+        await this._completeMfaChallenge(cookieJar);
+      }
       const refreshResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=get_user`, {
         method: 'POST',
         headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
@@ -1028,9 +1063,84 @@ export class SDKClient {
       const cookies = serializeCookies(cookieJar);
       this.oauthCookies = cookies;
       return cookies;
-    } catch {
+    } catch (error) {
+      // MFA outcomes are definitive: falling back to a Basic Authorization
+      // header would send the operation as an unauthenticated identity and
+      // hide the real cause. Every other bootstrap failure keeps the existing
+      // best-effort fallback to Basic.
+      if (isAuthenticationChallengeError(error)) throw error;
       return '';
     }
+  }
+
+  /**
+   * Complete ServiceNow's TOTP challenge on the session created by the login
+   * POST. The caller's cookie jar is reused for every step so the challenge
+   * nonce, CSRF token and resulting session stay bound together.
+   *
+   * The code is never stored, logged, echoed, or put in an error message; it
+   * exists only in the verification request body.
+   */
+  async _completeMfaChallenge(cookieJar) {
+    if (!this.canInteract()) throw errMfaRequired(this.baseURL);
+    const promptCode = this.promptMfaCode || defaultMfaPrompt;
+    for (let attempt = 1; attempt <= MAX_MFA_ATTEMPTS; attempt++) {
+      const message = attempt === 1
+        ? `Enter the 6-digit authenticator code for ${this.baseURL}:`
+        : `Code rejected. Enter a new 6-digit authenticator code (attempt ${attempt} of ${MAX_MFA_ATTEMPTS}):`;
+      let code;
+      try {
+        code = normalizeTotpCode(await promptCode({ message }));
+      } catch (error) {
+        if (error?.name === 'PromptCancelled') throw error;
+        throw errMfaRejected('MFA code entry was interrupted before a code could be submitted.');
+      }
+      if (!code) {
+        if (attempt === MAX_MFA_ATTEMPTS) throw errMfaRejected('No valid six-digit MFA code was entered.');
+        continue;
+      }
+      const outcome = await this._submitMfaCode(cookieJar, code);
+      if (outcome === 'success') return;
+      if (attempt === MAX_MFA_ATTEMPTS) throw errMfaRejected(`MFA verification failed after ${MAX_MFA_ATTEMPTS} attempts.`);
+    }
+  }
+
+  async _submitMfaCode(cookieJar, code) {
+    const cookies = serializeCookies(cookieJar);
+    const formHeaders = cookies ? { Cookie: cookies } : {};
+    const formResp = await fetch(new Request(`${this.baseURL}/validate_multifactor_auth_code.do`, {
+      method: 'GET',
+      headers: formHeaders,
+      redirect: 'manual',
+    }));
+    collectSetCookies(cookieJar, formResp);
+    const { csrf, processNonce } = extractMfaFormTokens(await formResp.text());
+    if (!csrf || !processNonce) {
+      throw errMfaRejected('The instance did not return a usable MFA verification form.',
+        'The challenge may have expired. Re-run the command to start a new login.');
+    }
+
+    const verifyResp = await fetch(new Request(`${this.baseURL}/validate_mfa_code.do`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...(serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {}),
+      },
+      body: buildMfaVerificationBody({ csrf, processNonce, code }).toString(),
+      redirect: 'manual',
+    }));
+    collectSetCookies(cookieJar, verifyResp);
+    const outcome = mfaVerificationOutcome({
+      status: verifyResp.status,
+      mfaToken: verifyResp.headers.get('x-mfa_token') || '',
+    });
+    if (outcome === 'unexpected') {
+      throw errMfaRejected(
+        `The instance returned an unexpected response (HTTP ${verifyResp.status}) while verifying the MFA code.`,
+        'Check the instance URL and whether an SSO or network gateway intercepted the login.',
+      );
+    }
+    return outcome;
   }
 
   async _getScriptsPageCSRF(cookies) {
@@ -1087,6 +1197,16 @@ export class SDKClient {
     const lines = out.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     return lines.join('\n');
   }
+}
+
+async function defaultMfaPrompt({ message }) {
+  const { mfaCode } = await import('./prompts.js');
+  return mfaCode({ message });
+}
+
+/** Errors that end authentication instead of falling back to Basic headers. */
+function isAuthenticationChallengeError(error) {
+  return error?.code === CodeMfaRequired || error?.code === CodeMfaRejected || error?.name === 'PromptCancelled';
 }
 
 function detectScriptError(output) {

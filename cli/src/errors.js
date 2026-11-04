@@ -11,6 +11,8 @@ export const CodeAmbiguous = 'ambiguous';
 export const CodeEmptyResult = 'empty_result';
 export const CodeConfirmationRequired = 'confirmation_required';
 export const CodeExtractionNotFound = 'extraction_not_found';
+export const CodeMfaRequired = 'mfa_required';
+export const CodeMfaRejected = 'mfa_code_rejected';
 
 export class AppError extends Error {
   constructor(code, message, hint = '', status = 0, cause = null) {
@@ -52,6 +54,39 @@ export function errNotFoundHint(resource, identifier, hint) {
 
 export function errAuth(msg) {
   return new AppError(CodeAuth, msg, 'Run: jsn auth login');
+}
+
+/**
+ * The instance demanded a TOTP code but no human can supply one here.
+ *
+ * Distinct from `auth_error`: the password was accepted, so telling the user
+ * to re-enter credentials (or silently retrying with Basic headers) would be
+ * wrong and could burn MFA attempts. `notSent` records that the pending
+ * instance operation never left the process, so mutation history must not
+ * report it as an unknown outcome.
+ */
+export function errMfaRequired(instanceURL = '') {
+  const target = instanceURL ? ` for ${instanceURL}` : '';
+  const error = new AppError(
+    CodeMfaRequired,
+    `Multi-factor authentication is required${target}, but this invocation cannot show an interactive prompt for the 6-digit authenticator code.`,
+    'Re-run the same command in an interactive terminal without --json/--get to enter the code, or authenticate with '
+      + 'a separately configured method that does not need an interactive challenge: `jsn auth login --oauth <instance>` '
+      + 'or `jsn auth login --gck <instance>`. JSN does not store TOTP seeds or generate codes.',
+  );
+  error.notSent = true;
+  return error;
+}
+
+/** The instance issued an MFA challenge that could not be completed. */
+export function errMfaRejected(message, hint = '') {
+  const error = new AppError(
+    CodeMfaRejected,
+    message,
+    hint || 'Re-run the command to start a new MFA challenge. Authenticator codes are single-use and expire quickly.',
+  );
+  error.notSent = true;
+  return error;
 }
 
 export function errForbidden(msg) {
@@ -232,9 +267,10 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
   if (err.name === 'PromptCancelled') return { stream: 'stderr', text: 'Cancelled.\n', exitCode: 0 };
   const code = err.code || 'unknown';
 
-  if (code === CodeAuth) {
+  if (code === CodeAuth || code === CodeMfaRequired || code === CodeMfaRejected) {
     if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
-    let text = `Error (auth): ${err.message}\n`;
+    const label = code === CodeAuth ? 'auth' : code;
+    let text = `Error (${label}): ${err.message}\n`;
     if (err.hint) text += `\nHint: ${err.hint}\n`;
     return { stream: 'stderr', text, exitCode: 1 };
   }

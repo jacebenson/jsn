@@ -1117,7 +1117,7 @@ export function authCmd(wrap) {
             })
             .option('basic', {
               alias: 'password',
-              describe: 'Authenticate with Basic Auth via env vars (SN_USERNAME/SN_PASSWORD)',
+              describe: 'Authenticate with Basic Auth via env vars (SN_USERNAME/SN_PASSWORD); MFA instances prompt for a TOTP code',
               type: 'boolean',
             })
             .option('gck', {
@@ -1163,7 +1163,10 @@ export function authCmd(wrap) {
             .option('include-counts', {
               describe: 'Include result totals on list commands (default on; pass --no-include-counts to opt out)',
               type: 'boolean',
-            }),
+            })
+            .epilogue('Basic-auth instances that enforce MFA prompt for a 6-digit authenticator code in an '
+              + 'interactive terminal; the code is never stored. Unattended or --json runs fail with '
+              + 'mfa_required instead of prompting — use --oauth or --gck for unattended authentication.'),
           handler: wrap(loginProfile),
         })
         .command({

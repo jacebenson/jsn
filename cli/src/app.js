@@ -16,7 +16,7 @@ import { saveConfig } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
-import { canPrompt } from './helpers.js';
+import { canPrompt, canUsePicker } from './helpers.js';
 import { guardMutationContext } from './mutation-context.js';
 import process from 'node:process';
 
@@ -61,6 +61,9 @@ export class App {
       domain: session?.domain || '',
       recovery: createAuthRecovery({ app: this, session }),
       onMutation: event => this.recordMutation(instance, session?.profileName, event),
+      // An MFA challenge is a prompt: never open one for machine output or
+      // `--get`, matching every other interactive gate in the CLI.
+      canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
   }
 
@@ -70,6 +73,7 @@ export class App {
     return new SDKClient(instance, this.auth.createProfileProvider(instance, options), {
       domain: options.domain ?? profile.domain ?? '',
       onMutation: event => this.recordMutation(instance, options.profileName || null, event),
+      canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
   }
 

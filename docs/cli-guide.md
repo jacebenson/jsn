@@ -574,6 +574,11 @@ jsn auth login https://dev12345.service-now.com
 ```
 
 For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
+If the instance enforces TOTP MFA, the command prompts once for the six-digit
+authenticator code (masked) and completes the challenge on the same session,
+then sends the command you asked for. The code is never stored. Run
+authentication commands in an interactive terminal for this; unattended runs
+fail with `mfa_required` and should use OAuth or browser-session auth instead.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
 
 ### OAuth from scripts or a remote terminal

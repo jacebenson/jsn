@@ -100,6 +100,25 @@ OAuth refreshes the selected credential identity; Basic never
 renews. HTTP 401 is `auth_error` with status and recovery guidance, HTTP 403 is
 `forbidden` with ACL/role guidance. Neither exposes provider bodies.
 
+## Basic MFA challenge
+
+ServiceNow's Basic session bootstrap (`_initializeSession`) can answer the login
+POST with `status: "mfa_code_required"` instead of a session. That is a
+distinct outcome — not `auth_error`, not an ACL denial, not a transport
+failure. `src/auth/mfa.js` parses the challenge and builds the verification
+form; `SDKClient._completeMfaChallenge` drives at most three masked code
+prompts on the same cookie jar and only then establishes the session user
+token. The pending operation is never sent before authentication succeeds and
+never replayed, and a challenge failure is cached for the SDK's lifetime so
+later requests cannot re-prompt or consume more codes.
+
+`canUsePicker` gates the prompt, exactly like other interactive CLI choices;
+noninteractive, machine-output and `--get` invocations fail with
+`mfa_required`. The code is ephemeral: no profile, credential store, mutation
+history, or log entry, and no TOTP seed storage or local code generation.
+`mfa_required` and `mfa_code_rejected` never fall back to a Basic
+`Authorization` header.
+
 ## Authentication status
 
 A status report separates saved credential availability from live connection
