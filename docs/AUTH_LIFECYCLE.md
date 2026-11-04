@@ -95,6 +95,44 @@ errors honor JSON mode, and a failed wait-file exchange fails promptly instead
 of silently retrying. Explicit refresh suppresses automatic refresh during
 credential lookup so it performs only one token refresh.
 
+## Basic authentication with TOTP MFA
+
+An instance that enforces MFA answers the Basic session bootstrap's
+`view_form.login` POST with `{"status":"mfa_code_required"}` instead of an
+authenticated session. JSN recognizes that status distinctly from
+`auth_error`, an ACL/role denial, and a transport failure. The username and
+password were accepted; re-entering credentials is not the remedy.
+
+In an interactive terminal JSN asks for the six-digit authenticator code,
+masked, and completes the challenge on the same cookie jar (so the challenge
+nonce, CSRF token, and session stay bound together). Only after that does it
+establish the session user token and send the pending instance operation —
+never before, and never twice. A rejected or expired code is retried with a
+fresh code at most three times. Escape cancels before anything is sent.
+
+In a noninteractive, piped, CI, or agent context there is no human to answer,
+so JSN fails immediately with `mfa_required` (exit 1, JSON envelope in JSON
+mode) instead of hanging, prompting, or treating the password as wrong. The
+hint points at running the command in an interactive terminal or at
+separately configured `--oauth` / `--gck` authentication. JSN never silently
+switches the configured authentication method, and `mfa_required` /
+`mfa_code_rejected` never fall back to a Basic `Authorization` header.
+
+The code is ephemeral: it is not written to profiles, credential files,
+mutation history, or logs, and JSN neither stores a TOTP seed nor generates
+codes. Diagnostics carry only the challenge status, never the code, session
+cookies, tokens, or response bodies. Because the pending operation was never
+sent, no mutation-history entry is recorded for it.
+
+The HTTP exchanges follow the platform login page and the reference
+implementation in `@servicenow/sdk-cli` 4.13.0: `validate_multifactor_auth_code.do`
+supplies the form tokens, `validate_mfa_code.do` verifies the code (302 on
+success, `x-mfa_token: invalid` on rejection). This shape is unverified
+against a live MFA-enabled instance in this repository's test environment;
+see issue #402 for the integration points a maintainer must confirm (MFA
+policy versions, SSO gateways, federated challenge redirects, and role or
+plugin restrictions).
+
 ## Shared-instance and concurrent behavior
 
 Credential records for different usernames on one instance are independent. Refresh and logout operate on the explicitly selected identity, so updating or deleting one username does not affect another.
