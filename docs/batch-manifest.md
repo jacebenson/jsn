@@ -104,9 +104,10 @@ A reference is exactly one object with one key:
   unknown outputs, self-references and cycles are rejected **before any write**.
 - References are only allowed for fields whose adapter spec allows them
   (currently `catalog_variable.cat_item`).
-- There is **no** string interpolation, no `${...}`, no `{{...}}`, no script
-  evaluation and no expression language. A string containing `${` or `{{` is a
-  validation error rather than a silent literal.
+- There is **no** string interpolation, no dollar-brace templating, no
+  double-brace templating, no script evaluation and no expression language.
+  A string containing a dollar-brace or double-brace sequence is a validation
+  error rather than a silent literal.
 - Dependency order comes from references. Independent steps keep manifest
   declaration order.
 
