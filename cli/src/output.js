@@ -385,7 +385,7 @@ export class OutputWriter {
         let val = getDisplayValue(row[col]);
         const width = colWidths[col] || 20;
 
-        if (j === 0 && instanceURL && table && row.sys_id) {
+        if (j === 0 && instanceURL && table && row.sys_id && isTTY(this.writer)) {
           const url = getTableURL(instanceURL, table, row.sys_id);
           val = hyperlink(val, url);
         }
