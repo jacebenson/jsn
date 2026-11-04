@@ -343,6 +343,22 @@ adapter, then owns depth normalization, recursive subflow traversal, custom
 action expansion, caches, cycle handling, nested failures, and `_formatted`
 rendering. `src/commands/flows.js` only adapts yargs/App output to this seam.
 
+## Legacy Workflow Editor inspection
+
+`src/workflow-inspection.js` is the read-only reader for the legacy Workflow
+Editor (`wf_workflow`, `wf_workflow_version`, `wf_activity`, `wf_transition`,
+`wf_condition`, `wf_stage`, activity configuration in `sys_variable_value`).
+`jsn workflows` exposes it; `jsn flows` remains Flow Designer and the two are
+never conflated. It resolves a workflow by name, workflow sys_id or version
+sys_id, selects the requested or published or newest version explicitly, and
+keeps every activity, condition, transition and definition sys_id. A version's
+definition is **design-time configuration**, not evidence of what executed.
+Missing definitions, dangling links and ACL-blocked components are reported in
+`integrity`/`coverage` and never rendered as empty data. The reader issues only
+Table API GETs and requires no checkout. `listPublishedWorkflowVersionsForTable`
+is the reuse seam for table-behavior discovery; it reports the named table
+association only and does not discover script-started workflows.
+
 ## Flow Designer action definition
 
 `src/processflow-actions.js` owns the resource-specific action lifecycle.

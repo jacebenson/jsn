@@ -94,6 +94,21 @@ is pure and reusable, while revert calls the inspected provider lifecycle and ve
 log and artifact readback. Unknown deeper effects remain explicit rather than being
 inferred from a field comparison.
 
+## Legacy Workflow Editor inspection is a separate read-only command
+
+Legacy `wf_*` inspection is `jsn workflows`, not an extension of `jsn flows`.
+The engines have different records and different lifecycles, and Flow Designer
+inspection already assumes `sys_hub_flow`. The legacy reader only issues Table
+API GETs, never checks a workflow out, and declares no mutation subcommands.
+Missing or ACL-blocked components are returned as explicit `coverage` and
+`integrity` states alongside the rest of the readable definition, because an
+empty-looking activity set would be a false troubleshooting conclusion.
+Version selection is explicit (`--version`, else published, else newest), and
+every response states that the definition is design-time configuration rather
+than execution history. Association for table-behavior discovery is limited to
+`wf_workflow_version.table` and says so, instead of implying a complete
+automation inventory.
+
 ## New flows get their trigger from the same GraphQL patch as their actions
 
 `POST /api/now/processflow/flow` returns a flow whose `triggerInstances` is
