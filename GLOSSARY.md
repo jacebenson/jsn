@@ -309,8 +309,28 @@ Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
 requester access and fulfillment. Ordering is a declared mutation with its own
 confirmation and read-only guard. It is exempt from development capture-context
 selection because it submits runtime business requests, not metadata changes.
-A preview never posts; unknown submission outcomes never cause automatic replay.
-Inputs are catalog variables, not arbitrary fields on an RITM or request header.
+A preview only reads and never posts; unknown submission outcomes never cause
+automatic replay. Inputs are catalog variables, not arbitrary fields on an RITM
+or request header. Item inspection flattens the API's variable tree into
+question definitions (`name`, `label`, `type`, `friendly_type`, `mandatory`) and
+required names; `order` refuses a locally provable missing mandatory answer
+before the confirmation boundary and reports unknown names without blocking.
+`order_now` answers with the request (REQ); the requested item (RITM) identity is
+a follow-up read whose failure still reports the placed order and never triggers
+a resubmission.
+
+## Case views
+
+`cases` reads the caller's own accessible cases through the authenticated Table
+API; nothing here changes a record. "Case" is application-specific, so the table
+is detected from the known case applications in presentation order
+(`sn_customerservice_case`, then `sn_hr_core_case`), named with `--table`, or
+selected with `--hr`. Detection distinguishes a table that is not installed
+(available: false) from access denied (HTTP 403, `forbidden`) and never reports
+an unreadable source as an empty result. `cases tables` reports the same probes
+per application. HR support is this generic path plus the explicit HR table;
+employee self-service visibility remains the account's roles and ACLs, so an
+administrator session is not evidence of an end-user view.
 
 ## Catalog item enrichment
 

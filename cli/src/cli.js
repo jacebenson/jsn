@@ -34,6 +34,7 @@ import { groupsCmd } from './commands/groups.js';
 import { groupMembersCmd } from './commands/groupmembers.js';
 import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
+import { casesCmd } from './commands/cases.js';
 import { transactionsCmd } from './commands/transactions.js';
 
 import { platformCmd } from './commands/platform.js';
@@ -353,6 +354,7 @@ export function buildCLI() {
     .command(requestsCmd(wrap))
     .command(tasksCmd(wrap))
     .command(catalogCmd(wrap))
+    .command(casesCmd(wrap))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(actionsCmd(wrap))

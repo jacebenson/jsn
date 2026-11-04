@@ -3,6 +3,9 @@ import { errAPI, errUsage } from '../errors.js';
 
 const ID = /^[a-f0-9]{32}$/i;
 const API = '/api/sn_sc/servicecatalog/items';
+const RITM = '/api/now/table/sc_req_item';
+const MAX_REQUESTED_ITEMS = 10;
+const CONTAINER_TYPES = new Set(['container_start', 'container_end', 'container_split', 'label', 'break']);
 const object = v => v && typeof v === 'object' && !Array.isArray(v);
 
 function emit(app, argv, data, summary, breadcrumbs = []) {
@@ -10,15 +13,89 @@ function emit(app, argv, data, summary, breadcrumbs = []) {
   app.ok(data, { summary, breadcrumbs: breadcrumbs.map(h => ({ ...h, cmd: h.cmd + connection })) });
 }
 function requireId(id) { if (!ID.test(id || '')) throw errUsage('Use the full catalog item sys_id; find it with catalogitems search.'); }
+
+/**
+ * Flatten the `variables` tree returned by the Service Catalog API into the
+ * question definitions a caller can answer. Containers and labels are layout,
+ * not inputs, but their children are still walked.
+ */
+function flattenVariables(list, out = []) {
+  if (!Array.isArray(list)) return out;
+  for (const entry of list) {
+    if (!object(entry)) continue;
+    const friendly = typeof entry.friendly_type === 'string' ? entry.friendly_type : '';
+    const name = typeof entry.name === 'string' ? entry.name : '';
+    if (name && !CONTAINER_TYPES.has(friendly)) {
+      out.push({
+        name,
+        label: entry.label || entry.question_text || name,
+        type: entry.type ?? null,
+        friendly_type: friendly || null,
+        mandatory: entry.mandatory === true || entry.mandatory === 'true',
+      });
+    }
+    if (Array.isArray(entry.children)) flattenVariables(entry.children, out);
+  }
+  return out;
+}
+
 async function describe(app, id) {
   requireId(id);
   const response = await app.sdk.request(`${app.sdk.baseURL}${API}/${id}`, { method: 'GET' });
   if (!object(response?.result) || response.result.sys_id !== id) throw errAPI(200, 'Catalog API returned no readable item with the requested identity.');
   return response.result;
 }
+
+/** Item definition plus flattened question definitions. */
+async function inspect(app, id) {
+  const item = await describe(app, id);
+  const variables = flattenVariables(item.variables);
+  return { item, variables, variablesReported: Array.isArray(item.variables) };
+}
+
+function isAnswered(value) {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/**
+ * Compare supplied variables against the item's own question definitions.
+ * The server remains the authority; this only refuses an obviously incomplete
+ * submission before a confirmation prompt or a POST.
+ */
+function reviewVariables(variables, supplied) {
+  const required = variables.filter(v => v.mandatory);
+  return {
+    requiredVariables: required.map(v => v.name),
+    missing: required.filter(v => !isAnswered(supplied[v.name])).map(v => v.name),
+    unknown: variables.length ? Object.keys(supplied).filter(name => !variables.some(v => v.name === name)) : [],
+  };
+}
+
 function itemHints(id) {
   return [{ action: 'describe', cmd: `jsn catalogitems describe ${id}`, description: 'Inspect catalog inputs and pricing' },
     { action: 'preview', cmd: `jsn catalogitems order ${id} --dry-run --variables-file variables.json`, description: 'Preview an order without submitting' }];
+}
+
+/**
+ * Read the requested item(s) a submitted order produced. Failure here is
+ * reported, never retried, and never turns a placed order into an error.
+ */
+async function findRequestedItems(app, requestId) {
+  const params = new URLSearchParams({ sysparm_query: `request=${requestId}`, sysparm_fields: 'sys_id,number,cat_item', sysparm_limit: String(MAX_REQUESTED_ITEMS) });
+  try {
+    const response = await app.sdk.request(`${app.sdk.baseURL}${RITM}?${params}`, { method: 'GET' });
+    if (!Array.isArray(response?.result)) return { items: [], readable: false, error: 'unsupported response' };
+    return {
+      items: response.result.filter(r => object(r) && ID.test(r.sys_id || ''))
+        .map(r => ({ sys_id: r.sys_id, number: typeof r.number === 'string' ? r.number : null })),
+      readable: true,
+    };
+  } catch (error) {
+    return { items: [], readable: false, error: error?.status ? `HTTP ${error.status}` : 'read failed' };
+  }
 }
 
 export function catalogOrderCommands(wrap) {
@@ -38,8 +115,13 @@ export function catalogOrderCommands(wrap) {
     { command: 'describe <id>', aliases: ['inputs'], describe: 'Read requestable item details, pricing and variable definitions',
       builder: y => y.positional('id', { type: 'string' }),
       handler: wrap(async (argv, app) => {
-        const item = await describe(app, argv.id);
-        emit(app, argv, item, item.name || item.short_description || argv.id, itemHints(argv.id));
+        const { item, variables, variablesReported } = await inspect(app, argv.id);
+        emit(app, argv, {
+          ...item,
+          variables,
+          required_variables: variables.filter(v => v.mandatory).map(v => v.name),
+          variables_reported: variablesReported,
+        }, item.name || item.short_description || argv.id, itemHints(argv.id));
       }) },
     { command: 'order <id>', describe: 'Submit a catalog order with explicit confirmation',
       builder: y => y.positional('id', { type: 'string' })
@@ -47,8 +129,8 @@ export function catalogOrderCommands(wrap) {
         .option('variables-file', { type: 'string', describe: 'Read the variables object from a JSON file' })
         .option('quantity', { type: 'number', default: 1, describe: 'Positive integer quantity (max 1000)' })
         .option('requested-for', { type: 'string', describe: 'User sys_id; instance delegation rules still apply' })
-        .option('dry-run', { type: 'boolean', default: false, describe: 'Read item details and preview variable names; no order is submitted' })
-        .epilogue('Use describe to inspect variables first. Server-side rules validate the order; a preview does not prove submission will succeed. Existing create/list/show commands manage definitions. Orders require a write-enabled profile, including dry runs. No application/update-set selection is needed.'),
+        .option('dry-run', { type: 'boolean', default: false, describe: 'Read item details and preview variables; no order is submitted' })
+        .epilogue('Use describe to inspect variables and their types first. A preview only reads; submitting needs a write-enabled profile and an explicit confirmation (or --force). Server-side rules still validate the order, so a preview does not prove submission will succeed. Existing create/list/show commands manage definitions. Orders need no application/update-set selection.'),
       handler: wrap(async (argv, app) => {
         requireId(argv.id);
         if (!Number.isInteger(argv.quantity) || argv.quantity < 1 || argv.quantity > 1000) throw errUsage('--quantity must be an integer from 1 to 1000.');
@@ -59,12 +141,26 @@ export function catalogOrderCommands(wrap) {
         const variables = argv.variables !== undefined || file !== undefined
           ? parseDataArg({ data: argv.variables, 'data-file': file }) : {};
         if (!object(variables)) throw errUsage('Catalog variables must be a JSON object.');
-        const item = await describe(app, argv.id);
+
+        const { item, variables: definitions, variablesReported } = await inspect(app, argv.id);
         if (item.sys_class_name && item.sys_class_name !== 'sc_cat_item') throw errUsage('order supports standard catalog items; record producers and order guides need their own submission workflows.');
         if (item.active === false || item.active === 'false' || item.can_order === false) throw errUsage('This item is not currently orderable.');
-        const plan = { item_id: argv.id, name: item.name || item.short_description, quantity: argv.quantity,
-          requested_for: requestedFor || null, variable_names: Object.keys(variables) };
+
+        // Only refuse on local evidence: an unreadable variable list is not
+        // proof that an item has no mandatory inputs.
+        const review = variablesReported ? reviewVariables(definitions, variables) : null;
+        if (review?.missing.length) {
+          throw errUsage(`Missing required catalog variable(s): ${review.missing.join(', ')}. Inspect them with: jsn catalogitems describe ${argv.id}`);
+        }
+
+        const plan = {
+          item_id: argv.id, name: item.name || item.short_description, quantity: argv.quantity,
+          requested_for: requestedFor || null, variable_names: Object.keys(variables),
+          required_variables: review ? review.requiredVariables : [],
+          ...(review?.unknown.length ? { unknown_variable_names: review.unknown } : {}),
+        };
         if (argv.dryRun ?? argv['dry-run']) return emit(app, argv, { ...plan, submitted: false, server_validation: 'not performed' }, 'Catalog order preview; nothing submitted', itemHints(argv.id));
+
         const rerun = ['catalogitems', 'order', argv.id, '--quantity', String(argv.quantity),
           ...(requestedFor ? ['--requested-for', requestedFor] : []),
           ...(file ? ['--variables-file', file] : Object.keys(variables).length ? ['--variables-file', '<variables.json>'] : [])];
@@ -83,11 +179,26 @@ export function catalogOrderCommands(wrap) {
           throw errAPI(error.status || 0, 'Catalog submission did not return a confirmed order. Inspect your requests before retrying; the order may have been placed.');
         }
         const result = response?.result;
-        const requestId = result?.request_id || result?.sys_id, number = result?.request_number || result?.number;
-        if (!object(result) || result.error || !ID.test(requestId || '') || typeof number !== 'string' || !number.trim()) throw errAPI(200, 'Catalog response did not confirm an order identity. Inspect your requests before retrying; do not resubmit automatically.');
-        emit(app, argv, { item_id: argv.id, quantity: argv.quantity, request_id: requestId, request_number: number, submitted: true },
-          `Ordered: ${number}`, [{ action: 'request', cmd: `jsn records get --table sc_request --sys-id ${requestId}`, description: 'Read the request header' },
-            { action: 'items', cmd: `jsn requests list --query ${quoteShellArg(`request=${requestId}`)}`, description: 'Track the requested items' }]);
+        if (!object(result) || result.error || result.errMsg) throw errAPI(200, 'Catalog response did not confirm an order identity. Inspect your requests before retrying; do not resubmit automatically.');
+        // order_now answers with the request header (REQ); the requested item
+        // (RITM) identity is only knowable by reading the request's items.
+        const requestId = result.request_id || (result.table === 'sc_request' ? result.sys_id : undefined);
+        const requestNumber = result.request_number || (result.table === 'sc_request' ? result.number : undefined);
+        if (!ID.test(requestId || '') || typeof requestNumber !== 'string' || !requestNumber.trim()) throw errAPI(200, 'Catalog response did not confirm an order identity. Inspect your requests before retrying; do not resubmit automatically.');
+
+        const requested = await findRequestedItems(app, requestId);
+        emit(app, argv, {
+          item_id: argv.id, quantity: argv.quantity, request_id: requestId, request_number: requestNumber,
+          requested_items: requested.items,
+          requested_items_readable: requested.readable,
+          ...(requested.error ? { requested_items_error: requested.error } : {}),
+          ...(review?.unknown.length ? { unknown_variable_names: review.unknown } : {}),
+          submitted: true,
+        }, `Ordered: ${requestNumber}`, [
+          { action: 'request', cmd: `jsn records get --table sc_request --sys-id ${requestId}`, description: 'Read the request header' },
+          ...requested.items.filter(i => i.number).map(i => ({ action: 'item', cmd: `jsn requests show ${i.number}`, description: 'Read the requested item' })),
+          { action: 'items', cmd: `jsn requests list --query ${quoteShellArg(`request=${requestId}`)}`, description: 'Track the request\'s items' },
+        ]);
       }) },
   ];
 }
