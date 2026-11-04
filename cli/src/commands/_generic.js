@@ -311,6 +311,9 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         console.log('  update      Update a record');
         console.log('  delete      Delete a record');
       }
+      for (const sub of opts.extraSubcommands || []) {
+        console.log(`  ${sub.name.padEnd(12)}${sub.description}`);
+      }
       console.log(`\nRun "jsn ${name} <command> --help" for details.`);
     },
   };

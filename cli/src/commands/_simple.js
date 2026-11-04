@@ -1,5 +1,6 @@
 import { buildProfileCommand } from '../record-profiles.js';
 import { getStringField } from '../helpers.js';
+import { withTableBehavior } from './table-behavior.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -62,7 +63,7 @@ export const uiActionsCmd = (wrap) => buildProfileCommand('uiactions', wrap);
 // this module's uiPoliciesCmd before uipoliciesCmd — so the factory version
 // was dead code shadowing nothing. Deleted; the re-export is the behavior.
 
-export const tablesCmd = (wrap) => buildProfileCommand('tables', wrap, {
+export const tablesCmd = (wrap) => withTableBehavior(buildProfileCommand('tables', wrap, {
   async onShow(record, app) {
     const tableName = getStringField(record, 'name');
     const [count, extChain] = await Promise.all([
@@ -72,7 +73,8 @@ export const tablesCmd = (wrap) => buildProfileCommand('tables', wrap, {
     record._column_count = count;
     record._extension_info = { chain: extChain };
   },
-});
+  extraSubcommands: [{ name: 'behavior', description: 'Read-only behavior inventory (inherited rules, scripts, actions, policies)' }],
+}), wrap);
 
 export { columnsCmd } from './columns.js';
 

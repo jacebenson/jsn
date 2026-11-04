@@ -1,5 +1,40 @@
 # JSN decisions
 
+## Table behavior discovery extends `tables` (2026-11-04)
+
+Phase 1 of issue #398 adds `jsn tables behavior <table>` as a subcommand of the
+existing `tables` command family rather than a new top-level namespace. That
+keeps schema inspection (`tables show`) and configuration discovery on the same
+surface, and it inherits the existing command capabilities (the subcommand is
+read-only; `tables` keeps its declared create/update/delete mutations).
+Categories are `business_rules`, `client_scripts`, `ui_actions`, `ui_policies`
+and `data_policies`; flows, workflows and state models are explicitly later
+extensions.
+
+The inventory resolves the `sys_db_object` ancestor chain (bounded to 32 levels)
+and applies each artifact's inheritance semantics: business rules inherit
+through `collection`, client scripts only through `applies_extended`, UI actions
+through `table` plus `global`, and UI/data policies through their `inherit`
+flag. Items report `association` (`direct`/`inherited`) and
+`association_detail`, optionally attached field actions from
+`sys_ui_policy_action`/`sys_data_policy_rule`. `sys_overrides` is retained as
+evidence only — effective override resolution is not simulated. Client-side
+requirements are reported separately from server enforcement. Conditions are
+inventoried, never evaluated; scripts are not retrieved in Phase 1, so no
+script body can be cut.
+
+Output is bounded per category (`--limit`, max 200) and by `--max-bytes`
+(4096–1048576) with whole-item omission, per-category cursors and explicit
+`truncated`/`has_more` metadata. Sources are probed through `sys_dictionary`
+before querying; permission, missing-layout and malformed-response failures
+become `unavailable`/`unsupported` category statuses, never empty results.
+Every read is a GET through the existing authenticated SDK (`listStrict`); no
+new dependency is added.
+
+Patterns were informed by `now-sdk-ext-core`'s MIT-licensed
+`TableBehaviorDiscovery` (Copyright (c) 2026 SoniSoft Inc). The implementation
+is original to JSN and uses JSN's readers and output envelope.
+
 ## Runtime auth recovery reacts to rejection, not session age
 
 Issue #311 adds an App-owned recovery provider to the SDK. Only a real command's

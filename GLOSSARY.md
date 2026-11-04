@@ -334,6 +334,43 @@ knowledge lives here. `docs.js` command handlers stay thin: argv → options →
 `app.ok`; they call data-layer functions (`searchDocs`, `getDocsIndexStats`,
 `getDocByIdOrPath`) rather than running SQL.
 
+## Table behavior inventory
+
+`src/table-behavior.js` is the read-only discovery layer behind
+`jsn tables behavior <table>`. It inventories accessible configuration for a
+table and its ancestors: business rules, client scripts, UI actions, UI policies
+and server data policies. It never executes scripts, evaluates conditions, or
+claims to predict which artifact runs for a record.
+
+A **behavior category** is one artifact family with a fixed layer. Client
+requirements (`client_scripts`, `ui_actions`, `ui_policies`) stay distinct from
+server enforcement (`business_rules`, `data_policies`); a client mandatory field
+is not server-enforced. Each item carries a stable **behavior reference**
+(`{ kind, source_table, sys_id }`) for later direct retrieval.
+
+An **association** is `direct` when the artifact's table field equals the
+requested table, or `inherited` otherwise. **Association detail** records the
+basis: `exact_table`, `ancestor_table` (platform inheritance, business rules and
+UI actions), `ancestor_applies_extended` (`sys_script_client.applies_extended`),
+`ancestor_inherit_flag` (`sys_ui_policy.inherit`, `sys_data_policy2.inherit`), or
+`global_actions` (UI actions on `global`). `sys_overrides` links are preserved as
+**override evidence**; effective override resolution is not simulated.
+
+A **category status** is `complete`, `partial`, `unavailable` or `unsupported`.
+`unavailable` (permission, missing table, malformed response) and `unsupported`
+(missing required field/layout) are never empty results. `partial` covers
+continuation, response-budget truncation, child-read failures and
+ACL-restricted fields. Results describe **accessible configuration** only.
+
+Discovery defaults to active configuration, applies per-category bounds
+(`--limit`, default 50, max 200) and a response-byte budget (`--max-bytes`).
+Oversized items are omitted whole with explicit truncation metadata; script
+bodies are never requested or cut in Phase 1. A **behavior cursor** is a
+stateless per-category offset token tied to the table and filter signature; it
+provides continuation, not snapshot isolation. Reading fields from
+`sys_dictionary` before filtering means a missing plugin/layout produces an
+`unsupported` status instead of an unfiltered query.
+
 ## Flow inspection
 
 `src/flow-inspection.js` is the single deep module for `flows show` and the
