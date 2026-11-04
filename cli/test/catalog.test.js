@@ -230,6 +230,20 @@ describe('enrichCatalogItem', () => {
     assert.deepStrictEqual(data.variables.map(v => v.name), ['cpu']);
   });
 
+  it('asks for the form order and does not reorder what the platform returned', async () => {
+    const sdk = buildEnrichSdk({ variables: [
+      { name: 'disk', question_text: 'Disk', type: '5', mandatory: 'false', order: '300' },
+      { name: 'cpu', question_text: 'CPU', type: '6', mandatory: 'true', order: '100' },
+      { name: 'note', question_text: '', type: '32', mandatory: 'false' },
+    ] });
+    const orig = sdk.list;
+    let query = '';
+    sdk.list = async (table, params) => { if (table === 'item_option_new') query = params.get('sysparm_query'); return orig(table, params); };
+    const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
+    assert.match(query, /ORDERBYorder/, 'the fallback asks the platform for the form order');
+    assert.deepStrictEqual(data.variables.map(v => v.name), ['disk', 'cpu'], 'order is the platform\'s answer, not a local guess');
+  });
+
   it('prefers the catalog API payload, which is what a submission must answer', async () => {
     const sdk = buildEnrichSdk({ request: async () => ({ result: { sys_id: 'abc123', variables: [
       { name: '', label: 'Options', type: 0, friendly_type: 'container_start', mandatory: false, children: [

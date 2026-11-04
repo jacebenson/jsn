@@ -130,7 +130,7 @@ export async function enrichCatalogItem({ sdk, instanceUrl, sysID }) {
   if (!item) throw new Error(`Not found: ${sysID}`);
 
   const vp = new URLSearchParams();
-  vp.set('sysparm_query', `cat_item=${sysID}^active=true`);
+  vp.set('sysparm_query', `cat_item=${sysID}^active=true^ORDERBYorder`);
   vp.set('sysparm_limit', '100');
   vp.set('sysparm_display_value', 'all');
   vp.set('sysparm_fields', 'sys_id,name,question_text,type,order,mandatory,variable_set');
