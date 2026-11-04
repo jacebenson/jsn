@@ -10,6 +10,7 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { maybeShowWelcome } from './welcome.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
@@ -581,7 +582,12 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp(loadConfig(formatArgv), visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv)) + '\n');
+        // First-run orientation (issue #387) sits above the unchanged help.
+        // maybeShowWelcome decides for itself: human terminal, no machine
+        // format, no configured profile, and not shown before.
+        const config = loadConfig(formatArgv);
+        maybeShowWelcome({ argv: formatArgv, requestedFormat, cfg: config });
+        process.stdout.write(renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, formatArgv)) + '\n');
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,

@@ -183,6 +183,18 @@ completion share this policy. `--all-commands` restores the full surface.
 Explicit command paths are always registered; this is presentation, never an
 ACL or an authorization claim. Role changes are picked up on authentication.
 
+## First-run welcome
+
+`src/welcome.js`. A short orientation printed **above**, never instead of, the
+grouped root help when a fresh installation runs bare `jsn`. It points at
+`jsn setup`, `jsn --help`, and `jsn docs search` and requires no instance or
+credentials. It is shown at most once — a `.welcomed` marker in the XDG config
+dir — and only to a human terminal: never for `--json`/`--quiet`/`--csv`/
+`--markdown`/`--get`, piped output, agent/CI environments, an installation that
+already has a connection, or `JSN_NO_WELCOME=1`. A suppressed or piped run does
+not consume the once-only marker. It is not a connection wizard: authentication
+stays optional until an instance-backed command needs it.
+
 ## Capability registry
 
 `src/capabilities.js`. The single source of truth for command metadata the

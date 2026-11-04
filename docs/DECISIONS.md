@@ -371,3 +371,20 @@ empty. GitHub remains authoritative for revision checks and incremental updates.
 Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
+
+## First-run welcome orients above help, once (2026-11-04)
+
+Issue #387 adds a short orientation before setup: bare `jsn` on a fresh
+installation prints a few next steps (`jsn setup`, `jsn --help`,
+`jsn docs search`) and then the existing grouped help, unchanged. It is not a
+connection wizard and never starts an auth or instance operation, so setup and
+authentication stay optional until a command needs ServiceNow.
+
+It is shown at most once, recorded by a `.welcomed` marker in the XDG config dir
+(the same directory the daily-check markers use). It is skipped for
+machine-readable and piped output (`--json`, `--quiet`, `--csv`, `--markdown`,
+`--get`, non-TTY), for agent/CI environments, and for installations that already
+have a connection. A skipped run does not write the marker, so piping help once
+does not consume the welcome. `JSN_NO_WELCOME=1` suppresses it explicitly.
+`--help`, `docs` commands, and every other command are unaffected. If the marker
+cannot be written the note may appear again; it must never fail the command.
