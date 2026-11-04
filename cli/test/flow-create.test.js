@@ -507,6 +507,86 @@ describe('flow update request shapes', () => {
     assert.ok(query.includes(`metadata: ${JSON.stringify(JSON.stringify(before.triggerInstances[0].metadata))}`));
   });
 
+  it('reconciles the warmed session with the persisted set before the first content write', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    const seen = [];
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+      ensureCapture: async intended => {
+        seen.push({ intended, writesSoFar: sdk.calls.filter(call => call.options.method && call.options.method !== 'GET').length });
+        return { intended, effective: { sys_id: 'update-set-1', name: 'Feature' }, aligned: true, action: 'selected' };
+      },
+    });
+    assert.deepEqual(seen, [{ intended: { name: 'Feature', sys_id: 'update-set-1' }, writesSoFar: 0 }]);
+    assert.equal(result.capture_context.aligned, true);
+    assert.equal(result.capture_context.action, 'selected');
+    const posts = sdk.calls.filter(call => call.options.method && call.options.method !== 'GET');
+    assert.ok(posts.length > 0, 'the content write still runs once the capture context is aligned');
+  });
+
+  it('refuses the content write when the capture context cannot be aligned', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+      ensureCapture: async () => { throw new Error('selection was not applied'); },
+    }), error => error.message.includes('before any content write') && error.message.includes('selection was not applied'));
+    assert.equal(sdk.calls.filter(call => call.options.method && call.options.method !== 'GET').length, 0);
+  });
+
+  it('does not touch the session capture context for a preview', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition);
+    let called = false;
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'preview message' } }],
+    }, {
+      preview: true,
+      ensureCapture: async () => { called = true; },
+    });
+    assert.equal(result.preview, true);
+    assert.equal(called, false);
+  });
+
+  it('reports where capture went when the intended set has no matching update XML', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    const list = sdk.list;
+    sdk.list = async (table, params) => {
+      if (table !== 'sys_update_xml') return list(table, params);
+      const query = params.get('sysparm_query');
+      if (query === 'update_set=update-set-1') return [];
+      if (query === `nameLIKE${flowId}`) {
+        return [{
+          sys_id: 'xml-old',
+          name: { value: `sys_hub_flow_${flowId}`, display_value: `sys_hub_flow_${flowId}` },
+          action: 'INSERT_OR_UPDATE',
+          update_set: { value: 'previous-set', display_value: 'Previous Feature' },
+          sys_created_on: { value: '2026-10-29 10:00:00', display_value: '2026-10-29 10:00:00' },
+        }];
+      }
+      return [];
+    };
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    assert.equal(result.update_set_capture.status, 'missing');
+    assert.deepEqual(result.update_set_capture.elsewhere.update_sets.map(set => set.sys_id), ['previous-set']);
+    assert.match(result.update_set_capture.diagnosis, /routed elsewhere/);
+    assert.match(result.update_set_capture.diagnosis, /Previous Feature/);
+  });
+
   it('updates only requested trigger/action values, preserves omitted fields, versions, and captures', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const afterDefinition = structuredClone(baseDefinition);

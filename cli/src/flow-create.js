@@ -794,13 +794,23 @@ function unavailableCapture(reason) {
   return { available: false, status: 'unavailable', reason };
 }
 
+// Reporting reads the persisted preference, but the provider captures into the
+// session's effective selection. Reconcile the two before the first content
+// write and carry the result into the payload so a save can never claim a set
+// it did not use.
+async function resolveCaptureContext(options, readUpdateSet) {
+  if (!options.ensureCapture) return undefined;
+  const intended = await readUpdateSet();
+  return options.ensureCapture(intended);
+}
+
 async function addPostMutationCapture(snapshot, sdk, readUpdateSet, flowId) {
   const updateSet = await readUpdateSet();
   snapshot.after = updateSet;
   snapshot.capture_after = await readUpdateSetCapture(sdk, updateSet, flowId);
 }
 
-export async function readUpdateSetCapture(sdk, updateSet, flowId) {
+export async function readUpdateSetCapture(sdk, updateSet, flowId, { locateElsewhere = false } = {}) {
   const updateSetId = idValue(updateSet?.sys_id || updateSet?.sysId);
   if (!updateSetId) return unavailableCapture('current update set has no selected sys_id (likely Default)');
   const rows = await sdk.list('sys_update_xml', new URLSearchParams({
@@ -810,13 +820,66 @@ export async function readUpdateSetCapture(sdk, updateSet, flowId) {
     sysparm_fields: 'sys_id,name,type,action,target_name,update_set,payload,xml',
   }));
   const matches = rows.filter(row => JSON.stringify(row).includes(flowId));
-  return {
+  const capture = {
     available: true,
     status: matches.length ? 'captured' : 'missing',
     update_set: updateSet,
     count: matches.length,
     records: matches,
   };
+  if (!matches.length && locateElsewhere) {
+    capture.elsewhere = await findCaptureElsewhere(sdk, flowId, updateSetId);
+    const destinations = capture.elsewhere.update_sets || [];
+    capture.diagnosis = destinations.length
+      ? `Content was saved, but no update XML for this flow is in ${updateSet?.name || updateSetId}. `
+        + `${destinations.reduce((sum, set) => sum + set.count, 0)} matching record(s) are in `
+        + `${destinations.map(set => `${set.name || set.sys_id} (${set.sys_id})`).join(', ')}. `
+        + 'Capture was routed elsewhere; inspect those sets before completing or exporting the intended one.'
+      : `Content was saved, but no update XML naming this flow was found in ${updateSet?.name || updateSetId} `
+        + `or by nameLIKE${flowId}. Capture may be absent or recorded under a different name; `
+        + 'inspect sys_update_xml for the flow sys_id before completing the set.';
+  }
+  return capture;
+}
+
+// The flow's own update XML is named `<table>_<sys_id>`, so the flow sys_id is
+// searchable across every set. This distinguishes "not captured" from "captured
+// into the wrong set" without moving any record.
+async function findCaptureElsewhere(sdk, flowId, intendedSetId) {
+  const id = idValue(flowId);
+  // Only a single opaque token may reach the encoded query; never allow query
+  // operators such as ^ or = to be injected through a caller-supplied id.
+  if (!/^[0-9a-zA-Z_-]{1,64}$/.test(id)) {
+    return { checked: false, reason: 'flow identifier is not a safe exact token', update_sets: [] };
+  }
+  const params = new URLSearchParams({
+    sysparm_query: `nameLIKE${id}`,
+    sysparm_limit: '50',
+    sysparm_display_value: 'all',
+    sysparm_fields: 'sys_id,name,type,action,target_name,update_set,sys_created_on',
+  });
+  let rows;
+  try {
+    rows = await sdk.list('sys_update_xml', params);
+  } catch (error) {
+    return { checked: true, available: false, reason: error.message, update_sets: [] };
+  }
+  const bySet = new Map();
+  for (const row of rows) {
+    const raw = row.update_set;
+    const setId = idValue(raw);
+    if (!setId || setId === intendedSetId) continue;
+    const entry = bySet.get(setId) || { sys_id: setId, name: raw?.display_value || '', count: 0, records: [] };
+    entry.count += 1;
+    entry.records.push({
+      sys_id: idValue(row.sys_id),
+      name: row.name?.display_value || row.name || '',
+      action: row.action?.display_value || row.action || '',
+      sys_created_on: row.sys_created_on?.display_value || row.sys_created_on || '',
+    });
+    bySet.set(setId, entry);
+  }
+  return { checked: true, available: true, query: `nameLIKE${id}`, update_sets: [...bySet.values()] };
 }
 
 export async function createFlowFromManifest(sdk, instance, inputManifest, options = {}) {
@@ -825,6 +888,12 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
   const idFactory = options.idFactory || (() => randomUUID());
   const readUpdateSet = options.readUpdateSet || (async () => null);
   const snapshots = [];
+  let captureContext;
+  try {
+    captureContext = await resolveCaptureContext(options, readUpdateSet);
+  } catch (error) {
+    throw new Error(`Flow creation refused before any content write: capture context could not be established. ${error.message}`, { cause: error });
+  }
 
   let parentResponse;
   try {
@@ -885,7 +954,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow create',
     }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
     const selectedUpdateSet = await readUpdateSet();
-    const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId);
+    const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId, { locateElsewhere: true });
 
     const triggerReadback = findArray(processflow, 'triggerInstances')[0] || {};
     return {
@@ -895,6 +964,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       processflow,
       definition_readback: { available: true, status: 'read_back', flow_id: flowId },
       version,
+      ...(captureContext ? { capture_context: captureContext } : {}),
       update_set_capture: updateSetCapture,
       update_set_mutations: snapshots,
       lifecycle: { published: false, supported: ['draft', 'autosave'], deferred: ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'] },
@@ -984,6 +1054,12 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       deferred: DEFERRED_LIFECYCLE,
     },
   };
+  let captureContext;
+  try {
+    captureContext = await resolveCaptureContext(options, readUpdateSet);
+  } catch (error) {
+    throw new Error(`Flow ${flowId} update refused before any content write: capture context could not be established. ${error.message}`, { cause: error });
+  }
   // Baseline the published runtime after the definition read (a legacy read can
   // materialize a version row) and before the edit session exists.
   const runtimeBefore = published ? await readFlowRuntime(sdk, instance, flowId, { scope, snapshotId }) : null;
@@ -1082,7 +1158,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
         completedStage = 'runtime_verified';
       }
       const selectedUpdateSet = await readUpdateSet();
-      const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId);
+      const updateSetCapture = await readUpdateSetCapture(sdk, selectedUpdateSet, flowId, { locateElsewhere: true });
       // Report what the record says after the save, not the pre-edit label: a
       // published flow that now has a draft working copy must not look published
       // in the result. `active` and the snapshot pointers are the runtime gates.
@@ -1099,6 +1175,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
         definition_readback: { available: true, status: 'read_back', flow_id: flowId },
         version,
         ...(runtime ? { runtime_preservation: runtime } : {}),
+        ...(captureContext ? { capture_context: captureContext } : {}),
         update_set_capture: updateSetCapture,
         update_set_mutations: snapshots,
         lifecycle: {

@@ -6,6 +6,7 @@ import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
+import { alignUpdateSetCapture } from '../context.js';
 import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
 import { errUsage } from '../errors.js';
@@ -331,6 +332,7 @@ export function flowsCmd(wrap) {
             }
             const result = await createFlowFromManifest(app.sdk, app.getEffectiveInstance(), manifest, {
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
+              ensureCapture: intended => alignUpdateSetCapture(app.sdk, intended),
             });
             app.ok({ ...result, trigger_guidance: triggerGuidance(result.trigger) }, {
               summary: `Created draft flow "${result.flow.name}" (${result.flow.id}) with trigger ${result.trigger?.type ?? 'unknown'} (${result.trigger?.id ?? 'no trigger id'}) without activation`,
@@ -368,6 +370,7 @@ export function flowsCmd(wrap) {
             const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
               preview: argv.preview,
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
+              ensureCapture: intended => alignUpdateSetCapture(app.sdk, intended),
             });
             const diff = result.changes.map(change => `${change.component}${change.order ? ` ${change.order}` : ''}.${change.input}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`).join('\n');
             const state = `${result.flow.status}${result.flow.active ? ', active' : ''}`;

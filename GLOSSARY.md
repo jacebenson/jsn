@@ -562,6 +562,19 @@ mutation-history storage. Snapshot installation uses cooperative local reader an
 installer leases and validates the staged database before replacing the index.
 Local search remains available offline; freshness work cannot delay it.
 
+### Capture context
+
+A capture context is the update set a provider write actually lands in, and it is
+not the same thing as the persisted `sys_user_preference` row (`name=sys_update_set`)
+that `jsn` reports. The provider captures into the authenticated session's effective
+picker selection (`/api/now/ui/concoursepicker/updateset`), which a fresh CLI
+invocation has to re-establish. Flow create/update therefore return
+`capture_context` (`intended`, `effective`, `aligned`, `action`) after reconciling
+the two before any content write, and refuse the write when a readable mismatch
+cannot be aligned. `update_set_capture.status: "missing"` additionally carries
+`elsewhere.update_sets` and a `diagnosis` when matching `sys_update_xml` rows exist
+in a different set; nothing is moved automatically.
+
 ### Retrieved update-set XML
 
 A retrieved update set (`sys_remote_update_set`) is an inert promotion artifact,
