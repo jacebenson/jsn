@@ -509,12 +509,17 @@ export async function operationStatus(sdk, trackerId) {
   const error = storeText(result, 'error');
   const label = storeText(result, 'status_label');
   const message = storeText(result, 'status_message');
+  // The tracker's own detail line names the operation and the exact app and
+  // version it acted on; it is the only place a failed submission says what it
+  // tried to do.
+  const detail = storeText(result, 'status_detail');
   const terminal = (Number.isFinite(percent) && percent >= 100) || status === '3' || Boolean(error);
   return {
     tracker_id: id,
     status,
     status_label: label || null,
     status_message: message || null,
+    status_detail: detail || null,
     percent_complete: Number.isFinite(percent) ? percent : null,
     error: error || null,
     terminal,

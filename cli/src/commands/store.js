@@ -88,6 +88,20 @@ function styledApplication(data) {
   return lines.join('\n');
 }
 
+function styledTracker(data) {
+  const line = (label, value) => `  ${label.padEnd(10)} ${value}`;
+  const lines = [
+    `Tracker ${data.tracker_id}`,
+    line('status', `${data.status_label || data.status || 'unknown'}${data.status ? ` (${data.status})` : ''}`),
+    line('progress', data.percent_complete === null ? 'unknown' : `${data.percent_complete}%`),
+  ];
+  if (data.status_message) lines.push(line('message', data.status_message));
+  if (data.error) lines.push(line('error', data.error));
+  if (data.status_detail) lines.push(line('detail', data.status_detail));
+  lines.push(line('finished', data.terminal ? 'yes' : 'no'));
+  return lines.join('\n');
+}
+
 function report(app, argv, data, options) {
   const connection = argv.profile ? ` --profile ${quoteShellArg(argv.profile)}`
     : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : '';
@@ -183,7 +197,9 @@ async function runLifecycle(argv, app, operation) {
   }
   if (!data.succeeded) {
     throw new AppError('store_operation_failed',
-      `${operation === 'install' ? 'Installation' : 'Update'} ${started.tracker_id} failed: ${data.status_label || data.status_message || data.error || 'the tracker reported failure'}.`,
+      // status_label is the tracker's generic verdict ("Failed"); status_message
+      // carries the reason ("Unable to download app package"). Report the reason.
+      `${operation === 'install' ? 'Installation' : 'Update'} ${started.tracker_id} failed: ${data.status_message || data.status_label || data.error || 'the tracker reported failure'}.`,
       `Read jsn store status ${started.tracker_id} for progress and the application's upgrade history. The application may be partially installed; do not resubmit automatically.`);
   }
   // Readback can lag the tracker. Reuse the operator's poll interval, capped at
@@ -258,8 +274,9 @@ export function storeCmd(wrap) {
         builder: p => p.positional('tracker', { type: 'string', describe: 'Tracker sys_id reported by install/update' }),
         handler: wrap(async (argv, app) => {
           const data = await operationStatus(app.sdk, argv.tracker);
+          attachFormatted(data, styledTracker(data));
           report(app, argv, data, {
-            summary: `Tracker ${data.tracker_id}: ${data.status_label || data.status || 'unknown'}${data.percent_complete === null ? '' : ` ${data.percent_complete}%`}${data.terminal ? '' : ' (running)'}${data.error ? ` — ${data.error}` : ''}`,
+            summary: `Tracker ${data.tracker_id}: ${data.status_label || data.status || 'unknown'}${data.percent_complete === null ? '' : ` ${data.percent_complete}%`}${data.terminal ? '' : ' (running)'}${data.status_message ? ` — ${data.status_message}` : data.error ? ` — ${data.error}` : ''}`,
             breadcrumbs: [
               ...(data.terminal ? [] : [hint('status', `jsn store status ${data.tracker_id}`, 'Read progress again')]),
               hint('list', 'jsn store list --tab updates', 'List applications with an available update'),

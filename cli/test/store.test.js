@@ -410,6 +410,39 @@ test('a failed tracker reports the failure and keeps the tracker id', async () =
     error => error.code === 'store_operation_failed' && error.message.includes(TRACKER) && error.hint.includes(TRACKER));
 });
 
+test('a failed tracker reports the reason, not its generic label', async () => {
+  // Live failure from dev366743: status=3, status_label=Failed,
+  // status_message="Unable to download app package". Reporting the label told
+  // the operator nothing.
+  const f = fixture({
+    progress: [{
+      percent_complete: 100, status: '3', status_label: 'Failed',
+      status_message: 'Unable to download app package',
+      status_detail: 'operation=app_install, app=aaaa, version=, baseVersion=2.0.0',
+    }],
+  });
+  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
+  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force', '--wait']),
+    error => error.code === 'store_operation_failed' && /Unable to download app package/.test(error.message));
+  const status = await operationStatus(f.sdk, TRACKER);
+  assert.equal(status.status_detail, 'operation=app_install, app=aaaa, version=, baseVersion=2.0.0');
+});
+
+test('the human view of a tracker reports the reason and the operation detail', async () => {
+  const f = fixture({
+    progress: [{
+      percent_complete: 100, status: '3', status_label: 'Failed',
+      status_message: 'Unable to download app package',
+      status_detail: 'operation=app_install, baseVersion=2.0.0',
+    }],
+  });
+  await f.run(['status', TRACKER]);
+  const { data } = f.output[0];
+  assert.match(data._formatted, /Unable to download app package/);
+  assert.match(data._formatted, /operation=app_install, baseVersion=2\.0\.0/);
+  assert.match(data._formatted, /progress {3}100%/);
+});
+
 test('an unreadable installed record yields unverified, not success', async () => {
   const f = fixture();
   f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });

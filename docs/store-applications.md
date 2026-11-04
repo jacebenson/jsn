@@ -170,12 +170,46 @@ does not cancel or resubmit. A submission without a usable tracker id fails with
 `jsn store status <tracker-id>` reads the tracker directly: `status`,
 `status_label`, `status_message`, `percent_complete`, `terminal`, `succeeded`.
 
+## The one lifecycle attempt, and what it proved
+
+`jsn store install sn_team_contacts_0 --version 30.1.2 --wait` was run once
+against the same instance. The dispatch was accepted:
+
+```
+GET /api/sn_appclient/appmanager/app/install?app_id=01ebede3c3212010a3a6ddaa7d40dd94
+    &version=30.1.2&load_demo_data=false
+-> tracker 4b54416e9314935016c8fd18dd03d642
+```
+
+The tracker then failed, and its detail names the operation it ran:
+
+```
+status=3  status_label=Failed  percent_complete=100  error=""
+status_message=Unable to download app package
+status_detail=operation=app_install, app=01ebede3c3212010a3a6ddaa7d40dd94,
+               version=, baseVersion=30.1.2, loadDemoData=false,
+               isReinstallRequested=false
+```
+
+So the request shape is accepted: `GET`, `app_id`, `version` and
+`load_demo_data` all reach the install plan for the right application. The
+failure is the instance's own package download, not the request. Nothing was
+installed — `sys_store_app` shows a placeholder row for the scope with an empty
+`version` and `active: false`.
+
+Two things this changed:
+
+- `status_detail` is now part of `store status` output; it is the only place a
+  failed submission says what it tried to do.
+- A failed tracker now reports `status_message`, not just the generic
+  `status_label`: the command used to say `failed: Failed.` and hide
+  `Unable to download app package`.
+
 ## What is still unverified
 
-1. That `GET /app/install` and `GET /app/update` accept exactly
-   `app_id`/`version`/`load_demo_data`, and what a real submission returns — the
-   operations are registered on the live instance, but the request has not been
-   sent.
+1. A **successful** install or update. One attempt was made and the instance
+   failed to download the package; the request shape reached the plan, but the
+   dispatch-to-completion path has never completed.
 2. That a successful tracker plus a matching `sys_store_app.version` readback is
    sufficient proof of installation on supported ServiceNow versions.
 3. Repair/reinstall behaviour, which is deliberately not implemented here. There
