@@ -87,10 +87,28 @@ Firefox and normal-profile browser integration remain future work.
 ## Runtime authentication recovery
 
 `src/auth-recovery.js` creates the App-owned, identity-scoped recovery provider
-passed to the SDK as `opts.recovery`. Its `recover({ status, method, url })`
-returns true only after replacing credentials. Its safe `error` supplies guidance
-if the single retry is rejected. Only HTTP 401 from a non-bootstrap request may
-recover and replay once; uncertain mutation outcomes never replay.
+passed to the SDK as `opts.recovery`. Its `recover({ status, kind })` returns
+true only after replacing credentials. Its safe `error` supplies guidance
+if the single retry is rejected. Only a classified authentication rejection may
+recover: HTTP 401, a login redirect, or a login-page body (HTTP 403, 5xx,
+network and abort are not rejections).
+
+`src/session-recovery.js` owns classification and replay eligibility. Replay is
+bounded to one attempt per request and one in-flight recovery per SDK client,
+shared by concurrent requests through a session generation counter; a rejection
+observed at an older generation replays with the rebuilt session instead of
+recovering again. Recovery invalidates cookies, the user token and the warm-up
+promise together, rebuilds the session, and verifies the current user through
+the same `_setAuth` cookie/CSRF path before any replay; a different account or
+an unverifiable session ends recovery without replaying.
+
+Reads replay once after successful recovery. Writes and stateful processors
+replay only on HTTP 401, which is definitive pre-execution; a login page or
+redirect on a write is refused with an actionable error unless the caller
+explicitly opts in. Captured GCK/browser-session credentials are not renewable:
+their rejection is reported with `recapture_required` and an explicit
+`jsn auth refresh <profile> --browser` step. Uncertain mutation outcomes never
+replay.
 
 Browser profiles persist `reauth: auto | confirm | never`; missing means
 `confirm`. Both `auto` and `confirm` require a prompt-capable invocation through

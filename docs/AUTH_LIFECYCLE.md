@@ -106,14 +106,51 @@ The focused auth tests cover same-instance username isolation, explicit refresh/
 ## Runtime authentication recovery
 
 Normal commands do not run an auth-status preflight or use a fixed session-age
-heuristic. An HTTP 401 from the real request permits one recovery attempt and
-one replay, including POST. A second 401 is final. Network failures, aborts,
-timeouts, 5xx and 403 never trigger recovery or replay. Authentication bootstrap
-requests bypass recovery. Successful recovery discards cached session cookies
-and the user token before rebuilding the existing authenticated session.
+heuristic. A rejected session permits one recovery attempt and at most one
+replay of the request that proved it was stale. A second rejection is final.
+Network failures, aborts, timeouts, 5xx and 403 never trigger recovery or
+replay. Authentication bootstrap requests bypass recovery. Successful recovery
+discards cached session cookies, the user token and the in-flight warm-up
+promise as one unit, then rebuilds the authenticated session.
+
+A rejection is one of three classified signals (`src/session-recovery.js`):
+
+- **HTTP 401** — a definitive pre-execution rejection. The provider refused the
+  credentials before dispatching the operation, so reads and writes may both be
+  replayed once.
+- **Login redirect** — the response (or its final URL, after following
+  redirects) is the platform login page. This proves nothing ran for a read.
+- **Login page** — a 2xx `text/html` body containing the login form
+  (`user_name` plus `user_password`, or a `login.do` form action). JSN reads only
+  a bounded 64 KiB prefix of the cloned body, so caller bodies stay intact and
+  no response body is logged or echoed.
+
+Replay eligibility is explicit per operation. Reads (`GET`/`HEAD`/`OPTIONS`)
+are replayed once after successful recovery for any classified signal. A write
+or stateful processor is replayed only on HTTP 401; when it is answered with a
+login page or redirect instead, JSN refuses with an actionable error because a
+heuristic body match is not proof that the operation never ran. Callers can opt
+in through the SDK's `allowMutationReplay` setting; no JSN write path does.
+Replaying preserves the original method, body, headers and endpoint.
+
+Before the replay, JSN verifies the recovered identity with one bounded
+`GET /api/now/table/sys_user` current-user read issued through the same
+`_setAuth` path the failed operation uses — with the re-established cookies and
+`X-UserToken` for cookie/CSRF sessions, not a bearer-only probe. An unverified
+session, a different account than the selected profile, or a failed probe ends
+recovery with `auth_error` and the profile's recovery command; the request is
+not replayed.
+
+Session state is versioned. Concurrent requests share one in-flight recovery:
+later rejections that were sent with the previous generation replay with the
+rebuilt session instead of starting another refresh or browser login, and a
+rejection observed at an older generation never triggers a second recovery.
+Recovery attempts are therefore bounded by one in-flight attempt and one replay
+per request.
 
 OAuth recovery uses `AuthManager.refreshToken` with the selected instance and
-username. Basic credentials have no renewal mechanism. Browser-session profiles
+username; expired tokens refresh rather than reopening a login. Basic
+credentials have no renewal mechanism. Browser-session profiles
 use `reauth: auto | confirm | never`, saved under `profiles.<name>.reauth`.
 An absent setting means `confirm`. Configure it with:
 
@@ -125,6 +162,12 @@ All policies refuse implicit renewal in non-TTY, CI and agent invocations, with
 machine output or `--get`. The existing browser login timeout remains five minutes.
 Renew explicitly with `jsn auth refresh --profile <name> --browser`.
 Setup has no additional policy question; use `auth modify` for this preference.
+
+Captured GCK/browser-session credentials contain nothing JSN can renew on its
+own. When a browser session is rejected and cannot be renewed interactively,
+the error says so and marks `recapture_required`: it names
+`jsn auth refresh <profile> --browser` as the recapture step instead of implying
+that a retry alone can recover it.
 
 HTTP 401 is `auth_error` with status, profile and an exact recovery command in
 JSON, plus the same guidance in text. OAuth guidance names

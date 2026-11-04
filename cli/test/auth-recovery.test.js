@@ -55,12 +55,16 @@ function fixture(t, method = 'oauth', { reauth, interactive, accept, refreshToke
   // The separate bootstrap test below exercises session reconstruction.
   t.mock.method(app.sdk, '_warmSession', async () => 'JSESSIONID=warmed');
   app.sdk.sessionUserToken = 'warmed-token';
-  function respond(statuses = [401, 200], { refreshStatus = 200, fail } = {}) {
+  function respond(statuses = [401, 200], { refreshStatus = 200, fail, verifiedUser = 'selected-user' } = {}) {
     t.mock.method(globalThis, 'fetch', async (request, options) => {
       const url = typeof request === 'string' ? request : request.url;
       if (url.endsWith('/oauth_token.do')) {
         assert.equal(new URLSearchParams(options.body).get('refresh_token'), credentials.get('selected-user').refresh_token);
         return new Response(JSON.stringify({ access_token: 'refreshed-access', refresh_token: 'refreshed-refresh' }), { status: refreshStatus });
+      }
+      // Session recovery verifies the re-established session before replaying.
+      if (url.includes('/api/now/table/sys_user')) {
+        return new Response(JSON.stringify({ result: verifiedUser ? [{ user_name: verifiedUser }] : [] }), { status: 200 });
       }
       counts.calls++;
       if (fail) throw fail;
@@ -350,7 +354,7 @@ test('OAuth retry discards cached cookies and reconstructs the existing session'
   const f = fixture(t);
   f.sdk._warmSession.mock.restore();
   f.sdk.oauthCookies = 'JSESSIONID=stale'; f.sdk.sessionUserToken = 'stale-token';
-  let commands = 0, bootstrap = 0;
+  let commands = 0, bootstrap = 0, verification = 0;
   t.mock.method(globalThis, 'fetch', async (request) => {
     const url = typeof request === 'string' ? request : request.url;
     if (url.endsWith('/oauth_token.do')) return new Response('{"access_token":"fresh","refresh_token":"new-refresh"}');
@@ -362,13 +366,20 @@ test('OAuth retry discards cached cookies and reconstructs the existing session'
       assert.equal(request.headers.get('Authorization'), 'Bearer fresh'); bootstrap++;
       return new Response('{}');
     }
+    // Verification proves the rebuilt cookie/CSRF session before replay.
+    if (url.includes('/api/now/table/sys_user')) {
+      verification++;
+      assert.equal(request.headers.get('Cookie'), 'JSESSIONID=fresh');
+      assert.equal(request.headers.get('X-UserToken'), 'fresh-token');
+      return new Response('{"result":[{"user_name":"selected-user"}]}');
+    }
     commands++;
     assert.equal(request.headers.get('Cookie'), commands === 1 ? 'JSESSIONID=stale' : 'JSESSIONID=fresh');
     assert.equal(request.headers.get('X-UserToken'), commands === 1 ? 'stale-token' : 'fresh-token');
     return new Response(commands === 1 ? '' : '{}', { status: commands === 1 ? 401 : 200 });
   });
   await f.sdk.request(`${instance}/api/work`);
-  assert.equal(commands, 2); assert.equal(bootstrap, 3); assert.equal(f.counts.refreshes, 1);
+  assert.equal(commands, 2); assert.equal(bootstrap, 3); assert.equal(verification, 1); assert.equal(f.counts.refreshes, 1);
 });
 
 function isolatedCLI(t) {
