@@ -8,7 +8,7 @@ import yargs from '../src/cli-adapter.js';
 import { storeCmd } from '../src/commands/store.js';
 import { SDKClient } from '../src/sdk.js';
 import {
-  listApplications, showApplication, operationStatus, waitForOperation, verifyInstalledVersion,
+  listApplications, showApplication, operationStatus,
 } from '../src/store.js';
 import { buildCLI } from '../src/cli.js';
 import { errNotFoundHint, renderAppError } from '../src/errors.js';
@@ -224,7 +224,10 @@ test('show reports installed version, available versions, entitlement, dependenc
   f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '1.0.0', active: 'true', install_date: '2025-01-02 03:04:05' });
   f.setDetail({ ...DETAIL, isInstalled: 'true', version: '1.0.0', isInstalledAndUpdateAvailable: 'true' });
   await f.run(['show', 'x_demo_app']);
-  const { data } = f.output[0];
+  const { data, meta } = f.output[0];
+  // Nothing may advertise a command that is not registered: the lifecycle verbs
+  // are gone, so a leftover breadcrumb would send the operator to an error.
+  for (const crumb of meta.breadcrumbs) assert.doesNotMatch(crumb.cmd, /^jsn store (install|update)/);
   assert.equal(data.matched_by, 'scope');
   assert.equal(data.installed.version, '1.0.0');
   // The App Client detail reports its own dates; they are not left to a
@@ -288,144 +291,29 @@ test('status normalizes progress and rejects invalid tracker ids before any requ
   assert.equal(status.succeeded, false);
 });
 
-test('install requires an exact version, a not-installed app and an offered version before dispatch', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '', active: 'true' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--force']), error => error.code === 'usage_error' && /--version/.test(error.message));
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '9.9.9', '--force']),
-    error => error.code === 'store_version_unavailable' && /1\.0\.0, 2\.0\.0/.test(error.hint));
-  assert.deepEqual(f.dispatches(), []);
 
-  f.setDetail({ ...DETAIL, isInstalled: 'true', version: '1.0.0' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
-    error => error.code === 'store_already_installed' && /store update/.test(error.hint));
-  assert.deepEqual(f.dispatches(), []);
-});
 
-test('an application the Store client reports as not installable is refused with the reported flags', async () => {
-  const f = fixture({ detail: { ...DETAIL, can_install_or_upgrade: 'false' } });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
-    error => error.code === 'store_app_not_installable' && /entitlement/.test(error.hint));
-  assert.deepEqual(f.dispatches(), []);
-});
 
-test('an application the instance blocks is refused before dispatch even when can_install_or_upgrade is true', async () => {
-  // Live detail for a developer-instance app: can_install_or_upgrade=true,
-  // block_install=true, and the reason only exists in `indicators`.
-  const f = fixture({
-    detail: {
-      ...DETAIL, can_install_or_upgrade: 'true', block_install: true, block_message: 'undefined',
-      indicators: [{
-        id: 'not_available_for_instance_type', order: 1, message: 'Unavailable for Instance',
-        tooltip: 'This application is unavailable on developer instances', type: 'error', show_as_filter: true,
-      }],
-    },
-  });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
-    error => error.code === 'store_app_not_installable' && /Unavailable for Instance/.test(error.message));
-  assert.deepEqual(f.dispatches(), []);
-});
 
-test('dry-run resolves the exact operation, sends nothing and needs no confirmation', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await f.run(['install', 'x_demo_app', '--version', '2.0.0', '--dry-run', '--demo-data']);
-  const { data } = f.output[0];
-  assert.equal(data.dry_run, true);
-  assert.equal(data.dispatched, false);
-  assert.equal(data.requested_version, '2.0.0');
-  assert.equal(data.demo_data, true);
-  assert.equal(data.app.sys_id, APP);
-  assert.deepEqual(f.dispatches(), []);
-});
 
-test('install without --force requires confirmation before dispatch', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0']),
-    error => error.code === 'confirmation_required' && /--force/.test(error.hint));
-  assert.deepEqual(f.dispatches(), []);
-});
 
-test('a submitted install reports the tracker and never claims completion', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force', '--profile', 'pdi']);
-  assert.equal(f.dispatches().length, 1);
-  const url = new URL(f.dispatches()[0].url);
-  assert.equal(url.pathname, '/api/sn_appclient/appmanager/app/install');
-  assert.equal(url.searchParams.get('app_id'), APP);
-  assert.equal(url.searchParams.get('version'), '2.0.0');
-  assert.equal(url.searchParams.get('load_demo_data'), 'false');
-  const { data, meta } = f.output[0];
-  assert.equal(data.tracker_id, TRACKER);
-  assert.equal(data.succeeded, null);
-  assert.equal(data.verification, null);
-  assert.match(meta.summary, /submitted: tracker .* not a completed installation/);
-  assert.ok(meta.breadcrumbs.every(b => b.cmd.endsWith('--profile pdi')));
-});
 
-test('a submission without a tracker id is an error and is not retried', async () => {
-  const f = fixture({ dispatchResult: { result: { message: 'accepted' } } });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
-    error => error.code === 'store_tracker_missing' && /do not resubmit/i.test(error.hint));
-  assert.equal(f.dispatches().length, 1);
-});
 
-test('waiting polls the tracker and verifies the version on the installed record', async () => {
-  const f = fixture({
-    progress: [
-      { percent_complete: 20, status: '1', status_label: 'Running' },
-      { percent_complete: 100, status: '2', status_label: 'Complete', status_message: 'Installed' },
-    ],
-    onDispatch: () => { f.rows('sys_store_app')[0].version = '2.0.0'; },
-  });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '', active: 'true' });
-  await f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force', '--wait', '--timeout', '30', '--poll-interval', '0']);
-  const { data, meta } = f.output[0];
-  assert.equal(data.succeeded, true);
-  assert.deepEqual(data.verification, {
-    verified: true, expected_version: '2.0.0', installed_version: '2.0.0',
-    active: true, source: 'sys_store_app', reason: 'version_confirmed',
-  });
-  assert.match(meta.summary, /verified on sys_store_app/);
-  assert.equal(f.requests.filter(r => r.url.includes('/sn_cicd/progress/')).length, 2);
-});
 
-test('a tracker success without the reported version is a verification failure', async () => {
-  const f = fixture({ progress: [{ percent_complete: 100, status: '2', status_label: 'Complete' }] });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force', '--wait', '--timeout', '30', '--poll-interval', '0']),
-    error => error.code === 'store_verification_failed' && error.message.includes(TRACKER) && /reads back version/.test(error.message));
-  assert.equal(f.requests.filter(r => r.url.includes('/app/install')).length, 1);
-});
 
-test('a failed tracker reports the failure and keeps the tracker id', async () => {
-  const f = fixture({ progress: [{ percent_complete: 100, status: '3', status_label: 'Failed', status_message: 'Install failed' }] });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force', '--wait', '--timeout', '30', '--poll-interval', '0']),
-    error => error.code === 'store_operation_failed' && error.message.includes(TRACKER) && error.hint.includes(TRACKER));
-});
 
-test('a failed tracker reports the reason, not its generic label', async () => {
-  // Live failure from dev366743: status=3, status_label=Failed,
-  // status_message="Unable to download app package". Reporting the label told
-  // the operator nothing.
+test('a failed tracker puts the reason in the summary, not the generic label', async () => {
   const f = fixture({
     progress: [{
       percent_complete: 100, status: '3', status_label: 'Failed',
       status_message: 'Unable to download app package',
-      status_detail: 'operation=app_install, app=aaaa, version=, baseVersion=2.0.0',
     }],
   });
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force', '--wait']),
-    error => error.code === 'store_operation_failed' && /Unable to download app package/.test(error.message));
-  const status = await operationStatus(f.sdk, TRACKER);
-  assert.equal(status.status_detail, 'operation=app_install, app=aaaa, version=, baseVersion=2.0.0');
+  await f.run(['status', TRACKER]);
+  const { meta, data } = f.output[0];
+  assert.match(meta.summary, /Unable to download app package/);
+  assert.equal(data.succeeded, false);
+  assert.equal(data.terminal, true);
 });
 
 test('the human view of a tracker reports the reason and the operation detail', async () => {
@@ -443,50 +331,9 @@ test('the human view of a tracker reports the reason and the operation detail', 
   assert.match(data._formatted, /progress {3}100%/);
 });
 
-test('an unreadable installed record yields unverified, not success', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  const get = f.sdk.get;
-  f.sdk.get = async (table, id) => { if (table === 'sys_store_app') throw Object.assign(new Error('denied'), { status: 403 }); return get(table, id); };
-  const verification = await verifyInstalledVersion(f.sdk, { sys_id: APP }, '2.0.0', { attempts: 2, intervalMs: 0 });
-  assert.equal(verification.verified, null);
-  assert.equal(verification.reason, 'readback_unavailable');
-});
 
-test('an expired wait retains the tracker and does not cancel or resubmit', async () => {
-  const f = fixture({ progress: [{ percent_complete: 40, status: '1', status_label: 'Running' }] });
-  let clock = 0;
-  const result = await waitForOperation(f.sdk, TRACKER, {
-    timeoutMs: 1000, pollIntervalMs: 500, now: () => clock, wait: async ms => { clock += Math.max(ms, 1000); },
-  });
-  assert.equal(result.wait_timed_out, true);
-  assert.equal(result.tracker_id, TRACKER);
-  assert.equal(f.requests.filter(r => r.url.includes('/app/install')).length, 0);
-});
 
-test('update defaults to the reported latest version, refuses no-ops and dispatches the update endpoint', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '1.0.0', active: 'true', install_date: '2025-01-02 03:04:05' });
-  f.setDetail({ ...DETAIL, isInstalled: 'true', version: '1.0.0' });
-  await assert.rejects(f.run(['update', 'x_demo_app', '--version', '1.0.0', '--force']),
-    error => error.code === 'store_version_unchanged');
-  assert.deepEqual(f.dispatches(), []);
-  await f.run(['update', 'x_demo_app', '--force']);
-  const url = new URL(f.dispatches()[0].url);
-  assert.equal(url.pathname, '/api/sn_appclient/appmanager/app/update');
-  assert.equal(url.searchParams.get('version'), '2.0.0');
-  assert.equal(url.searchParams.has('load_demo_data'), false);
-  assert.equal(f.output[0].data.from_version, '1.0.0');
-  assert.equal(f.output[0].data.requested_version, '2.0.0');
-});
 
-test('update refuses applications that are not installed', async () => {
-  const f = fixture();
-  f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '' });
-  await assert.rejects(f.run(['update', 'x_demo_app', '--version', '2.0.0', '--force']),
-    error => error.code === 'store_not_installed' && /store install/.test(error.hint));
-  assert.deepEqual(f.dispatches(), []);
-});
 
 test('the production transport builds App Client requests and maps HTTP failures', async (t) => {
   const sdk = new SDKClient('https://example.invalid', {});
@@ -526,15 +373,17 @@ test('the production transport builds App Client requests and maps HTTP failures
   assert.equal(status.succeeded, false);
 });
 
-test('store is discoverable with lifecycle verbs and read-only profiles block only the mutations', () => {
+test('store exposes only the read-only surface and registers no mutations', () => {
   const registry = buildCLI([]).commandRegistry();
   const command = registry.commands.find(entry => entry.name === 'store');
-  assert.deepEqual(command.actions.map(action => action.name), ['list', 'search', 'show', 'status', 'install', 'update']);
-  assert.ok(refreshMutationCommands().some(path => path.join(' ') === 'store install'));
-  assert.ok(refreshMutationCommands().some(path => path.join(' ') === 'store update'));
-  // Store installs are runtime App Client requests, not captured metadata edits.
-  assert.equal(needsMutationContext({ _: ['store', 'install', APP] }), false);
+  assert.deepEqual(command.actions.map(action => action.name), ['list', 'search', 'show', 'status']);
+  // The lifecycle verbs were prototyped, dispatched, and never completed on a
+  // real instance (its store credential 403s). They are deliberately absent, so
+  // nothing unverified can be invoked.
+  assert.equal(refreshMutationCommands().some(path => path.join(' ') === 'store install'), false);
+  assert.equal(refreshMutationCommands().some(path => path.join(' ') === 'store update'), false);
   assert.equal(needsMutationContext({ _: ['store', 'list'] }), false);
+  assert.equal(needsMutationContext({ _: ['store', 'show', APP] }), false);
 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-store-ro-'));
   fs.mkdirSync(path.join(home, 'servicenow'));
@@ -543,16 +392,13 @@ test('store is discoverable with lifecycle verbs and read-only profiles block on
   } }));
   try {
     const env = { ...process.env, XDG_CONFIG_HOME: home, JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_DATA_HOME: path.join(home, 'data'), JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' };
-    for (const args of [['install', APP, '--version', '2.0.0'], ['update', APP, '--version', '2.0.0']]) {
-      const result = spawnSync(process.execPath, ['bin/jsn.js', 'store', ...args, '--profile', 'ro', '--json'], { encoding: 'utf8', env, timeout: 15000 });
-      assert.ifError(result.error);
-      assert.notEqual(result.status, 0);
-      assert.match(result.stdout + result.stderr, /read.only/i);
-    }
     const help = spawnSync(process.execPath, ['bin/jsn.js', 'store', '--help'], { encoding: 'utf8', env });
     assert.ifError(help.error);
     assert.equal(help.status, 0);
-    assert.match(help.stdout, /install/);
-    assert.match(help.stdout, /status/);
+    for (const verb of ['list', 'search', 'show', 'status']) assert.match(help.stdout, new RegExp(verb));
+    for (const verb of ['install', 'update']) assert.doesNotMatch(help.stdout, new RegExp(`^\\s+${verb} `, 'm'));
+    const removed = spawnSync(process.execPath, ['bin/jsn.js', 'store', 'install', APP, '--profile', 'ro', '--json'], { encoding: 'utf8', env, timeout: 15000 });
+    assert.notEqual(removed.status, 0);
+    assert.match(removed.stdout + removed.stderr, /Unknown command/i);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

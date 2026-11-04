@@ -422,13 +422,20 @@ an npm access-token secret. Older versions remain available outside the support
 window. Deprecation is an optional, separately authenticated maintenance action;
 existing deprecations are preserved and no package versions are unpublished.
 
-## Store application lifecycle
+## Store application inspection
 
-`src/store.js` owns ServiceNow Store discovery, inspection and the explicit
-install/update lifecycle; `src/commands/store.js` keeps only argv and output
-adaptation. Discovery (`list`, `search`) and inspection (`show`, `status`) are
-read-only; `install` and `update` are declared mutations. The App Client search
-endpoint is POST-shaped but performs no mutation.
+`src/store.js` owns ServiceNow Store discovery and inspection;
+`src/commands/store.js` keeps only argv and output adaptation. All four
+commands — `list`, `search`, `show`, `status` — are read-only. The App Client
+search endpoint is POST-shaped but performs no mutation.
+
+There is **no install/update path**, on purpose. It was prototyped, dispatched
+successfully, and never completed on the one instance available: that instance's
+store credential returns 403 on every App Repository download, so the tracker
+dies at "Install from the App Repository". Everything that has to reach the
+Store fails; everything served from `sys_store_app` works. A mutation that has
+never completed end-to-end does not ship. `docs/store-applications.md` records
+the evidence and what would have to be true to add it back.
 
 A Store application is identified by a `sys_store_app` sys_id, an exact scope or
 an exact name. Company application-repository applications (`sys_app`) are a
@@ -444,18 +451,11 @@ JSON-encoded `indicators` array — not `isInstalled`, `can_install_or_upgrade`,
 reports every installed application as not installed. A **blocked** application
 is one the platform refuses on this instance (`block_install`, or an `indicators`
 entry of type `error` such as `not_available_for_instance_type`); it can still
-report `can_install_or_upgrade=true`, so the block flags are checked before any
-lifecycle request.
+report `can_install_or_upgrade=true`.
 
-A submitted lifecycle request returns an asynchronous tracker id, and submission
-is not a completed installation. A tracker's terminal success is still verified
-by reading the installed version back from `sys_store_app`: a mismatch is a
-failure, and an unreadable record is reported as unverified rather than
-successful. An expired wait keeps the tracker id without cancelling or
-resubmitting, and a submission without a tracker id is an error that is never
-retried. Discovery and inspection are verified against a live instance; the
-install/update requests themselves are registered on the same API and remain
-unexercised from this repository.
+A tracker is not a result: `store status` reads the CI/CD tracker and reports
+`status_message` and `status_detail`, because `status_label` alone says nothing.
+A tracker id from the UI is readable whether or not this CLI produced it.
 
 The list endpoint is `POST /api/sn_appclient/appmanager/apps` — `GET` returns
 405 — and `store`'s positional is named `application`, never `app`, because

@@ -1,32 +1,24 @@
-// ServiceNow Store application discovery, inspection and explicit lifecycle
-// operations.
+// ServiceNow Store application discovery and inspection.
 //
 // Wire contract
 // -------------
-// The App Client REST surface used here is the one documented by the App
-// Client application itself (sn_appclient) and implemented by the reference
-// Store CLI named in issue #400 (sonisoft-cnanda/now-sdk-ext-cli):
+// Everything under /api/sn_appclient/appmanager is the App Client's scripted
+// REST service ("AppManager(Internal API)"). This module uses only the
+// read-only half of it, verified live:
 //
 //   POST /api/sn_appclient/appmanager/apps?tab_context=…&search_key=…
-//        &sysparm_limit=…&sysparm_offset=…   -> result.apps[]
+//        &sysparm_limit=…&sysparm_offset=…   -> result.apps[]   (GET returns 405)
 //   GET  /api/sn_appclient/appmanager/app/{app_sys_id} -> result.app_info_on_instance
-//   GET  /api/sn_appclient/appmanager/app/install?app_id=…&version=…
-//   GET  /api/sn_appclient/appmanager/app/update?app_id=…&version=…
 //   GET  /api/sn_cicd/progress/{tracker_id} -> result{status,percent_complete,…}
 //
-// This contract has NOT been verified against a live Store-entitled instance
-// from this repository: there is no such instance in CI and no way to obtain
-// one. Discovery/inspection is implemented and tested against a mock
-// transport; install/update are declared mutations behind the same contract
-// and are labelled unverified in the PR. A maintainer with a Store-entitled
-// instance must confirm the endpoints, the required roles, and the version
-// list shape before treating the mutation path as proven.
-//
-// The search endpoint is POST-shaped (an empty JSON body), but performs no
-// mutation. Read-only profiles may use it; `install`/`update` remain the only
-// declared mutation subcommands.
+// The lifecycle verbs (app/install, app/update) are NOT implemented here. They
+// were prototyped, dispatched successfully, and could never complete on the only
+// instance available: its own store credential returns 403, so the App
+// Repository download fails for every application. Shipping a mutation that has
+// never completed end-to-end is not worth it. See docs/store-applications.md for
+// what would have to be proven before adding them back.
 
-import { AppError, errAPI, errAmbiguous, errNotFoundHint, errUsage, errUsageHint } from './errors.js';
+import { AppError, errAmbiguous, errNotFoundHint, errUsage } from './errors.js';
 import { isSysId, unwrapSysId } from './resolve-record.js';
 
 /** Store tab contexts, as named by the App Client. */
@@ -38,15 +30,9 @@ export const STORE_TABS = {
 
 const APPS_PATH = '/api/sn_appclient/appmanager/apps';
 const APP_PATH = '/api/sn_appclient/appmanager/app';
-const INSTALL_PATH = '/api/sn_appclient/appmanager/app/install';
-const UPDATE_PATH = '/api/sn_appclient/appmanager/app/update';
 const PROGRESS_PATH = '/api/sn_cicd/progress';
 
 const INSTALLED_FIELDS = 'sys_id,name,scope,version,active,latest_version,install_date,update_date';
-const MAX_VERSION_ATTEMPTS = 6;
-const DEFAULT_VERIFY_INTERVAL_MS = 2000;
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /** Platform booleans arrive as true/false, 'true'/'false', or 1/0. */
 export const storeFlag = value => value === true || value === 'true' || value === 1 || value === '1';
@@ -67,16 +53,6 @@ export function boundedLimit(value = 20) {
 export function boundedOffset(value = 0) {
   if (!Number.isInteger(value) || value < 0) throw errUsage('--offset must be a nonnegative integer.');
   return value;
-}
-
-export function boundedTimeout(value = 1800) {
-  if (!Number.isFinite(value) || value < 1 || value > 14400) throw errUsage('--timeout must be from 1 to 14400 seconds.');
-  return Math.round(value);
-}
-
-export function boundedPoll(value = 5) {
-  if (!Number.isFinite(value) || value < 0 || value > 300) throw errUsage('--poll-interval must be from 0 to 300 seconds.');
-  return Math.round(value);
 }
 
 function requireIdentifier(value) {
@@ -338,162 +314,6 @@ export async function showApplication(sdk, identifier) {
   };
 }
 
-function assertOfferedVersion(detail, wanted, name) {
-  const offered = versionList(detail);
-  if (offered.length && !offered.includes(wanted)) {
-    throw new AppError('store_version_unavailable',
-      `${name || 'This application'} does not offer version ${wanted}.`,
-      `Versions the Store reported: ${offered.join(', ')}. Pass one of those with --version.`);
-  }
-  return offered;
-}
-
-function assertInstallable(detail, verb, name) {
-  if (!detail) return false;
-  const blocked = blockingIndicators(detail.indicators);
-  if (storeFlag(detail.block_install) || blocked.length) {
-    const reasons = blocked.map(item => item.message || item.tooltip).filter(Boolean).join('; ');
-    const flag = storeFlag(detail.block_install) ? 'block_install=true' : `indicator ${blocked.map(item => item.id).filter(Boolean).join(', ')}`;
-    throw new AppError('store_app_not_installable',
-      `The Store client blocks ${verb === 'install' ? 'installing' : 'updating'} ${name || 'this application'} on this instance${reasons ? `: ${reasons}` : '.'}`,
-      `Reported flags: ${flag}. This is the platform's own refusal for this instance; `
-      + 'an application can report can_install_or_upgrade=true and still be blocked here '
-      + '(for example not_available_for_instance_type on a developer instance). '
-      + `Run jsn store show ${name || '<application>'} to see the reported indicators, entitlement and compatibility fields.`);
-  }
-  if (detail.can_install_or_upgrade !== undefined && !storeFlag(detail.can_install_or_upgrade)) {
-    throw new AppError('store_app_not_installable',
-      `The Store client reports ${name || 'this application'} cannot be ${verb === 'install' ? 'installed' : 'updated'} by this account.`,
-      'Reported flags: can_install_or_upgrade=false. '
-      + 'The platform does not distinguish entitlement, licensing and compatibility as the cause, and jsn does not infer authorization to buy an application or accept commercial terms. '
-      + `Run jsn store show ${name || '<application>'} to see the entitlement and compatibility fields before asking a Store administrator.`);
-  }
-  return true;
-}
-
-async function resolvedForMutation(sdk, identifier) {
-  const target = await resolveApplication(sdk, identifier);
-  let detail = null;
-  let detailUnavailable = null;
-  try {
-    detail = await applicationDetail(sdk, target.sys_id);
-  } catch (error) {
-    if (error?.status === 403) detailUnavailable = 'forbidden';
-    else if (error?.status === 404) detailUnavailable = 'not_found';
-    else throw error;
-  }
-  if (!detail && !target.record && !target.summary) {
-    throw errNotFoundHint('store application', identifier,
-      'Neither the Store App Client nor the store application table returned this application. Search for it first: jsn store search "<term>".');
-  }
-  return { target, detail, detailUnavailable };
-}
-
-/** Resolve an exact app and version and describe the intended install. */
-export async function prepareInstall(sdk, identifier, { version, demoData = false } = {}) {
-  const { target, detail, detailUnavailable } = await resolvedForMutation(sdk, identifier);
-  const wanted = String(version ?? '').trim();
-  if (!wanted) {
-    throw errUsageHint('Provide the exact version to install with --version.',
-      'jsn store show <app> reports the versions the Store returned; jsn never picks one for you.');
-  }
-  const app = {
-    sys_id: target.sys_id,
-    name: detailName(detail, target.record, target.summary?.name),
-    scope: storeText(detail, 'scope') || storeText(target.record, 'scope') || target.summary?.scope || '',
-    vendor: storeText(detail, 'vendor') || target.summary?.vendor || null,
-  };
-  const installedVersion = storeFlag(detail?.isInstalled)
-    ? storeText(detail, 'version')
-    : (storeText(target.record, 'install_date') ? storeText(target.record, 'version') : '');
-  if (storeFlag(detail?.isInstalled) || installedVersion) {
-    throw new AppError('store_already_installed',
-      `${app.name || app.sys_id} is already installed${installedVersion ? ` at version ${installedVersion}` : ''}.`,
-      `Use an explicit update instead: jsn store update ${app.scope || app.sys_id} --version ${wanted}`);
-  }
-  const versions = assertOfferedVersion(detail, wanted, app.name);
-  const installable = assertInstallable(detail, 'install', app.name);
-  return {
-    operation: 'install',
-    app,
-    requested_version: wanted,
-    demo_data: Boolean(demoData),
-    installed_version: null,
-    versions: versions.length ? versions : null,
-    installable_checked: installable,
-    detail_unavailable: detailUnavailable,
-  };
-}
-
-/** Resolve an installed app and the exact version to update it to. */
-export async function prepareUpdate(sdk, identifier, { version } = {}) {
-  const { target, detail, detailUnavailable } = await resolvedForMutation(sdk, identifier);
-  const app = {
-    sys_id: target.sys_id,
-    name: detailName(detail, target.record, target.summary?.name),
-    scope: storeText(detail, 'scope') || storeText(target.record, 'scope') || target.summary?.scope || '',
-    vendor: storeText(detail, 'vendor') || target.summary?.vendor || null,
-  };
-  const installedVersion = storeFlag(detail?.isInstalled)
-    ? storeText(detail, 'version')
-    : (storeText(target.record, 'install_date') ? storeText(target.record, 'version') : '');
-  if (!storeFlag(detail?.isInstalled) && !installedVersion) {
-    throw new AppError('store_not_installed',
-      `${app.name || app.sys_id} is not installed on this instance.`,
-      `Install an exact version first: jsn store install ${app.scope || app.sys_id} --version <version>`);
-  }
-  const wanted = String(version ?? '').trim()
-    || storeText(detail, 'latest_version')
-    || storeText(detail, 'latest_version_display')
-    || '';
-  const versions = versionList(detail);
-  if (!wanted) {
-    throw errUsageHint('Provide the exact version to update to with --version.',
-      versions.length ? `Versions the Store reported: ${versions.join(', ')}.` : 'The Store returned no latest version or version list to choose from.');
-  }
-  if (wanted === installedVersion) {
-    throw new AppError('store_version_unchanged',
-      `${app.name || app.sys_id} is already at version ${wanted}.`,
-      `Pick a different target version${versions.length ? `: ${versions.join(', ')}` : ''}.`);
-  }
-  assertOfferedVersion(detail, wanted, app.name);
-  const installable = assertInstallable(detail, 'update', app.name);
-  return {
-    operation: 'update',
-    app,
-    requested_version: wanted,
-    from_version: installedVersion || null,
-    demo_data: false,
-    versions: versions.length ? versions : null,
-    installable_checked: installable,
-    detail_unavailable: detailUnavailable,
-  };
-}
-
-/** Submit the resolved operation and require a usable tracker id back. */
-export async function dispatchOperation(sdk, plan) {
-  const path = plan.operation === 'update' ? UPDATE_PATH : INSTALL_PATH;
-  const params = new URLSearchParams({ app_id: plan.app.sys_id, version: plan.requested_version });
-  if (plan.operation === 'install') params.set('load_demo_data', String(Boolean(plan.demo_data)));
-  const response = await sdk.request(`${sdk.baseURL}${path}?${params}`, { method: 'GET' });
-  const result = response?.result;
-  if (!result || typeof result !== 'object') {
-    throw errAPI(200, `The ${plan.operation} request returned no result, so the application state is unknown. Inspect the application before retrying.`);
-  }
-  const tracker = result.tracker_id || result.trackerId || result.links?.progress?.id;
-  if (!isSysId(String(tracker ?? ''))) {
-    throw new AppError('store_tracker_missing',
-      `The ${plan.operation} submission was accepted but returned no tracker id. This is not a completed installation.`,
-      'Inspect the application and its install/upgrade history before retrying; do not resubmit automatically.');
-  }
-  return {
-    tracker_id: String(tracker),
-    submitted_at: new Date().toISOString(),
-    provider_message: storeText(result, 'message') || null,
-  };
-}
-
-/** Read one progress tracker. Terminal is not the same as successful. */
 export async function operationStatus(sdk, trackerId) {
   const id = String(trackerId ?? '').trim();
   if (!isSysId(id)) throw errUsage('Use the full 32-character tracker id reported by jsn store install/update.');
@@ -533,56 +353,3 @@ export async function operationStatus(sdk, trackerId) {
  * An expired wait means the operation is still on the instance: the result
  * keeps the tracker id and says so, and nothing is cancelled or resubmitted.
  */
-export async function waitForOperation(sdk, trackerId, {
-  pollIntervalMs = 5000, timeoutMs = 1800_000, onProgress, now = Date.now, wait = sleep,
-} = {}) {
-  const startedAt = now();
-  let progress = await operationStatus(sdk, trackerId);
-  onProgress?.(progress);
-  while (!progress.terminal && now() - startedAt < timeoutMs) {
-    const remaining = timeoutMs - (now() - startedAt);
-    await wait(Math.max(0, Math.min(pollIntervalMs, remaining)));
-    progress = await operationStatus(sdk, trackerId);
-    onProgress?.(progress);
-  }
-  return { ...progress, wait_timed_out: !progress.terminal };
-}
-
-/**
- * Read the installed record back after a reported success. A reported success
- * is not a completed installation until the instance shows the version.
- *
- * verified: true  — readback shows the requested version
- * verified: false — readback shows a different version (or no record)
- * verified: null  — the record could not be read, so nothing is claimed
- */
-export async function verifyInstalledVersion(sdk, { sys_id: sysId }, expectedVersion, {
-  attempts = MAX_VERSION_ATTEMPTS, intervalMs = DEFAULT_VERIFY_INTERVAL_MS, wait = sleep,
-} = {}) {
-  let record = null;
-  let readable = false;
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    try {
-      record = await sdk.get('sys_store_app', sysId);
-      readable = true;
-    } catch (error) {
-      if (error?.status !== 403 && error?.status !== 404) throw error;
-      readable = false;
-      record = null;
-    }
-    if (readable && record && storeText(record, 'version') === expectedVersion) break;
-    if (attempt < attempts - 1 && intervalMs > 0) await wait(intervalMs);
-  }
-  if (!readable) {
-    return { verified: null, expected_version: expectedVersion, installed_version: null, source: 'sys_store_app', reason: 'readback_unavailable' };
-  }
-  const installed = storeText(record, 'version');
-  return {
-    verified: Boolean(record) && installed === expectedVersion,
-    expected_version: expectedVersion,
-    installed_version: installed || null,
-    active: record ? storeFlag(record.active) : null,
-    source: 'sys_store_app',
-    reason: !record ? 'record_missing' : (installed === expectedVersion ? 'version_confirmed' : 'version_mismatch'),
-  };
-}
