@@ -227,6 +227,35 @@ existing reference representation. No engine operation spawns another CLI.
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,
 > `catalog.js`.
 
+## Record watch
+
+`jsn records watch` observes one record through an AMB record-watcher
+subscription instead of polling the table. `src/amb.js` owns the protocol
+(ServiceNow's `/amb` endpoint speaks Bayeux/CometD long-polling, not
+socket.io, so no transport dependency is added) and event normalization;
+`src/record-watch.js` owns the observation session — bounds, cancellation,
+state fetching, reconnect backoff and gap reporting.
+
+A **record-watch event** is what the notification itself carried: table,
+record identity, operation and any change list or embedded record. A
+**fetched state** is a separate follow-up read attached as `event.state`
+with `source: "fetched"`; it is never merged into the notification, and a
+failed read becomes `state_error` rather than changing the event. The
+default `auto` policy fetches only when the notification lacks detail.
+
+A **gap** is the window between a dropped connection and a successful
+re-subscription. Record watchers are best-effort delivery: the platform does
+not replay missed events, so the stream reports the gap (and the summary
+reports `complete: false`) instead of implying a continuous history.
+Observation is bounded by `--timeout` seconds or `--max-events`; Ctrl+C
+unsubscribes and disconnects. Scheduling, retries across runs and user
+notification belong to the calling agent/runtime.
+
+AMB authorizes like a browser session: it needs session cookies and
+X-UserToken, not a bearer or Basic header. `SDKClient.ambSession()` supplies
+them from a gck credential or a warmed UI session, and fails with recovery
+guidance when the profile cannot produce one. Watch is read-only.
+
 ## Record command profiles
 
 `src/record-command-profiles.js` owns table/alias/default-column, identifier,

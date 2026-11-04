@@ -413,6 +413,35 @@ Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
 
+## Record watching uses AMB's Bayeux long-poll, not socket.io (2026-11-04)
+
+Issue #396 asks agents to observe one record instead of polling it. ServiceNow's
+AMB endpoint (`/amb`) is CometD/Bayeux: JSON message arrays POSTed to
+`/amb/handshake` once and `/amb/connect` for subscribe and long-poll. That is
+implemented directly with `fetch`, so no socket.io or WebSocket dependency is
+added and the protocol stays testable against a local mock. The record-watcher
+channel name is `/rw/<actionPrefix>/<table>/<base64(query)>` with `=` padding
+replaced by `-`.
+
+AMB authorizes like a browser session (cookies plus X-UserToken), so the command
+requires a credential that can produce a UI session. `SDKClient.ambSession()`
+makes that requirement explicit and reports recovery guidance when a
+bearer-only profile cannot satisfy it, rather than pretending REST auth works.
+
+Delivery is best effort. A reconnect re-subscribes the channel and reports the
+gap; missed events are neither replayed nor claimed. Observation is bounded by
+`--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
+and user notification stay with the calling agent.
+
+Only a single-record subscription ships. Filtered table subscriptions are
+deferred until platform support and access behavior are validated on a live
+instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
+ack, cross-session delivery and the notification shape: the platform sends a
+`record` map of changed fields plus `sys_*` audit fields, not a `changes`
+array, and it omits `table`/`sys_id` (the subscription supplies them). Human
+output renders those changed fields. ACL denial with a non-admin identity,
+create/delete payloads and a real reconnect gap remain unverified.
+
 ## Table behavior mirrors the platform's Configurations inventory (2026-11-04)
 
 `jsn tables behavior` reports the families an administrator checks before changing

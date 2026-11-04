@@ -2,7 +2,7 @@
 
 import { batchRead } from './sdk-batch.js';
 import { gunzipSync } from 'node:zlib';
-import { AppError, CodeAPI, CodeAuth, errAuth, errAPI, errNetwork, errUsage } from './errors.js';
+import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
@@ -972,6 +972,40 @@ export class SDKClient {
     }
 
     return variables;
+  }
+
+  /**
+   * Session material for channels that authorize like a browser (AMB).
+   *
+   * AMB does not accept bearer/basic headers on subscribe; it needs the
+   * cookies and X-UserToken of a UI session. gck credentials already carry
+   * them; basic/oauth profiles obtain them by warming the same session the
+   * SDK uses for UI calls. A bearer-token profile that cannot warm a session
+   * is an actionable error, never a silent fallback.
+   */
+  async ambSession() {
+    if (!this.authProvider) throw errAuth('No authentication configured');
+    const creds = await this.authProvider.getCredentials();
+    if (!creds) throw errAuth('No valid credentials');
+    if (creds.auth_method === 'gck') {
+      if (!creds.cookies) {
+        throw errAuthHint('This gck credential has no session cookies, so AMB cannot open a channel.',
+          'Re-import the browser session: jsn auth login --browser');
+      }
+      return { cookies: creds.cookies, userToken: creds.access_token || '', authMethod: 'gck' };
+    }
+    if (creds.auth_method === 'basic' || creds.auth_method === 'token' || creds.auth_method === 'oauth') {
+      const cookies = await this._warmSession();
+      if (!cookies) {
+        throw errAuthHint(
+          `${creds.auth_method} credentials could not open a UI session, which AMB requires.`,
+          'Record watching needs a browser session. Run "jsn auth login --browser" and use that profile, or ask an administrator whether AMB is enabled for this account.',
+        );
+      }
+      return { cookies, userToken: this.sessionUserToken || '', authMethod: creds.auth_method };
+    }
+    throw errAuthHint(`Authentication method "${creds.auth_method}" cannot open an AMB session.`,
+      'Use a browser-session (gck) profile: jsn auth login --browser');
   }
 
   async _warmSession() {

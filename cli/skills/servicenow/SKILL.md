@@ -4,7 +4,7 @@ description: Use the jsn CLI for ServiceNow development, administration, and dat
 license: MIT
 metadata:
   author: jacebenson
-  version: "4.3.13"
+  version: "4.3.14"
   repository: https://github.com/jacebenson/jsn
 ---
 
@@ -27,6 +27,16 @@ For development:
 4. Offer to run relevant existing ATFs and instance scans, or create missing checks.
 5. Ask whether anything else belongs in the update set. If the user confirms
    it is finished, complete it with notes.
+
+Tracking a record: when the user asks to track, watch or be told about changes
+to an incident, task, change request or other record, use
+`jsn records watch --table <table> --sys-id <id> --timeout <seconds> --json`.
+It streams newline-delimited JSON (`record_change`, `gap`, `watch_summary`),
+so run it for a bounded window and report what arrived; schedules and user
+notifications belong to your runtime, not to the command. Use `--max-events 1`
+for a single-change check. A `gap` or `"complete": false` means events were
+missed — read the record's current state rather than assuming continuity.
+Watching needs a browser session (`jsn auth login --browser`).
 
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
