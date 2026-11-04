@@ -1,7 +1,9 @@
 import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
-import { unwrapSysId } from '../resolve-record.js';
+import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { errUsage } from '../errors.js';
+import { AmbClient } from '../amb.js';
+import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
@@ -195,6 +197,98 @@ export function recordsCmd(wrap) {
               summary: `${records.length} record(s) from ${table}${total != null ? ` of ${total}` : ''}`,
               breadcrumbs,
             });
+          }),
+        })
+        .command({
+          command: 'watch',
+          describe: 'Stream change events for one record through ServiceNow AMB record watchers',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('sys-id', { type: 'string', describe: 'Record sys_id' })
+            .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
+            .option('timeout', { type: 'number', default: 0, describe: 'Stop after this many seconds (0 = until interrupted)' })
+            .option('max-events', { type: 'number', default: 0, describe: 'Stop after this many change events (0 = unlimited)' })
+            .option('state', { type: 'string', choices: ['auto', 'always', 'never'], default: 'auto', describe: 'Fetch current record state after an event: auto (only when the notification lacks detail), always, never' })
+            .option('fields', { type: 'string', describe: 'Comma-separated fields for the fetched state (default all readable fields)' })
+            .option('reconnect', { type: 'boolean', default: true, describe: 'Reconnect after a dropped connection and report the gap; use --no-reconnect to fail fast' })
+            .option('poll-timeout', { type: 'number', default: 60000, describe: 'Long-poll hold timeout in milliseconds (advanced)' })
+            .epilogue([
+              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped.',
+              'The notification is emitted as the event; a fetched record is attached separately as event.state (source: "fetched").',
+              'Record watchers are best effort: after a reconnect the stream reports a gap and does not replay missed events.',
+              'Requires an interactive ServiceNow session (jsn auth login --browser). Not a durable queue or scheduler.',
+              'Example: jsn records watch --table incident --sys-id <sys_id> --timeout 300 --json',
+              'Example: jsn records watch --table incident --identifier INC0010001 --identifier-field number --max-events 1 --json',
+            ].join('\n')),
+          handler: wrap(async (argv, app) => {
+            const lookup = recordLookup(argv);
+            const record = await resolveRecord(app.sdk, { ...lookup, fields: ['sys_id'] });
+            const sysID = unwrapSysId(record);
+            if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            const stateFields = argv.fields ? argv.fields.split(',').filter(Boolean) : null;
+
+            const controller = new AbortController();
+            const cancel = () => controller.abort();
+            process.once('SIGINT', cancel);
+            process.once('SIGTERM', cancel);
+
+            const emit = (data, line) => app.output.writeEvent(data, { line });
+            const formatEventLine = event => {
+              if (event.type === 'record_change') {
+                const id = event.display_value || event.sys_id;
+                const changes = (event.changes || [])
+                  .map(c => `${c.field}: ${c.previous_value ?? '?'} → ${c.display_value ?? c.value ?? '?'}`)
+                  .join(', ');
+                return `${event.received_at} ${event.table} ${id} ${event.operation}${changes ? ` — ${changes}` : ''}`;
+              }
+              if (event.type === 'gap') return `⚠ connection gap since ${event.since}: ${event.reason} (events in this window were not observed)`;
+              if (event.type === 'reconnected') return `⚠ reconnected after ${event.gaps} gap(s); missed events are not replayed`;
+              if (event.type === 'watch_summary') {
+                return `watch ended (${event.reason}) — ${event.events} event(s), ${event.gaps} gap(s), ${Math.round(event.duration_ms / 1000)}s`;
+              }
+              if (event.type === 'subscribed') return `watching ${event.channel}`;
+              return `${event.type}: ${event.channel || ''}`;
+            };
+            const onStatus = status => emit(status, formatEventLine(status));
+            const onEvent = async event => emit(event, formatEventLine(event));
+
+            const fetchState = async () => {
+              const params = new URLSearchParams({
+                sysparm_query: `sys_id=${sysID}`,
+                sysparm_limit: '1',
+                sysparm_display_value: 'all',
+              });
+              if (stateFields) params.set('sysparm_fields', [...new Set(['sys_id', ...stateFields])].join(','));
+              const rows = await app.sdk.list(argv.table, params);
+              return rows[0] ?? null;
+            };
+
+            const client = new AmbClient({
+              baseUrl: app.getEffectiveInstance(),
+              session: () => app.sdk.ambSession(),
+              connectTimeoutMs: argv['poll-timeout'] ?? argv.pollTimeout,
+            });
+
+            try {
+              const summary = await watchRecord({
+                client,
+                table: argv.table,
+                sysID,
+                timeoutMs: argv.timeout > 0 ? argv.timeout * 1000 : 0,
+                maxEvents: argv['max-events'] ?? argv.maxEvents,
+                signal: controller.signal,
+                statePolicy: argv.state,
+                fetchState,
+                reconnect: argv.reconnect !== false,
+                onStatus,
+                onEvent,
+              });
+              emit(summary, formatEventLine(summary));
+            } finally {
+              process.removeListener('SIGINT', cancel);
+              process.removeListener('SIGTERM', cancel);
+            }
           }),
         })
         .command({

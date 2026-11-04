@@ -54,6 +54,11 @@ export function errAuth(msg) {
   return new AppError(CodeAuth, msg, 'Run: jsn auth login');
 }
 
+/** Authentication failure with domain-specific recovery guidance. */
+export function errAuthHint(msg, hint) {
+  return new AppError(CodeAuth, msg, hint);
+}
+
 export function errForbidden(msg) {
   return new AppError(CodeForbidden, msg, '', 403);
 }

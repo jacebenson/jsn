@@ -371,3 +371,27 @@ empty. GitHub remains authoritative for revision checks and incremental updates.
 Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
+
+## Record watching uses AMB's Bayeux long-poll, not socket.io (2026-11-04)
+
+Issue #396 asks agents to observe one record instead of polling it. ServiceNow's
+AMB endpoint (`/amb`) is CometD/Bayeux: JSON message arrays POSTed to
+`/amb/handshake` once and `/amb/connect` for subscribe and long-poll. That is
+implemented directly with `fetch`, so no socket.io or WebSocket dependency is
+added and the protocol stays testable against a local mock. The record-watcher
+channel name is `/rw/<actionPrefix>/<table>/<base64(query)>` with `=` padding
+replaced by `-`.
+
+AMB authorizes like a browser session (cookies plus X-UserToken), so the command
+requires a credential that can produce a UI session. `SDKClient.ambSession()`
+makes that requirement explicit and reports recovery guidance when a
+bearer-only profile cannot satisfy it, rather than pretending REST auth works.
+
+Delivery is best effort. A reconnect re-subscribes the channel and reports the
+gap; missed events are neither replayed nor claimed. Observation is bounded by
+`--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
+and user notification stay with the calling agent.
+
+Only a single-record subscription ships. Filtered table subscriptions are
+deferred until platform support and access behavior are validated on a live
+instance; the acceptance test in this change is mock-level.
