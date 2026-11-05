@@ -1,0 +1,22 @@
+{
+  "commit": "43f86e8",
+  "note": "Bytes produced by main at the PR merge base (43f86e8). Regenerate when the command surface or help layout intentionally changes.",
+  "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
+  "bytes": {
+    "help": 11950,
+    "json": 114888,
+    "quiet": 11950,
+    "csv": 11950,
+    "markdown": 11950,
+    "get": 11950
+  },
+  "sha256": {
+    "help": "21069881c8f54f554e843e70c717fd8dc7984257917e63afd7e98900a57a2fb1",
+    "json": "5ead8b90f240f733e03d4cb822f24a17bd895f3063934e7441a4d96691ec93c3",
+    "quiet": "21069881c8f54f554e843e70c717fd8dc7984257917e63afd7e98900a57a2fb1",
+    "csv": "21069881c8f54f554e843e70c717fd8dc7984257917e63afd7e98900a57a2fb1",
+    "markdown": "21069881c8f54f554e843e70c717fd8dc7984257917e63afd7e98900a57a2fb1",
+    "get": "21069881c8f54f554e843e70c717fd8dc7984257917e63afd7e98900a57a2fb1"
+  },
+  "json_command_count": 86
+}

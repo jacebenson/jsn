@@ -469,3 +469,42 @@ ordering phases are de-duplicated by `sys_id`.
 Flow coverage is record triggers only. Flow templates and timer/catalog/REST/SLA
 triggers have no table-scoped join exposed by the platform, so they are reported
 as `unsupported` with the trigger type named rather than matched by text.
+
+## First-run welcome orients above help, once (2026-11-04)
+
+Issue #387 adds a short orientation before setup: bare `jsn` on a fresh
+installation prints a few next steps and then the existing grouped help,
+unchanged. It is not a connection wizard and never starts an auth or instance
+operation, so setup and authentication stay optional until a command needs
+ServiceNow.
+
+What it says (12 lines maximum at 80 columns, plain ASCII):
+`jsn setup` (first connection plus defaults, interactive) and
+`jsn auth login <instance>` (one connection, scriptable, no wizard) as the two
+ways in; `jsn --help` for the command list; `jsn docs search <query>` for
+ServiceNow documentation; `jsn skill install` for the agent skill file. It also
+names where config lives (`<config dir>/config.json`, resolved the same way the
+CLI resolves it), the installed version (read from the packaged `package.json`,
+never from the network), `jsn upgrade`, that it prints once, and
+`JSN_NO_WELCOME=1`.
+
+It is shown at most once, recorded by a `.welcomed` marker in the XDG config dir
+(the same directory the daily-check markers use, mode 0600). The marker is
+claimed **exclusively** before anything is printed: the stamp is written to a
+temp file and hard-linked into place, so two first runs racing on one config
+dir produce one note, one complete marker, and no partial writes. A filesystem
+without hard links falls back to exclusive create. A read-only config dir does
+not fail the command: the note still prints, and it may appear again next run.
+
+It is skipped for machine-readable and piped output (`--json`, `--quiet`,
+`--csv`, `--markdown`, `--get`, non-TTY), for agent/CI environments, for
+`TERM=dumb`, and for installations that already have a connection. A skipped
+run does not write the marker, so piping help once does not consume the welcome.
+`JSN_NO_WELCOME` suppresses it only as the literal value `1`; `0`, empty and
+unset all mean normal first-run behavior. `--help`, `docs` commands, and every
+other command are unaffected.
+
+The note is width-aware: it wraps descriptions under the command on narrow
+terminals and never truncates or splits a command name. An interrupted first run
+(Ctrl-C) leaves either no marker and no note, or a complete marker and at most
+a partial note - never a complete note the marker does not record.
