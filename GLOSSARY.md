@@ -453,9 +453,11 @@ by reading the installed version back from `sys_store_app`: a mismatch is a
 failure, and an unreadable record is reported as unverified rather than
 successful. An expired wait keeps the tracker id without cancelling or
 resubmitting, and a submission without a tracker id is an error that is never
-retried. Discovery and inspection are verified against a live instance; the
-install/update requests themselves are registered on the same API and remain
-unexercised from this repository.
+retried. Discovery and inspection are verified against a live instance. The lifecycle
+requests were dispatched there too — every one accepted, every one killed by the
+instance's own 403 on the App Repository download — so the request shape is
+proven and completion is not. They ship because that contract is the one the
+published OpenAPI and the reference implementation both use.
 
 The list endpoint is `POST /api/sn_appclient/appmanager/apps` — `GET` returns
 405 — and `store`'s positional is named `application`, never `app`, because

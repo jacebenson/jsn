@@ -264,6 +264,21 @@ Side effects to clean up by hand: each failed install leaves an inert
 (nine of them here). Failed updates change nothing — every attempted app is
 still on its original version.
 
+## Why it ships anyway
+
+The contract is not in doubt: the parameters come from the live operation
+registry, from ServiceNow's published OpenAPI for the service, and from the
+instance's own record of what it received. The reference implementation named in
+issue #400 (`sonisoft-cnanda/now-sdk-ext-core`) ships the same two endpoints with
+the same `app_id`/`version` parameters and the same tracker polling, so this is
+the shape the ecosystem uses.
+
+The one thing missing is an instance that can download a package. That is an
+environment fault — this instance's own store credential returns 403 — not a
+defect in the request. `install` and `update` therefore ship, with the failure
+mode documented and the preflight refusals tested, and with the unverified part
+stated plainly rather than implied.
+
 ## What is still unverified
 
 1. A **successful** install or update. Twenty requests were dispatched across

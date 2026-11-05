@@ -286,7 +286,7 @@ export function storeCmd(wrap) {
       })
       .command({
         command: 'install <application>',
-        describe: 'Install an exact Store application version (declared mutation; unverified against a live Store)',
+        describe: 'Install an exact Store application version (declared mutation; contract verified, completion unverified)',
         builder: p => waitOptions(appOption(p))
           .option('version', { type: 'string', describe: 'Exact version to install (required)' })
           .option('demo-data', { type: 'boolean', default: false, describe: 'Load demo data during installation' }),
@@ -294,7 +294,7 @@ export function storeCmd(wrap) {
       })
       .command({
         command: 'update <application>',
-        describe: 'Update an installed Store application to an exact version (declared mutation; unverified against a live Store)',
+        describe: 'Update an installed Store application to an exact version (declared mutation; contract verified, completion unverified)',
         builder: p => waitOptions(appOption(p))
           .option('version', { type: 'string', describe: 'Exact target version; defaults to the reported latest_version' }),
         handler: wrap(async (argv, app) => runLifecycle(argv, app, 'update')),
