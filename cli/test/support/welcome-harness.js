@@ -17,14 +17,30 @@ export const RACE_CHILD = path.resolve('test/support/welcome-race-child.js');
 export const FIXTURE_DIR = path.resolve('test/fixtures/first-run');
 
 /**
- * Baseline environment for a spawned jsn: the daily npm/skill checks are real
- * network calls and must stay out of a first-run test.
+ * Environment markers that make jsn decide "no human is here". A first-run test
+ * must not inherit them from the machine that happens to be running the suite:
+ * on GitHub Actions `CI` and `GITHUB_ACTIONS` are already set, so a PTY run
+ * there would be a CI run, not a first run, and the note would never appear.
+ * Tests that want these markers set them explicitly.
  */
-export const BASE_ENV = {
-  ...process.env,
-  JSN_NO_VERSION_CHECK: '1',
-  JSN_NO_SKILL_CHECK: '1',
-};
+const HUMAN_ONLY_SCRUB = [
+  'CI', 'GITHUB_ACTIONS', 'NONINTERACTIVE', 'JSN_NO_PROMPTS', 'JSN_NO_WELCOME',
+  'NO_COLOR', 'TERM',
+  'CLAUDE_CODE', 'COPILOT_AGENT', 'VSCODE_AGENT', 'CURSOR_AGENT', 'CODEX_AGENT',
+  'GITHUB_COPILOT_AGENT',
+];
+
+/**
+ * Baseline environment for a spawned jsn: a human terminal with no inherited
+ * suppression, and the daily npm/skill checks (real network calls) turned off.
+ */
+export const BASE_ENV = (() => {
+  const env = { ...process.env };
+  for (const key of HUMAN_ONLY_SCRUB) delete env[key];
+  env.JSN_NO_VERSION_CHECK = '1';
+  env.JSN_NO_SKILL_CHECK = '1';
+  return env;
+})();
 
 export const WELCOME_HEADLINE = 'Welcome to jsn';
 
