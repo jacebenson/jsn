@@ -252,6 +252,8 @@ for (const mode of ['no-tty', 'json', 'quiet', 'csv', 'markdown', 'get', 'CI', '
         const envelope = JSON.parse(json);
         assert.equal(envelope.profile, 'selected'); assert.equal(envelope.status, 401);
         assert.equal(envelope.recovery, error.recovery);
+        assert.equal(envelope.recapture_required, true,
+          'the machine envelope must carry the recapture marker, not only the in-process error');
         assert.equal(envelope.ok, false);
         return true;
       });
