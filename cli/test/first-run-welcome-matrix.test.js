@@ -166,7 +166,12 @@ describe('first-run welcome matrix (issue #387)', () => {
     const noColor = runPty(freshConfigHome('jsn-color-b-').dir, [], { columns: 80, env: { NO_COLOR: '1' } });
     assert.ok(!hasAnsi(plain.output), 'the note and help must not emit escapes on a TTY');
     assert.ok(!hasAnsi(noColor.output), 'NO_COLOR output must not contain escapes');
-    assert.deepStrictEqual(welcomeBlock(noColor.output), welcomeBlock(plain.output),
+    // The two runs use different throwaway config dirs, so the "Config:" line
+    // legitimately differs; every other line must be identical.
+    const wording = (output) => welcomeBlock(output).filter((line) => !line.startsWith('Config: '));
+    assert.strictEqual(welcomeBlock(noColor.output).filter((line) => line.startsWith('Config: ')).length, 1,
+      'the note always says where config lives');
+    assert.deepStrictEqual(wording(noColor.output), wording(plain.output),
       'NO_COLOR must not change the wording');
     assert.ok(hasWelcome(noColor.output), 'NO_COLOR must not hide the note');
 
