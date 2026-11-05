@@ -6,7 +6,7 @@ const BASIC_COMMANDS = new Set([
   'groups', 'groupmembers', 'grouproles', 'users', 'setup', 'auth', 'skill',
   'cmdb',
   'version', 'upgrade', 'docs', 'history', 'discover', 'completion',
-  'catalogitems',
+  'catalogitems', 'cases',
 ]);
 
 export async function detectCommandAudience(sdk, username, instanceURL = sdk?.baseURL) {

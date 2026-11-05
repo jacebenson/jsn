@@ -1,0 +1,168 @@
+Usage: jsn <command> [options]
+
+Command-line interface for ServiceNow
+
+
+CORE
+──────────────────────────────────────────────────
+  jsn knowledge       Search and read knowledge articles through the Knowledge API (kb)
+  jsn incidents       Manage incidents (e.g. "incidents list --query priority=1") (incident)
+  jsn changes         Manage changes (e.g. "changes list --query priority=1") (change_request)
+  jsn requests        Manage requests (e.g. "requests list --query priority=1") (sc_req_item)
+  jsn tasks           Manage tasks (e.g. "tasks list --query priority=1") (sc_task)
+  jsn tickets         Query generic tickets (e.g. "tickets list --query active=true") (ticket)
+  jsn approvals       Manage approval requests (list, approve, reject, submit, history)
+
+AUTOMATION
+──────────────────────────────────────────────────
+
+  ── Async ──
+  jsn flows           Manage Flow Designer flows (flow)
+  jsn actions         Flow Designer actions: create, edit full definitions, and test with outputs (action)
+  jsn scriptactions   Manage scriptactions (e.g. "scriptactions list --query nameLIKEincident") (scriptaction)
+  jsn scheduledjobs   Manage scheduledjobs (e.g. "scheduledjobs list --query nameLIKEincident") (scheduledjob)
+  jsn triggers        Manage triggers (e.g. "triggers list --query nameLIKEincident") (trigger)
+  jsn asyncrules      Manage asyncrules (e.g. "asyncrules list --query nameLIKEincident") (asyncrule)
+
+  ── In Memory ──
+  jsn rules           Manage rules (e.g. "rules list --query nameLIKEincident") (rule)
+  jsn decisiontables  Manage decision tables (decisiontable)
+  jsn assignments     Manage assignments (e.g. "assignments list --query nameLIKEincident") (assignment)
+
+  ── Inbound ──
+  jsn scrapi          Manage Scripted REST APIs (list/show operations, create full APIs with resources) (scripted-rest)
+  jsn email           Manage email (e.g. "email list --query nameLIKEincident") (emails)
+
+  ── Outbound ──
+  jsn restmessage     Manage restmessage (e.g. "restmessage list --query nameLIKEincident") (rm)
+  jsn soapmessages    Manage soapmessages (e.g. "soapmessages list --query nameLIKEincident") (soapmsg)
+
+ACCESS
+──────────────────────────────────────────────────
+  jsn acls            Manage acls (e.g. "acls list --query nameLIKEincident") (acl)
+  jsn b4rules         Inspect before-query business rules that can filter record reads (b4rule)
+  jsn roles           Manage roles (e.g. "roles list --query nameLIKEincident") (role)
+  jsn privileges      Manage privileges (e.g. "privileges list --query nameLIKEincident") (privilege)
+  jsn aliases         Manage aliases (e.g. "aliases list --query nameLIKEincident") (alias)
+  jsn groups          Manage ServiceNow groups (group)
+  jsn groupmembers    Manage group memberships (groupmember)
+  jsn grouproles      Manage group roles (grouprole)
+  jsn users           Manage ServiceNow users (user)
+
+USER EXPERIENCE
+──────────────────────────────────────────────────
+
+  ── Shared (across all experiences) ──
+  jsn forms           Manage UI Forms (form)
+  jsn lists           List views for a table (list-layout)
+  jsn clientscripts   Manage clientscripts (e.g. "clientscripts list --query nameLIKEincident") (clientscript)
+  jsn uipolicies      Manage uipolicies (e.g. "uipolicies list --query nameLIKEincident") (uipolicy)
+  jsn uiactions       Manage uiactions (e.g. "uiactions list --query nameLIKEincident") (uiaction)
+  jsn views           Manage views (e.g. "views list --query nameLIKEincident") (view)
+  jsn catalogitems    Manage Service Catalog items (ci)
+  jsn catalogscripts  Manage catalogscripts (e.g. "catalogscripts list --query nameLIKEincident") (catalogscript)
+  jsn cataloguipoliciesManage cataloguipolicies (e.g. "cataloguipolicies list --query nameLIKEincident") (cataloguipolicy)
+
+  ── Core UI ──
+  jsn uipages         Manage uipages (e.g. "uipages list --query nameLIKEincident") (ui-page)
+  jsn uimacros        Manage uimacros (e.g. "uimacros list --query nameLIKEincident") (uimacro)
+  jsn listcontrols    Manage listcontrols (e.g. "listcontrols list --query nameLIKEincident") (listcontrol)
+
+  ── Service Portal ──
+  jsn sppages         Manage sppages (e.g. "sppages list --query nameLIKEincident") (sp-pages)
+  jsn spwidgets       Manage spwidgets (e.g. "spwidgets list --query nameLIKEincident") (sp-widget)
+
+  ── Next Experience (Workspaces) ──
+  jsn uxscripts       Manage uxscripts (e.g. "uxscripts list --query nameLIKEincident") (uxscript)
+  jsn uxlists         Manage uxlists (e.g. "uxlists list --query nameLIKEincident") (uxlist)
+  jsn uxapplicability Manage uxapplicability (e.g. "uxapplicability list --query nameLIKEincident") (uxapp)
+
+  ── Navigation ──
+  jsn appmenu         Manage appmenu (e.g. "appmenu list --query nameLIKEincident") (app-menu)
+  jsn appmodules      Manage appmodules (e.g. "appmodules list --query nameLIKEincident") (appmodule)
+
+DATA
+──────────────────────────────────────────────────
+
+  ── DB Schema ──
+  jsn tables          Manage tables (e.g. "tables list --query nameLIKEincident") (table)
+  jsn columns         Manage columns (e.g. "columns list --query nameLIKEincident") (column)
+  jsn relationships   Manage relationships (e.g. "relationships list --query nameLIKEincident") (relationship)
+  jsn cmdb            Query the Configuration Management Database (CMDB) — CIs and relationship traversal (read-only)
+
+  ── Shared Code, Transforms, Logs ──
+  jsn includes        Manage includes (e.g. "includes list --query nameLIKEincident") (include)
+  jsn import          Manage import (e.g. "import list --query nameLIKEincident") (imports)
+  jsn logs            Query system logs (log)
+  jsn properties      Manage properties (e.g. "properties list --query nameLIKEincident") (property)
+  jsn records         Query and manage records in any table (e.g. "records list --table incident --query priority=1")
+  jsn transactions    Summarize syslog_transaction response times by transaction type
+  jsn snippets        Save and re-run named query snippets (stored locally, no instance contact except run)
+
+CONFIGURATION
+──────────────────────────────────────────────────
+  jsn setup           Set up JSN defaults and manage ServiceNow connections (interactive)
+  jsn auth            Manage authentication (OAuth, Basic, or browser session)
+  jsn updatesets      Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes. (updateset)
+  jsn scopes          Manage application scopes (scope)
+  jsn midservers      Manage ServiceNow MID Servers and run commands through them (midserver)
+  jsn platform        Inspect read-only platform health and node statistics
+  jsn completion      Generate shell completion script
+
+DEVELOPER
+──────────────────────────────────────────────────
+  jsn scan            Instance Scan checks, suites, explicit targets, progress and findings
+  jsn atf             Automated Test Framework (list, suites, run, results)
+  jsn eval            Execute background scripts on the instance (--repl for interactive mode)
+  jsn rest            Make raw REST API calls
+  jsn graphql         Execute a GraphQL document against ServiceNow Now GraphQL
+  jsn codesearch      Search code across ServiceNow artifacts (script includes, business rules, client scripts, ...)
+  jsn docs            Search ServiceNow documentation (hosted by default; configure your service in setup)
+  jsn diff            Compare records across configured profiles (read-only)
+  jsn perf            Capture and compare read-only ServiceNow performance summaries (performance)
+  jsn skill           Manage the jsn AI agent skill file (for Hermes, Claude Code, Cursor, etc.)
+  jsn version         Show version information
+
+MORE
+──────────────────────────────────────────────────
+  jsn cases           List, show or search service and HR cases visible to the connected account (case)
+  jsn attachments     List, download and upload files attached to any record (attachment)
+  jsn store           Discover ServiceNow Store applications, inspect versions and entitlement, and request explicit installs/updates
+  jsn skipped-updates Review and process existing unresolved skipped updates across all upgrade history
+  jsn history         Local seven-day mutation history (not a durable ServiceNow audit)
+  jsn customizations  Capture and compare read-only customization evidence locally
+  jsn upgrade         Upgrade jsn through npm (preserves the installed release channel) (update)
+  jsn discover        Find commands by words in their names, aliases, descriptions, or configured table
+
+
+FLAGS
+  --all-commands          Show the full command list, including admin and developer tools [boolean]
+  --reason                Optional non-sensitive reason saved in local mutation history [string]
+  --force                 Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation [boolean]
+  -i, --instance          ServiceNow instance URL [string]
+  -p, --profile           Configuration profile to use [string]
+  --format                Output format: auto, json, markdown, styled, quiet, csv [string: auto, json, markdown, styled, quiet, csv]
+  --json                  Output in JSON format (shortcut for --format=json) [boolean]
+  --csv                   Output in CSV format (shortcut for --format=csv) [boolean]
+  --get                   Extract a JSON path from the output envelope (e.g. --get "data.records.0.number"); no jq needed [string]
+  -q, --quiet             Output only data, no envelope (shortcut for --format=quiet) [boolean]
+  --styled                Force styled output even when piped [boolean]
+  --markdown              Output in Markdown table format [boolean]
+  --help                  Show help [boolean]
+
+TIPS
+  Show every command, including admin and developer tools: "jsn --all-commands --help"
+  Command visibility follows the selected profile at authentication; explicit commands still use ServiceNow ACLs.
+  Find commands by task words: "jsn discover catalog"; by configured table: "jsn discover --table incident"
+  Cross-table task searches and custom tables: "jsn records list --help"
+  Specialized commands offer configured columns, lookup, and table-specific views; inspect discovery results for details
+  Raw endpoints when needed: "jsn rest --help"; examples and intent guidance: "jsn discover --help"
+  Use "jsn <command> --help" for details, or "jsn <command> list --help" for list options
+  "jsn --json" prints the registered command surface as JSON for scripts and agents
+
+LEARN MORE
+  Some list commands offer a picker in an interactive terminal with automatic output.
+  Arrow keys browse (10 visible items); type to search; scroll to load more; Enter selects; Esc cancels.
+  Picker eligibility and search fields vary by command. Explicit output formats (including --json) skip pickers.
+  Use "jsn <command> --help" for more information about a command.
+

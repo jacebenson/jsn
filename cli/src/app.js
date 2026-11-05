@@ -141,6 +141,10 @@ export class App {
 
     const scopeFormatted = `[${scope}]`;
 
+    // Terminal hyperlinks are invisible in a TTY and garbage in a pipe, so the
+    // banner only wraps values when stderr is actually a terminal.
+    const link = (text, url) => (process.stderr.isTTY === true ? hyperlink(text, url) : text);
+
     // Read-only profiles get a lock badge on every command run, so the
     // armed safety is always visible (not just in `auth status`).
     const roBadge = this.session?.readOnly === true ? ' 🔒' : '';
@@ -148,10 +152,10 @@ export class App {
     process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
     process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
 
-    const profileStr = `${hyperlink(String(this.context.profileName).padEnd(9), instanceLink)}${roBadge}`;
-    const userStr = hyperlink(String(displayUserName).padEnd(9), userLink);
-    const scopeStr = hyperlink(String(scopeFormatted).padEnd(17), scopeLink);
-    const updateSetStr = hyperlink(String(updateSet), updateSetLink);
+    const profileStr = `${link(String(this.context.profileName).padEnd(9), instanceLink)}${roBadge}`;
+    const userStr = link(String(displayUserName).padEnd(9), userLink);
+    const scopeStr = link(String(scopeFormatted).padEnd(17), scopeLink);
+    const updateSetStr = link(String(updateSet), updateSetLink);
 
     process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
 

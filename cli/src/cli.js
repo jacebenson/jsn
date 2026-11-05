@@ -10,6 +10,7 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { maybeShowWelcome } from './welcome.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
@@ -34,6 +35,7 @@ import { groupsCmd } from './commands/groups.js';
 import { groupMembersCmd } from './commands/groupmembers.js';
 import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
+import { casesCmd } from './commands/cases.js';
 import { transactionsCmd } from './commands/transactions.js';
 
 import { platformCmd } from './commands/platform.js';
@@ -75,6 +77,7 @@ import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { scanCmd } from './commands/scan.js';
+import { storeCmd } from './commands/store.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { historyCmd } from './commands/history.js';
 import { perfCmd } from './commands/perf.js';
@@ -353,6 +356,7 @@ export function buildCLI() {
     .command(requestsCmd(wrap))
     .command(tasksCmd(wrap))
     .command(catalogCmd(wrap))
+    .command(casesCmd(wrap))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(actionsCmd(wrap))
@@ -426,6 +430,7 @@ export function buildCLI() {
     // DEVELOPER
     .command(atfCmd(wrap))
     .command(scanCmd(wrap))
+    .command(storeCmd(wrap))
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
@@ -581,7 +586,12 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp(loadConfig(formatArgv), visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv)) + '\n');
+        // First-run orientation (issue #387) sits above the unchanged help.
+        // maybeShowWelcome decides for itself: human terminal, no machine
+        // format, no configured profile, and not shown before.
+        const config = loadConfig(formatArgv);
+        maybeShowWelcome({ argv: formatArgv, requestedFormat, cfg: config });
+        process.stdout.write(renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, formatArgv)) + '\n');
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,

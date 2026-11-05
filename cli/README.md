@@ -163,18 +163,81 @@ mapping variable names to values, then preview with
 Omit `--dry-run` to submit after confirmation. `--quantity` defaults to one;
 `--requested-for` accepts a user sys_id subject to instance delegation rules.
 
+`show` is the one view of an item — `describe` and `inputs` are aliases for it.
+It reads the item twice and answers once: the Table API gives the definition
+(`sc_cat_item` plus `item_option_new`), and
+`/api/sn_sc/servicecatalog/items/{id}` gives what this account can actually
+request. The catalog API wins when it answers; the definition list keeps the
+command working when it does not, with `variables_source` naming which one
+answered and `variables_api_error` carrying the reason for the fallback.
+
+Questions come back as `{name, label, type, friendly_type, mandatory,
+instance_supplied}` with `required_variables` and `instance_supplied_variables`,
+so a script can build the payload without guessing names or types. Layout
+entries that draw the form but hold no value — containers, labels, HTML and rich
+text blocks, breaks and UI macros — are not reported as questions; only their
+container children are walked. `required_variables` excludes the
+instance-supplied ones: "Requested for" (type 31) is mandatory in the API
+payload, but the instance fills it from the session and `--requested-for`
+overrides it. `order` refuses locally when a required question is missing and an
+unknown variable name is reported as `unknown_variable_names` without blocking.
+The server remains the authority.
+
+What the API returns is what a caller can send: questions withheld by a catalog UI
+policy are absent, and a policy-applied mandatory flag is not visible here, so the
+server still decides at submission. Record producers and order guides expose their
+variables but are not orderable through `order`.
+
 Orders use `order_now`, preserving catalog fulfillment rather than inserting an
-RITM directly. The command handles standard catalog items; record producers and
-order guides require separate workflows. Server rules validate mandatory and
-dynamic variables at submission; a preview does not validate those rules. Preview
-output lists variable names, not entered values. This operation requires a
-write-enabled profile (also for previews), but no development update set.
-Confirmation follows the existing profile policy; automation can supply `--force`
-only for an approved order. Timeout or incomplete response is an uncertain
-outcome: inspect requests before retrying. JSN does not automatically submit a
-second order. `create/list/show` retain their definition-management behavior.
+RITM directly. `order_now` returns the request (REQ); JSN then reads the request's
+items and reports `request_id`, `request_number` and `requested_items`
+(`sys_id`/`number`). If that follow-up read is denied, the order is still
+reported as placed with `requested_items_readable: false` — inspect requests
+rather than resubmitting. The command handles standard catalog items; record
+producers and order guides require separate workflows. Server rules validate
+dynamic variables at submission; a preview does not validate those rules.
+Preview output lists variable names and required names, not entered values.
+Previews only read, so they work on a read-only profile; submitting requires a
+write-enabled profile and no development update set. Confirmation follows the
+existing profile policy; automation can supply `--force` only for an approved
+order. Timeout or incomplete response is an uncertain outcome: inspect requests
+before retrying. JSN does not automatically submit a second order.
+`create/list/show` retain their definition-management behavior.
 
 See the [Service Catalog API reference](https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html).
+
+### Viewing service and HR cases
+
+`jsn cases list`, `jsn cases show <number>` and `jsn cases search "<text>"` read
+cases through the normal authenticated Table API. Which case table is meant
+depends on the installed application, so JSN probes the known case tables in
+order — `sn_customerservice_case` (Customer Service Management), then
+`sn_hr_core_case` (HR Service Delivery) — and uses the first one the profile can
+read. `jsn cases tables` reports each candidate without claiming access, and
+`--table <name>` names any other case table.
+
+```bash
+jsn cases list --json
+jsn cases list --hr --query "active=true"
+jsn cases search "printer" --table sn_customerservice_case
+jsn cases show CS0001001
+```
+
+Visibility is not widened by JSN: application roles and ACLs decide which
+records are returned, and a denied table reports `forbidden` (HTTP 403) rather
+than an empty list. An instance without a case application reports which tables
+were unavailable instead of pretending there are no cases, and naming such a
+table with `--table` fails the same way (`Reading <table> failed (HTTP 400)`,
+exit 2) instead of printing an empty list. To scope a list to the connected
+account, add a query term — field names differ per application, for example
+`--query "opened_by=javascript:gs.getUserID()"`. These commands only read; case
+work that changes state stays in the application UI or `jsn records update`.
+
+HR cases are a thin addition over this generic path: `--hr` selects
+`sn_hr_core_case`. Employee self-service visibility depends on the HR roles and
+ACLs of the connected account — an administrator profile does not represent an
+employee's view. HR case tasks, relations and the employee portal's widgets are
+not exposed yet.
 
 ## Domain configuration and browser sessions
 

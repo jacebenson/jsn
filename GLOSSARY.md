@@ -201,6 +201,25 @@ completion share this policy. `--all-commands` restores the full surface.
 Explicit command paths are always registered; this is presentation, never an
 ACL or an authorization claim. Role changes are picked up on authentication.
 
+## First-run welcome
+
+`src/welcome.js`. A short orientation printed **above**, never instead of, the
+grouped root help when a fresh installation runs bare `jsn`. It names the two
+ways in (`jsn setup`, interactive; `jsn auth login <instance>`, scriptable),
+`jsn --help`, `jsn docs search`, `jsn skill install`, where config lives, the
+installed version from `package.json`, and `jsn upgrade`; every command it
+mentions is registered and declared `noInstance`. It requires no instance or
+credentials and never reaches the network. It is shown at most once - a
+`.welcomed` marker in the XDG config dir, claimed exclusively before the note is
+printed, so racing first runs cannot both print it - and only to a human
+terminal: never for `--json`/`--quiet`/`--csv`/`--markdown`/`--get`, piped
+output, agent/CI environments, `TERM=dumb`, an installation that already has a
+connection, or `JSN_NO_WELCOME=1` (the literal `1`; `0` and empty do not
+suppress). A suppressed or piped run does not consume the once-only marker. The
+text is width-aware: at 80 columns it stays within 12 lines, and on narrower
+terminals it wraps rather than truncating a command name. It is not a connection
+wizard: authentication stays optional until an instance-backed command needs it.
+
 ## Capability registry
 
 `src/capabilities.js`. The single source of truth for command metadata the
@@ -244,6 +263,35 @@ existing reference representation. No engine operation spawns another CLI.
 > Replaced: ~12 divergent hand-rolled "query by identifier, throw if empty"
 > copies across `_ticket.js`, `users.js`, `tickets.js`, `_generic.js`,
 > `catalog.js`.
+
+## Record watch
+
+`jsn records watch` observes one record through an AMB record-watcher
+subscription instead of polling the table. `src/amb.js` owns the protocol
+(ServiceNow's `/amb` endpoint speaks Bayeux/CometD long-polling, not
+socket.io, so no transport dependency is added) and event normalization;
+`src/record-watch.js` owns the observation session — bounds, cancellation,
+state fetching, reconnect backoff and gap reporting.
+
+A **record-watch event** is what the notification itself carried: table,
+record identity, operation and any change list or embedded record. A
+**fetched state** is a separate follow-up read attached as `event.state`
+with `source: "fetched"`; it is never merged into the notification, and a
+failed read becomes `state_error` rather than changing the event. The
+default `auto` policy fetches only when the notification lacks detail.
+
+A **gap** is the window between a dropped connection and a successful
+re-subscription. Record watchers are best-effort delivery: the platform does
+not replay missed events, so the stream reports the gap (and the summary
+reports `complete: false`) instead of implying a continuous history.
+Observation is bounded by `--timeout` seconds or `--max-events`; Ctrl+C
+unsubscribes and disconnects. Scheduling, retries across runs and user
+notification belong to the calling agent/runtime.
+
+AMB authorizes like a browser session: it needs session cookies and
+X-UserToken, not a bearer or Basic header. `SDKClient.ambSession()` supplies
+them from a gck credential or a warmed UI session, and fails with recovery
+guidance when the profile cannot produce one. Watch is read-only.
 
 ## Record command profiles
 
@@ -327,8 +375,34 @@ Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
 requester access and fulfillment. Ordering is a declared mutation with its own
 confirmation and read-only guard. It is exempt from development capture-context
 selection because it submits runtime business requests, not metadata changes.
-A preview never posts; unknown submission outcomes never cause automatic replay.
-Inputs are catalog variables, not arbitrary fields on an RITM or request header.
+A preview only reads and never posts; unknown submission outcomes never cause
+automatic replay. Inputs are catalog variables, not arbitrary fields on an RITM
+or request header. Item inspection is one command — `catalogitems show`, with
+`describe`/`inputs` as aliases — that reads the definition and the catalog API
+and reports which one answered (`variables_source`). Questions are
+`{name, label, type, friendly_type, mandatory, instance_supplied}` plus
+required names; layout entries (containers, labels, HTML and rich text blocks,
+breaks, UI macros) are not questions and are omitted. "Requested
+for" is instance-supplied — the API marks it mandatory, the instance fills it
+from the session, and `--requested-for` overrides it — so it is reported
+separately and never blocks an order. `order` refuses a locally provable missing
+mandatory answer before the confirmation boundary and reports unknown names
+without blocking. `order_now` answers with the request (REQ); the requested item
+(RITM) identity is a follow-up read whose failure still reports the placed order
+and never triggers a resubmission.
+
+## Case views
+
+`cases` reads the caller's own accessible cases through the authenticated Table
+API; nothing here changes a record. "Case" is application-specific, so the table
+is detected from the known case applications in presentation order
+(`sn_customerservice_case`, then `sn_hr_core_case`), named with `--table`, or
+selected with `--hr`. Detection distinguishes a table that is not installed
+(available: false) from access denied (HTTP 403, `forbidden`) and never reports
+an unreadable source as an empty result. `cases tables` reports the same probes
+per application. HR support is this generic path plus the explicit HR table;
+employee self-service visibility remains the account's roles and ACLs, so an
+administrator session is not evidence of an end-user view.
 
 ## Catalog item enrichment
 
@@ -351,6 +425,64 @@ humans. Read commands omit parameters that explicitly increment view counts.
 knowledge lives here. `docs.js` command handlers stay thin: argv → options →
 `app.ok`; they call data-layer functions (`searchDocs`, `getDocsIndexStats`,
 `getDocByIdOrPath`) rather than running SQL.
+
+## Table behavior inventory
+
+`src/table-behavior.js` is the read-only discovery layer behind
+`jsn tables behavior <table>`. It inventories accessible configuration for a
+table and its ancestors: business rules, client scripts, UI actions, UI policies,
+server data policies, dictionary entries, dictionary overrides, notifications,
+access controls, styles, view rules and flow record triggers. It never executes
+scripts, flows or notifications, evaluates conditions, or claims to predict which
+artifact runs for a record.
+
+A **behavior category** is one artifact family with a fixed layer. Client
+requirements (`client_scripts`, `ui_actions`, `ui_policies`) stay distinct from
+server enforcement (`business_rules`, `data_policies`); a client mandatory field
+is not server-enforced. Each item carries a stable **behavior reference**
+(`{ kind, source_table, sys_id }`) for later direct retrieval.
+
+An **association** is `direct` when the artifact's table field equals the
+requested table, or `inherited` otherwise. **Association detail** records the
+basis: `exact_table`, `ancestor_table` (platform inheritance, business rules and
+UI actions), `ancestor_applies_extended` (`sys_script_client.applies_extended`),
+`ancestor_inherit_flag` (`sys_ui_policy.inherit`, `sys_data_policy2.inherit`), or
+`global_actions` (`global` business rules and UI actions). Access controls carry
+the clause that matched instead of a table field: `direct_table`, `direct_field`,
+`direct_table_wildcard`, `ancestor_table`, `ancestor_field`,
+`ancestor_table_wildcard`, `global_all` and `global_field`. Dictionary rows with
+no element are **table-level rows** (`level: table`) rather than columns.
+`sys_overrides` links are preserved as **override evidence**; effective override
+resolution is not simulated.
+
+Results are **ordered by the instance query**, never by sorting a returned page,
+so continuation stays stable: business rules by `when` (platform phase order,
+missing last) then `order` then `name`; UI actions by `order` then `name`;
+client scripts, notifications, styles, view rules and flows by `name`; access
+controls by `name` then `operation`; dictionary categories by `element`; policies
+by `order` then `name`. Rows missing a primary sort key are fetched in a second
+`ISEMPTY` phase so they sort last.
+
+A **category status** is `complete`, `partial`, `unavailable` or `unsupported`.
+`unavailable` (permission, missing table, malformed response) and `unsupported`
+(missing required field/layout) are never empty results. `partial` covers
+continuation, response-budget truncation, child-read failures and
+ACL-restricted fields. Results describe **accessible configuration** only.
+
+Discovery defaults to active configuration, applies per-category bounds
+(`--limit`, default 200, max 500) and a response-byte budget (`--max-bytes`,
+default 524288, max 1048576).
+Oversized items are omitted whole with explicit truncation metadata; script,
+message and notification bodies are never requested or cut. A **behavior
+cursor** is a stateless per-category phase+offset token tied to the table and
+filter signature; it provides continuation, not snapshot isolation. Reading
+fields from `sys_dictionary` before filtering means a missing plugin/layout
+produces an `unsupported` status instead of an unfiltered query.
+
+**Flow coverage is record triggers only** (`sys_flow_record_trigger`). Flow
+templates and other trigger families (timer, catalog, REST, SLA) are reported as
+`unsupported` with the trigger type named, because the platform exposes no
+table-scoped join for them; no text match over flow definitions is guessed.
 
 ## Flow inspection
 
@@ -439,6 +571,48 @@ channel's dist-tag through OIDC without deprecating older versions or requiring
 an npm access-token secret. Older versions remain available outside the support
 window. Deprecation is an optional, separately authenticated maintenance action;
 existing deprecations are preserved and no package versions are unpublished.
+
+## Store application lifecycle
+
+`src/store.js` owns ServiceNow Store discovery, inspection and the explicit
+install/update lifecycle; `src/commands/store.js` keeps only argv and output
+adaptation. Discovery (`list`, `search`) and inspection (`show`, `status`) are
+read-only; `install` and `update` are declared mutations. The App Client search
+endpoint is POST-shaped but performs no mutation.
+
+A Store application is identified by a `sys_store_app` sys_id, an exact scope or
+an exact name. Company application-repository applications (`sys_app`) are a
+different source and are refused, never treated as Store apps. Version lists,
+entitlement/licensing flags, dependencies and compatibility data are reported as
+the platform supplies them; jsn never infers purchase authorization or accepts
+commercial terms.
+
+The App Client's **list** payload is not its **detail** payload. A list row
+carries `version` (only for installed applications), `update_available` and a
+JSON-encoded `indicators` array — not `isInstalled`, `can_install_or_upgrade`,
+`price_type` or `isAppstorePlugin`. Reading detail spellings off a list row
+reports every installed application as not installed. A **blocked** application
+is one the platform refuses on this instance (`block_install`, or an `indicators`
+entry of type `error` such as `not_available_for_instance_type`); it can still
+report `can_install_or_upgrade=true`, so the block flags are checked before any
+lifecycle request.
+
+A submitted lifecycle request returns an asynchronous tracker id, and submission
+is not a completed installation. A tracker's terminal success is still verified
+by reading the installed version back from `sys_store_app`: a mismatch is a
+failure, and an unreadable record is reported as unverified rather than
+successful. An expired wait keeps the tracker id without cancelling or
+resubmitting, and a submission without a tracker id is an error that is never
+retried. Discovery and inspection are verified against a live instance. The lifecycle
+requests were dispatched there too — every one accepted, every one killed by the
+instance's own 403 on the App Repository download — so the request shape is
+proven and completion is not. They ship because that contract is the one the
+published OpenAPI and the reference implementation both use.
+
+The list endpoint is `POST /api/sn_appclient/appmanager/apps` — `GET` returns
+405 — and `store`'s positional is named `application`, never `app`, because
+`cli.js` attaches the command's App context as `argv.app` on every command and
+would overwrite it.
 
 ## Invariants (things that must stay true)
 
@@ -610,6 +784,20 @@ unreadable or truncated coverage must never become a clean zero. Scan dispatch
 is not automatically retried, and an expired local wait does not cancel the
 provider's execution. Instance-wide runs require explicit `--full`, including
 when reusing a previous instance-wide target.
+
+## Retrieved update set promotion
+
+`import` loads an exported XML file as a retrieved update set
+(`sys_remote_update_set`) and stops there. `preview`, `problems`, and `commit`
+are the platform's own later steps, driven through the CICD Update Set API with
+its progress tracker; retrieval never converts the set to a local set or changes
+its state. Preview problems (`sys_update_preview_problem`, keyed by
+`remote_update_set`) are decisions for a human: jsn reports them read-only, never
+accepts or skips one, and refuses to commit while any is unresolved. Preview and
+commit verify `previewed`/`committed` by readback and report an unverified result
+as an error. Neither selects an update set or changes scope, and the proposed
+`--name`/`--local`/`--state` import modifiers are refused rather than silently
+approximated.
 
 ## Configured domain and browser-session domain
 

@@ -189,6 +189,33 @@ export class OutputWriter {
     }
   }
 
+  /**
+   * Write one item of an event stream (e.g. `records watch`).
+   *
+   * A stream cannot use the single-envelope `ok()`, so this method emits one
+   * compact JSON object per line — newline-delimited JSON, the shape agents
+   * and scripts can consume incrementally without buffering the whole run.
+   * Human formats print `opts.line` (domain-formatted by the command) and
+   * fall back to the JSON line when the command supplied none.
+   *
+   * `--get` stays meaningful: the path is resolved against each event, and
+   * a path that does not resolve emits `null` rather than aborting the
+   * stream mid-observation.
+   */
+  writeEvent(data, opts = {}) {
+    const format = this.effectiveFormat();
+    if (format === FormatStyled || format === FormatMarkdown) {
+      this.writer.write(`${opts.line ?? JSON.stringify(data)}\n`);
+      return;
+    }
+    if (this.jqFilter) {
+      const value = resolvePath(data, this.jqFilter);
+      this.writer.write(`${JSON.stringify(value === undefined ? null : value)}\n`);
+      return;
+    }
+    this.writer.write(`${JSON.stringify(data)}\n`);
+  }
+
   writeJSON(data, opts) {
     const resp = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
     if (opts.notice) resp.notice = opts.notice;
@@ -388,7 +415,7 @@ export class OutputWriter {
         let val = getDisplayValue(row[col]);
         const width = colWidths[col] || 20;
 
-        if (j === 0 && instanceURL && table && row.sys_id) {
+        if (j === 0 && instanceURL && table && row.sys_id && isTTY(this.writer)) {
           const url = getTableURL(instanceURL, table, row.sys_id);
           val = hyperlink(val, url);
         }
