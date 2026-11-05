@@ -385,6 +385,11 @@ update set or changes scope. The proposed import modifiers `--name`, `--local`, 
 identity in its XML envelope, import never converts it to a local set, and state
 transitions are preview/commit for retrieved sets and `reopen` for local ones.
 
+A commit resolves the local set it created from `sys_remote_update_set.update_set`
+(the platform's exact reference) and only falls back to a name lookup when that
+reference is empty. Duplicate names therefore do not turn a known local copy into
+ambiguity; an actually ambiguous or missing copy is reported, never guessed.
+
 ## Seed empty documentation services from the hosted index (2026-10-31)
 
 Download a validated, consistent SQLite snapshot only when service storage is

@@ -43,7 +43,7 @@ function problem(overrides = {}) {
   };
 }
 
-function fixture({ state = 'loaded', afterState = 'previewed', problems = [], localSets = [] } = {}) {
+function fixture({ state = 'loaded', afterState = 'previewed', problems = [], localSets = [], localRef = LOCAL_ID } = {}) {
   const calls = [];
   const results = [];
   let current = state;
@@ -56,15 +56,28 @@ function fixture({ state = 'loaded', afterState = 'previewed', problems = [], lo
       list: async (table, params) => {
         calls.push(['list', table, params.get('sysparm_query')]);
         if (table === 'sys_remote_update_set') {
-          return [{ sys_id: REMOTE_ID, name: 'AI in a Box 3.1.6', state: current, remote_sys_id: 'e'.repeat(32) }];
+          return [{
+            sys_id: REMOTE_ID,
+            name: 'AI in a Box 3.1.6',
+            state: current,
+            remote_sys_id: 'e'.repeat(32),
+            update_set: localRef
+              ? { display_value: 'AI in a Box 3.1.6', link: `https://target.service-now.com/api/now/table/sys_update_set/${localRef}` }
+              : { display_value: '', link: '' },
+          }];
         }
         if (table === 'sys_update_preview_problem') return structuredClone(problems);
         if (table === 'sys_update_set') return structuredClone(localSets);
         return [];
       },
+      get: async (table, id) => {
+        calls.push(['get', table, id]);
+        if (table === 'sys_update_set') return structuredClone(localSets.find((record) => record.sys_id === id) || null);
+        return null;
+      },
       listUpdateSetPreviewProblems: async (sysID) => {
         calls.push(['listUpdateSetPreviewProblems', sysID]);
-        return listPreviewProblems({ list: async () => structuredClone(problems) }, sysID);
+        return listPreviewProblems({ listStrict: async () => structuredClone(problems) }, sysID);
       },
       previewUpdateSet: async (sysID, opts) => {
         calls.push(['previewUpdateSet', sysID, opts]);
@@ -94,6 +107,15 @@ test('normalizeProgress reads the sn_cicd dispatch shape and its status words', 
   assert.equal(normalizeProgress({ result: { status: '3', status_message: 'boom' } }).label, 'failed');
   assert.equal(isSuccessfulProgress(normalizeProgress({ result: { status: '2' } })), true);
   assert.equal(isSuccessfulProgress(normalizeProgress({ result: { status: '3' } })), false);
+});
+
+test('normalizeProgress keeps the platform error when status_message is empty', () => {
+  // Live sn_cicd progress bodies carry status_message:"" and put the reason in
+  // error. Empty strings must not mask the real failure text.
+  const progress = normalizeProgress({
+    result: { status: '3', status_label: 'Failed', status_message: '', status_detail: '', error: 'Preview failed: boom' },
+  });
+  assert.equal(progress.message, 'Preview failed: boom');
 });
 
 test('waitForCicdProgress follows the tracker until it is terminal', async () => {
@@ -206,6 +228,64 @@ test('a missing CICD API reports that nothing was started', async () => {
   }
 });
 
+test('a 404 that names the update set is a failed operation, not a missing plugin', async () => {
+  // Live sn_cicd returns 404 with a result envelope for an unknown set id.
+  // That is not the same condition as the API route being absent.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch([{
+    status: 404,
+    body: { result: { status: '3', status_label: 'Failed', error: `Update set with id ${REMOTE_ID} cannot be found` } },
+  }]);
+  try {
+    const client = new SDKClient('https://target.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'token' }),
+    });
+    await assert.rejects(client.previewUpdateSet(REMOTE_ID), (error) => {
+      assert.equal(error.code, 'api_error');
+      assert.match(error.message, /cannot be found/);
+      assert.doesNotMatch(error.message, /not available on this instance/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a failed progress job surfaces the platform error text', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = createMockFetch([
+    { status: 200, body: { result: { status: '0', links: { progress: { id: 'p1' } } } } },
+    { status: 200, body: { result: { status: '3', status_label: 'Failed', status_message: '', status_detail: '', error: 'Preview failed: exploded' } } },
+  ]);
+  try {
+    const client = new SDKClient('https://target.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'token' }),
+    });
+    await assert.rejects(client.previewUpdateSet(REMOTE_ID, { wait: async () => {} }), (error) => {
+      assert.equal(error.code, 'api_error');
+      assert.match(error.message, /exploded/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('preview problem listing uses the strict table seam', async () => {
+  let used = null;
+  const sdk = {
+    list: async () => { throw new Error('best-effort list must not be used for a commit gate'); },
+    listStrict: async (table, params) => {
+      used = [table, params.get('sysparm_query')];
+      return [];
+    },
+  };
+  const result = await listPreviewProblems(sdk, REMOTE_ID);
+  assert.equal(result.count, 0);
+  assert.equal(used[0], 'sys_update_preview_problem');
+  assert.match(used[1], /remote_update_set=/);
+});
+
 // ── commands ────────────────────────────────────────────────────────────
 
 test('capabilities declare preview/commit as mutations and problems as a read', () => {
@@ -296,9 +376,27 @@ test('commit verifies the committed state and reports the local update set', asy
   assert.deepEqual(commitCall.slice(1), [REMOTE_ID, { timeoutMs: 45000 }]);
 });
 
+test('commit prefers the retrieved record\'s local-copy reference over a duplicate name', async () => {
+  // Live sys_remote_update_set.update_set points at the exact local set the
+  // commit produced. A duplicate name must not turn that into ambiguity.
+  const other = '1'.repeat(32);
+  const { app, calls, results } = fixture({
+    state: 'previewed', afterState: 'committed',
+    localSets: [
+      { sys_id: other, name: 'AI in a Box 3.1.6', state: 'complete' },
+      { sys_id: LOCAL_ID, name: 'AI in a Box 3.1.6', state: 'complete' },
+    ],
+    localRef: LOCAL_ID,
+  });
+  await run(['commit', REMOTE_ID, '--yes', '--json'], app);
+  assert.equal(results[0].data.local_update_set.sys_id, LOCAL_ID);
+  assert.equal(results[0].data.local_update_set.ambiguous, false);
+  assert.ok(calls.some(([kind, table, id]) => kind === 'get' && table === 'sys_update_set' && id === LOCAL_ID));
+});
+
 test('commit reports an ambiguous local copy instead of guessing', async () => {
   const { app, results } = fixture({
-    state: 'previewed', afterState: 'committed',
+    state: 'previewed', afterState: 'committed', localRef: null,
     localSets: [{ sys_id: LOCAL_ID, name: 'AI in a Box 3.1.6' }, { sys_id: '1'.repeat(32), name: 'AI in a Box 3.1.6' }],
   });
   await run(['commit', REMOTE_ID, '--yes'], app);

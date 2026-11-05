@@ -58,8 +58,9 @@ description, missing item/table, and available actions; `--include-resolved`
 also shows rows a human already accepted or skipped. jsn **never** accepts,
 skips, or ignores a problem, and `commit` refuses while any problem is
 unresolved. Resolve them in ServiceNow, rerun `preview`, then commit. A commit
-reports the local update set it created when exactly one matches by name; an
-ambiguous or missing local copy is reported, never guessed.
+resolves the local update set it created through the retrieved record's
+`update_set` reference, falling back to a name lookup only when that reference is
+absent; an ambiguous or missing local copy is reported, never guessed.
 
 Neither command changes the selected update set or scope.
 

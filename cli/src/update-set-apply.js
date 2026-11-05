@@ -60,11 +60,16 @@ export function normalizeProgress(response) {
   const inner = response?.result && typeof response.result === 'object' ? response.result : (response ?? {});
   const status = inner.status == null ? '' : String(inner.status);
   const percent = Number(inner.percent_complete ?? 0);
+  // Live progress bodies carry status_message:"" and put the reason in error.
+  // An empty string must not mask the real failure text.
+  const message = [inner.status_message, inner.status_detail, inner.error]
+    .map((value) => text(value).trim())
+    .find((value) => value) || '';
   return {
     status,
     label: String(inner.status_label ?? '') || statusWord(status),
     percent_complete: Number.isFinite(percent) ? percent : 0,
-    message: String(inner.status_message ?? inner.status_detail ?? inner.error ?? ''),
+    message,
     progress_id: text(inner?.links?.progress?.id ?? inner.progress_id ?? ''),
     result_id: text(inner?.links?.results?.id ?? inner.result_id ?? ''),
     raw: inner,
@@ -143,6 +148,28 @@ function cicdUnavailable(error) {
 }
 
 /**
+ * A sn_cicd error body can be an operation result rather than a missing route.
+ * Live 404 for an unknown update set:
+ *   {"result":{"status":"3","status_label":"Failed","error":"Update set with id ... cannot be found"}}
+ * That is a rejected operation, not an absent plugin.
+ */
+function cicdOperationError(error) {
+  const body = error?.message;
+  if (typeof body !== 'string') return '';
+  // errAPI prefixes the HTTP status, so the JSON envelope may not start the
+  // message. Parse from the first brace.
+  const start = body.indexOf('{');
+  if (start < 0) return '';
+  try {
+    const result = JSON.parse(body.slice(start))?.result;
+    if (result && typeof result === 'object') {
+      return text(result.error || result.status_message || result.status_detail).trim();
+    }
+  } catch { /* not a JSON error envelope */ }
+  return '';
+}
+
+/**
  * Start a sn_cicd update-set operation and wait for its tracker.
  * @param {object} sdk
  * @param {'preview'|'commit'} operation
@@ -154,6 +181,25 @@ export async function runUpdateSetOperation(sdk, operation, sysID, options = {})
   try {
     response = await sdk.request(endpoint, { method: 'POST', body: '{}' });
   } catch (error) {
+    if (error?.status === 403) {
+      throw new AppError(
+        CodeUsage,
+        `This account cannot use the CICD Update Set API; no ${operation} was started.`,
+        'The account needs the sn_cicd.sys_ci_automation role. Preview and commit the set in ServiceNow instead.',
+        403,
+        error,
+      );
+    }
+    const platformError = cicdOperationError(error);
+    if (platformError) {
+      throw new AppError(
+        CodeAPI,
+        `The CICD API rejected the ${operation}: ${platformError}`,
+        `Nothing was ${operation === 'preview' ? 'previewed' : 'committed'}. Inspect the retrieved update set and try again.`,
+        error.status || 0,
+        error,
+      );
+    }
     if (cicdUnavailable(error)) {
       throw new AppError(
         CodeUsage,
@@ -161,15 +207,6 @@ export async function runUpdateSetOperation(sdk, operation, sysID, options = {})
         'The sn_cicd plugin (com.glide.continuousdelivery) provides preview/commit. ' +
         'Preview and commit the set in ServiceNow instead: System Update Sets > Retrieved Update Sets.',
         error.status || 0,
-        error,
-      );
-    }
-    if (error?.status === 403) {
-      throw new AppError(
-        CodeUsage,
-        `This account cannot use the CICD Update Set API; no ${operation} was started.`,
-        'The account needs the sn_cicd.sys_ci_automation role. Preview and commit the set in ServiceNow instead.',
-        403,
         error,
       );
     }
@@ -223,7 +260,7 @@ export async function listPreviewProblems(sdk, sysID, { limit = 500 } = {}) {
   params.set('sysparm_query', `remote_update_set=${sysID}^ORDERBYsys_created_on`);
   params.set('sysparm_display_value', 'all');
   params.set('sysparm_limit', String(limit));
-  const records = await sdk.list(PREVIEW_PROBLEM_TABLE, params);
+  const records = await sdk.listStrict(PREVIEW_PROBLEM_TABLE, params);
   const problems = records.map(normalizePreviewProblem);
   const unresolved = problems.filter((problem) => !problem.resolved);
   return { problems, count: problems.length, unresolved, truncated: problems.length >= limit };

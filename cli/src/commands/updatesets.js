@@ -98,7 +98,7 @@ export async function resolveUpdateSetByName(app, name) {
   throw errUsage(`Multiple update sets named "${name}" (${records.length}): ${scopes}.${scopeNote}\nRun bare "jsn updatesets set" and pick by scope.`);
 }
 
-const RETRIEVED_FIELDS = 'sys_id,name,state,remote_sys_id,sys_created_on,sys_updated_on';
+const RETRIEVED_FIELDS = 'sys_id,name,state,remote_sys_id,update_set,sys_created_on,sys_updated_on';
 
 function remoteState(record) {
   const raw = record?.state;
@@ -162,10 +162,41 @@ function timeoutFrom(argv) {
 }
 
 /**
+ * The platform records the local update set a commit produced on the retrieved
+ * record itself (`sys_remote_update_set.update_set`). Prefer that exact
+ * reference; only fall back to a name lookup when it is absent.
+ */
+function localReferenceID(reference) {
+  if (!reference) return '';
+  if (typeof reference === 'object') {
+    const value = String(reference.value ?? '').trim();
+    if (/^[0-9a-f]{32}$/i.test(value)) return value;
+    const link = String(reference.link ?? '');
+    const match = link.match(/\/([0-9a-f]{32})(?:\/)?$/i);
+    return match ? match[1] : '';
+  }
+  return /^[0-9a-f]{32}$/i.test(String(reference).trim()) ? String(reference).trim() : '';
+}
+
+/**
  * Find the local update set a commit created. Ambiguity is reported, not
  * guessed: duplicate names are legitimate on ServiceNow.
  */
-async function findLocalUpdateSet(app, name) {
+async function findLocalUpdateSet(app, name, reference) {
+  const referenceID = localReferenceID(reference);
+  if (referenceID) {
+    try {
+      const record = await app.sdk.get('sys_update_set', referenceID);
+      if (record) {
+        return {
+          sys_id: getStringField(record, 'sys_id') || referenceID,
+          name: getStringField(record, 'name') || name,
+          state: String(record.state?.value ?? record.state ?? ''),
+          ambiguous: false,
+        };
+      }
+    } catch { /* fall back to the name lookup */ }
+  }
   const params = new URLSearchParams();
   params.set('sysparm_query', `name=${name}^ORDERBYDESCsys_created_on`);
   params.set('sysparm_display_value', 'all');
@@ -762,7 +793,7 @@ export function updateSetsCmd(wrap) {
             if (!verified || remoteState(verified) !== 'committed') {
               throw errAPI(200, `Commit reported "${progress.label}" but the retrieved update set is in state "${verified ? remoteState(verified) || 'unknown' : 'unreadable'}".\nThe commit may still be running; inspect Retrieved Update Sets on the target before retrying. jsn does not retry it.`);
             }
-            const local = await findLocalUpdateSet(app, name);
+            const local = await findLocalUpdateSet(app, name, verified.update_set);
             app.ok({
               update_set: name,
               sys_id: sysID,
