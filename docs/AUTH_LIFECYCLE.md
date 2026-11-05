@@ -178,6 +178,43 @@ guidance, not a request to log in. Neither classification includes provider
 response bodies. Errors without a usable HTTP status retain their existing
 classification rather than guessing whether authentication failed.
 
+### Verification status
+
+Live-verified against the dev366743 PDI instance on 2026-11-05 (Node v26.8.1,
+throwaway XDG config with a copied profile; the real credential file was not
+modified):
+
+- A stale access token on a read produced HTTP 401, one OAuth refresh, one
+  bounded `sys_user` verification over the rebuilt cookie/`X-UserToken` session
+  with no `Authorization` header, and exactly one replay that returned real
+  records.
+- Five concurrent reads sent with the same stale token shared one refresh and
+  one verification. Each request was sent once with the stale session, rejected
+  once, then replayed once with the rebuilt session.
+- A replay forced to receive HTTP 401 after a successful recovery stopped after
+  two attempts with `auth_error`; there was no third request.
+- A forced failure of the verification probe ended recovery without replaying
+  the rejected request.
+- An OAuth 401 with no refresh token produced one request, an actionable
+  `auth_error`, and no retry.
+- A junk GCK browser session produced one request, `recapture_required: true`
+  in the JSON envelope, and no replay.
+- A write whose first POST received HTTP 401 was refreshed, verified, and
+  replayed once; exactly one incident existed afterwards (count 1 before the
+  probe delete, 0 after). A normal CLI write recovers on its current-user
+  context read before dispatching the mutation, so a stale token is generally
+  repaired before the write itself is sent.
+- The login-page classifier was run against the instance's real 47,535-byte
+  `login.do` body and classified it correctly. No command was driven into a
+  200 `text/html` login-page response because the instance answered junk
+  sessions with JSON 401s; that end-to-end path remains mock-only.
+
+Still mock-only: login redirects and 200 login pages as command responses,
+account-mismatch rejection, interactive GCK renewal (`auto`/`confirm` prompts),
+Basic-auth recovery guidance, `allowMutationReplay` opt-in, and batch/stateful
+processor replay. The unit suite covers each of those; they are not claimed as
+live-verified here.
+
 Missing, invalid or expired credentials can fail locally before any request.
 Those errors preserve the validation reason and identify the selected profile
 with an explicit `jsn auth login --profile <name>` recovery command, even when
