@@ -4,65 +4,44 @@
 // gets a short orientation above the unchanged grouped help, exactly once.
 // It must never appear in machine-readable output, piped output, `--help`, or
 // an already-configured installation, and it must never itself touch an
-// instance or credentials.
+// instance, the network, or credentials.
+//
+// The decision matrix (racing runs, unwritable config, narrow terminals, env
+// overrides, signals) lives in first-run-welcome-matrix.test.js.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
   WELCOME_MARKER,
+  WELCOME_MAX_LINES,
+  welcomeLines,
   welcomeText,
   shouldShowWelcome,
   maybeShowWelcome,
   markWelcomeSeen,
+  claimWelcome,
+  welcomeMarkerPath,
 } from '../src/welcome.js';
+import { getVersion } from '../src/commands/version.js';
+import {
+  WELCOME_HEADLINE,
+  freshConfigHome,
+  hasAnsi,
+  hasWelcome,
+  loadBaseFixture,
+  ptySkipReason,
+  runCli,
+  runPty,
+  sha256,
+  stripAnsi,
+  welcomeBlock,
+} from './support/welcome-harness.js';
 
-const CLI = path.resolve('bin/jsn.js');
-const DRIVER = path.resolve('test/support/welcome-pty.py');
-
-const BASE_ENV = {
-  ...process.env,
-  JSN_NO_VERSION_CHECK: '1',
-  JSN_NO_SKILL_CHECK: '1',
-};
-
-const WELCOME_MARKER_TEXT = 'Welcome to jsn';
-
-/** Isolated XDG config home — no personal profiles can leak into the run. */
-function freshConfigHome() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-welcome-'));
-  // XDG_CONFIG_HOME for spawned runs; the `servicenow` dir is what the
-  // welcome module writes its marker into.
-  const configDir = path.join(dir, 'servicenow');
-  return { dir, configDir, marker: path.join(configDir, WELCOME_MARKER) };
-}
-
-function runCli(args, configHome, extraEnv = {}) {
-  return spawnSync(process.execPath, [CLI, ...args], {
-    encoding: 'utf-8',
-    cwd: path.resolve('.'),
-    env: { ...BASE_ENV, XDG_CONFIG_HOME: configHome, ...extraEnv },
-    timeout: 20000,
-  });
-}
-
-const python3 = spawnSync('python3', ['--version'], { encoding: 'utf-8' });
-const PTY_SKIP = process.platform === 'win32' || python3.status !== 0;
-
-function runPty(configHome, args = []) {
-  const result = spawnSync('python3', [DRIVER, JSON.stringify({
-    command: [process.execPath, CLI, ...args],
-    cwd: path.resolve('.'),
-    env: { ...BASE_ENV, XDG_CONFIG_HOME: configHome },
-  })], { encoding: 'utf-8', timeout: 40000 });
-  assert.strictEqual(result.status, 0, `PTY driver failed: ${result.stderr}${result.stdout}`);
-  const parsed = JSON.parse(result.stdout);
-  return { status: parsed.status, output: parsed.output.replace(/\r\n/g, '\n') };
-}
+const PTY_SKIP = ptySkipReason();
+const CONTENT_CONFIG_DIR = path.join('/tmp', 'jsn-welcome-probe', 'servicenow');
 
 /** Capture process.stdout.write for the duration of one synchronous call. */
 function captureStdout(fn) {
@@ -81,6 +60,10 @@ function captureStdout(fn) {
     process.stdout.write = original;
   }
   return written;
+}
+
+function contentLines(overrides = {}) {
+  return welcomeLines({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR, ...overrides });
 }
 
 describe('first-run welcome decision', () => {
@@ -131,35 +114,154 @@ describe('first-run welcome decision', () => {
     }), false);
   });
 
-  it('points at setup, help and docs without promising an instance', () => {
-    const text = welcomeText();
+  it('points at setup, auth, help and docs without promising an instance', () => {
+    const text = welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR });
     assert.match(text, /jsn setup/);
+    assert.match(text, /jsn auth login <instance>/);
     assert.match(text, /jsn --help/);
     assert.match(text, /jsn docs search/);
-    assert.match(text, /appears once/);
+    assert.match(text, /Prints once/);
+    assert.match(text, /Nothing above needs an instance/);
   });
 
   it('writes the marker when it shows and stays silent afterwards', () => {
     const { configDir, marker } = freshConfigHome();
     const shown = captureStdout(() => maybeShowWelcome({
-      cfg: freshCfg, env: {}, configDir, interactive: true,
+      cfg: freshCfg, env: {}, configDir, interactive: true, columns: 80,
     }));
-    assert.match(shown, /Welcome to jsn/);
+    assert.match(shown, new RegExp(WELCOME_HEADLINE));
     assert.ok(fs.existsSync(marker), 'marker must persist the shown state');
     const second = captureStdout(() => maybeShowWelcome({
-      cfg: freshCfg, env: {}, configDir, interactive: true,
+      cfg: freshCfg, env: {}, configDir, interactive: true, columns: 80,
     }));
     assert.strictEqual(second, '');
   });
 });
 
+describe('welcome content', () => {
+  it('fits the 12-line budget at 80 columns without overflowing', () => {
+    const lines = contentLines();
+    assert.ok(lines.length <= WELCOME_MAX_LINES,
+      `the note must stay within ${WELCOME_MAX_LINES} lines at 80 columns, got ${lines.length}:\n${lines.join('\n')}`);
+    for (const line of lines) {
+      assert.ok(line.length <= 80, `line is ${line.length} columns wide: ${JSON.stringify(line)}`);
+    }
+  });
+
+  it('is plain ASCII: no emoji, no colour, readable with NO_COLOR and TERM=dumb', () => {
+    for (const line of contentLines()) {
+      assert.match(line, /^[\x20-\x7E]*$/, `non-ASCII or control characters in ${JSON.stringify(line)}`);
+    }
+    const text = welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR });
+    assert.ok(!hasAnsi(text), 'the note must not emit ANSI escapes');
+  });
+
+  it('explains setup versus auth login, where config lives, the skill and the update path', () => {
+    const text = welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR });
+    // setup is the interactive first connection; auth login is the scriptable one.
+    assert.match(text, /jsn setup\s+first connection \+ defaults, interactive/);
+    assert.match(text, /jsn auth login <instance>\s+one connection, scriptable, no wizard/);
+    // Where the marker and profiles actually live.
+    assert.match(text, /Config: .*servicenow\/config\.json/);
+    // The agent skill, docs search, and a version/update path derived from disk.
+    assert.match(text, /jsn skill install/);
+    assert.match(text, /jsn docs search <query>/);
+    assert.match(text, /jsn upgrade/);
+    assert.ok(text.includes(getVersion()), 'the installed version comes from package.json and must be shown');
+    // Once-only is stated, and so is the escape hatch.
+    assert.match(text, /Prints once/);
+    assert.match(text, /JSN_NO_WELCOME=1/);
+  });
+
+  it('mentions only commands that exist and are declared instance-free', async () => {
+    // Importing the command modules is what declares their capabilities; the
+    // CLI does the same at startup, so this is the same registry it consults.
+    const { collectCapabilities } = await import('../src/capabilities.js');
+    await Promise.all([
+      import('../src/commands/setup.js'),
+      import('../src/commands/auth.js'),
+      import('../src/commands/docs/docs.js'),
+      import('../src/commands/skill.js'),
+      import('../src/commands/upgrade.js'),
+    ]);
+    const caps = collectCapabilities();
+    const mentioned = new Set();
+    for (const line of contentLines()) {
+      const match = /^\s{4}jsn ([a-z][a-z-]*)/.exec(line);
+      if (match) mentioned.add(match[1]);
+    }
+    assert.deepStrictEqual([...mentioned].sort(), ['auth', 'docs', 'setup', 'skill'],
+      'the note should only point at setup, auth, docs and skill');
+    for (const name of mentioned) {
+      assert.ok(caps.has(name), `"jsn ${name}" is not a registered command`);
+      assert.strictEqual(caps.get(name).noInstance, true,
+        `"jsn ${name}" is offered to a first run but is not declared noInstance`);
+    }
+  });
+
+  it('never becomes a wizard: no prompts, no blocking, no instance wording', () => {
+    const text = welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR }).toLowerCase();
+    for (const forbidden of ['press enter', 'press any key', 'continue?', '[y/n]', 'password', 'username']) {
+      assert.ok(!text.includes(forbidden), `the note must not ask for ${forbidden}`);
+    }
+  });
+
+  it('derives the version from the installed package, never from the network', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
+    assert.strictEqual(getVersion(), pkg.version);
+    assert.ok(contentLines().join('\n').includes(`jsn ${pkg.version}`),
+      'the installed version must be shown, read from package.json');
+    // An unreadable package must not print a fake version.
+    assert.doesNotMatch(contentLines({ version: '0.0.0' }).join('\n'), /0\.0\.0/);
+  });
+
+  it('wraps rather than truncates on a 40- and 60-column terminal', () => {
+    for (const columns of [40, 60]) {
+      const lines = welcomeLines({ columns, env: {}, configDir: CONTENT_CONFIG_DIR });
+      for (const line of lines) {
+        assert.ok(line.length <= columns, `${columns} columns, ${line.length} wide: ${JSON.stringify(line)}`);
+      }
+      const text = lines.join('\n');
+      for (const command of ['jsn setup', 'jsn auth login <instance>', 'jsn --help',
+        'jsn docs search <query>', 'jsn skill install']) {
+        assert.ok(text.includes(command), `${command} must survive a ${columns}-column terminal intact`);
+      }
+    }
+  });
+
+  it('falls back to a short config label when the real path cannot fit', () => {
+    const longDir = path.join('/tmp', 'x'.repeat(90), 'servicenow');
+    const lines = welcomeLines({ columns: 80, env: {}, configDir: longDir });
+    const label = lines.find((line) => line.startsWith('Config: '));
+    assert.ok(label, 'the note always says where config lives');
+    assert.ok(label.length <= 80, `the fallback label must fit: ${label}`);
+    assert.match(label, /~\/\.config\/servicenow\/config\.json$/);
+    for (const line of lines) assert.ok(line.length <= 80, `line too wide: ${line}`);
+  });
+
+  it('claims the marker exactly once and leaves a complete 0600 stamp', { skip: process.platform === 'win32' }, () => {
+    const { configDir, marker } = freshConfigHome();
+    assert.strictEqual(claimWelcome(configDir), 'claimed');
+    assert.strictEqual(claimWelcome(configDir), 'taken');
+    assert.strictEqual(welcomeMarkerPath(configDir), marker);
+    const stamp = fs.readFileSync(marker, 'utf-8');
+    assert.match(stamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z pid=\d+\n$/, 'marker must be a complete stamp, never a partial write');
+    assert.strictEqual(fs.statSync(marker).mode & 0o777, 0o600);
+    const leftovers = fs.readdirSync(configDir).filter((name) => name.includes('.tmp'));
+    assert.deepStrictEqual(leftovers, [], 'no temp files may be left behind');
+  });
+});
+
 describe('bare `jsn` first run', () => {
   it('prints unchanged help and no welcome for piped output, and does not burn the once-only marker', () => {
+    const { meta, help } = loadBaseFixture();
     const { dir, marker } = freshConfigHome();
     const result = runCli([], dir);
     assert.strictEqual(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Usage: jsn <command> \[options\]/);
-    assert.doesNotMatch(result.stdout, new RegExp(WELCOME_MARKER_TEXT));
+    assert.strictEqual(sha256(result.stdout), meta.sha256.help,
+      'piped bare `jsn` must still print the base commit help byte for byte');
+    assert.strictEqual(result.stdout, help);
+    assert.ok(!hasWelcome(result.stdout));
     assert.ok(!fs.existsSync(marker), 'a non-TTY run must not consume the welcome');
   });
 
@@ -167,34 +269,63 @@ describe('bare `jsn` first run', () => {
     const { dir } = freshConfigHome();
     const help = runCli(['--help'], dir);
     assert.strictEqual(help.status, 0, help.stderr);
-    assert.doesNotMatch(help.stdout, new RegExp(WELCOME_MARKER_TEXT));
+    assert.ok(!hasWelcome(help.stdout));
     assert.match(help.stdout, /Usage: jsn <command>/);
 
     const json = runCli(['--json'], dir);
     assert.strictEqual(json.status, 0, json.stderr);
-    assert.doesNotMatch(json.stdout, new RegExp(WELCOME_MARKER_TEXT));
+    assert.ok(!hasWelcome(json.stdout));
     assert.doesNotThrow(() => JSON.parse(json.stdout), '--json must stay parseable');
 
     const docs = runCli(['docs', '--help'], dir);
     assert.strictEqual(docs.status, 0, docs.stderr);
-    assert.doesNotMatch(docs.stdout, new RegExp(WELCOME_MARKER_TEXT));
+    assert.ok(!hasWelcome(docs.stdout));
   });
 
   it('shows the orientation above full help exactly once on a real terminal', { skip: PTY_SKIP }, () => {
+    const { meta, help } = loadBaseFixture();
     const { dir, marker } = freshConfigHome();
 
-    const first = runPty(dir);
+    const first = runPty(dir, [], { columns: 80 });
     assert.strictEqual(first.status, 0, first.output);
-    assert.match(first.output, /Welcome to jsn/);
+    assert.ok(hasWelcome(first.output), 'first run must show the note');
     assert.match(first.output, /jsn setup/);
-    // Help is not replaced, only preceded.
-    assert.match(first.output, /Usage: jsn <command> \[options\]/);
-    assert.match(first.output, /jsn incidents/);
+    assert.match(first.output, /jsn auth login <instance>/);
+    // Help is not replaced, only preceded - and it is still byte-identical.
+    const helpStart = first.output.indexOf('Usage: jsn <command>');
+    assert.ok(helpStart > 0, 'help must follow the note');
+    assert.strictEqual(first.output.slice(helpStart), help,
+      'help under the note must be the base commit help byte for byte');
+    assert.strictEqual(sha256(first.output.slice(helpStart)), meta.sha256.help);
+    assert.ok(!hasAnsi(first.output), 'a TTY must not add escape codes');
     assert.ok(fs.existsSync(marker), 'first PTY run must persist the marker');
 
-    const second = runPty(dir);
+    const block = welcomeBlock(first.output);
+    assert.ok(block.length <= WELCOME_MAX_LINES, `welcome block is ${block.length} lines`);
+
+    const second = runPty(dir, [], { columns: 80 });
     assert.strictEqual(second.status, 0, second.output);
-    assert.doesNotMatch(second.output, new RegExp(WELCOME_MARKER_TEXT));
-    assert.match(second.output, /Usage: jsn <command> \[options\]/);
+    assert.ok(!hasWelcome(second.output));
+    assert.strictEqual(second.output.slice(second.output.indexOf('Usage: jsn <command>')), help,
+      'second run must print the same byte-identical help');
+  });
+
+  it('keeps the note out of an agent or CI environment even on a TTY', { skip: PTY_SKIP }, () => {
+    for (const env of [{ CLAUDE_CODE: '1' }, { CI: 'true' }, { GITHUB_ACTIONS: 'true' },
+      { JSN_NO_PROMPTS: '1' }, { NONINTERACTIVE: '1' }]) {
+      const { dir, marker } = freshConfigHome();
+      const result = runPty(dir, [], { columns: 80, env });
+      assert.strictEqual(result.status, 0, result.output);
+      assert.ok(!hasWelcome(result.output), `${JSON.stringify(env)} must not receive the welcome`);
+      assert.ok(!fs.existsSync(marker), `${JSON.stringify(env)} must not consume the marker`);
+    }
+  });
+});
+
+describe('first-run note wording stays honest to the marker', () => {
+  it('says the note prints once and names the exact switch that hides it', () => {
+    const text = stripAnsi(welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR }));
+    assert.match(text, /^Prints once\. Hide it with JSN_NO_WELCOME=1\./m);
+    assert.strictEqual(WELCOME_MARKER, '.welcomed');
   });
 });

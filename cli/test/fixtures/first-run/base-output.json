@@ -1,0 +1,22 @@
+{
+  "commit": "1164c6a",
+  "note": "Bytes produced by the commit this PR branched from (1164c6a, before the first-run welcome). Regenerate when the command surface or help layout is intentionally changed.",
+  "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
+  "bytes": {
+    "help": 11712,
+    "json": 111517,
+    "quiet": 11712,
+    "csv": 11712,
+    "markdown": 11712,
+    "get": 11712
+  },
+  "sha256": {
+    "help": "e81af06dd4183f857f908932d8d2e30395eb67e12741e3248a7da31195135796",
+    "json": "d8b46edf6625d4d2c8a3d2ff982cc70a5441a085498be11ff6e51a68e6ed4db2",
+    "quiet": "e81af06dd4183f857f908932d8d2e30395eb67e12741e3248a7da31195135796",
+    "csv": "e81af06dd4183f857f908932d8d2e30395eb67e12741e3248a7da31195135796",
+    "markdown": "e81af06dd4183f857f908932d8d2e30395eb67e12741e3248a7da31195135796",
+    "get": "e81af06dd4183f857f908932d8d2e30395eb67e12741e3248a7da31195135796"
+  },
+  "json_command_count": 84
+}
