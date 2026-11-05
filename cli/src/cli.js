@@ -76,6 +76,7 @@ import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { scanCmd } from './commands/scan.js';
+import { storeCmd } from './commands/store.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { historyCmd } from './commands/history.js';
 import { perfCmd } from './commands/perf.js';
@@ -428,6 +429,7 @@ export function buildCLI() {
     // DEVELOPER
     .command(atfCmd(wrap))
     .command(scanCmd(wrap))
+    .command(storeCmd(wrap))
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))

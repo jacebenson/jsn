@@ -270,9 +270,11 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
 
   if (code === CodeNotFound) {
     let text = `Error (${code}): ${err.message}\n`;
-    if (identifier) {
-      text += `\nHint: The identifier "${identifier}" was not found. Check the name or sys_id.\n`;
-    }
+    // A command that knows why the identifier missed says so; the generic line
+    // is only the fallback (it used to replace every command-specific hint, and
+    // interpolated the subcommand name as if it were the identifier).
+    if (err.hint) text += `\nHint: ${err.hint}\n`;
+    else if (identifier) text += `\nHint: The identifier "${identifier}" was not found. Check the name or sys_id.\n`;
     return { stream: 'stderr', text, exitCode: 1 };
   }
 

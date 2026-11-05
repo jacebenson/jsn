@@ -535,6 +535,48 @@ an npm access-token secret. Older versions remain available outside the support
 window. Deprecation is an optional, separately authenticated maintenance action;
 existing deprecations are preserved and no package versions are unpublished.
 
+## Store application lifecycle
+
+`src/store.js` owns ServiceNow Store discovery, inspection and the explicit
+install/update lifecycle; `src/commands/store.js` keeps only argv and output
+adaptation. Discovery (`list`, `search`) and inspection (`show`, `status`) are
+read-only; `install` and `update` are declared mutations. The App Client search
+endpoint is POST-shaped but performs no mutation.
+
+A Store application is identified by a `sys_store_app` sys_id, an exact scope or
+an exact name. Company application-repository applications (`sys_app`) are a
+different source and are refused, never treated as Store apps. Version lists,
+entitlement/licensing flags, dependencies and compatibility data are reported as
+the platform supplies them; jsn never infers purchase authorization or accepts
+commercial terms.
+
+The App Client's **list** payload is not its **detail** payload. A list row
+carries `version` (only for installed applications), `update_available` and a
+JSON-encoded `indicators` array — not `isInstalled`, `can_install_or_upgrade`,
+`price_type` or `isAppstorePlugin`. Reading detail spellings off a list row
+reports every installed application as not installed. A **blocked** application
+is one the platform refuses on this instance (`block_install`, or an `indicators`
+entry of type `error` such as `not_available_for_instance_type`); it can still
+report `can_install_or_upgrade=true`, so the block flags are checked before any
+lifecycle request.
+
+A submitted lifecycle request returns an asynchronous tracker id, and submission
+is not a completed installation. A tracker's terminal success is still verified
+by reading the installed version back from `sys_store_app`: a mismatch is a
+failure, and an unreadable record is reported as unverified rather than
+successful. An expired wait keeps the tracker id without cancelling or
+resubmitting, and a submission without a tracker id is an error that is never
+retried. Discovery and inspection are verified against a live instance. The lifecycle
+requests were dispatched there too — every one accepted, every one killed by the
+instance's own 403 on the App Repository download — so the request shape is
+proven and completion is not. They ship because that contract is the one the
+published OpenAPI and the reference implementation both use.
+
+The list endpoint is `POST /api/sn_appclient/appmanager/apps` — `GET` returns
+405 — and `store`'s positional is named `application`, never `app`, because
+`cli.js` attaches the command's App context as `argv.app` on every command and
+would overwrite it.
+
 ## Invariants (things that must stay true)
 
 - **Mutations are declared, not listed.** Adding a mutating subcommand means
