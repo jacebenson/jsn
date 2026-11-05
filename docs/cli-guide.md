@@ -255,6 +255,24 @@ nonempty `--notes`; they never open prompts. Separate multiple notes with real
 newlines. Success requires readback of both Description and state. If verification
 fails, inspect the set before retrying because the write may have partially succeeded.
 
+### Update set transfer
+
+```bash
+jsn --profile source updatesets export "Digital Helpdesk 0.1.77"   # auto-named XML here
+jsn --profile target updatesets import transfer.xml --dry-run --json
+jsn --profile target updatesets import transfer.xml --yes
+jsn --profile target updatesets preview "Digital Helpdesk 0.1.77" --yes
+jsn --profile target updatesets problems "Digital Helpdesk 0.1.77"
+jsn --profile target updatesets commit "Digital Helpdesk 0.1.77" --yes
+```
+
+Export never changes the set's state and keeps raw XML when piped. Import loads a
+retrieved update set and stops; `preview` and `commit` drive the platform's own
+CICD Update Set API steps and follow their progress trackers. `problems` is
+read-only: jsn never accepts, skips, or ignores a preview problem, and commit
+refuses while any remains unresolved. Both mutating steps verify `previewed` /
+`committed` by readback. See [update-set-transfer.md](update-set-transfer.md).
+
 ### Flow Designer actions
 
 `actions` and `action` are the same command. `list`, `show`, and explicit

@@ -6,6 +6,11 @@ import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, 
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
+import {
+  previewUpdateSet as previewRetrievedUpdateSet,
+  commitUpdateSet as commitRetrievedUpdateSet,
+  listPreviewProblems,
+} from './update-set-apply.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -832,6 +837,32 @@ export class SDKClient {
     } finally {
       if (this.onMutation) await this._reportMutation({ table: 'sys_remote_update_set', sys_id: id, operation: 'create', outcome });
     }
+  }
+
+  /**
+   * Preview a loaded retrieved update set through the CICD Update Set API and
+   * wait for its progress tracker. Does not commit and does not resolve
+   * preview problems.
+   * @param {string} sysID - sys_remote_update_set sys_id
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async previewUpdateSet(sysID, opts = {}) {
+    return previewRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /**
+   * Commit a previewed retrieved update set through the CICD Update Set API and
+   * wait for its progress tracker.
+   * @param {string} sysID - sys_remote_update_set sys_id
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async commitUpdateSet(sysID, opts = {}) {
+    return commitRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /** Read sys_update_preview_problem rows for a retrieved update set. */
+  async listUpdateSetPreviewProblems(sysID, opts = {}) {
+    return listPreviewProblems(this, sysID, opts);
   }
 
   /**
