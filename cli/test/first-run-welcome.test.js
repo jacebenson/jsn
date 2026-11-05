@@ -162,7 +162,7 @@ describe('welcome content', () => {
     assert.match(text, /jsn setup\s+first connection \+ defaults, interactive/);
     assert.match(text, /jsn auth login <instance>\s+one connection, scriptable, no wizard/);
     // Where the marker and profiles actually live.
-    assert.match(text, /Config: .*servicenow\/config\.json/);
+    assert.match(text, /Config: .*servicenow[\\/]config\.json/);
     // The agent skill, docs search, and a version/update path derived from disk.
     assert.match(text, /jsn skill install/);
     assert.match(text, /jsn docs search <query>/);

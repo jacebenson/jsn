@@ -229,7 +229,10 @@ export function sha256(value) {
 /** The base-commit fixture: recorded help bytes and output hashes. */
 export function loadBaseFixture() {
   const meta = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'base-output.json'), 'utf-8'));
-  const help = fs.readFileSync(path.join(FIXTURE_DIR, 'base-help.txt'), 'utf-8');
+  // A Windows checkout (core.autocrlf) hands back CRLF for a file stored as LF.
+  // The CLI itself always writes LF, so compare against normalized reference
+  // bytes or every byte-for-byte assertion fails on Windows for the wrong reason.
+  const help = fs.readFileSync(path.join(FIXTURE_DIR, 'base-help.txt'), 'utf-8').replace(/\r\n/g, '\n');
   return { meta, help };
 }
 

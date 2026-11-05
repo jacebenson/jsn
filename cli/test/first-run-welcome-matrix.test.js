@@ -38,6 +38,12 @@ import {
 const PTY_SKIP = ptySkipReason();
 const POSIX_ONLY = process.platform === 'win32' ? 'POSIX file modes only' : false;
 const ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
+// Row 6 drives `jsn | cat` and `jsn > file`, which are POSIX shell forms; the
+// non-TTY property it checks is covered on Windows by the piped rows 9 and the
+// spawnSync tests in the decision file.
+const POSIX_SHELL_ONLY = process.platform === 'win32'
+  ? 'POSIX pipe and redirect syntax (cat, /bin/sh); piped output is covered by row 9'
+  : false;
 const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z pid=\d+\n$/;
 
 function assertNoStackTrace(output, where) {
@@ -54,7 +60,7 @@ function assertMarkerComplete(marker, where) {
 }
 
 describe('first-run welcome matrix (issue #387)', () => {
-  it('row 1: two first runs racing on one config dir produce at most one welcome and a valid marker', async () => {
+  it('row 1: two first runs racing on one config dir produce at most one welcome and a valid marker', { skip: PTY_SKIP }, async () => {
     const { dir, marker } = freshConfigHome('jsn-race-');
     const [a, b] = await Promise.all([runPtyAsync(dir, [], { columns: 80 }), runPtyAsync(dir, [], { columns: 80 })]);
     const welcomes = [a, b].filter((run) => hasWelcome(run.output)).length;
@@ -185,7 +191,7 @@ describe('first-run welcome matrix (issue #387)', () => {
     assert.strictEqual(sha256(dumb.output), meta.sha256.help);
   });
 
-  it('row 6: piped and redirected runs get help only, and burn nothing', () => {
+  it('row 6: piped and redirected runs get help only, and burn nothing', { skip: POSIX_SHELL_ONLY }, () => {
     const { meta, help } = loadBaseFixture();
     const { dir, marker } = freshConfigHome('jsn-pipe-');
     const piped = runShell(`${process.execPath} ${JSON.stringify(CLI)} | cat`, dir);
