@@ -141,8 +141,8 @@ export function catalogCmd(wrap) {
         })
         .command({
           command: 'show <id>',
-          aliases: ['get'],
-          describe: 'Show a catalog item',
+          aliases: ['get', 'describe', 'inputs'],
+          describe: 'Show a catalog item, its questions and required answers',
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const id = await resolveSysId(app.sdk, { table: 'sc_cat_item', identifier: argv.id, matchField: 'name', resource: 'Catalog item' });
@@ -158,7 +158,7 @@ export function catalogCmd(wrap) {
 }
 
 async function showItem(app, sysID) {
-  const { data, standalone, setVars, totalVars } = await enrichCatalogItem({
+  const { data, variables, totalVars, source } = await enrichCatalogItem({
     sdk: app.sdk,
     instanceUrl: app.getEffectiveInstance(),
     sysID,
@@ -166,15 +166,16 @@ async function showItem(app, sysID) {
 
   // Styled-mode rendering (non-enumerable so JSON output stays clean)
   Object.defineProperty(data, '_formatted', {
-    value: buildCatalogFormatted(data, standalone, setVars, totalVars),
+    value: buildCatalogFormatted(data, variables, source),
     enumerable: false,
     configurable: true,
   });
 
   app.ok(data, {
-    summary: `${data.name} — ${totalVars} variable(s)`,
+    summary: `${data.name} — ${totalVars} question(s) from ${source === 'catalog_api' ? 'the catalog API' : 'item_option_new'}`,
     breadcrumbs: [
       { action: 'list', cmd: 'jsn catalogitems list', description: 'Back to all catalog items' },
+      ...(totalVars ? [{ action: 'order', cmd: `jsn catalogitems order ${sysID} --dry-run`, description: 'Preview an order without submitting' }] : []),
     ],
   });
 }

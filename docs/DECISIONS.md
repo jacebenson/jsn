@@ -1,5 +1,46 @@
 # JSN decisions
 
+## Table behavior discovery extends `tables` (2026-11-04)
+
+Phase 1 of issue #398 adds `jsn tables behavior <table>` as a subcommand of the
+existing `tables` command family rather than a new top-level namespace. That
+keeps schema inspection (`tables show`) and configuration discovery on the same
+surface, and it inherits the existing command capabilities (the subcommand is
+read-only; `tables` keeps its declared create/update/delete mutations).
+Categories are `business_rules`, `client_scripts`, `ui_actions`, `ui_policies`
+and `data_policies`; flows, workflows and state models are explicitly later
+extensions.
+
+The inventory resolves the `sys_db_object` ancestor chain (bounded to 32 levels)
+and applies each artifact's inheritance semantics: business rules inherit
+through `collection`, client scripts only through `applies_extended`, UI actions
+through `table` plus `global`, and UI/data policies through their `inherit`
+flag. Business rules and UI actions also include the platform `global`
+collection, including for root tables with no ancestors, and mark those rows
+with `association_detail: global_actions`. Items report `association`
+(`direct`/`inherited`) and
+`association_detail`, optionally attached field actions from
+`sys_ui_policy_action`/`sys_data_policy_rule`. `sys_overrides` is retained as
+evidence only — effective override resolution is not simulated. Client-side
+requirements are reported separately from server enforcement. Conditions are
+inventoried, never evaluated; scripts are not retrieved in Phase 1, so no
+script body can be cut. Metadata identifiers are validated against a bounded
+`[A-Za-z0-9_]` allowlist before they enter related queries, so ordinary 32-hex
+sys_ids and platform word ids such as `sysverb_query` both work while encoded
+query metacharacters are rejected.
+
+Output is bounded per category (`--limit`, default 200, max 200) and by
+`--max-bytes` (4096–1048576, default 524288) with whole-item omission,
+per-category cursors and explicit `truncated`/`has_more` metadata. Sources are probed through `sys_dictionary`
+before querying; permission, missing-layout and malformed-response failures
+become `unavailable`/`unsupported` category statuses, never empty results.
+Every read is a GET through the existing authenticated SDK (`listStrict`); no
+new dependency is added.
+
+Patterns were informed by `now-sdk-ext-core`'s MIT-licensed
+`TableBehaviorDiscovery` (Copyright (c) 2026 SoniSoft Inc). The implementation
+is original to JSN and uses JSN's readers and output envelope.
+
 ## Runtime auth recovery reacts to rejection, not session age
 
 Issue #311 adds an App-owned recovery provider to the SDK. Only a real command's
@@ -371,6 +412,63 @@ empty. GitHub remains authoritative for revision checks and incremental updates.
 Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
+
+## Record watching uses AMB's Bayeux long-poll, not socket.io (2026-11-04)
+
+Issue #396 asks agents to observe one record instead of polling it. ServiceNow's
+AMB endpoint (`/amb`) is CometD/Bayeux: JSON message arrays POSTed to
+`/amb/handshake` once and `/amb/connect` for subscribe and long-poll. That is
+implemented directly with `fetch`, so no socket.io or WebSocket dependency is
+added and the protocol stays testable against a local mock. The record-watcher
+channel name is `/rw/<actionPrefix>/<table>/<base64(query)>` with `=` padding
+replaced by `-`.
+
+AMB authorizes like a browser session (cookies plus X-UserToken), so the command
+requires a credential that can produce a UI session. `SDKClient.ambSession()`
+makes that requirement explicit and reports recovery guidance when a
+bearer-only profile cannot satisfy it, rather than pretending REST auth works.
+
+Delivery is best effort. A reconnect re-subscribes the channel and reports the
+gap; missed events are neither replayed nor claimed. Observation is bounded by
+`--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
+and user notification stay with the calling agent.
+
+Only a single-record subscription ships. Filtered table subscriptions are
+deferred until platform support and access behavior are validated on a live
+instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
+ack, cross-session delivery and the notification shape: the platform sends a
+`record` map of changed fields plus `sys_*` audit fields, not a `changes`
+array, and it omits `table`/`sys_id` (the subscription supplies them). Human
+output renders those changed fields. ACL denial with a non-admin identity,
+create/delete payloads and a real reconnect gap remain unverified.
+
+## Table behavior mirrors the platform's Configurations inventory (2026-11-04)
+
+`jsn tables behavior` reports the families an administrator checks before changing
+a table, matching what ServiceNow's classic "Configurations for <table>" page
+shows. Sources: `sys_script`, `sys_script_client`, `sys_ui_action`,
+`sys_ui_policy`, `sys_data_policy2`, `sys_dictionary`, `sys_dictionary_override`,
+`sysevent_email_action` (by `collection`), `sys_security_acl` (by name pattern
+`*`, `*.`, `<table>`, `<table>.`, ancestors), `sys_ui_style` (by `name`),
+`sysrule_view` (by `table`) and `sys_flow_record_trigger` (by `table`).
+
+Two deliberate differences from the page's counts, because the page's number
+would hide configuration that actually runs:
+
+- Global business rules and global UI actions are included and labelled
+  `global_actions`. On the reference instance (dev366743, `incident`) that adds 83
+  business rules and 45 UI actions to a page that shows 72 and 51.
+- A `<ancestor>` UI policy with `inherit=false` is excluded, because it does not
+  apply to the child table.
+
+Ordering travels in `sysparm_query` (`ORDERBY` plus a second `ISEMPTY` phase so
+rows missing a primary key sort last), never as an in-memory sort of a returned
+page, so per-category cursors stay stable across pages. Rows that satisfy two
+ordering phases are de-duplicated by `sys_id`.
+
+Flow coverage is record triggers only. Flow templates and timer/catalog/REST/SLA
+triggers have no table-scoped join exposed by the platform, so they are reported
+as `unsupported` with the trigger type named rather than matched by text.
 
 ## First-run welcome orients above help, once (2026-11-04)
 
