@@ -1,8 +1,24 @@
-import { quoteShellArg, truncateString } from '../helpers.js';
-import { errUsage } from '../errors.js';
+import { confirmDelete, quoteShellArg, truncateString } from '../helpers.js';
+import { declareCapabilities } from '../capabilities.js';
+import { AppError, errUsage } from '../errors.js';
 import {
-  STORE_TABS, listApplications, showApplication, operationStatus, boundedLimit, boundedOffset,
+  STORE_TABS, listApplications, showApplication, operationStatus, prepareInstall, prepareUpdate,
+  dispatchOperation, waitForOperation, verifyInstalledVersion, boundedLimit, boundedOffset,
+  boundedPoll, boundedTimeout,
 } from '../store.js';
+
+// Only the lifecycle verbs mutate. search/list/show/status are discovery and
+// inspection: they send no mutation even though the App Client search endpoint
+// is POST-shaped.
+//
+// Install/update are exempt from development capture-context approval for the
+// same reason as catalog ordering: they hand a runtime install request to the
+// App Client, which writes installed-application state rather than capturing
+// metadata into the selected application/update set.
+declareCapabilities('store', {
+  mutationSubcommands: ['install', 'update'],
+  mutationContextExemptSubcommands: ['install', 'update'],
+});
 
 const hint = (action, cmd, description) => ({ action, cmd, description });
 
@@ -99,6 +115,19 @@ const pageOptions = p => p.option('limit', { type: 'number', default: 20, descri
 // as argv.app on every command, so a positional called `app` is overwritten
 // before the handler runs and every identifier arrives as the context object.
 const appOption = p => p.positional('application', { type: 'string', describe: 'Application name, scope, or sys_id' });
+const waitOptions = p => p.option('wait', { type: 'boolean', default: false, describe: 'Poll the tracker until it finishes' })
+  .option('timeout', { type: 'number', default: 1800, describe: 'Maximum wait in seconds (1–14400); expiry does not cancel the operation' })
+  .option('poll-interval', { type: 'number', default: 5, describe: 'Seconds between progress reads (0–300)' })
+  .option('dry-run', { type: 'boolean', default: false, describe: 'Resolve and report the intended operation; send nothing' });
+
+function appHints(app) {
+  const name = app.scope || app.sys_id;
+  return [
+    hint('show', `jsn store show ${quoteShellArg(name)}`, 'Inspect installed version, available versions, entitlement and dependencies'),
+    hint('status', `jsn store status <tracker-id>`, 'Read operation progress after a submission'),
+  ];
+}
+
 function listHints(page) {
   const base = page.term ? `jsn store search ${quoteShellArg(page.term)}` : 'jsn store list';
   return [
@@ -115,10 +144,88 @@ function emitList(app, argv, page) {
   });
 }
 
+async function runLifecycle(argv, app, operation) {
+  const prepare = operation === 'install' ? prepareInstall : prepareUpdate;
+  const plan = await prepare(app.sdk, argv.application, operation === 'install'
+    ? { version: argv.version, demoData: argv.demoData === true }
+    : { version: argv.version });
+  const publicPlan = {
+    operation: plan.operation,
+    app: plan.app,
+    requested_version: plan.requested_version,
+    ...(plan.from_version ? { from_version: plan.from_version } : {}),
+    ...(plan.operation === 'install' ? { demo_data: plan.demo_data } : {}),
+    versions: plan.versions,
+    installable_checked: plan.installable_checked,
+    detail_unavailable: plan.detail_unavailable,
+  };
+  if (argv.dryRun) {
+    report(app, argv, { ...publicPlan, dry_run: true, dispatched: false }, {
+      summary: `Would ${operation} ${plan.app.name || plan.app.sys_id} version ${plan.requested_version}; nothing was sent`,
+      breadcrumbs: appHints(plan.app),
+    });
+    return;
+  }
+  const action = operation === 'install' ? 'Install' : `Update ${plan.app.name || plan.app.sys_id}${plan.from_version ? ` from ${plan.from_version}` : ''} to`;
+  await confirmDelete(app, argv, `${action} ServiceNow Store application "${plan.app.name || plan.app.sys_id}" version ${plan.requested_version}?`);
+  const started = await dispatchOperation(app.sdk, plan);
+  const data = { ...publicPlan, ...started, terminal: false, succeeded: null, verification: null };
+  if (!argv.wait) {
+    report(app, argv, data, {
+      summary: `${operation === 'install' ? 'Installation' : 'Update'} submitted: tracker ${started.tracker_id} — not a completed ${operation === 'install' ? 'installation' : 'update'}`,
+      breadcrumbs: [hint('status', `jsn store status ${started.tracker_id}`, 'Poll the tracker'), ...appHints(plan.app)],
+    });
+    return;
+  }
+  const timeoutMs = boundedTimeout(argv.timeout) * 1000;
+  const pollIntervalMs = boundedPoll(argv.pollInterval) * 1000;
+  let progress;
+  try {
+    progress = await waitForOperation(app.sdk, started.tracker_id, { pollIntervalMs, timeoutMs });
+  } catch (error) {
+    throw new AppError('store_progress_unavailable',
+      `${operation === 'install' ? 'Installation' : 'Update'} ${started.tracker_id} was submitted but progress could not be read: ${error.message}. It may still be running.`,
+      `Check jsn store status ${started.tracker_id} before doing anything else; do not resubmit automatically.`);
+  }
+  Object.assign(data, progress);
+  if (data.wait_timed_out) {
+    report(app, argv, data, {
+      summary: `${operation === 'install' ? 'Installation' : 'Update'} ${started.tracker_id}: still running after ${argv.timeout}s (${data.percent_complete ?? 'unknown'}%); not verified`,
+      breadcrumbs: [hint('status', `jsn store status ${started.tracker_id}`, 'Read progress again'), ...appHints(plan.app)],
+    });
+    return;
+  }
+  if (!data.succeeded) {
+    throw new AppError('store_operation_failed',
+      // status_label is the tracker's generic verdict ("Failed"); status_message
+      // carries the reason ("Unable to download app package"). Report the reason.
+      `${operation === 'install' ? 'Installation' : 'Update'} ${started.tracker_id} failed: ${data.status_message || data.status_label || data.error || 'the tracker reported failure'}.`,
+      `Read jsn store status ${started.tracker_id} for progress and the application's upgrade history. The application may be partially installed; do not resubmit automatically.`);
+  }
+  // Readback can lag the tracker. Reuse the operator's poll interval, capped at
+  // the module default, so a fast poll also shortens verification.
+  const verification = await verifyInstalledVersion(app.sdk, plan.app, plan.requested_version, {
+    intervalMs: pollIntervalMs === 0 ? 0 : Math.min(pollIntervalMs, 2000),
+  });
+  data.verification = verification;
+  if (verification.verified === false) {
+    throw new AppError('store_verification_failed',
+      `${operation === 'install' ? 'Installation' : 'Update'} ${started.tracker_id} reported success, but sys_store_app reads back version ${verification.installed_version ?? '(none)'} instead of ${plan.requested_version}.`,
+      `Inspect the application with jsn store show ${quoteShellArg(plan.app.scope || plan.app.sys_id)} and its upgrade history before retrying; a reported success is not a completed ${operation === 'install' ? 'installation' : 'update'}.`);
+  }
+  const verifiedText = verification.verified === true
+    ? `version ${plan.requested_version} verified on sys_store_app`
+    : `version not verified (${verification.reason})`;
+  report(app, argv, data, {
+    summary: `${operation === 'install' ? 'Installed' : 'Updated'} ${plan.app.name || plan.app.sys_id} ${plan.requested_version}; ${verifiedText}`,
+    breadcrumbs: [hint('show', `jsn store show ${quoteShellArg(plan.app.scope || plan.app.sys_id)}`, 'Inspect the installed application'), ...appHints(plan.app)],
+  });
+}
+
 export function storeCmd(wrap) {
   return {
     command: 'store [subcommand]',
-    describe: 'Discover ServiceNow Store applications and inspect their versions, entitlement and block reasons (read-only)',
+    describe: 'Discover ServiceNow Store applications, inspect versions and entitlement, and request explicit installs/updates',
     builder: y => y
       .command({
         command: 'list',
@@ -153,6 +260,9 @@ export function storeCmd(wrap) {
             summary: `Store application: ${data.name || data.sys_id}${data.installed ? ` (installed ${data.installed.version || 'version unknown'})` : ' (not installed)'}`,
             breadcrumbs: [
               hint('show', `jsn store show ${quoteShellArg(data.scope || data.sys_id)}`, 'Inspect this application'),
+              ...(data.installed
+                ? [hint('update', `jsn store update ${quoteShellArg(data.scope || data.sys_id)} --version <version> --dry-run`, 'Resolve an exact update without sending it')]
+                : [hint('install', `jsn store install ${quoteShellArg(data.scope || data.sys_id)} --version <version> --dry-run`, 'Resolve an exact install without sending it')]),
               hint('list', 'jsn store list --tab updates', 'List applications with an available update'),
             ],
           });
@@ -173,13 +283,28 @@ export function storeCmd(wrap) {
             ],
           });
         }),
+      })
+      .command({
+        command: 'install <application>',
+        describe: 'Install an exact Store application version (declared mutation; unverified against a live Store)',
+        builder: p => waitOptions(appOption(p))
+          .option('version', { type: 'string', describe: 'Exact version to install (required)' })
+          .option('demo-data', { type: 'boolean', default: false, describe: 'Load demo data during installation' }),
+        handler: wrap(async (argv, app) => runLifecycle(argv, app, 'install')),
+      })
+      .command({
+        command: 'update <application>',
+        describe: 'Update an installed Store application to an exact version (declared mutation; unverified against a live Store)',
+        builder: p => waitOptions(appOption(p))
+          .option('version', { type: 'string', describe: 'Exact target version; defaults to the reported latest_version' }),
+        handler: wrap(async (argv, app) => runLifecycle(argv, app, 'update')),
       }),
     handler: wrap(async (argv, app) => {
-      report(app, argv, { commands: ['search', 'list', 'show', 'status'] }, {
+      report(app, argv, { commands: ['search', 'list', 'show', 'status', 'install', 'update'] }, {
         summary: 'ServiceNow Store applications',
         breadcrumbs: [hint('list', 'jsn store list --tab installed', 'List installed applications'),
           hint('search', 'jsn store search "<term>"', 'Search applications available to this instance'),
-          hint('show', 'jsn store show <application>', 'Inspect one application'),
+          hint('show', 'jsn store show <app>', 'Inspect one application'),
           hint('status', 'jsn store status <tracker>', 'Read install/update progress')],
       });
     }),
