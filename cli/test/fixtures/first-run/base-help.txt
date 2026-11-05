@@ -125,7 +125,9 @@ DEVELOPER
 
 MORE
 ──────────────────────────────────────────────────
+  jsn cases           List, show or search service and HR cases visible to the connected account (case)
   jsn attachments     List, download and upload files attached to any record (attachment)
+  jsn store           Discover ServiceNow Store applications, inspect versions and entitlement, and request explicit installs/updates
   jsn skipped-updates Review and process existing unresolved skipped updates across all upgrade history
   jsn history         Local seven-day mutation history (not a durable ServiceNow audit)
   jsn customizations  Capture and compare read-only customization evidence locally
