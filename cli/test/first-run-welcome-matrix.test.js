@@ -185,7 +185,7 @@ describe('first-run welcome matrix (issue #387)', () => {
     assert.strictEqual(sha256(dumb.output), meta.sha256.help);
   });
 
-  it('row 6: `jsn | cat` and `jsn > file` get help only, and burn nothing', () => {
+  it('row 6: piped and redirected runs get help only, and burn nothing', () => {
     const { meta, help } = loadBaseFixture();
     const { dir, marker } = freshConfigHome('jsn-pipe-');
     const piped = runShell(`${process.execPath} ${JSON.stringify(CLI)} | cat`, dir);
