@@ -341,6 +341,117 @@ function newestFirst(a, b) {
   return b.created_on.localeCompare(a.created_on) || a.sys_id.localeCompare(b.sys_id);
 }
 
+// Only dictionary-typed durations are offsets; an epoch-shaped date is still a date.
+function durationDisplay(value) {
+  if (!/^1970-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return value;
+  const milliseconds = Date.parse(`${value.replace(' ', 'T')}Z`);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0
+      || new Date(milliseconds).toISOString().slice(0, 19) !== value.replace(' ', 'T')) return value;
+  let seconds = milliseconds / 1000;
+  const parts = [];
+  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1]]) {
+    const count = Math.floor(seconds / size);
+    seconds %= size;
+    if (count) parts.push(`${count} ${unit}${count === 1 ? '' : 's'}`);
+  }
+  return parts.join(' ') || '0 seconds';
+}
+
+// Resolve the declared target table's display column, including inherited columns.
+// Cache metadata (and failures) per table for this inspection, never per activity.
+async function configurationValues(sdk, rows) {
+  const metadata = new Map();
+  const targets = new Map();
+  const identifier = value => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value);
+  async function lookup(table, options) {
+    // These reads only enrich values. A failed enrichment must not hide the
+    // original ID or make an otherwise readable workflow unavailable.
+    try {
+      return await readComponent(sdk, table, options);
+    } catch {
+      return { state: 'unavailable', rows: [] };
+    }
+  }
+  async function displayField(table, seen = new Set()) {
+    if (!identifier(table) || seen.has(table) || seen.size >= 16) return '';
+    if (metadata.has(table)) return metadata.get(table);
+    seen.add(table);
+    const dictionary = await lookup('sys_dictionary', {
+      query: `name=${table}^display=true`, fields: 'element', limit: 2,
+    });
+    let field = dictionary.rows?.length === 1 ? raw(dictionary.rows[0].element) : '';
+    if (!field && dictionary.state === 'ok' && !dictionary.rows.length) {
+      const parent = await lookup('sys_db_object', {
+        query: `name=${table}`, fields: 'super_class.name', limit: 2,
+      });
+      if (parent.rows?.length === 1) field = await displayField(raw(parent.rows[0]['super_class.name']), seen);
+    }
+    if (!field && dictionary.state === 'ok') {
+      // ServiceNow can use its conventional name/number column without an
+      // explicit display=true dictionary entry (e.g. sys_user_group).
+      const defaults = await lookup('sys_dictionary', {
+        query: `name=${table}^elementINname,number`, fields: 'element', limit: 2,
+      });
+      const elements = new Set((defaults.rows || []).map(row => raw(row.element)));
+      field = ['name', 'number'].find(element => elements.has(element)) || '';
+    }
+    field = identifier(field) ? field : '';
+    metadata.set(table, field);
+    return field;
+  }
+  const values = rows.map(row => {
+    const type = raw(row['variable.internal_type']);
+    const value = raw(row.value);
+    const table = raw(row['variable.reference']);
+    const info = { raw_value: value, display_value: text(row.value), type, reference_table: table };
+    if (type === 'glide_duration') info.display_value = durationDisplay(value);
+    if (['reference', 'glide_list'].includes(type) && value.trim()) {
+      const ids = value.split(',').map(id => id.trim());
+      info.resolution = 'unresolved';
+      if (info.display_value.trim() && info.display_value !== value
+          && !info.display_value.split(',').every(id => isSysId(id.trim()))) {
+        info.resolution = 'resolved';
+      } else if (identifier(table) && ids.every(isSysId)) {
+        if (!targets.has(table)) targets.set(table, new Set());
+        for (const id of ids) targets.get(table).add(id);
+      }
+    }
+    return info;
+  });
+  const names = new Map();
+  for (const [table, ids] of targets) {
+    const field = await displayField(table);
+    if (!field) continue;
+    for (const chunk of chunks([...ids])) {
+      const records = await lookup(table, {
+        query: `sys_idIN${chunk.join(',')}`, fields: `sys_id,${field}`, limit: CHUNK,
+      });
+      for (const record of records.rows || []) {
+        const name = text(record[field]).trim();
+        if (name && name !== raw(record.sys_id)) names.set(`${table}:${raw(record.sys_id)}`, name);
+      }
+    }
+  }
+  for (const info of values) {
+    if (info.resolution !== 'unresolved') continue;
+    let resolved = true;
+    info.display_value = info.raw_value.split(',').map(value => {
+      const id = value.trim();
+      // A reference field may legitimately hold a template expression, a script
+      // variable or plain text (for example "${opened_by}"). Only a 32-hex sys_id
+      // can be a reference, so anything else is passed through untouched and must
+      // not be reported as an unresolved reference.
+      if (!/^[0-9a-f]{32}$/i.test(id)) return value;
+      const name = names.get(`${info.reference_table}:${id}`);
+      if (name) return name;
+      resolved = false;
+      return `${id} (unresolved reference)`;
+    }).join(', ');
+    info.resolution = resolved ? 'resolved' : 'unresolved';
+  }
+  return values;
+}
+
 function isScriptField(element) {
   return element === 'script' || element.startsWith('script_') || element.endsWith('_script');
 }
@@ -541,7 +652,7 @@ export async function inspectWorkflow(sdk, {
       for (const chunk of chunks(activityIds)) {
         configurationReads.push(await readComponent(sdk, VARIABLE_VALUE, {
           query: `document=wf_activity^document_keyIN${chunk.join(',')}^ORDERBYorder`,
-          fields: 'document_key,variable.element,value',
+          fields: 'document_key,variable.element,variable.internal_type,variable.reference,value',
           limit: MAX_LIMIT,
         }));
       }
@@ -552,15 +663,23 @@ export async function inspectWorkflow(sdk, {
         inaccessible.push({ component: 'configuration', state: failed.state, http_status: failed.http_status ?? null, code: failed.code ?? null });
       }
       const byActivity = new Map();
-      for (const row of configurationReads.flatMap(read => read.rows || [])) {
+      const detailsByActivity = new Map();
+      const configurationRows = configurationReads.flatMap(read => read.rows || []);
+      const values = await configurationValues(sdk, configurationRows);
+      for (const [index, row] of configurationRows.entries()) {
         const activityId = raw(row.document_key);
         const element = raw(row['variable.element']);
         if (!activityId || !element) continue;
         if (!byActivity.has(activityId)) byActivity.set(activityId, {});
-        byActivity.get(activityId)[element] = text(row.value);
+        byActivity.get(activityId)[element] = values[index].type ? raw(row.value) : text(row.value);
+        if (values[index].type) {
+          if (!detailsByActivity.has(activityId)) detailsByActivity.set(activityId, {});
+          detailsByActivity.get(activityId)[element] = values[index];
+        }
       }
       for (const activity of activities) {
         activity.configuration = byActivity.get(activity.sys_id) || {};
+        if (detailsByActivity.has(activity.sys_id)) activity.configuration_values = detailsByActivity.get(activity.sys_id);
         activity.configuration_omissions = [];
         for (const [element, value] of Object.entries(activity.configuration)) {
           if (isScriptField(element) && isCommentOnlyScript(value)) {
@@ -769,7 +888,8 @@ function formatStepContent(activity, full = false) {
     .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
   const width = Math.max(0, ...entries.map(([field]) => field.length + 1));
   for (const [field, value] of entries) {
-    const valueLines = (full ? String(value) : String(value).trim()).split(/\r?\n/);
+    const display = activity.configuration_values?.[field]?.display_value ?? value;
+    const valueLines = (full ? String(display) : String(display).trim()).split(/\r?\n/);
     const prefix = `       ${`${field}:`.padEnd(width)} `;
     const continuation = ' '.repeat(prefix.length);
     const visible = full ? valueLines : valueLines.slice(0, 3);
