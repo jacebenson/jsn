@@ -80,7 +80,7 @@ for (const [name, names, edges, expected] of cases) {
 test('activity with no outgoing transitions retains explicit group heading', async () => {
   const { json, text } = await inspect(['Begin', 'End'], [[1, 2]]);
   assert.deepEqual(json.transitions_by_activity.find(group => group.name === 'End').transitions, []);
-  assert.match(text, /\n {2}2\. End \(end\)\n/);
+  assert.match(text, /\n {2}2\. End\n/);
 });
 
 test('group and edge ordering uses name then sys_id without mutating flat transitions', async () => {
@@ -146,26 +146,71 @@ function section(text, heading) {
   return text.split(`▶ ${heading}\n${'─'.repeat(50)}\n`)[1].split('\n\n')[0].split('\n');
 }
 
+for (const condition of ['Approved', 'Approve', 'Success', 'OK', 'True', 'Yes', 'Completed']) {
+  test(`success condition ${condition} wins case-insensitively over neutral and exception edges`, async () => {
+    const mixed = condition.toUpperCase();
+    const { json, text } = await inspect(['Begin', 'A failure', 'B neutral', 'Z success'],
+      [[1, 2, 'Rejected'], [1, 3, 'Other'], [1, 4, mixed]]);
+    assert.deepEqual(section(text, 'STEPS'), ['  1. Begin', '       → step 4 A failure [Rejected]',
+      '       → step 3 B neutral [Other]', '  2. Z success (end)', '  3. B neutral (end)', '  4. A failure (end)']);
+    assert.deepEqual(json.transitions.filter(edge => edge.is_sequential).map(edge => edge.sys_id), [id(102)]);
+  });
+}
+
+for (const condition of ['Rejected', 'Reject', 'Failure', 'Failed', 'Error', 'Skipped', 'Cancelled', 'Canceled', 'Timeout', 'Expired']) {
+  test(`exception ${condition} is sequential only as the sole outgoing edge`, async () => {
+    const mixed = condition.toUpperCase();
+    const branched = await inspect(['Begin', 'A exception', 'Z neutral'], [[1, 2, mixed], [1, 3, 'Other']]);
+    assert.deepEqual(section(branched.text, 'STEPS'), ['  1. Begin', `       → step 3 A exception [${mixed}]`,
+      '  2. Z neutral (end)', '  3. A exception (end)']);
+    const sole = await inspect(['Begin', 'End'], [[1, 2, mixed]]);
+    assert.deepEqual(section(sole.text, 'STEPS'), ['  1. Begin', '  2. End']);
+    assert.equal(sole.json.transitions[0].is_sequential, true);
+    const multiple = await inspect(['Begin', 'End'], [[1, 2, mixed], [1, 2, mixed]]);
+    assert.deepEqual(section(multiple.text, 'STEPS'), ['  1. Begin', `       → step 2 End [${mixed}]`,
+      `       → step 2 End [${mixed}]`, '  2. End']);
+    assert.ok(multiple.json.transitions.every(edge => !edge.is_sequential));
+  });
+}
+
+for (const name of ['End', 'Approval END', 'Finish', 'All fInIsH', 'Done', 'All dOnE', 'Stop', 'Please sToP', 'Archive']) {
+  test(`terminal label for ${name} suppresses only a redundant end marker`, async () => {
+    const { text } = await inspect(['Begin', name], [[1, 2]]);
+    assert.deepEqual(section(text, 'STEPS'), ['  1. Begin', `  2. ${name}${name === 'Archive' ? ' (end)' : ''}`]);
+  });
+}
+
 for (const [name, names, edges, options, expected, sequential] of [
+  ['Approved is sequential while Rejected and Skipped stay explicit exceptions',
+    ['Begin', 'Change Manager Group Approval', 'Proposal Rejected', 'Show no approvers message', 'Validate Proposal', 'End'],
+    [[1, 2], [2, 3, 'Rejected'], [2, 4, 'Skipped'], [2, 5, 'Approved'], [5, 6], [3, 6], [4, 6]], {},
+    ['  1. Begin', '  2. Change Manager Group Approval', '       → step 4 Proposal Rejected [Rejected]',
+      '       → step 5 Show no approvers message [Skipped]', '  3. Validate Proposal', '       → step 6 End [Success]',
+      '  4. Proposal Rejected', '       → step 6 End [Success]', '  5. Show no approvers message', '  6. End'], [100, 103, 106]],
+  ['terminal steps follow rollback and retain stable traversal order among themselves',
+    ['Begin', 'End', 'Rollback', 'Other terminal'], [[1, 2, 'Always'], [1, 3, 'Rejected'], [3, 4]], {},
+    ['  1. Begin', '       → step 3 End [Always]', '       → step 2 Rollback [Rejected]',
+      '  2. Rollback', '       → step 4 Other terminal [Success]', '  3. End', '  4. Other terminal (end)'], []],
   ['numbering follows start through a silent linear chain, not activity input order',
     ['End', 'Middle', 'Begin'], [[3, 2], [2, 1]], { start: 3 },
-    ['  1. Begin', '  2. Middle', '  3. End (end)'], [100, 101]],
+    ['  1. Begin', '  2. Middle', '  3. End'], [100, 101]],
   ['branch prints only the non-sequential edge and prefers Always over a conditioned edge',
     ['Begin', 'A rejected', 'Z accepted'], [[1, 2, 'Rejected'], [1, 3, 'Always']], {},
     ['  1. Begin', '       → step 3 A rejected [Rejected]', '  2. Z accepted (end)', '  3. A rejected (end)'], [101]],
   ['loop back-edge alone gets a closing marker and summary uses step numbers',
     ['Begin', 'Approve', 'Validate', 'End'], [[1, 2], [2, 3], [3, 2, 'Failure'], [3, 4, 'Always']], {},
-    ['  1. Begin', '  2. Approve', '  3. Validate', '       ↺ → step 2 Approve [Failure]', '  4. End (end)'], [100, 101, 103]],
+    ['  1. Begin', '  2. Approve', '  3. Validate', '       ↺ → step 2 Approve [Failure]', '  4. End'], [100, 101, 103]],
   ['unreachable activities append by name then ID and do not imply a sequence',
     ['Begin', 'Z detached', 'A detached', 'End', 'A detached'], [[1, 4], [3, 5]], {},
-    ['  1. Begin', '  2. End (end)', '  3. A detached (not reached from start)',
-      '       → step 4 A detached [Success]', '  4. A detached (not reached from start; end)', '  5. Z detached (not reached from start; end)'], [100]],
+    ['  1. Begin', '       → step 3 End [Success]', '  2. A detached (not reached from start)',
+      '       → step 4 A detached [Success]', '  3. End', '  4. A detached (not reached from start; end)',
+      '  5. Z detached (not reached from start; end)'], []],
   ['parallel conditions to the next step retain the non-preferred exception',
     ['Begin', 'End'], [[1, 2, 'Rejected'], [1, 2, 'Always']], {},
-    ['  1. Begin', '       → step 2 End [Rejected]', '  2. End (end)'], [101]],
+    ['  1. Begin', '       → step 2 End [Rejected]', '  2. End'], [101]],
   ['unconditional edge is preferred and duplicate conditions remain explicit',
     ['Begin', 'End'], [[1, 2, 'Rejected'], [1, 2, null]], {},
-    ['  1. Begin', '       → step 2 End [Rejected]', '  2. End (end)'], [101]],
+    ['  1. Begin', '       → step 2 End [Rejected]', '  2. End'], [101]],
   ['unreadable transitions fallback does not invent terminal steps',
     ['Begin', 'End'], [[1, 2]], { denied: 'wf_transition' },
     ['  Order fallback: activities or transitions not readable; stable name/sys_id order, not a flow sequence.',

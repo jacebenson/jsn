@@ -824,7 +824,10 @@ export function formatWorkflowOutline(data) {
     const flags = [];
     if (!step.reached_from_start) flags.push(data.step_order.fallback_reason
       ? 'not reached from start; order fallback' : 'not reached from start');
-    if (outgoing.length === 0) flags.push(data.coverage.loop_detection_complete ? 'end' : 'no outgoing transitions observed; detection incomplete');
+    if (outgoing.length === 0) {
+      if (!data.coverage.loop_detection_complete) flags.push('no outgoing transitions observed; detection incomplete');
+      else if (!/(end|finish|done|stop)$/i.test(step.name.trim())) flags.push('end');
+    }
     lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${flags.length ? ` (${flags.join('; ')})` : ''}`);
     for (const edge of outgoing.filter(edge => !edge.is_sequential)) {
       lines.push(`       ${closesLoop(edge) ? '↺ ' : ''}→ ${describeTransition(edge, stepById)}`);

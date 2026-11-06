@@ -12,6 +12,7 @@ import { SDKClient } from '../src/sdk.js';
 import {
   listWorkflows,
   inspectWorkflow,
+  formatWorkflowOutline,
   listPublishedWorkflowVersionsForTable,
 } from '../src/workflow-inspection.js';
 import { workflowsCmd } from '../src/commands/workflows.js';
@@ -446,6 +447,39 @@ test('skipping configuration is reported as skipped and keeps coverage complete'
     assert.equal(data.coverage.complete, true);
     assert.ok(data.activities.every(activity => activity.configuration_status === 'skipped'));
     assert.ok(fixture.requests.every(request => request.path !== '/api/now/table/sys_variable_value'));
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('HTTP workflow inspection follows approval success, numbers End after rollback, and omits redundant end label', async () => {
+  const names = ['Begin', 'Approval', 'A rejected', 'B skipped', 'Validate', 'End', 'Rollback'];
+  const activityId = n => String(n).repeat(32);
+  const edges = [[1, 2, 'Always'], [2, 3, 'Rejected'], [2, 4, 'Skipped'], [2, 5, 'Approved'],
+    [5, 6, 'Always'], [5, 7, 'Failure'], [7, 2, 'Always'], [3, 6, 'Always'], [4, 6, 'Always']];
+  const fixture = await startFixture({
+    wf_activity: () => names.map((name, i) => ({ sys_id: activityId(i + 1), name })),
+    wf_condition: () => edges.map(([from, , name], i) => ({ sys_id: `c${i}`.padEnd(32, '0'), activity: activityId(from), name })),
+    wf_transition: () => edges.map(([from, to], i) => ({ sys_id: `d${i}`.padEnd(32, '0'),
+      from: activityId(from), to: activityId(to), condition: `c${i}`.padEnd(32, '0') })),
+    sys_variable_value: () => [],
+  });
+  try {
+    const data = await inspectWorkflow(fixture.sdk, { identifier: WF });
+    const text = formatWorkflowOutline(data);
+    assert.deepEqual(text.split(`▶ STEPS\n${'─'.repeat(50)}\n`)[1].split('\n\n')[0].split('\n'), [
+      '  1. Begin', '  2. Approval', '       → step 5 A rejected [Rejected]', '       → step 6 B skipped [Skipped]',
+      '  3. Validate', '       → step 7 End [Always]', '       → step 4 Rollback [Failure]',
+      '  4. Rollback', '       ↺ → step 2 Approval [Always]', '  5. A rejected', '       → step 7 End [Always]',
+      '  6. B skipped', '  7. End',
+    ]);
+    assert.equal(data.transitions.find(edge => edge.condition_name === 'Approved').is_sequential, true);
+    assert.ok(data.transitions.filter(edge => ['Rejected', 'Skipped'].includes(edge.condition_name)).every(edge => !edge.is_sequential));
+    assert.equal(data.steps.at(-1).name, 'End');
+    assert.equal(data.coverage.loop_detection_complete, true);
+    assert.equal(data.coverage.loops_found, 1);
+    assertOnlyReads(fixture.requests);
+    assert.doesNotMatch(text, /\b[0-9a-f]{32}\b/i);
   } finally {
     await fixture.close();
   }
