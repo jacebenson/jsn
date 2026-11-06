@@ -65,6 +65,7 @@ import {
 } from './commands/_simple.js';
 import { decisiontablesCmd } from './commands/decisiontables.js';
 import { flowsCmd } from './commands/flows.js';
+import { workflowsCmd } from './commands/workflows.js';
 import { formsCmd } from './commands/forms.js';
 import { listsCmd } from './commands/lists.js';
 import { updateSetsCmd } from './commands/updatesets.js';
@@ -359,6 +360,7 @@ export function buildCLI() {
     .command(casesCmd(wrap))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
+    .command(workflowsCmd(wrap))
     .command(actionsCmd(wrap))
     .command(scriptactionsCmd(wrap))
     .command(scheduledjobsCmd(wrap))

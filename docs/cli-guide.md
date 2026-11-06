@@ -189,6 +189,8 @@ jsn flows executions --summary                 # Server totals + sampled duratio
 jsn flows executions --limit 100               # Inspect more rows from the matching population
 jsn flows executions --record <sys_id>        # Executions for one source record
 jsn flows create --data-file flow.manifest.json # Create a draft record-triggered flow
+jsn workflows list --table incident             # Legacy Workflow Editor, read-only (wf_* tables)
+jsn workflows show "Incident approval"          # Versions, activities, transitions, conditions, scripts
 jsn rules list --query "collection=incident"
 jsn updatesets set "My Feature"
 
