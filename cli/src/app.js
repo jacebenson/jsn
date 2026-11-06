@@ -59,6 +59,7 @@ export class App {
       username: session?.username, authMethod: session?.profile?.auth_method,
     }), {
       domain: session?.domain || '',
+      username: session?.username || '',
       recovery: createAuthRecovery({ app: this, session }),
       onMutation: event => this.recordMutation(instance, session?.profileName, event),
     });
@@ -69,6 +70,7 @@ export class App {
     const profile = options.profile || {};
     return new SDKClient(instance, this.auth.createProfileProvider(instance, options), {
       domain: options.domain ?? profile.domain ?? '',
+      username: options.username || '',
       onMutation: event => this.recordMutation(instance, options.profileName || null, event),
     });
   }

@@ -47,6 +47,12 @@ test('records commands authenticate directly across methods and output modes wit
         : { error: secrets[4] }));
       return;
     }
+    if (url.pathname === '/api/now/table/sys_user') {
+      // Only session recovery verifies the re-established identity; ordinary
+      // commands never run an auth-status preflight.
+      response.end(JSON.stringify({ result: [{ user_name: 'selected-user' }] }));
+      return;
+    }
     // Session bootstrap is allowed; there is no diagnostic sys_user lookup.
     if (url.pathname === '/angular.do') { response.end('{}'); return; }
     if (url.pathname === '/api/now/table/sys_scope') { response.end('{"result":[]}'); return; }
@@ -78,14 +84,17 @@ test('records commands authenticate directly across methods and output modes wit
     if (creds) await fs.writeFile(selectedFile, JSON.stringify(creds));
     else await fs.rm(selectedFile, { force: true });
   }
-  async function run(args, expected = 0) {
+  async function run(args, expected = 0, { allowVerification = false } = {}) {
     let result;
     try { result = { ...await execute(process.execPath, [cli, ...args], { cwd: directory, env, timeout: 15000 }), code: 0 }; }
     catch (error) { result = error; }
     assert.equal(result.code, expected, result.stderr || result.message);
     for (const secret of secrets) assert.ok(!(result.stdout + result.stderr).includes(secret));
     assert.equal(await fs.readFile(siblingFile, 'utf8'), sibling, 'another identity must remain untouched');
-    assert.ok(!requests.some(request => request.path.includes('sys_user')), 'ordinary commands must not perform auth-status probes');
+    const probes = requests.filter(request => request.path.includes('sys_user')).length;
+    // A recovery may verify the rebuilt session exactly once; no other
+    // sys_user lookup is allowed on an ordinary command.
+    assert.ok(allowVerification ? probes <= 1 : probes === 0, 'ordinary commands must not perform auth-status probes');
     return result;
   }
   const recordCalls = () => requests.filter(request => request.path.endsWith('/incident')).length;
@@ -114,7 +123,7 @@ test('records commands authenticate directly across methods and output modes wit
       });
       await t.test(`${method} rejected / ${format}`, async () => {
         await seed(method, credentials(method)); reject = true;
-        const result = await run(command(format), 1);
+        const result = await run(command(format), 1, { allowVerification: method === 'oauth' });
         if (format === '--json') {
           const error = JSON.parse(result.stdout);
           assert.equal(error.code, 'auth_error'); assert.equal(error.profile, 'selected');
@@ -131,8 +140,9 @@ test('records commands authenticate directly across methods and output modes wit
     });
     await t.test(`OAuth rejection recovers within the same command / ${format}`, async () => {
       await seed('oauth', credentials('oauth')); requireFresh = true;
-      assert.match((await run(command(format))).stdout, /INC001/);
+      assert.match((await run(command(format), 0, { allowVerification: true })).stdout, /INC001/);
       assert.equal(recordCalls(), 2); assert.equal(refreshCalls(), 1);
+      assert.equal(requests.filter(request => request.path === '/api/now/table/sys_user').length, 1);
     });
     await t.test(`expired OAuth without renewal is actionable / ${format}`, async () => {
       await seed('oauth', { ...credentials('oauth'), expires_at: 1, refresh_token: undefined });

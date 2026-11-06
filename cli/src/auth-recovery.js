@@ -14,20 +14,34 @@ export function createAuthRecovery({ app, session, argv = () => app._authArgv ||
   const { instance, profileName, username, profile } = session;
   const target = profileName ? `--profile ${quoteShellArg(profileName)}` : quoteShellArg(instance);
   const label = profileName ? `profile ${quoteShellArg(profileName)}` : 'the active profile';
-  function failure(method = profile?.auth_method) {
+  // A 401 is definitive. A login page/redirect is a session rejection too, but
+  // only the SDK may decide whether the rejected operation is safe to replay.
+  const rejectedKinds = new Set(['http_401', 'login_redirect', 'login_page']);
+  function failure(method = profile?.auth_method, kind = 'http_401') {
     const error = errAPI(401, '');
     const login = `jsn auth login ${target}`;
-    error.message = `Authentication rejected for ${label} (HTTP 401).`;
+    const expired = kind !== 'http_401';
+    error.message = method === 'gck'
+      ? `The saved browser session for ${label} was rejected${expired ? ' (a login page was returned)' : ' (HTTP 401)'} and cannot be renewed by JSN. Recapture it to continue.`
+      : expired
+        ? `The saved session for ${label} expired (a login page was returned instead of the response).`
+        : `Authentication rejected for ${label} (HTTP 401).`;
     error.profile = profileName || null;
     error.recovery = method === 'basic'
       ? `jsn auth login --basic ${quoteShellArg(instance)}${profileName ? ` --profile ${quoteShellArg(profileName)}` : ''}`
       : method === 'gck' ? `jsn auth refresh ${target} --browser`
       : method === 'oauth' ? `jsn auth refresh ${target}` : login;
-    error.hint = method === 'basic'
-      ? `Set SN_USERNAME/SN_PASSWORD to the correct credentials, then run: ${error.recovery}`
-      : method === 'oauth'
-        ? `Run interactively: ${error.recovery}. If refresh fails, run: ${login}`
-        : `Run: ${error.recovery}`;
+    if (method === 'gck') {
+      // Captured browser cookies are not renewable; only a new capture helps.
+      error.recapture_required = true;
+      error.hint = `Recapture the browser session, then re-run: ${error.recovery}`;
+    } else if (method === 'basic') {
+      error.hint = `Set SN_USERNAME/SN_PASSWORD to the correct credentials, then run: ${error.recovery}`;
+    } else if (method === 'oauth') {
+      error.hint = `Run interactively: ${error.recovery}. If refresh fails, run: ${login}`;
+    } else {
+      error.hint = `Run: ${error.recovery}`;
+    }
     return error;
   }
   // Keep the settled promise too: this provider gets only one recovery attempt.
@@ -43,12 +57,13 @@ export function createAuthRecovery({ app, session, argv = () => app._authArgv ||
       error.hint = `Run: ${error.recovery}`;
       return error;
     },
-    async recover({ status }) {
-      if (status !== 401) return false;
-      return recoveryAttempt ??= recoverOnce();
+    async recover({ status, kind } = {}) {
+      const reason = kind ?? (status === 401 ? 'http_401' : null);
+      if (!rejectedKinds.has(reason)) return false;
+      return recoveryAttempt ??= recoverOnce(reason);
     },
   };
-  async function recoverOnce() {
+  async function recoverOnce(kind) {
     let creds;
     try {
       creds = await app.auth.getCredentialsFor(instance, username, {
@@ -56,7 +71,7 @@ export function createAuthRecovery({ app, session, argv = () => app._authArgv ||
       });
     } catch { throw provider.error; }
     const method = profile?.auth_method || creds.auth_method;
-    provider.error = failure(method);
+    provider.error = failure(method, kind);
     if (method === 'oauth' && creds.refresh_token) {
       try {
         await app.auth.refreshToken(instance, creds, username ?? null);

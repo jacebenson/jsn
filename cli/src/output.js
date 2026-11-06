@@ -167,6 +167,9 @@ export class OutputWriter {
       resp.recovery = e.recovery;
       if (Object.hasOwn(e, 'profile')) resp.profile = e.profile;
     }
+    // Captured browser sessions cannot be renewed, so the machine envelope
+    // must carry the same recapture marker the in-process error exposes.
+    if (e.recapture_required) resp.recapture_required = true;
     switch (format) {
       case FormatJSON:
       case FormatQuiet:
