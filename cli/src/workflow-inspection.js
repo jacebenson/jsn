@@ -250,7 +250,7 @@ export async function listWorkflows(sdk, { name = '', table = '', query = '', li
   const records = workflows.map(workflow => {
     const own = versions.filter(version => version.workflow_id === workflow.sys_id);
     const published = own.filter(version => version.published)
-      .sort((a, b) => Number(b.active) - Number(a.active) || a.created_on.localeCompare(b.created_on))[0] || null;
+      .sort((a, b) => Number(b.active) - Number(a.active) || newestFirst(a, b))[0] || null;
     const draft = own.find(version => !version.published && version.checked_out_by_id) || null;
     const record = {
       ...workflow,
@@ -335,6 +335,37 @@ async function resolveWorkflow(sdk, identifier) {
   return { workflow: normalizeWorkflow(matches[0]), matched_by: matchedBy };
 }
 
+function newestFirst(a, b) {
+  return b.created_on.localeCompare(a.created_on) || a.sys_id.localeCompare(b.sys_id);
+}
+
+function isScriptField(element) {
+  return element === 'script' || element.startsWith('script_') || element.endsWith('_script');
+}
+
+// Recognize only whitespace and complete JavaScript comments. Anything else
+// (including a shebang or an unterminated block) is conservatively retained.
+function isCommentOnlyScript(value) {
+  let rest = value;
+  let sawComment = false;
+  while (rest.trimStart()) {
+    rest = rest.trimStart();
+    if (rest.startsWith('//')) {
+      sawComment = true;
+      const end = rest.search(/[\r\n\u2028\u2029]/);
+      rest = end < 0 ? '' : rest.slice(end);
+    } else if (rest.startsWith('/*')) {
+      const end = rest.indexOf('*/', 2);
+      if (end < 0) return false;
+      sawComment = true;
+      rest = rest.slice(end + 2);
+    } else {
+      return false;
+    }
+  }
+  return sawComment;
+}
+
 export function selectVersion(versions, versionId = '') {
   if (versionId) {
     if (!isSysId(versionId)) throw errUsage('--version must be a wf_workflow_version sys_id (32 hexadecimal characters).');
@@ -343,9 +374,9 @@ export function selectVersion(versions, versionId = '') {
     return { version: requested, reason: 'requested' };
   }
   const published = versions.filter(version => version.published)
-    .sort((a, b) => Number(b.active) - Number(a.active) || a.created_on.localeCompare(b.created_on));
-  if (published.length > 0) return { version: published[0], reason: 'published' };
-  if (versions.length > 0) return { version: versions[0], reason: 'newest' };
+    .sort((a, b) => Number(b.active) - Number(a.active) || newestFirst(a, b));
+  if (published.length > 0) return { version: published[0], reason: 'latest_published' };
+  if (versions.length > 0) return { version: [...versions].sort(newestFirst)[0], reason: 'newest' };
   return { version: null, reason: 'none' };
 }
 
@@ -370,7 +401,7 @@ export async function inspectWorkflow(sdk, {
     fields: VERSION_FIELDS,
     limit: VERSIONS_LIMIT,
   });
-  const versions = (versionRead.rows || []).map(normalizeVersion);
+  const versions = (versionRead.rows || []).map(normalizeVersion).sort(newestFirst);
   const versionsTruncated = versionRead.state === 'ok' && versions.length === VERSIONS_LIMIT;
 
   let selection = { version: null, reason: 'unavailable' };
@@ -524,6 +555,13 @@ export async function inspectWorkflow(sdk, {
       }
       for (const activity of activities) {
         activity.configuration = byActivity.get(activity.sys_id) || {};
+        activity.configuration_omissions = [];
+        for (const [element, value] of Object.entries(activity.configuration)) {
+          if (isScriptField(element) && isCommentOnlyScript(value)) {
+            delete activity.configuration[element];
+            activity.configuration_omissions.push({ field: element, reason: 'comment_only_script' });
+          }
+        }
         activity.configuration_status = configurationState === 'ok' ? 'ok' : configurationState;
       }
     }
@@ -618,6 +656,7 @@ export async function inspectWorkflow(sdk, {
         && inaccessible.length === 0,
       components,
       activity_sample: activitySample,
+      comment_only_scripts_omitted: activities.reduce((count, activity) => count + (activity.configuration_omissions?.length || 0), 0),
       versions_truncated: versionsTruncated,
     },
     definition_scope: DESIGN_TIME_SCOPE,
@@ -687,7 +726,7 @@ function buildIntegrity({ activities, transitions, conditions, inaccessible, act
 function describeSelection(reason) {
   switch (reason) {
     case 'requested': return 'requested version';
-    case 'published': return 'published version';
+    case 'latest_published': return 'latest published version (active preferred)';
     case 'newest': return 'newest version (no published version)';
     case 'unavailable': return 'versions not readable';
     default: return 'no version';
@@ -770,6 +809,9 @@ export function formatWorkflowOutline(data, instanceURL = '') {
     if (activity.configuration_status !== 'ok' && activity.configuration_status !== 'skipped') {
       lines.push(`     configuration: ${activity.configuration_status}`);
     }
+    for (const omission of activity.configuration_omissions || []) {
+      lines.push(`     omitted ${omission.field}: comment-only script (no executable code)`);
+    }
     const script = activity.configuration?.script;
     if (script) {
       lines.push('     script:');
@@ -804,6 +846,9 @@ export function formatWorkflowOutline(data, instanceURL = '') {
   }
 
   const warnings = [];
+  if (data.coverage.comment_only_scripts_omitted) {
+    warnings.push(`${data.coverage.comment_only_scripts_omitted} comment-only script fields omitted; see per-activity notes`);
+  }
   for (const item of data.integrity.inaccessible) {
     warnings.push(`${item.component}: ${item.state}${item.http_status ? ` (HTTP ${item.http_status})` : ''}`);
   }

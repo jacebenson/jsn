@@ -288,7 +288,7 @@ test('workflows show selects the published version and preserves every link and 
     assertOnlyReads(fixture.requests);
     assert.equal(data.matched_by, 'name');
     assert.equal(data.workflow.sys_id, WF);
-    assert.equal(data.selection.reason, 'published');
+    assert.equal(data.selection.reason, 'latest_published');
     assert.equal(data.version.sys_id, V_PUBLISHED);
     assert.equal(data.versions.length, 3);
     assert.match(data.definition_scope, /not evidence that this version executed/);
