@@ -862,7 +862,9 @@ export function formatWorkflowOutline(data, { includeConfiguration = false, step
       data.loops.forEach((loop, index) => {
         if (!loop.members.some(member => member.sys_id === step.sys_id)) return;
         const backTo = [...new Set(loop.edges.filter(closesLoop).map(edge => stepById.get(edge.to_id).number))].sort((a, b) => a - b);
-        lines.push(`       Loop ${index + 1}: back to step${backTo.length === 1 ? '' : 's'} ${backTo.join(', ')}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}`);
+        const shown = backTo.slice(0, 6);
+        const extra = backTo.length - shown.length;
+        lines.push(`       Loop ${index + 1}: back to step${shown.length === 1 ? '' : 's'} ${shown.join(', ')}${extra > 0 ? ` …and ${extra} more` : ''}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}`);
       });
     }
     for (const edge of outgoing.filter(edge => selectedStep !== undefined || !edge.is_sequential)) {
@@ -918,9 +920,12 @@ export function formatWorkflowOutline(data, { includeConfiguration = false, step
   lines.push('');
   lines.push(`Note: ${DESIGN_TIME_SCOPE}`);
   lines.push('');
-  // Scripts, encoded conditions and free text can also contain record IDs.
-  // Only the human view is redacted; the structured definition remains intact.
-  return `${lines.join('\n')}\n`.replace(/\b[0-9a-f]{32}\b/gi, '(ID in --json)');
+  // No blanket id redaction. Scripts, encoded conditions and free text legitimately
+  // contain 32-hex record and workflow ids — for a workflow inspector those values
+  // ARE the data, and rewriting them inside a script body produces code that looks
+  // corrupted. Identifiers printed structurally use step numbers instead of sys_ids,
+  // so there is nothing left here that needs hiding.
+  return `${lines.join('\n')}\n`;
 }
 
 export function formatWorkflowList(data) {

@@ -479,7 +479,12 @@ test('HTTP workflow inspection follows approval success, numbers End after rollb
     assert.equal(data.coverage.loop_detection_complete, true);
     assert.equal(data.coverage.loops_found, 1);
     assertOnlyReads(fixture.requests);
-    assert.doesNotMatch(text, /\b[0-9a-f]{32}\b/i);
+    // Ids may appear (script content legitimately hardcodes them), but every one
+    // printed must be obtainable from --json so the reader can trace it.
+    for (const token of text.match(/\b[0-9a-f]{32}\b/gi) || []) {
+      assert.ok(JSON.stringify(data).toLowerCase().includes(token.toLowerCase()),
+        `printed id ${token} must also appear in --json`);
+    }
   } finally {
     await fixture.close();
   }
@@ -655,7 +660,11 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
     assert.match(human.stdout, /Legacy workflow: Incident approval/);
     assert.match(human.stdout, /▶ STEPS/);
     assert.ok(human.stdout.includes('  1. Begin\n  2. Tag record\n  3. Approval\n       → (activity not in the readable steps) [unreadable condition] ⚠ missing activity\n       ↺ → step 2 Tag record [approved]\n'), human.stdout);
-    assert.doesNotMatch(human.stdout, /\b[0-9a-f]{32}\b/i);
+    // Same traceability rule as above: ids in content are allowed, orphan ids are not.
+    for (const token of human.stdout.match(/\b[0-9a-f]{32}\b/gi) || []) {
+      assert.ok(JSON.stringify(envelope).toLowerCase().includes(token.toLowerCase()),
+        `printed id ${token} must also appear in --json`);
+    }
     assert.doesNotMatch(human.stdout, /▶ TRANSITIONS/);
     assert.match(human.stdout, /design-time configuration/i);
     assert.doesNotMatch(human.stdout, /▶ CONFIGURATION| {7}(?:script|table):|\(Run Script\)/);
@@ -671,7 +680,7 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
       '       table:  incident',
       '  3. Approval',
     ].join('\n')), configured.stdout);
-    assert.doesNotMatch(configured.stdout, /▶ CONFIGURATION|\b[0-9a-f]{32}\b/i);
+    assert.doesNotMatch(configured.stdout, /▶ CONFIGURATION/);
 
     const explicitJson = await run(['workflows', 'show', 'Incident approval', '--config', '--json']);
     assert.equal(explicitJson.status, 0, explicitJson.stderr);

@@ -15,6 +15,7 @@ async function inspect(names, edges, options = {}) {
     wf_condition: edges.map(([from, , name = 'Success'], i) => ({
       sys_id: id(500 + i), activity: id(from), name,
     })),
+    sys_variable_value: options.variables || [],
   };
   const sdk = { listStrict: async (table, params) => {
     calls.push(table);
@@ -239,3 +240,22 @@ for (const [name, names, edges, options, expected, sequential] of [
     assert.doesNotMatch(text, /▶ LOOPS/);
   });
 }
+
+test('ids inside script content are preserved, never redacted', async () => {
+  // A Run Script activity commonly hardcodes a workflow or record id. For a workflow
+  // inspector those values are the data; rewriting them inside a script body produces
+  // code that looks corrupted and hides what the step actually does.
+  const hardcoded = '78d9b342ff010200f6d6ffffffffff9d';
+  const { json } = await inspect(['Begin', 'Run It'], [[1, 2, 'Always']], {
+    variables: [{
+      sys_id: id(700),
+      document: id(2),
+      document_key: id(2),
+      'variable.element': 'script',
+      value: `var wf = new Workflow();\nwf.startFlow('${hardcoded}', current, current.operation(), {});`,
+    }],
+  });
+  const text = formatWorkflowOutline(json, { includeConfiguration: true });
+  assert.ok(text.includes(hardcoded), 'the hardcoded id must survive into the rendered script');
+  assert.ok(!text.includes('(ID in --json)'), 'no blanket id redaction may be applied to rendered output');
+});
