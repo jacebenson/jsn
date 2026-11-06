@@ -437,6 +437,11 @@ async function configurationValues(sdk, rows) {
     let resolved = true;
     info.display_value = info.raw_value.split(',').map(value => {
       const id = value.trim();
+      // A reference field may legitimately hold a template expression, a script
+      // variable or plain text (for example "${opened_by}"). Only a 32-hex sys_id
+      // can be a reference, so anything else is passed through untouched and must
+      // not be reported as an unresolved reference.
+      if (!/^[0-9a-f]{32}$/i.test(id)) return value;
       const name = names.get(`${info.reference_table}:${id}`);
       if (name) return name;
       resolved = false;
