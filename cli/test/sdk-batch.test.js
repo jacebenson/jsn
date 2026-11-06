@@ -115,13 +115,19 @@ it('preserves JSON, text and empty item bodies', async () => {
 });
 it('uses normal auth recovery only for a definitive outer rejection', async () => {
   let recoveries = 0;
-  const f = await fixture((call, index) => index === 1 ? { status: 401 } : success(call), { recovery: {
+  const f = await fixture((call, index) => {
+    // Recovery verifies the re-established session before replaying.
+    if (String(call.url).startsWith('/api/now/table/sys_user')) return { body: { result: [{ user_name: 'fixture' }] } };
+    return index === 1 ? { status: 401 } : success(call);
+  }, { recovery: {
     recover: async () => { recoveries++; return true; },
   } });
   try {
     const result = await f.sdk.batch([{ url: '/api/now/table/incident' }]);
-    assert.equal(result.counts.successful, 1); assert.equal(recoveries, 1); assert.equal(f.calls.length, 2);
-    assert.equal(f.calls[0].body.batch_request_id, f.calls[1].body.batch_request_id);
+    assert.equal(result.counts.successful, 1); assert.equal(recoveries, 1);
+    const batchCalls = f.calls.filter(call => !String(call.url).startsWith('/api/now/table/sys_user'));
+    assert.equal(batchCalls.length, 2);
+    assert.equal(batchCalls[0].body.batch_request_id, batchCalls[1].body.batch_request_id);
   } finally { await f.close(); }
 });
 for (const credentials of [

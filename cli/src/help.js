@@ -117,6 +117,7 @@ const DATA_COMMANDS = [
   { name: 'properties', alias: 'prop', desc: 'System properties' },
 
   { name: 'records', desc: 'Generic Table API (any table)' },
+  { name: 'batch', desc: 'Plan and apply ordered manifests' },
   { name: 'transactions', desc: 'Client transaction timings' },
   { name: 'snippets', desc: 'Saved query snippets' },
 ];

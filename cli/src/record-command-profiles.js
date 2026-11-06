@@ -61,7 +61,7 @@ export default {
     options: { singular: 'table', scopeValidation: true, showFields: ['name', 'label', 'super_class', 'create_access_controls', 'sys_scope', 'sys_created_on', 'sys_updated_on', 'sys_created_by', 'sys_updated_by', 'is_extendable'] } },
   incidents: { table: 'incident', aliases: ['incident', 'inc'], columns: ['number', 'short_description', 'priority', 'state', 'assigned_to'], kind: 'ticket' },
   changes: { table: 'change_request', aliases: ['change_request', 'chg'], columns: ['number', 'short_description', 'risk', 'state', 'assigned_to'], kind: 'ticket' },
-  requests: { table: 'sc_req_item', aliases: ['sc_req_item', 'req'], columns: ['number', 'short_description', 'stage', 'assigned_to'], kind: 'ticket' },
+  requests: { table: 'sc_req_item', aliases: ['sc_req_item', 'req'], columns: ['number', 'cat_item', 'short_description', 'stage', 'assigned_to'], kind: 'ticket' },
   tasks: { table: 'sc_task', aliases: ['sc_task', 'task'], columns: ['number', 'short_description', 'state', 'assigned_to'], kind: 'ticket' },
   uipolicies: { table: 'sys_ui_policy', aliases: ['uipolicy', 'up'], columns: ['short_description', 'table', 'sys_class_name', 'active'],
     identifierField: 'short_description', options: { singular: 'UI policy', scopeValidation: true },

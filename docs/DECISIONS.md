@@ -1,5 +1,46 @@
 # JSN decisions
 
+## Table behavior discovery extends `tables` (2026-11-04)
+
+Phase 1 of issue #398 adds `jsn tables behavior <table>` as a subcommand of the
+existing `tables` command family rather than a new top-level namespace. That
+keeps schema inspection (`tables show`) and configuration discovery on the same
+surface, and it inherits the existing command capabilities (the subcommand is
+read-only; `tables` keeps its declared create/update/delete mutations).
+Categories are `business_rules`, `client_scripts`, `ui_actions`, `ui_policies`
+and `data_policies`; flows, workflows and state models are explicitly later
+extensions.
+
+The inventory resolves the `sys_db_object` ancestor chain (bounded to 32 levels)
+and applies each artifact's inheritance semantics: business rules inherit
+through `collection`, client scripts only through `applies_extended`, UI actions
+through `table` plus `global`, and UI/data policies through their `inherit`
+flag. Business rules and UI actions also include the platform `global`
+collection, including for root tables with no ancestors, and mark those rows
+with `association_detail: global_actions`. Items report `association`
+(`direct`/`inherited`) and
+`association_detail`, optionally attached field actions from
+`sys_ui_policy_action`/`sys_data_policy_rule`. `sys_overrides` is retained as
+evidence only — effective override resolution is not simulated. Client-side
+requirements are reported separately from server enforcement. Conditions are
+inventoried, never evaluated; scripts are not retrieved in Phase 1, so no
+script body can be cut. Metadata identifiers are validated against a bounded
+`[A-Za-z0-9_]` allowlist before they enter related queries, so ordinary 32-hex
+sys_ids and platform word ids such as `sysverb_query` both work while encoded
+query metacharacters are rejected.
+
+Output is bounded per category (`--limit`, default 200, max 200) and by
+`--max-bytes` (4096–1048576, default 524288) with whole-item omission,
+per-category cursors and explicit `truncated`/`has_more` metadata. Sources are probed through `sys_dictionary`
+before querying; permission, missing-layout and malformed-response failures
+become `unavailable`/`unsupported` category statuses, never empty results.
+Every read is a GET through the existing authenticated SDK (`listStrict`); no
+new dependency is added.
+
+Patterns were informed by `now-sdk-ext-core`'s MIT-licensed
+`TableBehaviorDiscovery` (Copyright (c) 2026 SoniSoft Inc). The implementation
+is original to JSN and uses JSN's readers and output envelope.
+
 ## Runtime auth recovery reacts to rejection, not session age
 
 Issue #311 adds an App-owned recovery provider to the SDK. Only a real command's
@@ -93,6 +134,21 @@ automation confirms a snapshot-bound token from a separate read-only preview.
 is pure and reusable, while revert calls the inspected provider lifecycle and verifies
 log and artifact readback. Unknown deeper effects remain explicit rather than being
 inferred from a field comparison.
+
+## Legacy Workflow Editor inspection is a separate read-only command
+
+Legacy `wf_*` inspection is `jsn workflows`, not an extension of `jsn flows`.
+The engines have different records and different lifecycles, and Flow Designer
+inspection already assumes `sys_hub_flow`. The legacy reader only issues Table
+API GETs, never checks a workflow out, and declares no mutation subcommands.
+Missing or ACL-blocked components are returned as explicit `coverage` and
+`integrity` states alongside the rest of the readable definition, because an
+empty-looking activity set would be a false troubleshooting conclusion.
+Version selection is explicit (`--version`, else published, else newest), and
+every response states that the definition is design-time configuration rather
+than execution history. Association for table-behavior discovery is limited to
+`wf_workflow_version.table` and says so, instead of implying a complete
+automation inventory.
 
 ## New flows get their trigger from the same GraphQL patch as their actions
 
@@ -364,6 +420,32 @@ directs users to Node.js LTS rather than promising a historical minimum. The CLI
 does not declare its own numeric engine floor; dependency engine requirements
 remain intact. Older release lines are not part of the compatibility contract.
 
+## 2026-11-04: Preview and commit retrieved update sets through the CICD API
+
+Retrieval stops at a loaded retrieved update set; applying it is a separate,
+explicitly confirmed step. `updatesets preview` and `updatesets commit` call the
+platform's own CICD Update Set API (`POST /api/sn_cicd/update_set/preview|commit/
+{remote_update_set_id}`) and follow `GET /api/sn_cicd/progress/{id}`. Hidden Ajax
+processors and `GlideUpdateManager2` background scripts are not used: they bypass
+platform validation and are not a public contract. A missing plugin (404) or role
+(403) is reported as "nothing was started" instead of degrading silently.
+
+Preview problems live in `sys_update_preview_problem` keyed by `remote_update_set`.
+`updatesets problems` reports them read-only; jsn never accepts, skips, or ignores
+one, and commit refuses while any remains unresolved. Resolving a problem is a
+human decision made in ServiceNow. Both operations verify the retrieved set's
+state afterwards (`previewed`, `committed`) and report an unverified outcome as an
+error rather than assuming the platform applied it. Neither operation selects an
+update set or changes scope. The proposed import modifiers `--name`, `--local`, and
+`--state` are refused with the supported alternative: a retrieved set keeps the
+identity in its XML envelope, import never converts it to a local set, and state
+transitions are preview/commit for retrieved sets and `reopen` for local ones.
+
+A commit resolves the local set it created from `sys_remote_update_set.update_set`
+(the platform's exact reference) and only falls back to a name lookup when that
+reference is empty. Duplicate names therefore do not turn a known local copy into
+ambiguity; an actually ambiguous or missing copy is reported, never guessed.
+
 ## Seed empty documentation services from the hosted index (2026-10-31)
 
 Download a validated, consistent SQLite snapshot only when service storage is
@@ -399,3 +481,99 @@ of prompting mid-run. `apply` is a declared mutation through the capability
 registry, so no hand-maintained command list changes. The first delivered
 adapters are `catalog_item` and `catalog_variable`; further domains are adapters,
 not new orchestration paths. See `docs/batch-manifest.md`.
+
+## Record watching uses AMB's Bayeux long-poll, not socket.io (2026-11-04)
+
+Issue #396 asks agents to observe one record instead of polling it. ServiceNow's
+AMB endpoint (`/amb`) is CometD/Bayeux: JSON message arrays POSTed to
+`/amb/handshake` once and `/amb/connect` for subscribe and long-poll. That is
+implemented directly with `fetch`, so no socket.io or WebSocket dependency is
+added and the protocol stays testable against a local mock. The record-watcher
+channel name is `/rw/<actionPrefix>/<table>/<base64(query)>` with `=` padding
+replaced by `-`.
+
+AMB authorizes like a browser session (cookies plus X-UserToken), so the command
+requires a credential that can produce a UI session. `SDKClient.ambSession()`
+makes that requirement explicit and reports recovery guidance when a
+bearer-only profile cannot satisfy it, rather than pretending REST auth works.
+
+Delivery is best effort. A reconnect re-subscribes the channel and reports the
+gap; missed events are neither replayed nor claimed. Observation is bounded by
+`--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
+and user notification stay with the calling agent.
+
+Only a single-record subscription ships. Filtered table subscriptions are
+deferred until platform support and access behavior are validated on a live
+instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
+ack, cross-session delivery and the notification shape: the platform sends a
+`record` map of changed fields plus `sys_*` audit fields, not a `changes`
+array, and it omits `table`/`sys_id` (the subscription supplies them). Human
+output renders those changed fields. ACL denial with a non-admin identity,
+create/delete payloads and a real reconnect gap remain unverified.
+
+## Table behavior mirrors the platform's Configurations inventory (2026-11-04)
+
+`jsn tables behavior` reports the families an administrator checks before changing
+a table, matching what ServiceNow's classic "Configurations for <table>" page
+shows. Sources: `sys_script`, `sys_script_client`, `sys_ui_action`,
+`sys_ui_policy`, `sys_data_policy2`, `sys_dictionary`, `sys_dictionary_override`,
+`sysevent_email_action` (by `collection`), `sys_security_acl` (by name pattern
+`*`, `*.`, `<table>`, `<table>.`, ancestors), `sys_ui_style` (by `name`),
+`sysrule_view` (by `table`) and `sys_flow_record_trigger` (by `table`).
+
+Two deliberate differences from the page's counts, because the page's number
+would hide configuration that actually runs:
+
+- Global business rules and global UI actions are included and labelled
+  `global_actions`. On the reference instance (dev366743, `incident`) that adds 83
+  business rules and 45 UI actions to a page that shows 72 and 51.
+- A `<ancestor>` UI policy with `inherit=false` is excluded, because it does not
+  apply to the child table.
+
+Ordering travels in `sysparm_query` (`ORDERBY` plus a second `ISEMPTY` phase so
+rows missing a primary key sort last), never as an in-memory sort of a returned
+page, so per-category cursors stay stable across pages. Rows that satisfy two
+ordering phases are de-duplicated by `sys_id`.
+
+Flow coverage is record triggers only. Flow templates and timer/catalog/REST/SLA
+triggers have no table-scoped join exposed by the platform, so they are reported
+as `unsupported` with the trigger type named rather than matched by text.
+
+## First-run welcome orients above help, once (2026-11-04)
+
+Issue #387 adds a short orientation before setup: bare `jsn` on a fresh
+installation prints a few next steps and then the existing grouped help,
+unchanged. It is not a connection wizard and never starts an auth or instance
+operation, so setup and authentication stay optional until a command needs
+ServiceNow.
+
+What it says (12 lines maximum at 80 columns, plain ASCII):
+`jsn setup` (first connection plus defaults, interactive) and
+`jsn auth login <instance>` (one connection, scriptable, no wizard) as the two
+ways in; `jsn --help` for the command list; `jsn docs search <query>` for
+ServiceNow documentation; `jsn skill install` for the agent skill file. It also
+names where config lives (`<config dir>/config.json`, resolved the same way the
+CLI resolves it), the installed version (read from the packaged `package.json`,
+never from the network), `jsn upgrade`, that it prints once, and
+`JSN_NO_WELCOME=1`.
+
+It is shown at most once, recorded by a `.welcomed` marker in the XDG config dir
+(the same directory the daily-check markers use, mode 0600). The marker is
+claimed **exclusively** before anything is printed: the stamp is written to a
+temp file and hard-linked into place, so two first runs racing on one config
+dir produce one note, one complete marker, and no partial writes. A filesystem
+without hard links falls back to exclusive create. A read-only config dir does
+not fail the command: the note still prints, and it may appear again next run.
+
+It is skipped for machine-readable and piped output (`--json`, `--quiet`,
+`--csv`, `--markdown`, `--get`, non-TTY), for agent/CI environments, for
+`TERM=dumb`, and for installations that already have a connection. A skipped
+run does not write the marker, so piping help once does not consume the welcome.
+`JSN_NO_WELCOME` suppresses it only as the literal value `1`; `0`, empty and
+unset all mean normal first-run behavior. `--help`, `docs` commands, and every
+other command are unaffected.
+
+The note is width-aware: it wraps descriptions under the command on narrow
+terminals and never truncates or splits a command name. An interrupted first run
+(Ctrl-C) leaves either no marker and no note, or a complete marker and at most
+a partial note - never a complete note the marker does not record.

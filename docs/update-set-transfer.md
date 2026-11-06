@@ -29,11 +29,40 @@ noninteractive calls return a confirmation-required error with a rerun command.
 Normal target selection (`--profile` / `--instance`) and read-only guards apply.
 
 Successful import verifies the loaded set and every member ID/name/action. It
-**does not commit the application changes**: preview and resolve collisions in
-ServiceNow before committing. Existing retrieved sets or member IDs cause refusal
-before upload. A timeout or failed verification may mean partial loading; inspect
-Retrieved Update Sets before retrying. The command does not silently replace an
-existing set, rename one, convert it to a local set, or change its state.
+**does not apply the changes**: the set is left `loaded` and uncommitted so the
+target can be previewed and reviewed first. Existing retrieved sets or member IDs
+cause refusal before upload. A timeout or failed verification may mean partial
+loading; inspect Retrieved Update Sets before retrying. The command does not
+silently replace an existing set, rename one, convert it to a local set, or
+change its state, and it refuses `--name`, `--local`, and `--state` rather than
+quietly ignoring them.
+
+Preview, inspect the problems a human must decide, then commit:
+
+```sh
+jsn --profile target updatesets preview "Digital Helpdesk 0.1.77" --yes
+jsn --profile target updatesets problems "Digital Helpdesk 0.1.77"
+jsn --profile target updatesets commit "Digital Helpdesk 0.1.77" --yes
+```
+
+`preview` and `commit` run the platform's own steps through the CICD Update Set
+API (`sn_cicd`), which needs the CICD plugin and the `sn_cicd.sys_ci_automation`
+role. If that API is unavailable, jsn reports it and starts nothing; use System
+Update Sets > Retrieved Update Sets instead. Both commands follow the platform
+progress tracker (`--timeout` seconds, default 600) and then read the retrieved
+set back: `preview` must show `previewed`, `commit` must show `committed`. A
+successful call whose state does not match is reported as an error, not assumed.
+
+`problems` is read-only. It lists unresolved preview problems with their
+description, missing item/table, and available actions; `--include-resolved`
+also shows rows a human already accepted or skipped. jsn **never** accepts,
+skips, or ignores a problem, and `commit` refuses while any problem is
+unresolved. Resolve them in ServiceNow, rerun `preview`, then commit. A commit
+resolves the local update set it created through the retrieved record's
+`update_set` reference, falling back to a name lookup only when that reference is
+absent; an ambiguous or missing local copy is reported, never guessed.
+
+Neither command changes the selected update set or scope.
 
 Reopen a complete or ignored **local** update set explicitly:
 

@@ -1,6 +1,6 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { setCurrentApplication, setCurrentUpdateSet } from '../src/context.js';
+import { setCurrentApplication, setCurrentUpdateSet, alignUpdateSetCapture } from '../src/context.js';
 import { SDKClient } from '../src/sdk.js';
 import { updateSetsCmd } from '../src/commands/updatesets.js';
 
@@ -65,7 +65,7 @@ it('reports a created update set even when auto-selection fails, with an explici
 
 // Models the live #288 reproduction: preference CRUD leaves an already-warmed
 // session's effective picker selection unchanged.
-function provider() {
+function provider({ ineffective = false } = {}) {
   const state = { stored: 'default', current: 'default', scope: 'global', calls: [], captures: [] };
   const sdk = new SDKClient('https://test.service-now.com', {});
   sdk.request = async (endpoint, opts = {}) => {
@@ -78,7 +78,7 @@ function provider() {
       return { result: { current: state.scope } };
     }
     if (path.endsWith('/concoursepicker/updateset')) {
-      if (method === 'PUT') state.current = state.stored = data.sysId;
+      if (method === 'PUT' && !ineffective) state.current = state.stored = data.sysId;
       return { result: { current: { sysId: state.current, name: state.current } } };
     }
     if (path.includes('/table/sys_user_preference')) {
@@ -100,6 +100,48 @@ it('updates the effective warmed session before create, update and delete captur
   assert.equal(state.stored, 'named-set');
   assert.deepEqual(state.captures, ['POST', 'PUT', 'DELETE'].map(method => ({ method, set: 'named-set' })));
   assert.equal(state.calls.some(call => call.path.includes('/table/sys_user_preference') && call.method !== 'GET'), false);
+});
+
+// #295: the persisted preference (what reporting reads) and a fresh
+// invocation's effective session selection can disagree. Content writes must
+// not proceed until both agree.
+it('aligns a fresh session with the persisted set before content writes', async () => {
+  const { sdk, state } = provider();
+  state.stored = 'new-set';
+  state.current = 'previous-set';
+  const report = await alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' });
+  assert.equal(report.aligned, true);
+  assert.equal(report.action, 'selected');
+  assert.equal(report.previous_effective.sys_id, 'previous-set');
+  assert.equal(report.effective.sys_id, 'new-set');
+  await sdk.update('sys_hub_flow', 'owned-record', { name: 'probe' });
+  assert.equal(state.captures.at(-1).set, 'new-set');
+});
+
+it('leaves the session alone when it already matches the persisted set', async () => {
+  const { sdk, state } = provider();
+  state.stored = state.current = 'new-set';
+  const report = await alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' });
+  assert.equal(report.aligned, true);
+  assert.equal(report.action, 'none');
+  assert.equal(state.calls.some(call => call.path.endsWith('/concoursepicker/updateset') && call.method === 'PUT'), false);
+});
+
+it('refuses content writes when the session cannot be aligned', async () => {
+  const { sdk, state } = provider({ ineffective: true });
+  state.stored = 'new-set';
+  state.current = 'previous-set';
+  await assert.rejects(alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' }),
+    error => error.message.includes('before any content write') && /previous-set/.test(error.message) && /new-set/.test(error.message));
+  assert.equal(state.captures.length, 0);
+});
+
+it('reports an unverifiable capture context instead of blocking when the picker is unreadable', async () => {
+  const sdk = { baseURL: 'https://test.service-now.com', request: async () => { throw new Error('picker unavailable'); } };
+  const report = await alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' });
+  assert.equal(report.aligned, null);
+  assert.equal(report.action, 'unverified');
+  assert.match(report.reason, /picker unavailable/);
 });
 
 it('switches application through the session-aware picker', async () => {

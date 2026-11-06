@@ -110,8 +110,12 @@ test('authentication retry logs exactly one final mutation event', async () => {
   const original = globalThis.fetch;
   const events = [];
   let calls = 0;
-  globalThis.fetch = async () => ++calls === 1 ? new Response('', { status: 401 })
-    : new Response('{"result":{"sys_id":"created-id"}}');
+  globalThis.fetch = async req => {
+    // Recovery verifies the re-established session before replaying.
+    if (new URL(req.url).pathname === '/api/now/table/sys_user') return new Response('{"result":[{"user_name":"fixture"}]}');
+    return ++calls === 1 ? new Response('', { status: 401 })
+      : new Response('{"result":{"sys_id":"created-id"}}');
+  };
   try {
     const sdk = new SDKClient('https://fixture.test', { getCredentials: async () => ({ auth_method: 'gck', access_token: 'fixture' }) }, {
       recovery: { recover: async () => true }, onMutation: event => events.push(event),

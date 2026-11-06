@@ -2,10 +2,18 @@
 
 import { batchRead } from './sdk-batch.js';
 import { gunzipSync } from 'node:zlib';
-import { AppError, CodeAPI, CodeAuth, errAuth, errAPI, errNetwork, errUsage } from './errors.js';
+import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
 import { getStringField } from './helpers.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
+import {
+  MAX_SESSION_REPLAYS, canReplayAfterRecovery, classifyAuthRejection, safeRequestLabel, sniffLoginBody,
+} from './session-recovery.js';
+import {
+  previewUpdateSet as previewRetrievedUpdateSet,
+  commitUpdateSet as commitRetrievedUpdateSet,
+  listPreviewProblems,
+} from './update-set-apply.js';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -52,9 +60,17 @@ export class SDKClient {
     this.onMutation = opts.onMutation;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
+    // Expected identity, used only to reject a recovery that lands on a
+    // different account. Never serialized.
+    this.username = opts.username || '';
     this.oauthCookies = null;
     this._sessionPromise = null;
     this.sessionUserToken = '';
+    // Session state is versioned so concurrent requests can tell "my headers
+    // are from the session that was just replaced" apart from "this rejection
+    // is new". One recovery is in flight per client at a time.
+    this._sessionGeneration = 0;
+    this._recoveryPromise = null;
   }
 
   async _setAuth(req, { skipOAuthSession = false } = {}) {
@@ -148,8 +164,12 @@ export class SDKClient {
 
   async _performAuthenticatedRequest(endpoint, opts, {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
+    allowMutationReplay = false,
   }, consume = (response) => response) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const method = String(opts.method || 'GET').toUpperCase();
+    for (let attempt = 0; attempt <= MAX_SESSION_REPLAYS; attempt++) {
+      // Headers for this attempt belong to the session as it is right now.
+      const generation = this._sessionGeneration;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       let rejection;
@@ -158,14 +178,15 @@ export class SDKClient {
         if (prepare) prepare(req);
         await this._setAuth(req, { skipOAuthSession });
         const response = await fetch(req);
-        if (!skipOAuthSession && response.status === 401 && this.recovery) {
-          // Only a definitive HTTP rejection permits replay, including POST.
-          // Do not consume/echo the provider's potentially sensitive body.
-          rejection = { status: response.status, method: req.method, url: req.url };
-          await response.body?.cancel();
-        } else {
-          return await consume(response);
+        if (!skipOAuthSession && this.recovery) {
+          // A 401 is definitive; only then is the body sniffed for a login
+          // page. Provider bodies are cancelled, never echoed.
+          rejection = classifyAuthRejection(response, {
+            bodyText: response.status === 401 ? '' : await sniffLoginBody(response),
+          });
         }
+        if (!rejection) return await consume(response);
+        await response.body?.cancel?.();
       } catch (err) {
         if (normalizeErrors) {
           if (err.name === 'AbortError') throw errNetwork(new Error('Request timed out'));
@@ -177,15 +198,115 @@ export class SDKClient {
       } finally {
         clearTimeout(timer);
       }
+      if (attempt >= MAX_SESSION_REPLAYS) throw this._authFailure(rejection);
+      // A write or stateful processor is only replayed when the rejection
+      // provably happened before execution.
+      if (!canReplayAfterRecovery(rejection, { method, allowMutationReplay })) {
+        throw this._unsafeReplayError(rejection, endpoint, method);
+      }
       // Browser renewal has its own existing hard timeout. Never leave a
       // request timeout running while waiting for the human to authenticate.
-      if (attempt === 0 && await this.recovery.recover(rejection)) {
-        this.oauthCookies = null;
-        this.sessionUserToken = '';
-        continue;
-      }
-      throw this.recovery.error || errAPI(401, '');
+      await this._recoverSession(rejection, generation);
     }
+  }
+
+  _authFailure(rejection) {
+    // The provider's error carries the actionable profile-specific guidance.
+    return this.recovery?.error || errAuth(`Authentication rejected${rejection?.status ? ` (HTTP ${rejection.status})` : ''}.`);
+  }
+
+  // Replace the cached session as one unit: cookies, user token and the
+  // in-flight warm-up promise cannot be mixed with a newly established one.
+  _invalidateSession() {
+    this.oauthCookies = null;
+    this.sessionUserToken = '';
+    this._sessionPromise = null;
+    this._sessionGeneration += 1;
+  }
+
+  /**
+   * Recover at most once for a rejection observed at `generation`.
+   * Concurrent callers share the same attempt; a caller whose session was
+   * already rotated by another request just replays with the new headers.
+   */
+  async _recoverSession(rejection, generation) {
+    if (generation !== this._sessionGeneration) return true;
+    if (!this._recoveryPromise) {
+      this._recoveryPromise = (async () => {
+        const recovered = await this.recovery.recover(rejection);
+        if (!recovered) throw this._authFailure(rejection);
+        this._invalidateSession();
+        await this._verifyRecoveredSession();
+      })().finally(() => { this._recoveryPromise = null; });
+    }
+    await this._recoveryPromise;
+    return true;
+  }
+
+  /**
+   * Prove the fresh credentials actually work over the session path the failed
+   * operation needs — a cookie/CSRF session, not just a bearer probe — and
+   * that they still belong to the selected identity.
+   */
+  async _verifyRecoveredSession() {
+    const params = new URLSearchParams({
+      sysparm_query: 'user_name=javascript:gs.getUserName()',
+      sysparm_fields: 'user_name', sysparm_limit: '1', sysparm_display_value: 'false',
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+    try {
+      const req = new Request(`${this.baseURL}/api/now/table/sys_user?${params}`, {
+        method: 'GET', headers: { Accept: 'application/json' }, redirect: 'manual', signal: controller.signal,
+      });
+      await this._setAuth(req);
+      const response = await fetch(req);
+      if (!response.ok) throw this._recoveryFailure('the re-established session was rejected');
+      const payload = await response.json().catch(() => null);
+      const record = Array.isArray(payload?.result) ? payload.result[0] : null;
+      const field = record?.user_name;
+      const verified = field && typeof field === 'object' ? (field.value ?? field.display_value) : field;
+      if (!verified) throw this._recoveryFailure('the re-established session did not identify a user');
+      if (this.username && String(verified) !== String(this.username)) {
+        // Identity is not leaked; the selected profile is the only useful fact.
+        throw this._recoveryFailure('the re-established session belongs to a different account');
+      }
+      return verified;
+    } catch (error) {
+      if (error?.code) throw error;
+      if (error?.name === 'AbortError') throw this._recoveryFailure('the session verification timed out');
+      throw this._recoveryFailure('the re-established session could not be verified');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  _recoveryFailure(reason) {
+    const error = errAuth(`Session recovery failed: ${reason}.`);
+    const base = this.recovery?.error;
+    if (base) {
+      error.profile = base.profile ?? null;
+      if (base.recovery) error.recovery = base.recovery;
+      if (base.hint) error.hint = base.hint;
+    }
+    return error;
+  }
+
+  _unsafeReplayError(rejection, endpoint, method) {
+    const where = `${method} ${safeRequestLabel(endpoint)}`;
+    const error = errAuth(
+      `The session for this request expired (${rejection.kind === 'http_401' ? 'HTTP 401' : 'login page returned'}), `
+      + `but JSN cannot prove the ${where} request never executed, so it was not replayed.`,
+    );
+    const base = this.recovery?.error;
+    if (base) {
+      error.profile = base.profile ?? null;
+      if (base.recovery) error.recovery = base.recovery;
+      error.hint = `Confirm the operation did not run, then sign in and re-run it${base.recovery ? `: ${base.recovery}` : '.'}`;
+    } else {
+      error.hint = 'Confirm the operation did not run, then sign in and re-run it.';
+    }
+    return error;
   }
 
   async request(endpoint, opts = {}) {
@@ -835,6 +956,32 @@ export class SDKClient {
   }
 
   /**
+   * Preview a loaded retrieved update set through the CICD Update Set API and
+   * wait for its progress tracker. Does not commit and does not resolve
+   * preview problems.
+   * @param {string} sysID - sys_remote_update_set sys_id
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async previewUpdateSet(sysID, opts = {}) {
+    return previewRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /**
+   * Commit a previewed retrieved update set through the CICD Update Set API and
+   * wait for its progress tracker.
+   * @param {string} sysID - sys_remote_update_set sys_id
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async commitUpdateSet(sysID, opts = {}) {
+    return commitRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /** Read sys_update_preview_problem rows for a retrieved update set. */
+  async listUpdateSetPreviewProblems(sysID, opts = {}) {
+    return listPreviewProblems(this, sysID, opts);
+  }
+
+  /**
    * Execute a background script on the ServiceNow instance via sys.scripts.do.
    * Uses a 3-step session-establishment flow compatible with OAuth tokens:
    *  1. Make a REST API call to get session cookies
@@ -972,6 +1119,40 @@ export class SDKClient {
     }
 
     return variables;
+  }
+
+  /**
+   * Session material for channels that authorize like a browser (AMB).
+   *
+   * AMB does not accept bearer/basic headers on subscribe; it needs the
+   * cookies and X-UserToken of a UI session. gck credentials already carry
+   * them; basic/oauth profiles obtain them by warming the same session the
+   * SDK uses for UI calls. A bearer-token profile that cannot warm a session
+   * is an actionable error, never a silent fallback.
+   */
+  async ambSession() {
+    if (!this.authProvider) throw errAuth('No authentication configured');
+    const creds = await this.authProvider.getCredentials();
+    if (!creds) throw errAuth('No valid credentials');
+    if (creds.auth_method === 'gck') {
+      if (!creds.cookies) {
+        throw errAuthHint('This gck credential has no session cookies, so AMB cannot open a channel.',
+          'Re-import the browser session: jsn auth login --browser');
+      }
+      return { cookies: creds.cookies, userToken: creds.access_token || '', authMethod: 'gck' };
+    }
+    if (creds.auth_method === 'basic' || creds.auth_method === 'token' || creds.auth_method === 'oauth') {
+      const cookies = await this._warmSession();
+      if (!cookies) {
+        throw errAuthHint(
+          `${creds.auth_method} credentials could not open a UI session, which AMB requires.`,
+          'Record watching needs a browser session. Run "jsn auth login --browser" and use that profile, or ask an administrator whether AMB is enabled for this account.',
+        );
+      }
+      return { cookies, userToken: this.sessionUserToken || '', authMethod: creds.auth_method };
+    }
+    throw errAuthHint(`Authentication method "${creds.auth_method}" cannot open an AMB session.`,
+      'Use a browser-session (gck) profile: jsn auth login --browser');
   }
 
   async _warmSession() {

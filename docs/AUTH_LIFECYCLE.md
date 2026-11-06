@@ -106,14 +106,51 @@ The focused auth tests cover same-instance username isolation, explicit refresh/
 ## Runtime authentication recovery
 
 Normal commands do not run an auth-status preflight or use a fixed session-age
-heuristic. An HTTP 401 from the real request permits one recovery attempt and
-one replay, including POST. A second 401 is final. Network failures, aborts,
-timeouts, 5xx and 403 never trigger recovery or replay. Authentication bootstrap
-requests bypass recovery. Successful recovery discards cached session cookies
-and the user token before rebuilding the existing authenticated session.
+heuristic. A rejected session permits one recovery attempt and at most one
+replay of the request that proved it was stale. A second rejection is final.
+Network failures, aborts, timeouts, 5xx and 403 never trigger recovery or
+replay. Authentication bootstrap requests bypass recovery. Successful recovery
+discards cached session cookies, the user token and the in-flight warm-up
+promise as one unit, then rebuilds the authenticated session.
+
+A rejection is one of three classified signals (`src/session-recovery.js`):
+
+- **HTTP 401** — a definitive pre-execution rejection. The provider refused the
+  credentials before dispatching the operation, so reads and writes may both be
+  replayed once.
+- **Login redirect** — the response (or its final URL, after following
+  redirects) is the platform login page. This proves nothing ran for a read.
+- **Login page** — a 2xx `text/html` body containing the login form
+  (`user_name` plus `user_password`, or a `login.do` form action). JSN reads only
+  a bounded 64 KiB prefix of the cloned body, so caller bodies stay intact and
+  no response body is logged or echoed.
+
+Replay eligibility is explicit per operation. Reads (`GET`/`HEAD`/`OPTIONS`)
+are replayed once after successful recovery for any classified signal. A write
+or stateful processor is replayed only on HTTP 401; when it is answered with a
+login page or redirect instead, JSN refuses with an actionable error because a
+heuristic body match is not proof that the operation never ran. Callers can opt
+in through the SDK's `allowMutationReplay` setting; no JSN write path does.
+Replaying preserves the original method, body, headers and endpoint.
+
+Before the replay, JSN verifies the recovered identity with one bounded
+`GET /api/now/table/sys_user` current-user read issued through the same
+`_setAuth` path the failed operation uses — with the re-established cookies and
+`X-UserToken` for cookie/CSRF sessions, not a bearer-only probe. An unverified
+session, a different account than the selected profile, or a failed probe ends
+recovery with `auth_error` and the profile's recovery command; the request is
+not replayed.
+
+Session state is versioned. Concurrent requests share one in-flight recovery:
+later rejections that were sent with the previous generation replay with the
+rebuilt session instead of starting another refresh or browser login, and a
+rejection observed at an older generation never triggers a second recovery.
+Recovery attempts are therefore bounded by one in-flight attempt and one replay
+per request.
 
 OAuth recovery uses `AuthManager.refreshToken` with the selected instance and
-username. Basic credentials have no renewal mechanism. Browser-session profiles
+username; expired tokens refresh rather than reopening a login. Basic
+credentials have no renewal mechanism. Browser-session profiles
 use `reauth: auto | confirm | never`, saved under `profiles.<name>.reauth`.
 An absent setting means `confirm`. Configure it with:
 
@@ -126,6 +163,12 @@ machine output or `--get`. The existing browser login timeout remains five minut
 Renew explicitly with `jsn auth refresh --profile <name> --browser`.
 Setup has no additional policy question; use `auth modify` for this preference.
 
+Captured GCK/browser-session credentials contain nothing JSN can renew on its
+own. When a browser session is rejected and cannot be renewed interactively,
+the error says so and marks `recapture_required`: it names
+`jsn auth refresh <profile> --browser` as the recapture step instead of implying
+that a retry alone can recover it.
+
 HTTP 401 is `auth_error` with status, profile and an exact recovery command in
 JSON, plus the same guidance in text. OAuth guidance names
 `jsn auth refresh --profile <name>` and login as the fallback. Basic guidance
@@ -134,6 +177,43 @@ names `jsn auth login --basic <instance> --profile <name>` and
 guidance, not a request to log in. Neither classification includes provider
 response bodies. Errors without a usable HTTP status retain their existing
 classification rather than guessing whether authentication failed.
+
+### Verification status
+
+Live-verified against the dev366743 PDI instance on 2026-11-05 (Node v26.8.1,
+throwaway XDG config with a copied profile; the real credential file was not
+modified):
+
+- A stale access token on a read produced HTTP 401, one OAuth refresh, one
+  bounded `sys_user` verification over the rebuilt cookie/`X-UserToken` session
+  with no `Authorization` header, and exactly one replay that returned real
+  records.
+- Five concurrent reads sent with the same stale token shared one refresh and
+  one verification. Each request was sent once with the stale session, rejected
+  once, then replayed once with the rebuilt session.
+- A replay forced to receive HTTP 401 after a successful recovery stopped after
+  two attempts with `auth_error`; there was no third request.
+- A forced failure of the verification probe ended recovery without replaying
+  the rejected request.
+- An OAuth 401 with no refresh token produced one request, an actionable
+  `auth_error`, and no retry.
+- A junk GCK browser session produced one request, `recapture_required: true`
+  in the JSON envelope, and no replay.
+- A write whose first POST received HTTP 401 was refreshed, verified, and
+  replayed once; exactly one incident existed afterwards (count 1 before the
+  probe delete, 0 after). A normal CLI write recovers on its current-user
+  context read before dispatching the mutation, so a stale token is generally
+  repaired before the write itself is sent.
+- The login-page classifier was run against the instance's real 47,535-byte
+  `login.do` body and classified it correctly. No command was driven into a
+  200 `text/html` login-page response because the instance answered junk
+  sessions with JSON 401s; that end-to-end path remains mock-only.
+
+Still mock-only: login redirects and 200 login pages as command responses,
+account-mismatch rejection, interactive GCK renewal (`auto`/`confirm` prompts),
+Basic-auth recovery guidance, `allowMutationReplay` opt-in, and batch/stateful
+processor replay. The unit suite covers each of those; they are not claimed as
+live-verified here.
 
 Missing, invalid or expired credentials can fail locally before any request.
 Those errors preserve the validation reason and identify the selected profile

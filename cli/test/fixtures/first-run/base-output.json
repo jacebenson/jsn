@@ -1,0 +1,22 @@
+{
+  "commit": "34dcfff + origin/main merge",
+  "note": "Bytes produced by main when the command surface intentionally changed. Regenerate when the command surface or help layout intentionally changes.",
+  "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
+  "bytes": {
+    "help": 12119,
+    "json": 117229,
+    "quiet": 12119,
+    "csv": 12119,
+    "markdown": 12119,
+    "get": 12119
+  },
+  "sha256": {
+    "help": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
+    "json": "7a9cf40bd1f16a1748207c57073af64cf5b6452e38802348d905e7b56abf9a33",
+    "quiet": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
+    "csv": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
+    "markdown": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
+    "get": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653"
+  },
+  "json_command_count": 88
+}

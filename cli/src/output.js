@@ -170,6 +170,9 @@ export class OutputWriter {
       resp.recovery = e.recovery;
       if (Object.hasOwn(e, 'profile')) resp.profile = e.profile;
     }
+    // Captured browser sessions cannot be renewed, so the machine envelope
+    // must carry the same recapture marker the in-process error exposes.
+    if (e.recapture_required) resp.recapture_required = true;
     switch (format) {
       case FormatJSON:
       case FormatQuiet:
@@ -187,6 +190,33 @@ export class OutputWriter {
           this.writer.write(JSON.stringify(resp, null, 2) + '\n');
         }
     }
+  }
+
+  /**
+   * Write one item of an event stream (e.g. `records watch`).
+   *
+   * A stream cannot use the single-envelope `ok()`, so this method emits one
+   * compact JSON object per line — newline-delimited JSON, the shape agents
+   * and scripts can consume incrementally without buffering the whole run.
+   * Human formats print `opts.line` (domain-formatted by the command) and
+   * fall back to the JSON line when the command supplied none.
+   *
+   * `--get` stays meaningful: the path is resolved against each event, and
+   * a path that does not resolve emits `null` rather than aborting the
+   * stream mid-observation.
+   */
+  writeEvent(data, opts = {}) {
+    const format = this.effectiveFormat();
+    if (format === FormatStyled || format === FormatMarkdown) {
+      this.writer.write(`${opts.line ?? JSON.stringify(data)}\n`);
+      return;
+    }
+    if (this.jqFilter) {
+      const value = resolvePath(data, this.jqFilter);
+      this.writer.write(`${JSON.stringify(value === undefined ? null : value)}\n`);
+      return;
+    }
+    this.writer.write(`${JSON.stringify(data)}\n`);
   }
 
   writeJSON(data, opts) {
@@ -388,7 +418,7 @@ export class OutputWriter {
         let val = getDisplayValue(row[col]);
         const width = colWidths[col] || 20;
 
-        if (j === 0 && instanceURL && table && row.sys_id) {
+        if (j === 0 && instanceURL && table && row.sys_id && isTTY(this.writer)) {
           const url = getTableURL(instanceURL, table, row.sys_id);
           val = hyperlink(val, url);
         }
