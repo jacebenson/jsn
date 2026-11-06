@@ -761,14 +761,39 @@ function describeTransition(transition, stepById) {
   return `${to} [${condition}]${issue}`;
 }
 
-function truncateLines(value, max = 12) {
-  const lines = String(value).split('\n');
-  if (lines.length <= max) return lines.join('\n');
-  return `${lines.slice(0, max).join('\n')}\n… (${lines.length - max} more lines; use --json for the full value)`;
+// Bound height and width: generated scripts and HTML email can be one huge
+// line. Full values remain untouched in the structured definition.
+function formatStepContent(activity) {
+  const lines = [];
+  const entries = Object.entries(activity.configuration || {})
+    .filter(([, value]) => String(value).trim())
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const width = Math.max(0, ...entries.map(([field]) => field.length + 1));
+  for (const [field, value] of entries) {
+    const valueLines = String(value).trim().split(/\r?\n/);
+    const prefix = `       ${`${field}:`.padEnd(width)} `;
+    const continuation = ' '.repeat(prefix.length);
+    valueLines.slice(0, 3).forEach((line, index) => {
+      const preview = line.length > 160
+        ? `${line.slice(0, 160)}… (${line.length - 160} more characters, use --json for the full value)`
+        : line;
+      lines.push(`${index === 0 ? prefix : continuation}${preview}`);
+    });
+    if (valueLines.length > 3) {
+      lines.push(`${continuation}… (${valueLines.length - 3} more lines, use --json for the full value)`);
+    }
+  }
+  for (const omission of [...(activity.configuration_omissions || [])].sort((a, b) => a.field < b.field ? -1 : a.field > b.field ? 1 : 0)) {
+    lines.push(`       omitted ${omission.field}: comment-only script (no executable code)`);
+  }
+  if (activity.configuration_status && !['ok', 'skipped'].includes(activity.configuration_status)) {
+    lines.push(`       configuration: ${activity.configuration_status}`);
+  }
+  return lines;
 }
 
 /** Human-readable outline. Record identifiers and full detail stay in JSON. */
-export function formatWorkflowOutline(data) {
+export function formatWorkflowOutline(data, { includeConfiguration = true } = {}) {
   const lines = [];
   const workflow = data.workflow;
   lines.push('');
@@ -819,7 +844,9 @@ export function formatWorkflowOutline(data) {
   if (data.steps.length === 0) {
     lines.push(`  (${data.coverage.components.activities === 'ok' ? 'no activities found' : `activities ${data.coverage.components.activities}`})`);
   }
+  const activityById = new Map(data.activities.map(activity => [activity.sys_id, activity]));
   for (const step of data.steps) {
+    const activity = activityById.get(step.sys_id);
     const outgoing = groups.get(step.sys_id) || [];
     const flags = [];
     if (!step.reached_from_start) flags.push(data.step_order.fallback_reason
@@ -828,7 +855,9 @@ export function formatWorkflowOutline(data) {
       if (!data.coverage.loop_detection_complete) flags.push('no outgoing transitions observed; detection incomplete');
       else if (!/(end|finish|done|stop)$/i.test(step.name.trim())) flags.push('end');
     }
-    lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${flags.length ? ` (${flags.join('; ')})` : ''}`);
+    const definition = includeConfiguration && activity?.definition_name ? `  (${activity.definition_name})` : '';
+    lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${definition}${flags.length ? ` (${flags.join('; ')})` : ''}`);
+    if (includeConfiguration && activity) lines.push(...formatStepContent(activity));
     for (const edge of outgoing.filter(edge => !edge.is_sequential)) {
       lines.push(`       ${closesLoop(edge) ? '↺ ' : ''}→ ${describeTransition(edge, stepById)}`);
     }
@@ -852,24 +881,6 @@ export function formatWorkflowOutline(data) {
     const entry = entries.length ? `step${entries.length > 1 ? 's' : ''} ${entries.join(', ')}` : 'no external entry observed';
     lines.push(`  Loop ${index + 1}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}: steps ${members.join(', ')} → back to step${backTo.length > 1 ? 's' : ''} ${backTo.join(', ')}. Entry: ${entry}.`);
   });
-
-  const configured = data.activities.filter(activity => activity.configuration?.script
-    || activity.configuration_omissions?.length
-    || !['ok', 'skipped'].includes(activity.configuration_status));
-  if (configured.length) {
-    lines.push('', '▶ CONFIGURATION', '─'.repeat(50));
-    for (const activity of configured) {
-      lines.push(`  Step ${stepById.get(activity.sys_id).number}: ${activity.name}`);
-      if (!['ok', 'skipped'].includes(activity.configuration_status)) lines.push(`     configuration: ${activity.configuration_status}`);
-      for (const omission of activity.configuration_omissions || []) {
-        lines.push(`     omitted ${omission.field}: comment-only script (no executable code)`);
-      }
-      if (activity.configuration?.script) {
-        lines.push('     script:');
-        for (const line of truncateLines(activity.configuration.script).split('\n')) lines.push(`       ${line}`);
-      }
-    }
-  }
 
   if (data.stages.length > 0) {
     lines.push('');

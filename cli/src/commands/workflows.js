@@ -67,7 +67,7 @@ export function workflowsCmd(wrap) {
         builder: (y) => y
           .positional('identifier', { type: 'string', describe: 'Workflow name, workflow sys_id, or version sys_id' })
           .option('version', { type: 'string', describe: 'Specific wf_workflow_version sys_id (default: published, else newest)' })
-          .option('config', { type: 'boolean', default: true, describe: 'Read activity configuration and scripts' })
+          .option('config', { type: 'boolean', describe: 'Show activity configuration and scripts under each step (JSON reads unchanged)' })
           .option('limit', { alias: 'l', type: 'number', default: 200, describe: 'Maximum activities to read (1–1000)' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
@@ -80,7 +80,8 @@ export function workflowsCmd(wrap) {
             includeConfiguration: argv.config !== false,
             limit: argv.limit,
           });
-          defineFormatted(data, formatWorkflowOutline(data, app.getEffectiveInstance()));
+          // Preserve existing structured reads; only the human detail is opt-in.
+          defineFormatted(data, formatWorkflowOutline(data, { includeConfiguration: argv.config === true }));
           const versionLabel = data.version
             ? `${data.version.name} (${data.selection.reason})`
             : 'no readable version';

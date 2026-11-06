@@ -29,6 +29,7 @@ jsn workflows show "Incident approval"              # published version, else ne
 jsn workflows show <workflow_sys_id> --version <version_sys_id>
 jsn workflows show "Incident approval" --json       # structured definition with every ID
 jsn workflows show "Incident approval" --json --get data.activities.0.sys_id
+jsn workflows show "Incident approval" --config     # content and activity types under numbered steps
 jsn workflows show "Incident approval" --no-config  # skip activity variables/scripts
 ```
 
@@ -52,9 +53,18 @@ reported as `outside_sample` instead.
 ## Human outline and structured output
 
 Human output is an outline: workflow and version provenance, every version with
-its published/checked-out status, numbered activities with their type and full
-sys_id, conditions, transitions (with condition names), stages, script bodies
-(first 12 lines; use `--json` for the full text) and integrity warnings.
+its published/checked-out status, numbered steps, exceptional transitions,
+stages and integrity warnings. Record IDs stay in JSON. Without `--config`,
+step content stays hidden. With `--config`, each step shows its activity type
+when known and every nonempty configured element beneath it, sorted by field
+name and aligned as `field: value`. Multiline values preview three lines;
+individual lines preview at most 160 characters. Explicit omission markers
+point to `--json` for the full value. Comment-only scripts retain per-step
+omission notes rather than printing their bodies. There is no trailing
+configuration section.
+
+Configuration reads and the flat JSON `configuration` objects are unchanged;
+`--no-config` still skips those reads. Rendering adds no instance queries.
 
 `--json` returns the same facts with stable field names, including:
 
