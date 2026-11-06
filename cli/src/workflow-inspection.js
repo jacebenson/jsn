@@ -761,10 +761,35 @@ function describeTransition(transition, stepById) {
   return `${to} [${condition}]${issue}`;
 }
 
-function truncateLines(value, max = 5) {
-  const lines = String(value).split('\n');
-  if (lines.length <= max) return lines.join('\n');
-  return `${lines.slice(0, max).join('\n')}\n… (${lines.length - max} more lines, use --json for the full value)`;
+// Bound previews only; a selected step retains every line and character.
+function formatStepContent(activity, full = false) {
+  const lines = [];
+  const entries = Object.entries(activity.configuration || {})
+    .filter(([, value]) => value != null && String(value).trim())
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const width = Math.max(0, ...entries.map(([field]) => field.length + 1));
+  for (const [field, value] of entries) {
+    const valueLines = (full ? String(value) : String(value).trim()).split(/\r?\n/);
+    const prefix = `       ${`${field}:`.padEnd(width)} `;
+    const continuation = ' '.repeat(prefix.length);
+    const visible = full ? valueLines : valueLines.slice(0, 3);
+    visible.forEach((line, index) => {
+      const preview = !full && line.length > 160
+        ? `${line.slice(0, 160)}… (${line.length - 160} more characters, use --json for the full value)`
+        : line;
+      lines.push(`${index === 0 ? prefix : continuation}${preview}`);
+    });
+    if (!full && valueLines.length > 3) {
+      lines.push(`${continuation}… (${valueLines.length - 3} more lines, use --json for the full value)`);
+    }
+  }
+  for (const omission of [...(activity.configuration_omissions || [])].sort((a, b) => a.field < b.field ? -1 : a.field > b.field ? 1 : 0)) {
+    lines.push(`       omitted ${omission.field}: comment-only script (no executable code)`);
+  }
+  if (activity.configuration_status && !['ok', 'skipped'].includes(activity.configuration_status)) {
+    lines.push(`       configuration: ${activity.configuration_status}`);
+  }
+  return lines;
 }
 
 /** Human-readable outline. Record identifiers and full detail stay in JSON. */
@@ -819,8 +844,9 @@ export function formatWorkflowOutline(data, { includeConfiguration = false, step
   if (data.steps.length === 0) {
     lines.push(`  (${data.coverage.components.activities === 'ok' ? 'no activities found' : `activities ${data.coverage.components.activities}`})`);
   }
+  const activityById = new Map(data.activities.map(activity => [activity.sys_id, activity]));
   for (const step of data.steps.filter(step => selectedStep === undefined || step.number === selectedStep)) {
-    const activity = data.activities.find(activity => activity.sys_id === step.sys_id);
+    const activity = activityById.get(step.sys_id);
     const showContent = includeConfiguration || selectedStep !== undefined;
     const outgoing = groups.get(step.sys_id) || [];
     const flags = [];
@@ -831,21 +857,7 @@ export function formatWorkflowOutline(data, { includeConfiguration = false, step
       else if (!/(end|finish|done|stop)$/i.test(step.name.trim())) flags.push('end');
     }
     lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${showContent && activity?.definition_name ? `  (${activity.definition_name})` : ''}${flags.length ? ` (${flags.join('; ')})` : ''}`);
-    if (showContent && activity) {
-      const fields = Object.entries(activity.configuration || {})
-        .filter(([, value]) => value != null && String(value).trim())
-        .sort(([a], [b]) => a.localeCompare(b));
-      const width = Math.max(0, ...fields.map(([field]) => field.length + 1));
-      for (const [field, value] of fields) {
-        const valueLines = (selectedStep === undefined ? truncateLines(value) : String(value)).split('\n');
-        lines.push(`       ${(field + ':').padEnd(width)} ${valueLines[0]}`);
-        for (const line of valueLines.slice(1)) lines.push(`       ${' '.repeat(width + 1)}${line}`);
-      }
-      if (!['ok', 'skipped'].includes(activity.configuration_status)) lines.push(`       configuration: ${activity.configuration_status}`);
-      for (const omission of activity.configuration_omissions || []) {
-        lines.push(`       omitted ${omission.field}: comment-only script (no executable code)`);
-      }
-    }
+    if (showContent && activity) lines.push(...formatStepContent(activity, selectedStep !== undefined));
     if (selectedStep !== undefined) {
       data.loops.forEach((loop, index) => {
         if (!loop.members.some(member => member.sys_id === step.sys_id)) return;

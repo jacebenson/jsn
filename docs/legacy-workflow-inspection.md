@@ -29,6 +29,8 @@ jsn workflows show "Incident approval"              # published version, else ne
 jsn workflows show <workflow_sys_id> --version <version_sys_id>
 jsn workflows show "Incident approval" --json       # structured definition with every ID
 jsn workflows show "Incident approval" --json --get data.activities.0.sys_id
+jsn workflows show "Incident approval" --config     # content and activity types under numbered steps
+jsn workflows show "Incident approval" --step 5     # full content and outgoing edges for step 5
 jsn workflows show "Incident approval" --no-config  # skip activity variables/scripts
 ```
 
@@ -52,9 +54,29 @@ reported as `outside_sample` instead.
 ## Human outline and structured output
 
 Human output is an outline: workflow and version provenance, every version with
-its published/checked-out status, numbered activities with their type and full
-sys_id, conditions, transitions (with condition names), stages, script bodies
-(first 12 lines; use `--json` for the full text) and integrity warnings.
+its published/checked-out status, numbered steps, exceptional transitions,
+stages and integrity warnings. Record IDs stay in JSON. Without `--config`,
+step content stays hidden. With `--config`, each step shows its activity type
+when known and every nonempty configured element beneath it, sorted by field
+name and aligned as `field: value`. Multiline values preview three lines;
+individual lines preview at most 160 characters. Explicit omission markers
+point to `--json` for the full value. Comment-only scripts retain per-step
+omission notes rather than printing their bodies. There is no trailing
+configuration section.
+
+Configuration reads and the flat JSON `configuration` objects are unchanged;
+`--no-config` still skips those reads unless `--step` is supplied. Rendering adds
+no instance queries.
+
+`--step N` selects one positive step number from the normal full-workflow
+numbering. It implies configuration and prints every line and character without
+preview limits, followed by all outgoing edges (including normally implicit
+sequential edges). Loop membership and closing-edge destinations are disclosed
+for that step. Record IDs remain redacted in human output; use `--json` for the
+literal values. Invalid or out-of-range step numbers fail with a usage error.
+With `--json`, the normal envelope is retained while `activities`, `steps`,
+`transitions`, and `transitions_by_activity` narrow to that step and its outgoing
+edges. Loop and coverage metadata continue to describe the full inspected graph.
 
 `--json` returns the same facts with stable field names, including:
 
@@ -79,21 +101,19 @@ sys_id, conditions, transitions (with condition names), stages, script bodies
   `transitions_truncated` records a reached transition bound and also makes
   overall `coverage.complete` false.
 
-The outline groups transitions under source activities, marks every internal
-cycle edge with `↺`, and lists loop members, cycle/closing edges and entry points
-in `▶ LOOPS`. SCCs with multiple members and self-loops both count. All internal
-SCC edges participate in a cycle; this is not a claim that each edge is a unique
-DFS back-edge or that every simple cycle is enumerated. Analysis uses loaded
-rows only, with no additional queries or writes.
+The outline groups transitions under source steps and marks loop-closing edges
+with `↺`. There is no separate `▶ LOOPS` section. SCCs with multiple members and
+self-loops both count; all internal SCC edges remain in JSON. Analysis uses
+loaded rows only, with no additional queries or writes.
 
-A complete acyclic graph says `no loops detected`. An incomplete graph instead
-says detection is incomplete, even if no cycle was observed. Observed loops
-remain visible in partial samples, but their membership and entry points may be
-incomplete. Missing conditions/configuration/type definitions do not invalidate
-known graph topology; existing integrity warnings remain separate. Consequently
-`coverage.complete` and `loop_detection_complete` intentionally answer different
-questions (for example a dangling endpoint invalidates loop completeness even
-when all component reads succeeded).
+Complete graph detection is silent, whether loops exist or not. An incomplete
+graph prints one short loop-detection warning, even if no cycle was observed.
+Observed loop-closing edges remain visible in partial samples, but membership
+and entry points may be incomplete. Missing conditions/configuration/type
+definitions do not invalidate known graph topology; existing integrity warnings
+remain separate. Consequently `coverage.complete` and `loop_detection_complete`
+intentionally answer different questions (for example a dangling endpoint
+invalidates loop completeness even when all component reads succeeded).
 
 ## Missing and inaccessible definitions are explicit
 
@@ -152,7 +172,7 @@ Read-only checks with the host's authenticated `demo` profile also verified:
   15 transitions, one SCC loop; both edges returning to Change Manager Group
   Approval are included.
 - Change Request - Standard (`9c55dac2cb200200d71cb9c0c24c9c83`): 10 activities,
-  11 transitions, zero loops, explicitly reported as `no loops detected`.
+  11 transitions, zero loops, with no loop summary in human output.
 - On-Call: Assign by Acknowledgement per Rota
   (`ddfa60feb748230059e0b956ee11a937`): 65 activities, 103 transitions, one SCC
   loop; inspection completed normally.

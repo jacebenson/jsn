@@ -531,8 +531,8 @@ test('full configuration previews long values explicitly while one step renders 
     const preview = formatWorkflowOutline(data, { includeConfiguration: true });
     assert.deepEqual(preview.split('\n').filter(line => /^ {7}(script:| {8})/.test(line)), [
       '       script: line1();',
-      ...Array.from({ length: 4 }, (_, i) => `               line${i + 2}();`),
-      '               … (12 more lines, use --json for the full value)',
+      ...Array.from({ length: 2 }, (_, i) => `               line${i + 2}();`),
+      '               … (14 more lines, use --json for the full value)',
     ]);
     assert.ok(preview.includes('\n       omitted other_script: comment-only script (no executable code)\n'));
     const full = formatWorkflowOutline(data, { step: 2 });
@@ -658,6 +658,28 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
     assert.doesNotMatch(human.stdout, /\b[0-9a-f]{32}\b/i);
     assert.doesNotMatch(human.stdout, /▶ TRANSITIONS/);
     assert.match(human.stdout, /design-time configuration/i);
+    assert.doesNotMatch(human.stdout, /▶ CONFIGURATION| {7}(?:script|table):|\(Run Script\)/);
+
+    const configured = await run(['workflows', 'show', WF, '--config', '--styled']);
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.ok(configured.stdout.includes([
+      '  1. Begin  (Begin)',
+      '  2. Tag record  (Run Script)',
+      '       script: var gr = new GlideRecord("incident");',
+      '               gr.get(current.sys_id);',
+      '               gr.update();',
+      '       table:  incident',
+      '  3. Approval',
+    ].join('\n')), configured.stdout);
+    assert.doesNotMatch(configured.stdout, /▶ CONFIGURATION|\b[0-9a-f]{32}\b/i);
+
+    const explicitJson = await run(['workflows', 'show', 'Incident approval', '--config', '--json']);
+    assert.equal(explicitJson.status, 0, explicitJson.stderr);
+    assert.deepEqual(JSON.parse(explicitJson.stdout).data, envelope.data);
+
+    const skipped = await run(['workflows', 'show', WF, '--no-config', '--styled']);
+    assert.equal(skipped.status, 0, skipped.stderr);
+    assert.doesNotMatch(skipped.stdout, /▶ CONFIGURATION| {7}(?:script|table):|\(Run Script\)/);
 
     const usage = await run(['workflows', 'list', '--limit', '0', '--json']);
     assert.equal(usage.status, 2, usage.stderr);
