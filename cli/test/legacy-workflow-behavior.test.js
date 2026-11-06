@@ -77,7 +77,7 @@ for (const field of ['script', 'script_condition', 'email_to_script']) {
     assert.equal(Object.hasOwn(activity.configuration, field), false);
     assert.deepEqual(activity.configuration_omissions, [{ field, reason: 'comment_only_script' }]);
     assert.equal(data.coverage.comment_only_scripts_omitted, 1);
-    const output = formatWorkflowOutline(data);
+    const output = formatWorkflowOutline(data, { includeConfiguration: true });
     assert.match(output, new RegExp(`omitted ${field}: comment-only script`));
     assert.match(output, /1 comment-only script fields omitted/);
     assert.ok(!output.includes('disabled statement'));

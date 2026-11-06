@@ -19,6 +19,27 @@ function defineFormatted(data, formatted) {
   Object.defineProperty(data, '_formatted', { value: formatted, enumerable: false, configurable: true });
 }
 
+export function parseWorkflowStep(value) {
+  if (value === undefined) return undefined;
+  if (!/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+    throw errUsage('--step must be a positive integer.');
+  }
+  return Number(value);
+}
+
+export function selectWorkflowStep(data, number) {
+  if (number === undefined) return data;
+  const step = data.steps.find(step => step.number === number);
+  if (!step) throw errUsage(`Step ${number} is out of range: ${data.steps.length} steps; valid range ${data.steps.length ? `1–${data.steps.length}` : 'none (0 steps)'}.`);
+  return {
+    ...data,
+    activities: data.activities.filter(activity => activity.sys_id === step.sys_id),
+    steps: [step],
+    transitions: data.transitions.filter(edge => edge.from_id === step.sys_id),
+    transitions_by_activity: data.transitions_by_activity.filter(group => group.sys_id === step.sys_id),
+  };
+}
+
 export function workflowsCmd(wrap) {
   return {
     command: 'workflows [subcommand]',
@@ -67,25 +88,30 @@ export function workflowsCmd(wrap) {
         builder: (y) => y
           .positional('identifier', { type: 'string', describe: 'Workflow name, workflow sys_id, or version sys_id' })
           .option('version', { type: 'string', describe: 'Specific wf_workflow_version sys_id (default: published, else newest)' })
-          .option('config', { type: 'boolean', default: true, describe: 'Read activity configuration and scripts' })
+          .option('config', { type: 'boolean', describe: 'Show activity configuration and scripts under each step' })
+          .option('step', { type: 'string', describe: 'Inspect one positive step number with full configuration' })
           .option('limit', { alias: 'l', type: 'number', default: 200, describe: 'Maximum activities to read (1–1000)' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
           if (typeof argv.identifier !== 'string' || !argv.identifier.trim()) {
             throw errUsage('Provide a legacy workflow name or sys_id.');
           }
+          const step = parseWorkflowStep(argv.step);
           const data = await inspectWorkflow(app.sdk, {
             identifier: argv.identifier,
             versionId: argv.version || '',
-            includeConfiguration: argv.config !== false,
+            // Keep the existing JSON/read contract; --config controls presentation.
+            includeConfiguration: step !== undefined || argv.config !== false,
             limit: argv.limit,
           });
-          defineFormatted(data, formatWorkflowOutline(data, app.getEffectiveInstance()));
+          const selected = selectWorkflowStep(data, step);
+          const formatted = formatWorkflowOutline(data, { includeConfiguration: argv.config === true, step });
+          defineFormatted(selected, formatted);
           const versionLabel = data.version
             ? `${data.version.name} (${data.selection.reason})`
             : 'no readable version';
-          app.ok(data, {
-            summary: `Legacy workflow: ${data.workflow.name} — ${versionLabel}, ${data.activities.length} activity(ies)${data.coverage.complete ? '' : ', partial coverage'}`,
+          app.ok(selected, {
+            summary: `Legacy workflow: ${data.workflow.name} — ${versionLabel}, ${selected.activities.length} activity(ies)${data.coverage.complete ? '' : ', partial coverage'}`,
             breadcrumbs: [
               { action: 'list', cmd: 'jsn workflows list', description: 'Back to legacy workflows' },
               ...(data.version ? [{ action: 'json', cmd: `jsn workflows show ${JSON.stringify(data.workflow.name)} --json`, description: 'Structured definition with IDs' }] : []),

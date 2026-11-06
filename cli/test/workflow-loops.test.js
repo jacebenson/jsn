@@ -54,9 +54,8 @@ for (const [name, names, edges, expected] of cases) {
     assert.equal(json.coverage.loop_detection_complete, true);
     assert.equal(json.coverage.loops_found, expected.length);
     assert.deepEqual(json.loops.map(loop => loop.members.map(member => member.sys_id)), expected.map(ids => ids.map(id)));
-    assert.match(text, /▶ LOOPS/);
+    assert.doesNotMatch(text, /▶ LOOPS|no loops detected/);
     if (!expected.length) {
-      assert.match(text, /no loops detected/);
       assert.doesNotMatch(text, /↺/);
     } else {
       assert.doesNotMatch(text, /no loops detected/);
@@ -66,8 +65,7 @@ for (const [name, names, edges, expected] of cases) {
         assert.deepEqual(loop.edges.map(edge => edge.sys_id).sort(), internal.map(edge => edge.sys_id).sort());
         const entries = new Set(json.transitions.filter(edge => !memberIds.has(edge.from_id) && memberIds.has(edge.to_id)).map(edge => edge.to_id));
         assert.deepEqual(loop.entry_points.map(member => member.sys_id).sort(), [...entries].sort());
-        const numbers = loop.members.map(member => json.steps.find(step => step.sys_id === member.sys_id).number).sort((a, b) => a - b);
-        assert.ok(text.includes(`steps ${numbers.join(', ')}`));
+        assert.ok(text.includes('↺'));
       }
     }
     assert.doesNotMatch(text, /\b[0-9a-f]{32}\b/i);
@@ -120,7 +118,7 @@ test('empty complete graph explicitly reports zero loops', async () => {
   assert.equal(json.coverage.loop_detection_complete, true);
   assert.deepEqual(json.loops, []);
   assert.deepEqual(json.transitions_by_activity, []);
-  assert.match(text, /no loops detected/);
+  assert.doesNotMatch(text, /no loops detected|▶ LOOPS/);
 });
 
 test('unreadable conditions preserve topology detection and integrity warnings', async () => {
@@ -138,7 +136,8 @@ test('observed cycle remains visible when overall detection is incomplete', asyn
   assert.equal(json.coverage.loop_detection_complete, false);
   assert.equal(json.loops.length, 1);
   assert.match(text, /↺ → step 1 A/);
-  assert.match(text, /observed; detection incomplete/);
+  assert.equal(text.split('\n').filter(line => line.includes('Loop detection is incomplete')).length, 1);
+  assert.doesNotMatch(text, /▶ LOOPS/);
   assert.doesNotMatch(text, /no loops detected/);
 });
 
@@ -237,8 +236,6 @@ for (const [name, names, edges, options, expected, sequential] of [
     const reversed = await inspect(names, edges, { ...options, reverse: true });
     assert.deepEqual(reversed.json.steps, json.steps);
     assert.deepEqual(section(reversed.text, 'STEPS'), expected);
-    if (name.startsWith('loop back-edge')) {
-      assert.deepEqual(section(text, 'LOOPS'), ['  Loop 1: steps 2, 3 → back to step 2. Entry: step 2.']);
-    }
+    assert.doesNotMatch(text, /▶ LOOPS/);
   });
 }

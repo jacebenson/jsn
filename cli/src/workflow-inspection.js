@@ -761,14 +761,14 @@ function describeTransition(transition, stepById) {
   return `${to} [${condition}]${issue}`;
 }
 
-function truncateLines(value, max = 12) {
+function truncateLines(value, max = 5) {
   const lines = String(value).split('\n');
   if (lines.length <= max) return lines.join('\n');
-  return `${lines.slice(0, max).join('\n')}\n… (${lines.length - max} more lines; use --json for the full value)`;
+  return `${lines.slice(0, max).join('\n')}\n… (${lines.length - max} more lines, use --json for the full value)`;
 }
 
 /** Human-readable outline. Record identifiers and full detail stay in JSON. */
-export function formatWorkflowOutline(data) {
+export function formatWorkflowOutline(data, { includeConfiguration = false, step: selectedStep } = {}) {
   const lines = [];
   const workflow = data.workflow;
   lines.push('');
@@ -819,7 +819,9 @@ export function formatWorkflowOutline(data) {
   if (data.steps.length === 0) {
     lines.push(`  (${data.coverage.components.activities === 'ok' ? 'no activities found' : `activities ${data.coverage.components.activities}`})`);
   }
-  for (const step of data.steps) {
+  for (const step of data.steps.filter(step => selectedStep === undefined || step.number === selectedStep)) {
+    const activity = data.activities.find(activity => activity.sys_id === step.sys_id);
+    const showContent = includeConfiguration || selectedStep !== undefined;
     const outgoing = groups.get(step.sys_id) || [];
     const flags = [];
     if (!step.reached_from_start) flags.push(data.step_order.fallback_reason
@@ -828,47 +830,41 @@ export function formatWorkflowOutline(data) {
       if (!data.coverage.loop_detection_complete) flags.push('no outgoing transitions observed; detection incomplete');
       else if (!/(end|finish|done|stop)$/i.test(step.name.trim())) flags.push('end');
     }
-    lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${flags.length ? ` (${flags.join('; ')})` : ''}`);
-    for (const edge of outgoing.filter(edge => !edge.is_sequential)) {
+    lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${showContent && activity?.definition_name ? `  (${activity.definition_name})` : ''}${flags.length ? ` (${flags.join('; ')})` : ''}`);
+    if (showContent && activity) {
+      const fields = Object.entries(activity.configuration || {})
+        .filter(([, value]) => value != null && String(value).trim())
+        .sort(([a], [b]) => a.localeCompare(b));
+      const width = Math.max(0, ...fields.map(([field]) => field.length + 1));
+      for (const [field, value] of fields) {
+        const valueLines = (selectedStep === undefined ? truncateLines(value) : String(value)).split('\n');
+        lines.push(`       ${(field + ':').padEnd(width)} ${valueLines[0]}`);
+        for (const line of valueLines.slice(1)) lines.push(`       ${' '.repeat(width + 1)}${line}`);
+      }
+      if (!['ok', 'skipped'].includes(activity.configuration_status)) lines.push(`       configuration: ${activity.configuration_status}`);
+      for (const omission of activity.configuration_omissions || []) {
+        lines.push(`       omitted ${omission.field}: comment-only script (no executable code)`);
+      }
+    }
+    if (selectedStep !== undefined) {
+      data.loops.forEach((loop, index) => {
+        if (!loop.members.some(member => member.sys_id === step.sys_id)) return;
+        const backTo = [...new Set(loop.edges.filter(closesLoop).map(edge => stepById.get(edge.to_id).number))].sort((a, b) => a - b);
+        lines.push(`       Loop ${index + 1}: back to step${backTo.length === 1 ? '' : 's'} ${backTo.join(', ')}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}`);
+      });
+    }
+    for (const edge of outgoing.filter(edge => selectedStep !== undefined || !edge.is_sequential)) {
       lines.push(`       ${closesLoop(edge) ? '↺ ' : ''}→ ${describeTransition(edge, stepById)}`);
     }
   }
   // Preserve malformed source links without inventing an activity or a step.
-  for (const group of data.transitions_by_activity.filter(group => !stepById.has(group.sys_id))) {
+  for (const group of data.transitions_by_activity.filter(group => selectedStep === undefined && !stepById.has(group.sys_id))) {
     lines.push('  (source activity not in the readable steps)');
     for (const edge of group.transitions) lines.push(`       → ${describeTransition(edge, stepById)}`);
   }
 
-  lines.push('', '▶ LOOPS', '─'.repeat(50));
   if (!data.coverage.loop_detection_complete) {
-    lines.push('  Loop detection is incomplete: activities or transitions unreadable, truncated, or endpoints outside the sample.');
-  } else if (data.loops.length === 0) {
-    lines.push('  no loops detected');
-  }
-  data.loops.forEach((loop, index) => {
-    const members = loop.members.map(member => stepById.get(member.sys_id).number).sort((a, b) => a - b);
-    const backTo = [...new Set(loop.edges.filter(closesLoop).map(edge => stepById.get(edge.to_id).number))].sort((a, b) => a - b);
-    const entries = loop.entry_points.map(member => stepById.get(member.sys_id).number).sort((a, b) => a - b);
-    const entry = entries.length ? `step${entries.length > 1 ? 's' : ''} ${entries.join(', ')}` : 'no external entry observed';
-    lines.push(`  Loop ${index + 1}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}: steps ${members.join(', ')} → back to step${backTo.length > 1 ? 's' : ''} ${backTo.join(', ')}. Entry: ${entry}.`);
-  });
-
-  const configured = data.activities.filter(activity => activity.configuration?.script
-    || activity.configuration_omissions?.length
-    || !['ok', 'skipped'].includes(activity.configuration_status));
-  if (configured.length) {
-    lines.push('', '▶ CONFIGURATION', '─'.repeat(50));
-    for (const activity of configured) {
-      lines.push(`  Step ${stepById.get(activity.sys_id).number}: ${activity.name}`);
-      if (!['ok', 'skipped'].includes(activity.configuration_status)) lines.push(`     configuration: ${activity.configuration_status}`);
-      for (const omission of activity.configuration_omissions || []) {
-        lines.push(`     omitted ${omission.field}: comment-only script (no executable code)`);
-      }
-      if (activity.configuration?.script) {
-        lines.push('     script:');
-        for (const line of truncateLines(activity.configuration.script).split('\n')) lines.push(`       ${line}`);
-      }
-    }
+    lines.push('', '  ⚠ Loop detection is incomplete: activities or transitions unreadable, truncated, or endpoints outside the sample.');
   }
 
   if (data.stages.length > 0) {
