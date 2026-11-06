@@ -5,7 +5,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeAdapterRegistry, validateBatchManifest } from '../src/batch-manifest.js';
-import { applyBatch, planBatch, resolveUpdateTarget } from '../src/batch-engine.js';
+import { applyBatch as applyPlannedBatch, planBatch, resolveUpdateTarget } from '../src/batch-engine.js';
+
+// Every apply exercises the public plan prerequisite; avoid consuming the
+// injected mid-run context sequence while preparing the receipt.
+async function applyBatch(options) {
+  const plan = await planBatch({ ...options, instance: options.app?.getEffectiveInstance?.() || '', readContext: async () => CONTEXT });
+  return applyPlannedBatch({ ...options, plan });
+}
 import { catalogBatchAdapters } from '../src/batch-adapters/catalog.js';
 
 const registry = makeAdapterRegistry(catalogBatchAdapters);
@@ -176,7 +183,7 @@ describe('batch engine apply', () => {
     assert.equal(byName.cpu.status, 'skipped');
     assert.match(byName.cpu.skipped_reason, /dependency "laptop" did not complete/);
     assert.equal(byName.standalone.status, 'failed', 'independent step was still attempted');
-    assert.deepEqual(result.counts, { total: 3, created: 0, updated: 0, failed: 2, skipped: 1 });
+    assert.deepEqual(result.counts, { total: 3, created: 0, updated: 0, deleted: 0, failed: 2, skipped: 1 });
     assert.equal(result.partial, true);
     assert.equal(result.writes_performed, false);
     assert.ok(result.recovery.some(line => /not an atomic ServiceNow transaction/.test(line)));
@@ -193,7 +200,7 @@ describe('batch engine apply', () => {
     assert.equal(byName.laptop.sys_id, 'item1');
     assert.equal(byName.cpu.status, 'failed');
     assert.equal(byName.standalone.status, 'created');
-    assert.deepEqual(result.counts, { total: 3, created: 2, updated: 0, failed: 1, skipped: 0 });
+    assert.deepEqual(result.counts, { total: 3, created: 2, updated: 0, deleted: 0, failed: 1, skipped: 0 });
     assert.equal(result.partial, true);
   });
 

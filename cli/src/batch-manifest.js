@@ -124,8 +124,8 @@ export function validateBatchManifest(input, registry) {
       add(`${path}.type`, `Unsupported step type "${raw.type}"; supported types: ${supported.join(', ')}.`);
       continue;
     }
-    if (raw.operation !== 'create' && raw.operation !== 'update') {
-      add(`${path}.operation`, 'operation must be "create" or "update".');
+    if (!['create', 'update', 'delete'].includes(raw.operation)) {
+      add(`${path}.operation`, 'operation must be "create", "update" or "delete".');
       continue;
     }
     if (raw.fields !== undefined && !isPlainObject(raw.fields)) {
@@ -167,7 +167,15 @@ export function validateBatchManifest(input, registry) {
         add(`${path}.fields.${field}`, `Field "${field}" is create-only for ${raw.type}.`);
         continue;
       }
+      if (raw.operation === 'delete' && !spec.parent) {
+        add(`${path}.fields.${field}`, 'Delete fields only declare symbolic parent relationships, not mutation payloads.');
+        continue;
+      }
       const ref = readRef(value);
+      if (spec.parent && ref === null) {
+        add(`${path}.fields.${field}`, 'Parent fields require a symbolic $ref, never a hand-written sys_id.');
+        continue;
+      }
       if (ref !== null) {
         if (ref === undefined) {
           add(`${path}.fields.${field}`, 'Only a single-key {"$ref": "steps.<name>.<output>"} object is supported; arbitrary objects are not.');
@@ -184,6 +192,10 @@ export function validateBatchManifest(input, registry) {
         const match = typeof ref === 'string' && REF_PATH.exec(ref);
         if (!match) {
           add(`${path}.fields.${field}`, `Invalid reference "${ref}"; expected "steps.<step-name>.<output>".`);
+          continue;
+        }
+        if (spec.refOutput && match[2] !== spec.refOutput) {
+          add(`${path}.fields.${field}`, `Field "${field}" requires output "${spec.refOutput}".`);
           continue;
         }
         step.pendingRefs = step.pendingRefs || [];
@@ -216,6 +228,12 @@ export function validateBatchManifest(input, registry) {
       }
     }
 
+    if (raw.operation === 'delete') {
+      if (typeof adapter.delete !== 'function') add(`${path}.operation`, `${raw.type} does not support delete.`);
+      for (const [field, spec] of Object.entries(adapter.fields || {})) {
+        if (spec.parent && fields[field] === undefined) add(`${path}.fields.${field}`, `Deleting ${raw.type} requires symbolic parent field "${field}".`);
+      }
+    }
     if (adapter.validate) {
       const problem = adapter.validate({ operation: raw.operation, fields });
       if (problem) add(`${path}.fields`, problem);
@@ -249,6 +267,19 @@ export function validateBatchManifest(input, registry) {
     }
   }
 
+  // Reverse destructive edges, not the whole list: independent steps retain
+  // declaration order. Mixed create/update -> delete relationships are unsafe.
+  const edges = steps.flatMap(step => step.dependsOn.map(name => [step, byName.get(name)]));
+  for (const step of steps) step.dependsOn = [];
+  for (const [child, parent] of edges) {
+    if ((child.operation === 'delete') !== (parent.operation === 'delete')) {
+      add(`steps[${child.index}]`, 'A relationship cannot mix delete with create/update. Use a separate manifest.');
+    } else if (child.operation === 'delete') {
+      if (!parent.dependsOn.includes(child.name)) parent.dependsOn.push(child.name);
+    } else {
+      if (!child.dependsOn.includes(parent.name)) child.dependsOn.push(parent.name);
+    }
+  }
   const order = dependencyOrder(steps, add);
   if (issues.length) throw invalidManifest(issues);
   return { version: MANIFEST_VERSION, description: input.description || '', steps, order, byName };

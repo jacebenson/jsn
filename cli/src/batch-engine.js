@@ -18,6 +18,8 @@
 //     blocked context (or the profile is read-only) the batch stops before
 //     that step and reports completed work plus skipped dependents.
 
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { readCaptureContext } from './mutation-context.js';
 import { assertSafeExactMatch, getStringField } from './helpers.js';
 import { unwrapSysId } from './resolve-record.js';
@@ -119,14 +121,6 @@ export function resolveReference(value, outputs, location = 'value') {
   return produced[parsed.output];
 }
 
-function resolvedFields(step, outputs) {
-  const fields = {};
-  for (const [name, value] of Object.entries(step.fields)) {
-    fields[name] = resolveReference(value, outputs, `steps.${step.name}.fields.${name}`);
-  }
-  return fields;
-}
-
 function pendingReferences(step) {
   const refs = [];
   for (const [field, value] of Object.entries(step.fields)) {
@@ -185,7 +179,7 @@ export async function planBatch({ sdk, manifest, instance = '', readContext = re
   for (const name of manifest.order) {
     const step = manifest.byName.get(name);
     const target = step.target
-      ? { mode: 'update', ...(await resolveUpdateTarget(sdk, step)) }
+      ? { mode: step.operation, ...(await resolveUpdateTarget(sdk, step)) }
       : { mode: 'create' };
     let prepared;
     try {
@@ -207,11 +201,26 @@ export async function planBatch({ sdk, manifest, instance = '', readContext = re
       notes: prepared.notes || [],
     });
   }
+  // Verify symbolic deletion relationships against the existing child rows;
+  // naming an unrelated child must never authorize deleting it or its parent.
+  const plannedByName = new Map(steps.map(step => [step.name, step]));
+  for (const step of manifest.steps.filter(step => step.operation === 'delete')) {
+    const links = Object.entries(step.fields).filter(([field]) => step.adapter.fields[field]?.parent);
+    if (!links.length) continue;
+    const row = await sdk.get(step.adapter.table, plannedByName.get(step.name).target.sys_id);
+    for (const [field, value] of links) {
+      const ref = parseRefPath(readRef(value));
+      const parentId = plannedByName.get(ref.step).target.sys_id;
+      const adapter = manifest.byName.get(ref.step).adapter;
+      const values = adapter.produceOutputs ? adapter.produceOutputs({ sysId: parentId }) : { sys_id: parentId };
+      if (getStringField(row, field) !== values[ref.output]) throw stepError(step, errUsage(`Delete parent mismatch at ${field}; no writes performed.`));
+    }
+  }
   let context = null;
   if (sdk) {
     try { context = await readContext(sdk); } catch { context = null; }
   }
-  return {
+  const result = {
     command: 'batch plan',
     instance: instance || null,
     manifest: { version: manifest.version, description: manifest.description, steps: manifest.steps.length },
@@ -222,12 +231,26 @@ export async function planBatch({ sdk, manifest, instance = '', readContext = re
       steps: steps.length,
       creates: steps.filter(step => step.operation === 'create').length,
       updates: steps.filter(step => step.operation === 'update').length,
+      deletes: steps.filter(step => step.operation === 'delete').length,
       writes: 0,
     },
     partial: false,
     writes_performed: false,
     steps,
   };
+  result.plan_id = planId(result);
+  return result;
+}
+
+// Bind the inspectable receipt to the instance, exact operations, targets,
+// schema-prepared payloads and dependency order. Context is checked per write.
+function planContent(plan) {
+  return { instance: plan.instance, manifest: plan.manifest, order: plan.order, steps: plan.steps };
+}
+export function planId(plan) {
+  const canonical = value => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+  return createHash('sha256').update(JSON.stringify(canonical(planContent(plan)))).digest('hex');
 }
 
 /**
@@ -243,9 +266,14 @@ export async function planBatch({ sdk, manifest, instance = '', readContext = re
  * @returns {Promise<object>} result with per-step statuses, resolved IDs, counts
  */
 export async function applyBatch({
-  sdk, manifest, app = null, argv = {}, initialContext = null,
+  sdk, manifest, plan, app = null, argv = {}, initialContext = null, beforeApply = null,
   readContext = readCaptureContext,
 }) {
+  if (!plan || plan.plan_id !== planId(plan)) throw errUsage('Apply requires an intact batch plan receipt. Run batch plan --json first.');
+  const predicted = await planBatch({ sdk, manifest, instance: app?.getEffectiveInstance?.() || '', readContext: async () => initialContext });
+  if (!isDeepStrictEqual(planContent(plan), planContent(predicted))) throw errUsage('Batch plan is stale or does not match this manifest/instance. Re-plan before applying.');
+  const planned = new Map(predicted.steps.map(step => [step.name, step]));
+  if (beforeApply) await beforeApply(structuredClone(predicted));
   const steps = [];
   const outputs = {};
   const failed = new Set();
@@ -255,12 +283,14 @@ export async function applyBatch({
   const baseline = initialContext || null;
   let lastContext = baseline;
 
-  // Preflight: every explicit update target must resolve before any write.
+  // Use only targets predicted by the freshly compared plan. Delete refs
+  // name targets before any delete executes (parents execute last).
   const targets = new Map();
-  for (const name of manifest.order) {
-    const step = manifest.byName.get(name);
+  for (const step of manifest.steps) {
     if (!step.target) continue;
-    targets.set(name, await resolveUpdateTarget(sdk, step));
+    const { mode: _mode, ...target } = planned.get(step.name).target;
+    targets.set(step.name, target);
+    if (step.operation === 'delete') outputs[step.name] = { sys_id: target.sys_id };
   }
 
   for (const name of manifest.order) {
@@ -273,6 +303,11 @@ export async function applyBatch({
       continue;
     }
 
+    if (stop) {
+      skipped.add(name);
+      steps.push(baseStep(step, { status: 'skipped', skipped_reason: `safety stop: ${stop.code}` }));
+      continue;
+    }
     // Safety is evaluated for the step about to write, not just once per run.
     const safety = await checkSafety({ sdk, app, argv, baseline, readContext });
     if (safety.context && contextKey(safety.context) !== contextKey(lastContext)) {
@@ -290,27 +325,32 @@ export async function applyBatch({
       continue;
     }
 
-    let fields;
+    let prepared;
     try {
-      fields = resolvedFields(step, outputs);
+      // Freeze adapter preparation at plan time; only substitute generated IDs.
+      const prediction = planned.get(name);
+      prepared = { payload: Object.fromEntries(Object.entries(prediction.payload).map(([field, value]) =>
+        [field, resolveReference(value, outputs, `steps.${name}.fields.${field}`)])), notes: prediction.notes };
     } catch (error) {
       failed.add(name);
       steps.push(baseStep(step, { status: 'failed', error: { code: error.code || 'usage_error', message: error.message } }));
       continue;
     }
 
-    let prepared;
-    try {
-      prepared = await step.adapter.prepare({ sdk, operation: step.operation, fields });
-    } catch (error) {
-      failed.add(name);
-      steps.push(baseStep(step, { status: 'failed', error: { code: error.code || 'api_error', message: error.message } }));
-      continue;
-    }
-
     try {
       let record;
-      if (step.operation === 'create') {
+      if (step.operation === 'delete') {
+        const resolved = targets.get(name);
+        await step.adapter.delete({ sdk, sysId: resolved.sys_id, step });
+        // Absence needs an explicit error-free empty query, not an ambiguous
+        // GET null/permission error. A failed verification blocks the parent.
+        const params = new URLSearchParams({
+          sysparm_query: `sys_id=${resolved.sys_id}`, sysparm_fields: 'sys_id', sysparm_limit: '1',
+        });
+        const response = await sdk.request(`${sdk.baseURL}/api/now/table/${step.adapter.table}?${params}`, { method: 'GET', readOnly: true });
+        if (response?.error || !Array.isArray(response?.result) || response.result.length !== 0) throw errUsage('Delete absence was not verified; inspect before retrying.');
+        record = { sys_id: resolved.sys_id };
+      } else if (step.operation === 'create') {
         record = await step.adapter.create({ sdk, payload: prepared.payload, step });
       } else {
         const resolved = targets.get(name);
@@ -320,11 +360,11 @@ export async function applyBatch({
       if (!sysId) {
         throw errUsage('The write returned no readable sys_id; treat this step as unverified and inspect the instance before retrying.');
       }
-      outputs[name] = { sys_id: sysId };
+      outputs[name] = step.adapter.produceOutputs ? step.adapter.produceOutputs({ sysId, record }) : { sys_id: sysId };
       steps.push(baseStep(step, {
-        status: step.operation === 'create' ? 'created' : 'updated',
+        status: { create: 'created', update: 'updated', delete: 'deleted' }[step.operation],
         sys_id: sysId,
-        target: step.operation === 'update' ? targets.get(name) : undefined,
+        target: step.operation !== 'create' ? targets.get(name) : undefined,
         payload: prepared.payload,
         notes: prepared.notes || [],
       }));
@@ -332,7 +372,7 @@ export async function applyBatch({
       failed.add(name);
       steps.push(baseStep(step, {
         status: 'failed',
-        target: step.operation === 'update' ? targets.get(name) : undefined,
+        target: step.operation !== 'create' ? targets.get(name) : undefined,
         payload: prepared.payload,
         error: { code: error.code || 'api_error', message: error.message },
       }));
@@ -343,6 +383,7 @@ export async function applyBatch({
     total: steps.length,
     created: steps.filter(step => step.status === 'created').length,
     updated: steps.filter(step => step.status === 'updated').length,
+    deleted: steps.filter(step => step.status === 'deleted').length,
     failed: steps.filter(step => step.status === 'failed').length,
     skipped: steps.filter(step => step.status === 'skipped').length,
   };
@@ -357,7 +398,7 @@ export async function applyBatch({
     order: [...manifest.order],
     counts,
     partial,
-    writes_performed: counts.created + counts.updated > 0,
+    writes_performed: counts.created + counts.updated + counts.deleted > 0,
     stopped: stop,
     steps,
     recovery: partial ? recoveryGuidance(counts, stop) : [],

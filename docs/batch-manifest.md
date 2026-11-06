@@ -1,216 +1,186 @@
 # Batch manifests
 
-`jsn batch` plans and applies one JSON manifest of related artifact
-creates/updates. Steps have local names and can reference IDs produced by
-earlier steps, so an agent or human does not have to copy `sys_id`s between
-commands.
+`jsn batch` plans and applies related artifact creates, updates and deletes.
+The shared engine is domain-neutral; adapters declare closed field schemas,
+reference types, payload preparation and domain operations. Adding a family does
+not require a domain-specific engine branch. Keep the `batch` name for continuity.
 
-```bash
-jsn batch plan  --file manifest.json    # read-only: targets, order, payloads
-jsn batch apply --file manifest.json    # dependency-ordered writes
+## Mandatory inspect-before-apply workflow
+
+```sh
+jsn batch plan --file manifest.json --profile demo --json > plan.json
+# Inspect data.order, data.steps, data.counts and data.plan_id in plan.json.
+jsn batch apply --file manifest.json --plan plan.json --profile demo --json
 ```
 
-`--file -` reads the manifest from stdin. Output is the normal envelope
-(`--json`, `--quiet`, `--get`, `--markdown`, `--csv` all work).
+The second command writes; run it only with permission on a write-enabled
+profile. `--plan` accepts the full JSON envelope or its `data` object. `--file -`
+reads a manifest from stdin. Normal output envelopes and `--get` work.
 
-The engine is domain-neutral (`src/batch-engine.js`, `src/batch-manifest.js`);
-artifact support comes from adapters (`src/batch-adapters/`). The first
-delivered slice is **catalog items and catalog variables**.
+Plan is GET-only and works on read-only profiles. Apply requires a receipt,
+re-plans before the first write and compares the exact instance, manifest
+summary, order, targets, prepared payloads, references, outputs and notes. A
+changed manifest, target resolution, category resolution or instance requires a
+new plan. The SHA-256 `plan_id` detects accidental receipt edits, not authorization
+or provenance; it is not a signature, one-time token or replay lock. Plan cannot
+predict server business-rule side effects or guarantee that ACLs allow a write.
 
-## Manifest schema (version 1)
+Apply uses only the predicted payload, substituting declared generated outputs;
+it never allocates categories or other records not named by a step. Capture
+context is checked separately before every write. Plan is not a substitute for
+mutation approval. The engine API also requires the plan object.
+
+## Version 1 schema
 
 ```json
 {
   "version": 1,
-  "description": "optional human note",
+  "description": "Optional note",
   "steps": [
-    {
-      "name": "laptop",
-      "type": "catalog_item",
-      "operation": "create",
-      "fields": {
-        "name": "Standard laptop",
-        "short_description": "Managed laptop",
-        "category": "Hardware"
-      }
-    },
-    {
-      "name": "cpu",
-      "type": "catalog_variable",
-      "operation": "create",
-      "fields": {
-        "cat_item": { "$ref": "steps.laptop.sys_id" },
-        "label": "CPU",
-        "type": "select",
-        "mandatory": true
-      }
-    },
-    {
-      "name": "storage",
-      "type": "catalog_variable",
-      "operation": "create",
-      "fields": {
-        "cat_item": { "$ref": "steps.laptop.sys_id" },
-        "label": "Storage",
-        "order": 200
-      }
-    }
+    {"name":"item","type":"catalog_item","operation":"create","fields":{"name":"Laptop","active":false}},
+    {"name":"cpu","type":"catalog_variable","operation":"create","fields":{"cat_item":{"$ref":"steps.item.sys_id"},"label":"CPU"}},
+    {"name":"policy","type":"catalog_ui_policy","operation":"create","fields":{"catalog_item":{"$ref":"steps.item.sys_id"},"short_description":"CPU policy","active":false}},
+    {"name":"action","type":"catalog_ui_policy_action","operation":"create","fields":{"ui_policy":{"$ref":"steps.policy.sys_id"},"catalog_variable":{"$ref":"steps.cpu.catalog_variable"},"mandatory":"true"}}
   ]
 }
 ```
 
-Top-level keys: `version` (must be `1`), `steps` (nonempty array), optional
-`description`.
+Only `version`, `description` and `steps` are accepted at the top level.
+Steps accept only `name`, `type`, `operation`, `fields`, `target`.
 
-Step keys: `name`, `type`, `operation`, `fields`, `target`. Any other key is a
-validation error — the schema is closed, not a passthrough.
+- Names match `[A-Za-z][A-Za-z0-9_-]*`, maximum 64 characters, unique.
+- Operations are `create`, `update`, `delete`.
+- Unknown types and fields fail before any write; no unconstrained table fallback.
+- Create requires adapter-declared fields and forbids `target`.
+- Update requires an explicit target and at least one changed field. Parent
+  links supplied in fields must be symbolic. An update to a child alone may omit
+  an unchanged parent; include its parent step and reference when ordering them
+  together. Variable `name` remains create-only.
+- Delete requires an explicit target. Its fields contain only symbolic parent
+  links; all adapter-declared parent links must be present. They assert existing
+  relationships and are never sent as an update payload.
 
-- `name` — local identifier, `[A-Za-z][A-Za-z0-9_-]*`, unique in the manifest.
-  References use this name, not a sys_id.
-- `type` — a supported artifact type. Unknown types fail validation and list
-  the supported types. There is no generic "table write" fallback.
-- `operation` — `create` or `update`.
-- `fields` — adapter-declared fields only. Unknown fields fail; they are not
-  forwarded to the Table API.
-- `target` — required for `update`, forbidden for `create`. Create never
-  guesses an existing record by name.
+A reference is exactly `{"$ref":"steps.<name>.<output>"}`. No interpolation,
+arbitrary objects, expressions or evaluation are allowed. Parent fields reject
+hand-written IDs. Unknown producers, outputs, wrong producer types, cycles and
+self-references fail validation. Most outputs are `sys_id`. Catalog variables
+also expose `catalog_variable`, an adapter-produced `IO:<sys_id>` value, required
+by catalog UI policy actions (confirmed on existing live rows). This is a declared
+adapter output, not a string-template language.
 
-### Update targets
-
-```json
-"target": { "sys_id": "0123456789abcdef0123456789abcdef" }
-"target": { "identifier": "Standard laptop", "matchField": "name" }
-"target": { "identifier": "cpu", "matchField": "name", "scope": { "cat_item": "0123...cdef" } }
-```
-
-Targets are resolved **before the first write**. Matching is exact only (no
-partial sys_id, no display-name fuzz). Zero matches is `not_found`; multiple
-matches is `ambiguous`, and the whole batch stops before writing. `scope`
-restricts an identifier lookup to adapter-declared parent fields and accepts
-literal strings only — generated IDs belong in `fields`, not in target
-selection.
-
-## Reference syntax
-
-A reference is exactly one object with one key:
+## Targets
 
 ```json
-{ "$ref": "steps.<step-name>.<output>" }
+{"sys_id":"0123456789abcdef0123456789abcdef"}
+{"identifier":"Laptop","matchField":"name"}
+{"identifier":"cpu","matchField":"name","scope":{"cat_item":"0123456789abcdef0123456789abcdef"}}
 ```
 
-- Only outputs declared by the referenced step's adapter are addressable
-  (`sys_id` today).
-- References must point at another step in the same manifest. Unknown steps,
-  unknown outputs, self-references and cycles are rejected **before any write**.
-- References are only allowed for fields whose adapter spec allows them
-  (currently `catalog_variable.cat_item`).
-- There is **no** string interpolation, no dollar-brace templating, no
-  double-brace templating, no script evaluation and no expression language.
-  A string containing a dollar-brace or double-brace sequence is a validation
-  error rather than a silent literal.
-- Dependency order comes from references. Independent steps keep manifest
-  declaration order.
+Targets resolve before any write. Matching is exact only: no partial sys_id,
+display-name guessing or implicit create-on-miss. Missing and ambiguous targets
+stop the batch. Identifier matching and literal scope fields are adapter
+allowlisted; adapters without an identifier field require `target.sys_id`.
+Generated IDs belong in fields, never in target selection.
 
-## Supported artifact types (first slice)
+## Families and field schemas
 
-### `catalog_item` (`sc_cat_item`)
+Mappings were queried on demo before implementation; see
+[verification](batch-families-verification.md) for dictionary row IDs and limits.
+All adapters use strict types (booleans are JSON booleans, order/size are integers,
+other fields are strings). Exact supported fields are declared in
+`cli/src/batch-adapters/catalog.js` and `families.js`, not passed through unchecked.
 
-| Field | Type | Notes |
-|---|---|---|
-| `name` | string | required on create |
-| `short_description` | string | defaults to `""` on create |
-| `active` | boolean | defaults to `true` on create |
-| `category` | string | existing `sc_category.title`, exact; never created implicitly |
-| `category_sys_id` | string | existing category sys_id; mutually exclusive with `category` |
+| Manifest type | Table | Parent field → type | Required create fields besides parent |
+|---|---|---|---|
+| `catalog_item` | `sc_cat_item` | none | `name` |
+| `catalog_variable` | `item_option_new` | `cat_item` → `catalog_item` | `label` |
+| `catalog_ui_policy` | `catalog_ui_policy` | `catalog_item` → `catalog_item` | `short_description` |
+| `catalog_ui_policy_action` | `catalog_ui_policy_action` | `ui_policy` → `catalog_ui_policy`; `catalog_variable` → `catalog_variable` output | none |
+| `catalog_client_script` | `catalog_script_client` | `cat_item` → `catalog_item` | `name`, `type`, `script` |
+| `acl` | `sys_security_acl` | none | `name`, `operation`, `type` |
+| `acl_role` | `sys_security_acl_role` | `sys_security_acl` → `acl` | existing `sys_user_role` |
+| `ui_policy` | `sys_ui_policy` | none | `short_description` |
+| `ui_policy_action` | `sys_ui_policy_action` | `ui_policy` → `ui_policy` | `field` |
+| `data_policy` | `sys_data_policy2` | none | `model_table` |
+| `data_policy_rule` | `sys_data_policy_rule` | `sys_data_policy` → `data_policy` | `table`, `field` |
+| `sp_page` | `sp_page` | none | `id` |
+| `sp_container` | `sp_container` | `sp_page` → `sp_page` | none |
+| `sp_row` | `sp_row` | `sp_container` → `sp_container` | none |
+| `sp_column` | `sp_column` | `sp_row` → `sp_row` | none |
+| `sp_instance` | `sp_instance` | `sp_column` → `sp_column` | existing `sp_widget` |
 
-Creates always set `type: "item"` and never create categories. Updates only
-send the fields you provide.
+ACL operation/type keys are `read`/`record` on the verified instance, respectively;
+they are references whose keys are not 32-character sys_ids. Role rows and widget
+instances reference pre-existing external roles/widgets; this engine does not
+create those implicitly. Only the verified SP layout chain is implemented, not
+arbitrary SP subclasses or nested column/row layouts.
 
-### `catalog_variable` (`item_option_new`)
+Catalog item create defaults: `short_description: ""`, `active: true`, `type:
+"item"`. `category` resolves an existing exact `sc_category.title`; mutually
+exclusive `category_sys_id` accepts its ID. It never creates categories.
+Catalog variable create derives `name` from `label` when omitted, maps `label` to
+`question_text`, resolves documented `type` aliases (default 6/string), and defaults
+`mandatory: false`, `order: 100`, `active: true`. Unknown aliases fail. Other
+adapters send only declared fields supplied by the manifest; server defaults and
+business rules remain server-owned. Set `active: false` explicitly for inert
+policy/script trials. Policy action `mandatory`, `visible`, `disabled` use the
+instance's string states (`true`, `false`, `ignore`), not JSON booleans.
 
-| Field | Type | Notes |
-|---|---|---|
-| `cat_item` | string ref → `catalog_item` | required on create; create-only |
-| `name` | string | create-only; derived from `label` when omitted |
-| `label` | string | required on create; becomes `question_text` |
-| `type` | string | documented alias or numeric `item_option_new.type`; default `string`; unknown aliases fail |
-| `mandatory` | boolean | defaults to `false` |
-| `order` | integer | defaults to `100` |
-| `active` | boolean | defaults to `true` on create |
+## Ordering and deletes
 
-Use `target.scope.cat_item` when updating a variable by name, because variable
-names are only unique within their catalog item.
+Create and update dependencies run parents before children, even if the child
+is declared first. Independent ready steps retain declaration order. Delete
+reverses dependency edges, not the entire unrelated step list. For example:
 
-## Plan
+```json
+{"version":1,"steps":[
+  {"name":"policy","type":"ui_policy","operation":"delete","target":{"sys_id":"0123456789abcdef0123456789abcdef"}},
+  {"name":"action","type":"ui_policy_action","operation":"delete","target":{"sys_id":"fedcba9876543210fedcba9876543210"},"fields":{"ui_policy":{"$ref":"steps.policy.sys_id"}}}
+]}
+```
 
-`jsn batch plan`:
+The plan order is `action -> policy`. Plan verifies the existing child's parent
+column matches the referenced parent's resolved target. A mismatch makes zero
+writes. Delete references name preflight-resolved targets, not outputs from an
+already executed parent deletion. Mixing destructive and non-destructive steps
+on one reference edge is rejected; use separate manifests.
 
-- validates the schema, types, references and dependency graph;
-- resolves every update target (reads only);
-- shows dependency order, create/update counts, intended scope/update set, the
-  payload each step would send, and references still pending from earlier
-  steps;
-- **performs zero writes**, and is allowed on read-only profiles.
+After each DELETE, an explicit GET query for the exact sys_id must return an
+error-free empty result array. Null, missing/malformed results, errors or a
+remaining row do not prove absence. A failed/unverified child deletion blocks
+its ancestors. Only named records are operated on; discovery/recursive deletion
+of unlisted children is not implemented. Include all intended child records;
+server cascades/business rules are not simulated.
 
-## Apply
+## Status, failure and safety
 
-`jsn batch apply`:
+Each step reports `created`, `updated`, `deleted`, `failed` or `skipped`, its
+resolved ID/target and relevant payload/error. Failed parents skip dependent
+children on create/update. Failed child deletes skip ancestors. Independent
+steps continue after operational failures; safety stops are sticky and skip
+all remaining steps. Read-only and capture-context protections remain active
+before every step, including deletes. Delete-containing batches also use the
+existing delete confirmation helper: noninteractive runs need `--force` unless
+the selected profile explicitly has `skip_confirmations: true`. Confirmation
+happens only after the receipt matches the fresh plan and before any write.
+Global + Default needs existing explicit
+approval/`--force`; completed update sets block writes.
 
-1. validates the manifest and resolves all update targets before the first
-   write, so an invalid manifest or ambiguous target cannot leave a
-   half-applied batch;
-2. applies steps in dependency order through the adapter's domain operation
-   (not generic unconstrained table writes);
-3. reports each step as `created`, `updated`, `failed` or `skipped`, with the
-   resolved `sys_id`;
-4. skips only the dependents of a failed step; independent steps still run;
-5. re-checks the mutation safety rules **before every step**.
+A partial batch exits 1 with a structured result (`ok: true`, `partial: true`).
+Validation errors exit 2; the CLI validates the manifest before planning reads.
+Batches are not atomic, idempotent or rolled back. A write whose response or
+readback is uncertain may have taken effect even when its step reports failure;
+inspect the exact target before retrying. `writes_performed` counts verified
+successful steps, not proof that a failed transport caused no remote effects.
+Remove/reconcile successful steps, convert creates to explicit updates as
+appropriate, and generate a new plan before resuming. Receipts can be replayed;
+they do not provide a durable checkpoint or automatic retry protection.
 
-A failed/skipped step makes the result `"partial": true` and the command exits
-`1`; the structured result is still emitted (`ok: true` with the batch data).
-Validation failures exit `2` and make no requests.
+## Explicitly unsupported
 
-### Not atomic, no rollback, no automatic retry
-
-A batch is not a ServiceNow transaction. Successful steps stay in place. The
-result includes `recovery` guidance:
-
-- inspect failed steps on the instance before retrying;
-- use the reported `sys_id`s to reconcile successful steps;
-- convert completed `create` steps into `update` steps (or remove them) before
-  re-running, so a retry cannot recreate them;
-- skipped steps made no change; retry them only after their dependency
-  succeeds.
-
-Manifests are **not idempotent**. Re-running the same create manifest creates
-new records; that is intentional and documented rather than guessed. Safe
-resume (a persisted checkpoint) is not implemented.
-
-## Safety
-
-- `batch apply` is a declared mutation (`mutationSubcommands: ['apply']` in
-  `src/capabilities.js`): it requires an instance and is blocked on read-only
-  profiles by the shared middleware.
-- Capture-context approval applies at the command level (Global + Default needs
-  explicit approval or `--force`).
-- Before each step the engine re-checks the profile's read-only state and
-  re-reads the capture context. If the context becomes blocked — completed
-  update set, or Global + Default without approval — the batch **stops before
-  that step**; completed steps are reported and the rest are `skipped` with
-  `stopped.code`. A changed but still-writable context is recorded in
-  `context_changes` and does not block.
-- No new confirmation prompt is invented beyond the existing mutation and
-  capture-context safeguards; a manifest does not bypass them.
-
-## Explicitly unsupported (fails loudly)
-
-- Any `type` other than `catalog_item` / `catalog_variable`.
-- Catalog UI policies/actions, catalog client scripts, catalogs/categories as
-  created artifacts, variable sets.
-- Deletes, arbitrary script steps, cross-instance deployment, rollback.
-- YAML manifests (JSON only in this version).
-- String templates or any expression evaluation.
-- Generic table writes for artifact types that have no adapter.
-
-These are rejected at validation with a message naming what is supported; they
-are not silently approximated.
+Dictionary entry → override is skipped: the live override table has composite
+`base_table`/`name`/`element` selectors and no parent dictionary-reference column.
+No fictitious `sys_dictionary` reference was added. Also unsupported: creating
+catalogs/categories/variable sets, arbitrary SP children, generic table-write or
+script steps, YAML, expression templates, rollback and cross-instance deployment.
+Unsupported types fail validation rather than approximating a mapping.

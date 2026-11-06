@@ -1,22 +1,22 @@
 {
-  "commit": "34dcfff + origin/main merge",
-  "note": "Bytes produced by main when the command surface intentionally changed. Regenerate when the command surface or help layout intentionally changes.",
+  "commit": "ccc09a6 working tree",
+  "note": "Bytes produced by the intentional command-surface change. Regenerate through test/support/refresh-welcome-fixture.js, never through a shell pipe.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 12119,
-    "json": 117229,
-    "quiet": 12119,
-    "csv": 12119,
-    "markdown": 12119,
-    "get": 12119
+    "help": 12118,
+    "json": 117205,
+    "quiet": 12118,
+    "csv": 12118,
+    "markdown": 12118,
+    "get": 12118
   },
   "sha256": {
-    "help": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
-    "json": "7a9cf40bd1f16a1748207c57073af64cf5b6452e38802348d905e7b56abf9a33",
-    "quiet": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
-    "csv": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
-    "markdown": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653",
-    "get": "9ac6f6a9d8d246cc2ae1fb13ce94dfe8c2774e9ff5c3b25a6a0cf16444bff653"
+    "help": "e6b1f88ff829e9661822d284ae38b4c27e26e008484f9ac454a964a7edf83096",
+    "json": "dec6fe5ba0f636bc1334108a14e4154735bbb84b757433187ce3a8d5a256d63f",
+    "quiet": "e6b1f88ff829e9661822d284ae38b4c27e26e008484f9ac454a964a7edf83096",
+    "csv": "e6b1f88ff829e9661822d284ae38b4c27e26e008484f9ac454a964a7edf83096",
+    "markdown": "e6b1f88ff829e9661822d284ae38b4c27e26e008484f9ac454a964a7edf83096",
+    "get": "e6b1f88ff829e9661822d284ae38b4c27e26e008484f9ac454a964a7edf83096"
   },
   "json_command_count": 88
 }

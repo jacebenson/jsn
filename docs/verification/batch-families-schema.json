@@ -1,0 +1,1073 @@
+{
+  "source": "Live demo sys_dictionary GET captures; verified with cli/scripts/check-batch-schema.mjs",
+  "checked_fields": [
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "short_description",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb3518"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "table",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "table_name",
+      "reference": null,
+      "dictionary_sys_id": "4b4b9a7387033110eb5e8489cebb3513"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "active",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb3524"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "conditions",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "conditions",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb3519"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "on_load",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb351a"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "reverse_if_false",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb351b"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "order",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb351d"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "catalog_item",
+      "declared_on": "catalog_ui_policy",
+      "internal_type": "reference",
+      "reference": "sc_cat_item",
+      "dictionary_sys_id": "b723663f87833110eb5e8489cebb35c6"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "catalog_conditions",
+      "declared_on": "catalog_ui_policy",
+      "internal_type": "variable_conditions",
+      "reference": null,
+      "dictionary_sys_id": "8c33663f87833110eb5e8489cebb35c9"
+    },
+    {
+      "adapter": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "field": "applies_catalog",
+      "declared_on": "catalog_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "8c33663f87833110eb5e8489cebb35ca"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "field",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "field_name",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb352f"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "table",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "table_name",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb352e"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "mandatory",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3531"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "visible",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3530"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "disabled",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3532"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "cleared",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3533"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "ui_policy",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "reference",
+      "reference": "sys_ui_policy",
+      "dictionary_sys_id": "8b4b9a7387033110eb5e8489cebb352c"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "catalog_variable",
+      "declared_on": "catalog_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "3323663f87833110eb5e8489cebb35be"
+    },
+    {
+      "adapter": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "field": "order",
+      "declared_on": "catalog_ui_policy_action",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "3323663f87833110eb5e8489cebb35c0"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "cat_item",
+      "declared_on": "catalog_script_client",
+      "internal_type": "reference",
+      "reference": "sc_cat_item",
+      "dictionary_sys_id": "83336a3f87833110eb5e8489cebb350c"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "name",
+      "declared_on": "sys_script_client",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "5eea923387033110eb5e8489cebb35db"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "type",
+      "declared_on": "sys_script_client",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "5eea923387033110eb5e8489cebb35e2"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "script",
+      "declared_on": "sys_script_client",
+      "internal_type": "script_plain",
+      "reference": null,
+      "dictionary_sys_id": "1aea923387033110eb5e8489cebb35e7"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "active",
+      "declared_on": "sys_script_client",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "52ea923387033110eb5e8489cebb35df"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "order",
+      "declared_on": "sys_script_client",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "1eea923387033110eb5e8489cebb35e3"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "field",
+      "declared_on": "sys_script_client",
+      "internal_type": "field_name",
+      "reference": null,
+      "dictionary_sys_id": "92ea923387033110eb5e8489cebb35de"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "ui_type",
+      "declared_on": "sys_script_client",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "d6ea923387033110eb5e8489cebb35e8"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "applies_catalog",
+      "declared_on": "catalog_script_client",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "83336a3f87833110eb5e8489cebb350f"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "applies_req_item",
+      "declared_on": "catalog_script_client",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "83336a3f87833110eb5e8489cebb3510"
+    },
+    {
+      "adapter": "catalog_client_script",
+      "table": "catalog_script_client",
+      "field": "applies_sc_task",
+      "declared_on": "catalog_script_client",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "83336a3f87833110eb5e8489cebb3511"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "name",
+      "declared_on": "sys_security_acl",
+      "internal_type": "composite_name",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3560"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "operation",
+      "declared_on": "sys_security_acl",
+      "internal_type": "reference",
+      "reference": "sys_security_operation",
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3562"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "type",
+      "declared_on": "sys_security_acl",
+      "internal_type": "reference",
+      "reference": "sys_security_type",
+      "dictionary_sys_id": "9d4b1a7387033110eb5e8489cebb355e"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "active",
+      "declared_on": "sys_security_acl",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3565"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "description",
+      "declared_on": "sys_security_acl",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3563"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "script",
+      "declared_on": "sys_security_acl",
+      "internal_type": "script_plain",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3564"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "condition",
+      "declared_on": "sys_security_acl",
+      "internal_type": "conditions",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3561"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "advanced",
+      "declared_on": "sys_security_acl",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3566"
+    },
+    {
+      "adapter": "acl",
+      "table": "sys_security_acl",
+      "field": "admin_overrides",
+      "declared_on": "sys_security_acl",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "554b1a7387033110eb5e8489cebb3567"
+    },
+    {
+      "adapter": "acl_role",
+      "table": "sys_security_acl_role",
+      "field": "sys_security_acl",
+      "declared_on": "sys_security_acl_role",
+      "internal_type": "reference",
+      "reference": "sys_security_acl",
+      "dictionary_sys_id": "954b1a7387033110eb5e8489cebb3556"
+    },
+    {
+      "adapter": "acl_role",
+      "table": "sys_security_acl_role",
+      "field": "sys_user_role",
+      "declared_on": "sys_security_acl_role",
+      "internal_type": "reference",
+      "reference": "sys_user_role",
+      "dictionary_sys_id": "5d4b1a7387033110eb5e8489cebb3557"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "short_description",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb3518"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "table",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "table_name",
+      "reference": null,
+      "dictionary_sys_id": "4b4b9a7387033110eb5e8489cebb3513"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "active",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb3524"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "conditions",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "conditions",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb3519"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "on_load",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb351a"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "reverse_if_false",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb351b"
+    },
+    {
+      "adapter": "ui_policy",
+      "table": "sys_ui_policy",
+      "field": "order",
+      "declared_on": "sys_ui_policy",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "034b9a7387033110eb5e8489cebb351d"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "field",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "field_name",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb352f"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "table",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "table_name",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb352e"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "mandatory",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3531"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "visible",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3530"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "disabled",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3532"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "cleared",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "434b9a7387033110eb5e8489cebb3533"
+    },
+    {
+      "adapter": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "field": "ui_policy",
+      "declared_on": "sys_ui_policy_action",
+      "internal_type": "reference",
+      "reference": "sys_ui_policy",
+      "dictionary_sys_id": "8b4b9a7387033110eb5e8489cebb352c"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "model_table",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "table_name",
+      "reference": null,
+      "dictionary_sys_id": "3a4b5a7387033110eb5e8489cebb35d3"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "short_description",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35d9"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "description",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35da"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "conditions",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "conditions",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35d5"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "active",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35dd"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "inherit",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35db"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "reverse_if_false",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35dc"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "apply_import_set",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35d6"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "apply_soap",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35d7"
+    },
+    {
+      "adapter": "data_policy",
+      "table": "sys_data_policy2",
+      "field": "enforce_ui",
+      "declared_on": "sys_data_policy2",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "fe4b5a7387033110eb5e8489cebb35d8"
+    },
+    {
+      "adapter": "data_policy_rule",
+      "table": "sys_data_policy_rule",
+      "field": "sys_data_policy",
+      "declared_on": "sys_data_policy_rule",
+      "internal_type": "reference",
+      "reference": "sys_data_policy2",
+      "dictionary_sys_id": "324b5a7387033110eb5e8489cebb35e6"
+    },
+    {
+      "adapter": "data_policy_rule",
+      "table": "sys_data_policy_rule",
+      "field": "table",
+      "declared_on": "sys_data_policy_rule",
+      "internal_type": "table_name",
+      "reference": null,
+      "dictionary_sys_id": "f64b5a7387033110eb5e8489cebb35e7"
+    },
+    {
+      "adapter": "data_policy_rule",
+      "table": "sys_data_policy_rule",
+      "field": "field",
+      "declared_on": "sys_data_policy_rule",
+      "internal_type": "field_name",
+      "reference": null,
+      "dictionary_sys_id": "f64b5a7387033110eb5e8489cebb35e8"
+    },
+    {
+      "adapter": "data_policy_rule",
+      "table": "sys_data_policy_rule",
+      "field": "mandatory",
+      "declared_on": "sys_data_policy_rule",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "f64b5a7387033110eb5e8489cebb35e9"
+    },
+    {
+      "adapter": "data_policy_rule",
+      "table": "sys_data_policy_rule",
+      "field": "disabled",
+      "declared_on": "sys_data_policy_rule",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "f64b5a7387033110eb5e8489cebb35ea"
+    },
+    {
+      "adapter": "sp_page",
+      "table": "sp_page",
+      "field": "id",
+      "declared_on": "sp_page",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "0e45a27787c33110eb5e8489cebb356d"
+    },
+    {
+      "adapter": "sp_page",
+      "table": "sp_page",
+      "field": "title",
+      "declared_on": "sp_page",
+      "internal_type": "translated_text",
+      "reference": null,
+      "dictionary_sys_id": "c245a27787c33110eb5e8489cebb356f"
+    },
+    {
+      "adapter": "sp_page",
+      "table": "sp_page",
+      "field": "short_description",
+      "declared_on": "sp_page",
+      "internal_type": "translated_text",
+      "reference": null,
+      "dictionary_sys_id": "c245a27787c33110eb5e8489cebb3570"
+    },
+    {
+      "adapter": "sp_page",
+      "table": "sp_page",
+      "field": "public",
+      "declared_on": "sp_page",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "c245a27787c33110eb5e8489cebb3572"
+    },
+    {
+      "adapter": "sp_page",
+      "table": "sp_page",
+      "field": "draft",
+      "declared_on": "sp_page",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "c245a27787c33110eb5e8489cebb3575"
+    },
+    {
+      "adapter": "sp_page",
+      "table": "sp_page",
+      "field": "css",
+      "declared_on": "sp_page",
+      "internal_type": "css",
+      "reference": null,
+      "dictionary_sys_id": "c245a27787c33110eb5e8489cebb3571"
+    },
+    {
+      "adapter": "sp_container",
+      "table": "sp_container",
+      "field": "sp_page",
+      "declared_on": "sp_container",
+      "internal_type": "reference",
+      "reference": "sp_page",
+      "dictionary_sys_id": "4645a27787c33110eb5e8489cebb3558"
+    },
+    {
+      "adapter": "sp_container",
+      "table": "sp_container",
+      "field": "name",
+      "declared_on": "sp_container",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "0e45a27787c33110eb5e8489cebb355c"
+    },
+    {
+      "adapter": "sp_container",
+      "table": "sp_container",
+      "field": "title",
+      "declared_on": "sp_container",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "0e45a27787c33110eb5e8489cebb3563"
+    },
+    {
+      "adapter": "sp_container",
+      "table": "sp_container",
+      "field": "order",
+      "declared_on": "sp_container",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "0e45a27787c33110eb5e8489cebb3559"
+    },
+    {
+      "adapter": "sp_container",
+      "table": "sp_container",
+      "field": "width",
+      "declared_on": "sp_container",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "0e45a27787c33110eb5e8489cebb355d"
+    },
+    {
+      "adapter": "sp_container",
+      "table": "sp_container",
+      "field": "class_name",
+      "declared_on": "sp_container",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "0e45a27787c33110eb5e8489cebb355a"
+    },
+    {
+      "adapter": "sp_row",
+      "table": "sp_row",
+      "field": "sp_container",
+      "declared_on": "sp_row",
+      "internal_type": "reference",
+      "reference": "sp_container",
+      "dictionary_sys_id": "3545a27787c33110eb5e8489cebb3540"
+    },
+    {
+      "adapter": "sp_row",
+      "table": "sp_row",
+      "field": "order",
+      "declared_on": "sp_row",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "f945a27787c33110eb5e8489cebb3543"
+    },
+    {
+      "adapter": "sp_row",
+      "table": "sp_row",
+      "field": "class_name",
+      "declared_on": "sp_row",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "f945a27787c33110eb5e8489cebb3542"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "sp_row",
+      "declared_on": "sp_column",
+      "internal_type": "reference",
+      "reference": "sp_row",
+      "dictionary_sys_id": "5a45a27787c33110eb5e8489cebb35c5"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "order",
+      "declared_on": "sp_column",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "1245a27787c33110eb5e8489cebb35c7"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "size",
+      "declared_on": "sp_column",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "2245a27787c33110eb5e8489cebb35cb"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "size_xs",
+      "declared_on": "sp_column",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "2245a27787c33110eb5e8489cebb35c9"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "size_sm",
+      "declared_on": "sp_column",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "2245a27787c33110eb5e8489cebb35ca"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "size_lg",
+      "declared_on": "sp_column",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "2245a27787c33110eb5e8489cebb35cc"
+    },
+    {
+      "adapter": "sp_column",
+      "table": "sp_column",
+      "field": "class_name",
+      "declared_on": "sp_column",
+      "internal_type": "string",
+      "reference": null,
+      "dictionary_sys_id": "2245a27787c33110eb5e8489cebb35c8"
+    },
+    {
+      "adapter": "sp_instance",
+      "table": "sp_instance",
+      "field": "sp_column",
+      "declared_on": "sp_instance",
+      "internal_type": "reference",
+      "reference": "sp_column",
+      "dictionary_sys_id": "b045627787c33110eb5e8489cebb354f"
+    },
+    {
+      "adapter": "sp_instance",
+      "table": "sp_instance",
+      "field": "sp_widget",
+      "declared_on": "sp_instance",
+      "internal_type": "reference",
+      "reference": "sp_widget",
+      "dictionary_sys_id": "b045627787c33110eb5e8489cebb3550"
+    },
+    {
+      "adapter": "sp_instance",
+      "table": "sp_instance",
+      "field": "title",
+      "declared_on": "sp_instance",
+      "internal_type": "translated_text",
+      "reference": null,
+      "dictionary_sys_id": "b045627787c33110eb5e8489cebb3552"
+    },
+    {
+      "adapter": "sp_instance",
+      "table": "sp_instance",
+      "field": "order",
+      "declared_on": "sp_instance",
+      "internal_type": "integer",
+      "reference": null,
+      "dictionary_sys_id": "b045627787c33110eb5e8489cebb3551"
+    },
+    {
+      "adapter": "sp_instance",
+      "table": "sp_instance",
+      "field": "active",
+      "declared_on": "sp_instance",
+      "internal_type": "boolean",
+      "reference": null,
+      "dictionary_sys_id": "f845627787c33110eb5e8489cebb354c"
+    },
+    {
+      "adapter": "sp_instance",
+      "table": "sp_instance",
+      "field": "css",
+      "declared_on": "sp_instance",
+      "internal_type": "css",
+      "reference": null,
+      "dictionary_sys_id": "b045627787c33110eb5e8489cebb355a"
+    }
+  ],
+  "existing_variable_parent": {
+    "reference": "sc_cat_item",
+    "sys_id": "ce33e63f87833110eb5e8489cebb35c0",
+    "name": "item_option_new",
+    "internal_type": "reference",
+    "mandatory": "false",
+    "element": "cat_item"
+  },
+  "dictionary_override_fields": [
+    {
+      "reference": "",
+      "sys_id": "0e582fd03b110310531d2a8693e45ab4",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "read_only_option_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "10ea523387033110eb5e8489cebb3522",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "reference_qual_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "10ea523387033110eb5e8489cebb3529",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "calculation_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "10ea523387033110eb5e8489cebb352f",
+      "name": "sys_dictionary_override",
+      "internal_type": "GUID",
+      "mandatory": "false",
+      "element": "sys_id"
+    },
+    {
+      "reference": "",
+      "sys_id": "14ea523387033110eb5e8489cebb3520",
+      "name": "sys_dictionary_override",
+      "internal_type": "table_name",
+      "mandatory": "true",
+      "element": "name"
+    },
+    {
+      "reference": "",
+      "sys_id": "14ea523387033110eb5e8489cebb3527",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "read_only_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "14ea523387033110eb5e8489cebb352e",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "display_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "18ea523387033110eb5e8489cebb3525",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "mandatory_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "18ea523387033110eb5e8489cebb352c",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "dependent_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "1cea523387033110eb5e8489cebb3523",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "default_value_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "1cea523387033110eb5e8489cebb352a",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "attributes_override"
+    },
+    {
+      "reference": "",
+      "sys_id": "46582fd03b110310531d2a8693e45ad5",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "read_only_option"
+    },
+    {
+      "reference": "",
+      "sys_id": "50ea523387033110eb5e8489cebb351e",
+      "name": "sys_dictionary_override",
+      "internal_type": "collection",
+      "mandatory": "false",
+      "element": ""
+    },
+    {
+      "reference": "",
+      "sys_id": "90ea523387033110eb5e8489cebb3521",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "element"
+    },
+    {
+      "reference": "",
+      "sys_id": "90ea523387033110eb5e8489cebb3528",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "read_only"
+    },
+    {
+      "reference": "",
+      "sys_id": "94ea523387033110eb5e8489cebb3526",
+      "name": "sys_dictionary_override",
+      "internal_type": "boolean",
+      "mandatory": "false",
+      "element": "mandatory"
+    },
+    {
+      "reference": "",
+      "sys_id": "94ea523387033110eb5e8489cebb352d",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "dependent"
+    },
+    {
+      "reference": "",
+      "sys_id": "98ea523387033110eb5e8489cebb3524",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "default_value"
+    },
+    {
+      "reference": "",
+      "sys_id": "98ea523387033110eb5e8489cebb352b",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "attributes"
+    },
+    {
+      "reference": "",
+      "sys_id": "9cea523387033110eb5e8489cebb3522",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "reference_qual"
+    },
+    {
+      "reference": "",
+      "sys_id": "9cea523387033110eb5e8489cebb3529",
+      "name": "sys_dictionary_override",
+      "internal_type": "string",
+      "mandatory": "false",
+      "element": "calculation"
+    },
+    {
+      "reference": "",
+      "sys_id": "d0ea523387033110eb5e8489cebb351f",
+      "name": "sys_dictionary_override",
+      "internal_type": "table_name",
+      "mandatory": "true",
+      "element": "base_table"
+    }
+  ]
+}

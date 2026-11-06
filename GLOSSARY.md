@@ -413,32 +413,46 @@ no yargs, no output formatting. `catalog.js` keeps wiring, create/submit, list.
 
 ## Batch manifest orchestration
 
-`jsn batch plan|apply --file` describes related artifact creates/updates as one
-versioned JSON manifest. A **step** has a unique local `name`, an adapter
-`type`, an `operation`, adapter-declared `fields` and (for updates only) an
-explicit `target`. A **reference** is exactly `{"$ref":
-"steps.<name>.<output>"}`: constrained, exact, and never string interpolation
-or script evaluation. References create the dependency graph; unknown steps,
-unknown outputs and cycles fail validation before any write. Independent steps
-keep manifest order.
+`jsn batch plan|apply --file` describes related artifact creates, updates and
+deletes as one versioned JSON manifest. A **step** has a unique local `name`, an
+adapter `type`, an `operation`, adapter-declared `fields` and an explicit `target`
+for update/delete. A **reference** is exactly `{"$ref":"steps.<name>.<output>"}`:
+constrained, exact, never interpolation or script evaluation. Parent fields
+require symbolic references, not hand-written IDs. Unknown steps, outputs, wrong
+producer types and cycles fail validation. Independent ready steps keep
+manifest declaration order. Create/update edges run parents first; delete edges
+are reversed so children run first. Destructive and non-destructive operations
+cannot share a reference edge.
 
 `src/batch-manifest.js` validates the closed schema and orders steps;
 `src/batch-engine.js` owns target preflight, per-step execution, statuses,
 partial results and the per-step read-only/capture-context re-check;
-`src/batch-adapters/` owns domain payloads. The first slice supports
-`catalog_item` and `catalog_variable`; other types are rejected, not
-approximated as table writes.
+`src/batch-adapters/` owns verified domain mappings, payloads and declared
+outputs. Catalog variables produce both `sys_id` and the `IO:<sys_id>`
+`catalog_variable` output consumed by catalog UI policy actions. This stays in
+the adapter, not the engine. Supported families and live mapping evidence are
+listed in `docs/batch-manifest.md` and `docs/batch-families-verification.md`.
 
-A **plan** is read-only (GETs only, zero writes, allowed on read-only profiles)
-and shows targets, dependency order, payloads and pending generated values. An
-**apply** resolves every update target before its first write, applies in
-dependency order, skips only the dependents of a failed step, and reports
-`created`/`updated`/`failed`/`skipped` with resolved IDs. A batch is not an
+A **plan receipt** is an inspectable GET-only plan with instance, targets,
+dependency order, prepared payloads, pending references and a canonical SHA-256
+`plan_id`. Apply requires it (`--plan` in the CLI), re-plans and rejects changed
+instance/manifest/targets/payloads before any write. The hash is an integrity
+check, not a signature, authorization, one-time token or idempotency key.
+Apply substitutes only declared outputs into predicted payloads. Delete plans
+also verify existing child/parent relationships; every applied delete requires
+an explicit error-free empty GET query to prove absence. Missing/malformed
+results never count as proof. A failed child delete blocks its ancestors.
+
+Apply reports `created`/`updated`/`deleted`/`failed`/`skipped` with resolved IDs.
+Failed create/update parents skip children; independent steps continue after
+operational failures. Safety stops skip all remaining steps. A batch is not an
 atomic ServiceNow transaction: successes persist, nothing is rolled back or
-retried automatically, and re-running a create manifest creates new records —
-completed creates must be reconciled/converted to update steps first. Safety is
-re-evaluated before every step; a context that becomes blocked stops the batch
-before that step. See `docs/batch-manifest.md`.
+retried automatically, and retrying creates creates new records. Failed writes
+may have uncertain remote effects and require inspection before recovery.
+Reconcile successful steps and generate a new plan before resuming. Unlisted
+children, server cascades and business-rule effects are not simulated.
+Read-only/capture-context safety is re-evaluated before every write. See
+`docs/batch-manifest.md`.
 
 ## Knowledge search
 

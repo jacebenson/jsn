@@ -5,9 +5,9 @@
 // payload shape and the create/update call; the engine owns ordering,
 // references, per-step status and safety checks.
 //
-// Deliberately not implemented here (and rejected by the shared schema):
-// catalog UI policies/actions, catalog client scripts, catalogs/categories
-// as created artifacts, variable sets, and deletes. `category` resolves an
+// Catalog UI policies/actions and client scripts live in families.js.
+// Catalogs/categories as created artifacts and variable sets remain unsupported.
+// `category` resolves an
 // existing sc_category by exact title and never creates one implicitly —
 // unlike `catalogitems create`, a manifest must not allocate extra records
 // the manifest did not name.
@@ -24,7 +24,7 @@ const CATALOG_FIELDS = {
 };
 
 const VARIABLE_FIELDS = {
-  cat_item: { type: 'string', requiredOnCreate: true, createOnly: true, ref: ['catalog_item'], description: 'Parent catalog item sys_id (usually a $ref to a catalog_item step)' },
+  cat_item: { type: 'string', requiredOnCreate: true, parent: true, ref: ['catalog_item'], description: 'Parent catalog item sys_id (usually a $ref to a catalog_item step)' },
   name: { type: 'string', createOnly: true, description: 'Variable system name; derived from label when omitted' },
   label: { type: 'string', requiredOnCreate: true, description: 'Question text shown to the requester' },
   type: { type: 'string', description: 'item_option_new type alias or numeric value (default: string)' },
@@ -98,6 +98,7 @@ export const catalogItemBatchAdapter = {
   fields: CATALOG_FIELDS,
   validate: ({ fields }) => checkExclusiveCategory(fields),
   async prepare({ sdk, operation, fields }) {
+    if (operation === 'delete') return { payload: {}, notes: [] };
     const payload = {};
     const notes = [];
     if (fields.name !== undefined) payload.name = fields.name;
@@ -119,6 +120,7 @@ export const catalogItemBatchAdapter = {
   async create({ sdk, payload }) {
     return sdk.create('sc_cat_item', payload);
   },
+  async delete({ sdk, sysId }) { return sdk.delete(this.table, sysId); },
   async update({ sdk, sysId, payload }) {
     return sdk.update('sc_cat_item', sysId, payload);
   },
@@ -128,7 +130,8 @@ export const catalogVariableBatchAdapter = {
   type: 'catalog_variable',
   label: 'Catalog variable',
   table: 'item_option_new',
-  outputs: ['sys_id'],
+  outputs: ['sys_id', 'catalog_variable'],
+  produceOutputs: ({ sysId }) => ({ sys_id: sysId, catalog_variable: `IO:${sysId}` }),
   targetField: 'name',
   targetMatchFields: ['name', 'sys_id'],
   targetScopeFields: ['cat_item'],
@@ -145,6 +148,7 @@ export const catalogVariableBatchAdapter = {
     return variableTypeProblem(fields.type);
   },
   async prepare({ operation, fields }) {
+    if (operation === 'delete') return { payload: {}, notes: [] };
     const payload = {};
     const notes = [];
     if (operation === 'create') {
@@ -160,6 +164,7 @@ export const catalogVariableBatchAdapter = {
       payload.active = fields.active ?? true;
       return { payload, notes };
     }
+    if (fields.cat_item !== undefined) payload.cat_item = fields.cat_item;
     if (fields.label !== undefined) payload.question_text = fields.label;
     if (fields.type !== undefined) payload.type = resolveStrictItemOptionType(fields.type);
     if (fields.mandatory !== undefined) payload.mandatory = fields.mandatory;
@@ -170,6 +175,7 @@ export const catalogVariableBatchAdapter = {
   async create({ sdk, payload }) {
     return sdk.create('item_option_new', payload);
   },
+  async delete({ sdk, sysId }) { return sdk.delete(this.table, sysId); },
   async update({ sdk, sysId, payload }) {
     return sdk.update('item_option_new', sysId, payload);
   },

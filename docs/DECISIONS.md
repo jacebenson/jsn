@@ -577,3 +577,27 @@ The note is width-aware: it wraps descriptions under the command on narrow
 terminals and never truncates or splits a command name. An interrupted first run
 (Ctrl-C) leaves either no marker and no note, or a complete marker and at most
 a partial note - never a complete note the marker does not record.
+
+## Batch families use verified adapters and inspected plan receipts
+
+Parent relationships belong to adapter schemas, never to a domain switch in the
+engine. Verify the live dictionary before adding a mapping, including inherited
+columns and reference values that are not sys_ids (catalog variable action
+selectors use `IO:<sys_id>`). Skip composite relationships rather than inventing
+a foreign key. The confirmed portal layout is page/container/row/column/instance,
+not page directly to instance. Data policies use `sys_data_policy2`.
+
+References define parent-first create/update execution. Delete reverses those
+edges, checks existing child/parent membership before writing, and requires an
+explicit error-free empty exact-ID query after each delete. Unverified child
+deletions block ancestors. Mixed destructive/non-destructive reference edges
+are rejected; independent declaration order remains stable.
+
+Apply requires an inspectable plan receipt and compares fresh target/payload
+preparation against it before the first write. Generated references are the only
+payload substitutions after planning. Receipt hashes detect accidental edits;
+they are not signatures or replay protection. No server business-rule/cascade
+simulation, rollback, unattended replay or implicit child discovery is claimed.
+Read-only and capture-context checks remain per-step; a safety stop never resumes
+later in the same batch. See `docs/batch-manifest.md` and
+`docs/batch-families-verification.md` for contracts and measured limits.

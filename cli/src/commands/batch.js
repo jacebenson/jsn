@@ -12,18 +12,19 @@ import fs from 'node:fs';
 import process from 'node:process';
 import { declareCapabilities } from '../capabilities.js';
 import { errUsageHint } from '../errors.js';
-import { formatCommandList } from '../helpers.js';
+import { formatCommandList, confirmDelete } from '../helpers.js';
 import { makeAdapterRegistry, parseBatchManifest } from '../batch-manifest.js';
 import { applyBatch, planBatch } from '../batch-engine.js';
 import { catalogBatchAdapters } from '../batch-adapters/catalog.js';
+import { familyBatchAdapters } from '../batch-adapters/families.js';
 
 declareCapabilities('batch', { mutationSubcommands: ['apply'] });
 
-const BATCH_ADAPTERS = makeAdapterRegistry(catalogBatchAdapters);
+const BATCH_ADAPTERS = makeAdapterRegistry([...catalogBatchAdapters, ...familyBatchAdapters]);
 
 const EXAMPLES = [
-  'jsn batch plan --file manifest.json',
-  'jsn batch apply --file manifest.json --json',
+  'jsn batch plan --file manifest.json --json > plan.json',
+  'jsn batch apply --file manifest.json --plan plan.json --json',
   'jsn batch plan --file - --json --get "data.steps[0].payload"',
 ].join('\n  ');
 
@@ -44,12 +45,13 @@ export function formatBatchPlan(result) {
     `Instance: ${result.instance || '(none)'}`,
     `Capture context: scope ${result.context?.scope || 'unknown'}, update set ${result.context?.update_set?.name || 'unknown'}`,
     `Order: ${result.order.join(' -> ')}`,
-    `Plan: ${result.counts.steps} step(s) — ${result.counts.creates} create, ${result.counts.updates} update; 0 writes.`,
+    `Plan: ${result.counts.steps} step(s) — ${result.counts.creates} create, ${result.counts.updates} update, ${result.counts.deletes} delete; 0 writes.`,
+    `Plan ID: ${result.plan_id}`,
     '',
   ];
   for (const step of result.steps) {
-    const target = step.target?.mode === 'update'
-      ? `update ${step.target.sys_id}${step.target.matched ? ` (${step.target.matched})` : ''}`
+    const target = step.target?.mode !== 'create'
+      ? `${step.operation} ${step.target.sys_id}${step.target.matched ? ` (${step.target.matched})` : ''}`
       : 'create';
     lines.push(`${step.name} [${step.type}] ${target}`);
     if (step.depends_on.length) lines.push(`  depends on: ${step.depends_on.join(', ')}`);
@@ -59,7 +61,7 @@ export function formatBatchPlan(result) {
     for (const note of step.notes) lines.push(`  note: ${note}`);
     for (const ref of step.pending_refs) lines.push(`  pending ${ref.location}: ${ref.ref}`);
   }
-  lines.push('', 'No writes performed. Run `jsn batch apply --file <manifest.json>` to apply.');
+  lines.push('', 'No writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply.');
   return lines.join('\n');
 }
 
@@ -67,7 +69,7 @@ export function formatBatchResult(result) {
   const lines = [
     `Instance: ${result.instance || '(none)'}`,
     `Capture context: scope ${result.context?.scope || 'unknown'}, update set ${result.context?.update_set?.name || 'unknown'}`,
-    `Result: ${result.counts.created} created, ${result.counts.updated} updated, ${result.counts.failed} failed, ${result.counts.skipped} skipped.`,
+    `Result: ${result.counts.created} created, ${result.counts.updated} updated, ${result.counts.deleted} deleted, ${result.counts.failed} failed, ${result.counts.skipped} skipped.`,
     '',
   ];
   for (const step of result.steps) {
@@ -90,9 +92,9 @@ export function formatBatchResult(result) {
 export function batchCmd(wrap) {
   return {
     command: 'batch [subcommand]',
-    describe: 'Plan or apply a manifest of related artifact creates/updates',
+    describe: 'Plan or apply ordered artifact creates, updates and deletes',
     builder: (yargs) => yargs
-      .usage('Usage: jsn batch <plan|apply> --file <manifest.json>')
+      .usage('Usage: jsn batch plan --file <manifest.json> | jsn batch apply --file <manifest.json> --plan <plan.json>')
       .command({
         command: 'plan',
         describe: 'Validate a manifest and show targets, dependency order and payloads; performs zero writes',
@@ -109,21 +111,32 @@ export function batchCmd(wrap) {
           });
           const formatted = formatBatchPlan(result);
           app.ok({ ...result, _formatted: formatted }, {
-            summary: `Plan: ${result.counts.steps} step(s) — ${result.counts.creates} create, ${result.counts.updates} update; 0 writes`,
-            breadcrumbs: [{ action: 'apply', cmd: `jsn batch apply --file ${argv.file}`, description: 'Apply this manifest' }],
+            summary: `Plan: ${result.counts.steps} step(s) — ${result.counts.creates} create, ${result.counts.updates} update, ${result.counts.deletes} delete; 0 writes`,
+            breadcrumbs: [{ action: 'apply', cmd: `jsn batch apply --file ${argv.file} --plan plan.json`, description: 'Apply after saving and inspecting batch plan --json as plan.json' }],
           });
         }),
       })
       .command({
         command: 'apply',
-        describe: 'Apply a manifest in dependency order through domain operations; reports per-step status and partial results',
+        describe: 'Apply the inspected plan in dependency order; requires --plan from batch plan --json',
         builder: (y) => y
+          .option('plan', { type: 'string', demandOption: true, describe: 'Saved batch plan --json receipt (full envelope or data object)' })
           .option('file', { alias: 'f', type: 'string', demandOption: true, describe: 'Manifest JSON path, or - for stdin' })
-          .epilogue(`Apply validates the whole manifest and resolves every update target before the first write.\nA batch is not an atomic transaction: completed steps remain, dependents of a failed step are skipped, and nothing is rolled back or retried automatically.\nRepeat runs: convert completed creates into update steps using the reported sys_ids before re-running.\nExamples:\n  ${EXAMPLES}\nSupported artifact types: catalog_item, catalog_variable. See docs/batch-manifest.md`),
+          .epilogue(`Apply validates the whole manifest and resolves every update target before the first write.\nA batch is not an atomic transaction: completed steps remain, dependents of a failed step are skipped, and nothing is rolled back or retried automatically.\nRepeat runs: convert completed creates into update steps using the reported sys_ids before re-running.\nExamples:\n  ${EXAMPLES}\nSupported artifact types: ${BATCH_ADAPTERS.types().join(', ')}. See docs/batch-manifest.md`),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
           const manifest = readManifest(argv);
+          if (!argv.plan) throw errUsageHint('Apply requires --plan <plan.json>.', 'Run batch plan --json and inspect the saved receipt before apply.');
+          let receipt;
+          try { receipt = JSON.parse(fs.readFileSync(argv.plan, 'utf8')); }
+          catch (error) { throw errUsageHint(`Cannot read batch plan: ${error.message}`, 'Run batch plan --file manifest.json --json > plan.json, inspect it, then pass --plan plan.json.'); }
           const result = await applyBatch({
+            plan: receipt?.data || receipt,
+            beforeApply: async (prediction) => {
+              if (prediction.counts.deletes) await confirmDelete(app, argv, `Apply batch with ${prediction.counts.deletes} delete step(s)?`, {
+                rerun: ['jsn', 'batch', 'apply', '--file', argv.file, '--plan', argv.plan],
+              });
+            },
             sdk: app.sdk,
             manifest,
             app,
@@ -132,8 +145,8 @@ export function batchCmd(wrap) {
           });
           const formatted = formatBatchResult(result);
           const summary = result.partial
-            ? `PARTIAL: ${result.counts.created} created, ${result.counts.updated} updated, ${result.counts.failed} failed, ${result.counts.skipped} skipped`
-            : `Applied: ${result.counts.created} created, ${result.counts.updated} updated`;
+            ? `PARTIAL: ${result.counts.created} created, ${result.counts.updated} updated, ${result.counts.deleted} deleted, ${result.counts.failed} failed, ${result.counts.skipped} skipped`
+            : `Applied: ${result.counts.created} created, ${result.counts.updated} updated, ${result.counts.deleted} deleted`;
           app.ok({ ...result, _formatted: formatted }, { summary });
           if (result.partial) process.exitCode = 1;
         }),

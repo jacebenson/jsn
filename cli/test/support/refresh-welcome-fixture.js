@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { runCli, freshConfigHome, sha256, FIXTURE_DIR } from './welcome-harness.js';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const metaPath = path.join(FIXTURE_DIR, 'base-output.json');
 const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
@@ -20,6 +21,9 @@ for (const [name, args] of Object.entries(modes)) {
   if (name === 'help') fs.writeFileSync(path.join(FIXTURE_DIR, 'base-help.txt'), result.stdout);
   if (name === 'json') meta.json_command_count = JSON.parse(result.stdout).data.commands.length;
 }
-meta.commit = '34dcfff + origin/main merge';
+const revision = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
+assert.equal(revision.status, 0, revision.stderr);
+meta.commit = `${revision.stdout.trim()} working tree`;
+meta.note = 'Bytes produced by the intentional command-surface change. Regenerate through test/support/refresh-welcome-fixture.js, never through a shell pipe.';
 fs.writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(meta, null, 2)}\n`);
