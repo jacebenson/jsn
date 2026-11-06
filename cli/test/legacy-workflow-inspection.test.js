@@ -507,6 +507,13 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
     assert.equal(envelope.data.activities.length, 3);
     assert.equal(envelope.data.transitions.length, 4);
     assert.ok(envelope.data.activities.some(activity => activity.configuration.script));
+    assert.deepEqual(envelope.data.steps, [
+      { number: 1, sys_id: ACT_START, name: 'Begin', reached_from_start: true },
+      { number: 2, sys_id: ACT_SCRIPT, name: 'Tag record', reached_from_start: true },
+      { number: 3, sys_id: ACT_APPROVAL, name: 'Approval', reached_from_start: true },
+    ]);
+    assert.deepEqual(envelope.data.transitions.filter(edge => edge.is_sequential).map(edge => edge.sys_id),
+      ['a'.repeat(31) + '1', 'a'.repeat(31) + '2']);
 
     const extracted = await run(['workflow', 'show', WF, '--json', '--get', 'data.version.sys_id']);
     assert.equal(extracted.status, 0, extracted.stderr);
@@ -515,7 +522,10 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
     const human = await run(['workflows', 'show', WF, '--styled']);
     assert.equal(human.status, 0, human.stderr);
     assert.match(human.stdout, /Legacy workflow: Incident approval/);
-    assert.match(human.stdout, /ACTIVITIES/);
+    assert.match(human.stdout, /▶ STEPS/);
+    assert.ok(human.stdout.includes('  1. Begin\n  2. Tag record\n  3. Approval\n       → (activity not in the readable steps) [unreadable condition] ⚠ missing activity\n       ↺ → step 2 Tag record [approved]\n'), human.stdout);
+    assert.doesNotMatch(human.stdout, /\b[0-9a-f]{32}\b/i);
+    assert.doesNotMatch(human.stdout, /▶ TRANSITIONS/);
     assert.match(human.stdout, /design-time configuration/i);
 
     const usage = await run(['workflows', 'list', '--limit', '0', '--json']);

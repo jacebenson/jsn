@@ -7,10 +7,10 @@ async function inspect(names, edges, options = {}) {
   const calls = [];
   const tables = {
     wf_workflow: [{ sys_id: id(900), name: 'Graph' }],
-    wf_workflow_version: [{ sys_id: id(901), workflow: id(900), name: 'Graph', published: 'true', active: 'true' }],
+    wf_workflow_version: [{ sys_id: id(901), workflow: id(900), start: options.noStart ? '' : id(options.start || 1), name: 'Graph', published: 'true', active: 'true' }],
     wf_activity: names.map((name, i) => ({ sys_id: id(i + 1), name })),
-    wf_transition: edges.map(([from, to], i) => ({
-      sys_id: id(100 + i), from: id(from), to: id(to), condition: id(500 + i),
+    wf_transition: edges.map(([from, to, name], i) => ({
+      sys_id: id(100 + i), from: id(from), to: id(to), condition: name === null ? '' : id(500 + i),
     })),
     wf_condition: edges.map(([from, , name = 'Success'], i) => ({
       sys_id: id(500 + i), activity: id(from), name,
@@ -66,13 +66,13 @@ for (const [name, names, edges, expected] of cases) {
         assert.deepEqual(loop.edges.map(edge => edge.sys_id).sort(), internal.map(edge => edge.sys_id).sort());
         const entries = new Set(json.transitions.filter(edge => !memberIds.has(edge.from_id) && memberIds.has(edge.to_id)).map(edge => edge.to_id));
         assert.deepEqual(loop.entry_points.map(member => member.sys_id).sort(), [...entries].sort());
-        for (const member of loop.members) assert.ok(text.includes(`${member.name} [${member.sys_id}]`));
-        for (const edge of loop.edges) assert.ok(text.includes(`↺ → ${edge.to_name} [${edge.condition_name}]`));
+        const numbers = loop.members.map(member => json.steps.find(step => step.sys_id === member.sys_id).number).sort((a, b) => a - b);
+        assert.ok(text.includes(`steps ${numbers.join(', ')}`));
       }
     }
-    for (const group of json.transitions_by_activity) {
-      assert.ok(text.includes(`\n  ${group.name}\n`));
-      for (const edge of group.transitions) assert.ok(text.includes(`→ ${edge.to_name} [${edge.condition_name}]`));
+    assert.doesNotMatch(text, /\b[0-9a-f]{32}\b/i);
+    for (const step of json.steps) {
+      assert.ok(text.includes(`\n  ${step.number}. ${step.name}`));
     }
   });
 }
@@ -80,7 +80,7 @@ for (const [name, names, edges, expected] of cases) {
 test('activity with no outgoing transitions retains explicit group heading', async () => {
   const { json, text } = await inspect(['Begin', 'End'], [[1, 2]]);
   assert.deepEqual(json.transitions_by_activity.find(group => group.name === 'End').transitions, []);
-  assert.match(text, /\n {2}End\n {4}\(no outgoing transitions\)/);
+  assert.match(text, /\n {2}2\. End \(end\)\n/);
 });
 
 test('group and edge ordering uses name then sys_id without mutating flat transitions', async () => {
@@ -129,7 +129,7 @@ test('unreadable conditions preserve topology detection and integrity warnings',
   assert.equal(json.coverage.loop_detection_complete, true);
   assert.equal(json.loops.length, 1);
   assert.equal(json.integrity.unresolved_transition_conditions.length, 1);
-  assert.match(text, /↺ → A \[.*unreadable\]/);
+  assert.match(text, /↺ → step 1 A \[unreadable condition\]/);
   assert.match(text, /conditions: inaccessible/);
 });
 
@@ -137,7 +137,63 @@ test('observed cycle remains visible when overall detection is incomplete', asyn
   const { json, text } = await inspect(['A', 'B'], [[1, 1], [1, 3]]);
   assert.equal(json.coverage.loop_detection_complete, false);
   assert.equal(json.loops.length, 1);
-  assert.match(text, /↺ → A/);
+  assert.match(text, /↺ → step 1 A/);
   assert.match(text, /observed; detection incomplete/);
   assert.doesNotMatch(text, /no loops detected/);
 });
+
+function section(text, heading) {
+  return text.split(`▶ ${heading}\n${'─'.repeat(50)}\n`)[1].split('\n\n')[0].split('\n');
+}
+
+for (const [name, names, edges, options, expected, sequential] of [
+  ['numbering follows start through a silent linear chain, not activity input order',
+    ['End', 'Middle', 'Begin'], [[3, 2], [2, 1]], { start: 3 },
+    ['  1. Begin', '  2. Middle', '  3. End (end)'], [100, 101]],
+  ['branch prints only the non-sequential edge and prefers Always over a conditioned edge',
+    ['Begin', 'A rejected', 'Z accepted'], [[1, 2, 'Rejected'], [1, 3, 'Always']], {},
+    ['  1. Begin', '       → step 3 A rejected [Rejected]', '  2. Z accepted (end)', '  3. A rejected (end)'], [101]],
+  ['loop back-edge alone gets a closing marker and summary uses step numbers',
+    ['Begin', 'Approve', 'Validate', 'End'], [[1, 2], [2, 3], [3, 2, 'Failure'], [3, 4, 'Always']], {},
+    ['  1. Begin', '  2. Approve', '  3. Validate', '       ↺ → step 2 Approve [Failure]', '  4. End (end)'], [100, 101, 103]],
+  ['unreachable activities append by name then ID and do not imply a sequence',
+    ['Begin', 'Z detached', 'A detached', 'End', 'A detached'], [[1, 4], [3, 5]], {},
+    ['  1. Begin', '  2. End (end)', '  3. A detached (not reached from start)',
+      '       → step 4 A detached [Success]', '  4. A detached (not reached from start; end)', '  5. Z detached (not reached from start; end)'], [100]],
+  ['parallel conditions to the next step retain the non-preferred exception',
+    ['Begin', 'End'], [[1, 2, 'Rejected'], [1, 2, 'Always']], {},
+    ['  1. Begin', '       → step 2 End [Rejected]', '  2. End (end)'], [101]],
+  ['unconditional edge is preferred and duplicate conditions remain explicit',
+    ['Begin', 'End'], [[1, 2, 'Rejected'], [1, 2, null]], {},
+    ['  1. Begin', '       → step 2 End [Rejected]', '  2. End (end)'], [101]],
+  ['unreadable transitions fallback does not invent terminal steps',
+    ['Begin', 'End'], [[1, 2]], { denied: 'wf_transition' },
+    ['  Order fallback: activities or transitions not readable; stable name/sys_id order, not a flow sequence.',
+      '  1. Begin (not reached from start; order fallback; no outgoing transitions observed; detection incomplete)',
+      '  2. End (not reached from start; order fallback; no outgoing transitions observed; detection incomplete)'], []],
+  ['no-start fallback explicitly disclaims sequence and hides no edges',
+    ['Z', 'A'], [[1, 2]], { noStart: true },
+    ['  Order fallback: no start activity; stable name/sys_id order, not a flow sequence.',
+      '  1. A (not reached from start; order fallback; end)', '  2. Z (not reached from start; order fallback)',
+      '       → step 1 A [Success]'], []],
+  ['missing-start fallback is stable and explicit',
+    ['Z', 'A'], [[2, 1]], { start: 99 },
+    ['  Order fallback: start activity not in the readable activities; stable name/sys_id order, not a flow sequence.',
+      '  1. A (not reached from start; order fallback)', '       → step 2 Z [Success]',
+      '  2. Z (not reached from start; order fallback; end)'], []],
+]) {
+  test(name, async () => {
+    const { json, text } = await inspect(names, edges, options);
+    assert.deepEqual(section(text, 'STEPS'), expected);
+    assert.deepEqual(json.transitions.filter(edge => edge.is_sequential).map(edge => edge.sys_id).sort(), sequential.map(id));
+    assert.ok(json.transitions.every(edge => typeof edge.is_sequential === 'boolean'));
+    assert.deepEqual(json.steps.map(step => step.number), names.map((_, i) => i + 1));
+    assert.ok(json.steps.every(step => typeof step.reached_from_start === 'boolean' && step.sys_id && step.name));
+    const reversed = await inspect(names, edges, { ...options, reverse: true });
+    assert.deepEqual(reversed.json.steps, json.steps);
+    assert.deepEqual(section(reversed.text, 'STEPS'), expected);
+    if (name.startsWith('loop back-edge')) {
+      assert.deepEqual(section(text, 'LOOPS'), ['  Loop 1: steps 2, 3 → back to step 2. Entry: step 2.']);
+    }
+  });
+}

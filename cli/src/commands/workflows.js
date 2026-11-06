@@ -88,7 +88,7 @@ export function workflowsCmd(wrap) {
             summary: `Legacy workflow: ${data.workflow.name} — ${versionLabel}, ${data.activities.length} activity(ies)${data.coverage.complete ? '' : ', partial coverage'}`,
             breadcrumbs: [
               { action: 'list', cmd: 'jsn workflows list', description: 'Back to legacy workflows' },
-              ...(data.version ? [{ action: 'json', cmd: `jsn workflows show ${data.workflow.sys_id} --json`, description: 'Structured definition with IDs' }] : []),
+              ...(data.version ? [{ action: 'json', cmd: `jsn workflows show ${JSON.stringify(data.workflow.name)} --json`, description: 'Structured definition with IDs' }] : []),
             ],
           });
         }),
