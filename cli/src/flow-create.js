@@ -834,7 +834,8 @@ export async function readUpdateSetCapture(sdk, updateSet, flowId, { locateElsew
       ? `Content was saved, but no update XML for this flow is in ${updateSet?.name || updateSetId}. `
         + `${destinations.reduce((sum, set) => sum + set.count, 0)} matching record(s) are in `
         + `${destinations.map(set => `${set.name || set.sys_id} (${set.sys_id})`).join(', ')}. `
-        + 'Capture was routed elsewhere; inspect those sets before completing or exporting the intended one.'
+        + 'These may be historical captures and do not prove this save was routed elsewhere. '
+        + 'Capture can be asynchronous; re-check the intended set before completing or exporting it.'
       : `Content was saved, but no update XML naming this flow was found in ${updateSet?.name || updateSetId} `
         + `or by nameLIKE${flowId}. Capture may be absent or recorded under a different name; `
         + 'inspect sys_update_xml for the flow sys_id before completing the set.';
@@ -843,8 +844,8 @@ export async function readUpdateSetCapture(sdk, updateSet, flowId, { locateElsew
 }
 
 // The flow's own update XML is named `<table>_<sys_id>`, so the flow sys_id is
-// searchable across every set. This distinguishes "not captured" from "captured
-// into the wrong set" without moving any record.
+// searchable across every set. This locates candidate captures without moving
+// records; a historical match alone cannot establish where this save landed.
 async function findCaptureElsewhere(sdk, flowId, intendedSetId) {
   const id = idValue(flowId);
   // Only a single opaque token may reach the encoded query; never allow query

@@ -557,7 +557,7 @@ describe('flow update request shapes', () => {
     assert.equal(called, false);
   });
 
-  it('reports where capture went when the intended set has no matching update XML', async () => {
+  it('reports other matching sets without treating historical captures as proof of routing', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const after = structuredClone(baseDefinition);
     after.actionInstances[0].inputs[1].value = wrapped('new message');
@@ -583,7 +583,9 @@ describe('flow update request shapes', () => {
     }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
     assert.equal(result.update_set_capture.status, 'missing');
     assert.deepEqual(result.update_set_capture.elsewhere.update_sets.map(set => set.sys_id), ['previous-set']);
-    assert.match(result.update_set_capture.diagnosis, /routed elsewhere/);
+    assert.match(result.update_set_capture.diagnosis, /historical captures/);
+    assert.match(result.update_set_capture.diagnosis, /do not prove this save was routed elsewhere/);
+    assert.match(result.update_set_capture.diagnosis, /asynchronous; re-check the intended set/);
     assert.match(result.update_set_capture.diagnosis, /Previous Feature/);
   });
 
