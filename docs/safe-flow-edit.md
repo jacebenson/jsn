@@ -72,6 +72,16 @@ A successful save returns the before/after input diff, the ProcessFlow definitio
 
 Failures after mutation name the exact flow ID and last completed stage: `validated`, `patch_acknowledged`, `definition_verified`, `autosave_verified` or `runtime_verified`. A timeout or failed capture read can occur after a provider write. A newly acquired session is released after success or failure; release failure is an error even if the save succeeded, and preserves any original partial-write error in its message. An ambiguous acquisition is not automatically retried or released because ownership is unknown. Inspect the exact flow, edit session, versions and update-set capture before retrying. No automatic retry, deletion or rollback occurs. Capture diagnostics can contain private definition XML; store them securely.
 
+## Capture context before writes
+
+Update-set reporting and the provider's effective capture context come from different sources. Reporting reads the persisted `sys_user_preference` (`name=sys_update_set`); the write captures into the authenticated session's effective picker selection (`GET /api/now/ui/concoursepicker/updateset`). A fresh CLI invocation is a fresh session, so the two can disagree even when the preference names the intended set.
+
+Before the first content write, `flows create` and `flows update` read the effective session selection and, when it differs from the persisted choice, re-apply the persisted choice through the same picker contract (`PUT /api/now/ui/concoursepicker/updateset`) and verify the result. The outcome is returned as `capture_context` (`intended`, `effective`, `aligned`, `action`, and `previous_effective` when a selection was applied). A mismatch that cannot be aligned fails before any content write. When the effective selection cannot be read at all — for example an auth mode that cannot keep a UI session — `capture_context.aligned` is `null` with `action: "unverified"`; the write proceeds but capture cannot be pre-verified. Preview never touches the session.
+
+After the save, `update_set_capture` is computed for the intended set. When it reports `missing`, the CLI also searches `sys_update_xml` by `nameLIKE<flowId>` across sets. Matching rows in another set produce `update_set_capture.elsewhere.update_sets` and a `diagnosis` saying capture was routed elsewhere; finding none says capture may be absent or named differently. Nothing is moved, deleted or retried.
+
+These checks are repository-tested against synthetic providers. They establish that the CLI no longer reports a set it has not confirmed, not why a specific instance or auth mode ignored a selection; that still requires a PDI.
+
 ## Repository tests versus instance evidence
 
 Repository tests prove no-write validation/preview, raw scope resolution, preservation guards, version readback, partial-failure reporting, the published `can_write` gate, published preview, published snapshot/runtime-pointer preservation and lease release against synthetic providers. They do not establish platform ACLs or every Flow Designer family.

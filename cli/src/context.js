@@ -98,3 +98,86 @@ export async function setCurrentApplication(sdk, _userSysID, scopeSysID) {
 export async function setCurrentUpdateSet(sdk, _userSysID, updateSetSysID) {
   await selectContext(sdk, 'updateset', { sysId: updateSetSysID }, updateSetSysID);
 }
+
+/**
+ * Read the update set this authenticated session will actually capture into.
+ *
+ * `sys_user_preference:user=<user>^name=sys_update_set` is the persisted
+ * choice; this endpoint reports the session's effective picker selection. They
+ * are different sources and can disagree in a freshly-warmed session, so the
+ * preference alone must not be treated as the provider's capture context.
+ */
+export async function readEffectiveUpdateSet(sdk) {
+  const endpoint = `${sdk.baseURL}/api/now/ui/concoursepicker/updateset`;
+  const response = await sdk.request(endpoint, { method: 'GET', readOnly: true });
+  const current = response?.result?.current;
+  if (!current || typeof current !== 'object') {
+    throw new Error('Invalid update-set picker response: expected result.current.');
+  }
+  const sysId = typeof current.sysId === 'string' ? current.sysId : '';
+  return {
+    sys_id: sysId,
+    name: typeof current.name === 'string' ? current.name : '',
+    label: current.displayValue || current.name || sysId,
+  };
+}
+
+/**
+ * Make the warmed session's effective capture set match the persisted choice
+ * before content writes, and verify the result.
+ *
+ * A fresh CLI invocation is a fresh authenticated session; the persisted
+ * preference is the user's intentional choice, but nothing guarantees the new
+ * session inherited it (`jsn updatesets create`/`set` may have selected the set
+ * in a session that has since ended). When the two disagree, re-apply the
+ * persisted selection through the same picker contract and verify it.
+ *
+ * Returns a report instead of throwing when the effective selection cannot be
+ * read at all (for example an auth mode that cannot keep a UI session). A
+ * readable-but-unalignable mismatch throws, so a content write never proceeds
+ * into a set the CLI would then wrongly report.
+ */
+export async function alignUpdateSetCapture(sdk, intended) {
+  const intendedId = intended?.sys_id || '';
+  let effective;
+  try {
+    effective = await readEffectiveUpdateSet(sdk);
+  } catch (error) {
+    return {
+      intended: intended || null,
+      effective: null,
+      aligned: null,
+      action: 'unverified',
+      reason: `effective session selection could not be read: ${error.message}`,
+    };
+  }
+  const report = { intended: intended || null, effective, aligned: null, action: 'none' };
+  if (!intendedId) {
+    report.reason = 'no persisted update-set selection (Default or unreadable preference)';
+    return report;
+  }
+  if (effective.sys_id === intendedId) {
+    report.aligned = true;
+    return report;
+  }
+  try {
+    await setCurrentUpdateSet(sdk, null, intendedId);
+  } catch (error) {
+    const message = `Session capture context could not be aligned with the selected update set before any content write. `
+      + `This session resolves to ${effective.sys_id || 'an empty selection'} (${effective.name || 'unknown'}), `
+      + `but the persisted selection is ${intended?.name || intendedId} (${intendedId}). ${error.message} `
+      + 'No content was written. Re-select explicitly with `jsn updatesets set` in an interactive session, '
+      + 'or use an auth profile that keeps a UI session, then retry.';
+    const failure = new Error(message, { cause: error });
+    failure.capture_context = { ...report, aligned: false, action: 'select_failed' };
+    throw failure;
+  }
+  report.previous_effective = effective;
+  report.effective = await readEffectiveUpdateSet(sdk);
+  report.action = 'selected';
+  report.aligned = report.effective.sys_id === intendedId;
+  if (!report.aligned) {
+    report.reason = 'session still resolves to a different set after re-selection';
+  }
+  return report;
+}
