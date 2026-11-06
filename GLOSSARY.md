@@ -509,6 +509,18 @@ Table API GETs and requires no checkout. `listPublishedWorkflowVersionsForTable`
 is the reuse seam for table-behavior discovery; it reports the named table
 association only and does not discover script-started workflows.
 
+The flat `transitions` JSON remains compatible; `transitions_by_activity` adds
+name/sys_id-ordered source groups (including terminal activities) with outgoing
+edges ordered by destination name then transition sys_id. `loops` reports cyclic
+strongly connected components (including self-loops), every participating edge,
+and members entered from outside the component. Analysis is in-memory only.
+`coverage.loops_found` counts observed components, not every simple cycle;
+`coverage.loop_detection_complete` requires complete activity/transition reads
+and known endpoints. Incomplete detection must never claim no loops. Graph
+completeness is independent of missing conditions or activity definitions;
+existing integrity findings remain visible. Reaching a transition query bound
+sets `coverage.transitions_truncated` and makes overall coverage incomplete.
+
 ## Flow Designer action definition
 
 `src/processflow-actions.js` owns the resource-specific action lifecycle.

@@ -1,3 +1,4 @@
+import { analyzeWorkflowGraph } from './workflow-graph.js';
 import { assertSafeExactMatch } from './helpers.js';
 import { errAmbiguous, errNotFound, errUsage } from './errors.js';
 
@@ -438,6 +439,7 @@ export async function inspectWorkflow(sdk, {
   let activities = [];
   let conditions = [];
   let transitions = [];
+  let transitionsTruncated = false;
   let stages = [];
   let activitySample = { limit, returned: 0, truncated: false };
   let definitions = new Map();
@@ -506,6 +508,9 @@ export async function inspectWorkflow(sdk, {
         limit: MAX_LIMIT,
       }));
     }
+    // Hitting a per-query bound is conservatively incomplete; do not add a
+    // count query or fetch more rows just for graph analysis.
+    transitionsTruncated = transitionReads.some(read => read.state === 'ok' && read.rows.length >= MAX_LIMIT);
     const transitionState = worstState(transitionReads);
     components.transitions = activityIds.length === 0 ? 'not_applicable' : transitionState;
     if (transitionState !== 'ok' && transitionState !== 'not_applicable') {
@@ -634,6 +639,11 @@ export async function inspectWorkflow(sdk, {
     integrity = buildIntegrity({ activities, transitions, conditions, inaccessible, activitySample, version: null, definitions });
   }
 
+  const graph = analyzeWorkflowGraph(activities, transitions);
+  const loopDetectionComplete = Boolean(version) && components.activities === 'ok'
+    && ['ok', 'not_applicable'].includes(components.transitions)
+    && !activitySample.truncated && !transitionsTruncated
+    && transitions.every(edge => graph.activity_ids.has(edge.from_id) && graph.activity_ids.has(edge.to_id));
   const componentsComplete = Object.entries(components).every(([, state]) => ['ok', 'not_applicable', 'skipped'].includes(state));
   const data = {
     engine: 'legacy_workflow_editor',
@@ -649,10 +659,15 @@ export async function inspectWorkflow(sdk, {
     version: version ? versionSummary(version) : null,
     activities,
     transitions,
+    transitions_by_activity: graph.groups,
+    loops: graph.loops,
     stages,
     integrity,
     coverage: {
-      complete: componentsComplete && !activitySample.truncated && !versionsTruncated
+      loops_found: graph.loops.length,
+      loop_detection_complete: loopDetectionComplete,
+      transitions_truncated: transitionsTruncated,
+      complete: componentsComplete && !activitySample.truncated && !versionsTruncated && !transitionsTruncated
         && inaccessible.length === 0,
       components,
       activity_sample: activitySample,
@@ -731,6 +746,17 @@ function describeSelection(reason) {
     case 'unavailable': return 'versions not readable';
     default: return 'no version';
   }
+}
+
+function describeTransition(transition) {
+  const to = transition.to_name || transition.to_id || '(unknown)';
+  const condition = transition.condition_id
+    ? `${transition.condition_name || transition.condition_id}${transition.condition_status === 'missing' ? ' — unreadable' : ''}`
+    : 'unconditional';
+  const issue = transition.status === 'dangling'
+    ? ` ⚠ missing ${transition.missing_endpoints.join(', ')}`
+    : transition.status === 'outside_sample' ? ' (outside the activity sample)' : '';
+  return `${to} [${condition}]${issue}`;
 }
 
 function truncateLines(value, max = 12) {
@@ -822,21 +848,37 @@ export function formatWorkflowOutline(data, instanceURL = '') {
   lines.push('');
   lines.push('▶ TRANSITIONS');
   lines.push('─'.repeat(50));
-  if (data.transitions.length === 0) {
-    lines.push('  (none found)');
+  const loopEdges = new Set(data.loops.flatMap(loop => loop.edges.map(edge => edge.sys_id)));
+  for (const group of data.transitions_by_activity) {
+    lines.push(`  ${group.name || group.sys_id || '(unknown source)'}`);
+    if (group.transitions.length === 0) {
+      lines.push(data.coverage.loop_detection_complete
+        ? '    (no outgoing transitions)' : '    (no outgoing transitions observed; detection incomplete)');
+    }
+    for (const transition of group.transitions) {
+      lines.push(`    ${loopEdges.has(transition.sys_id) ? '↺ ' : ''}→ ${describeTransition(transition)}`);
+      lines.push(`       ${transition.sys_id}`);
+    }
   }
-  for (const transition of data.transitions) {
-    const from = transition.from_name || transition.from_id || '(unknown)';
-    const to = transition.to_name || transition.to_id || '(unknown)';
-    const condition = transition.condition_id
-      ? ` [${transition.condition_name || transition.condition_id}${transition.condition_status === 'missing' ? ' — unreadable' : ''}]`
-      : '';
-    const issue = transition.status === 'dangling'
-      ? ` ⚠ missing ${transition.missing_endpoints.join(', ')}`
-      : transition.status === 'outside_sample' ? ' (outside the activity sample)' : '';
-    lines.push(`  ${from} → ${to}${condition}${issue}`);
-    lines.push(`     ${transition.sys_id}`);
+
+  lines.push('', '▶ LOOPS', '─'.repeat(50));
+  if (!data.coverage.loop_detection_complete) {
+    lines.push('  Loop detection is incomplete: activities or transitions unreadable, truncated, or endpoints outside the sample.');
+  } else if (data.loops.length === 0) {
+    lines.push('  no loops detected');
   }
+  data.loops.forEach((loop, index) => {
+    lines.push(`  Loop ${index + 1}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}`);
+    lines.push('    Members:');
+    for (const member of loop.members) lines.push(`      ${member.name || '(unnamed)'} [${member.sys_id}]`);
+    lines.push('    Cycle edges (all internal SCC edges, including closing edges):');
+    for (const edge of loop.edges) {
+      lines.push(`      ↺ ${edge.from_name || edge.from_id} → ${describeTransition(edge)} [${edge.sys_id}]`);
+    }
+    lines.push(`    Entry points${data.coverage.loop_detection_complete ? '' : ' (observed)'}:`);
+    if (loop.entry_points.length === 0) lines.push('      (no incoming edges from outside the loop observed)');
+    for (const member of loop.entry_points) lines.push(`      ${member.name || '(unnamed)'} [${member.sys_id}]`);
+  });
 
   if (data.stages.length > 0) {
     lines.push('');

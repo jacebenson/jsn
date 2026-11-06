@@ -63,11 +63,37 @@ sys_id, conditions, transitions (with condition names), stages, script bodies
   `position`, `parent_id`, `stage_id`, `conditions[]` and `configuration`;
 - `transitions[]` with `from_id`, `to_id`, `condition_id`, `condition_status`
   and `status` (`ok`, `dangling`, `outside_sample`);
+- `transitions_by_activity[]` with activity `sys_id`, `name`, and outgoing
+  `transitions[]`, including empty groups. Groups sort by name then sys_id;
+  edges sort by destination name then transition sys_id. The existing flat
+  `transitions[]` is unchanged and duplicate edges remain distinct;
+- `loops[]` with `members[]` (sys_id and name), `edges[]` (all internal SCC
+  edges), and `entry_points[]` (members with incoming edges from outside);
 - `integrity` — `missing_activity_definitions`, `unset_activity_definitions`,
   `dangling_transitions`, `unresolved_transition_conditions`,
   `dangling_start_activity`, `inaccessible`;
 - `coverage` — per-component read state and whether the activity sample was
-  truncated.
+  truncated. `loops_found` counts observed SCC loops; `loop_detection_complete`
+  is false if graph reads failed, activities were truncated, any transition read
+  reached its bound, or any endpoint is outside the loaded activities.
+  `transitions_truncated` records a reached transition bound and also makes
+  overall `coverage.complete` false.
+
+The outline groups transitions under source activities, marks every internal
+cycle edge with `↺`, and lists loop members, cycle/closing edges and entry points
+in `▶ LOOPS`. SCCs with multiple members and self-loops both count. All internal
+SCC edges participate in a cycle; this is not a claim that each edge is a unique
+DFS back-edge or that every simple cycle is enumerated. Analysis uses loaded
+rows only, with no additional queries or writes.
+
+A complete acyclic graph says `no loops detected`. An incomplete graph instead
+says detection is incomplete, even if no cycle was observed. Observed loops
+remain visible in partial samples, but their membership and entry points may be
+incomplete. Missing conditions/configuration/type definitions do not invalidate
+known graph topology; existing integrity warnings remain separate. Consequently
+`coverage.complete` and `loop_detection_complete` intentionally answer different
+questions (for example a dangling endpoint invalidates loop completeness even
+when all component reads succeeded).
 
 ## Missing and inaccessible definitions are explicit
 
@@ -118,14 +144,22 @@ the only non-GET traffic; no record is created, updated or deleted.
 
 ## Validated instances
 
-This reader has been verified against a mock Table API fixture only — list,
-show, version selection, pagination bounds, ACL failure, missing definitions and
-dangling links — plus the real CLI binary against that fixture. It has **not yet
-been validated against a live ServiceNow instance**, so no platform release is
-claimed as validated. Field names and links follow the reference implementation
-and the documented legacy editor tables; live validation should record the
-instance version and any layout differences before relying on it for migration
-evidence.
+Synthetic graph tests cover DAGs, SCCs, self-loops, disjoint loops, duplicate
+edges, branch-only loops and incomplete reads, with JSON and outline assertions.
+Read-only checks with the host's authenticated `demo` profile also verified:
+
+- Standard Change Proposal (`3452d5259f2002002920bde8132e7028`): 13 activities,
+  15 transitions, one SCC loop; both edges returning to Change Manager Group
+  Approval are included.
+- Change Request - Standard (`9c55dac2cb200200d71cb9c0c24c9c83`): 10 activities,
+  11 transitions, zero loops, explicitly reported as `no loops detected`.
+- On-Call: Assign by Acknowledgement per Rota
+  (`ddfa60feb748230059e0b956ee11a937`): 65 activities, 103 transitions, one SCC
+  loop; inspection completed normally.
+
+All three reported complete graph detection. These checks validate the selected
+definitions, not runtime execution or compatibility with every platform release;
+no platform release version was established in these checks.
 
 ## Reuse from table-behavior discovery (#398)
 
