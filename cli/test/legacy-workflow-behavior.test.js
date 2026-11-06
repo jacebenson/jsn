@@ -12,7 +12,7 @@ const draft = version(3, '2024-03-01 00:00:00', false);
 
 function sdkFor({ versions = [old, latest, draft], configuration = {} } = {}) {
   const rows = versions.map(v => ({
-    ...v, workflow: id(10), name: `Version ${v.sys_id}`, sys_created_on: v.created_on,
+    ...v, workflow: id(10), name: `Version ${Number(v.sys_id)}`, sys_created_on: v.created_on,
     published: String(v.published), active: String(v.active),
   }));
   return { listStrict: async (table) => {
@@ -62,7 +62,8 @@ test('versions are newest-first and rendered marker and reason identify the sele
   assert.equal(data.selection.reason, 'latest_published');
   const output = formatWorkflowOutline(data);
   assert.match(output, /latest published version \(active preferred\)/);
-  assert.ok(output.includes(` * 2. Version ${latest.sys_id}`));
+  assert.ok(output.includes(' * 2. Version 2 [published, active] 2024-02-01 00:00:00'));
+  assert.doesNotMatch(output, /\b[0-9a-f]{32}\b/i);
   assert.equal(output.split('\n').filter(line => line.startsWith(' * ')).length, 1);
   const listed = await listWorkflows(sdkFor());
   assert.equal(listed.records[0].published_version.sys_id, latest.sys_id);
@@ -76,7 +77,7 @@ for (const field of ['script', 'script_condition', 'email_to_script']) {
     assert.equal(Object.hasOwn(activity.configuration, field), false);
     assert.deepEqual(activity.configuration_omissions, [{ field, reason: 'comment_only_script' }]);
     assert.equal(data.coverage.comment_only_scripts_omitted, 1);
-    const output = formatWorkflowOutline(data);
+    const output = formatWorkflowOutline(data, { includeConfiguration: true });
     assert.match(output, new RegExp(`omitted ${field}: comment-only script`));
     assert.match(output, /1 comment-only script fields omitted/);
     assert.ok(!output.includes('disabled statement'));

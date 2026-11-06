@@ -1,3 +1,5 @@
+import { analyzeWorkflowGraph } from './workflow-graph.js';
+import { numberWorkflowSteps } from './workflow-steps.js';
 import { assertSafeExactMatch } from './helpers.js';
 import { errAmbiguous, errNotFound, errUsage } from './errors.js';
 
@@ -438,6 +440,7 @@ export async function inspectWorkflow(sdk, {
   let activities = [];
   let conditions = [];
   let transitions = [];
+  let transitionsTruncated = false;
   let stages = [];
   let activitySample = { limit, returned: 0, truncated: false };
   let definitions = new Map();
@@ -506,6 +509,9 @@ export async function inspectWorkflow(sdk, {
         limit: MAX_LIMIT,
       }));
     }
+    // Hitting a per-query bound is conservatively incomplete; do not add a
+    // count query or fetch more rows just for graph analysis.
+    transitionsTruncated = transitionReads.some(read => read.state === 'ok' && read.rows.length >= MAX_LIMIT);
     const transitionState = worstState(transitionReads);
     components.transitions = activityIds.length === 0 ? 'not_applicable' : transitionState;
     if (transitionState !== 'ok' && transitionState !== 'not_applicable') {
@@ -634,6 +640,12 @@ export async function inspectWorkflow(sdk, {
     integrity = buildIntegrity({ activities, transitions, conditions, inaccessible, activitySample, version: null, definitions });
   }
 
+  const numbering = numberWorkflowSteps(activities, transitions, version?.start_activity_id, components);
+  const graph = analyzeWorkflowGraph(activities, transitions);
+  const loopDetectionComplete = Boolean(version) && components.activities === 'ok'
+    && ['ok', 'not_applicable'].includes(components.transitions)
+    && !activitySample.truncated && !transitionsTruncated
+    && transitions.every(edge => graph.activity_ids.has(edge.from_id) && graph.activity_ids.has(edge.to_id));
   const componentsComplete = Object.entries(components).every(([, state]) => ['ok', 'not_applicable', 'skipped'].includes(state));
   const data = {
     engine: 'legacy_workflow_editor',
@@ -648,11 +660,17 @@ export async function inspectWorkflow(sdk, {
     },
     version: version ? versionSummary(version) : null,
     activities,
+    ...numbering,
     transitions,
+    transitions_by_activity: graph.groups,
+    loops: graph.loops,
     stages,
     integrity,
     coverage: {
-      complete: componentsComplete && !activitySample.truncated && !versionsTruncated
+      loops_found: graph.loops.length,
+      loop_detection_complete: loopDetectionComplete,
+      transitions_truncated: transitionsTruncated,
+      complete: componentsComplete && !activitySample.truncated && !versionsTruncated && !transitionsTruncated
         && inaccessible.length === 0,
       components,
       activity_sample: activitySample,
@@ -733,27 +751,54 @@ function describeSelection(reason) {
   }
 }
 
-function truncateLines(value, max = 12) {
-  const lines = String(value).split('\n');
-  if (lines.length <= max) return lines.join('\n');
-  return `${lines.slice(0, max).join('\n')}\n… (${lines.length - max} more lines; use --json for the full value)`;
+function describeTransition(transition, stepById) {
+  const target = stepById.get(transition.to_id);
+  const to = target ? `step ${target.number} ${target.name || '(unnamed activity)'}` : '(activity not in the readable steps)';
+  const condition = transition.condition_status === 'missing' ? 'unreadable condition'
+    : transition.condition_name || 'unconditional';
+  const issue = transition.status === 'dangling' ? ' ⚠ missing activity'
+    : transition.status === 'outside_sample' ? ' (outside the activity sample)' : '';
+  return `${to} [${condition}]${issue}`;
 }
 
-/**
- * Human-readable outline. IDs stay visible so an agent or operator can follow
- * up with a focused read; the structured JSON returned by inspectWorkflow
- * remains the source of every detail.
- */
-export function formatWorkflowOutline(data, instanceURL = '') {
+// Bound previews only; a selected step retains every line and character.
+function formatStepContent(activity, full = false) {
+  const lines = [];
+  const entries = Object.entries(activity.configuration || {})
+    .filter(([, value]) => value != null && String(value).trim())
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const width = Math.max(0, ...entries.map(([field]) => field.length + 1));
+  for (const [field, value] of entries) {
+    const valueLines = (full ? String(value) : String(value).trim()).split(/\r?\n/);
+    const prefix = `       ${`${field}:`.padEnd(width)} `;
+    const continuation = ' '.repeat(prefix.length);
+    const visible = full ? valueLines : valueLines.slice(0, 3);
+    visible.forEach((line, index) => {
+      const preview = !full && line.length > 160
+        ? `${line.slice(0, 160)}… (${line.length - 160} more characters, use --json for the full value)`
+        : line;
+      lines.push(`${index === 0 ? prefix : continuation}${preview}`);
+    });
+    if (!full && valueLines.length > 3) {
+      lines.push(`${continuation}… (${valueLines.length - 3} more lines, use --json for the full value)`);
+    }
+  }
+  for (const omission of [...(activity.configuration_omissions || [])].sort((a, b) => a.field < b.field ? -1 : a.field > b.field ? 1 : 0)) {
+    lines.push(`       omitted ${omission.field}: comment-only script (no executable code)`);
+  }
+  if (activity.configuration_status && !['ok', 'skipped'].includes(activity.configuration_status)) {
+    lines.push(`       configuration: ${activity.configuration_status}`);
+  }
+  return lines;
+}
+
+/** Human-readable outline. Record identifiers and full detail stay in JSON. */
+export function formatWorkflowOutline(data, { includeConfiguration = false, step: selectedStep } = {}) {
   const lines = [];
   const workflow = data.workflow;
   lines.push('');
   lines.push(`Legacy workflow: ${workflow.name}  (table: ${workflow.table || 'unset'})`);
   lines.push('');
-  lines.push(`  Workflow sys_id: ${workflow.sys_id}`);
-  if (instanceURL) {
-    lines.push(`  Link: ${instanceURL}/nav_to.do?uri=wf_workflow.do?sys_id=${workflow.sys_id}`);
-  }
   if (workflow.description) lines.push(`  Description: ${workflow.description}`);
   if (data.coverage.components.versions === 'ok') {
     lines.push(`  Versions: ${data.versions.length}${data.versions_truncated ? '+' : ''} (${describeSelection(data.selection.reason)})`);
@@ -765,7 +810,6 @@ export function formatWorkflowOutline(data, instanceURL = '') {
   if (version) {
     const flags = [version.published ? 'published' : 'not published', version.active ? 'active' : 'inactive'];
     lines.push(`  Selected version: ${version.name} — ${flags.join(', ')}`);
-    lines.push(`    Version sys_id: ${version.sys_id}`);
     if (version.condition) lines.push(`    Condition: ${version.condition}`);
     if (version.checked_out_by_id) {
       lines.push(`    Checked out by: ${version.checked_out_by_name || version.checked_out_by_id} on ${version.checked_out || 'unknown date'}`);
@@ -783,59 +827,58 @@ export function formatWorkflowOutline(data, instanceURL = '') {
       if (item.checked_out_by_id) flags.push(`checked out by ${item.checked_out_by_name || item.checked_out_by_id}`);
       const marker = item.sys_id === version?.sys_id ? '*' : ' ';
       lines.push(` ${marker} ${index + 1}. ${item.name} [${flags.join(', ')}] ${item.created_on}`);
-      lines.push(`      ${item.sys_id}`);
     });
   }
 
-  lines.push('');
-  lines.push(`⚡ ACTIVITIES (${data.activities.length}${data.coverage.activity_sample.truncated ? '+' : ''})`);
-  lines.push('─'.repeat(50));
-  if (data.activities.length === 0) {
+  const stepById = new Map(data.steps.map(step => [step.sys_id, step]));
+  const groups = new Map(data.transitions_by_activity.map(group => [group.sys_id, group.transitions]));
+  const loopEdges = new Set(data.loops.flatMap(loop => loop.edges.map(edge => edge.sys_id)));
+  const closesLoop = edge => loopEdges.has(edge.sys_id)
+    && stepById.get(edge.to_id)?.number <= stepById.get(edge.from_id)?.number;
+  lines.push('', '▶ STEPS', '─'.repeat(50));
+  if (data.step_order.fallback_reason) {
+    lines.push(`  Order fallback: ${data.step_order.fallback_reason}; stable name/sys_id order, not a flow sequence.`);
+  } else if (!data.coverage.loop_detection_complete) {
+    lines.push('  Order follows observed transitions only; activity/transition coverage is incomplete.');
+  }
+  if (data.steps.length === 0) {
     lines.push(`  (${data.coverage.components.activities === 'ok' ? 'no activities found' : `activities ${data.coverage.components.activities}`})`);
   }
-  data.activities.forEach((activity, index) => {
-    const definition = activity.definition_name || activity.definition_id || 'unset definition';
-    const details = [];
-    if (activity.parent_id) details.push(`parent ${activity.parent_id}`);
-    if (activity.stage_id) details.push(`stage ${activity.stage_id}`);
-    lines.push(`  ${index + 1}. ${activity.name} [${definition}]`);
-    lines.push(`     activity ${activity.sys_id}`);
-    if (details.length) lines.push(`     ${details.join(' | ')}`);
-    for (const condition of activity.conditions) {
-      const flags = [condition.else_flag ? 'else' : '', condition.error ? 'error' : ''].filter(Boolean).join(', ');
-      lines.push(`     condition: ${condition.name || condition.condition || condition.sys_id}${flags ? ` (${flags})` : ''} [${condition.sys_id}]`);
-      if (condition.condition && condition.name) lines.push(`       ${condition.condition}`);
+  const activityById = new Map(data.activities.map(activity => [activity.sys_id, activity]));
+  for (const step of data.steps.filter(step => selectedStep === undefined || step.number === selectedStep)) {
+    const activity = activityById.get(step.sys_id);
+    const showContent = includeConfiguration || selectedStep !== undefined;
+    const outgoing = groups.get(step.sys_id) || [];
+    const flags = [];
+    if (!step.reached_from_start) flags.push(data.step_order.fallback_reason
+      ? 'not reached from start; order fallback' : 'not reached from start');
+    if (outgoing.length === 0) {
+      if (!data.coverage.loop_detection_complete) flags.push('no outgoing transitions observed; detection incomplete');
+      else if (!/(end|finish|done|stop)$/i.test(step.name.trim())) flags.push('end');
     }
-    if (activity.configuration_status !== 'ok' && activity.configuration_status !== 'skipped') {
-      lines.push(`     configuration: ${activity.configuration_status}`);
+    lines.push(`  ${step.number}. ${step.name || '(unnamed activity)'}${showContent && activity?.definition_name ? `  (${activity.definition_name})` : ''}${flags.length ? ` (${flags.join('; ')})` : ''}`);
+    if (showContent && activity) lines.push(...formatStepContent(activity, selectedStep !== undefined));
+    if (selectedStep !== undefined) {
+      data.loops.forEach((loop, index) => {
+        if (!loop.members.some(member => member.sys_id === step.sys_id)) return;
+        const backTo = [...new Set(loop.edges.filter(closesLoop).map(edge => stepById.get(edge.to_id).number))].sort((a, b) => a - b);
+        const shown = backTo.slice(0, 6);
+        const extra = backTo.length - shown.length;
+        lines.push(`       Loop ${index + 1}: back to step${shown.length === 1 ? '' : 's'} ${shown.join(', ')}${extra > 0 ? ` …and ${extra} more` : ''}${data.coverage.loop_detection_complete ? '' : ' (observed; detection incomplete)'}`);
+      });
     }
-    for (const omission of activity.configuration_omissions || []) {
-      lines.push(`     omitted ${omission.field}: comment-only script (no executable code)`);
+    for (const edge of outgoing.filter(edge => selectedStep !== undefined || !edge.is_sequential)) {
+      lines.push(`       ${closesLoop(edge) ? '↺ ' : ''}→ ${describeTransition(edge, stepById)}`);
     }
-    const script = activity.configuration?.script;
-    if (script) {
-      lines.push('     script:');
-      for (const line of truncateLines(script).split('\n')) lines.push(`       ${line}`);
-    }
-  });
-
-  lines.push('');
-  lines.push('▶ TRANSITIONS');
-  lines.push('─'.repeat(50));
-  if (data.transitions.length === 0) {
-    lines.push('  (none found)');
   }
-  for (const transition of data.transitions) {
-    const from = transition.from_name || transition.from_id || '(unknown)';
-    const to = transition.to_name || transition.to_id || '(unknown)';
-    const condition = transition.condition_id
-      ? ` [${transition.condition_name || transition.condition_id}${transition.condition_status === 'missing' ? ' — unreadable' : ''}]`
-      : '';
-    const issue = transition.status === 'dangling'
-      ? ` ⚠ missing ${transition.missing_endpoints.join(', ')}`
-      : transition.status === 'outside_sample' ? ' (outside the activity sample)' : '';
-    lines.push(`  ${from} → ${to}${condition}${issue}`);
-    lines.push(`     ${transition.sys_id}`);
+  // Preserve malformed source links without inventing an activity or a step.
+  for (const group of data.transitions_by_activity.filter(group => selectedStep === undefined && !stepById.has(group.sys_id))) {
+    lines.push('  (source activity not in the readable steps)');
+    for (const edge of group.transitions) lines.push(`       → ${describeTransition(edge, stepById)}`);
+  }
+
+  if (!data.coverage.loop_detection_complete) {
+    lines.push('', '  ⚠ Loop detection is incomplete: activities or transitions unreadable, truncated, or endpoints outside the sample.');
   }
 
   if (data.stages.length > 0) {
@@ -853,7 +896,7 @@ export function formatWorkflowOutline(data, instanceURL = '') {
     warnings.push(`${item.component}: ${item.state}${item.http_status ? ` (HTTP ${item.http_status})` : ''}`);
   }
   for (const item of data.integrity.missing_activity_definitions) {
-    warnings.push(`activity definition missing for ${item.activity_name || item.activity_id} (${item.definition_id})`);
+    warnings.push(`activity definition missing for ${item.activity_name || 'unnamed activity'}; see --json for IDs`);
   }
   for (const item of data.integrity.dangling_transitions) {
     warnings.push(`transition ${item.transition_id} references missing activity ${item.missing_endpoints.join(', ')}`);
@@ -877,6 +920,11 @@ export function formatWorkflowOutline(data, instanceURL = '') {
   lines.push('');
   lines.push(`Note: ${DESIGN_TIME_SCOPE}`);
   lines.push('');
+  // No blanket id redaction. Scripts, encoded conditions and free text legitimately
+  // contain 32-hex record and workflow ids — for a workflow inspector those values
+  // ARE the data, and rewriting them inside a script body produces code that looks
+  // corrupted. Identifiers printed structurally use step numbers instead of sys_ids,
+  // so there is nothing left here that needs hiding.
   return `${lines.join('\n')}\n`;
 }
 

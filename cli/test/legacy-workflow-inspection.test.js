@@ -12,9 +12,10 @@ import { SDKClient } from '../src/sdk.js';
 import {
   listWorkflows,
   inspectWorkflow,
+  formatWorkflowOutline,
   listPublishedWorkflowVersionsForTable,
 } from '../src/workflow-inspection.js';
-import { workflowsCmd } from '../src/commands/workflows.js';
+import { workflowsCmd, parseWorkflowStep, selectWorkflowStep } from '../src/commands/workflows.js';
 
 const CLI = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 const execute = promisify(execFile);
@@ -451,6 +452,44 @@ test('skipping configuration is reported as skipped and keeps coverage complete'
   }
 });
 
+test('HTTP workflow inspection follows approval success, numbers End after rollback, and omits redundant end label', async () => {
+  const names = ['Begin', 'Approval', 'A rejected', 'B skipped', 'Validate', 'End', 'Rollback'];
+  const activityId = n => String(n).repeat(32);
+  const edges = [[1, 2, 'Always'], [2, 3, 'Rejected'], [2, 4, 'Skipped'], [2, 5, 'Approved'],
+    [5, 6, 'Always'], [5, 7, 'Failure'], [7, 2, 'Always'], [3, 6, 'Always'], [4, 6, 'Always']];
+  const fixture = await startFixture({
+    wf_activity: () => names.map((name, i) => ({ sys_id: activityId(i + 1), name })),
+    wf_condition: () => edges.map(([from, , name], i) => ({ sys_id: `c${i}`.padEnd(32, '0'), activity: activityId(from), name })),
+    wf_transition: () => edges.map(([from, to], i) => ({ sys_id: `d${i}`.padEnd(32, '0'),
+      from: activityId(from), to: activityId(to), condition: `c${i}`.padEnd(32, '0') })),
+    sys_variable_value: () => [],
+  });
+  try {
+    const data = await inspectWorkflow(fixture.sdk, { identifier: WF });
+    const text = formatWorkflowOutline(data);
+    assert.deepEqual(text.split(`▶ STEPS\n${'─'.repeat(50)}\n`)[1].split('\n\n')[0].split('\n'), [
+      '  1. Begin', '  2. Approval', '       → step 5 A rejected [Rejected]', '       → step 6 B skipped [Skipped]',
+      '  3. Validate', '       → step 7 End [Always]', '       → step 4 Rollback [Failure]',
+      '  4. Rollback', '       ↺ → step 2 Approval [Always]', '  5. A rejected', '       → step 7 End [Always]',
+      '  6. B skipped', '  7. End',
+    ]);
+    assert.equal(data.transitions.find(edge => edge.condition_name === 'Approved').is_sequential, true);
+    assert.ok(data.transitions.filter(edge => ['Rejected', 'Skipped'].includes(edge.condition_name)).every(edge => !edge.is_sequential));
+    assert.equal(data.steps.at(-1).name, 'End');
+    assert.equal(data.coverage.loop_detection_complete, true);
+    assert.equal(data.coverage.loops_found, 1);
+    assertOnlyReads(fixture.requests);
+    // Ids may appear (script content legitimately hardcodes them), but every one
+    // printed must be obtainable from --json so the reader can trace it.
+    for (const token of text.match(/\b[0-9a-f]{32}\b/gi) || []) {
+      assert.ok(JSON.stringify(data).toLowerCase().includes(token.toLowerCase()),
+        `printed id ${token} must also appear in --json`);
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('workflows command is registered as a read-only command', () => {
   const commands = [];
   const mockYargs = { command: (definition) => { commands.push(definition); return mockYargs; } };
@@ -460,6 +499,75 @@ test('workflows command is registered as a read-only command', () => {
   assert.deepEqual(cmd.aliases, ['workflow']);
   assert.deepEqual(commands.map(definition => definition.command), ['list', 'show <identifier>']);
   assert.ok(commands.every(definition => definition.handler));
+});
+
+test('configuration renders every nonempty element sorted and aligned under its step', async () => {
+  const values = { subject: 'Hello', email_to: 'manager', email: 'Body', duration: '2 days', advanced: 'false', empty: '', blank: ' \t\n' };
+  const fixture = await startFixture({ sys_variable_value: () => Object.entries(values).map(([element, value]) => ({
+    document_key: ACT_SCRIPT, 'variable.element': element, value,
+  })) });
+  try {
+    const data = await inspectWorkflow(fixture.sdk, { identifier: WF });
+    const text = formatWorkflowOutline(data, { includeConfiguration: true });
+    const stepLines = text.split('\n').filter(line => /^ {2}\d+\.|^ {7}(?!→|↺)/.test(line));
+    assert.deepEqual(stepLines, [
+      '  1. Begin  (Begin)',
+      '  2. Tag record  (Run Script)',
+      '       advanced: false',
+      '       duration: 2 days',
+      '       email:    Body',
+      '       email_to: manager',
+      '       subject:  Hello',
+      '  3. Approval',
+    ]);
+    assert.doesNotMatch(text, /▶ CONFIGURATION|▶ LOOPS|empty:|blank:/);
+    assert.doesNotMatch(formatWorkflowOutline(data), /advanced:|subject:|\(Run Script\)/);
+  } finally { await fixture.close(); }
+});
+
+test('full configuration previews long values explicitly while one step renders complete content and all edges', async () => {
+  const script = Array.from({ length: 17 }, (_, i) => `line${i + 1}();`).join('\n');
+  const fixture = await startFixture({ sys_variable_value: () => [
+    { document_key: ACT_SCRIPT, 'variable.element': 'script', value: script },
+    { document_key: ACT_SCRIPT, 'variable.element': 'other_script', value: '// only a comment' },
+  ] });
+  try {
+    const data = await inspectWorkflow(fixture.sdk, { identifier: WF });
+    const preview = formatWorkflowOutline(data, { includeConfiguration: true });
+    assert.deepEqual(preview.split('\n').filter(line => /^ {7}(script:| {8})/.test(line)), [
+      '       script: line1();',
+      ...Array.from({ length: 2 }, (_, i) => `               line${i + 2}();`),
+      '               … (14 more lines, use --json for the full value)',
+    ]);
+    assert.ok(preview.includes('\n       omitted other_script: comment-only script (no executable code)\n'));
+    const full = formatWorkflowOutline(data, { step: 2 });
+    assert.deepEqual(full.split('\n').filter(line => /^ {2}\d+\.|^ {7}/.test(line)), [
+      '  2. Tag record  (Run Script)', '       script: line1();',
+      ...Array.from({ length: 16 }, (_, i) => `               line${i + 2}();`),
+      '       omitted other_script: comment-only script (no executable code)',
+      '       Loop 1: back to step 2 (observed; detection incomplete)',
+      '       → step 3 Approval [unconditional]',
+    ]);
+    assert.doesNotMatch(full, /more lines|▶ CONFIGURATION|▶ LOOPS/);
+    const selected = selectWorkflowStep(data, 2);
+    assert.deepEqual(selected.activities.map(a => a.sys_id), [ACT_SCRIPT]);
+    assert.deepEqual(selected.steps.map(s => s.number), [2]);
+    assert.deepEqual(selected.transitions, data.transitions.filter(t => t.from_id === ACT_SCRIPT));
+    assert.equal(selected.activities[0].configuration.script, script);
+    assert.deepEqual(selected.loops, data.loops);
+    assert.deepEqual(selected.coverage, data.coverage);
+    assertOnlyReads(fixture.requests);
+  } finally { await fixture.close(); }
+});
+
+test('step selector rejects non-positive integers and reports valid range and count', () => {
+  for (const value of ['0', '-1', '1.5', 'nope', '', '1e2', 'Infinity', ' 1', '01', '9007199254740992']) {
+    assert.throws(() => parseWorkflowStep(value), /--step must be a positive integer/);
+  }
+  assert.equal(parseWorkflowStep('5'), 5);
+  assert.equal(parseWorkflowStep(undefined), undefined);
+  assert.throws(() => selectWorkflowStep({ steps: [{ number: 1 }] }, 2), /2 is out of range: 1 steps; valid range 1–1/);
+  assert.throws(() => selectWorkflowStep({ steps: [] }, 1), /0 steps; valid range none/);
 });
 
 const baseEnv = {
@@ -507,6 +615,41 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
     assert.equal(envelope.data.activities.length, 3);
     assert.equal(envelope.data.transitions.length, 4);
     assert.ok(envelope.data.activities.some(activity => activity.configuration.script));
+    assert.deepEqual(envelope.data.steps, [
+      { number: 1, sys_id: ACT_START, name: 'Begin', reached_from_start: true },
+      { number: 2, sys_id: ACT_SCRIPT, name: 'Tag record', reached_from_start: true },
+      { number: 3, sys_id: ACT_APPROVAL, name: 'Approval', reached_from_start: true },
+    ]);
+    assert.deepEqual(envelope.data.transitions.filter(edge => edge.is_sequential).map(edge => edge.sys_id),
+      ['a'.repeat(31) + '1', 'a'.repeat(31) + '2']);
+
+    const single = await run(['workflows', 'show', WF, '--step', '2', '--json']);
+    assert.equal(single.status, 0, single.stderr);
+    const narrowed = JSON.parse(single.stdout);
+    assert.equal(narrowed.ok, true);
+    assert.deepEqual(narrowed.data.activities.map(a => a.sys_id), [ACT_SCRIPT]);
+    assert.deepEqual(narrowed.data.steps, [envelope.data.steps[1]]);
+    assert.deepEqual(narrowed.data.transitions, envelope.data.transitions.filter(t => t.from_id === ACT_SCRIPT));
+    assert.deepEqual(narrowed.data.loops, envelope.data.loops);
+    assert.deepEqual(narrowed.data.coverage, envelope.data.coverage);
+    const singleHuman = await run(['workflows', 'show', WF, '--step', '2', '--no-config', '--styled']);
+    assert.equal(singleHuman.status, 0, singleHuman.stderr);
+    assert.deepEqual(singleHuman.stdout.split('\n').filter(line => /^ {2}\d+\.|^ {7}/.test(line)), [
+      '  2. Tag record  (Run Script)',
+      '       script: var gr = new GlideRecord("incident");',
+      '               gr.get(current.sys_id);',
+      '               gr.update();',
+      '       table:  incident',
+      '       Loop 1: back to step 2 (observed; detection incomplete)',
+      '       → step 3 Approval [unconditional]',
+    ]);
+    for (const value of ['0', '-1', '2.5', 'five', '1e2', '99']) {
+      const invalid = await run(['workflows', 'show', WF, '--step', value, '--json']);
+      assert.equal(invalid.status, 2, invalid.stderr);
+      const error = JSON.parse(invalid.stdout);
+      assert.equal(error.code, 'usage_error');
+      assert.match(JSON.stringify(error), value === '99' ? /3 steps; valid range 1–3/ : /positive integer/);
+    }
 
     const extracted = await run(['workflow', 'show', WF, '--json', '--get', 'data.version.sys_id']);
     assert.equal(extracted.status, 0, extracted.stderr);
@@ -515,8 +658,37 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
     const human = await run(['workflows', 'show', WF, '--styled']);
     assert.equal(human.status, 0, human.stderr);
     assert.match(human.stdout, /Legacy workflow: Incident approval/);
-    assert.match(human.stdout, /ACTIVITIES/);
+    assert.match(human.stdout, /▶ STEPS/);
+    assert.ok(human.stdout.includes('  1. Begin\n  2. Tag record\n  3. Approval\n       → (activity not in the readable steps) [unreadable condition] ⚠ missing activity\n       ↺ → step 2 Tag record [approved]\n'), human.stdout);
+    // Same traceability rule as above: ids in content are allowed, orphan ids are not.
+    for (const token of human.stdout.match(/\b[0-9a-f]{32}\b/gi) || []) {
+      assert.ok(JSON.stringify(envelope).toLowerCase().includes(token.toLowerCase()),
+        `printed id ${token} must also appear in --json`);
+    }
+    assert.doesNotMatch(human.stdout, /▶ TRANSITIONS/);
     assert.match(human.stdout, /design-time configuration/i);
+    assert.doesNotMatch(human.stdout, /▶ CONFIGURATION| {7}(?:script|table):|\(Run Script\)/);
+
+    const configured = await run(['workflows', 'show', WF, '--config', '--styled']);
+    assert.equal(configured.status, 0, configured.stderr);
+    assert.ok(configured.stdout.includes([
+      '  1. Begin  (Begin)',
+      '  2. Tag record  (Run Script)',
+      '       script: var gr = new GlideRecord("incident");',
+      '               gr.get(current.sys_id);',
+      '               gr.update();',
+      '       table:  incident',
+      '  3. Approval',
+    ].join('\n')), configured.stdout);
+    assert.doesNotMatch(configured.stdout, /▶ CONFIGURATION/);
+
+    const explicitJson = await run(['workflows', 'show', 'Incident approval', '--config', '--json']);
+    assert.equal(explicitJson.status, 0, explicitJson.stderr);
+    assert.deepEqual(JSON.parse(explicitJson.stdout).data, envelope.data);
+
+    const skipped = await run(['workflows', 'show', WF, '--no-config', '--styled']);
+    assert.equal(skipped.status, 0, skipped.stderr);
+    assert.doesNotMatch(skipped.stdout, /▶ CONFIGURATION| {7}(?:script|table):|\(Run Script\)/);
 
     const usage = await run(['workflows', 'list', '--limit', '0', '--json']);
     assert.equal(usage.status, 2, usage.stderr);

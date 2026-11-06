@@ -509,6 +509,38 @@ Table API GETs and requires no checkout. `listPublishedWorkflowVersionsForTable`
 is the reuse seam for table-behavior discovery; it reports the named table
 association only and does not discover script-started workflows.
 
+The flat `transitions` JSON remains compatible; `transitions_by_activity` adds
+name/sys_id-ordered source groups (including terminal activities) with outgoing
+edges ordered by destination name then transition sys_id. `loops` reports cyclic
+strongly connected components (including self-loops), every participating edge,
+and members entered from outside the component. Analysis is in-memory only.
+`coverage.loops_found` counts observed components, not every simple cycle;
+`coverage.loop_detection_complete` requires complete activity/transition reads
+and known endpoints. Incomplete detection must never claim no loops. Graph
+completeness is independent of missing conditions or activity definitions;
+existing integrity findings remain visible. Reaching a transition query bound
+sets `coverage.transitions_truncated` and makes overall coverage incomplete.
+
+`src/workflow-steps.js` numbers already-loaded activities by iterative depth-first
+preorder from the selected version's `start_activity_id`. Outgoing edges prefer
+unconditional or `Always`, then destination name/ID, condition name/ID and edge
+ID (locale-independent). Already-numbered activities are never revisited.
+Unreached activities append by name/ID and are labelled as not reached from start.
+`steps` exposes `{ number, sys_id, name, reached_from_start }`; `step_order` names
+`start_traversal` or `stable_fallback` and supplies a fallback reason when the start
+is missing/unreadable or topology cannot be read. Fallback numbers do not claim
+flow order. Partial topology is explicitly described as observed only.
+
+Every transition adds `is_sequential`: only one preferred edge to the next
+reached step can be implicit, so parallel conditions remain visible. Fallback
+and unreached steps hide no edges. Human `STEPS` prints numbered activities,
+terminal markers (only with complete topology), and non-sequential exceptions;
+`LOOPS` uses those same numbers. Only edges within a detected cyclic component
+that return to an earlier/equal step get the closing `↺` marker. This changes no
+SCC membership or completeness semantics. Record IDs (including IDs embedded in
+scripts/free text) stay in JSON, not the formatted outline. Configuration detail
+is separate from the steps so scripts do not interrupt the numbered flow.
+
 ## Flow Designer action definition
 
 `src/processflow-actions.js` owns the resource-specific action lifecycle.
