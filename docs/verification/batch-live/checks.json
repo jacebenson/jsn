@@ -1,0 +1,21 @@
+{
+  "baseline": "2f47f0f991d25a27d794807e5c933a2ce2f18a85",
+  "branch_start": "142b286cbc2ba1be8e8cd3c59ffa3dde30278f98",
+  "focused": {
+    "tests": 140,
+    "pass": 140,
+    "fail": 0,
+    "skipped": 0
+  },
+  "help": {
+    "tests": 42,
+    "pass": 42,
+    "fail": 0,
+    "skipped": 0
+  },
+  "lint_exit": 0,
+  "branch_full_exit": 1,
+  "main_full_exit": 1,
+  "package_dry_run_exit": 0,
+  "audit_exit": 1
+}

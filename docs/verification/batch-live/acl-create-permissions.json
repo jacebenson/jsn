@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "data": {
+    "result": [
+      {
+        "sys_id": "9841c10a9f6012108647e8c40b0a1cd6",
+        "security_attribute": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_attribute/239bdf0c47d23110ba46ff58936d4330",
+          "value": "239bdf0c47d23110ba46ff58936d4330"
+        },
+        "decision_type": "deny",
+        "name": "sys_security_acl",
+        "admin_overrides": "false",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "b8bc2fd89f0112108647e8c40b0a1cf1",
+        "security_attribute": "",
+        "decision_type": "deny",
+        "name": "sys_security_acl",
+        "admin_overrides": "false",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "cecb3a9d7f000001691574db5c0f8807",
+        "security_attribute": "",
+        "decision_type": "allow",
+        "name": "sys_security_acl",
+        "admin_overrides": "false",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      }
+    ]
+  },
+  "summary": "GET api/now/table/sys_security_acl?sysparm_query=name%3Dsys_security_acl%5Eoperation%3Dcreate&sysparm_fields=sys_id,name,operation,admin_overrides,security_attribute,script,decision_type&sysparm_limit=20",
+  "breadcrumbs": []
+}

@@ -1,0 +1,173 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch plan",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 5
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": false,
+      "approved": false
+    },
+    "context_diagnostics": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-f1_variable",
+      "HOLLY-BATCH-1793991459-f1_policy",
+      "HOLLY-BATCH-1793991459-f1_item",
+      "HOLLY-BATCH-1793991459-f0_variable",
+      "HOLLY-BATCH-1793991459-f0_item"
+    ],
+    "counts": {
+      "steps": 5,
+      "creates": 0,
+      "updates": 0,
+      "deletes": 5,
+      "writes": 0
+    },
+    "partial": false,
+    "writes_performed": false,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_variable",
+        "type": "catalog_variable",
+        "table": "item_option_new",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+          "match_field": "sys_id",
+          "matched": "holly_batch_1793991459_f1_variable"
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.cat_item",
+            "ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f1_variable.sys_id",
+          "steps.HOLLY-BATCH-1793991459-f1_variable.catalog_variable"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_policy",
+        "type": "catalog_ui_policy",
+        "table": "catalog_ui_policy",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.catalog_item",
+            "ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f1_policy.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f1_variable",
+          "HOLLY-BATCH-1793991459-f1_policy"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f1_item"
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f0_variable",
+        "type": "catalog_variable",
+        "table": "item_option_new",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+          "match_field": "sys_id",
+          "matched": "holly_batch_1793991459_f0_variable"
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.cat_item",
+            "ref": "steps.HOLLY-BATCH-1793991459-f0_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f0_variable.sys_id",
+          "steps.HOLLY-BATCH-1793991459-f0_variable.catalog_variable"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f0_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f0_variable"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f0_item"
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f0_item.sys_id"
+        ],
+        "notes": []
+      }
+    ],
+    "plan_id": "0b996aacd6add6f429a7b8d7a1fe8b9e1a2ea4ced658a0299039e9d5bc380ebd",
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nOrder: HOLLY-BATCH-1793991459-f1_variable -> HOLLY-BATCH-1793991459-f1_policy -> HOLLY-BATCH-1793991459-f1_item -> HOLLY-BATCH-1793991459-f0_variable -> HOLLY-BATCH-1793991459-f0_item\nPlan: 5 step(s) — 0 create, 0 update, 5 delete; 0 writes.\nPlan ID: 0b996aacd6add6f429a7b8d7a1fe8b9e1a2ea4ced658a0299039e9d5bc380ebd\n\nHOLLY-BATCH-1793991459-f1_variable [catalog_variable] delete b176dbcb3bdc1f10531d2a8693e45a9c (holly_batch_1793991459_f1_variable)\n  pending fields.cat_item: steps.HOLLY-BATCH-1793991459-f1_item.sys_id\nHOLLY-BATCH-1793991459-f1_policy [catalog_ui_policy] delete 7976dbcb3bdc1f10531d2a8693e45a55\n  pending fields.catalog_item: steps.HOLLY-BATCH-1793991459-f1_item.sys_id\nHOLLY-BATCH-1793991459-f1_item [catalog_item] delete 2976dbcb3bdc1f10531d2a8693e45a36 (HOLLY-BATCH-1793991459-f1_item)\n  depends on: HOLLY-BATCH-1793991459-f1_variable, HOLLY-BATCH-1793991459-f1_policy\nHOLLY-BATCH-1793991459-f0_variable [catalog_variable] delete 1d76dbcb3bdc1f10531d2a8693e45a10 (holly_batch_1793991459_f0_variable)\n  pending fields.cat_item: steps.HOLLY-BATCH-1793991459-f0_item.sys_id\nHOLLY-BATCH-1793991459-f0_item [catalog_item] delete 70769bcb3bdc1f10531d2a8693e45a71 (HOLLY-BATCH-1793991459-f0_item)\n  depends on: HOLLY-BATCH-1793991459-f0_variable\n\nNo writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply."
+  },
+  "summary": "Plan: 5 step(s) — 0 create, 0 update, 5 delete; 0 writes",
+  "breadcrumbs": [
+    {
+      "action": "apply",
+      "cmd": "jsn batch apply --file /home/jace/work/jsn-batch-live/docs/verification/batch-live/create-cleanup-2-manifest.json --plan plan.json",
+      "description": "Apply after saving and inspecting batch plan --json as plan.json"
+    }
+  ]
+}

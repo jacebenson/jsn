@@ -1,0 +1,430 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch apply",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "HOLLY-BATCH-1793991459: authorized inert six-family live proof plus ACL",
+      "steps": 19
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": true,
+      "approved": true
+    },
+    "context_diagnostics": [
+      {
+        "code": "global_default_update_set",
+        "severity": "warning",
+        "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+        "remediation": {
+          "command": "jsn updatesets create --name \"My Feature\""
+        }
+      }
+    ],
+    "context_changes": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-f0_item",
+      "HOLLY-BATCH-1793991459-f0_variable",
+      "HOLLY-BATCH-1793991459-f1_item",
+      "HOLLY-BATCH-1793991459-f1_policy",
+      "HOLLY-BATCH-1793991459-f1_variable",
+      "HOLLY-BATCH-1793991459-f1_action",
+      "HOLLY-BATCH-1793991459-f2_item",
+      "HOLLY-BATCH-1793991459-f2_script",
+      "HOLLY-BATCH-1793991459-f3_policy",
+      "HOLLY-BATCH-1793991459-f3_action",
+      "HOLLY-BATCH-1793991459-f4_policy",
+      "HOLLY-BATCH-1793991459-f4_rule",
+      "HOLLY-BATCH-1793991459-f5_page",
+      "HOLLY-BATCH-1793991459-f5_container",
+      "HOLLY-BATCH-1793991459-f5_row",
+      "HOLLY-BATCH-1793991459-f5_column",
+      "HOLLY-BATCH-1793991459-f5_instance",
+      "HOLLY-BATCH-1793991459-acl",
+      "HOLLY-BATCH-1793991459-acl_role"
+    ],
+    "counts": {
+      "total": 19,
+      "created": 17,
+      "updated": 0,
+      "deleted": 0,
+      "failed": 1,
+      "skipped": 1
+    },
+    "partial": true,
+    "writes_performed": true,
+    "stopped": null,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-f0_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+        "payload": {
+          "name": "HOLLY-BATCH-1793991459-f0_item",
+          "active": false,
+          "short_description": "",
+          "type": "item"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f0_variable",
+        "type": "catalog_variable",
+        "table": "item_option_new",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f0_item"
+        ],
+        "status": "created",
+        "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+        "payload": {
+          "name": "holly_batch_1793991459_f0_variable",
+          "question_text": "HOLLY-BATCH-1793991459-f0_variable",
+          "type": 6,
+          "cat_item": "70769bcb3bdc1f10531d2a8693e45a71",
+          "mandatory": false,
+          "order": 100,
+          "active": false
+        },
+        "notes": [
+          "variable name derived as \"holly_batch_1793991459_f0_variable\" from the label"
+        ]
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+        "payload": {
+          "name": "HOLLY-BATCH-1793991459-f1_item",
+          "active": false,
+          "short_description": "",
+          "type": "item"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_policy",
+        "type": "catalog_ui_policy",
+        "table": "catalog_ui_policy",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f1_item"
+        ],
+        "status": "created",
+        "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+        "payload": {
+          "short_description": "HOLLY-BATCH-1793991459-f1_policy",
+          "catalog_item": "2976dbcb3bdc1f10531d2a8693e45a36",
+          "active": false
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_variable",
+        "type": "catalog_variable",
+        "table": "item_option_new",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f1_item"
+        ],
+        "status": "created",
+        "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+        "payload": {
+          "name": "holly_batch_1793991459_f1_variable",
+          "question_text": "HOLLY-BATCH-1793991459-f1_variable",
+          "type": 6,
+          "cat_item": "2976dbcb3bdc1f10531d2a8693e45a36",
+          "mandatory": false,
+          "order": 100,
+          "active": false
+        },
+        "notes": [
+          "variable name derived as \"holly_batch_1793991459_f1_variable\" from the label"
+        ]
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f1_action",
+        "type": "catalog_ui_policy_action",
+        "table": "catalog_ui_policy_action",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f1_policy",
+          "HOLLY-BATCH-1793991459-f1_variable"
+        ],
+        "status": "created",
+        "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+        "payload": {
+          "ui_policy": "7976dbcb3bdc1f10531d2a8693e45a55",
+          "catalog_variable": "IO:b176dbcb3bdc1f10531d2a8693e45a9c",
+          "mandatory": "true"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f2_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+        "payload": {
+          "name": "HOLLY-BATCH-1793991459-f2_item",
+          "active": false,
+          "short_description": "",
+          "type": "item"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f2_script",
+        "type": "catalog_client_script",
+        "table": "catalog_script_client",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f2_item"
+        ],
+        "status": "created",
+        "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+        "payload": {
+          "cat_item": "c2769bcb3bdc1f10531d2a8693e45a46",
+          "name": "HOLLY-BATCH-1793991459-f2_script",
+          "type": "onLoad",
+          "script": "function onLoad() {}",
+          "active": false
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f3_policy",
+        "type": "ui_policy",
+        "table": "sys_ui_policy",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+        "payload": {
+          "short_description": "HOLLY-BATCH-1793991459-f3_policy",
+          "table": "incident",
+          "active": false
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f3_action",
+        "type": "ui_policy_action",
+        "table": "sys_ui_policy_action",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f3_policy"
+        ],
+        "status": "created",
+        "sys_id": "56761fcb3bdc1f10531d2a8693e45a1b",
+        "payload": {
+          "ui_policy": "9a761fcb3bdc1f10531d2a8693e45a4b",
+          "field": "short_description",
+          "mandatory": "true"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f4_policy",
+        "type": "data_policy",
+        "table": "sys_data_policy2",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+        "payload": {
+          "model_table": "incident",
+          "short_description": "HOLLY-BATCH-1793991459-f4_policy",
+          "active": false
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f4_rule",
+        "type": "data_policy_rule",
+        "table": "sys_data_policy_rule",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f4_policy"
+        ],
+        "status": "created",
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+        "payload": {
+          "sys_data_policy": "a2761fcb3bdc1f10531d2a8693e45a72",
+          "table": "incident",
+          "field": "short_description",
+          "mandatory": "true"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+        "payload": {
+          "id": "HOLLY-BATCH-1793991459-f5_page",
+          "title": "HOLLY-BATCH-1793991459-f5_page",
+          "public": false,
+          "draft": true
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_page"
+        ],
+        "status": "created",
+        "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+        "payload": {
+          "sp_page": "b2761fcb3bdc1f10531d2a8693e45ae3",
+          "name": "HOLLY-BATCH-1793991459-f5_container",
+          "order": 100
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_row",
+        "type": "sp_row",
+        "table": "sp_row",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_container"
+        ],
+        "status": "created",
+        "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+        "payload": {
+          "sp_container": "b6761fcb3bdc1f10531d2a8693e45a57",
+          "order": 100,
+          "class_name": "HOLLY-BATCH-1793991459-f5_row"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_column",
+        "type": "sp_column",
+        "table": "sp_column",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_row"
+        ],
+        "status": "created",
+        "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+        "payload": {
+          "sp_row": "c3761fcb3bdc1f10531d2a8693e45aed",
+          "size": 12,
+          "class_name": "HOLLY-BATCH-1793991459-f5_column"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_instance",
+        "type": "sp_instance",
+        "table": "sp_instance",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_column"
+        ],
+        "status": "created",
+        "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+        "payload": {
+          "sp_column": "43765fcb3bdc1f10531d2a8693e45a0f",
+          "sp_widget": "003cb2ae24122010f877560803d529c2",
+          "title": "HOLLY-BATCH-1793991459-f5_instance",
+          "active": false
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-acl",
+        "type": "acl",
+        "table": "sys_security_acl",
+        "operation": "create",
+        "depends_on": [],
+        "status": "failed",
+        "payload": {
+          "name": "HOLLY-BATCH-1793991459-inert",
+          "operation": "read",
+          "type": "record",
+          "active": false,
+          "advanced": false,
+          "admin_overrides": true
+        },
+        "error": {
+          "code": "forbidden",
+          "message": "Access forbidden (HTTP 403)."
+        }
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-acl_role",
+        "type": "acl_role",
+        "table": "sys_security_acl_role",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-acl"
+        ],
+        "status": "skipped",
+        "skipped_reason": "dependency \"HOLLY-BATCH-1793991459-acl\" did not complete"
+      }
+    ],
+    "recovery": [
+      "A batch is not an atomic ServiceNow transaction: successful steps remain in place and are not rolled back.",
+      "Re-run recovery rule: remove or convert the completed steps before re-running (a retry must not recreate them).",
+      "Use each step's resolved sys_id below to reconcile or convert successful steps into explicit update steps.",
+      "Inspect failed steps on the instance before retrying; no automatic retry or replay was attempted.",
+      "Skipped steps made no change; retry them only after their dependency succeeds."
+    ],
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nResult: 17 created, 0 updated, 0 deleted, 1 failed, 1 skipped.\n\nHOLLY-BATCH-1793991459-f0_item [catalog_item] created 70769bcb3bdc1f10531d2a8693e45a71\nHOLLY-BATCH-1793991459-f0_variable [catalog_variable] created 1d76dbcb3bdc1f10531d2a8693e45a10\nHOLLY-BATCH-1793991459-f1_item [catalog_item] created 2976dbcb3bdc1f10531d2a8693e45a36\nHOLLY-BATCH-1793991459-f1_policy [catalog_ui_policy] created 7976dbcb3bdc1f10531d2a8693e45a55\nHOLLY-BATCH-1793991459-f1_variable [catalog_variable] created b176dbcb3bdc1f10531d2a8693e45a9c\nHOLLY-BATCH-1793991459-f1_action [catalog_ui_policy_action] created 4e76dbcb3bdc1f10531d2a8693e45ad5\nHOLLY-BATCH-1793991459-f2_item [catalog_item] created c2769bcb3bdc1f10531d2a8693e45a46\nHOLLY-BATCH-1793991459-f2_script [catalog_client_script] created 1e76dbcb3bdc1f10531d2a8693e45aba\nHOLLY-BATCH-1793991459-f3_policy [ui_policy] created 9a761fcb3bdc1f10531d2a8693e45a4b\nHOLLY-BATCH-1793991459-f3_action [ui_policy_action] created 56761fcb3bdc1f10531d2a8693e45a1b\nHOLLY-BATCH-1793991459-f4_policy [data_policy] created a2761fcb3bdc1f10531d2a8693e45a72\nHOLLY-BATCH-1793991459-f4_rule [data_policy_rule] created a2761fcb3bdc1f10531d2a8693e45aca\nHOLLY-BATCH-1793991459-f5_page [sp_page] created b2761fcb3bdc1f10531d2a8693e45ae3\nHOLLY-BATCH-1793991459-f5_container [sp_container] created b6761fcb3bdc1f10531d2a8693e45a57\nHOLLY-BATCH-1793991459-f5_row [sp_row] created c3761fcb3bdc1f10531d2a8693e45aed\nHOLLY-BATCH-1793991459-f5_column [sp_column] created 43765fcb3bdc1f10531d2a8693e45a0f\nHOLLY-BATCH-1793991459-f5_instance [sp_instance] created 5b761fcb3bdc1f10531d2a8693e45a2a\nHOLLY-BATCH-1793991459-acl [acl] failed — forbidden: Access forbidden (HTTP 403).\nHOLLY-BATCH-1793991459-acl_role [acl_role] skipped (dependency \"HOLLY-BATCH-1793991459-acl\" did not complete)\n\nPartial batch — not an atomic transaction and not rolled back:\n  A batch is not an atomic ServiceNow transaction: successful steps remain in place and are not rolled back.\n  Re-run recovery rule: remove or convert the completed steps before re-running (a retry must not recreate them).\n  Use each step's resolved sys_id below to reconcile or convert successful steps into explicit update steps.\n  Inspect failed steps on the instance before retrying; no automatic retry or replay was attempted.\n  Skipped steps made no change; retry them only after their dependency succeeds."
+  },
+  "summary": "PARTIAL: 17 created, 0 updated, 0 deleted, 1 failed, 1 skipped",
+  "breadcrumbs": [],
+  "context": {
+    "mutation": {
+      "scope": "global",
+      "application_id": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress",
+        "application_id": "global"
+      },
+      "diagnostics": [
+        {
+          "code": "global_default_update_set",
+          "severity": "warning",
+          "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+          "remediation": {
+            "command": "jsn updatesets create --name \"My Feature\""
+          }
+        }
+      ],
+      "approval_required": true,
+      "approved": true
+    }
+  }
+}

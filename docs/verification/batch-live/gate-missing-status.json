@@ -1,0 +1,11 @@
+{
+  "args": [
+    "batch",
+    "apply",
+    "--file",
+    "/home/jace/work/jsn-batch-live/docs/verification/batch-live/create-manifest.json",
+    "--force"
+  ],
+  "status": 2,
+  "signal": null
+}

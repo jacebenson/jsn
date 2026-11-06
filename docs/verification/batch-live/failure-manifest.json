@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "description": "HOLLY-BATCH-1793991459: live out-of-range integer child failure",
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_page",
+      "type": "sp_page",
+      "operation": "create",
+      "fields": {
+        "id": "HOLLY-BATCH-1793991459-fail_page",
+        "title": "HOLLY-BATCH-1793991459-fail_page",
+        "public": false,
+        "draft": true
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_container",
+      "type": "sp_container",
+      "operation": "create",
+      "fields": {
+        "sp_page": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-fail_page.sys_id"
+        },
+        "name": "HOLLY-BATCH-1793991459-fail_container",
+        "order": 9007199254740991
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_row",
+      "type": "sp_row",
+      "operation": "create",
+      "fields": {
+        "sp_container": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-fail_container.sys_id"
+        },
+        "class_name": "HOLLY-BATCH-1793991459-fail_row"
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_column",
+      "type": "sp_column",
+      "operation": "create",
+      "fields": {
+        "sp_row": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-fail_row.sys_id"
+        },
+        "class_name": "HOLLY-BATCH-1793991459-fail_column",
+        "size": 12
+      }
+    }
+  ]
+}

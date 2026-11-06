@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-bad_container",
+      "type": "sp_container",
+      "operation": "delete",
+      "target": {
+        "sys_id": "a5a713033b509f10dc18ea64c3e45aa6"
+      },
+      "fields": {
+        "sp_page": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-bad_page.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-bad_page",
+      "type": "sp_page",
+      "operation": "delete",
+      "target": {
+        "sys_id": "29a713033b509f10dc18ea64c3e45a8a"
+      },
+      "fields": {}
+    }
+  ]
+}

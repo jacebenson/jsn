@@ -162,6 +162,9 @@ export class OutputWriter {
     const resp = { ok: false, error: e.message, code: e.code, hint: e.hint || '' };
     if (e.resolution) resp.resolution = e.resolution;
     if (e.context) resp.context = e.context;
+    // Structured failure detail (e.g. batch manifest issues) is passed through
+    // unchanged; the envelope shape stays { ok:false, error, code, hint }.
+    if (e.details) resp.details = e.details;
     if (e.status === 401 || e.status === 403) resp.status = e.status;
     if (e.recovery) {
       resp.recovery = e.recovery;

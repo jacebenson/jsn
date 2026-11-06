@@ -1,0 +1,26 @@
+{
+  "missing": {
+    "ok": false,
+    "error": "Missing required argument: --plan",
+    "code": "usage_error",
+    "hint": "Run \"jsn batch apply --help\" for usage."
+  },
+  "manifest": {
+    "ok": false,
+    "error": "Batch plan is stale or does not match this manifest/instance. Re-plan before applying.",
+    "code": "usage_error",
+    "hint": ""
+  },
+  "payload": {
+    "ok": false,
+    "error": "Batch plan is stale or does not match this manifest/instance. Re-plan before applying.",
+    "code": "usage_error",
+    "hint": ""
+  },
+  "instance": {
+    "ok": false,
+    "error": "Batch plan is stale or does not match this manifest/instance. Re-plan before applying.",
+    "code": "usage_error",
+    "hint": ""
+  }
+}

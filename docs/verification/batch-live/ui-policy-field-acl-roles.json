@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "data": {
+    "result": [
+      {
+        "sys_id": "4a4b6c123712210066512f3c8e41f155",
+        "sys_security_acl": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_acl/0dc190923712210066512f3c8e41f18b",
+          "value": "0dc190923712210066512f3c8e41f18b"
+        },
+        "sys_user_role": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_user_role/b05940500a0a0aa70090a4893f6ff35d",
+          "value": "b05940500a0a0aa70090a4893f6ff35d"
+        }
+      }
+    ]
+  },
+  "summary": "GET api/now/table/sys_security_acl_role?sysparm_query=sys_security_acl%3D0dc190923712210066512f3c8e41f18b&sysparm_display_value%3Dall&sysparm_fields=sys_id,sys_security_acl,sys_user_role&sysparm_limit=20",
+  "breadcrumbs": []
+}

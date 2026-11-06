@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "data": {
+    "result": []
+  },
+  "summary": "GET api/now/table/sys_security_acl?sysparm_query=name%3Dcatalog_ui_policy_action.catalog_variable&sysparm_fields=sys_id,name,operation,script&sysparm_limit=10",
+  "breadcrumbs": []
+}

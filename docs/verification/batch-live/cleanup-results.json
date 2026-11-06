@@ -1,0 +1,452 @@
+[
+  {
+    "name": "HOLLY-BATCH-1793991459-bad_container",
+    "type": "sp_container",
+    "table": "sp_container",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+    "target": {
+      "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-bad_page - Container 2147483647"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-bad_page",
+    "type": "sp_page",
+    "table": "sp_page",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-bad_container"
+    ],
+    "status": "deleted",
+    "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+    "target": {
+      "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+      "match_field": "sys_id",
+      "matched": "holly_batch_1793991459_bad_page"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-fail_column",
+    "type": "sp_column",
+    "table": "sp_column",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "925797cf3b109f10dc18ea64c3e45adb",
+    "target": {
+      "sys_id": "925797cf3b109f10dc18ea64c3e45adb",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-fail_row",
+    "type": "sp_row",
+    "table": "sp_row",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-fail_column"
+    ],
+    "status": "deleted",
+    "sys_id": "9e57db4f3b109f10dc18ea64c3e45a26",
+    "target": {
+      "sys_id": "9e57db4f3b109f10dc18ea64c3e45a26",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-fail_container",
+    "type": "sp_container",
+    "table": "sp_container",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-fail_row"
+    ],
+    "status": "deleted",
+    "sys_id": "9e5797cf3b109f10dc18ea64c3e45acb",
+    "target": {
+      "sys_id": "9e5797cf3b109f10dc18ea64c3e45acb",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-fail_page - Container 2147483647"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-fail_page",
+    "type": "sp_page",
+    "table": "sp_page",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-fail_container"
+    ],
+    "status": "deleted",
+    "sys_id": "0e5757cf3b109f10dc18ea64c3e45a7c",
+    "target": {
+      "sys_id": "0e5757cf3b109f10dc18ea64c3e45a7c",
+      "match_field": "sys_id",
+      "matched": "holly_batch_1793991459_fail_page"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_instance",
+    "type": "sp_instance",
+    "table": "sp_instance",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+    "target": {
+      "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_column",
+    "type": "sp_column",
+    "table": "sp_column",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f5_instance"
+    ],
+    "status": "deleted",
+    "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+    "target": {
+      "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_row",
+    "type": "sp_row",
+    "table": "sp_row",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f5_column"
+    ],
+    "status": "deleted",
+    "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+    "target": {
+      "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_container",
+    "type": "sp_container",
+    "table": "sp_container",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f5_row"
+    ],
+    "status": "deleted",
+    "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+    "target": {
+      "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-f5_page - Container 100"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_page",
+    "type": "sp_page",
+    "table": "sp_page",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f5_container"
+    ],
+    "status": "deleted",
+    "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+    "target": {
+      "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+      "match_field": "sys_id",
+      "matched": "holly_batch_1793991459_f5_page"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f4_rule",
+    "type": "data_policy_rule",
+    "table": "sys_data_policy_rule",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+    "target": {
+      "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f4_policy",
+    "type": "data_policy",
+    "table": "sys_data_policy2",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f4_rule"
+    ],
+    "status": "deleted",
+    "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+    "target": {
+      "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f3_action",
+    "table": "sys_ui_policy_action",
+    "sys_id": "56761fcb3bdc1f10531d2a8693e45a1b",
+    "status": "deleted",
+    "lane": "explicit owned-orphan cleanup",
+    "before": {
+      "ui_policy": "",
+      "visible": "ignore",
+      "value_action": "ignore",
+      "sys_mod_count": "0",
+      "sys_updated_on": "2026-11-06 18:57:58",
+      "sys_tags": "",
+      "mandatory": "true",
+      "sys_class_name": "sys_ui_policy_action",
+      "sys_id": "56761fcb3bdc1f10531d2a8693e45a1b",
+      "sys_package": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_package/global",
+        "value": "global"
+      },
+      "sys_update_name": "sys_ui_policy_action_56761fcb3bdc1f10531d2a8693e45a1b",
+      "sys_updated_by": "jace.benson",
+      "field": "short_description",
+      "field_message_type": "none",
+      "sys_created_on": "2026-11-06 18:57:58",
+      "sys_name": "short_description",
+      "disabled": "ignore",
+      "sys_scope": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_scope/global",
+        "value": "global"
+      },
+      "cleared": "false",
+      "value": "",
+      "sys_created_by": "jace.benson",
+      "table": "",
+      "field_message": "",
+      "sys_policy": ""
+    },
+    "absence": {
+      "result": []
+    }
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f3_policy",
+    "type": "ui_policy",
+    "table": "sys_ui_policy",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+    "target": {
+      "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f2_script",
+    "type": "catalog_client_script",
+    "table": "catalog_script_client",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+    "target": {
+      "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-f2_script"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f2_item",
+    "type": "catalog_item",
+    "table": "sc_cat_item",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f2_script"
+    ],
+    "status": "deleted",
+    "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+    "target": {
+      "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-f2_item"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_action",
+    "table": "catalog_ui_policy_action",
+    "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+    "status": "deleted",
+    "lane": "explicit owned-orphan cleanup",
+    "before": {
+      "ui_policy": "",
+      "value_action": "ignore",
+      "sys_updated_on": "2026-11-06 18:57:56",
+      "mandatory": "true",
+      "sys_class_name": "catalog_ui_policy_action",
+      "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+      "sys_updated_by": "jace.benson",
+      "variable_set": "",
+      "field_message_type": "none",
+      "sys_created_on": "2026-11-06 18:57:56",
+      "sys_name": "",
+      "disabled": "ignore",
+      "sys_scope": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_scope/global",
+        "value": "global"
+      },
+      "value": "",
+      "sys_created_by": "jace.benson",
+      "table": "",
+      "order": "100",
+      "catalog_variable": "",
+      "visible": "ignore",
+      "catalog_item": "",
+      "sys_mod_count": "0",
+      "sys_tags": "",
+      "sys_package": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_package/global",
+        "value": "global"
+      },
+      "sys_update_name": "catalog_ui_policy_action_4e76dbcb3bdc1f10531d2a8693e45ad5",
+      "field": "",
+      "variable": "",
+      "cleared": "false",
+      "field_message": "",
+      "sys_policy": ""
+    },
+    "absence": {
+      "result": []
+    }
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_variable",
+    "type": "catalog_variable",
+    "table": "item_option_new",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+    "target": {
+      "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+      "match_field": "sys_id",
+      "matched": "holly_batch_1793991459_f1_variable"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_policy",
+    "type": "catalog_ui_policy",
+    "table": "catalog_ui_policy",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+    "target": {
+      "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+      "match_field": "sys_id",
+      "matched": null
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_item",
+    "type": "catalog_item",
+    "table": "sc_cat_item",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f1_variable",
+      "HOLLY-BATCH-1793991459-f1_policy"
+    ],
+    "status": "deleted",
+    "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+    "target": {
+      "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-f1_item"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f0_variable",
+    "type": "catalog_variable",
+    "table": "item_option_new",
+    "operation": "delete",
+    "depends_on": [],
+    "status": "deleted",
+    "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+    "target": {
+      "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+      "match_field": "sys_id",
+      "matched": "holly_batch_1793991459_f0_variable"
+    },
+    "payload": {},
+    "notes": []
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f0_item",
+    "type": "catalog_item",
+    "table": "sc_cat_item",
+    "operation": "delete",
+    "depends_on": [
+      "HOLLY-BATCH-1793991459-f0_variable"
+    ],
+    "status": "deleted",
+    "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+    "target": {
+      "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+      "match_field": "sys_id",
+      "matched": "HOLLY-BATCH-1793991459-f0_item"
+    },
+    "payload": {},
+    "notes": []
+  }
+]

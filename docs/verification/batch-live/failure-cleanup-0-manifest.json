@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_column",
+      "type": "sp_column",
+      "operation": "delete",
+      "target": {
+        "sys_id": "925797cf3b109f10dc18ea64c3e45adb"
+      },
+      "fields": {
+        "sp_row": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-fail_row.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_row",
+      "type": "sp_row",
+      "operation": "delete",
+      "target": {
+        "sys_id": "9e57db4f3b109f10dc18ea64c3e45a26"
+      },
+      "fields": {
+        "sp_container": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-fail_container.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_container",
+      "type": "sp_container",
+      "operation": "delete",
+      "target": {
+        "sys_id": "9e5797cf3b109f10dc18ea64c3e45acb"
+      },
+      "fields": {
+        "sp_page": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-fail_page.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-fail_page",
+      "type": "sp_page",
+      "operation": "delete",
+      "target": {
+        "sys_id": "0e5757cf3b109f10dc18ea64c3e45a7c"
+      },
+      "fields": {}
+    }
+  ]
+}

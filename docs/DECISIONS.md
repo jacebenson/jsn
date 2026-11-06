@@ -454,6 +454,34 @@ Publish snapshots from the live documentation index without re-ingesting source
 files; never include the Rails accounts database. Bootstrap failure falls back
 to the existing Git build and never removes a working index.
 
+## 2026-11-04: Batch manifests reference prior steps, they do not template them
+
+Batch orchestration is one shared engine over domain adapters, not a catalog
+bundle. The manifest schema is closed: unknown top-level keys, step keys, step
+types and adapter fields are validation errors, and an unsupported artifact type
+is rejected rather than approximated with a generic table write. References are
+exactly `{"$ref": "steps.<name>.<output>"}` — no string interpolation, script or
+expression evaluation — so the dependency graph is statically knowable before
+transport. Independent steps keep manifest order; references define order, and
+cycles are rejected with the whole issue list.
+
+Updates require an explicit target (full sys_id, or exact identifier plus
+adapter-declared literal scope) and creates reject targets, so a manifest never
+infers ownership from a matching name. `plan` is GET-only and is allowed on
+read-only profiles; `apply` resolves every update target before its first write.
+Apply is not atomic: successes persist, dependents of a failure are skipped,
+independent steps continue, and the result reports ids, statuses and recovery
+steps. Retrying the same create manifest creates new records, so reconciliation
+(convert completed creates into updates) is explicit, not an implicit
+idempotency claim.
+
+The read-only profile and capture-context rules are re-evaluated before every
+step; a context that becomes blocked stops the batch before that write instead
+of prompting mid-run. `apply` is a declared mutation through the capability
+registry, so no hand-maintained command list changes. The first delivered
+adapters are `catalog_item` and `catalog_variable`; further domains are adapters,
+not new orchestration paths. See `docs/batch-manifest.md`.
+
 ## Record watching uses AMB's Bayeux long-poll, not socket.io (2026-11-04)
 
 Issue #396 asks agents to observe one record instead of polling it. ServiceNow's
@@ -549,3 +577,27 @@ The note is width-aware: it wraps descriptions under the command on narrow
 terminals and never truncates or splits a command name. An interrupted first run
 (Ctrl-C) leaves either no marker and no note, or a complete marker and at most
 a partial note - never a complete note the marker does not record.
+
+## Batch families use verified adapters and inspected plan receipts
+
+Parent relationships belong to adapter schemas, never to a domain switch in the
+engine. Verify the live dictionary before adding a mapping, including inherited
+columns and reference values that are not sys_ids (catalog variable action
+selectors use `IO:<sys_id>`). Skip composite relationships rather than inventing
+a foreign key. The confirmed portal layout is page/container/row/column/instance,
+not page directly to instance. Data policies use `sys_data_policy2`.
+
+References define parent-first create/update execution. Delete reverses those
+edges, checks existing child/parent membership before writing, and requires an
+explicit error-free empty exact-ID query after each delete. Unverified child
+deletions block ancestors. Mixed destructive/non-destructive reference edges
+are rejected; independent declaration order remains stable.
+
+Apply requires an inspectable plan receipt and compares fresh target/payload
+preparation against it before the first write. Generated references are the only
+payload substitutions after planning. Receipt hashes detect accidental edits;
+they are not signatures or replay protection. No server business-rule/cascade
+simulation, rollback, unattended replay or implicit child discovery is claimed.
+Read-only and capture-context checks remain per-step; a safety stop never resumes
+later in the same batch. See `docs/batch-manifest.md` and
+`docs/batch-families-verification.md` for contracts and measured limits.

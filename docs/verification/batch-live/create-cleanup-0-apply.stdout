@@ -1,0 +1,205 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch apply",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 7
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": true,
+      "approved": true
+    },
+    "context_diagnostics": [
+      {
+        "code": "global_default_update_set",
+        "severity": "warning",
+        "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+        "remediation": {
+          "command": "jsn updatesets create --name \"My Feature\""
+        }
+      }
+    ],
+    "context_changes": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-f5_instance",
+      "HOLLY-BATCH-1793991459-f5_column",
+      "HOLLY-BATCH-1793991459-f5_row",
+      "HOLLY-BATCH-1793991459-f5_container",
+      "HOLLY-BATCH-1793991459-f5_page",
+      "HOLLY-BATCH-1793991459-f4_rule",
+      "HOLLY-BATCH-1793991459-f4_policy"
+    ],
+    "counts": {
+      "total": 7,
+      "created": 0,
+      "updated": 0,
+      "deleted": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    "partial": false,
+    "writes_performed": true,
+    "stopped": null,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_instance",
+        "type": "sp_instance",
+        "table": "sp_instance",
+        "operation": "delete",
+        "depends_on": [],
+        "status": "deleted",
+        "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+        "target": {
+          "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_column",
+        "type": "sp_column",
+        "table": "sp_column",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_instance"
+        ],
+        "status": "deleted",
+        "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+        "target": {
+          "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_row",
+        "type": "sp_row",
+        "table": "sp_row",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_column"
+        ],
+        "status": "deleted",
+        "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+        "target": {
+          "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_row"
+        ],
+        "status": "deleted",
+        "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+        "target": {
+          "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f5_page - Container 100"
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_container"
+        ],
+        "status": "deleted",
+        "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+        "target": {
+          "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+          "match_field": "sys_id",
+          "matched": "holly_batch_1793991459_f5_page"
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f4_rule",
+        "type": "data_policy_rule",
+        "table": "sys_data_policy_rule",
+        "operation": "delete",
+        "depends_on": [],
+        "status": "deleted",
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+        "target": {
+          "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f4_policy",
+        "type": "data_policy",
+        "table": "sys_data_policy2",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f4_rule"
+        ],
+        "status": "deleted",
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+        "target": {
+          "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "notes": []
+      }
+    ],
+    "recovery": [],
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nResult: 0 created, 0 updated, 7 deleted, 0 failed, 0 skipped.\n\nHOLLY-BATCH-1793991459-f5_instance [sp_instance] deleted 5b761fcb3bdc1f10531d2a8693e45a2a\nHOLLY-BATCH-1793991459-f5_column [sp_column] deleted 43765fcb3bdc1f10531d2a8693e45a0f\nHOLLY-BATCH-1793991459-f5_row [sp_row] deleted c3761fcb3bdc1f10531d2a8693e45aed\nHOLLY-BATCH-1793991459-f5_container [sp_container] deleted b6761fcb3bdc1f10531d2a8693e45a57\nHOLLY-BATCH-1793991459-f5_page [sp_page] deleted b2761fcb3bdc1f10531d2a8693e45ae3\nHOLLY-BATCH-1793991459-f4_rule [data_policy_rule] deleted a2761fcb3bdc1f10531d2a8693e45aca\nHOLLY-BATCH-1793991459-f4_policy [data_policy] deleted a2761fcb3bdc1f10531d2a8693e45a72"
+  },
+  "summary": "Applied: 0 created, 0 updated, 7 deleted",
+  "breadcrumbs": [],
+  "context": {
+    "mutation": {
+      "scope": "global",
+      "application_id": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress",
+        "application_id": "global"
+      },
+      "diagnostics": [
+        {
+          "code": "global_default_update_set",
+          "severity": "warning",
+          "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+          "remediation": {
+            "command": "jsn updatesets create --name \"My Feature\""
+          }
+        }
+      ],
+      "approval_required": true,
+      "approved": true
+    }
+  }
+}

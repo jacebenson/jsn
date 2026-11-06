@@ -1,0 +1,186 @@
+[
+  {
+    "table": "sp_container",
+    "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container?sysparm_query=sys_id%3Da5a713033b509f10dc18ea64c3e45aa6&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_page",
+    "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page?sysparm_query=sys_id%3D29a713033b509f10dc18ea64c3e45a8a&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_column",
+    "sys_id": "925797cf3b109f10dc18ea64c3e45adb",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_column?sysparm_query=sys_id%3D925797cf3b109f10dc18ea64c3e45adb&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_row",
+    "sys_id": "9e57db4f3b109f10dc18ea64c3e45a26",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_row?sysparm_query=sys_id%3D9e57db4f3b109f10dc18ea64c3e45a26&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_container",
+    "sys_id": "9e5797cf3b109f10dc18ea64c3e45acb",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container?sysparm_query=sys_id%3D9e5797cf3b109f10dc18ea64c3e45acb&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_page",
+    "sys_id": "0e5757cf3b109f10dc18ea64c3e45a7c",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page?sysparm_query=sys_id%3D0e5757cf3b109f10dc18ea64c3e45a7c&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_instance",
+    "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_instance?sysparm_query=sys_id%3D5b761fcb3bdc1f10531d2a8693e45a2a&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_column",
+    "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_column?sysparm_query=sys_id%3D43765fcb3bdc1f10531d2a8693e45a0f&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_row",
+    "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_row?sysparm_query=sys_id%3Dc3761fcb3bdc1f10531d2a8693e45aed&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_container",
+    "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container?sysparm_query=sys_id%3Db6761fcb3bdc1f10531d2a8693e45a57&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_page",
+    "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page?sysparm_query=sys_id%3Db2761fcb3bdc1f10531d2a8693e45ae3&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_data_policy_rule",
+    "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy_rule?sysparm_query=sys_id%3Da2761fcb3bdc1f10531d2a8693e45aca&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_data_policy2",
+    "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy2?sysparm_query=sys_id%3Da2761fcb3bdc1f10531d2a8693e45a72&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_ui_policy_action",
+    "sys_id": "56761fcb3bdc1f10531d2a8693e45a1b",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy_action?sysparm_query=sys_id%3D56761fcb3bdc1f10531d2a8693e45a1b&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_ui_policy",
+    "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy?sysparm_query=sys_id%3D9a761fcb3bdc1f10531d2a8693e45a4b&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "catalog_script_client",
+    "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_script_client?sysparm_query=sys_id%3D1e76dbcb3bdc1f10531d2a8693e45aba&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sc_cat_item",
+    "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item?sysparm_query=sys_id%3Dc2769bcb3bdc1f10531d2a8693e45a46&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "catalog_ui_policy_action",
+    "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_ui_policy_action?sysparm_query=sys_id%3D4e76dbcb3bdc1f10531d2a8693e45ad5&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "item_option_new",
+    "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/item_option_new?sysparm_query=sys_id%3Db176dbcb3bdc1f10531d2a8693e45a9c&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "catalog_ui_policy",
+    "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_ui_policy?sysparm_query=sys_id%3D7976dbcb3bdc1f10531d2a8693e45a55&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sc_cat_item",
+    "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item?sysparm_query=sys_id%3D2976dbcb3bdc1f10531d2a8693e45a36&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "item_option_new",
+    "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/item_option_new?sysparm_query=sys_id%3D1d76dbcb3bdc1f10531d2a8693e45a10&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sc_cat_item",
+    "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item?sysparm_query=sys_id%3D70769bcb3bdc1f10531d2a8693e45a71&sysparm_fields=sys_id&sysparm_limit=1",
+    "response": {
+      "result": []
+    }
+  }
+]

@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "data": {
+    "result": [
+      {
+        "reference": "",
+        "sys_id": "3323663f87833110eb5e8489cebb35be",
+        "read_only": "false",
+        "name": "catalog_ui_policy_action",
+        "attributes": "edge_encryption_enabled=true",
+        "internal_type": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_glide_object?name=string",
+          "value": "string"
+        },
+        "element": "catalog_variable"
+      },
+      {
+        "reference": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_db_object?name=sys_ui_policy",
+          "value": "sys_ui_policy"
+        },
+        "sys_id": "8b4b9a7387033110eb5e8489cebb352c",
+        "read_only": "false",
+        "name": "sys_ui_policy_action",
+        "attributes": "encode_utf8=false",
+        "internal_type": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_glide_object?name=reference",
+          "value": "reference"
+        },
+        "element": "ui_policy"
+      }
+    ]
+  },
+  "summary": "GET api/now/table/sys_dictionary?sysparm_query=nameINsys_ui_policy_action,catalog_ui_policy_action%5EelementINui_policy,catalog_variable&sysparm_fields=sys_id,name,element,reference,read_only,attributes,internal_type&sysparm_limit=20",
+  "breadcrumbs": []
+}

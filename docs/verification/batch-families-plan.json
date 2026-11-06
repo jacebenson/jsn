@@ -1,0 +1,545 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch plan",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "PR 416 read-only multi-family planning verification; NOT applied",
+      "steps": 17
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": false,
+      "approved": false
+    },
+    "context_diagnostics": [],
+    "order": [
+      "f0_item",
+      "f0_variable",
+      "f1_item",
+      "f1_policy",
+      "f1_variable",
+      "f1_action",
+      "f2_item",
+      "f2_script",
+      "f3_policy",
+      "f3_action",
+      "f4_policy",
+      "f4_rule",
+      "f5_page",
+      "f5_container",
+      "f5_row",
+      "f5_column",
+      "f5_instance"
+    ],
+    "counts": {
+      "steps": 17,
+      "creates": 17,
+      "updates": 0,
+      "deletes": 0,
+      "writes": 0
+    },
+    "partial": false,
+    "writes_performed": false,
+    "steps": [
+      {
+        "name": "f0_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "name": "Batch fixture",
+          "active": false,
+          "short_description": "",
+          "type": "item"
+        },
+        "pending_refs": [],
+        "produces": [
+          "steps.f0_item.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f0_variable",
+        "type": "catalog_variable",
+        "table": "item_option_new",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f0_item"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "name": "cpu",
+          "question_text": "CPU",
+          "type": 6,
+          "cat_item": {
+            "$ref": "steps.f0_item.sys_id"
+          },
+          "mandatory": false,
+          "order": 100,
+          "active": true
+        },
+        "pending_refs": [
+          {
+            "location": "fields.cat_item",
+            "ref": "steps.f0_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f0_variable.sys_id",
+          "steps.f0_variable.catalog_variable"
+        ],
+        "notes": [
+          "variable name derived as \"cpu\" from the label"
+        ]
+      },
+      {
+        "name": "f1_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "name": "Batch fixture",
+          "active": false,
+          "short_description": "",
+          "type": "item"
+        },
+        "pending_refs": [],
+        "produces": [
+          "steps.f1_item.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f1_policy",
+        "type": "catalog_ui_policy",
+        "table": "catalog_ui_policy",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f1_item"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "short_description": "Batch policy",
+          "catalog_item": {
+            "$ref": "steps.f1_item.sys_id"
+          },
+          "active": false
+        },
+        "pending_refs": [
+          {
+            "location": "fields.catalog_item",
+            "ref": "steps.f1_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f1_policy.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f1_variable",
+        "type": "catalog_variable",
+        "table": "item_option_new",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f1_item"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "name": "cpu",
+          "question_text": "CPU",
+          "type": 6,
+          "cat_item": {
+            "$ref": "steps.f1_item.sys_id"
+          },
+          "mandatory": false,
+          "order": 100,
+          "active": true
+        },
+        "pending_refs": [
+          {
+            "location": "fields.cat_item",
+            "ref": "steps.f1_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f1_variable.sys_id",
+          "steps.f1_variable.catalog_variable"
+        ],
+        "notes": [
+          "variable name derived as \"cpu\" from the label"
+        ]
+      },
+      {
+        "name": "f1_action",
+        "type": "catalog_ui_policy_action",
+        "table": "catalog_ui_policy_action",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f1_policy",
+          "f1_variable"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "ui_policy": {
+            "$ref": "steps.f1_policy.sys_id"
+          },
+          "catalog_variable": {
+            "$ref": "steps.f1_variable.catalog_variable"
+          },
+          "mandatory": "true"
+        },
+        "pending_refs": [
+          {
+            "location": "fields.ui_policy",
+            "ref": "steps.f1_policy.sys_id"
+          },
+          {
+            "location": "fields.catalog_variable",
+            "ref": "steps.f1_variable.catalog_variable"
+          }
+        ],
+        "produces": [
+          "steps.f1_action.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f2_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "name": "Batch fixture",
+          "active": false,
+          "short_description": "",
+          "type": "item"
+        },
+        "pending_refs": [],
+        "produces": [
+          "steps.f2_item.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f2_script",
+        "type": "catalog_client_script",
+        "table": "catalog_script_client",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f2_item"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "cat_item": {
+            "$ref": "steps.f2_item.sys_id"
+          },
+          "name": "Batch script",
+          "type": "onLoad",
+          "script": "function onLoad() {}",
+          "active": false
+        },
+        "pending_refs": [
+          {
+            "location": "fields.cat_item",
+            "ref": "steps.f2_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f2_script.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f3_policy",
+        "type": "ui_policy",
+        "table": "sys_ui_policy",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "short_description": "Batch policy",
+          "table": "incident",
+          "active": false
+        },
+        "pending_refs": [],
+        "produces": [
+          "steps.f3_policy.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f3_action",
+        "type": "ui_policy_action",
+        "table": "sys_ui_policy_action",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f3_policy"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "ui_policy": {
+            "$ref": "steps.f3_policy.sys_id"
+          },
+          "field": "short_description",
+          "mandatory": "true"
+        },
+        "pending_refs": [
+          {
+            "location": "fields.ui_policy",
+            "ref": "steps.f3_policy.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f3_action.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f4_policy",
+        "type": "data_policy",
+        "table": "sys_data_policy2",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "model_table": "incident",
+          "short_description": "Batch policy",
+          "active": false
+        },
+        "pending_refs": [],
+        "produces": [
+          "steps.f4_policy.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f4_rule",
+        "type": "data_policy_rule",
+        "table": "sys_data_policy_rule",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f4_policy"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "sys_data_policy": {
+            "$ref": "steps.f4_policy.sys_id"
+          },
+          "table": "incident",
+          "field": "short_description",
+          "mandatory": "true"
+        },
+        "pending_refs": [
+          {
+            "location": "fields.sys_data_policy",
+            "ref": "steps.f4_policy.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f4_rule.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f5_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "id": "jsn_batch_fixture",
+          "title": "Batch page",
+          "public": false
+        },
+        "pending_refs": [],
+        "produces": [
+          "steps.f5_page.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f5_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f5_page"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "sp_page": {
+            "$ref": "steps.f5_page.sys_id"
+          },
+          "name": "Batch container",
+          "order": 100
+        },
+        "pending_refs": [
+          {
+            "location": "fields.sp_page",
+            "ref": "steps.f5_page.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f5_container.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f5_row",
+        "type": "sp_row",
+        "table": "sp_row",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f5_container"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "sp_container": {
+            "$ref": "steps.f5_container.sys_id"
+          },
+          "order": 100
+        },
+        "pending_refs": [
+          {
+            "location": "fields.sp_container",
+            "ref": "steps.f5_container.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f5_row.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f5_column",
+        "type": "sp_column",
+        "table": "sp_column",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f5_row"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "sp_row": {
+            "$ref": "steps.f5_row.sys_id"
+          },
+          "size": 12
+        },
+        "pending_refs": [
+          {
+            "location": "fields.sp_row",
+            "ref": "steps.f5_row.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f5_column.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "f5_instance",
+        "type": "sp_instance",
+        "table": "sp_instance",
+        "operation": "create",
+        "status": "planned",
+        "depends_on": [
+          "f5_column"
+        ],
+        "target": {
+          "mode": "create"
+        },
+        "payload": {
+          "sp_column": {
+            "$ref": "steps.f5_column.sys_id"
+          },
+          "sp_widget": "003cb2ae24122010f877560803d529c2",
+          "title": "Batch instance",
+          "active": false
+        },
+        "pending_refs": [
+          {
+            "location": "fields.sp_column",
+            "ref": "steps.f5_column.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.f5_instance.sys_id"
+        ],
+        "notes": []
+      }
+    ],
+    "plan_id": "1a8b9b241d9f360711cc1ca914880a265d5a516912479a68c34d2f60a76dd112",
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nOrder: f0_item -> f0_variable -> f1_item -> f1_policy -> f1_variable -> f1_action -> f2_item -> f2_script -> f3_policy -> f3_action -> f4_policy -> f4_rule -> f5_page -> f5_container -> f5_row -> f5_column -> f5_instance\nPlan: 17 step(s) — 17 create, 0 update, 0 delete; 0 writes.\nPlan ID: 1a8b9b241d9f360711cc1ca914880a265d5a516912479a68c34d2f60a76dd112\n\nf0_item [catalog_item] create\n  name: Batch fixture\n  active: false\n  short_description: \n  type: item\nf0_variable [catalog_variable] create\n  depends on: f0_item\n  name: cpu\n  question_text: CPU\n  type: 6\n  cat_item: {\"$ref\":\"steps.f0_item.sys_id\"}\n  mandatory: false\n  order: 100\n  active: true\n  note: variable name derived as \"cpu\" from the label\n  pending fields.cat_item: steps.f0_item.sys_id\nf1_item [catalog_item] create\n  name: Batch fixture\n  active: false\n  short_description: \n  type: item\nf1_policy [catalog_ui_policy] create\n  depends on: f1_item\n  short_description: Batch policy\n  catalog_item: {\"$ref\":\"steps.f1_item.sys_id\"}\n  active: false\n  pending fields.catalog_item: steps.f1_item.sys_id\nf1_variable [catalog_variable] create\n  depends on: f1_item\n  name: cpu\n  question_text: CPU\n  type: 6\n  cat_item: {\"$ref\":\"steps.f1_item.sys_id\"}\n  mandatory: false\n  order: 100\n  active: true\n  note: variable name derived as \"cpu\" from the label\n  pending fields.cat_item: steps.f1_item.sys_id\nf1_action [catalog_ui_policy_action] create\n  depends on: f1_policy, f1_variable\n  ui_policy: {\"$ref\":\"steps.f1_policy.sys_id\"}\n  catalog_variable: {\"$ref\":\"steps.f1_variable.catalog_variable\"}\n  mandatory: true\n  pending fields.ui_policy: steps.f1_policy.sys_id\n  pending fields.catalog_variable: steps.f1_variable.catalog_variable\nf2_item [catalog_item] create\n  name: Batch fixture\n  active: false\n  short_description: \n  type: item\nf2_script [catalog_client_script] create\n  depends on: f2_item\n  cat_item: {\"$ref\":\"steps.f2_item.sys_id\"}\n  name: Batch script\n  type: onLoad\n  script: function onLoad() {}\n  active: false\n  pending fields.cat_item: steps.f2_item.sys_id\nf3_policy [ui_policy] create\n  short_description: Batch policy\n  table: incident\n  active: false\nf3_action [ui_policy_action] create\n  depends on: f3_policy\n  ui_policy: {\"$ref\":\"steps.f3_policy.sys_id\"}\n  field: short_description\n  mandatory: true\n  pending fields.ui_policy: steps.f3_policy.sys_id\nf4_policy [data_policy] create\n  model_table: incident\n  short_description: Batch policy\n  active: false\nf4_rule [data_policy_rule] create\n  depends on: f4_policy\n  sys_data_policy: {\"$ref\":\"steps.f4_policy.sys_id\"}\n  table: incident\n  field: short_description\n  mandatory: true\n  pending fields.sys_data_policy: steps.f4_policy.sys_id\nf5_page [sp_page] create\n  id: jsn_batch_fixture\n  title: Batch page\n  public: false\nf5_container [sp_container] create\n  depends on: f5_page\n  sp_page: {\"$ref\":\"steps.f5_page.sys_id\"}\n  name: Batch container\n  order: 100\n  pending fields.sp_page: steps.f5_page.sys_id\nf5_row [sp_row] create\n  depends on: f5_container\n  sp_container: {\"$ref\":\"steps.f5_container.sys_id\"}\n  order: 100\n  pending fields.sp_container: steps.f5_container.sys_id\nf5_column [sp_column] create\n  depends on: f5_row\n  sp_row: {\"$ref\":\"steps.f5_row.sys_id\"}\n  size: 12\n  pending fields.sp_row: steps.f5_row.sys_id\nf5_instance [sp_instance] create\n  depends on: f5_column\n  sp_column: {\"$ref\":\"steps.f5_column.sys_id\"}\n  sp_widget: 003cb2ae24122010f877560803d529c2\n  title: Batch instance\n  active: false\n  pending fields.sp_column: steps.f5_column.sys_id\n\nNo writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply."
+  },
+  "summary": "Plan: 17 step(s) — 17 create, 0 update, 0 delete; 0 writes",
+  "breadcrumbs": [
+    {
+      "action": "apply",
+      "cmd": "jsn batch apply --file /home/jace/work/jsn-batch-live-multi-manifest.json --plan plan.json",
+      "description": "Apply after saving and inspecting batch plan --json as plan.json"
+    }
+  ]
+}
