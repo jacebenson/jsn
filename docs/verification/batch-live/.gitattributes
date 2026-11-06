@@ -1,0 +1,3 @@
+# Preserve captured test output byte-for-byte, including assertion whitespace.
+# Source and structured evidence keep the repository's normal whitespace checks.
+*.log -whitespace

@@ -337,6 +337,7 @@ export async function applyBatch({
       continue;
     }
 
+    let writtenSysId = null;
     try {
       let record;
       if (step.operation === 'delete') {
@@ -360,6 +361,20 @@ export async function applyBatch({
       if (!sysId) {
         throw errUsage('The write returned no readable sys_id; treat this step as unverified and inspect the instance before retrying.');
       }
+      writtenSysId = sysId;
+      // Table API can return 201 + sys_id while field ACLs silently discard
+      // parent links. Read the persisted row before publishing any outputs.
+      // Numeric fields can also be silently clamped/coerced by the server.
+      const checkedFields = Object.entries(step.adapter.fields).filter(([field, spec]) =>
+        (spec.parent || spec.type === 'integer') && Object.hasOwn(prepared.payload, field));
+      if (step.operation !== 'delete' && checkedFields.length) {
+        const persisted = await sdk.get(step.adapter.table, sysId);
+        for (const [field] of checkedFields) {
+          if (!persisted || String(persisted[field]?.value ?? persisted[field] ?? '') !== String(prepared.payload[field])) {
+            throw errUsage(`Write readback mismatch at ${field}; record ${step.adapter.table}/${sysId} may exist. Inspect and clean up before retrying.`);
+          }
+        }
+      }
       outputs[name] = step.adapter.produceOutputs ? step.adapter.produceOutputs({ sysId, record }) : { sys_id: sysId };
       steps.push(baseStep(step, {
         status: { create: 'created', update: 'updated', delete: 'deleted' }[step.operation],
@@ -372,6 +387,7 @@ export async function applyBatch({
       failed.add(name);
       steps.push(baseStep(step, {
         status: 'failed',
+        ...(writtenSysId ? { sys_id: writtenSysId, write_outcome: `${step.operation}d_unverified` } : {}),
         target: step.operation !== 'create' ? targets.get(name) : undefined,
         payload: prepared.payload,
         error: { code: error.code || 'api_error', message: error.message },

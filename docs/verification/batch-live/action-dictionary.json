@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "data": {
+    "result": []
+  },
+  "summary": "GET api/now/table/sys_dictionary?sysparm_query=name%3DINsys_ui_policy_action,catalog_ui_policy_action%5Eelement%3DINui_policy,catalog_variable&sysparm_fields=sys_id,name,element,reference,read_only,attributes,internal_type&sysparm_limit=20",
+  "breadcrumbs": []
+}

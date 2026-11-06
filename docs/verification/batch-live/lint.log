@@ -1,0 +1,4 @@
+
+> @jacebenson/jsn@5.4.0 lint
+> npx eslint src/ bin/ test/
+

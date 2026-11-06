@@ -65,7 +65,7 @@ function log(entry) {
 }
 
 class SDKClient {
-  constructor() { this.baseURL = 'https://fixture.invalid'; this.writes = 0; }
+  constructor() { this.baseURL = 'https://fixture.invalid'; this.writes = 0; this.rows = new Map(); }
   async list(table, params) {
     const query = params?.get?.('sysparm_query') || '';
     if (table === 'sys_user') return [{ sys_id: 'user' }];
@@ -78,6 +78,7 @@ class SDKClient {
       const completed = process.env.FIXTURE_COMPLETE_AFTER_FIRST === '1' && this.writes > 0;
       return { name: 'My Feature', application: 'app1', state: completed ? 'complete' : 'in progress' };
     }
+    if (this.rows.has(id)) return this.rows.get(id);
     if (table === 'item_option_new') return { sys_id: id, name: 'Existing', cat_item: '10000000000000000000000000000001' };
     if (table === 'sc_cat_item') return { sys_id: id, name: 'Existing' };
     return { sys_id: id };
@@ -90,7 +91,9 @@ class SDKClient {
       error.code = 'api_error';
       throw error;
     }
-    return { sys_id: table === 'sc_cat_item' ? '1000000000000000000000000000000' + this.writes : '2000000000000000000000000000000' + this.writes };
+    const record = { ...data, sys_id: table === 'sc_cat_item' ? '1000000000000000000000000000000' + this.writes : '2000000000000000000000000000000' + this.writes };
+    this.rows.set(record.sys_id, process.env.FIXTURE_DROP_PARENT === '1' && table === 'item_option_new' ? { ...record, cat_item: '' } : record);
+    return record;
   }
   async update(table, id, data) {
     this.writes += 1;
@@ -178,6 +181,18 @@ it('applies in dependency order with resolved IDs', () => {
   assert.equal(result.entries[1].table, 'item_option_new');
   assert.equal(result.entries[1].data.cat_item, output.data.steps[0].sys_id);
   assert.equal(output.data.steps[1].sys_id, '20000000000000000000000000000002');
+});
+
+it('silent parent-field discard exits partial with the created id retained for cleanup', () => {
+  const result = run(['batch', 'apply', '--file', manifestPath, '--json'], { FIXTURE_DROP_PARENT: '1' });
+  assert.equal(result.status, 1, result.stderr);
+  const output = json(result);
+  assert.deepEqual(output.data.steps.map(step => step.status), ['created', 'failed']);
+  assert.equal(output.data.steps[1].sys_id, '20000000000000000000000000000002');
+  assert.equal(output.data.steps[1].write_outcome, 'created_unverified');
+  assert.match(output.data.steps[1].error.message, /readback mismatch at cat_item/);
+  assert.equal(output.data.counts.created, 1);
+  assert.equal(result.entries.length, 2);
 });
 
 it('reports partial success and skips dependents after a failed step', () => {

@@ -44,19 +44,23 @@ function createManifest() {
 
 function harness({ list = async () => [], get = async (table, id) => ({ sys_id: id, name: 'Existing' }), failOn = null } = {}) {
   const calls = [];
+  const persisted = new Map();
   const sdk = {
     baseURL: 'https://fixture.invalid',
     async create(table, data) {
       calls.push({ op: 'create', table, data });
       if (failOn === table) throw Object.assign(new Error(`create failed for ${table}`), { code: 'api_error' });
-      return { sys_id: table === 'sc_cat_item' ? `item${calls.length}` : `var${calls.length}` };
+      const record = { sys_id: table === 'sc_cat_item' ? `item${calls.length}` : `var${calls.length}`, ...data };
+      persisted.set(record.sys_id, record);
+      return record;
     },
     async update(table, id, data) {
       calls.push({ op: 'update', table, id, data });
       if (failOn === table) throw Object.assign(new Error(`update failed for ${table}`), { code: 'api_error' });
-      return { sys_id: id };
+      persisted.set(id, { sys_id: id, ...data });
+      return persisted.get(id);
     },
-    async get(table, id) { calls.push({ op: 'get', table, id }); return get(table, id); },
+    async get(table, id) { calls.push({ op: 'get', table, id }); return persisted.get(id) || get(table, id); },
     async list(table, params) { calls.push({ op: 'list', table, params }); return list(table, params); },
   };
   return { sdk, calls };

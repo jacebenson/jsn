@@ -1,0 +1,23 @@
+{
+  "marker": "HOLLY-BATCH-1793991459",
+  "instance": "https://tygrllcdemo5.service-now.com",
+  "default_set": "def2e6fb87833110eb5e8489cebb355f",
+  "tables": [
+    "sc_cat_item",
+    "item_option_new",
+    "catalog_ui_policy",
+    "catalog_ui_policy_action",
+    "catalog_script_client",
+    "sys_ui_policy",
+    "sys_ui_policy_action",
+    "sys_data_policy2",
+    "sys_data_policy_rule",
+    "sp_page",
+    "sp_container",
+    "sp_row",
+    "sp_column",
+    "sp_instance",
+    "sys_security_acl",
+    "sys_security_acl_role"
+  ]
+}

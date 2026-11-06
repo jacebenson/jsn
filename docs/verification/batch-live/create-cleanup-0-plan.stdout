@@ -1,0 +1,228 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch plan",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 7
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": false,
+      "approved": false
+    },
+    "context_diagnostics": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-f5_instance",
+      "HOLLY-BATCH-1793991459-f5_column",
+      "HOLLY-BATCH-1793991459-f5_row",
+      "HOLLY-BATCH-1793991459-f5_container",
+      "HOLLY-BATCH-1793991459-f5_page",
+      "HOLLY-BATCH-1793991459-f4_rule",
+      "HOLLY-BATCH-1793991459-f4_policy"
+    ],
+    "counts": {
+      "steps": 7,
+      "creates": 0,
+      "updates": 0,
+      "deletes": 7,
+      "writes": 0
+    },
+    "partial": false,
+    "writes_performed": false,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_instance",
+        "type": "sp_instance",
+        "table": "sp_instance",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.sp_column",
+            "ref": "steps.HOLLY-BATCH-1793991459-f5_column.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f5_instance.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_column",
+        "type": "sp_column",
+        "table": "sp_column",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_instance"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.sp_row",
+            "ref": "steps.HOLLY-BATCH-1793991459-f5_row.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f5_column.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_row",
+        "type": "sp_row",
+        "table": "sp_row",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_column"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.sp_container",
+            "ref": "steps.HOLLY-BATCH-1793991459-f5_container.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f5_row.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_row"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f5_page - Container 100"
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.sp_page",
+            "ref": "steps.HOLLY-BATCH-1793991459-f5_page.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f5_container.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f5_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f5_container"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+          "match_field": "sys_id",
+          "matched": "holly_batch_1793991459_f5_page"
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f5_page.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f4_rule",
+        "type": "data_policy_rule",
+        "table": "sys_data_policy_rule",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.sys_data_policy",
+            "ref": "steps.HOLLY-BATCH-1793991459-f4_policy.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f4_rule.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f4_policy",
+        "type": "data_policy",
+        "table": "sys_data_policy2",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f4_rule"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f4_policy.sys_id"
+        ],
+        "notes": []
+      }
+    ],
+    "plan_id": "9309cfd0c0b73c8d5e717b463857362b0a4850831454d4901cf3c749cfccc8d2",
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nOrder: HOLLY-BATCH-1793991459-f5_instance -> HOLLY-BATCH-1793991459-f5_column -> HOLLY-BATCH-1793991459-f5_row -> HOLLY-BATCH-1793991459-f5_container -> HOLLY-BATCH-1793991459-f5_page -> HOLLY-BATCH-1793991459-f4_rule -> HOLLY-BATCH-1793991459-f4_policy\nPlan: 7 step(s) — 0 create, 0 update, 7 delete; 0 writes.\nPlan ID: 9309cfd0c0b73c8d5e717b463857362b0a4850831454d4901cf3c749cfccc8d2\n\nHOLLY-BATCH-1793991459-f5_instance [sp_instance] delete 5b761fcb3bdc1f10531d2a8693e45a2a\n  pending fields.sp_column: steps.HOLLY-BATCH-1793991459-f5_column.sys_id\nHOLLY-BATCH-1793991459-f5_column [sp_column] delete 43765fcb3bdc1f10531d2a8693e45a0f\n  depends on: HOLLY-BATCH-1793991459-f5_instance\n  pending fields.sp_row: steps.HOLLY-BATCH-1793991459-f5_row.sys_id\nHOLLY-BATCH-1793991459-f5_row [sp_row] delete c3761fcb3bdc1f10531d2a8693e45aed\n  depends on: HOLLY-BATCH-1793991459-f5_column\n  pending fields.sp_container: steps.HOLLY-BATCH-1793991459-f5_container.sys_id\nHOLLY-BATCH-1793991459-f5_container [sp_container] delete b6761fcb3bdc1f10531d2a8693e45a57 (HOLLY-BATCH-1793991459-f5_page - Container 100)\n  depends on: HOLLY-BATCH-1793991459-f5_row\n  pending fields.sp_page: steps.HOLLY-BATCH-1793991459-f5_page.sys_id\nHOLLY-BATCH-1793991459-f5_page [sp_page] delete b2761fcb3bdc1f10531d2a8693e45ae3 (holly_batch_1793991459_f5_page)\n  depends on: HOLLY-BATCH-1793991459-f5_container\nHOLLY-BATCH-1793991459-f4_rule [data_policy_rule] delete a2761fcb3bdc1f10531d2a8693e45aca\n  pending fields.sys_data_policy: steps.HOLLY-BATCH-1793991459-f4_policy.sys_id\nHOLLY-BATCH-1793991459-f4_policy [data_policy] delete a2761fcb3bdc1f10531d2a8693e45a72\n  depends on: HOLLY-BATCH-1793991459-f4_rule\n\nNo writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply."
+  },
+  "summary": "Plan: 7 step(s) — 0 create, 0 update, 7 delete; 0 writes",
+  "breadcrumbs": [
+    {
+      "action": "apply",
+      "cmd": "jsn batch apply --file /home/jace/work/jsn-batch-live/docs/verification/batch-live/create-cleanup-0-manifest.json --plan plan.json",
+      "description": "Apply after saving and inspecting batch plan --json as plan.json"
+    }
+  ]
+}

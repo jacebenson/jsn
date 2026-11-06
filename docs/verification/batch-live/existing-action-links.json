@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "data": {
+    "result": [
+      {
+        "sys_id": "024fb32e9f70130090c2bb0e832e707b",
+        "ui_policy": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy/\n\t\t\t98ee332e9f70130090c2bb0e832e",
+          "value": "\n\t\t\t98ee332e9f70130090c2bb0e832e"
+        },
+        "field": "breakdown",
+        "table": "pa_widgets",
+        "sys_policy": ""
+      },
+      {
+        "sys_id": "818f372e9f70130090c2bb0e832e70d2",
+        "ui_policy": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy/\n\t\t\t98ee332e9f70130090c2bb0e832e",
+          "value": "\n\t\t\t98ee332e9f70130090c2bb0e832e"
+        },
+        "field": "element_level2",
+        "table": "pa_widgets",
+        "sys_policy": ""
+      }
+    ]
+  },
+  "summary": "GET api/now/table/sys_ui_policy_action?sysparm_query=ui_policyISNOTEMPTY&sysparm_fields=sys_id,ui_policy,sys_policy,table,field&sysparm_limit=2",
+  "breadcrumbs": []
+}

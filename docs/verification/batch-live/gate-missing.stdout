@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "error": "Missing required argument: --plan",
+  "code": "usage_error",
+  "hint": "Run \"jsn batch apply --help\" for usage."
+}

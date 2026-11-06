@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-f3_policy",
+      "type": "ui_policy",
+      "operation": "delete",
+      "target": {
+        "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b"
+      },
+      "fields": {}
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f2_script",
+      "type": "catalog_client_script",
+      "operation": "delete",
+      "target": {
+        "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba"
+      },
+      "fields": {
+        "cat_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f2_item.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f2_item",
+      "type": "catalog_item",
+      "operation": "delete",
+      "target": {
+        "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46"
+      },
+      "fields": {}
+    }
+  ]
+}

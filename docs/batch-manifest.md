@@ -155,7 +155,17 @@ server cascades/business rules are not simulated.
 ## Status, failure and safety
 
 Each step reports `created`, `updated`, `deleted`, `failed` or `skipped`, its
-resolved ID/target and relevant payload/error. Failed parents skip dependent
+resolved ID/target and relevant payload/error. After create/update, supplied
+parent links and integer fields are read back by sys_id before publishing outputs.
+A 201 response alone does not prove those fields persisted: field ACLs can silently
+strip links, and integer values can be coerced. Missing, unreadable or mismatched
+readback fails the step and blocks dependents. Such a failure retains the known
+`sys_id` and `write_outcome: "created_unverified"` / `"updated_unverified"` for
+explicit recovery; it is not counted as successful creation/update. Other string
+and boolean fields can still be normalized by business rules; this is not a
+full-payload equality or atomicity guarantee. See the [live proof and instance
+limitations](verification/batch-live/REPORT.md).
+Failed parents skip dependent
 children on create/update. Failed child deletes skip ancestors. Independent
 steps continue after operational failures; safety stops are sticky and skip
 all remaining steps. Read-only and capture-context protections remain active

@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "error": "Batch plan is stale or does not match this manifest/instance. Re-plan before applying.",
+  "code": "usage_error",
+  "hint": ""
+}

@@ -1,0 +1,146 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch apply",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "HOLLY-BATCH-1793991459: live out-of-range integer child failure",
+      "steps": 4
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": true,
+      "approved": true
+    },
+    "context_diagnostics": [
+      {
+        "code": "global_default_update_set",
+        "severity": "warning",
+        "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+        "remediation": {
+          "command": "jsn updatesets create --name \"My Feature\""
+        }
+      }
+    ],
+    "context_changes": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-fail_page",
+      "HOLLY-BATCH-1793991459-fail_container",
+      "HOLLY-BATCH-1793991459-fail_row",
+      "HOLLY-BATCH-1793991459-fail_column"
+    ],
+    "counts": {
+      "total": 4,
+      "created": 4,
+      "updated": 0,
+      "deleted": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "partial": false,
+    "writes_performed": true,
+    "stopped": null,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-fail_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "0e5757cf3b109f10dc18ea64c3e45a7c",
+        "payload": {
+          "id": "HOLLY-BATCH-1793991459-fail_page",
+          "title": "HOLLY-BATCH-1793991459-fail_page",
+          "public": false,
+          "draft": true
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-fail_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-fail_page"
+        ],
+        "status": "created",
+        "sys_id": "9e5797cf3b109f10dc18ea64c3e45acb",
+        "payload": {
+          "sp_page": "0e5757cf3b109f10dc18ea64c3e45a7c",
+          "name": "HOLLY-BATCH-1793991459-fail_container",
+          "order": 9007199254740991
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-fail_row",
+        "type": "sp_row",
+        "table": "sp_row",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-fail_container"
+        ],
+        "status": "created",
+        "sys_id": "9e57db4f3b109f10dc18ea64c3e45a26",
+        "payload": {
+          "sp_container": "9e5797cf3b109f10dc18ea64c3e45acb",
+          "class_name": "HOLLY-BATCH-1793991459-fail_row"
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-fail_column",
+        "type": "sp_column",
+        "table": "sp_column",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-fail_row"
+        ],
+        "status": "created",
+        "sys_id": "925797cf3b109f10dc18ea64c3e45adb",
+        "payload": {
+          "sp_row": "9e57db4f3b109f10dc18ea64c3e45a26",
+          "class_name": "HOLLY-BATCH-1793991459-fail_column",
+          "size": 12
+        },
+        "notes": []
+      }
+    ],
+    "recovery": [],
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nResult: 4 created, 0 updated, 0 deleted, 0 failed, 0 skipped.\n\nHOLLY-BATCH-1793991459-fail_page [sp_page] created 0e5757cf3b109f10dc18ea64c3e45a7c\nHOLLY-BATCH-1793991459-fail_container [sp_container] created 9e5797cf3b109f10dc18ea64c3e45acb\nHOLLY-BATCH-1793991459-fail_row [sp_row] created 9e57db4f3b109f10dc18ea64c3e45a26\nHOLLY-BATCH-1793991459-fail_column [sp_column] created 925797cf3b109f10dc18ea64c3e45adb"
+  },
+  "summary": "Applied: 4 created, 0 updated, 0 deleted",
+  "breadcrumbs": [],
+  "context": {
+    "mutation": {
+      "scope": "global",
+      "application_id": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress",
+        "application_id": "global"
+      },
+      "diagnostics": [
+        {
+          "code": "global_default_update_set",
+          "severity": "warning",
+          "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+          "remediation": {
+            "command": "jsn updatesets create --name \"My Feature\""
+          }
+        }
+      ],
+      "approval_required": true,
+      "approved": true
+    }
+  }
+}

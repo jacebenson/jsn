@@ -444,6 +444,12 @@ an explicit error-free empty GET query to prove absence. Missing/malformed
 results never count as proof. A failed child delete blocks its ancestors.
 
 Apply reports `created`/`updated`/`deleted`/`failed`/`skipped` with resolved IDs.
+Before publishing create/update outputs, it reads back supplied parent links and
+integer fields by sys_id. A successful response that silently discarded a parent
+or coerced an integer is not success. A post-write verification failure retains
+its known sys_id and `write_outcome: created_unverified|updated_unverified` so
+recovery can inspect/delete the record without recreating it. This checks these
+specific persisted fields, not every business-rule-normalized field.
 Failed create/update parents skip children; independent steps continue after
 operational failures. Safety stops skip all remaining steps. A batch is not an
 atomic ServiceNow transaction: successes persist, nothing is rolled back or

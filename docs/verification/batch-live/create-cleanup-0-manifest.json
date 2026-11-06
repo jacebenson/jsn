@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_instance",
+      "type": "sp_instance",
+      "operation": "delete",
+      "target": {
+        "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a"
+      },
+      "fields": {
+        "sp_column": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_column.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_column",
+      "type": "sp_column",
+      "operation": "delete",
+      "target": {
+        "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f"
+      },
+      "fields": {
+        "sp_row": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_row.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_row",
+      "type": "sp_row",
+      "operation": "delete",
+      "target": {
+        "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed"
+      },
+      "fields": {
+        "sp_container": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_container.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_container",
+      "type": "sp_container",
+      "operation": "delete",
+      "target": {
+        "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57"
+      },
+      "fields": {
+        "sp_page": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_page.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_page",
+      "type": "sp_page",
+      "operation": "delete",
+      "target": {
+        "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3"
+      },
+      "fields": {}
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f4_rule",
+      "type": "data_policy_rule",
+      "operation": "delete",
+      "target": {
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca"
+      },
+      "fields": {
+        "sys_data_policy": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f4_policy.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f4_policy",
+      "type": "data_policy",
+      "operation": "delete",
+      "target": {
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72"
+      },
+      "fields": {}
+    }
+  ]
+}

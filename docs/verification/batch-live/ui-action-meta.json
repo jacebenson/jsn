@@ -1,0 +1,915 @@
+{
+  "ok": true,
+  "data": {
+    "result": {
+      "columns": {
+        "ui_policy": {
+          "filterable": true,
+          "reference_display_field": "short_description",
+          "reference_attributes": {
+            "display_field": "short_description",
+            "ref_ac_columns": [],
+            "ref_ac_columns_search": "",
+            "ref_ac_display_value": true,
+            "ref_auto_completer": ""
+          },
+          "canmatch": true,
+          "cangroup": true,
+          "label": "UI policy",
+          "type": "reference",
+          "max_unit": "days",
+          "mandatory": false,
+          "reference": "sys_ui_policy",
+          "default": "",
+          "base_type": "GUID",
+          "read_only": false,
+          "hint": "Name of the policy",
+          "name": "ui_policy",
+          "attributes": "encode_utf8=false",
+          "column_type": "element",
+          "internal_type": "reference",
+          "cansort": true,
+          "max_length": 32
+        },
+        "visible": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Visible",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Determine if the field is visible on the form",
+          "name": "visible",
+          "attributes": "edge_encryption_enabled=true",
+          "choice_type": 3,
+          "column_type": "element",
+          "choices": [
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Leave alone"
+                }
+              },
+              "sequence": 10,
+              "used": false,
+              "label": "Leave alone",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Leave alone",
+              "missing": false,
+              "value": "ignore"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "True"
+                }
+              },
+              "sequence": 20,
+              "used": false,
+              "label": "True",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "True",
+              "missing": false,
+              "value": "true"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "False"
+                }
+              },
+              "sequence": 30,
+              "used": false,
+              "label": "False",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "False",
+              "missing": false,
+              "value": "false"
+            }
+          ],
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "value_action": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Value action",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Determine if the field must be cleared or set a value",
+          "name": "value_action",
+          "attributes": "edge_encryption_enabled=true",
+          "choice_type": 3,
+          "column_type": "element",
+          "choices": [
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Leave alone"
+                }
+              },
+              "sequence": 10,
+              "used": false,
+              "label": "Leave alone",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Leave alone",
+              "missing": false,
+              "value": "ignore"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Set value"
+                }
+              },
+              "sequence": 20,
+              "used": false,
+              "label": "Set value",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Set value",
+              "missing": false,
+              "value": "set_value"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Clear value"
+                }
+              },
+              "sequence": 30,
+              "used": false,
+              "label": "Clear value",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Clear value",
+              "missing": false,
+              "value": "clear_value"
+            }
+          ],
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_mod_count": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Updates",
+          "type": "integer",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "integer",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_mod_count",
+          "column_type": "element",
+          "internal_type": "integer",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_updated_on": {
+          "filterable": true,
+          "canmatch": true,
+          "label": "Updated",
+          "type": "glide_date_time",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "datetime",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_updated_on",
+          "column_type": "element",
+          "internal_type": "glide_date_time",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_tags": {
+          "filterable": true,
+          "cangroup": true,
+          "label": "Tags",
+          "type": "related_tags",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": true,
+          "hint": "",
+          "name": "sys_tags",
+          "attributes": "can_group=true,no_audit=true,serializer=com.glide.script.OmittedElementXMLSerializer",
+          "column_type": "tag",
+          "internal_type": "related_tags",
+          "max_length": 0
+        },
+        "mandatory": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Mandatory",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Determine if the field is mandatory for the form",
+          "name": "mandatory",
+          "attributes": "edge_encryption_enabled=true",
+          "choice_type": 3,
+          "column_type": "element",
+          "choices": [
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Leave alone"
+                }
+              },
+              "sequence": 10,
+              "used": false,
+              "label": "Leave alone",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Leave alone",
+              "missing": false,
+              "value": "ignore"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "True"
+                }
+              },
+              "sequence": 20,
+              "used": false,
+              "label": "True",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "True",
+              "missing": false,
+              "value": "true"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "False"
+                }
+              },
+              "sequence": 30,
+              "used": false,
+              "label": "False",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "False",
+              "missing": false,
+              "value": "false"
+            }
+          ],
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_class_name": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Class",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_class_name",
+          "choice_type": 3,
+          "column_type": "element",
+          "choices": [
+            {
+              "sequence": -1,
+              "used": false,
+              "label": "Catalog UI Policy Action",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Catalog UI Policy Action",
+              "missing": false,
+              "value": "catalog_ui_policy_action"
+            },
+            {
+              "sequence": -1,
+              "used": false,
+              "label": "UI Policy Action",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "UI Policy Action",
+              "missing": false,
+              "value": "sys_ui_policy_action"
+            },
+            {
+              "sequence": -1,
+              "used": false,
+              "label": "Wizard UI Policy Action",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Wizard UI Policy Action",
+              "missing": false,
+              "value": "expert_ui_policy_action"
+            },
+            {
+              "sequence": -1,
+              "used": false,
+              "label": "Workflow UI Policy Action",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Workflow UI Policy Action",
+              "missing": false,
+              "value": "wf_ui_policy_action"
+            }
+          ],
+          "internal_type": "sys_class_name",
+          "cansort": true,
+          "max_length": 80
+        },
+        "sys_id": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Sys ID",
+          "type": "GUID",
+          "max_unit": "days",
+          "mandatory": true,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_id",
+          "column_type": "element",
+          "internal_type": "GUID",
+          "cansort": true,
+          "max_length": 32
+        },
+        "sys_package": {
+          "filterable": true,
+          "reference_display_field": "name",
+          "reference_attributes": {
+            "display_field": "name",
+            "ref_ac_columns": [],
+            "ref_ac_columns_search": "",
+            "ref_ac_display_value": true,
+            "ref_auto_completer": ""
+          },
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Package",
+          "type": "reference",
+          "max_unit": "days",
+          "mandatory": false,
+          "reference": "sys_package",
+          "default": "",
+          "base_type": "GUID",
+          "read_only": true,
+          "hint": "",
+          "name": "sys_package",
+          "attributes": "readonly_clickthrough=true",
+          "column_type": "element",
+          "internal_type": "reference",
+          "cansort": true,
+          "max_length": 32
+        },
+        "sys_update_name": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Update name",
+          "type": "string",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_update_name",
+          "column_type": "element",
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 250
+        },
+        "sys_updated_by": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Updated by",
+          "type": "string",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_updated_by",
+          "column_type": "element",
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "field": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Field name",
+          "type": "field_name",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Name of the field",
+          "name": "field",
+          "attributes": "allow_references=true",
+          "column_type": "element",
+          "internal_type": "field_name",
+          "cansort": true,
+          "max_length": 80
+        },
+        "field_message_type": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Field message type",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Determine if and what type of field message must be set for the field",
+          "name": "field_message_type",
+          "attributes": "edge_encryption_enabled=true",
+          "choice_type": 3,
+          "column_type": "element",
+          "choices": [
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "None"
+                }
+              },
+              "sequence": 10,
+              "used": false,
+              "label": "None",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "None",
+              "missing": false,
+              "value": "none"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Info"
+                }
+              },
+              "sequence": 20,
+              "used": false,
+              "label": "Info",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Info",
+              "missing": false,
+              "value": "info"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Warning"
+                }
+              },
+              "sequence": 30,
+              "used": false,
+              "label": "Warning",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Warning",
+              "missing": false,
+              "value": "warning"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Error"
+                }
+              },
+              "sequence": 40,
+              "used": false,
+              "label": "Error",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Error",
+              "missing": false,
+              "value": "error"
+            }
+          ],
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_created_on": {
+          "filterable": true,
+          "canmatch": true,
+          "label": "Created",
+          "type": "glide_date_time",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "datetime",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_created_on",
+          "column_type": "element",
+          "internal_type": "glide_date_time",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_name": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Display name",
+          "type": "string",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Display name for this application file",
+          "name": "sys_name",
+          "column_type": "element",
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 255
+        },
+        "disabled": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Read only",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Determine if the field will appear as read-only",
+          "name": "disabled",
+          "attributes": "edge_encryption_enabled=true",
+          "choice_type": 3,
+          "column_type": "element",
+          "choices": [
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Leave alone"
+                }
+              },
+              "sequence": 10,
+              "used": false,
+              "label": "Leave alone",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Leave alone",
+              "missing": false,
+              "value": "ignore"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "True"
+                }
+              },
+              "sequence": 20,
+              "used": false,
+              "label": "True",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "True",
+              "missing": false,
+              "value": "true"
+            },
+            {
+              "parameters": {
+                "name": "sys_ui_policy_action",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "False"
+                }
+              },
+              "sequence": 30,
+              "used": false,
+              "label": "False",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "False",
+              "missing": false,
+              "value": "false"
+            }
+          ],
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "sys_scope": {
+          "filterable": true,
+          "reference_display_field": "name",
+          "reference_attributes": {
+            "display_field": "name",
+            "ref_ac_columns": [],
+            "ref_ac_columns_search": "",
+            "ref_ac_display_value": true,
+            "ref_auto_completer": ""
+          },
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Application",
+          "type": "reference",
+          "max_unit": "days",
+          "mandatory": false,
+          "reference": "sys_scope",
+          "default": "",
+          "base_type": "GUID",
+          "read_only": false,
+          "hint": "Application containing this record",
+          "name": "sys_scope",
+          "attributes": "ignore_filter_on_new=true,list_force_default=true,readonly_clickthrough=true",
+          "column_type": "element",
+          "internal_type": "reference",
+          "cansort": true,
+          "max_length": 32
+        },
+        "cleared": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Clear the field value",
+          "type": "boolean",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "false",
+          "base_type": "boolean",
+          "read_only": false,
+          "hint": "Set the field to an empty value, or -- None -- in the case of choices",
+          "name": "cleared",
+          "column_type": "element",
+          "internal_type": "boolean",
+          "cansort": true,
+          "max_length": 40
+        },
+        "value": {
+          "filterable": true,
+          "canmatch": true,
+          "label": "Value",
+          "type": "string",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Set the field to the specified value",
+          "name": "value",
+          "attributes": "edge_encryption_enabled=true",
+          "multitext": true,
+          "column_type": "element",
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 512
+        },
+        "sys_created_by": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Created by",
+          "type": "string",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "",
+          "name": "sys_created_by",
+          "column_type": "element",
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        },
+        "table": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Table",
+          "type": "table_name",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": true,
+          "hint": "Table to which this policy applies",
+          "name": "table",
+          "attributes": "base_start=true",
+          "column_type": "element",
+          "internal_type": "table_name",
+          "cansort": true,
+          "max_length": 80
+        },
+        "field_message": {
+          "filterable": true,
+          "canmatch": true,
+          "label": "Field message",
+          "type": "translated_text",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Set the specified message to the field",
+          "name": "field_message",
+          "multitext": true,
+          "column_type": "element",
+          "internal_type": "translated_text",
+          "cansort": true,
+          "max_length": 512
+        },
+        "sys_policy": {
+          "filterable": true,
+          "canmatch": true,
+          "cangroup": true,
+          "label": "Protection policy",
+          "type": "choice",
+          "max_unit": "days",
+          "mandatory": false,
+          "default": "",
+          "base_type": "string",
+          "read_only": false,
+          "hint": "Determines how application files are protected when downloaded or installed",
+          "name": "sys_policy",
+          "attributes": "plugin_upgrade_update_only=true",
+          "choice_type": 1,
+          "column_type": "element",
+          "choices": [
+            {
+              "label": "-- None --",
+              "sequence": -1,
+              "used": false,
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "-- None --",
+              "missing": false,
+              "value": ""
+            },
+            {
+              "parameters": {
+                "name": "sys_metadata",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Read-only"
+                }
+              },
+              "sequence": 1,
+              "used": false,
+              "label": "Read-only",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Read-only",
+              "missing": false,
+              "value": "read"
+            },
+            {
+              "parameters": {
+                "name": "sys_metadata",
+                "dependent_values": [
+                  ""
+                ],
+                "dependent_values_map": {
+                  "": "Protected"
+                }
+              },
+              "sequence": 2,
+              "used": false,
+              "label": "Protected",
+              "selected": false,
+              "image": "",
+              "reference": false,
+              "rawLabel": "Protected",
+              "missing": false,
+              "value": "protected"
+            }
+          ],
+          "internal_type": "string",
+          "cansort": true,
+          "max_length": 40
+        }
+      }
+    }
+  },
+  "summary": "GET api/now/ui/meta/sys_ui_policy_action",
+  "breadcrumbs": []
+}

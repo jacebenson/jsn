@@ -82,10 +82,15 @@ name and element (table_name/table_name/string), not a reference to a dictionary
 entry. No dictionary parent-reference column exists in the returned complete
 field set. Per the task's skip-if-different rule, no guessed adapter was added.
 
-sys_user_role returned no readable rows both unfiltered and with name=itil, so
-ACL-role support is schema-confirmed and unit-tested but excluded from the live
-multi-family plan; no role sys_id was invented. sys_security_operation and
-sys_security_type did return read and record as their keys, respectively.
+sys_user_role returned no readable rows both unfiltered and with name=itil during
+that earlier read-only check, so ACL-role rows were excluded from that plan. This
+visibility result did **not** reproduce in the authorized live run: the correct
+`name=itil` query returns role `282bf1fac6112285017366cb5f867469`. The live ACL
+create instead fails with HTTP 403; its m2m step is skipped. See
+[the live report](verification/batch-live/REPORT.md) for exact queries, responses,
+field-level UI action denial, and cleanup proof. No pre-existing ACL was changed.
+sys_security_operation and sys_security_type returned read and record as their
+keys, respectively.
 
 Reproduce the field check from the retained raw captures:
 

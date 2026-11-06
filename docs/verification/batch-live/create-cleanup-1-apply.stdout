@@ -1,0 +1,129 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch apply",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 3
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": true,
+      "approved": true
+    },
+    "context_diagnostics": [
+      {
+        "code": "global_default_update_set",
+        "severity": "warning",
+        "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+        "remediation": {
+          "command": "jsn updatesets create --name \"My Feature\""
+        }
+      }
+    ],
+    "context_changes": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-f3_policy",
+      "HOLLY-BATCH-1793991459-f2_script",
+      "HOLLY-BATCH-1793991459-f2_item"
+    ],
+    "counts": {
+      "total": 3,
+      "created": 0,
+      "updated": 0,
+      "deleted": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "partial": false,
+    "writes_performed": true,
+    "stopped": null,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-f3_policy",
+        "type": "ui_policy",
+        "table": "sys_ui_policy",
+        "operation": "delete",
+        "depends_on": [],
+        "status": "deleted",
+        "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+        "target": {
+          "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f2_script",
+        "type": "catalog_client_script",
+        "table": "catalog_script_client",
+        "operation": "delete",
+        "depends_on": [],
+        "status": "deleted",
+        "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+        "target": {
+          "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f2_script"
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f2_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f2_script"
+        ],
+        "status": "deleted",
+        "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+        "target": {
+          "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f2_item"
+        },
+        "payload": {},
+        "notes": []
+      }
+    ],
+    "recovery": [],
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nResult: 0 created, 0 updated, 3 deleted, 0 failed, 0 skipped.\n\nHOLLY-BATCH-1793991459-f3_policy [ui_policy] deleted 9a761fcb3bdc1f10531d2a8693e45a4b\nHOLLY-BATCH-1793991459-f2_script [catalog_client_script] deleted 1e76dbcb3bdc1f10531d2a8693e45aba\nHOLLY-BATCH-1793991459-f2_item [catalog_item] deleted c2769bcb3bdc1f10531d2a8693e45a46"
+  },
+  "summary": "Applied: 0 created, 0 updated, 3 deleted",
+  "breadcrumbs": [],
+  "context": {
+    "mutation": {
+      "scope": "global",
+      "application_id": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress",
+        "application_id": "global"
+      },
+      "diagnostics": [
+        {
+          "code": "global_default_update_set",
+          "severity": "warning",
+          "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+          "remediation": {
+            "command": "jsn updatesets create --name \"My Feature\""
+          }
+        }
+      ],
+      "approval_required": true,
+      "approved": true
+    }
+  }
+}

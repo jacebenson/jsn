@@ -1,0 +1,13 @@
+{
+  "args": [
+    "batch",
+    "apply",
+    "--file",
+    "/home/jace/work/jsn-batch-live/docs/verification/batch-live/create-cleanup-0-manifest.json",
+    "--plan",
+    "/home/jace/work/jsn-batch-live/docs/verification/batch-live/create-cleanup-0-receipt.json",
+    "--force"
+  ],
+  "status": 0,
+  "signal": null
+}

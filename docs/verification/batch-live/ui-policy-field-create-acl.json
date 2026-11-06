@@ -1,0 +1,51 @@
+{
+  "ok": true,
+  "data": {
+    "result": {
+      "security_attribute": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_attribute/082319110bd70210f6146e1ef777b21f",
+        "value": "082319110bd70210f6146e1ef777b21f"
+      },
+      "advanced": "false",
+      "admin_overrides": "false",
+      "description": "Disable create on ui_policy field",
+      "controlled_by_refs": "",
+      "sys_updated_on": "2024-09-09 07:55:39",
+      "type": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_type/record",
+        "value": "record"
+      },
+      "sys_class_name": "sys_security_acl",
+      "sys_id": "0dc190923712210066512f3c8e41f18b",
+      "sys_updated_by": "admin",
+      "applies_to": "",
+      "decision_type": "deny",
+      "sys_created_on": "2014-08-04 22:32:48",
+      "sys_name": "sys_ui_policy_action.ui_policy",
+      "sys_scope": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_scope/global",
+        "value": "global"
+      },
+      "sys_created_by": "admin",
+      "sys_mod_count": "4",
+      "active": "true",
+      "sys_tags": "",
+      "script": "",
+      "local_or_existing": "Existing",
+      "sys_package": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_package/ab8c1ab787033110eb5e8489cebb35ec",
+        "value": "ab8c1ab787033110eb5e8489cebb35ec"
+      },
+      "condition": "",
+      "sys_update_name": "sys_security_acl_0dc190923712210066512f3c8e41f18b",
+      "name": "sys_ui_policy_action.ui_policy",
+      "operation": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+        "value": "create"
+      },
+      "sys_policy": ""
+    }
+  },
+  "summary": "GET api/now/table/sys_security_acl/0dc190923712210066512f3c8e41f18b",
+  "breadcrumbs": []
+}

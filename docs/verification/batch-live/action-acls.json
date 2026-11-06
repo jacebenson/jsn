@@ -1,0 +1,325 @@
+{
+  "ok": true,
+  "data": {
+    "result": [
+      {
+        "sys_id": "bc91c2a5f334621048dff3d535680422",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/7aad4c50b7f4621062b62181ce11a918",
+          "value": "7aad4c50b7f4621062b62181ce11a918"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "2cbd02e2eb9230003623666cd206fe42",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "fe503d449311120042cf530b547ffb79",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": "new SNCCatalogUtil().canCreate(current.catalog_item);"
+      },
+      {
+        "sys_id": "6cbd02e2eb9230003623666cd206fe3b",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/delete",
+          "value": "delete"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "a5c0b261c74220105901a1e603c2605a",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/delete",
+          "value": "delete"
+        }
+      },
+      {
+        "sys_id": "dde5e0e19301120042cf530b547ffb7f",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/delete",
+          "value": "delete"
+        },
+        "script": "new SNCCatalogUtil().canDelete(current.catalog_item);"
+      },
+      {
+        "sys_id": "bc91c2a5f334621048dff3d295229118",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/e66cf897b7300210240b06dd1e11a9fd",
+          "value": "e66cf897b7300210240b06dd1e11a9fd"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "1fa5a0e19301120042cf530b547ffb43",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/read",
+          "value": "read"
+        },
+        "script": "new SNCCatalogUtil().canRead(current.catalog_item,current.isNewRecord());"
+      },
+      {
+        "sys_id": "a0bd02e2eb9230003623666cd206fe3e",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/read",
+          "value": "read"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "5efbac820b2310106b80482393673ac0",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        }
+      },
+      {
+        "sys_id": "e4bd02e2eb9230003623666cd206fe40",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "ed0624e19301120042cf530b547ffb3f",
+        "condition": "",
+        "name": "catalog_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": "new SNCCatalogUtil().canWrite(current.catalog_item,current.isNewRecord());"
+      },
+      {
+        "sys_id": "bc91c2a5f334621048dff3d343824133",
+        "condition": "",
+        "name": "catalog_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/e66cf897b7300210240b06dd1e11a9fd",
+          "value": "e66cf897b7300210240b06dd1e11a9fd"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "2fe5077eeb1230003623666cd206fead",
+        "condition": "",
+        "name": "catalog_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/read",
+          "value": "read"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "390cec820b2310106b80482393673ace",
+        "condition": "",
+        "name": "catalog_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        }
+      },
+      {
+        "sys_id": "6f06477eeb1230003623666cd206fe11",
+        "condition": "",
+        "name": "catalog_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "8475c3f153dc1610c685ddeeff7b124a",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "8bd782ba0a0a0b4401acfbcac75398f9",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "78a50bf153dc1610c685ddeeff7b1282",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/delete",
+          "value": "delete"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "8bd7ad1f0a0a0b44019e0d49069a2f8b",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/delete",
+          "value": "delete"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "bc91c2a5f334621048dff31241141542",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/e66cf897b7300210240b06dd1e11a9fd",
+          "value": "e66cf897b7300210240b06dd1e11a9fd"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "8db6dfddc0a80166155b1afd6df1135d",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/read",
+          "value": "read"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "8bd7df110a0a0b4401d5f10cf807cee4",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "a28547f153dc1610c685ddeeff7b129c",
+        "condition": "",
+        "name": "sys_ui_policy_action",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "bc91c2a5f334621048dff3d724161898",
+        "condition": "",
+        "name": "sys_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/e66cf897b7300210240b06dd1e11a9fd",
+          "value": "e66cf897b7300210240b06dd1e11a9fd"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "81153a3b87873110eb5e8489cebb35bb",
+        "condition": "",
+        "name": "sys_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/read",
+          "value": "read"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "81153a3b87873110eb5e8489cebb35bc",
+        "condition": "",
+        "name": "sys_ui_policy_action.*",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "0dc190923712210066512f3c8e41f18b",
+        "condition": "",
+        "name": "sys_ui_policy_action.ui_policy",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/create",
+          "value": "create"
+        },
+        "script": ""
+      },
+      {
+        "sys_id": "a55254923712210066512f3c8e41f115",
+        "condition": "",
+        "name": "sys_ui_policy_action.ui_policy",
+        "active": "true",
+        "operation": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_operation/write",
+          "value": "write"
+        },
+        "script": ""
+      }
+    ]
+  },
+  "summary": "GET api/now/table/sys_security_acl?sysparm_query=nameSTARTSWITHsys_ui_policy_action%5EORnameSTARTSWITHcatalog_ui_policy_action&sysparm_fields=sys_id,name,operation,script,condition,active&sysparm_limit=100",
+  "breadcrumbs": []
+}

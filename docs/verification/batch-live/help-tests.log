@@ -1,0 +1,60 @@
+✔ actions root lists every subcommand in a terminal (2.503222ms)
+✔ actions root keeps its structured list for scripts (1.302056ms)
+✔ auth root lists every subcommand in a terminal (2.101718ms)
+✔ auth root keeps its structured list for scripts (0.981422ms)
+▶ first-run welcome matrix (issue #387)
+  ✔ row 1: two first runs racing on one config dir produce at most one welcome and a valid marker (378.779823ms)
+  ✔ row 1: the claim itself is exclusive across processes held at a barrier (234.096333ms)
+  ✔ row 2: an unwritable config dir still exits 0 and prints help, with no stack trace (698.930398ms)
+  ✔ row 3: XDG_CONFIG_HOME wins with JSN_DATA_HOME set and HOME unset; the note is neither lost nor duplicated (675.962939ms)
+  ✔ row 4: 40- and 60-column terminals keep every command intact and nothing overflows (590.325194ms)
+  ✔ row 5: NO_COLOR and TERM=dumb read the same, with no escape codes (875.455617ms)
+  ✔ row 6: piped and redirected runs get help only, and burn nothing (487.270054ms)
+  ✔ row 7: an already-configured profile gets no welcome and no marker (264.673141ms)
+  ✔ row 8: JSN_NO_WELCOME is suppressed only by the literal "1" (1063.630132ms)
+  ✔ row 9: machine formats carry no welcome and keep the base bytes (1647.078ms)
+  ✔ row 10: SIGINT during the first run never yields a welcome without a marker (856.629808ms)
+  ✔ row 11: PTY assertions skip cleanly on Windows instead of failing (0.363954ms)
+  ✔ row 12: the marker is 0600 and sits with the daily-check markers (269.812707ms)
+✔ first-run welcome matrix (issue #387) (8045.224576ms)
+▶ first-run welcome decision
+  ✔ is shown for a first bare run on a human terminal (1.316149ms)
+  ✔ is never shown again once the marker exists (0.897862ms)
+  ✔ stays out of machine-readable and piped output (0.417419ms)
+  ✔ requires an interactive terminal, not just a fresh config dir (0.281447ms)
+  ✔ respects JSN_NO_WELCOME and an existing connection (0.353935ms)
+  ✔ points at setup, auth, help and docs without promising an instance (1.152066ms)
+  ✔ writes the marker when it shows and stays silent afterwards (1.122113ms)
+✔ first-run welcome decision (7.575831ms)
+▶ welcome content
+  ✔ fits the 12-line budget at 80 columns without overflowing (1.686202ms)
+  ✔ is plain ASCII: no emoji, no colour, readable with NO_COLOR and TERM=dumb (0.956854ms)
+  ✔ explains setup versus auth login, where config lives, the skill and the update path (0.813292ms)
+  ✔ mentions only commands that exist and are declared instance-free (84.803866ms)
+  ✔ never becomes a wizard: no prompts, no blocking, no instance wording (0.306338ms)
+  ✔ derives the version from the installed package, never from the network (0.500416ms)
+  ✔ wraps rather than truncates on a 40- and 60-column terminal (0.639558ms)
+  ✔ falls back to a short config label when the real path cannot fit (1.086751ms)
+  ✔ claims the marker exactly once and leaves a complete 0600 stamp (0.824413ms)
+✔ welcome content (92.551638ms)
+▶ bare `jsn` first run
+  ✔ prints unchanged help and no welcome for piped output, and does not burn the once-only marker (374.857039ms)
+  ✔ keeps `--help`, `--json` and docs commands free of the welcome (944.018439ms)
+  ✔ shows the orientation above full help exactly once on a real terminal (677.972211ms)
+  ✔ keeps the note out of an agent or CI environment even on a TTY (1456.592043ms)
+✔ bare `jsn` first run (3453.730155ms)
+▶ first-run note wording stays honest to the marker
+  ✔ says the note prints once and names the exact switch that hides it (0.356385ms)
+✔ first-run note wording stays honest to the marker (0.440411ms)
+✔ flows create/update help point to dynamic schemas without fixture-like values (722.941659ms)
+✔ actions create help points to live provider schemas and preserves code-owned structure caveat (289.390219ms)
+✔ records help exposes table examples and the actual picker search field (580.217094ms)
+✔ rest help exposes both endpoint and table shorthand without weakening read-only policy (311.776938ms)
+ℹ tests 42
+ℹ suites 5
+ℹ pass 42
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8138.653674
