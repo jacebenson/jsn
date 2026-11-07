@@ -23,6 +23,7 @@ function jsonApp(sdk, { requireInstance = () => {} } = {}) {
     app: {
       sdk,
       output,
+      config: {},
       requireInstance,
       ok(data, opts) { this.output.ok(data, opts); },
       getEffectiveInstance: () => 'https://example.service-now.com',
@@ -53,14 +54,14 @@ function styledApp() {
 test('flows root summary uses the normal output envelope without a provider call', async () => {
   const { app, envelope } = jsonApp({});
   await flowsCmd(fn => fn).handler({}, app);
-  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'delete [identifier]']);
+  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']);
 });
 
 test('flows root renders every subcommand in a terminal, not just the summary', async () => {
   const { app, text } = styledApp();
   await flowsCmd(fn => fn).handler({}, app);
   const rendered = text();
-  for (const name of ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'delete [identifier]']) {
+  for (const name of ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']) {
     assert.ok(rendered.includes(name), `terminal output is missing ${name}`);
   }
   assert.match(rendered, /Available subcommands:/);
@@ -91,6 +92,61 @@ test('flows schemas returns live trigger catalog and only loads inputs for suppo
   assert.equal('inputs' in result.categories[0].triggers[1], false);
   assert.match(result.structural_contract, /instance-derived/);
   assert.deepEqual(calls, ['sys_hub_trigger_definition', 'sys_hub_trigger_category', 'sys_hub_trigger_input']);
+});
+
+function leaseSdk(id, { statuses, deleteResult = { deleteSuccess: true, id } }) {
+  const queries = [];
+  let reads = 0;
+  return {
+    queries,
+    sdk: {
+      list: async () => [{ sys_id: id }],
+      request: async (_url, options) => {
+        const { query } = JSON.parse(options.body); queries.push(query);
+        if (query.includes('delete:')) return { data: { global: { snFlowDesigner: { safeEdit: { deleteResult } } } } };
+        const status = statuses[Math.min(reads++, statuses.length - 1)];
+        return { data: { global: { snFlowDesigner: { safeEdit: { status } } } } };
+      },
+    },
+  };
+}
+
+test('flows unlock releases a stale session and reports before and after state', async () => {
+  const unlock = commandTree().find(command => command.command === 'unlock [identifier]');
+  assert.ok(unlock);
+  const id = 'a'.repeat(32);
+  const { sdk, queries } = leaseSdk(id, { statuses: [{ canUserEdit: true, currentEditor: null }, { canUserEdit: false, currentEditor: null }] });
+  const { app, envelope } = jsonApp(sdk);
+  await unlock.handler({ identifier: 'My flow', force: true }, app);
+  const result = envelope();
+  assert.equal(result.ok, true);
+  assert.match(result.summary, /Released this user's safe edit session on flow My flow/);
+  assert.equal(result.data.before.canUserEdit, true);
+  assert.equal(result.data.after.canUserEdit, false);
+  assert.equal(result.data.flow.id, id);
+  assert.equal(queries.length, 3);
+  assert.match(queries[1], /delete:/);
+});
+
+test('flows unlock reports a free flow without mutating it', async () => {
+  const unlock = commandTree().find(command => command.command === 'unlock [identifier]');
+  const id = 'b'.repeat(32);
+  const { sdk, queries } = leaseSdk(id, { statuses: [{ canUserEdit: false, currentEditor: null }] });
+  const { app, envelope } = jsonApp(sdk);
+  await unlock.handler({ identifier: 'Free flow', force: true }, app);
+  const result = envelope();
+  assert.equal(result.data.released, false);
+  assert.match(result.summary, /No safe edit session to release on flow Free flow/);
+  assert.equal(queries.length, 1);
+});
+
+test('flows unlock never mutates without confirmation in a noninteractive run', async () => {
+  const unlock = commandTree().find(command => command.command === 'unlock [identifier]');
+  const id = 'c'.repeat(32);
+  const { sdk, queries } = leaseSdk(id, { statuses: [{ canUserEdit: true, currentEditor: null }, { canUserEdit: false, currentEditor: null }] });
+  const { app } = jsonApp(sdk);
+  await assert.rejects(unlock.handler({ identifier: 'My flow', _: ['flows', 'unlock', 'My flow'] }, app), /confirmation/i);
+  assert.equal(queries.length, 0);
 });
 
 test('flows show handler emits the normal Output envelope and formatted data', async () => {

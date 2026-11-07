@@ -386,6 +386,7 @@ jsn flows show           # Pick a flow to inspect
 jsn flows status         # Pick a flow to diagnose
 jsn flows test           # Pick flow and a record from its actual trigger table, confirm
 jsn flows publish        # Pick a flow, explicitly confirm activation
+jsn flows unlock         # Release this user's stale safe-edit lease after a failed update
 # Automation must explicitly confirm publication too:
 jsn flows publish <flow_sys_id> --force --json
 ```

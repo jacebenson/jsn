@@ -13,15 +13,36 @@ export async function flowSafeEditRequest(sdk, instance, flowId, operation, last
   return result;
 }
 
+export async function readFlowSafeEditStatus(sdk, instance, flowId) {
+  const { status } = await flowSafeEditRequest(sdk, instance, flowId, 'read');
+  if (!status || typeof status.canUserEdit !== 'boolean' || !(status.currentEditor == null || typeof status.currentEditor === 'string')) throw new Error('Unreadable safe edit status');
+  return status;
+}
+
+// The provider's `delete` only ever releases the calling user's own session, so
+// recovery needs no ownership guess. It stays explicit anyway: releasing a lease
+// that a live Flow Designer tab owns makes that editor's next save fail.
+export async function releaseOwnFlowSafeEdit(sdk, instance, flowId) {
+  const before = await readFlowSafeEditStatus(sdk, instance, flowId);
+  const describe = status => `canUserEdit=${status.canUserEdit}, currentEditor=${JSON.stringify(status.currentEditor ?? null)}`;
+  if (!before.canUserEdit && !before.currentEditor) return { released: false, before, after: before };
+  const { deleteResult } = await flowSafeEditRequest(sdk, instance, flowId, 'delete');
+  if (deleteResult?.deleteSuccess !== true || deleteResult.id !== flowId) {
+    throw new Error(`Flow ${flowId} safe edit release was not confirmed by the provider (deleteSuccess=${JSON.stringify(deleteResult?.deleteSuccess ?? null)}, id=${JSON.stringify(deleteResult?.id ?? null)}); no retry attempted. Status before release: ${describe(before)}.`);
+  }
+  const after = await readFlowSafeEditStatus(sdk, instance, flowId);
+  if (after.canUserEdit || after.currentEditor) throw new Error(`Flow ${flowId} release was acknowledged, but readback still reports an edit session (${describe(after)}). Inspect the exact flow and Flow Designer session before retrying.`);
+  return { released: true, before, after };
+}
+
 export async function withFlowSafeEdit(sdk, instance, flowId, lastUpdated, operation) {
   if (typeof lastUpdated !== 'string' || !lastUpdated) throw new Error(`Flow ${flowId} has no authoritative updated timestamp; safe edit refused`);
-  const read = async () => {
-    const { status } = await flowSafeEditRequest(sdk, instance, flowId, 'read');
-    if (!status || typeof status.canUserEdit !== 'boolean' || !(status.currentEditor == null || typeof status.currentEditor === 'string')) throw new Error('Unreadable safe edit status');
-    return status;
-  };
+  const read = () => readFlowSafeEditStatus(sdk, instance, flowId);
   const before = await read();
-  if (before.canUserEdit || before.currentEditor) throw new Error(`Flow ${flowId} already has an existing edit session/editor; close it in Flow Designer before retrying. No lock changed.`);
+  // Refuse any reported session, including one this same user holds: releasing
+  // it would close a Flow Designer tab this CLI never opened, so recovery stays
+  // an explicit command (`jsn flows unlock`) rather than an implicit takeover.
+  if (before.canUserEdit || before.currentEditor) throw new Error(`Flow ${flowId} already has an existing edit session/editor (canUserEdit=${before.canUserEdit}, currentEditor=${JSON.stringify(before.currentEditor ?? null)}); close it in Flow Designer before retrying, or release your own stale session with \`jsn flows unlock ${flowId}\`. No lock changed.`);
   let status;
   try {
     ({ status } = await flowSafeEditRequest(sdk, instance, flowId, 'upsert', lastUpdated));
