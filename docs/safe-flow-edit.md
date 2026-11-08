@@ -7,7 +7,7 @@
 
 Every save acquires a Flow Designer safe-edit session, then releases that session and reads back its absence. The command does not publish, activate, execute, delete or roll back a flow, and it does not republish a published one.
 
-The safe-edit session is a provider user-level lock, not an artifact deletion or publication operation. An existing session is refused even when it belongs to the current user: close the other Flow Designer editor first. The CLI does not take over or release someone else's session. Stale definitions and competing editors stop content writes. Acquisition uses the ProcessFlow definition's `updated` timestamp, not a guessed current time; a definition whose timestamp lags the parent is reread once and refused if still stale. Preview never acquires or releases a lock.
+The safe-edit session is a provider user-level lock, not an artifact deletion or publication operation. An existing session is refused even when it belongs to the current user: close the other Flow Designer editor first, or release your own stale lease with `jsn flows unlock` (see below). The CLI does not take over or release someone else's session. Stale definitions and competing editors stop content writes. Acquisition uses the ProcessFlow definition's `updated` timestamp, not a guessed current time; a definition whose timestamp lags the parent is reread once and refused if still stale. Preview never acquires or releases a lock.
 
 ## Inspect, preview, save and inspect again
 
@@ -65,6 +65,16 @@ Two parent fields do move when a published flow is saved, because the platform t
 Any other difference fails the command with last completed stage `autosave_verified` and the concrete before/after values, stating that the edit may have altered runtime and that no rollback, republish, unpublish or deactivation was attempted. A lease that survives the save is reported as a failed command naming the saved Autosave, not as success.
 
 An Autosave is a design-time revision. It does not publish and does not make a published flow start using edited content; publishing the new revision remains a separate, explicit command. Until it is republished, the flow record shows a draft working copy while the unchanged published snapshot keeps running.
+
+## Recovering a stale session
+
+An update refuses any session the provider already reports for this user, including one left behind by an earlier failed run. When the refusal names `canUserEdit=true` or a `currentEditor`, release your own lease explicitly:
+
+```bash
+jsn flows unlock "My draft" --profile pdi      # asks first; --force in scripts
+```
+
+`unlock` reads the lease, releases only the session this user holds, then reads it back and fails if any session remains. It prints `canUserEdit` and `currentEditor` before and after, so a refusal you cannot clear shows the provider's own answer instead of a guess. It makes no content write and does not publish. If the flow is genuinely open in a Flow Designer tab, releasing the lease makes that editor's next save fail, so close the tab instead.
 
 ## Save evidence and partial failures
 

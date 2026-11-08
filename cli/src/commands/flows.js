@@ -9,6 +9,7 @@ import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } 
 import { alignUpdateSetCapture } from '../context.js';
 import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
+import { releaseOwnFlowSafeEdit } from '../flow-safe-edit.js';
 import { errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
 
@@ -24,6 +25,7 @@ const FLOW_COMMANDS = [
   { name: 'create', description: 'Create a draft flow: guided in a terminal, JSON manifest in scripts' },
   { name: 'update [identifier]', description: 'Update a draft, or a published flow whose definition reports write access (alias: edit)' },
   { name: 'doctor', description: 'Check whether this instance can publish flows at all' },
+  { name: 'unlock [identifier]', description: 'Release this user\'s stale safe-edit session (orphaned lease) after a failed update' },
   { name: 'delete [identifier]', description: 'Delete a flow (not implemented: use the Flow Designer UI)' },
 ];
 
@@ -46,7 +48,7 @@ function triggerGuidance(trigger) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'publish', 'test'] });
+declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -380,6 +382,31 @@ export function flowsCmd(wrap) {
             return app.ok({ ...result, _formatted: diff }, {
               summary: `${result.preview ? 'Preview for' : 'Updated'} flow "${result.flow.name}" (${result.flow.id}) in state ${state}${preservation} without activation`,
               breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the updated flow' }],
+            });
+          }),
+        })
+        .command({
+          command: 'unlock [identifier]',
+          describe: 'Release this user\'s stale Flow Designer safe-edit session on a flow. Recovery for an orphaned lease left by a failed update: the provider only releases the calling user\'s own session, the before/after canUserEdit and currentEditor values are printed, and an unconfirmed release fails instead of reporting success. Does not edit content, publish, or touch another user\'s session.',
+          builder: (y) => y
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+              table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow',
+            }));
+            await confirmDesignerMutation(argv, app, `Release your Flow Designer safe-edit session on flow ${identifier}? If this flow is open in Flow Designer, that editor's next save will fail.`);
+            const result = await releaseOwnFlowSafeEdit(app.sdk, app.getEffectiveInstance(), sysID);
+            const state = status => `canUserEdit=${status.canUserEdit}, currentEditor=${JSON.stringify(status.currentEditor ?? null)}`;
+            return app.ok({ ...result, flow: { id: sysID, name: identifier } }, {
+              summary: result.released
+                ? `Released this user's safe edit session on flow ${identifier} (${sysID}): ${state(result.before)} -> ${state(result.after)}`
+                : `No safe edit session to release on flow ${identifier} (${sysID}): ${state(result.before)}`,
+              breadcrumbs: result.released
+                ? [{ action: 'update', cmd: `jsn flows update ${sysID}`, description: 'Retry the edit' }]
+                : [{ action: 'show', cmd: `jsn flows show ${sysID}`, description: 'Inspect the flow' }],
             });
           }),
         })
