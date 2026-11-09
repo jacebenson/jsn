@@ -102,7 +102,8 @@ async function assertPermissions(ctx, fixture, env, other) {
   check(value(before?.sys_id) === other.id && Object.hasOwn(before, 'first_name'), 'Denied-operation baseline missing');
   const baselineFirstName = value(before.first_name);
   const marker = `denied_${ctx.runKey}`;
-  const result = await ctx.command(['users', 'update', other.id, '--field', `first_name=${marker}`, '--json'], { env });
+  const result = await ctx.command(['users', 'update', other.id, '--field', `first_name=${marker}`, '--json'], { env,
+    expectedDenial: result => result.json?.ok === false && Number(result.json?.error?.status ?? result.json?.error?.statusCode) === 403 });
   const after = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
   check(value(after?.sys_id) === other.id && value(after.first_name) === baselineFirstName, 'Denied operation changed an owned fixture; investigate before retry');
   const error = result?.json?.error;
@@ -156,7 +157,7 @@ export async function createAuthFixtures(ctx) {
       web_service_access_only: kind === 'basic', internal_integration_user: false,
       ...(setup.domain ? { sys_domain: setup.domain } : {}) };
     const file = await privateFile(user.root, 'create.json', payload);
-    const created = await ctx.command(['users', 'create', '--data-file', file, '--json']);
+    const created = await ctx.command(['users', 'create', '--data-file', file, '--json'], { writeIdentity: { name: username } });
     const id = value(data(created)?.sys_id);
     check(ID.test(id || ''), 'User create returned no exact ID; stop for ownership reconciliation, do not retry');
     user.id = id;
@@ -172,7 +173,7 @@ export async function createAuthFixtures(ctx) {
     if (setup.domain) check(value(persisted.sys_domain) === setup.domain, 'Auth fixture domain was not persisted');
     for (const role of setup.roles) {
       const roleFile = await privateFile(user.root, `role-${role}.json`, { user: id, role });
-      const linked = await ctx.command(['records', 'create', '--table', 'sys_user_has_role', '--data-file', roleFile, '--json']);
+      const linked = await ctx.command(['records', 'create', '--table', 'sys_user_has_role', '--data-file', roleFile, '--json'], { writeIdentity: { name: `${ctx.runKey}_role_${role}` } });
       const linkId = value(data(linked)?.sys_id);
       check(ID.test(linkId || ''), 'Role assignment returned no exact ID; reconcile before retry');
       await ctx.registerArtifact({ table: 'sys_user_has_role', id: linkId, kind: 'auth-role-link', dependsOn: [id], cleanupArgs: ['records', 'delete', '--sys-id', linkId, '--table', 'sys_user_has_role', '--force', '--json'] });

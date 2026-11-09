@@ -373,6 +373,7 @@ test('public CLI boundary: property scenario, readonly guard, malformed payload 
   const env = { HOME: root, PATH: '', XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root, JSN_DATA_HOME: path.join(root, 'data'),
     SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_DOCS_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' };
   async function cliCommand(args, profile = 'selected') {
+    if (typeof profile === 'object') profile = 'selected'; // ctx.command options are not a profile selector
     let result;
     try { result = { ...await execute(process.execPath, [cli, ...args, '--profile', profile], { cwd: root, env, timeout: 15000 }), exitCode: 0 }; }
     catch (error) { result = { stdout: error.stdout, stderr: error.stderr, exitCode: error.code }; }

@@ -247,3 +247,163 @@ test('actual catalog list/show run through shared target/env/SDK guard against l
   assert.ok(report.results.every(r => r.status === 'passed'));
   assert.ok(requests.filter(([method]) => method !== 'GET').every(([method, route]) => method === 'POST' && route === '/angular.do'));
 });
+
+// Ambiguity regressions exercise the real runner and command guard, offline only.
+{
+const cap='a'.repeat(32), prop='b'.repeat(32), original='c'.repeat(32);
+const ok=data=>({exitCode:0,stdout:'',stderr:'',json:{ok:true,data}});
+function fixture(t, mode) {
+ const root=fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-ambiguity-'));
+ t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ let current=original, application='global', record=null, forcedDeletes=0;
+ const events=[], dispatchJournals=[];
+ const ctx=createContext({mode:'pdi',allowWrites:true,profile:'synthetic',outputDir:path.join(root,'run')},{target:'https://synthetic.invalid'},{execute:async(_exe,argv)=>{
+  const args=argv.slice(1); events.push(args.slice(0,2).join(' '));
+  dispatchJournals.push(JSON.parse(fs.readFileSync(path.join(root,'run','artifacts.json'))));
+  if(args[0]==='rest')return ok({result:{current:args[1].endsWith('/application')?application:{sysId:current}}});
+  if(args[0]==='updatesets'&&args[1]==='create'){current=cap;if(mode==='capture-timeout')return {exitCode:1,stdout:'',stderr:'lost capture response',timedOut:true};return ok({sys_id:cap});}
+  if(args[0]==='updatesets'&&args[1]==='set'){current=args[2];return ok({});}
+  if(args[0]==='scopes'){application=args[2];return ok({});}
+  if(args[0]==='properties'&&args[1]==='create'){
+   record={sys_id:prop,...JSON.parse(args[args.indexOf('--data')+1])};
+   if(mode==='create-timeout')return {exitCode:1,stdout:'',stderr:'timeout',timedOut:true};
+   if(mode==='missing-create-id')return ok({});
+   if(mode==='ambiguous-create')return {exitCode:1,stdout:'',stderr:'synthetic response lost'};
+   return ok(record);
+  }
+  if(args[0]==='properties'&&args[1]==='update'){Object.assign(record,JSON.parse(args[args.indexOf('--data')+1]));return ok(record);}
+  if(args[0]==='properties'&&args[1]==='show')return ok(record);
+  if(args[0]==='properties'&&args[1]==='delete'){
+   if(!args.includes('--force'))return {exitCode:1,stdout:'',stderr:'',json:{ok:false,error:{code:'confirmation_required'}}};
+   forcedDeletes++;
+   if(mode==='delete-timeout')return {exitCode:1,stdout:'',stderr:'timeout',timedOut:true};
+   if(mode==='delete-unreadable' || mode==='delete-present')return ok({deleted:true});
+   if(mode==='delete-absent'){record=null;return {exitCode:1,stdout:'',stderr:'lost deletion response'};}
+   if(mode==='normal'){record=null;return ok({deleted:true});}
+   if(forcedDeletes===1)return {exitCode:1,stdout:'',stderr:'synthetic timeout after DELETE dispatch'};
+   record=null;return ok({deleted:true});
+  }
+  throw Error('Unexpected synthetic dispatch');
+ }});
+ ctx.read=async(table,opts)=>{
+  if(table==='sys_dictionary')return ['name','value','description'].map(element=>({element,mandatory:'false',read_only:'false'}));
+  if(table==='sys_update_set')return {sys_id:cap,name:'owned_capture',state:'in progress'};
+  if(table==='sys_properties'){if(record && mode==='create-unreadable')throw Error('synthetic unreadable allocation');if(forcedDeletes && mode==='delete-unreadable')throw Error('synthetic unreadable verification');return opts.id?record:record?[record]:[];}
+  throw Error('Unexpected synthetic read');
+ };
+ return {ctx,events,dispatchJournals,get forcedDeletes(){return forcedDeletes;},get record(){return record;},get current(){return current;}};
+}
+test('ambiguous property DELETE is dispatched once and retains capture',async t=>{
+ const f=fixture(t,'ambiguous-delete');
+ const report=await executeScenarios([...resources.filter(s=>s.id==='resources.properties'),workflows[0]],f.ctx);
+ assert.equal(report.results.find(r=>r.id==='resources.properties').status,'failed');
+ assert.equal(f.forcedDeletes,1);
+ assert.equal(f.current,cap);
+});
+test('ambiguous create checkpoints identity intent and retains capture',async t=>{
+ const f=fixture(t,'ambiguous-create');
+ const report=await executeScenarios([...resources.filter(s=>s.id==='resources.properties'),workflows[0]],f.ctx);
+ assert.equal(report.results.find(r=>r.id==='resources.properties').status,'failed');
+ assert.ok(f.record);
+ const manifest=JSON.parse(fs.readFileSync(path.join(f.ctx.outputDir,'artifacts.json')));
+ assert.deepEqual(manifest.artifacts.map(a=>a.table),['sys_update_set']);
+ assert.equal(f.ctx.state.get('cleanup.unresolvedChildren'),true);
+ assert.ok(manifest.writeIntents.some(i=>i.table==='sys_properties' && i.status==='uncertain' && i.runKey===f.ctx.runKey));
+ assert.equal(f.current,cap);
+});
+test('ambient unrelated credentials are not inherited by actual guarded launcher',async t=>{
+ const root=fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-ambiguity-env-'));
+ t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ process.env.SAFETY_REVIEW_SYNTHETIC_SECRET='not-a-real-secret';
+ t.after(()=>delete process.env.SAFETY_REVIEW_SYNTHETIC_SECRET);
+ let checked=false;
+ const ctx=createContext({mode:'readonly',profile:'synthetic',outputDir:path.join(root,'run')},{target:'https://synthetic.invalid'},{execute:async(_exe,_argv,{env})=>{
+  assert.equal(Object.hasOwn(env,'SAFETY_REVIEW_SYNTHETIC_SECRET'),false);
+  assert.equal(Object.hasOwn(env,'SERVICENOW_OAUTH_TOKEN'),false);
+  checked=true;return ok({});
+ }});
+ await ctx.command(['version']);assert.ok(checked);
+});
+
+const selected = [...resources.filter(s=>s.id==='resources.properties'), workflows[0]];
+const manifest = f => JSON.parse(fs.readFileSync(path.join(f.ctx.outputDir,'artifacts.json')));
+for (const mode of ['delete-timeout','delete-unreadable','delete-present']) test(`${mode}: no automatic second delete, including another cleanup call`,async t=>{
+ const f=fixture(t,mode);
+ await executeScenarios(selected,f.ctx);
+ await f.ctx.cleanup();
+ assert.equal(f.forcedDeletes,1);
+ assert.equal(f.current,cap);
+ assert.equal(f.ctx.state.get('cleanup.unresolvedChildren'),true);
+ assert.ok((manifest(f).writeIntents || []).some(i=>i.action==='delete' && i.status==='uncertain' && i.id===prop));
+});
+for (const mode of ['create-timeout','missing-create-id','ambiguous-create']) test(`${mode}: blocks independent mutations but permits readonly diagnostics`,async t=>{
+ const f=fixture(t,mode); let mutation=false, diagnostic=false;
+ const report=await executeScenarios([...selected,
+  {id:'probe.mutation',modes:['pdi'],requires:[],mutates:true,async run(){mutation=true;}},
+  {id:'probe.read',modes:['pdi'],requires:[],mutates:false,async run(ctx){await ctx.command(['rest','/api/now/ui/concoursepicker/updateset','--method','GET','--json']);diagnostic=true;}}
+ ],f.ctx);
+ assert.equal(mutation,false); assert.equal(diagnostic,true);
+ assert.equal(report.results.find(r=>r.id==='probe.mutation').status,'blocked-prerequisite');
+ assert.equal(f.current,cap); assert.equal(f.forcedDeletes,0);
+ await assert.rejects(f.ctx.command(['properties','update',prop,'--data','{"value":"retry"}','--json']),/Unresolved/);
+ const intent=manifest(f).writeIntents.find(i=>i.table==='sys_properties');
+ assert.equal(intent.name,`jsn_acceptance_${f.ctx.runKey}_properties`);
+ assert.equal(intent.captureId,cap); assert.equal(intent.id,undefined);
+});
+test('capture allocation response loss journals intent before any session switch and holds restoration',async t=>{
+ const f=fixture(t,'capture-timeout');
+ await executeScenarios(selected,f.ctx);
+ assert.equal(f.events.includes('updatesets set'),false);
+ assert.equal(f.events.includes('scopes set'),false);
+ assert.equal(f.current,cap);
+ assert.ok((manifest(f).writeIntents || []).some(i=>i.table==='sys_update_set' && i.name.endsWith('_capture') && i.status==='uncertain'));
+});
+test('keep never deletes or restores after unresolved allocation, while private auth material is removed',async t=>{
+ const f=fixture(t,'ambiguous-create'); f.ctx.keep=true;
+ const root=path.join(f.ctx.outputDir,'auth-private');fs.mkdirSync(root);fs.writeFileSync(path.join(root,'create.json'),'synthetic-private');
+ const user={password:'synthetic',env:{SN_PASSWORD:'synthetic'}};
+ f.ctx.state.set('auth.fixtures',{root,users:[user]});
+ await executeScenarios([{...auth[0],requires:[],async run(){}},...selected],f.ctx);
+ assert.equal(f.current,cap); assert.equal(f.forcedDeletes,0);
+ assert.equal(fs.existsSync(root),false);assert.equal(user.password,undefined);
+ assert.equal(f.ctx.state.has('auth.fixtures'),false);
+});
+test('write intent exists on disk before create and delete dispatch, without payload or environment',async t=>{
+ const f=fixture(t,'normal');
+ await executeScenarios(selected,f.ctx);
+ const propertyCreate=f.dispatchJournals.find(m=>m.writeIntents?.some(i=>i.table==='sys_properties' && i.action==='create' && i.status==='uncertain'));
+ assert.ok(propertyCreate);
+ assert.ok(f.dispatchJournals.some(m=>m.writeIntents?.some(i=>i.action==='delete' && i.id===prop && i.status==='uncertain')));
+ for (const intent of manifest(f).writeIntents) assert.ok(Object.keys(intent).every(k=>['runKey','table','action','name','id','captureId','status'].includes(k)));
+ assert.equal(f.current,original); assert.equal(f.forcedDeletes,1);
+ assert.equal(f.ctx.state.get('writes.unresolved'),false);
+});
+test('independent exact-ID absence fulfills ambiguous deletion without another write',async t=>{
+ const f=fixture(t,'delete-absent');
+ await executeScenarios(selected,f.ctx);
+ assert.equal(f.forcedDeletes,1); assert.equal(f.current,original);
+ assert.equal(f.ctx.state.get('writes.unresolved'),false);
+ assert.equal(manifest(f).artifacts.find(a=>a.id===prop).cleaned,true);
+});
+
+test('acknowledged allocation with failed independent readback holds known child and capture',async t=>{
+ const f=fixture(t,'create-unreadable');
+ await executeScenarios(selected,f.ctx);
+ assert.equal(f.forcedDeletes,0);assert.equal(f.current,cap);
+ assert.equal(f.ctx.state.get('cleanup.unresolvedChildren'),true);
+ assert.ok((manifest(f).writeIntents || []).some(i=>i.table==='sys_properties' && i.id===prop && i.status==='uncertain'));
+});
+test('uncertain child deletion retains transitive ancestors and selected capture',async t=>{
+ const f=fixture(t,'ambiguous-delete'), parent='d'.repeat(32), grand='e'.repeat(32);
+ const scenario={id:'probe.chain',modes:['pdi'],requires:['workflows.context'],mutates:true,async run(ctx){
+  for(const [id,dependsOn] of [[grand,[cap]],[parent,[grand]]])ctx.registerArtifact({table:'sys_user',id,kind:'owned-parent',dependsOn,cleanupArgs:['users','delete',id,'--force','--json']});
+  const result=await ctx.command(['properties','create','--data',JSON.stringify({name:`${ctx.runKey}_child`}), '--json']);
+  ctx.registerArtifact({table:'sys_properties',id:result.json.data.sys_id,kind:'owned-child',dependsOn:[parent],cleanupArgs:['properties','delete',prop,'--force','--json']});
+  await ctx.command(['properties','delete',prop,'--force','--json']);
+ }};
+ await executeScenarios([scenario,workflows[0]],f.ctx);
+ assert.equal(f.forcedDeletes,1);assert.equal(f.current,cap);
+ assert.ok(manifest(f).artifacts.every(a=>a.cleaned===false));
+ assert.equal(f.events.includes('users delete'),false);
+});
+}

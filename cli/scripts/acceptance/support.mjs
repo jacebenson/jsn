@@ -209,11 +209,37 @@ export function createContext(options, target, { execute = runProcess } = {}) {
   verifyCliArtifact(options.cliPath || path.join(cliRoot, 'bin/jsn.js'));
   fs.mkdirSync(outputDir, { recursive: true, mode: 0o700 });
   fs.chmodSync(outputDir, 0o700);
-  const artifacts = [], state = new Map();
+  const artifacts = [], writeIntents = [], state = new Map();
   let receipt = 0;
   const ctx = { runKey: options.runKey || `acceptance_${randomUUID().replaceAll('-', '')}`, mode: options.mode, profile: options.profile,
     expectedHost: target.target, cliPath: path.resolve(options.cliPath || path.join(cliRoot, 'bin/jsn.js')), outputDir, state };
-  const persist = () => privateJSON(path.join(outputDir, 'artifacts.json'), { runKey: ctx.runKey, mode: ctx.mode, profile: ctx.profile, expectedHost: ctx.expectedHost, artifacts });
+  const persist = () => privateJSON(path.join(outputDir, 'artifacts.json'), { runKey: ctx.runKey, mode: ctx.mode, profile: ctx.profile, expectedHost: ctx.expectedHost, artifacts, writeIntents });
+  const unresolved = () => writeIntents.some(i => i.status !== 'resolved');
+  const checkpoint = () => {
+    state.set('writes.unresolved', unresolved());
+    const file = path.join(outputDir, 'artifacts.json');
+    if (fs.existsSync(file)) {
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (saved.runKey !== ctx.runKey || saved.profile !== ctx.profile || saved.expectedHost !== ctx.expectedHost) throw new Error('Write journal ownership/target mismatch');
+    }
+    persist();
+  };
+  // Only exact-ID absence can settle a dispatched DELETE. A still-present row
+  // cannot prove that an earlier request is no longer in flight.
+  ctx.reconcileWrites = async () => {
+    for (const intent of writeIntents.filter(i => i.status !== 'resolved' && i.action === 'delete' && i.id)) {
+      try {
+        const found = await ctx.read(intent.table, { query: `sys_id=${intent.id}`, fields: ['sys_id'], limit: 1 });
+        if (Array.isArray(found) && found.length === 0) {
+          intent.status = 'resolved';
+          const artifact = artifacts.find(a => a.table === intent.table && a.id === intent.id);
+          if (artifact) artifact.cleaned = true;
+        }
+      } catch { /* No evidence of absence; never dispatch a retry. */ }
+    }
+    if (writeIntents.length) checkpoint();
+    return unresolved();
+  };
   const environment = extra => {
     const allowedEnv = /^(HOME|XDG_CONFIG_HOME|XDG_CACHE_HOME|JSN_DATA_HOME|PATH|DBUS_SESSION_BUS_ADDRESS|SERVICENOW_OAUTH_TOKEN|SN_USERNAME|SN_PASSWORD|SN_[A-Z0-9]+_(USERNAME|PASSWORD))$/;
     for (const [key, value] of Object.entries(extra || {})) {
@@ -282,9 +308,51 @@ export function createContext(options, target, { execute = runProcess } = {}) {
       if (args.some(arg => arg.startsWith('-') && !flags.has(arg))) throw new Error('Unknown readonly argument refused');
     }
     if (args[0] === 'store') throw new Error('Store excluded from live acceptance');
+    // Journal before dispatch, never argv, payloads, file contents or credentials.
+    // The inventory supplies mutation semantics; auth login is local credential
+    // setup, not a provider record allocation.
+    let intent;
+    if (ctx.mode === 'pdi' && registration.declaredMutation && !['auth', 'rest'].includes(args[0]) && !args.includes('--help')) {
+      environment(opts.env); // Validate local confinement before recording a dispatch intent.
+      if (unresolved()) throw new ScenarioError('blocked-prerequisite', 'Unresolved write intent; read-only reconciliation required');
+      const option = flag => { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : undefined; };
+      const table = option('--table') || (args[0] === 'users' ? 'sys_user' : recordProfiles[args[0]]?.table) || ({ updatesets: 'sys_update_set', flows: 'sys_hub_flow', catalogitems: 'sc_cat_item', scopes: 'sys_scope' })[args[0]];
+      if (!table || !/^[a-zA-Z0-9_]+$/.test(table)) throw new Error('Mutation requires bounded table identity');
+      let name = option('--name') || opts.writeIdentity?.name;
+      if (!name && option('--data')) {
+        const data = JSON.parse(option('--data'));
+        name = data.name || data.user_name || data.short_description;
+      }
+      // A natural key is diagnostic only, never ownership or permission to delete.
+      if (typeof name !== 'string' || !/^[A-Za-z0-9_.-]{1,200}$/.test(name)) name = undefined;
+      const candidate = option('--sys-id') || args[2];
+      intent = { runKey: ctx.runKey, table, action: args[1], name, id: /^[a-f0-9]{32}$/.test(candidate || '') ? candidate : undefined,
+        captureId: state.get('workflows.context')?.captureId, status: 'uncertain' };
+      writeIntents.push(intent); checkpoint();
+    }
     // Explicit --profile is appended even for auth status, whose production
     // implementation filters selectedProfiles before authenticating.
-    return launch([ctx.cliPath, ...args, '--profile', ctx.profile, '--instance', target.target], opts);
+    const result = await launch([ctx.cliPath, ...args, '--profile', ctx.profile, '--instance', target.target], opts);
+    if (intent) {
+      const acknowledged = result.exitCode === 0 && result.json?.ok === true;
+      // Negative tests supply a bounded result validator, not a blanket bypass.
+      const denied = result.exitCode !== 0 && typeof opts.expectedDenial === 'function' && opts.expectedDenial(result) === true;
+      if (denied) intent.status = 'resolved';
+      else if (acknowledged && intent.action === 'create') {
+        const allocated = result.json.data?.sys_id?.value ?? result.json.data?.sys_id ?? result.json.data?.flow?.id;
+        if (/^[a-f0-9]{32}$/.test(allocated || '')) {
+          intent.id = allocated; checkpoint();
+          try {
+            const found = await ctx.read(intent.table, { id: allocated, fields: ['sys_id'], limit: 1 });
+            const record = Array.isArray(found) ? found.length === 1 ? found[0] : null : found;
+            if ((record?.sys_id?.value ?? record?.sys_id) === allocated) intent.status = 'acknowledged';
+          } catch { /* Allocation acknowledgement without readback remains uncertain. */ }
+        }
+      } else if (acknowledged && intent.action !== 'delete') intent.status = 'resolved';
+      checkpoint();
+      if (intent.action === 'delete' && !denied) await ctx.reconcileWrites();
+    }
+    return result;
   };
   ctx.read = async (table, { id, query, fields = ['sys_id'], limit = 1 } = {}) => {
     if (!/^[a-zA-Z0-9_]+$/.test(table) || (id && !/^[a-f0-9]{32}$/.test(id))) throw new Error('Invalid table or exact ID');
@@ -308,11 +376,14 @@ export function createContext(options, target, { execute = runProcess } = {}) {
     if (!Array.isArray(dependencies) || dependencies.some(id => !artifacts.some(a => a.id === id))) throw new Error('Artifact dependency must already be owned');
     const entry = { table: artifact.table, id: artifact.id, kind: artifact.kind, dependsOn: [...dependencies], cleanupArgs: artifact.cleanupArgs ? [...artifact.cleanupArgs] : null, cleaned: false };
     if (entry.cleanupArgs && !cleanupIdentity(entry.cleanupArgs, entry.table, entry.id)) throw new Error('Cleanup must reference exact owned ID and table through a supported delete command');
-    artifacts.push({ ...entry, runKey: ctx.runKey, profile: ctx.profile, expectedHost: ctx.expectedHost }); persist(); return entry;
+    artifacts.push({ ...entry, runKey: ctx.runKey, profile: ctx.profile, expectedHost: ctx.expectedHost });
+    for (const intent of writeIntents) if (intent.status === 'acknowledged' && intent.table === entry.table && intent.id === entry.id) intent.status = 'resolved';
+    checkpoint(); return entry;
   };
   ctx.cleanup = async () => {
     const failures = [], blockedParents = new Set();
-    state.set('cleanup.unresolvedChildren', false);
+    state.set('cleanup.unresolvedChildren', await ctx.reconcileWrites());
+    if (unresolved()) return ['unresolved-write-intent'];
     const pending = artifacts.filter(a => !a.cleaned);
     while (pending.length) {
       const index = pending.findIndex(a => !pending.some(other => other !== a && other.dependsOn.includes(a.id)));
@@ -338,7 +409,9 @@ export function createContext(options, target, { execute = runProcess } = {}) {
         if (before.length === 0) { a.cleaned = true; persist(); continue; }
         if (before.length !== 1 || (before[0].sys_id?.value ?? before[0].sys_id) !== a.id) throw new Error('Cleanup identity mismatch');
         if (!a.cleanupArgs || !cleanupIdentity(a.cleanupArgs, a.table, a.id)) throw new Error('Missing or invalid exact-ID cleanup command');
-        classifyCommand(await ctx.command(a.cleanupArgs));
+        const deleted = await ctx.command(a.cleanupArgs);
+        if (a.cleaned) continue; // command reconciliation already proved exact-ID absence
+        classifyCommand(deleted);
         let absent = false;
         try { const rows = await ctx.read(a.table, { query: `sys_id=${a.id}`, fields: ['sys_id'], limit: 1 }); absent = Array.isArray(rows) && rows.length === 0; } catch { /* cannot claim absent */ }
         if (!absent) throw new Error('Cleanup readback not absent');

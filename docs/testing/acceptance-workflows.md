@@ -67,7 +67,7 @@ Even after all effect checks succeed, both flow scenarios record their verified 
 
 ## Runner integration required before live mutations
 
-The shared scenario contract is used without new `ctx` methods. The integrated runner now offline-proves rules 1–4 below, conservatively retaining the capture set dirty. Unresolved children retain the capture context rather than restoring prematurely; `--keep` explicitly restores user context without deleting objects. Provider-generated graph/capture ownership (rule 5) remains a live prerequisite; these are not all-complete claims:
+The integrated runner offline-proves rules 1–4 below, conservatively retaining the capture set dirty. Provider write intents are checkpointed before dispatch; unresolved allocation/deletion retains the current capture/session selection and blocks further provider mutation. `--keep` performs no object deletion and restores user context only without unresolved write intents. Read-only `ctx.reconcileWrites()` may settle a DELETE by exact-ID absence, never by retrying it. Provider-generated graph/capture ownership (rule 5) remains a live prerequisite; these are not all-complete claims:
 
 1. Preserve the dedicated capture selection while cleaning owned mutable children. Do not restore the user's work set before generic deletion.
 2. Exact-ID absence checks must make cleanup idempotent. Resource scenarios intentionally delete their own fixture after checking confirmation denial. Planned XML artifacts may never have been created after an earlier failure.

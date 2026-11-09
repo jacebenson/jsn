@@ -40,7 +40,7 @@ export async function executeScenarios(scenarios, ctx, { missing = [], selection
     try {
       if (!scenario.modes.includes(ctx.mode)) status = 'excluded-mode';
       else if (ctx.mode === 'readonly' && scenario.mutates) throw new Error('Mutating scenario declared in readonly mode');
-      else if ((scenario.requires || []).some(id => finished.get(id) !== 'passed')) status = 'blocked-prerequisite';
+      else if ((scenario.requires || []).some(id => finished.get(id) !== 'passed') || (scenario.mutates && ctx.state.get('writes.unresolved'))) status = 'blocked-prerequisite';
       else {
         attempted.add(scenario.id);
         const outcome = await scenario.run(ctx);
@@ -59,13 +59,17 @@ export async function executeScenarios(scenarios, ctx, { missing = [], selection
       try { await suiteHooks.endSuite(ctx); } catch { ctx.state.set('performance.hookFailure', true); }
     }
     if (ctx.state.get('suite.interrupted')) missing.push('interrupted');
+    if (ctx.reconcileWrites) {
+      try { if (await ctx.reconcileWrites()) ctx.state.set('cleanup.unresolvedChildren', true); }
+      catch { ctx.state.set('cleanup.unresolvedChildren', true); }
+    }
     if (!ctx.keep) {
       try { for (const id of await ctx.cleanup()) missing.push(`cleanup:${id}`); }
       catch { missing.push('cleanup:unresolved'); ctx.state.set('cleanup.unresolvedChildren', true); }
     }
     for (const s of [...scenarios].reverse()) {
       if (!attempted.has(s.id) || !s.cleanup || !s.modes.includes(ctx.mode)) continue;
-      if (s.id === 'workflows.context' && !ctx.keep && ctx.state.get('cleanup.unresolvedChildren')) { missing.push('cleanup:context-retained-for-unresolved-children'); continue; }
+      if (s.id === 'workflows.context' && (ctx.state.get('writes.unresolved') || (!ctx.keep && ctx.state.get('cleanup.unresolvedChildren')))) { missing.push('cleanup:context-retained-for-unresolved-children'); continue; }
       try { await s.cleanup(ctx); } catch { missing.push(`cleanup:${s.id}`); }
     }
     process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', interrupt);
