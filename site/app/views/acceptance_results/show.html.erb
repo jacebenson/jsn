@@ -1,0 +1,42 @@
+<section class="shell results">
+  <p><a href="/results" class="back">← All acceptance runs</a></p>
+  <p class="eyebrow"><%= @run.mode == 'readonly' ? 'READ-ONLY RUN' : 'PDI ISOLATED TEST RUN' %></p>
+  <h1>Acceptance run</h1>
+  <p class="results-lead">Sanitized projection only. Revision <code><%= @run.source_sha %></code><%= ' · source tree was dirty' if @run.source_dirty %> · CLI <%= @run.cli_version %> · Node <%= @run.node_version %> · <%= @run.platform %></p>
+
+  <div class="result-stats">
+    <div class="stat"><span class="stat-num"><%= @run.passed %></span><span class="stat-label">passed</span></div>
+    <div class="stat fail"><span class="stat-num"><%= @run.failed %></span><span class="stat-label">failed</span></div>
+    <div class="stat block"><span class="stat-num"><%= @run.blocked %></span><span class="stat-label">blocked</span></div>
+    <div class="stat"><span class="stat-num"><%= @run.excluded %></span><span class="stat-label">excluded</span></div>
+    <div class="stat"><span class="stat-num"><%= @run.not_run %></span><span class="stat-label">not run</span></div>
+    <div class="stat"><span class="stat-num"><%= (@run.duration_ms / 1000.0).round(1) %>s</span><span class="stat-label">total</span></div>
+  </div>
+
+  <dl class="result-meta">
+    <dt>Received</dt><dd><%= @run.received_at.utc.strftime('%Y-%m-%d %H:%M UTC') %></dd>
+    <dt>Selection</dt><dd><%= @run.selection_full ? 'full-product run' : 'explicit subset' %> · <%= @run.selected_count %> scenarios selected</dd>
+    <dt>Completeness</dt><dd><%= @run.complete ? 'complete — every selected check passed' : "partial — #{@run.missing_count} unmet coverage obligations" %></dd>
+    <% if @performance %>
+      <dt>Performance capture</dt>
+      <dd>before <%= @performance.dig('coverage', 'before') %> · after <%= @performance.dig('coverage', 'after') %> · compare <%= @performance.dig('coverage', 'compare') %> · list <%= @performance.dig('coverage', 'list') %> (observational, not a release gate)</dd>
+    <% end %>
+  </dl>
+
+  <h2>Checks</h2>
+  <div class="results-table-wrap">
+    <table class="results-table">
+      <thead><tr><th>Check</th><th>Status</th><th>Duration</th></tr></thead>
+      <tbody>
+        <% @checks.each do |check| %>
+          <% tone = check.status == 'passed' ? 'pass' : check.status.start_with?('blocked') ? 'block' : check.status.start_with?('excluded', 'not-run') ? 'muted' : 'fail' %>
+          <tr>
+            <td><code><%= check.check_id %></code></td>
+            <td><span class="badge <%= tone %>"><%= check.status %></span></td>
+            <td class="num"><%= (check.duration_ms / 1000.0).round(2) %>s</td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</section>
