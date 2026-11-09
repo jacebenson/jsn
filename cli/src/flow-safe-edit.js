@@ -1,3 +1,5 @@
+import { AppError, CodeAPI } from './errors.js';
+
 // Flow Designer's safeEdit lease is separate from publishing and artifact deletion.
 // The provider exposes a user-level lock, not an operation token: refuse even a
 // same-user existing lease so this CLI cannot release an open designer session.
@@ -7,15 +9,15 @@ export async function flowSafeEditRequest(sdk, instance, flowId, operation, last
   const selection = operation === 'delete' ? 'deleteResult{deleteSuccess id}' : `status{canUserEdit currentEditor${operation === 'upsert' ? ' clientFlowStale' : ''}}`;
   const query = `${operation === 'read' ? 'query' : 'mutation'} {global {snFlowDesigner {safeEdit(safeEditInput:{${input}}){${selection}}}}}`;
   const response = await sdk.request(`${instance}/api/now/graphql`, { method: 'POST', body: JSON.stringify({ query, variables: {} }) });
-  if (response.errors?.length) throw new Error(`Flow safe edit ${operation}: ${response.errors.map(error => error.message).join('; ')}`);
+  if (response.errors?.length) throw new AppError(CodeAPI, `Flow safe edit ${operation}: ${response.errors.map(error => error.message).join('; ')}`);
   const result = response.data?.global?.snFlowDesigner?.safeEdit;
-  if (!result) throw new Error(`Flow safe edit ${operation} returned no result`);
+  if (!result) throw new AppError(CodeAPI, `Flow safe edit ${operation} returned no result`);
   return result;
 }
 
 export async function readFlowSafeEditStatus(sdk, instance, flowId) {
   const { status } = await flowSafeEditRequest(sdk, instance, flowId, 'read');
-  if (!status || typeof status.canUserEdit !== 'boolean' || !(status.currentEditor == null || typeof status.currentEditor === 'string')) throw new Error('Unreadable safe edit status');
+  if (!status || typeof status.canUserEdit !== 'boolean' || !(status.currentEditor == null || typeof status.currentEditor === 'string')) throw new AppError(CodeAPI, 'Unreadable safe edit status');
   return status;
 }
 
@@ -28,10 +30,10 @@ export async function releaseOwnFlowSafeEdit(sdk, instance, flowId) {
   if (!before.canUserEdit && !before.currentEditor) return { released: false, before, after: before };
   const { deleteResult } = await flowSafeEditRequest(sdk, instance, flowId, 'delete');
   if (deleteResult?.deleteSuccess !== true || deleteResult.id !== flowId) {
-    throw new Error(`Flow ${flowId} safe edit release was not confirmed by the provider (deleteSuccess=${JSON.stringify(deleteResult?.deleteSuccess ?? null)}, id=${JSON.stringify(deleteResult?.id ?? null)}); no retry attempted. Status before release: ${describe(before)}.`);
+    throw new AppError(CodeAPI, `Flow ${flowId} safe edit release was not confirmed by the provider (deleteSuccess=${JSON.stringify(deleteResult?.deleteSuccess ?? null)}, id=${JSON.stringify(deleteResult?.id ?? null)}); no retry attempted. Status before release: ${describe(before)}.`);
   }
   const after = await readFlowSafeEditStatus(sdk, instance, flowId);
-  if (after.canUserEdit || after.currentEditor) throw new Error(`Flow ${flowId} release was acknowledged, but readback still reports an edit session (${describe(after)}). Inspect the exact flow and Flow Designer session before retrying.`);
+  if (after.canUserEdit || after.currentEditor) throw new AppError(CodeAPI, `Flow ${flowId} release was acknowledged, but readback still reports an edit session (${describe(after)}). Inspect the exact flow and Flow Designer session before retrying.`);
   return { released: true, before, after };
 }
 

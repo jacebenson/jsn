@@ -309,6 +309,10 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
     return { stream: 'stderr', text, exitCode: 2 };
   }
 
+  if (code === CodeAPI && resolveJsonMode(app, argv) && app) {
+    return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
+  }
+
   if (code === 'system_error') {
     return { stream: 'stderr', text: `Error (system): ${err.message}\n`, exitCode: 3 };
   }

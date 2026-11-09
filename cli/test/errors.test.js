@@ -1,6 +1,32 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
+describe('API error rendering', () => {
+  it('uses the existing envelope path for JSON, quiet, and argv JSON with an app', async () => {
+    const { AppError, CodeAPI, renderAppError } = await import('../src/errors.js');
+    const error = new AppError(CodeAPI, 'provider refused', 'inspect before retrying');
+    for (const options of [
+      { app: { output: { effectiveFormat: () => 'json' } } },
+      { app: { output: { effectiveFormat: () => 'quiet' } } },
+      { app: {}, argv: { format: 'json' } },
+    ]) {
+      assert.deepStrictEqual(renderAppError(error, options), {
+        stream: 'stdout', text: null, exitCode: 1, appErr: true,
+      });
+    }
+  });
+
+  it('preserves exact human text, exit code, and fallback behavior', async () => {
+    const { AppError, CodeAPI, renderAppError } = await import('../src/errors.js');
+    const error = new AppError(CodeAPI, 'provider refused', 'inspect before retrying');
+    const expected = { stream: 'stderr', text: 'Error: provider refused\n', exitCode: 1 };
+    assert.deepStrictEqual(renderAppError(error, { app: { output: { effectiveFormat: () => 'styled' } }, argv: { format: 'json' } }), expected);
+    assert.deepStrictEqual(renderAppError(error, { argv: { format: 'json' } }), expected);
+    assert.deepStrictEqual(renderAppError(error), expected);
+    assert.deepStrictEqual(renderAppError(new Error('provider refused'), { app: { output: { effectiveFormat: () => 'json' } } }), expected);
+  });
+});
+
 describe('AppError', () => {
   it('creates structured errors with all properties', async () => {
     const { AppError, CodeUsage } = await import('../src/errors.js');
