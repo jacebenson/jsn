@@ -149,11 +149,11 @@ describe('flow creation request shapes', () => {
     const { flowsCmd } = await import('../src/commands/flows.js');
     const commands = [];
     const root = flowsCmd((handler) => handler);
-    root.builder({ command(definition) { commands.push(definition); return this; } });
+    root.builder({ command(definition) { commands.push(definition); return this; }, epilogue() { return this; } });
     const create = commands.find(command => command.command === 'create');
     assert.ok(create);
     const options2 = [];
-    create.builder({ option(name) { options2.push(name); return this; } });
+    create.builder({ option(name) { options2.push(name); return this; }, epilogue() { return this; } });
     assert.deepEqual(options2, ['data', 'data-file', 'scope']);
   });
 

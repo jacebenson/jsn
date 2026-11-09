@@ -159,6 +159,7 @@ export function validateFlowManifest(manifest) {
   if (manifest.subflows !== undefined || manifest.subFlows !== undefined) throw new Error('Subflows are unsupported in this creation slice');
   if (manifest.variables !== undefined || manifest.flowVariables !== undefined) throw new Error('Flow-variable lifecycle is unsupported in this creation slice');
   if (manifest.errorHandling !== undefined) throw new Error('Error handling is unsupported in this creation slice');
+  if (manifest.stages !== undefined) validateStages(manifest.stages);
   const trigger = manifest.trigger;
   if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) throw new Error('Flow manifest requires a trigger object');
   for (const key of Object.keys(trigger)) if (!['type', 'table', 'condition', 'inputs'].includes(key)) throw new Error(`Flow manifest trigger field "${key}" is unsupported`);
@@ -195,6 +196,139 @@ export function buildFlowProperties(manifest) {
   };
 }
 
+// Stage placement. Shapes come from a captured Flow Designer session that both
+// created stages and moved steps onto them: the V1-style
+// `PUT /processflow/flow/{id}/stages` body and the `stages {insert|update}`
+// snFlowDesigner patch. A stage carries a UUID `stageId`, a display `label`, a
+// machine `value`, an `order`, and `componentIndexes` — the flow-step orders
+// placed on that stage. `componentIndexes` is why a placement update must run
+// after the actions exist.
+const STAGE_DURATION = '1970-01-01 00:00:00';
+const STAGE_STATES = Object.freeze({
+  pending: 'Pending - has not started',
+  in_progress: 'In progress',
+  skipped: 'Skipped',
+  complete: 'Completed',
+  error: 'Error',
+});
+const STAGE_KEYS = ['label', 'value', 'order', 'system', 'componentIndexes', 'stageId', 'duration', 'states'];
+
+const asBool = (value) => value === true || value === 'true';
+
+function stageValueFromLabel(label) {
+  return String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Validate a manifest `stages` array.
+ *
+ * `stageId` is only meaningful for updates: an entry without one inserts a new
+ * stage, an entry with one edits the stage it names.
+ */
+export function validateStages(stages, { update = false } = {}) {
+  if (!Array.isArray(stages)) throw new Error('Flow stages must be an array');
+  for (const [index, stage] of stages.entries()) {
+    const where = `Stage ${index + 1}`;
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) throw new Error(`${where} must be an object`);
+    for (const key of Object.keys(stage)) if (!STAGE_KEYS.includes(key)) throw new Error(`${where} field "${key}" is unsupported`);
+    if (stage.stageId !== undefined && !update) throw new Error(`${where} stageId is only accepted when updating an existing stage; omit it to insert`);
+    if (update && stage.stageId !== undefined && !/^[0-9a-fA-F-]{32,36}$/.test(String(stage.stageId))) throw new Error(`${where} stageId must be the stage UUID`);
+    if (stage.label !== undefined && !String(stage.label).trim()) throw new Error(`${where} label must not be empty`);
+    if (stage.value !== undefined && !String(stage.value).trim()) throw new Error(`${where} value must not be empty`);
+    if (stage.order !== undefined && (!Number.isInteger(stage.order) || stage.order < 0)) throw new Error(`${where} order must be a non-negative integer`);
+    if (stage.system !== undefined && typeof stage.system !== 'boolean') throw new Error(`${where} system must be a boolean`);
+    if (stage.componentIndexes !== undefined) {
+      if (!Array.isArray(stage.componentIndexes) || stage.componentIndexes.some(value => !Number.isInteger(value) || value < 1)) {
+        throw new Error(`${where} componentIndexes must be an array of flow-step orders (integers >= 1)`);
+      }
+    }
+    if (stage.duration !== undefined && typeof stage.duration !== 'string') throw new Error(`${where} duration must be a string`);
+    if (stage.states !== undefined && (!stage.states || typeof stage.states !== 'object' || Array.isArray(stage.states))) throw new Error(`${where} states must be an object`);
+    const inserts = stage.stageId === undefined;
+    if (inserts && !String(stage.label ?? '').trim()) throw new Error(`${where} requires a label`);
+    if (!inserts) {
+      const edited = ['label', 'value', 'order', 'componentIndexes'].filter(key => stage[key] !== undefined);
+      if (!edited.length) throw new Error(`${where} must change label, value, order or componentIndexes`);
+    }
+  }
+  return stages;
+}
+
+export function buildStageInserts(stages = [], idFactory = () => randomUUID()) {
+  return stages
+    .map((stage, index) => ({ stage, index }))
+    .sort((a, b) => (a.stage.order ?? a.index) - (b.stage.order ?? b.index))
+    .map(({ stage, index }) => ({
+      stageId: idFactory(),
+      label: String(stage.label).trim(),
+      value: stage.value ?? stageValueFromLabel(stage.label),
+      order: stage.order ?? index,
+      system: stage.system ?? false,
+      componentIndexes: stage.componentIndexes ?? [],
+      duration: stage.duration ?? STAGE_DURATION,
+      states: stage.states ?? STAGE_STATES,
+    }));
+}
+
+export function buildStageUpdates(stages = []) {
+  return stages.map((stage) => {
+    const update = { stageId: stage.stageId };
+    if (stage.label !== undefined) update.label = String(stage.label).trim();
+    if (stage.value !== undefined) update.value = stage.value;
+    if (stage.order !== undefined) update.order = stage.order;
+    if (stage.componentIndexes !== undefined) update.componentIndexes = stage.componentIndexes;
+    return update;
+  });
+}
+
+/**
+ * `stages` is part of the same snFlowDesigner patch as actions, but placement
+ * has to follow the actions: `componentIndexes` name flow-step orders that must
+ * already exist. Creation therefore sends stages in a second patch.
+ */
+export function buildFlowStageMutation({ flowId, inserts = [], updates = [] }) {
+  const parts = [];
+  if (inserts.length) parts.push(`insert: [${inserts.map(gqlInputObject).join(', ')}]`);
+  if (updates.length) parts.push(`update: [${updates.map(gqlInputObject).join(', ')}]`);
+  if (!parts.length) throw new Error('Flow stage patch requires at least one insert or update');
+  return `mutation { global { snFlowDesigner { flow(flowPatch: {flowId: ${gqlString(flowId)}, stages: {${parts.join(', ')}}}) { id stages { inserts { sysId } } } } } }`;
+}
+
+/**
+ * Read the catalog item's variables as a `service_catalog` flow sees them.
+ *
+ * A service_catalog trigger takes `template_catalog_item` (an sc_cat_item
+ * sys_id) plus `catalog_variables`, a comma-joined list of item_option_new
+ * sys_ids. This is the lookup Flow Designer runs when you pick the item, so the
+ * ids a manifest needs are the `id` values returned here.
+ */
+export async function readCatalogItemVariables(sdk, instance, flowId, catalogItemId, { scope = 'global', includeMultiRowVariableSets = true, selectedVariables = '' } = {}) {
+  if (!String(catalogItemId || '').trim()) throw new Error('catalog-variables requires a catalog item sys_id');
+  const query = new URLSearchParams({ sysparm_transaction_scope: scope });
+  const response = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}/service_get_catalog_variables?${query}`, {
+    method: 'POST',
+    body: JSON.stringify({ flow_catalog_model: catalogItemId, includeMultiRowVariableSets, selectedVariables }),
+  });
+  const data = response?.result?.data;
+  if (!data || !Array.isArray(data.availableList)) throw new Error('Catalog variable lookup returned no availableList; check the flow and catalog item sys_ids and the transaction scope');
+  const variables = data.availableList.map(variable => ({
+    id: stringValue(variable.id),
+    name: stringValue(variable.name),
+    label: stringValue(variable.label),
+    type: stringValue(variable.type),
+    mandatory: asBool(variable.mandatory),
+    readonly: asBool(variable.readonly),
+  }));
+  return {
+    flow_id: flowId,
+    catalog_item: catalogItemId,
+    count: variables.length,
+    variables,
+    // Exactly what the trigger input expects, so it can be pasted into a manifest.
+    catalog_variables_input: variables.map(variable => variable.id).join(','),
+  };
+}
+
 export function buildFlowPatchMutation({ flowId, trigger, actions }) {
   const triggerInsert = {
     flowSysId: trigger.flowSysId,
@@ -223,12 +357,17 @@ export function buildFlowPatchMutation({ flowId, trigger, actions }) {
   return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { inserts { sysId } updates } actions { inserts { sysId uiUniqueIdentifier } } } } } }`;
 }
 
-export function buildFlowUpdateMutation({ flowId, triggerUpdates = [], actionUpdates = [] }) {
+export function buildFlowUpdateMutation({ flowId, triggerUpdates = [], actionUpdates = [], stageInserts = [], stageUpdates = [] }) {
   const updates = [];
   if (triggerUpdates.length) updates.push(`triggerInstances: {update: [${triggerUpdates.map(gqlInputObject).join(', ')}]}`);
   if (actionUpdates.length) updates.push(`actions: {update: [${actionUpdates.map(gqlInputObject).join(', ')}]}`);
+  const stageParts = [];
+  if (stageInserts.length) stageParts.push(`insert: [${stageInserts.map(gqlInputObject).join(', ')}]`);
+  if (stageUpdates.length) stageParts.push(`update: [${stageUpdates.map(gqlInputObject).join(', ')}]`);
+  if (stageParts.length) updates.push(`stages: {${stageParts.join(', ')}}`);
+  if (!updates.length) throw new Error('Flow update mutation requires at least one change');
   const patch = `flowPatch: {flowId: ${gqlString(flowId)}, ${updates.join(', ')}}`;
-  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { updates } actions { updates } } } } }`;
+  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { updates } actions { updates } stages { inserts { sysId } } } } } }`;
 }
 
 export async function readProcessFlow(sdk, instance, flowId, scope) {
@@ -382,6 +521,31 @@ function stripPredicates(value) {
 
 function actionTypeIdOf(action) {
   return idValue(action?.actionTypeSysId || action?.action_type_sys_id || action?.actionType?.sys_id || action?.actionType?.sysId);
+}
+
+/**
+ * Confirm the stages this command asked for are the ones the flow now carries.
+ * Matching is by generated stageId: a label-only check could pass while the
+ * placement landed on a different stage.
+ */
+function assertStagesPlaced(processflow, stageInserts, flowId) {
+  if (!stageInserts.length) return;
+  const saved = findArray(processflow, 'stages');
+  if (!saved.length) throw new Error(`Flow ${flowId} stage read-back returned no stages after placing ${stageInserts.length}`);
+  for (const expected of stageInserts) {
+    const matches = saved.filter(stage => stringValue(stage.stageId || stage.stage_id) === expected.stageId);
+    if (matches.length !== 1) throw new Error(`Flow ${flowId} stage "${expected.label}" (${expected.stageId}) was not uniquely present in ProcessFlow read-back`);
+    const savedStage = matches[0];
+    if (expected.label !== undefined && stringValue(savedStage.label) !== expected.label) throw new Error(`Flow ${flowId} stage ${expected.stageId} label did not match the requested "${expected.label}"`);
+    if (expected.order !== undefined && String(savedStage.order) !== String(expected.order)) throw new Error(`Flow ${flowId} stage ${expected.stageId} order did not match the requested ${expected.order}`);
+    if (expected.componentIndexes !== undefined) {
+      const savedIndexes = (Array.isArray(savedStage.componentIndexes) ? savedStage.componentIndexes : []).map(String).sort();
+      const expectedIndexes = expected.componentIndexes.map(String).sort();
+      if (JSON.stringify(savedIndexes) !== JSON.stringify(expectedIndexes)) {
+        throw new Error(`Flow ${flowId} stage ${expected.stageId} placement did not match the requested componentIndexes`);
+      }
+    }
+  }
 }
 
 function verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigger, manifest, actionInstances, inserted }) {
@@ -549,8 +713,8 @@ async function resolveExistingAction(sdk, actions, requested, index) {
 
 export function validateFlowUpdateManifest(manifest) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('Flow update manifest must be a JSON object');
-  const allowed = new Set(['scope', 'trigger', 'actions']);
-  for (const key of Object.keys(manifest)) if (!allowed.has(key)) throw new Error(`Flow update field "${key}" is unsupported; only trigger and existing action inputs may be updated`);
+  const allowed = new Set(['scope', 'trigger', 'actions', 'stages']);
+  for (const key of Object.keys(manifest)) if (!allowed.has(key)) throw new Error(`Flow update field "${key}" is unsupported; only trigger, existing action inputs and stages may be updated`);
   if (manifest.scope !== undefined && !String(manifest.scope).trim()) throw new Error('Flow update scope must not be empty');
   if (manifest.trigger !== undefined) {
     if (!manifest.trigger || typeof manifest.trigger !== 'object' || Array.isArray(manifest.trigger)) throw new Error('Flow update trigger must be an object');
@@ -571,7 +735,8 @@ export function validateFlowUpdateManifest(manifest) {
       if (Object.keys(action.inputs).length === 0) throw new Error(`Update action ${index + 1} inputs must contain at least one changed value`);
     }
   }
-  if (manifest.trigger === undefined && manifest.actions === undefined) throw new Error('Flow update manifest must specify trigger and/or actions');
+  if (manifest.trigger === undefined && manifest.actions === undefined && manifest.stages === undefined) throw new Error('Flow update manifest must specify trigger, actions and/or stages');
+  if (manifest.stages !== undefined) validateStages(manifest.stages, { update: true });
   return manifest;
 }
 
@@ -949,8 +1114,20 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     const inserted = insertedActions(patchResponse);
     if (inserted.length !== actionInstances.length) throw new Error(`Flow action patch returned ${inserted.length} inserted action identities; expected ${actionInstances.length}`);
 
+    // Stages carry componentIndexes that name flow-step orders, so placement
+    // runs after the actions exist — the same order Flow Designer uses.
+    const stageInserts = buildStageInserts(manifest.stages || [], idFactory);
+    if (stageInserts.length) {
+      const stageResponse = await mutationContext('stage_placement', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
+        method: 'POST',
+        body: JSON.stringify({ query: buildFlowStageMutation({ flowId, inserts: stageInserts }), variables: {} }),
+      }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
+      assertGraphQLSuccess(stageResponse, 'Flow stage placement');
+    }
+
     const processflow = await readProcessFlow(sdk, instance, flowId, scope);
-    verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigger, manifest, actionInstances, inserted });
+    verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigger, manifest, actionInstances, inserted, stageInserts });
+    assertStagesPlaced(processflow, stageInserts, flowId);
     const { version } = await mutationContext('autosave_version', readUpdateSet, snapshots, () => createVerifiedFlowVersion(sdk, {
       instance, flowId, scope, type: 'Autosave', annotation: 'JSN flow create',
     }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
@@ -1013,6 +1190,8 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const snapshots = [];
   const triggerUpdates = [];
   const actionUpdates = [];
+  const stageInserts = buildStageInserts((manifest.stages || []).filter(stage => stage.stageId === undefined), options.idFactory || (() => randomUUID()));
+  const stageUpdates = buildStageUpdates((manifest.stages || []).filter(stage => stage.stageId !== undefined));
   const changedActionInputs = new Map();
   const actionTargets = new Map();
   const changes = [];
@@ -1040,7 +1219,20 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     changedActionInputs.set(uiId, new Set(Object.keys(requested.inputs)));
     for (const [input, after] of Object.entries(requested.inputs)) changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
   }
-  if (triggerUpdates.length === 0 && actionUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
+  const savedStages = findArray(beforeDefinition, 'stages');
+  const savedStageById = new Map(savedStages.map(stage => [stringValue(stage.stageId || stage.stage_id), stage]));
+  for (const update of stageUpdates) {
+    const before = savedStageById.get(update.stageId);
+    if (!before) throw new Error(`Flow ${flowId} has no stage ${update.stageId}; omit stageId to insert a new stage`);
+    for (const [field, after] of Object.entries(update)) {
+      if (field === 'stageId') continue;
+      changes.push({ component: 'stage', stage: stringValue(before.label), input: field, before: before[field], after });
+    }
+  }
+  for (const insert of stageInserts) {
+    changes.push({ component: 'stage', stage: insert.label, input: 'insert', before: null, after: { order: insert.order, componentIndexes: insert.componentIndexes } });
+  }
+  if (triggerUpdates.length === 0 && actionUpdates.length === 0 && stageInserts.length === 0 && stageUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
   if (options.preview) return {
     preview: true,
     flow: { id: flowId, name: target.flowName, status: lifecycle.status, active: lifecycle.active },
@@ -1069,14 +1261,30 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     try {
       const patchResponse = await mutationContext('trigger_and_actions_update', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
         method: 'POST',
-        body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates }), variables: {} }),
+        body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates, stageInserts, stageUpdates }), variables: {} }),
       }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
       assertGraphQLSuccess(patchResponse, 'Flow trigger/action update');
       completedStage = 'patch_acknowledged';
       const processflow = await readProcessFlow(sdk, instance, flowId, scope);
       // Only requested values may differ. Preserve array order and opaque fields.
-      for (const field of ['flowVariables', 'flowLogicInstances', 'subFlowInstances', 'flowInputs', 'flowOutputs', 'inputs', 'outputs', 'stages']) {
+      // `stages` is compared separately below: a stage edit may touch specific
+      // fields, while every stage the manifest did not name must stay identical.
+      for (const field of ['flowVariables', 'flowLogicInstances', 'subFlowInstances', 'flowInputs', 'flowOutputs', 'inputs', 'outputs']) {
         if (!isDeepStrictEqual(beforeDefinition[field], processflow[field])) throw new Error(`Flow ${flowId} changed omitted ${field}; preservation failed`);
+      }
+      if (stageInserts.length || stageUpdates.length) {
+        const requestedStageIds = new Set([...stageInserts.map(stage => stage.stageId), ...stageUpdates.map(stage => stage.stageId)]);
+        const untouched = definition => findArray(definition, 'stages')
+          .filter(stage => !requestedStageIds.has(stringValue(stage.stageId || stage.stage_id)));
+        if (!isDeepStrictEqual(untouched(beforeDefinition), untouched(processflow))) throw new Error(`Flow ${flowId} changed omitted stages; preservation failed`);
+        assertStagesPlaced(processflow, [...stageInserts, ...stageUpdates.map(update => ({
+          stageId: update.stageId,
+          label: update.label ?? stringValue(savedStageById.get(update.stageId)?.label),
+          order: update.order ?? savedStageById.get(update.stageId)?.order,
+          componentIndexes: update.componentIndexes,
+        }))].filter(stage => stage.label !== undefined), flowId);
+      } else if (!isDeepStrictEqual(beforeDefinition.stages, processflow.stages)) {
+        throw new Error(`Flow ${flowId} changed omitted stages; preservation failed`);
       }
       if (!triggerUpdate && !isDeepStrictEqual(beforeDefinition.triggerInstances, processflow.triggerInstances)) throw new Error(`Flow ${flowId} changed omitted triggerInstances`);
       const maskActions = definition => findExistingActions(definition).map(action => {

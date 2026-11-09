@@ -258,3 +258,99 @@ export function renderHelp(config, registry = null) {
     '',
   ].join('\n');
 }
+
+// Subcommand pages (`jsn flows --help`) used to print one unbroken line per
+// entry. A description written for a command's own page — `flows update` is
+// ~700 characters — became an 801-column line that the terminal cut off, so the
+// list advertised a command nobody could read and options lost their aliases,
+// types and defaults. These helpers wrap the text to the terminal instead.
+
+const HELP_WIDTH_FALLBACK = 100;
+
+/**
+ * Columns available to help text. A piped run has no `columns`, and a very wide
+ * terminal should not stretch prose to 200 columns, so cap it.
+ */
+export function helpWidth(stream = process.stdout) {
+  const columns = Number(stream?.columns);
+  if (!Number.isFinite(columns) || columns <= 0) return HELP_WIDTH_FALLBACK;
+  return Math.min(columns, HELP_WIDTH_FALLBACK);
+}
+
+/**
+ * Wrap `text` into lines no wider than `width`, indenting `firstIndent` spaces
+ * on the first line and `indent` on the rest. A word longer than the available
+ * width stays whole: a split alias or sys_id reads as a different token.
+ */
+export function wrapText(text, { width, firstIndent = 0, indent = firstIndent } = {}) {
+  const words = String(text ?? '').split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const limit = Number.isFinite(width) && width > 0 ? width : HELP_WIDTH_FALLBACK;
+  const lines = [];
+  let line = '';
+  let prefix = ' '.repeat(firstIndent);
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && prefix.length + candidate.length > limit) {
+      lines.push(prefix + line);
+      line = word;
+      prefix = ' '.repeat(indent);
+    } else {
+      line = candidate;
+    }
+  }
+  lines.push(prefix + line);
+  return lines;
+}
+
+/**
+ * Render help rows as one padded label column plus a wrapped description.
+ *
+ * @param {Array<{label: string, description?: string, note?: string}>} rows
+ *   `note` is appended verbatim (already bracketed) — aliases, option type and
+ *   default — so the description itself stays plain prose.
+ * @param {{width?: number, indent?: number}} [opts]
+ */
+export function renderRows(rows, { width = helpWidth(), indent = 2 } = {}) {
+  if (!rows.length) return '';
+  const labelWidth = Math.max(...rows.map(row => row.label.length));
+  const descriptionIndent = indent + labelWidth + 2;
+  const available = Math.max(20, width - descriptionIndent);
+  const lines = [];
+  for (const row of rows) {
+    const head = `${' '.repeat(indent)}${row.label.padEnd(labelWidth)}`.padEnd(descriptionIndent);
+    const wrapped = wrapText(row.description, { width: available });
+    // The note (aliases, type, default) is one token: splitting `[aliases: runs,
+    // contexts]` across lines leaves a bracket fragment that reads as prose.
+    if (row.note) {
+      const last = wrapped.at(-1);
+      if (last !== undefined && last.length + 1 + row.note.length <= available) wrapped[wrapped.length - 1] = `${last} ${row.note}`;
+      else wrapped.push(row.note);
+    }
+    if (!wrapped.length) {
+      lines.push(head.trimEnd());
+      continue;
+    }
+    lines.push(`${head}${wrapped[0]}`);
+    for (const line of wrapped.slice(1)) lines.push(`${' '.repeat(descriptionIndent)}${line}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render one command page: usage, description, subcommands, options, epilogue.
+ * Sections are separated by a blank line so the list is skimmable in a
+ * terminal; nothing is emitted for an empty section. The epilogue is authored
+ * text and prints verbatim: it is where command examples live, and breaking
+ * `jsn records watch --table incident` at a flag boundary turns one
+ * copy-pasteable command into two wrong ones.
+ */
+export function renderSubcommandHelp({ usage, description, commands = [], options = [], epilogue, width = helpWidth() }) {
+  const blocks = [usage];
+  if (description) blocks.push(description);
+  if (commands.length) blocks.push(`Commands:\n${renderRows(commands, { width })}`);
+  if (options.length) blocks.push(`Options:\n${renderRows(options, { width })}`);
+  if (epilogue) blocks.push(epilogue);
+  return `${blocks.join('\n\n')}\n`;
+}
+
