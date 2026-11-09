@@ -157,16 +157,14 @@ test('shared ticket option factory sends exact offset/query/fields and extracted
     const offsetList = lists.find(r => r.query.sysparm_offset === '1');
     const defaultList = lists.find(r => r.query.sysparm_offset === '0' && r.query.sysparm_query?.includes('sys_idISNOTEMPTY'));
     assert.ok(offsetList && defaultList && defaultList.query.sysparm_offset === '0', family);
-    assert.equal(offsetList.query.sysparm_limit, '1');
-    assert.equal(defaultList.query.sysparm_limit, '1');
     for (const list of [offsetList, defaultList]) {
-      const fields = list.query.sysparm_fields.split(',');
-      assert.ok(fields.includes('sys_id') && fields.includes('sys_updated_on'), family);
-      assert.ok(list.query.sysparm_query.includes('sys_idISNOTEMPTY'), family);
+      assert.equal(list.query.sysparm_limit, '1', family);
+      assert.equal(list.query.sysparm_fields, 'sys_id,sys_id,sys_updated_on', family);
+      assert.equal(list.query.sysparm_query, 'sys_idISNOTEMPTY^ORDERBYDESCsys_updated_on', family);
     }
     const shows = requests.filter(r => r.path === `/api/now/table/${table}/${id}`);
     assert.ok(shows.length >= 1, family);
-    const showRequest = requests.find(r => r.query.sysparm_limit === '2' && r.query.sysparm_query?.includes(`sys_id=${id}`));
+    const showRequest = requests.find(r => r.query.sysparm_limit === '2' && r.query.sysparm_query === `sys_id=${id}`);
     assert.ok(showRequest, family);
     assert.ok(f.commands.some(args => args[0] === family && args[1] === 'show' && args.includes('--get')), family);
   }
