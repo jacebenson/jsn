@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
+import { once } from 'node:events';
 const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
 const fixture = new URL('./support/flow-designer-pty.js', import.meta.url).pathname;
 const driver = new URL('./support/flow-designer-pty-driver.py', import.meta.url).pathname;
@@ -134,13 +136,13 @@ test('real PTY flow edit picks an inactive draft, reads its condition and confir
   assert.equal(result.flow.triggerInstances[0].id, 'f'.repeat(32));
 });
 
-function isolated(readOnly) {
+function isolated(readOnly, instance = 'https://example.invalid') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-pty-actual-'));
   const config = path.join(root, 'config');
   fs.mkdirSync(path.join(config, 'servicenow'), { recursive: true });
   fs.writeFileSync(path.join(config, 'servicenow', 'config.json'), JSON.stringify({
     default_profile: 'fixture',
-    profiles: { fixture: { instance_url: 'https://example.invalid', auth_method: 'basic', username: 'fixture', read_only: readOnly, skip_confirmations: false } },
+    profiles: { fixture: { instance_url: instance, auth_method: 'basic', username: 'fixture', read_only: readOnly, skip_confirmations: false } },
   }));
   return { root, env: { HOME: path.join(root, 'home'), XDG_CONFIG_HOME: config, PATH: process.env.PATH, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' } };
 }
@@ -157,13 +159,22 @@ test('actual binary read-only profile blocks guided flow creation under a TTY be
   assert.match(result.result.stdout, /read_only|read-only/i);
   assert.doesNotMatch(result.result.stdout, /FAKE_WRITE|api\/now/i);
 });
-test('actual binary non-TTY JSON flow creation fails fast with a JSON error and no mutation', { skip }, t => {
-  const { root, env } = isolated(false);
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+test('actual binary non-TTY JSON flow creation fails fast with a JSON error and no record mutation', { skip }, async t => {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    requests.push({ method: req.method, path: new URL(req.url, 'http://fixture.invalid').pathname });
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ result: [] }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const { root, env } = isolated(false, `http://127.0.0.1:${server.address().port}`);
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(root, { recursive: true, force: true }); });
   const result = spawnSync(process.execPath, [cli, 'flows', 'create', '--profile', 'fixture', '--json'], { encoding: 'utf8', env, timeout: 20000 });
   assert.notEqual(result.status, 0);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ok, false);
   assert.ok(['usage_error', 'confirmation_required'].includes(payload.code), payload.code);
-  assert.doesNotMatch(result.stdout, /"ok":true|"data":\{/);
+  const recordWrites = requests.filter(request => request.path.startsWith('/api/now/table/') && request.method !== 'GET');
+  assert.deepEqual(recordWrites, [], 'non-TTY fail-fast must not dispatch a record mutation');
 });
