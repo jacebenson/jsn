@@ -84,13 +84,15 @@ export async function testFlow(sdk, instance, identifier, recordId) {
     sysparm_query: `${isId ? 'sys_id' : 'name'}=${flowIdentifier}`,
     sysparm_limit: '2',
     sysparm_display_value: 'all',
-    sysparm_fields: 'sys_id,name,scope',
+    sysparm_fields: 'sys_id,name,scope,sys_scope',
   }));
   if (!flowRows.length) throw new Error(`Flow not found: ${identifier}`);
   if (flowRows.length > 1) throw new Error(`Flow identifier is ambiguous: ${identifier}`);
   const flow = flowRows[0];
   const flowId = valueOf(flow.sys_id);
-  const scope = valueOf(flow.scope);
+  // The saved record exposes the application in `sys_scope`; older fixtures and
+  // some provider shapes only carry `scope`. Use whichever is present.
+  const scope = valueOf(flow.scope) || valueOf(flow.sys_scope);
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope; flow was not dispatched`);
   const response = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}?sysparm_transaction_scope=${encodeURIComponent(scope)}`, { method: 'GET' });
   const definition = flowData(response);
@@ -105,6 +107,7 @@ export async function testFlow(sdk, instance, identifier, recordId) {
   if (definitionScope && definitionScope !== scope) throw new Error(`Flow ${flowId} definition scope did not match the saved record; flow was not dispatched`);
   const body = {
     ...definition,
+    flow: definition,
     outputMap: { current: recordId, table_name: trigger.table },
     runOnThread: true,
     tracingEnabled: false,

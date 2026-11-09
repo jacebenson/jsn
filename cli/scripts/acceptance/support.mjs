@@ -276,7 +276,9 @@ export function createContext(options, target, { execute = runProcess } = {}) {
       JSN_DATA_HOME: path.join(outputDir, 'data'), XDG_CACHE_HOME: path.join(outputDir, 'cache'), ...extra };
   };
   const launch = async (args, opts = {}, executable = process.execPath) => {
-    const result = await execute(executable, args, { cwd: outputDir, env: environment(opts.env), timeoutMs: Math.min(opts.timeoutMs || 30000, 120000) });
+    // Native update-set import may legitimately outlast the ordinary 120s cap;
+    // every caller still has to opt in with an explicit bound.
+    const result = await execute(executable, args, { cwd: outputDir, env: environment(opts.env), timeoutMs: Math.min(opts.timeoutMs || 30000, 360000) });
     // Arguments and environment intentionally omitted. Even argv may contain secrets.
     privateJSON(path.join(outputDir, `command-${++receipt}.json`), result);
     if (result.timedOut || result.overflow) throw new ScenarioError(result.timedOut ? 'failed-timeout' : 'failed', 'CLI exceeded execution bounds');

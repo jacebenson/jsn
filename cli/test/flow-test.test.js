@@ -51,6 +51,7 @@ test('testFlow validates record before dispatch and posts exact saved definition
       assert.equal(url, `${INSTANCE}/api/now/processflow/flow/${FLOW}/test?sysparm_transaction_scope=scope-1`);
       const body = JSON.parse(options.body);
       assert.deepEqual(body.flowId, FLOW);
+      assert.deepEqual(body.flow, definition);
       assert.deepEqual(body.actionInstances, definition.actionInstances);
       assert.deepEqual(body.outputMap, { current: RECORD, table_name: 'ticket' });
       assert.equal(body.runOnThread, true);
@@ -65,6 +66,24 @@ test('testFlow validates record before dispatch and posts exact saved definition
   assert.equal(result.status, 'accepted');
   assert.equal(result.context_id, 'context-1');
   assert.equal(calls.filter(call => call[0] === 'request' && call[2]?.method === 'POST').length, 1);
+});
+
+test('testFlow falls back to the saved sys_scope when scope is absent', async () => {
+  const requests = [];
+  const sdk = {
+    async list(table) {
+      if (table === 'sys_hub_flow') return [{ sys_id: FLOW, name: 'Draft flow', sys_scope: { value: 'scope-1', display_value: 'Global' } }];
+      if (table === 'ticket') return [{ sys_id: RECORD }];
+      return [];
+    },
+    async request(url, options = {}) {
+      requests.push(url);
+      if (options.method === 'GET') return { result: { data: definition } };
+      return { result: { context_id: 'context-1' } };
+    },
+  };
+  await testFlow(sdk, INSTANCE, FLOW, RECORD);
+  assert.ok(requests.some(url => url.includes('sysparm_transaction_scope=scope-1')));
 });
 
 test('testFlow rejects encoded-query operators in flow names before lookup', async () => {

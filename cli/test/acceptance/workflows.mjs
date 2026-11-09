@@ -174,6 +174,9 @@ const flowLifecycle = {
     await command(ctx, ['flows', 'schemas', '--json']);
     const flowId = await createFlow(ctx, { name, scope: 'global', trigger: { type: 'record_create_or_update', table: 'sys_properties', condition: `name=${name}` }, actions: [{ type: 'Log', inputs: { log_level: 'info', log_message: name } }] });
     await command(ctx, ['flows', 'show', flowId, '--json']);
+    // A freshly created flow carries the creator's safe-edit lease; the update
+    // and publish paths refuse while it is held. Release our own lease first.
+    await command(ctx, ['flows', 'unlock', flowId, '--force', '--json']);
     const patch = { actions: [{ order: 1, type: 'Log', inputs: { log_message: `${name}_updated` } }] };
     const preview = await command(ctx, ['flows', 'update', flowId, '--data', JSON.stringify(patch), '--preview', '--json']);
     assert.equal(preview.preview, true);
