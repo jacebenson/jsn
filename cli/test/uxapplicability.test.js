@@ -4,7 +4,31 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { runProcess, cliRoot } from '../scripts/acceptance/support.mjs';
+import { spawn } from 'node:child_process';
+
+const cliRoot = path.resolve(import.meta.dirname, '..');
+
+// Standalone equivalent of the acceptance-suite runProcess helper. This branch
+// targets main, which does not yet carry cli/scripts/acceptance/support.mjs.
+function runProcess(executable, args, { cwd = cliRoot, env = process.env, timeoutMs = 30000, maxBytes = 2 * 1024 * 1024 } = {}) {
+  return new Promise((resolve, reject) => {
+    const start = performance.now();
+    const child = spawn(executable, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '', timedOut = false, overflow = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
+    const collect = stream => data => {
+      if (stream === 'out') stdout += data; else stderr += data;
+      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > maxBytes) { overflow = true; child.kill('SIGKILL'); }
+    };
+    child.stdout.on('data', collect('out')); child.stderr.on('data', collect('err'));
+    child.on('error', error => { clearTimeout(timer); reject(error); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      let json; try { json = JSON.parse(stdout); } catch { /* validated by caller */ }
+      resolve({ exitCode: code ?? -1, stdout, stderr, json, durationMs: performance.now() - start, timedOut, overflow });
+    });
+  });
+}
 
 // The verified table is sys_ux_applicability_m2m_list (label: List
 // Applicability). It has no `name` field; list/show must use sys_id plus the
