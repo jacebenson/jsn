@@ -34,7 +34,7 @@ This is resource read sampling, not full family lifecycle acceptance. No help ex
 | email | sysevent_in_email_action | list, show |
 | uimacros | sys_ui_macro | list, show |
 | uxlists | sys_ux_list | list, show |
-| uxapplicability | sys_ux_applicability_m2m | list, show |
+| uxapplicability | sys_ux_applicability_m2m_list | list, show |
 | cataloguipolicies | catalog_ui_policy | list, show |
 | tables | sys_db_object | list only |
 | incidents | incident | list, show |
@@ -42,6 +42,8 @@ This is resource read sampling, not full family lifecycle acceptance. No help ex
 | requests | sc_req_item | list only |
 | tasks | sc_task | list, show |
 | uipolicies | sys_ui_policy | list, show |
+
+`uxapplicability` targets `sys_ux_applicability_m2m_list` (label **List Applicability**). The verified dictionary has `list`, `applicability`, `active` and `order`; it has no `name` field, so exact show uses `--identifier-field sys_id`. Reference display values resolve to the UX list and audience names.
 
 ## Executed behavior
 

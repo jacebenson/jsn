@@ -57435,10 +57435,12 @@
       ],
       "positionals": [],
       "discovery": {
-        "table": "sys_ux_applicability_m2m",
+        "table": "sys_ux_applicability_m2m_list",
         "defaultColumns": [
-          "name",
+          "list",
+          "applicability",
           "active",
+          "order",
           "sys_scope"
         ],
         "benefits": [
@@ -57449,13 +57451,15 @@
       },
       "recordProfile": {
         "name": "uxapplicability",
-        "table": "sys_ux_applicability_m2m",
+        "table": "sys_ux_applicability_m2m_list",
         "aliases": [
           "uxapp"
         ],
         "columns": [
-          "name",
+          "list",
+          "applicability",
           "active",
+          "order",
           "sys_scope"
         ],
         "options": {
@@ -57463,7 +57467,7 @@
           "scopeValidation": true,
           "readOnly": true
         },
-        "identifierField": "name",
+        "identifierField": "sys_id",
         "output": {
           "references": "both",
           "listProjection": "display"
