@@ -14,6 +14,10 @@ import { savePKCEState, loadPKCEState, removePKCEState, getOAuthClientID, genera
 import { parseBrowserSessionInput } from './auth/browser-session.js';
 import { normalizeAuthMethod, normalizeAuthSource, sourceMethod, probeFailure, classifyProbeError, classifyCredentialState } from './auth/credential-state.js';
 
+// A profile in one of these credential states can make authenticated calls.
+// `refreshable` refreshes at point of use; see isAuthenticated().
+const AUTHENTICATED_STATES = new Set(['available', 'refreshable']);
+
 // Preserve the public auth module API while implementation stays separated.
 export { sanitizeKeyPart } from './auth/credential-store.js';
 export { parseBrowserSessionInput } from './auth/browser-session.js';
@@ -289,15 +293,25 @@ export class AuthManager {
     }
   }
 
+  /**
+   * Credential states that can produce a session count as authenticated.
+   *
+   * `refreshable` is an expired (or nearly expired) access token WITH a refresh
+   * token, which getCredentialsFor() refreshes at point of use — the refresh is
+   * already proved by the "expired OAuth refreshes at point of use" contract.
+   * Reporting those profiles as unauthenticated made `jsn auth status` disagree
+   * with every command that then ran fine, and made requireAuth() refuse a
+   * profile the next request would have refreshed.
+   */
   isAuthenticated() {
     const instance = this.identity.getEffectiveInstance();
     if (!instance) return false;
-    return this.getAuthState(instance).state === 'available';
+    return AUTHENTICATED_STATES.has(this.getAuthState(instance).state);
   }
 
   isAuthenticatedFor(instance, options = {}) {
     if (!instance) return false;
-    return this.getAuthState(instance, options).state === 'available';
+    return AUTHENTICATED_STATES.has(this.getAuthState(instance, options).state);
   }
 
   async getCredentials() {
