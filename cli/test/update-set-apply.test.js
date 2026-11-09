@@ -363,6 +363,20 @@ test('commit refuses unresolved preview problems without applying anything', asy
   assert.equal(calls.some(([kind]) => kind === 'commitUpdateSet'), false);
 });
 
+test('commit refuses a full preview-problem sample even when every observed row is resolved', async () => {
+  const { app, calls, results } = fixture({
+    state: 'previewed', afterState: 'committed',
+    problems: Array.from({ length: 500 }, (_, i) => problem({ sys_id: String(i).padStart(32, '0'), status: 'ignored' })),
+  });
+  await assert.rejects(run(['commit', REMOTE_ID, '--yes'], app), error => {
+    assert.equal(error.code, 'usage_error');
+    assert.match(error.message, /preview problem.*truncated|truncated.*preview problem/i);
+    return true;
+  });
+  assert.equal(calls.some(([kind]) => kind === 'commitUpdateSet'), false);
+  assert.deepEqual(results, []);
+});
+
 test('commit verifies the committed state and reports the local update set', async () => {
   const { app, calls, results } = fixture({
     state: 'previewed', afterState: 'committed', problems: [problem({ status: 'ignored' })],

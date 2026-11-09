@@ -1,6 +1,7 @@
 # Mutation testing
 
-Run `npm run test:mutation` from the repository root after `npm ci`.
+From the repository root, install with `npm --prefix cli ci`, then run
+`npm --prefix cli run test:mutation`. Paths below are relative to `cli/`.
 Use the current Node.js LTS release for development tools as well as the CLI. Dependency engine requirements still apply.
 
 The default mutates only `src/mutations.js`, the classifier used by the read-only-profile guard. It runs these existing offline tests with Node's test runner:

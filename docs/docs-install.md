@@ -15,36 +15,42 @@ JSN runs locally on Windows, macOS, and Linux with the current Node.js LTS relea
 
 ```bash
 npm install -g @jacebenson/jsn
-jsn --version
+jsn version
 ```
 
 Then continue to [setup and authentication](/docs/setup/).
 
-## Optional offline documentation
+## Documentation source
 
-JSN installation does not download the ServiceNow documentation corpus. Setup
-offers an optional source choice, and scripts can make the same choice directly:
+Documentation search uses the hosted service by default. Installing JSN does not
+download the ServiceNow documentation corpus, and no instance connection is
+needed to search:
 
 ```sh
-jsn setup --docs-source snapshot
-jsn docs install --source github
-jsn docs install --source skip
+jsn docs "business rules"
+jsn docs --path <exact-path-from-search>
 ```
 
-The prebuilt source downloads an already searchable database from `jsn.jace.pro`.
-Its manifest supplies the download size; JSN displays an estimate at 5 MiB/s plus
-verification, clearly labeled because actual transfer time varies. The GitHub
-source downloads approximately 51,000 raw files and indexes them locally; around
-5–25 minutes is a labeled estimate: prior runs were around five minutes, while
-full semantic indexing in the recorded validation took about 21 minutes. Actual
-time varies by host and indexing options. Both use
-the same FTS5 schema and local search. GitHub remains available if the snapshot
-service is unavailable or a local source build is preferred.
+Run `jsn setup` to choose hosted documentation, a custom service URL, or a local
+documentation server under JSN settings, then Documentation source. Local mode
+starts a loopback HTTP service and prepares its own index under
+`~/.jsn/docs-service/`. The first preparation needs network access. Once an index
+is ready, the local service can search it without reaching the hosted service;
+background refresh still checks for updates.
 
-If installation was skipped, first search explains the choices and asks approval;
-noninteractive search returns an actionable install command. Existing indexes work
-offline immediately. Snapshot freshness checks run in a separate bounded process
-at most daily; `jsn docs status` reports a newer revision and its install command.
-Downloads verify checksum, size, schema, FTS5 and SQLite integrity before replacing
-the local index. `jsn docs rollback` restores the previous installed database.
-`jsn docs sync` remains the explicit raw-source synchronization command.
+To run the shared server explicitly:
+
+```sh
+jsn docs --serve --host 127.0.0.1 --port 3000
+```
+
+Point a separate CLI process at it with `JSN_DOCS_URL=http://127.0.0.1:3000`.
+`JSN_DOCS_URL` overrides the documentation source saved by setup. It does not
+change the active ServiceNow connection.
+
+The retained `jsn docs install` and `jsn setup --docs-source` compatibility
+commands prepare the older `~/.jsn/docs/docs.db` index, not the service index used
+by current search. They do not select local-service mode. Use setup's
+Documentation source choice for the current reader. `docs sync` and
+`docs rollback` are no longer registered operations; those words are search
+terms, not maintenance commands.

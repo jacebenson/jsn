@@ -202,9 +202,9 @@ for (const [name, names, edges, options, expected, sequential] of [
     ['  1. Begin', '  2. Approve', '  3. Validate', '       ↺ → step 2 Approve [Failure]', '  4. End'], [100, 101, 103]],
   ['unreachable activities append by name then ID and do not imply a sequence',
     ['Begin', 'Z detached', 'A detached', 'End', 'A detached'], [[1, 4], [3, 5]], {},
-    ['  1. Begin', '       → step 3 End [Success]', '  2. A detached (not reached from start)',
-      '       → step 4 A detached [Success]', '  3. End', '  4. A detached (not reached from start; end)',
-      '  5. Z detached (not reached from start; end)'], []],
+    ['  1. Begin', '  2. End', '  3. A detached (not reached from start)',
+      '       → step 4 A detached [Success]', '  4. A detached (not reached from start; end)',
+      '  5. Z detached (not reached from start; end)'], [100]],
   ['parallel conditions to the next step retain the non-preferred exception',
     ['Begin', 'End'], [[1, 2, 'Rejected'], [1, 2, 'Always']], {},
     ['  1. Begin', '       → step 2 End [Rejected]', '  2. End'], [101]],
@@ -240,6 +240,17 @@ for (const [name, names, edges, options, expected, sequential] of [
     assert.doesNotMatch(text, /▶ LOOPS/);
   });
 }
+
+test('an isolated start remains step one and detached activities append in stable order', async () => {
+  const { json, text } = await inspect(['Begin', 'Z detached', 'A detached'], [[2, 3]]);
+  assert.deepEqual(json.steps, [
+    { number: 1, sys_id: id(1), name: 'Begin', reached_from_start: true },
+    { number: 2, sys_id: id(3), name: 'A detached', reached_from_start: false },
+    { number: 3, sys_id: id(2), name: 'Z detached', reached_from_start: false },
+  ]);
+  assert.ok(json.transitions.every(edge => !edge.is_sequential));
+  assert.match(text, /1\. Begin \(end\)/);
+});
 
 test('ids inside script content are preserved, never redacted', async () => {
   // A Run Script activity commonly hardcodes a workflow or record id. For a workflow

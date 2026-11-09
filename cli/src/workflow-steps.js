@@ -46,10 +46,12 @@ export function numberWorkflowSteps(activities, transitions, startId, components
     }
   }
   for (const activity of stable) if (!visited.has(activity.sys_id)) add(activity, false);
-  // Stable partition after traversal; fallback retains its disclosed name/ID order.
+  // Keep the observed traversal ahead of the stable detached appendix.
+  // Only reached terminal activities move behind other reached activities.
   if (!fallback_reason) {
-    steps.sort((a, b) => Number(outgoing.get(a.sys_id).length === 0)
-      - Number(outgoing.get(b.sys_id).length === 0));
+    steps.sort((a, b) => Number(b.reached_from_start) - Number(a.reached_from_start)
+      || (a.reached_from_start ? Number(outgoing.get(a.sys_id).length === 0)
+        - Number(outgoing.get(b.sys_id).length === 0) : 0));
     steps.forEach((step, index) => { step.number = index + 1; });
   }
   const byId = new Map(steps.map(step => [step.sys_id, step]));

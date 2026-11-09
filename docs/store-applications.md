@@ -176,6 +176,10 @@ does not cancel or resubmit. A submission without a usable tracker id fails with
 
 `jsn store status <tracker-id>` reads the tracker directly: `status`,
 `status_label`, `status_message`, `percent_complete`, `terminal`, `succeeded`.
+Numeric CICD status determines the verdict: `2` is successful, `3` failed, and
+`4` canceled. A percentage of 100 alone is not proof of completion or success.
+When `--wait` is used, `--timeout` and `--poll-interval` are validated before
+submitting any install or update request.
 
 ## Lifecycle attempts, and what they proved
 
