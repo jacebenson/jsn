@@ -65,11 +65,12 @@ export async function assertCapture(ctx) {
   return context;
 }
 export async function denied(ctx, args, pattern) {
-  const result = await ctx.command(args, { expectedDenial: result =>
-    result.json?.ok === false && ['confirmation_required', 'usage_error', 'validation_error'].includes(result.json?.error?.code) &&
-    pattern.test(JSON.stringify(result.json ?? {}) + result.stderr) });
+  const expectedDenial = result => result.exitCode !== 0 && result.json?.ok === false &&
+    ['confirmation_required', 'usage_error', 'validation_error'].includes(result.json?.code) &&
+    pattern.test(JSON.stringify(result.json ?? {}) + (result.stderr || ''));
+  const result = await ctx.command(args, { expectedDenial });
   assert.notEqual(result.exitCode, 0, 'negative command unexpectedly succeeded');
-  assert.ok(pattern.test(JSON.stringify(result.json ?? {}) + result.stderr), 'negative failed for unrelated reason');
+  assert.ok(expectedDenial(result), 'negative failed for unrelated or unstructured reason');
 }
 
 // One implementation exercises each meaningful generic-factory binding with its

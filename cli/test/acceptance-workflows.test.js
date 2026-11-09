@@ -15,15 +15,16 @@ const RUN = 'acceptance_fixture_001';
 const ID = 'a'.repeat(32);
 const CAPTURE = 'b'.repeat(32);
 const ok = data => ({ exitCode: 0, stdout: '', stderr: '', json: { ok: true, data } });
-const no = message => ({ exitCode: 1, stdout: '', stderr: '', json: { ok: false, error: { code: 'confirmation_required', message } } });
+const no = message => ({ exitCode: 1, stdout: '', stderr: '', json: { ok: false, code: 'confirmation_required', error: message } });
 
-for (const originalScope of ['global', 'c'.repeat(32)]) test(`real CLI context wire contract restores original by name and exact picker IDs (${originalScope})`, { timeout: 60000 }, async t => {
+for (const [originalScope, propertyLifecycle] of [['global', false], ['c'.repeat(32), false], ['global', true]]) test(`real CLI context wire contract restores original by name and exact picker IDs (${originalScope}${propertyLifecycle ? ', property denial journal' : ''})`, { timeout: 60000 }, async t => {
   const { scenarios } = await import('./acceptance/workflows.mjs');
   const scenario = scenarios.find(s => s.id === 'workflows.context');
   const root = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-context-wire-'));
   const original = { sys_id: ID, name: 'Original working set', application: originalScope, state: 'in progress' };
   const records = [original], requests = [], commands = [];
-  let app = original.application, selected = ID, rejectSelection = false;
+  let app = original.application, selected = ID, rejectSelection = false, property;
+  const propertyId = '9'.repeat(32);
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture.invalid');
     let text = ''; for await (const chunk of req) text += chunk;
@@ -51,7 +52,13 @@ for (const originalScope of ['global', 'c'.repeat(32)]) test(`real CLI context w
         result = { sys_id: scope, scope, name: scope };
         if (!recordId) result = [result];
       } else if (table === 'sys_user_preference') result = [{ value: query.includes('apps.current_app') ? app : selected }];
-      else if (table === 'sys_update_set') {
+      else if (table === 'sys_dictionary') result = ['name', 'value', 'description'].map(element => ({ element, mandatory: false }));
+      else if (table === 'sys_properties') {
+        if (req.method === 'POST') property = { sys_id: propertyId, sys_scope: 'global', ...body };
+        else if (req.method === 'PUT' || req.method === 'PATCH') Object.assign(property, body);
+        else if (req.method === 'DELETE') { assert.equal(recordId, propertyId); property = null; }
+        result = recordId || req.method !== 'GET' ? property ?? {} : property ? [property] : [];
+      } else if (table === 'sys_update_set') {
         if (req.method === 'POST') { result = { sys_id: CAPTURE, ...body }; records.push(result); }
         else if (recordId) result = records.find(r => r.sys_id === recordId) || null;
         // Exact name matching is deliberate: accepting any argument hid the live defect.
@@ -72,7 +79,21 @@ for (const originalScope of ['global', 'c'.repeat(32)]) test(`real CLI context w
   const env = { HOME: path.join(ctx.outputDir, 'home'), XDG_CONFIG_HOME: config, PATH: path.join(ctx.outputDir, 'empty-path'),
     DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' };
   const command = ctx.command;
-  ctx.command = (args, opts = {}) => { commands.push(args); return command(args, { ...opts, env }); };
+  ctx.command = async (args, opts = {}) => {
+    commands.push(args);
+    const result = await command(args, { ...opts, env });
+    if (propertyLifecycle && args[0] === 'properties' && args[1] === 'delete' && !args.includes('--force')) {
+      assert.notEqual(result.exitCode, 0);
+      assert.equal(result.json.ok, false);
+      assert.equal(result.json.code, 'confirmation_required');
+      assert.equal(typeof result.json.error, 'string');
+      const journal = JSON.parse(await fs.readFile(path.join(ctx.outputDir, 'artifacts.json'), 'utf8'));
+      assert.equal(journal.writeIntents.at(-1).status, 'resolved', 'real CLI refusal must settle before forced delete');
+      assert.equal(requests.filter(r => r.method === 'DELETE').length, 0, 'refusal sends no provider DELETE');
+      assert.equal(property.sys_id, propertyId);
+    }
+    return result;
+  };
   ctx.read = async (table, { id, query, fields, limit }) => {
     const params = new URLSearchParams({ sysparm_fields: fields.join(','), sysparm_limit: String(limit) });
     if (query) params.set('sysparm_query', query);
@@ -82,6 +103,18 @@ for (const originalScope of ['global', 'c'.repeat(32)]) test(`real CLI context w
   await scenario.run(ctx);
   assert.equal(selected, CAPTURE);
   assert.equal(commands.some(a => a[0] === 'updatesets' && a[1] === 'set'), false, 'create already selects the capture');
+  if (propertyLifecycle) {
+    const { scenarios: resources } = await import('./acceptance/resources.mjs');
+    await resources.find(s => s.id === 'resources.properties').run(ctx);
+    assert.equal(property, null, 'independent exact-ID absence after forced deletion');
+    assert.deepEqual(await ctx.cleanup(), [`retained-capture:${CAPTURE}`]);
+    assert.deepEqual(await ctx.cleanup(), [`retained-capture:${CAPTURE}`]);
+    assert.equal(requests.filter(r => r.method === 'DELETE').length, 1, 'cleanup must not redispatch DELETE');
+    const journal = JSON.parse(await fs.readFile(path.join(ctx.outputDir, 'artifacts.json'), 'utf8'));
+    assert.equal(journal.artifacts.find(a => a.id === propertyId).cleaned, true);
+    assert.equal(ctx.state.get('writes.unresolved'), false);
+    assert.equal(ctx.state.get('cleanup.unresolvedChildren'), false);
+  }
   await scenario.cleanup(ctx);
   assert.equal(app, original.application);
   assert.equal(selected, original.sys_id);
@@ -94,6 +127,7 @@ for (const originalScope of ['global', 'c'.repeat(32)]) test(`real CLI context w
   // Session-token bootstrap POSTs are authentication, not record/context writes.
   assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do').map(r => [r.method, r.path]), [
     ['PUT', '/api/now/ui/concoursepicker/application'], ['POST', '/api/now/table/sys_update_set'], ['PUT', '/api/now/ui/concoursepicker/updateset'],
+    ...(propertyLifecycle ? [['POST', '/api/now/table/sys_properties'], ['PUT', `/api/now/table/sys_properties/${propertyId}`], ['DELETE', `/api/now/table/sys_properties/${propertyId}`]] : []),
     ['PUT', '/api/now/ui/concoursepicker/application'], ['PUT', '/api/now/ui/concoursepicker/application'], ['PUT', '/api/now/ui/concoursepicker/updateset'],
   ]);
   // A real selection failure is not an expected-denial bypass or a retry grant.
@@ -235,7 +269,7 @@ function resourceFixture(options = {}) {
       if (args[1] === 'create') { record = { sys_id: ID, ...JSON.parse(args[args.indexOf('--data') + 1]) }; return ok(record); }
       if (args[1] === 'update') { Object.assign(record, JSON.parse(args[args.indexOf('--data') + 1])); return ok(record); }
       if (args[1] === 'delete') {
-        if (!args.includes('--force')) return { exitCode: 1, json: { ok: false, error: { code: 'confirmation_required' } } };
+        if (!args.includes('--force')) return no('confirmation required');
         record = null; return ok({ deleted: true });
       }
       return ok(record);
@@ -434,7 +468,7 @@ function updateSetFixture(outputDir, options = {}) {
     if (args[1] === 'import') {
       const xml = await fs.readFile(args[2], 'utf8');
       inspection = inspectUpdateSetXML(xml);
-      if (!args.includes('--yes')) return { exitCode: 1, json: { error: { code: 'confirmation_required' } } };
+      if (!args.includes('--yes')) return no('confirmation required');
       records.set('sys_remote_update_set:' + inspection.sys_id, { sys_id: inspection.sys_id, name: inspection.name, state: 'loaded' });
       for (const member of inspection.members) records.set('sys_update_xml:' + member.sys_id, { ...member, remote_update_set: inspection.sys_id });
       // These are explicit synthetic provider responses, not platform evidence.
@@ -442,7 +476,7 @@ function updateSetFixture(outputDir, options = {}) {
       ctx.state.set('synthetic.property', { sys_id: propertyId, name: inspection.name + '_property', value: RUN });
       return ok({ ...inspection, state: 'loaded' });
     }
-    if (args[1] === 'commit' && !args.includes('--yes')) return { exitCode: 1, json: { error: { code: 'usage' }, message: 'not been previewed' } };
+    if (args[1] === 'commit' && !args.includes('--yes')) return { exitCode: 1, json: { ok: false, code: 'usage_error', error: 'not been previewed' } };
     if (args[1] === 'preview') {
       const remote = records.get('sys_remote_update_set:' + args[2]); remote.state = 'previewed';
       return ok({ sys_id: args[2], state: 'previewed', unresolved: options.unresolved ? 1 : 0, truncated: false });

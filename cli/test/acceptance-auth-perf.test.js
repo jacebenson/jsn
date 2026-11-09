@@ -14,7 +14,9 @@ const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 const scratch = process.env.TMPDIR || os.tmpdir();
 const ok = data => ({ exitCode: 0, stdout: '', stderr: '', json: { ok: true, data } });
-const fail = (status = 401) => ({ exitCode: 1, stdout: '', stderr: '', json: { ok: false, error: { code: status === 401 ? 'auth_error' : 'api_error', message: `HTTP ${status}`, status } } });
+const fail = (status = 401) => ({ exitCode: 1, stdout: '', stderr: '', json: status === 403
+  ? { ok: false, code: 'forbidden', error: 'Access forbidden (HTTP 403).' }
+  : { ok: false, error: { code: 'auth_error', message: `HTTP ${status}`, status } } });
 const scenario = id => authScenarios.find(s => s.id === id);
 async function context(t) {
   const outputDir = await fs.mkdtemp(path.join(scratch, 'jsn-auth-perf-offline-'));
@@ -149,6 +151,34 @@ test('denied-operation provider readback catches silent unexpected mutation', as
     return original(args, options);
   };
   await assert.rejects(() => scenario('auth.basic-valid-permissions').run(ctx), /changed an owned fixture/);
+});
+
+test('auth permission denial accepts only public forbidden envelopes, not prose or status alone', async t => {
+  const cases = [
+    [{ exitCode: 1, json: { ok: false, code: 'forbidden', error: 'Access forbidden (HTTP 403).' } }, true],
+    [{ exitCode: 0, json: { ok: false, code: 'forbidden', error: 'Access forbidden (HTTP 403).' } }, false],
+    [{ exitCode: 1, json: { ok: true, code: 'forbidden', error: 'Access forbidden (HTTP 403).' } }, false],
+    [{ exitCode: 1, json: { ok: false, code: 'forbidden', error: 'Unrelated failure' } }, false],
+    [{ exitCode: 1, json: { ok: false, code: 'auth_error', error: 'HTTP 401 Unauthorized; access denied' } }, false],
+    [{ exitCode: 1, json: { ok: false, code: 'api_error', error: 'HTTP 403 access denied' } }, false],
+    [{ exitCode: 1, json: { ok: false, error: { status: 403, message: 'HTTP 403' } } }, false],
+    [{ exitCode: 1, stderr: 'HTTP 403 forbidden' }, false],
+  ];
+  for (const [result, expected] of cases) {
+    const ctx = await context(t);
+    await createAuthFixtures(ctx);
+    const command = ctx.command;
+    ctx.command = async (args, options) => {
+      if (args[0] === 'users' && args[1] === 'update') {
+        assert.equal(options.expectedDenial(result), expected, JSON.stringify(result));
+        return result;
+      }
+      return command(args, options);
+    };
+    const run = () => scenario('auth.basic-valid-permissions').run(ctx);
+    if (expected) assert.equal((await run()).status, 'passed');
+    else await assert.rejects(run, /Expected explicit provider authorization denial/);
+  }
 });
 
 test('dropped login settings stop immediately with parent already registered', async t => {

@@ -9,7 +9,7 @@ import { executeScenarios } from '../scripts/acceptance/run.mjs';
 import { coverageDetails, bindScenarios } from '../scripts/acceptance/bindings.mjs';
 import { beginSuite, endSuite } from './acceptance/performance.mjs';
 import { scenarios as local } from './acceptance/read-only.mjs';
-import { scenarios as resources } from './acceptance/resources.mjs';
+import { scenarios as resources, denied } from './acceptance/resources.mjs';
 import { scenarios as workflows } from './acceptance/workflows.mjs';
 import { scenarios as auth, loadAuthConfig } from './acceptance/auth.mjs';
 import { scenarios as catalog } from './acceptance/read-only-catalog.mjs';
@@ -248,6 +248,39 @@ test('actual catalog list/show run through shared target/env/SDK guard against l
   assert.ok(requests.filter(([method]) => method !== 'GET').every(([method, route]) => method === 'POST' && route === '/angular.do'));
 });
 
+test('denial envelope journal rejects unknown codes, auth failures, prose and status-only failures', async t => {
+  const failures = [
+    { exitCode: 1, json: { ok: false, code: 'confirmation_required', error: 'approval marker' } },
+    { exitCode: 1, json: { ok: false, code: 'usage_error', error: 'approval marker' } },
+    { exitCode: 1, json: { ok: false, code: 'validation_error', error: 'approval marker' } },
+    { exitCode: 0, json: { ok: false, code: 'confirmation_required', error: 'approval marker' } },
+    { exitCode: 1, json: { ok: true, code: 'confirmation_required', error: 'approval marker' } },
+    { exitCode: 1, json: { ok: false, code: 'confirmation_required', error: 'unrelated' } },
+    { exitCode: 1, json: { ok: false, code: 'api_error', error: 'approval marker' } },
+    { exitCode: 1, json: { ok: false, code: 'auth_error', error: 'HTTP 401 approval marker' } },
+    { exitCode: 1, json: { ok: false, error: { code: 'confirmation_required', message: 'approval marker' } } },
+    { exitCode: 1, json: { ok: false, status: 403, error: 'approval marker' } },
+    { exitCode: 1, stderr: 'approval marker' },
+  ];
+  for (const [index, result] of failures.entries()) {
+    let dispatches = 0;
+    const ctx = context(t, async () => { dispatches++; return result; });
+    const id = 'a'.repeat(32), captureId = 'b'.repeat(32), expected = index < 3;
+    ctx.state.set('workflows.context', { captureId });
+    ctx.read = async () => [{ sys_id: id }];
+    const run = () => denied(ctx, ['properties', 'delete', id, '--json'], /approval marker/);
+    if (expected) await run(); else await assert.rejects(run);
+    const journal = JSON.parse(fs.readFileSync(path.join(ctx.outputDir, 'artifacts.json')));
+    assert.equal(journal.writeIntents.at(-1).status, expected ? 'resolved' : 'uncertain', JSON.stringify(result));
+    if (!expected) {
+      await assert.rejects(ctx.command(['properties', 'delete', id, '--force', '--json']), /Unresolved/);
+      await ctx.cleanup();
+      assert.equal(ctx.state.get('cleanup.unresolvedChildren'), true);
+      assert.equal(dispatches, 1, 'unrelated refusal must not authorize a second mutation');
+    }
+  }
+});
+
 // Ambiguity regressions exercise the real runner and command guard, offline only.
 {
 const cap='a'.repeat(32), prop='b'.repeat(32), original='c'.repeat(32);
@@ -274,7 +307,7 @@ function fixture(t, mode) {
   if(args[0]==='properties'&&args[1]==='update'){Object.assign(record,JSON.parse(args[args.indexOf('--data')+1]));return ok(record);}
   if(args[0]==='properties'&&args[1]==='show')return ok(record);
   if(args[0]==='properties'&&args[1]==='delete'){
-   if(!args.includes('--force'))return {exitCode:1,stdout:'',stderr:'',json:{ok:false,error:{code:'confirmation_required'}}};
+   if(!args.includes('--force'))return {exitCode:1,stdout:'',stderr:'',json:{ok:false,code:'confirmation_required',error:'confirmation required'}};
    forcedDeletes++;
    if(mode==='delete-timeout')return {exitCode:1,stdout:'',stderr:'timeout',timedOut:true};
    if(mode==='delete-unreadable' || mode==='delete-present')return ok({deleted:true});

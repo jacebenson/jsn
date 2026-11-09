@@ -96,6 +96,11 @@ function rejection(result) {
     /HTTP 401|401 Unauthorized|authentication failed|invalid credentials/i.test(String(error?.message || '')));
 }
 
+function permissionDenial(result) {
+  return result?.exitCode !== 0 && result?.json?.ok === false && result.json.code === 'forbidden' &&
+    /403|forbidden|access denied|not authorized|security constraints|insufficient/i.test(String(result.json.error || ''));
+}
+
 async function assertPermissions(ctx, fixture, env, other) {
   await assertIdentity(ctx, fixture, env);
   const before = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
@@ -103,12 +108,10 @@ async function assertPermissions(ctx, fixture, env, other) {
   const baselineFirstName = value(before.first_name);
   const marker = `denied_${ctx.runKey}`;
   const result = await ctx.command(['users', 'update', other.id, '--field', `first_name=${marker}`, '--json'], { env,
-    expectedDenial: result => result.json?.ok === false && Number(result.json?.error?.status ?? result.json?.error?.statusCode) === 403 });
+    expectedDenial: permissionDenial });
   const after = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
   check(value(after?.sys_id) === other.id && value(after.first_name) === baselineFirstName, 'Denied operation changed an owned fixture; investigate before retry');
-  const error = result?.json?.error;
-  check(result.exitCode !== 0 && (Number(error?.status ?? error?.statusCode) === 403 ||
-    /403|forbidden|access denied|not authorized|security constraints|insufficient/i.test(String(error?.message || ''))),
+  check(permissionDenial(result),
   'Expected explicit provider authorization denial, not a local failure or silent success');
   await assertIdentity(ctx, fixture, env); // distinguish ACL denial from unusable auth
 }
