@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "npm --prefix cli test",
+    "test:acceptance": "npm --prefix cli run test:acceptance --",
+    "test:acceptance:offline": "npm --prefix cli run test:acceptance:offline",
     "lint": "npm --prefix cli run lint",
     "docs": "npm --prefix docs run build",
     "docs:serve": "npm --prefix docs run serve"
