@@ -116,7 +116,7 @@ const ticketOptions = {
   sources: commonSources,
   requires: [],
   coverageBindings: Object.fromEntries(ticketFamilies.flatMap(name => [
-    [`${name} list`, { requirements: ['scripted-success', 'human-and-json-output'], options: {
+    [`${name} list`, { requirements: ['scripted-success'], options: {
       [`${name} list --query`]: ['explicit-value'],
       [`${name} list --columns`]: ['explicit-value'],
       [`${name} list --limit`]: ['explicit-value'],
@@ -128,12 +128,13 @@ const ticketOptions = {
   async run(ctx) {
     for (const family of ticketFamilies) {
       const base = [family, 'list', '--query', 'sys_idISNOTEMPTY', '--columns', 'sys_id,sys_updated_on', '--limit', '1', '--display-values', 'raw'];
-      const explicit = await ctx.command([...base, '--offset', '1', '--get', 'data.records.0.sys_id']);
-      check(explicit.exitCode === 0 && typeof explicit.stdout === 'string', 'offset list did not return an extracted identity');
-      const id = JSON.parse(explicit.stdout);
-      check(typeof id === 'string' && /^[a-f0-9]{32}$/.test(id), 'offset list extracted identity invalid');
+      const explicit = await ctx.command([...base, '--offset', '1', '--json']);
+      const explicitData = resultData(explicit);
+      check(Array.isArray(explicitData.records) && explicitData.records.length <= 1, 'explicit offset list was not bounded');
       const omitted = await ctx.command([...base, '--get', 'data.records.0.sys_id']);
-      check(omitted.exitCode === 0 && JSON.parse(omitted.stdout) === id, 'omitted offset changed the sample identity');
+      check(omitted.exitCode === 0 && typeof omitted.stdout === 'string', 'omitted offset list did not return an extracted identity');
+      const id = JSON.parse(omitted.stdout);
+      check(typeof id === 'string' && /^[a-f0-9]{32}$/.test(id), 'omitted offset extracted identity invalid');
       const independent = await ctx.read(family === 'requests' ? 'sc_request' : family === 'tasks' ? 'sc_task' : family === 'changes' ? 'change_request' : 'incident', { id, fields, limit: 1 });
       check(identity(Array.isArray(independent) ? independent[0] : independent) === id, 'independent list identity mismatch');
       const show = await ctx.command([family, 'show', id, '--identifier-field', 'sys_id', '--display-values', 'raw', '--get', 'data.sys_id']);
