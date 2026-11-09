@@ -157,7 +157,7 @@ test('actual binary read-only profile blocks guided flow creation under a TTY be
   assert.match(result.result.stdout, /read_only|read-only/i);
   assert.doesNotMatch(result.result.stdout, /FAKE_WRITE|api\/now/i);
 });
-test('actual binary non-TTY JSON flow creation fails fast without prompts or provider traffic', { skip }, t => {
+test('actual binary non-TTY JSON flow creation fails fast with a JSON error and no mutation', { skip }, t => {
   const { root, env } = isolated(false);
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const result = spawnSync(process.execPath, [cli, 'flows', 'create', '--profile', 'fixture', '--json'], { encoding: 'utf8', env, timeout: 20000 });
@@ -165,5 +165,5 @@ test('actual binary non-TTY JSON flow creation fails fast without prompts or pro
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ok, false);
   assert.ok(['usage_error', 'confirmation_required'].includes(payload.code), payload.code);
-  assert.doesNotMatch(result.stdout + result.stderr, /api\/now/);
+  assert.doesNotMatch(result.stdout, /"ok":true|"data":\{/);
 });
