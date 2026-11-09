@@ -1,0 +1,61 @@
+<section class="shell results">
+  <p class="eyebrow">SANITIZED ACCEPTANCE RESULTS</p>
+  <h1>What the suite actually proved</h1>
+  <p class="results-lead">Every run below is a closed public projection of a JSN CLI acceptance run. Performance is observational, never a release gate. A run is complete only when <code>complete</code> is true and every check passed.</p>
+
+  <% if @latest %>
+    <article class="result-latest">
+      <p class="eyebrow">LATEST · <%= @latest.mode == 'readonly' ? 'READ-ONLY' : 'PDI ISOLATED TEST' %></p>
+      <h2><%= @latest.passed %> passed · <%= @latest.failed %> failed · <%= @latest.blocked %> blocked</h2>
+      <p>CLI <%= @latest.cli_version %> · revision <code><%= @latest.source_sha.first(7) %></code><%= ' · dirty source' if @latest.source_dirty %> · <%= @latest.complete ? 'complete' : 'partial' %><%= " · #{@latest.missing_count} unmet coverage obligations" unless @latest.complete %></p>
+      <p class="small"><%= @latest.received_at.utc.strftime('%Y-%m-%d %H:%M UTC') %> · total suite time <%= (@latest.duration_ms / 1000.0).round(1) %>s</p>
+      <p><a href="/results/<%= @latest.run_key %>">Inspect run →</a></p>
+    </article>
+  <% else %>
+    <p class="results-empty">No acceptance runs have been published yet.</p>
+  <% end %>
+
+  <h2>Run history</h2>
+  <% if @runs.empty? %>
+    <p class="results-empty">Nothing to show yet.</p>
+  <% else %>
+    <div class="results-table-wrap">
+      <table class="results-table">
+        <thead><tr><th>Received (UTC)</th><th>Mode</th><th>CLI</th><th>Rev</th><th>Passed</th><th>Failed</th><th>Blocked</th><th>Excluded</th><th>Not run</th><th>Duration</th><th>State</th></tr></thead>
+        <tbody>
+          <% @runs.each do |run| %>
+            <tr>
+              <td><a href="/results/<%= run.run_key %>"><%= run.received_at.utc.strftime('%Y-%m-%d %H:%M') %></a></td>
+              <td><%= run.mode == 'readonly' ? 'Read-only' : 'PDI' %></td>
+              <td><%= run.cli_version %></td>
+              <td><code><%= run.source_sha.first(7) %></code></td>
+              <td class="num pass"><%= run.passed %></td>
+              <td class="num fail"><%= run.failed %></td>
+              <td class="num block"><%= run.blocked %></td>
+              <td class="num"><%= run.excluded %></td>
+              <td class="num"><%= run.not_run %></td>
+              <td class="num"><%= (run.duration_ms / 1000.0).round(1) %>s</td>
+              <td><span class="badge <%= run.complete ? 'pass' : 'partial' %>"><%= run.complete ? 'complete' : 'partial' %></span></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+
+  <h2>Timing history <span class="small">(same mode as latest)</span></h2>
+  <% if @timings.empty? %>
+    <p class="results-empty">No timing history yet.</p>
+  <% else %>
+    <% max = @timings.map(&:duration_ms).max.to_f %>
+    <ul class="timing-list">
+      <% @timings.each do |run| %>
+        <li>
+          <span class="timing-date"><%= run.received_at.utc.strftime('%m-%d %H:%M') %></span>
+          <span class="timing-track"><span class="timing-bar" style="width: <%= max.zero? ? 0 : (run.duration_ms / max * 100).round(1) %>%"></span></span>
+          <span class="timing-value"><%= (run.duration_ms / 1000.0).round(1) %>s</span>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+</section>
