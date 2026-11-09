@@ -262,7 +262,7 @@ function fixture(t, mode) {
   dispatchJournals.push(JSON.parse(fs.readFileSync(path.join(root,'run','artifacts.json'))));
   if(args[0]==='rest')return ok({result:{current:args[1].endsWith('/application')?application:{sysId:current}}});
   if(args[0]==='updatesets'&&args[1]==='create'){current=cap;if(mode==='capture-timeout')return {exitCode:1,stdout:'',stderr:'lost capture response',timedOut:true};return ok({sys_id:cap});}
-  if(args[0]==='updatesets'&&args[1]==='set'){current=args[2];return ok({});}
+  if(args[0]==='updatesets'&&args[1]==='set'){assert.equal(args[2],'original_working_set');current=original;return ok({sys_id:original});}
   if(args[0]==='scopes'){application=args[2];return ok({});}
   if(args[0]==='properties'&&args[1]==='create'){
    record={sys_id:prop,...JSON.parse(args[args.indexOf('--data')+1])};
@@ -287,7 +287,10 @@ function fixture(t, mode) {
  }});
  ctx.read=async(table,opts)=>{
   if(table==='sys_dictionary')return ['name','value','description'].map(element=>({element,mandatory:'false',read_only:'false'}));
-  if(table==='sys_update_set')return {sys_id:cap,name:'owned_capture',state:'in progress'};
+  if(table==='sys_update_set'){
+   const row=opts.id===cap?{sys_id:cap,name:'owned_capture',state:'in progress',application:'global'}:{sys_id:original,name:'original_working_set',state:'in progress',application:'global'};
+   return opts.id?row:[row];
+  }
   if(table==='sys_properties'){if(record && mode==='create-unreadable')throw Error('synthetic unreadable allocation');if(forcedDeletes && mode==='delete-unreadable')throw Error('synthetic unreadable verification');return opts.id?record:record?[record]:[];}
   throw Error('Unexpected synthetic read');
  };

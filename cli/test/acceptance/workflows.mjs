@@ -28,6 +28,19 @@ export async function poll(read, complete, { attempts = 30, intervalMs = 1000 } 
 async function picker(ctx, kind) {
   return (await command(ctx, ['rest', `/api/now/ui/concoursepicker/${kind}`, '--method', 'GET', '--json']))?.result?.current;
 }
+async function restorableUpdateSet(ctx, snapshot) {
+  // `updatesets set` takes a NAME, not a sys_id, and also selects its scope.
+  // Refuse duplicate names even across scopes rather than rely on the CLI's
+  // first-match/fallback rules or a bounded sample to recover exact identity.
+  const record = await readOne(ctx, 'sys_update_set', snapshot.updateset, ['sys_id', 'name', 'application', 'state']);
+  const name = raw(record.name);
+  if (typeof name !== 'string' || !name.trim() || name.length > 200 || /[\\^=<>~!,*\r\n]/.test(name) ||
+      raw(record.application) !== snapshot.application || raw(record.state) !== 'in progress') blocked('Original update-set name, scope or state cannot be restored exactly; no context writes performed');
+  const matches = await ctx.read('sys_update_set', { query: `name=${name}`, fields: ['sys_id', 'name', 'application', 'state'], limit: 2 });
+  if (!Array.isArray(matches) || matches.length !== 1 || raw(matches[0].sys_id) !== snapshot.updateset ||
+      raw(matches[0].name) !== name || raw(matches[0].application) !== snapshot.application || raw(matches[0].state) !== 'in progress') blocked('Original update-set name is ambiguous or unreadable; no context writes performed');
+  return name;
+}
 async function savePrivate(ctx, name, value) {
   await fs.mkdir(ctx.outputDir, { recursive: true, mode: 0o700 });
   await fs.writeFile(path.join(ctx.outputDir, name), value, { flag: 'wx', mode: 0o600 });
@@ -63,6 +76,7 @@ const context = {
     const updateset = await picker(ctx, 'updateset');
     if (typeof application !== 'string' || !/^(global|[a-f0-9]{32})$/.test(application) || !/^[a-f0-9]{32}$/.test(updateset?.sysId ?? '')) blocked('Original effective application/update-set cannot be restored exactly; no context writes performed');
     const snapshot = { application, updateset: updateset.sysId };
+    await restorableUpdateSet(ctx, snapshot);
     await savePrivate(ctx, 'workflow-context.json', JSON.stringify(snapshot));
     ctx.state.set('workflows.originalContext', snapshot);
     const name = runName(ctx, 'capture');
@@ -70,7 +84,8 @@ const context = {
     const captureId = raw(created?.sys_id);
     await own(ctx, 'sys_update_set', captureId, 'capture-set');
     ctx.state.set('workflows.context', { captureId, scope: 'global', name });
-    await command(ctx, ['updatesets', 'set', captureId, '--json']);
+    // Create selects its capture set already. Verify independently; a partial
+    // create/selection failure must not trigger a second write or allocation.
     await assertCapture(ctx);
     assert.equal(await picker(ctx, 'application'), 'global');
     return { verified: ['context-snapshot', 'capture-create', 'session-selection'] };
@@ -78,10 +93,12 @@ const context = {
   async cleanup(ctx) {
     const snapshot = ctx.state.get('workflows.originalContext');
     if (!snapshot) return;
+    if (ctx.state.get('writes.unresolved') || ctx.state.get('cleanup.unresolvedChildren')) blocked('Unresolved writes or children; retain capture context for read-only reconciliation');
+    const name = await restorableUpdateSet(ctx, snapshot);
     // Runner must invoke this AFTER artifact cleanup: deletion is captured only
     // in our dedicated set, never in the user's restored working set/Default.
     await command(ctx, ['scopes', 'set', snapshot.application, '--json']);
-    await command(ctx, ['updatesets', 'set', snapshot.updateset, '--json']);
+    await command(ctx, ['updatesets', 'set', name, '--json']);
     assert.equal(await picker(ctx, 'application'), snapshot.application, 'application restoration failed');
     assert.equal((await picker(ctx, 'updateset'))?.sysId, snapshot.updateset, 'update-set restoration failed');
     ctx.state.delete('workflows.context');

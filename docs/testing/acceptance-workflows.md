@@ -2,7 +2,7 @@
 
 These modules exercise the selected CLI through `ctx.command` and verify effects through independent, bounded `ctx.read` calls. They do not write through an SDK, use `eval`, contact customer services, provision a MID host or execute Store transactions.
 
-No live acceptance claim accompanies these tests. The offline regression suite uses synthetic provider records. One regression launches the real CLI against a loopback HTTP server with an isolated configuration and synthetic Basic credentials.
+No live acceptance claim accompanies these tests. The offline regression suite uses synthetic provider records. Public CLI regressions use loopback HTTP servers with isolated configuration and synthetic Basic credentials.
 
 ## Run offline
 
@@ -36,6 +36,10 @@ The second command reuses the existing Python PTY driver. It proves synthetic in
 This deliberately does not duplicate the factory CRUD implementation for every resource command. The fixture list imports actual table bindings from `record-command-profiles.js`. It covers different inert schemas without claiming support for all resource families. ACL creation, table creation, active business automation, ticket notifications, host operations and unsupplied dependent products remain outside these mutation fixtures.
 
 ## Fixture safety
+
+Context restoration uses the registered `updatesets set <name>` interface, which does not accept a sys_id. Before creating the capture set, the suite reads the original set by its exact saved ID and requires an in-progress record in the original application, a query-safe nonempty name, and exactly one visible name match across applications. Duplicate names, including `Default` in several applications, block without context writes. Originals whose application differs from the effective application also block because `updatesets set` changes both selections. The suite repeats these checks before restoration and verifies both original picker IDs afterward. It never falls back to Default or guesses a duplicate-name winner.
+
+`updatesets create --scope global` already selects the created set. The suite verifies that selection independently instead of issuing a redundant `updatesets set <sys_id>`. Failed selection does not cause a retry. Unresolved write intents or child cleanup prevent restoration and retain the capture context for reconciliation.
 
 - Mutation scenarios declare only PDI mode. The runner must enforce the approved profile and expected host before constructing authenticated clients.
 - `runKey` must contain only letters, digits and underscores. Fixture names include the whole key. Exact returned IDs enter `ctx.registerArtifact` before subsequent scenario mutations.
@@ -83,3 +87,5 @@ The checked-in worker implementation is not authorization to run live until thes
 The new tests run the actual exported scenarios through controlled contexts. They assert context snapshot/restore, every declared resource binding, dictionary refusal, checkpoint ordering, stale readback failure, bounded asynchronous error handling, XML operation order and unresolved-preview stop, full catalog creation/order/fulfillment/variable readback, reverse dependency cleanup argv and retained flow gaps.
 
 The public CLI loopback regression observes exactly `POST`, `PUT`, `DELETE` for its successful resource lifecycle. Unconfirmed delete performs no DELETE, malformed payload performs no POST, a read-only profile produces no request, and a rejected update is not retried. The isolated fixture does not read personal credentials or profiles.
+
+Context loopback regressions run the actual CLI and guarded write journal for Global and scoped originals. The provider fixture enforces exact `name=` queries, simulates application selection resetting the selected set, and verifies restoration to the exact original application and update-set IDs. Real JSON success settles the selection intent; a rejected picker write leaves an uncertain intent and prevents restoration without an automatic retry. Separate refusal cases cover duplicate names, missing or malformed readbacks, unsafe names, changed identity/scope/state, and unresolved children.

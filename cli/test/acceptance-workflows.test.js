@@ -9,12 +9,166 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { inspectUpdateSetXML } from '../src/update-set-xml.js';
+import { createContext } from '../scripts/acceptance/support.mjs';
 
 const RUN = 'acceptance_fixture_001';
 const ID = 'a'.repeat(32);
 const CAPTURE = 'b'.repeat(32);
 const ok = data => ({ exitCode: 0, stdout: '', stderr: '', json: { ok: true, data } });
 const no = message => ({ exitCode: 1, stdout: '', stderr: '', json: { ok: false, error: { code: 'confirmation_required', message } } });
+
+for (const originalScope of ['global', 'c'.repeat(32)]) test(`real CLI context wire contract restores original by name and exact picker IDs (${originalScope})`, { timeout: 60000 }, async t => {
+  const { scenarios } = await import('./acceptance/workflows.mjs');
+  const scenario = scenarios.find(s => s.id === 'workflows.context');
+  const root = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-context-wire-'));
+  const original = { sys_id: ID, name: 'Original working set', application: originalScope, state: 'in progress' };
+  const records = [original], requests = [], commands = [];
+  let app = original.application, selected = ID, rejectSelection = false;
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://fixture.invalid');
+    let text = ''; for await (const chunk of req) text += chunk;
+    const body = text && req.headers['content-type']?.includes('application/json') ? JSON.parse(text) : null;
+    requests.push({ method: req.method, path: url.pathname, query: url.searchParams.get('sysparm_query'), body });
+    res.setHeader('Content-Type', 'application/json');
+    let result;
+    const kind = url.pathname.split('/').at(-1);
+    if (url.pathname === '/angular.do') result = {};
+    else if (url.pathname.startsWith('/api/now/ui/concoursepicker/')) {
+      if (rejectSelection && kind === 'updateset' && req.method === 'PUT') {
+        res.statusCode = 403; res.end(JSON.stringify({ error: { message: 'Synthetic selection refusal' } })); return;
+      }
+      if (req.method === 'PUT') {
+        if (kind === 'application') { app = body.app_id; selected = 'e'.repeat(32); }
+        else selected = body.sysId;
+      }
+      result = { current: kind === 'application' ? app : { sysId: selected } };
+    } else if (url.pathname.startsWith('/api/now/table/')) {
+      const [, , , , table, recordId] = url.pathname.split('/');
+      const query = url.searchParams.get('sysparm_query') || '';
+      if (table === 'sys_user') result = [{ sys_id: 'f'.repeat(32), user_name: 'fixture' }];
+      else if (table === 'sys_scope') {
+        const scope = recordId || query.split('=')[1];
+        result = { sys_id: scope, scope, name: scope };
+        if (!recordId) result = [result];
+      } else if (table === 'sys_user_preference') result = [{ value: query.includes('apps.current_app') ? app : selected }];
+      else if (table === 'sys_update_set') {
+        if (req.method === 'POST') { result = { sys_id: CAPTURE, ...body }; records.push(result); }
+        else if (recordId) result = records.find(r => r.sys_id === recordId) || null;
+        // Exact name matching is deliberate: accepting any argument hid the live defect.
+        else result = records.filter(r => query === `name=${r.name}` || query === `sys_id=${r.sys_id}`).slice(0, Number(url.searchParams.get('sysparm_limit')) || 50);
+      } else { res.statusCode = 500; result = { unexpected_table: table }; }
+    } else { res.statusCode = 500; result = { unexpected_path: url.pathname }; }
+    res.end(JSON.stringify({ result }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); await fs.rm(root, { recursive: true, force: true }); });
+  const instance = `http://127.0.0.1:${server.address().port}`;
+  const ctx = createContext({ mode: 'pdi', allowWrites: true, profile: 'fixture', outputDir: path.join(root, 'run') }, { target: instance });
+  const config = path.join(ctx.outputDir, 'config');
+  await fs.mkdir(path.join(config, 'servicenow'), { recursive: true });
+  await fs.writeFile(path.join(config, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: {
+    fixture: { instance_url: instance, auth_method: 'basic', username: 'fixture' },
+  } }));
+  const env = { HOME: path.join(ctx.outputDir, 'home'), XDG_CONFIG_HOME: config, PATH: path.join(ctx.outputDir, 'empty-path'),
+    DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' };
+  const command = ctx.command;
+  ctx.command = (args, opts = {}) => { commands.push(args); return command(args, { ...opts, env }); };
+  ctx.read = async (table, { id, query, fields, limit }) => {
+    const params = new URLSearchParams({ sysparm_fields: fields.join(','), sysparm_limit: String(limit) });
+    if (query) params.set('sysparm_query', query);
+    const response = await fetch(`${instance}/api/now/table/${table}${id ? '/' + id : ''}?${params}`);
+    assert.equal(response.status, 200); return (await response.json()).result;
+  };
+  await scenario.run(ctx);
+  assert.equal(selected, CAPTURE);
+  assert.equal(commands.some(a => a[0] === 'updatesets' && a[1] === 'set'), false, 'create already selects the capture');
+  await scenario.cleanup(ctx);
+  assert.equal(app, original.application);
+  assert.equal(selected, original.sys_id);
+  assert.deepEqual(commands.filter(a => a[0] === 'updatesets' && a[1] === 'set').map(a => a[2]), [original.name]);
+  assert.ok(requests.some(r => r.query === `name=${original.name}`));
+  assert.equal(requests.some(r => r.query === `name=${ID}` || r.query === `name=${CAPTURE}`), false);
+  const journal = JSON.parse(await fs.readFile(path.join(ctx.outputDir, 'artifacts.json'), 'utf8'));
+  assert.ok(journal.writeIntents.length > 0);
+  assert.ok(journal.writeIntents.every(i => i.status === 'resolved'), 'real JSON acknowledgement resolves selection journal');
+  // Session-token bootstrap POSTs are authentication, not record/context writes.
+  assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do').map(r => [r.method, r.path]), [
+    ['PUT', '/api/now/ui/concoursepicker/application'], ['POST', '/api/now/table/sys_update_set'], ['PUT', '/api/now/ui/concoursepicker/updateset'],
+    ['PUT', '/api/now/ui/concoursepicker/application'], ['PUT', '/api/now/ui/concoursepicker/application'], ['PUT', '/api/now/ui/concoursepicker/updateset'],
+  ]);
+  // A real selection failure is not an expected-denial bypass or a retry grant.
+  rejectSelection = true;
+  ctx.state.set('workflows.context', { captureId: CAPTURE });
+  const failed = await ctx.command(['updatesets', 'set', original.name, '--json']);
+  assert.notEqual(failed.exitCode, 0);
+  assert.equal(ctx.state.get('writes.unresolved'), true);
+  const afterFailure = requests.length;
+  await assert.rejects(scenario.cleanup(ctx), /Unresolved/);
+  assert.equal(requests.length, afterFailure, 'no restore/retry while selection outcome is uncertain');
+  assert.equal(ctx.state.get('workflows.context').captureId, CAPTURE);
+  const uncertain = JSON.parse(await fs.readFile(path.join(ctx.outputDir, 'artifacts.json'), 'utf8'));
+  assert.equal(uncertain.writeIntents.at(-1).status, 'uncertain');
+});
+
+test('capture create with selection drift retains allocation and never retries selection', async t => {
+  const { scenarios } = await import('./acceptance/workflows.mjs');
+  const root = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-capture-drift-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const commands = [], artifacts = [];
+  let created = false;
+  const ctx = { mode: 'pdi', runKey: RUN, outputDir: root, state: new Map(),
+    async registerArtifact(artifact) { artifacts.push(artifact); },
+    async read(table, query) {
+      const record = { sys_id: query.id === CAPTURE ? CAPTURE : ID, name: 'Original', application: 'global', state: 'in progress' };
+      return query.id ? record : [record];
+    },
+    async command(args) {
+      commands.push(args);
+      if (args[1] === 'create') { created = true; return ok({ sys_id: CAPTURE }); }
+      assert.equal(args[0], 'rest', 'no selection fallback or create retry');
+      return ok({ result: { current: args[1].endsWith('/application') ? 'global' : { sysId: ID } } });
+    },
+  };
+  await assert.rejects(scenarios.find(s => s.id === 'workflows.context').run(ctx), /capture drifted/);
+  assert.equal(created, true);
+  assert.deepEqual(artifacts.map(a => a.id), [CAPTURE]);
+  assert.equal(ctx.state.get('workflows.context').captureId, CAPTURE);
+  assert.equal(commands.filter(a => a[0] === 'updatesets').length, 1);
+});
+
+test('context refuses unsafe originals and restoration drift without context writes', async t => {
+  const { scenarios } = await import('./acceptance/workflows.mjs');
+  const scenario = scenarios.find(s => s.id === 'workflows.context');
+  for (const fault of ['duplicate-same-scope', 'duplicate-other-scope', 'missing', 'empty-shape', 'unsafe-name', 'empty-name', 'wrong-scope', 'complete', 'wrong-id']) {
+    for (const phase of ['run', 'cleanup']) await t.test(`${phase}: ${fault}`, async () => {
+      const commands = [];
+      const record = { sys_id: ID, name: 'Original', application: 'global', state: 'in progress' };
+      if (fault === 'unsafe-name') record.name = 'Original^ORactive=true';
+      if (fault === 'empty-name') record.name = '';
+      if (fault === 'wrong-scope') record.application = 'c'.repeat(32);
+      if (fault === 'complete') record.state = 'complete';
+      if (fault === 'wrong-id') record.sys_id = CAPTURE;
+      const snapshot = { application: 'global', updateset: ID };
+      const ctx = { mode: 'pdi', runKey: RUN, state: new Map(phase === 'cleanup' ? [['workflows.originalContext', snapshot], ['workflows.context', { captureId: CAPTURE }]] : []),
+        async command(args) { commands.push(args); return ok({ result: { current: args[1].endsWith('/application') ? 'global' : { sysId: ID } } }); },
+        async read(table, query) {
+          if (query.id) return fault === 'missing' ? null : record;
+          if (fault === 'empty-shape') return {};
+          if (fault.startsWith('duplicate')) return [record, { ...record, sys_id: 'd'.repeat(32), application: fault.endsWith('other-scope') ? 'c'.repeat(32) : 'global' }];
+          return [record];
+        },
+      };
+      await assert.rejects(scenario[phase](ctx), /ambiguous|restored|missing|differs/);
+      assert.equal(commands.some(a => a[0] !== 'rest'), false, 'refusal must precede any mutation');
+      if (phase === 'cleanup') assert.equal(ctx.state.get('workflows.context').captureId, CAPTURE);
+    });
+  }
+  for (const flag of ['writes.unresolved', 'cleanup.unresolvedChildren']) await t.test(flag, async () => {
+    const ctx = { state: new Map([['workflows.originalContext', { application: 'global', updateset: ID }], [flag, true]]),
+      async command() { assert.fail('uncertainty must prevent context dispatch'); }, async read() { assert.fail('uncertainty must not be auto-reconciled'); } };
+    await assert.rejects(scenario.cleanup(ctx), /Unresolved/);
+  });
+});
 
 function catalogFixture({ wrongAnswer = false } = {}) {
   const ids = Object.fromEntries(['item', 'variable', 'flow', 'trigger', 'request', 'ritm', 'task', 'answer', 'link', 'action', 'instance', 'version'].map((key, i) => [key, (i + 1).toString(16).repeat(32)]));
@@ -99,6 +253,11 @@ test('context snapshots before selection, restores exact IDs, and refuses unknow
   const fixture = resourceFixture();
   fixture.ctx.outputDir = dir;
   fixture.ctx.state.clear();
+  fixture.ctx.read = async (table, query) => {
+    const record = query.id === CAPTURE ? { sys_id: CAPTURE, name: RUN, state: 'in progress', application: 'global' } :
+      { sys_id: 'd'.repeat(32), name: 'Original working set', application: 'c'.repeat(32), state: 'in progress' };
+    return query.id ? record : [record];
+  };
   fixture.ctx.command = async args => {
     commands.push(args);
     if (args[0] === 'rest') return ok({ result: { current: args[1].endsWith('/application') ? app : { sysId: updateSet } } });
@@ -107,7 +266,9 @@ test('context snapshots before selection, restores exact IDs, and refuses unknow
       assert.deepEqual(snapshot, { application: app, updateset: updateSet });
       app = 'global'; updateSet = CAPTURE; return ok({ sys_id: CAPTURE });
     }
-    if (args[0] === 'updatesets' && args[1] === 'set') updateSet = args[2];
+    if (args[0] === 'updatesets' && args[1] === 'set') {
+      assert.equal(args[2], 'Original working set'); updateSet = 'd'.repeat(32);
+    }
     if (args[0] === 'scopes' && args[1] === 'set') app = args[2];
     return ok({});
   };
