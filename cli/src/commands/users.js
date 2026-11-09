@@ -1,8 +1,32 @@
 import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload } from '../helpers.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
+import { AppError } from '../errors.js';
 
 declareCapabilities('users', { mutationSubcommands: ['create', 'update', 'delete'] });
+
+const PASSWORD_FIELDS = ['user_password', 'password'];
+
+function hasPasswordPayload(recordData) {
+  return PASSWORD_FIELDS.some(field => Object.hasOwn(recordData, field));
+}
+
+// Provider error bodies can echo the submitted password. Never copy the
+// original error, cause, or response body across the public boundary: build a
+// fresh, actionable error that keeps only the code, status, and recovery hint.
+function safePasswordWriteError(error, action) {
+  const status = Number.isInteger(error?.status) ? error.status : 0;
+  const code = typeof error?.code === 'string' && error.code ? error.code : 'api_error';
+  let hint = 'The provider response is withheld because it can contain the submitted password.';
+  if (code === 'auth_error') hint = 'Run: jsn auth login';
+  else if (code === 'forbidden') hint = 'This is an authorization/ACL/role problem, not a login problem. Check access to this endpoint.';
+  else if (code === 'network_error') hint = 'Check your internet connection and instance URL.';
+  else if (status >= 500) hint = 'The ServiceNow instance may be experiencing issues. Try again later.';
+  else if (status >= 400) hint = 'Check the user fields and instance validation rules, then retry with a corrected payload.';
+  const safe = new AppError(code, `User ${action} failed while setting a password${status ? ` (HTTP ${status})` : ''}. The instance rejected the request; verify the user before retrying.`, hint, status);
+  if (code === 'auth_error') safe.recovery = 'jsn auth login';
+  return safe;
+}
 
 export function usersCmd(wrap) {
   return {
@@ -84,8 +108,12 @@ export function usersCmd(wrap) {
             if (!recordData.user_name) {
               throw new Error('user_name is required (use --username or --data)');
             }
-            const record = await app.sdk.create('sys_user', recordData);
-            app.ok(record, {
+            const record = await app.sdk.create('sys_user', recordData, { inputDisplayValue: Object.hasOwn(recordData, 'user_password') })
+              .catch(error => { throw hasPasswordPayload(recordData) ? safePasswordWriteError(error, 'create') : error; });
+            const safeRecord = { ...record };
+            delete safeRecord.user_password;
+            delete safeRecord.password;
+            app.ok(safeRecord, {
               summary: `Created user ${getStringField(record, 'user_name')}`,
               breadcrumbs: [
                 { action: 'view', cmd: `jsn users show ${getStringField(record, 'user_name')}`, description: `View the new user` },
@@ -105,11 +133,15 @@ export function usersCmd(wrap) {
             const id = argv.identifier;
             const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
-            const updated = await app.sdk.update('sys_user', sysID, recordData);
-            app.ok(updated, {
+            const updated = await app.sdk.update('sys_user', sysID, recordData, { inputDisplayValue: Object.hasOwn(recordData, 'user_password') })
+              .catch(error => { throw hasPasswordPayload(recordData) ? safePasswordWriteError(error, 'update') : error; });
+            const safeUpdated = { ...updated };
+            delete safeUpdated.user_password;
+            delete safeUpdated.password;
+            app.ok(safeUpdated, {
               summary: `Updated user ${id}`,
               breadcrumbs: [
-                { action: 'view', cmd: `jsn users show ${id}`, description: `View the updated user` },
+                { action: 'view', cmd: `jsn users show ${id}`, description: 'View the updated user' },
               ],
             });
           }),

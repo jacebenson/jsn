@@ -12,7 +12,7 @@ const cliRoot = fileURLToPath(new URL('../', import.meta.url));
 const inventory = JSON.parse(fs.readFileSync(new URL('./acceptance/coverage.json', import.meta.url), 'utf8'));
 const id = 'a'.repeat(32), otherId = 'b'.repeat(32);
 const stamp = '2026-01-01 00:00:00';
-function pair(name) { return scenarios.filter(s => s.commandPaths[0].startsWith(`${name} `)); }
+function pair(name) { return scenarios.filter(s => s.id !== 'readonly.catalog.ticket-options' && s.commandPaths[0].startsWith(`${name} `)); }
 
 // Synthetic OAuth only, isolated config, asynchronous real CLI subprocesses.
 // ctx.read uses a separate direct Table API GET, not the command's parsed result.
@@ -83,7 +83,7 @@ test('every canonical path, option and requirement binding resolves against inve
     for (const commandPath of scenario.commandPaths) {
       const entry = entries.get(commandPath); assert.ok(entry, commandPath); assert.equal(entry.declaredMutation, false);
       const binding = scenario.coverageBindings[commandPath];
-      for (const option of binding.options) assert.ok(entry.effectiveOptions.includes(option), option);
+      for (const option of Array.isArray(binding.options) ? binding.options : Object.keys(binding.options)) assert.ok(entry.effectiveOptions.includes(option), option);
       for (const requirement of binding.requirements) assert.ok(entry.acceptance.requirements.includes(requirement), requirement);
     }
     for (const dependency of scenario.requires) assert.ok(scenarios.some(s => s.id === dependency));
@@ -143,6 +143,34 @@ for (const [behavior, status] of [['acl', 'blocked-access'], ['missing-table', '
     assert.equal(f.mutations, 0);
   });
 }
+
+test('shared ticket option factory sends exact offset/query/fields and extracted identity', async t => {
+  const f = await fixture(t);
+  const scenario = scenarios.find(s => s.id === 'readonly.catalog.ticket-options');
+  assert.ok(scenario);
+  await scenario.run(f.ctx);
+  const tables = { incidents: 'incident', changes: 'change_request', tasks: 'sc_task' };
+  for (const [family, table] of Object.entries(tables)) {
+    const requests = f.requests.filter(r => r.path.startsWith(`/api/now/table/${table}`));
+    const lists = requests.filter(r => r.path === `/api/now/table/${table}`);
+    assert.ok(lists.length >= 2, family);
+    const offsetList = lists.find(r => r.query.sysparm_offset === '1');
+    const defaultList = lists.find(r => r.query.sysparm_offset === '0' && r.query.sysparm_query?.includes('sys_idISNOTEMPTY'));
+    assert.ok(offsetList && defaultList && defaultList.query.sysparm_offset === '0', family);
+    for (const list of [offsetList, defaultList]) {
+      assert.equal(list.query.sysparm_limit, '1', family);
+      assert.equal(list.query.sysparm_fields, 'sys_id,sys_id,sys_updated_on', family);
+      assert.equal(list.query.sysparm_query, 'sys_idISNOTEMPTY^ORDERBYDESCsys_updated_on', family);
+    }
+    const shows = requests.filter(r => r.path === `/api/now/table/${table}/${id}`);
+    assert.ok(shows.length >= 1, family);
+    const showRequest = requests.find(r => r.query.sysparm_limit === '2' && r.query.sysparm_query === `sys_id=${id}`);
+    assert.ok(showRequest, family);
+    assert.ok(f.commands.some(args => args[0] === family && args[1] === 'show' && args.includes('--get')), family);
+  }
+  assert.equal(f.mutations, 0);
+});
+
 test('visible empty list is not exact show coverage and show performs zero requests', async t => {
   const f = await fixture(t, 'empty');
   await pair('includes')[0].run(f.ctx);

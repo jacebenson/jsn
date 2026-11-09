@@ -103,3 +103,43 @@ export const scenarios = catalog.flatMap(family => {
     } };
   return [list, show];
 });
+
+// Shared read-only option factory for the four ticket profiles. The list
+// assertions exercise the registered query/columns/limit/offset path; the
+// extracted value is the same exact identity used by the independent GET.
+const ticketFamilies = ['incidents', 'changes', 'tasks'];
+const ticketOptions = {
+  ...common,
+  id: 'readonly.catalog.ticket-options',
+  title: 'Ticket list offset and extracted identity across the shared profile factory',
+  commandPaths: ticketFamilies.flatMap(name => [`${name} list`, `${name} show`]),
+  sources: commonSources,
+  requires: [],
+  coverageBindings: Object.fromEntries(ticketFamilies.flatMap(name => [
+    [`${name} list`, { requirements: ['scripted-success'], options: {
+      [`${name} list --query`]: ['explicit-value'],
+      [`${name} list --columns`]: ['explicit-value'],
+      [`${name} list --limit`]: ['explicit-value'],
+      [`${name} list --offset`]: ['explicit-value', 'omitted-default'],
+      '$root --get': ['explicit-value']
+    } }],
+    [`${name} show`, { requirements: ['scripted-success'], options: { '$root --get': ['explicit-value'] } }]
+  ])),
+  async run(ctx) {
+    for (const family of ticketFamilies) {
+      const base = [family, 'list', '--query', 'sys_idISNOTEMPTY', '--columns', 'sys_id,sys_updated_on', '--limit', '1', '--display-values', 'raw'];
+      const explicit = await ctx.command([...base, '--offset', '1', '--json']);
+      const explicitData = resultData(explicit);
+      check(Array.isArray(explicitData.records) && explicitData.records.length <= 1, 'explicit offset list was not bounded');
+      const omitted = await ctx.command([...base, '--get', 'data.records.0.sys_id']);
+      check(omitted.exitCode === 0 && typeof omitted.stdout === 'string', 'omitted offset list did not return an extracted identity');
+      const id = JSON.parse(omitted.stdout);
+      check(typeof id === 'string' && /^[a-f0-9]{32}$/.test(id), 'omitted offset extracted identity invalid');
+      const independent = await ctx.read(family === 'requests' ? 'sc_request' : family === 'tasks' ? 'sc_task' : family === 'changes' ? 'change_request' : 'incident', { id, fields, limit: 1 });
+      check(identity(Array.isArray(independent) ? independent[0] : independent) === id, 'independent list identity mismatch');
+      const show = await ctx.command([family, 'show', id, '--identifier-field', 'sys_id', '--display-values', 'raw', '--get', 'data.sys_id']);
+      check(show.exitCode === 0 && JSON.parse(show.stdout) === id, 'show extracted identity mismatch');
+    }
+  }
+};
+scenarios.push(ticketOptions);

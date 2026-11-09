@@ -308,7 +308,7 @@ export function createContext(options, target, { execute = runProcess } = {}) {
     if (args.some(arg => /javascript:|sysparm_(script|processor|action)|\/stats\.do|sys\.scripts\.do/i.test(arg) && arg !== 'user_name=javascript:gs.getUserName()')) throw new Error('Executable query or mutation-shaped GET refused');
     if (args[0] === 'rest' && !(args[1]?.match(/^\/api\/now\/ui\/concoursepicker\/(application|updateset)$/) && args.slice(2).join(' ') === '--method GET --json')) throw new Error('Unclassified REST operation refused');
     if (ctx.mode === 'readonly') {
-      const flags = new Set(['--json', '--format', '--query', '--fields', '--columns', '--limit', '--no-count', '--table', '--sys-id', '--details', '--label', '--help', ...(catalogRead ? ['--display-values', '--identifier-field', '--no-essential'] : [])]);
+      const flags = new Set(['--json', '--format', '--query', '--fields', '--columns', '--limit', '--offset', '--get', '--no-count', '--table', '--sys-id', '--details', '--label', '--help', ...(catalogRead ? ['--display-values', '--identifier-field', '--no-essential'] : [])]);
       if (args.some(arg => arg.startsWith('-') && !flags.has(arg))) throw new Error('Unknown readonly argument refused');
     }
     if (args[0] === 'store') throw new Error('Store excluded from live acceptance');

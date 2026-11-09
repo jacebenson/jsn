@@ -73,7 +73,7 @@ describe('Users command', () => {
       const calls = [];
       const app = makeApp({ sdk: { create: async (...args) => { calls.push(args); return record; } } });
       await handler('create')({ app, ...args });
-      assert.deepEqual(calls, [['sys_user', payload]]);
+      assert.deepEqual(calls, [['sys_user', payload, { inputDisplayValue: false }]]);
       assert.deepEqual(app.outputCalls, [{ data: record, opts: {
         summary: 'Created user newuser',
         breadcrumbs: [{ action: 'view', cmd: 'jsn users show newuser', description: 'View the new user' }],
@@ -101,7 +101,7 @@ describe('Users command', () => {
       await handler(name)({ app, identifier: 'todelete', ...(name === 'update' ? { data: '{"active":false}' } : {}) });
       assert.deepEqual(calls, [
         ['list', 'sys_user', { sysparm_query: 'user_name=todelete', sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id' }],
-        name === 'update' ? ['update', 'sys_user', 'abc123', { active: false }] : ['delete', 'sys_user', 'abc123'],
+        name === 'update' ? ['update', 'sys_user', 'abc123', { active: false }, { inputDisplayValue: false }] : ['delete', 'sys_user', 'abc123'],
       ]);
       const expected = name === 'update'
         ? { data: updated, opts: {
@@ -146,4 +146,17 @@ describe('Users command', () => {
       });
     }
   }
+});
+
+it('create and update request display-value handling only when a password is supplied', async () => {
+  const calls = [];
+  const app = makeApp({ sdk: {
+    create: async (...args) => { calls.push(args); return { sys_id: 'new123', user_name: 'newuser' }; },
+    list: async () => [{ sys_id: 'abc123', user_name: 'existing' }],
+    update: async (...args) => { calls.push(args); return { sys_id: 'abc123' }; },
+  } });
+  await handler('create')({ app, data: JSON.stringify({ user_name: 'newuser', user_password: 'synthetic' }) });
+  await handler('update')({ app, identifier: 'existing', data: JSON.stringify({ user_password: 'synthetic' }) });
+  assert.deepEqual(calls[0], ['sys_user', { user_name: 'newuser', user_password: 'synthetic' }, { inputDisplayValue: true }]);
+  assert.equal(calls[1][3].inputDisplayValue, true);
 });

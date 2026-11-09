@@ -108,20 +108,29 @@ function rejection(result) {
 }
 
 function permissionDenial(result) {
-  return result?.exitCode !== 0 && result?.json?.ok === false && result.json.code === 'forbidden' &&
-    /403|forbidden|access denied|not authorized|security constraints|insufficient/i.test(String(result.json.error || ''));
+  if (result?.exitCode === 0 || result?.json?.ok !== false) return false;
+  const message = [result.json.error, result.json.hint].filter(value => typeof value === 'string').join(' ');
+  // A restricted table may be invisible to the fixture account, so the CLI
+  // cannot resolve the exact owned record. Absence of an accessible record is
+  // still a provider authorization denial when the coordinator's baseline read
+  // proved the record exists and the readback is unchanged.
+  if (result.json.code === 'not_found' && /No accessible record matched/i.test(message)) return true;
+  return result.json.code === 'forbidden' &&
+    /403|forbidden|access denied|not authorized|security constraints|insufficient/i.test(message);
 }
 
-async function assertPermissions(ctx, fixture, env, other) {
+async function assertPermissions(ctx, fixture, env, _other) {
   await assertIdentity(ctx, fixture, env);
-  const before = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
-  check(value(before?.sys_id) === other.id && Object.hasOwn(before, 'first_name'), 'Denied-operation baseline missing');
-  const baselineFirstName = value(before.first_name);
+  const property = ctx.state.get(PRIVATE)?.property;
+  check(property?.id, 'Denied-operation owned property is missing');
+  const before = await ctx.read('sys_properties', { id: property.id, fields: ['sys_id', 'value'], limit: 1 });
+  check(value(before?.sys_id) === property.id && Object.hasOwn(before, 'value'), 'Denied-operation baseline missing');
+  const baselineValue = value(before.value);
   const marker = `denied_${ctx.runKey}`;
-  const result = await ctx.command(['users', 'update', other.id, '--field', `first_name=${marker}`, '--json'], { env,
-    expectedDenial: permissionDenial });
-  const after = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
-  check(value(after?.sys_id) === other.id && value(after.first_name) === baselineFirstName, 'Denied operation changed an owned fixture; investigate before retry');
+  const result = await ctx.command(['records', 'update', '--table', 'sys_properties', '--sys-id', property.id,
+    '--field', `value=${marker}`, '--json'], { env, expectedDenial: permissionDenial });
+  const after = await ctx.read('sys_properties', { id: property.id, fields: ['sys_id', 'value'], limit: 1 });
+  check(value(after?.sys_id) === property.id && value(after.value) === baselineValue, 'Denied operation changed an owned fixture; investigate before retry');
   check(permissionDenial(result),
   'Expected explicit provider authorization denial, not a local failure or silent success');
   await assertIdentity(ctx, fixture, env); // distinguish ACL denial from unusable auth
@@ -202,6 +211,18 @@ export async function createAuthFixtures(ctx) {
     check(Array.isArray(adminRoles) && adminRoles.length === 0, 'Administrative inherited fixture role; auth tests refused');
     if (kind === 'basic') user.env = await makeIdentity(ctx, user);
   }
+  // Owned, non-sensitive denial target. A least-privilege fixture user must
+  // read it but must not update it; the runner restores/cleans it by exact ID.
+  const propertyName = `jsn_acceptance_${createHash('sha256').update(ctx.runKey).digest('hex').slice(0, 20)}`;
+  const propertyValue = 'acceptance-baseline';
+  const propertyFile = await privateFile(root, 'property.json', { name: propertyName, value: propertyValue, description: 'JSN acceptance owned fixture' });
+  const property = await ctx.command(['records', 'create', '--table', 'sys_properties', '--data-file', propertyFile, '--json'], { writeIdentity: { name: propertyName } });
+  const propertyId = value(data(property)?.sys_id);
+  check(ID.test(propertyId || ''), 'Owned property create returned no exact ID; reconcile before retry');
+  await ctx.registerArtifact({ table: 'sys_properties', id: propertyId, kind: 'auth-property', cleanupArgs: ['records', 'delete', '--table', 'sys_properties', '--sys-id', propertyId, '--force', '--json'] });
+  const propertyRead = await ctx.read('sys_properties', { id: propertyId, fields: ['sys_id', 'value'], limit: 1 });
+  check(value(propertyRead?.sys_id) === propertyId && value(propertyRead.value) === propertyValue, 'Owned property was not persisted');
+  fixtures.property = { id: propertyId, name: propertyName };
   return { status: 'passed' };
 }
 
@@ -209,6 +230,68 @@ function fixtures(ctx) {
   const stored = ctx.state.get(PRIVATE);
   check(stored?.users?.length === 2, 'OAuth-owned auth fixtures are incomplete');
   return stored.users;
+}
+
+function isInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+async function assertRunOutputRoot(ctx, expected = null) {
+  check(typeof ctx.outputDir === 'string' && path.isAbsolute(ctx.outputDir), 'Run output directory must be absolute');
+  const outputDir = path.resolve(ctx.outputDir);
+  const stat = await fs.lstat(outputDir);
+  check(stat.isDirectory() && !stat.isSymbolicLink(), 'Run output directory must be a real directory');
+  const real = await fs.realpath(outputDir);
+  const after = await fs.lstat(outputDir);
+  check(after.dev === stat.dev && after.ino === stat.ino && !after.isSymbolicLink(), 'Run output directory changed during validation');
+  check(await fs.realpath(outputDir) === real, 'Run output directory realpath changed during validation');
+  if (expected) {
+    check(real === expected.real && stat.dev === expected.dev && stat.ino === expected.ino, 'Run output directory was replaced during the adapter operation');
+  }
+  return { path: outputDir, real, dev: stat.dev, ino: stat.ino };
+}
+
+// The account root must be a real directory inside this run's output directory.
+// lstat+realpath+identity catch a symlinked or swapped root before any adapter
+// credential path is trusted.
+async function assertRunAccountRoot(ctx, root, label, outputIdentity = null) {
+  const output = outputIdentity ?? await assertRunOutputRoot(ctx);
+  check(typeof root === 'string' && path.isAbsolute(root), `${label} must be an absolute run-owned directory`);
+  const accountRoot = path.resolve(root);
+  check(path.relative(output.path, accountRoot) && isInside(output.path, accountRoot), `${label} must belong to the run-owned output directory`);
+  const stat = await fs.lstat(accountRoot);
+  check(stat.isDirectory() && !stat.isSymbolicLink(), `${label} must be a real run-owned directory`);
+  const rootReal = await fs.realpath(accountRoot);
+  check(path.relative(output.real, rootReal) && isInside(output.real, rootReal), `${label} resolves outside the run-owned output directory`);
+  const after = await fs.lstat(accountRoot);
+  check(after.dev === stat.dev && after.ino === stat.ino, `${label} changed during validation`);
+  await assertRunOutputRoot(ctx, output);
+  return { real: rootReal, dev: stat.dev, ino: stat.ino };
+}
+
+// Real-path containment for a credential file. Lexical containment alone
+// accepts a path through a parent symlink that points outside the account
+// directory; lstat alone follows parent symlinks and sees a regular file.
+async function assertProviderHeaders(ctx, fixture, file, label, identity, outputIdentity) {
+  check(typeof file === 'string' && path.isAbsolute(file), `${label} must be an absolute run-owned file path`);
+  const accountRoot = path.resolve(fixture.root);
+  const lexical = path.relative(accountRoot, path.resolve(file));
+  check(lexical && isInside(accountRoot, path.resolve(file)), `${label} must belong to this run-owned account directory`);
+  const parent = path.dirname(file);
+  const parentStat = await fs.lstat(parent);
+  check(parentStat.isDirectory() && !parentStat.isSymbolicLink(), `${label} parent must be a real directory`);
+  const parentReal = await fs.realpath(parent);
+  check(isInside(identity.real, parentReal), `${label} parent resolves outside this run-owned account directory`);
+  const stat = await fs.lstat(file);
+  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, `${label} must be in a private 0600 file`);
+  const rootNow = await fs.lstat(fixture.root);
+  check(!rootNow.isSymbolicLink() && rootNow.dev === identity.dev && rootNow.ino === identity.ino, `${label} account root changed during validation`);
+  const parentNow = await fs.lstat(parent);
+  check(parentNow.isDirectory() && !parentNow.isSymbolicLink() && parentNow.dev === parentStat.dev && parentNow.ino === parentStat.ino, `${label} parent changed during validation`);
+  const fileNow = await fs.lstat(file);
+  check(fileNow.isFile() && !fileNow.isSymbolicLink() && fileNow.dev === stat.dev && fileNow.ino === stat.ino, `${label} changed during validation`);
+  await assertRunOutputRoot(ctx, outputIdentity);
 }
 
 async function basicValid(ctx) {
@@ -249,16 +332,19 @@ async function cookieValid(ctx) {
   if (typeof adapter?.acquire !== 'function') return blocked('No approved isolated browser-session acquisition adapter for the OAuth-created non-admin user; no personal browser/session may be reused');
   // Adapter owns real login and exact-ID session registration before returning.
   // Its result is a private headers-file, never token/cookie arguments.
+  const outputIdentity = await assertRunOutputRoot(ctx);
+  const rootIdentity = await assertRunAccountRoot(ctx, cookie.root, 'Provider session account root', outputIdentity);
   cookie.env = await makeIdentity(ctx, cookie, 'gck');
   const acquired = await adapter.acquire({ ctx, user: cookie, env: cookie.env });
-  check(acquired?.source === 'isolated-browser-login' && path.isAbsolute(acquired.headersFile || ''), 'Real isolated browser acquisition evidence is required');
-  const relative = path.relative(cookie.root, acquired.headersFile);
-  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Browser headers must belong to this run-owned account directory');
-  const stat = await fs.lstat(acquired.headersFile);
-  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Browser headers must be in a private 0600 file');
+  await assertRunOutputRoot(ctx, outputIdentity);
+  await assertRunAccountRoot(ctx, cookie.root, 'Provider session account root', outputIdentity);
+  check(['isolated-provider-login', 'isolated-browser-login'].includes(acquired?.source) && path.isAbsolute(acquired.headersFile || ''), 'Real isolated provider login evidence is required');
+  await assertProviderHeaders(ctx, cookie, acquired.headersFile, 'Provider headers', rootIdentity, outputIdentity);
   const result = await ctx.command(['auth', 'login', '--gck', '--headers-file', acquired.headersFile, '--no-make-default', '--json'], { env: cookie.env });
   check(result.exitCode === 0, 'Cookie login failed');
   cookie.session = acquired;
+  cookie.rootIdentity = rootIdentity;
+  cookie.outputIdentity = outputIdentity;
   await assertPermissions(ctx, cookie, cookie.env, other);
   return { status: 'passed' };
 }
@@ -269,15 +355,20 @@ async function cookieExpired(ctx) {
   if (!cookie.session || typeof adapter?.expire !== 'function' || typeof adapter?.renew !== 'function') {
     return blocked('Requires a real acquired run-owned browser session and approved exact-session expiry/readback plus renewal adapters; corrupting a token is not expiry evidence');
   }
+  const outputIdentity = await assertRunOutputRoot(ctx, cookie.outputIdentity ?? null);
+  const rootIdentity = await assertRunAccountRoot(ctx, cookie.root, 'Renewed headers account root', outputIdentity);
+  if (cookie.rootIdentity) {
+    check(rootIdentity.real === cookie.rootIdentity.real && rootIdentity.dev === cookie.rootIdentity.dev && rootIdentity.ino === cookie.rootIdentity.ino,
+      'Renewed headers account root was replaced after acquisition');
+  }
   await adapter.expire({ ctx, user: cookie, session: cookie.session });
   const expired = await ctx.command(['records', 'list', '--table', 'sys_user', '--limit', '1', '--json'], { env: cookie.env });
-  check(rejection(expired), 'Expired browser session was not rejected as authentication failure');
+  check(rejection(expired), 'Expired provider session was not rejected as authentication failure');
   const renewed = await adapter.renew({ ctx, user: cookie, env: cookie.env });
-  check(renewed?.source === 'isolated-browser-login' && path.isAbsolute(renewed.headersFile || ''), 'Renewal requires real isolated browser evidence');
-  const relative = path.relative(cookie.root, renewed.headersFile);
-  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Renewed headers must belong to the run-owned account directory');
-  const stat = await fs.lstat(renewed.headersFile);
-  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Renewed browser headers require mode 0600');
+  await assertRunOutputRoot(ctx, outputIdentity);
+  await assertRunAccountRoot(ctx, cookie.root, 'Renewed headers account root', outputIdentity);
+  check(['isolated-provider-login', 'isolated-browser-login'].includes(renewed?.source) && path.isAbsolute(renewed.headersFile || ''), 'Renewal requires real isolated provider login evidence');
+  await assertProviderHeaders(ctx, cookie, renewed.headersFile, 'Renewed headers', rootIdentity, outputIdentity);
   const refresh = await ctx.command(['auth', 'refresh', '--headers-file', renewed.headersFile, '--json'], { env: cookie.env });
   check(refresh.exitCode === 0, 'Browser-session CLI renewal failed');
   cookie.session = renewed;
