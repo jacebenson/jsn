@@ -110,7 +110,7 @@ test('actual CLI local acceptance scenarios run with isolated synthetic config a
   const ctx = createContext({ mode: 'readonly', profile: 'fixture', outputDir: path.join(dir, 'results') }, { target }, {
     execute: (exe, args, opts) => runProcess(exe, args, { ...opts, env: { ...opts.env, XDG_CONFIG_HOME: dir, HOME: dir } }),
   });
-  for (const s of readonlyScenarios.filter(s => s.id.startsWith('local.'))) await s.run(ctx);
+  for (const s of readonlyScenarios.filter(s => s.id.startsWith('local.') && s.modes.includes('readonly'))) await s.run(ctx);
   assert.equal(requests, 0);
 });
 

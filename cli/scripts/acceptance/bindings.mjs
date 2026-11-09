@@ -5,6 +5,7 @@ export function bindScenarios(scenarios) {
     for (const binding of Object.values(s.coverageBindings || {})) if (Array.isArray(binding.options)) binding.options = Object.fromEntries(binding.options.map(id => [id, ['explicit-value']]));
     const bind = (path, requirements, options = {}) => { bindings[path] = { requirements, options }; };
     if (s.id === 'local.version') bind('version', ['scripted-success', 'human-and-json-output'], { '$root --json': ['explicit-value', 'omitted-default', 'human-json-consistency'] });
+    if (s.id === 'local.output-contract') for (const command of s.commandPaths) bind(command, ['scripted-success', 'human-and-json-output'], { '$root --format': ['omitted-default', 'explicit-value', 'human-json-consistency', 'missing-value'] });
     if (s.id === 'local.completion') bind('completion', ['scripted-success']);
     if (s.id === 'local.history-empty') bind('history list', ['scripted-success'], { 'history list --limit': ['explicit-value'] });
     if (s.id === 'local.parser-rejection') bind('records list', ['scripted-failure']);

@@ -41,7 +41,7 @@ function perfAdapter(ctx, events) {
 
 test('all four modules have real dependency/target/source joins; honest inventory has no undefined options', () => {
   const ids = new Set(all.map(s => s.id));
-  assert.equal(ids.size, 92);
+  assert.equal(ids.size, 93);
   for (const s of all) {
     assert.equal(typeof s.run, 'function');
     for (const dependency of s.requires) assert.ok(ids.has(dependency), 'unknown dependency');
@@ -83,7 +83,7 @@ test('suite hooks bracket scenario failure and preserve actual-schema captures w
 test('all actual scenarios resolve through shared context; denied capabilities never fabricate a pass', async t => {
   const ctx = context(t);
   const report = await executeScenarios(all, ctx);
-  assert.equal(report.results.length, 92);
+  assert.equal(report.results.length, 93);
   assert.equal(report.results.filter(r => r.status === 'passed').length, 0);
   assert.equal(report.summary.complete, false);
   assert.equal(report.results.find(r => r.id === 'auth.fixtures').status, 'blocked-prerequisite');
