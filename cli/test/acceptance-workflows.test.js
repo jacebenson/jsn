@@ -348,7 +348,7 @@ test('flow lifecycle executes edit preview/save, publish and bounded independent
   assert.ok(result.verified.includes('execution-completion'));
   assert.ok(events.some(e => e[0] === 'execution-read'));
   assert.ok(events.some(e => e[0] === 'register' && e[1].id === flowId && e[1].cleanupArgs === null));
-  assert.deepEqual(events.filter(e => e[0] === 'command' && e[1][0] === 'flows').map(e => e[1][1]), ['schemas', 'create', 'show', 'update', 'update', 'update', 'unlock', 'publish', 'publish', 'status', 'test', 'executions']);
+  assert.deepEqual(events.filter(e => e[0] === 'command' && e[1][0] === 'flows').map(e => e[1][1]), ['schemas', 'create', 'show', 'unlock', 'update', 'update', 'update', 'unlock', 'publish', 'publish', 'status', 'test', 'executions']);
 });
 
 test('catalog orchestration creates its full dependency chain before order and verifies actual fulfillment and answers', async () => {

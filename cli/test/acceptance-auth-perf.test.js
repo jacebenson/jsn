@@ -31,7 +31,10 @@ async function context(t) {
   };
   ctx.command = async (args, options = {}) => {
     ctx.calls.push({ args, options });
-    if (args[0] === 'auth' && args[1] === 'status') return ok({ profiles: [{ name: ctx.profile, verified: true, diagnostics: { auth_method: 'oauth', probe: { status: 'succeeded' } } }] });
+    if (args[0] === 'auth' && args[1] === 'status') {
+      const username = options.env?.SN_USERNAME;
+      return ok({ authenticated: true, profiles: [{ name: ctx.profile, authenticated: true, verified: true, username, diagnostics: { auth_method: username ? 'basic' : 'oauth', probe: { status: 'succeeded' } } }] });
+    }
     if (args[0] === 'users' && args[1] === 'create') {
       const payload = JSON.parse(await fs.readFile(args[args.indexOf('--data-file') + 1], 'utf8'));
       const id = String(ctx.db.size + 1).padStart(32, '0');
@@ -47,7 +50,7 @@ async function context(t) {
     }
     const users = ctx.state.get('auth.fixtures')?.users || [];
     const identity = users.find(u => u.username === options.env?.SN_USERNAME);
-    if (args[0] === 'auth' && args[1] === 'login') return args.includes('--gck') ? fail() : ok({ authenticated: true });
+    if (args[0] === 'auth' && args[1] === 'login') return args.includes('--gck') ? fail() : ok({ authenticated: true, username: options.env?.SN_USERNAME });
     if (args[0] === 'users' && args[1] === 'update') {
       if (options.env) return fail(403);
       const payloadFile = args.indexOf('--data-file');

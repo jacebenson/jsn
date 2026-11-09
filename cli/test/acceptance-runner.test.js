@@ -196,7 +196,7 @@ test('fixture identity environment is confined to owned paths and the exact sele
   const config = path.join(root, 'config');
   fs.mkdirSync(path.join(config, 'servicenow'), { recursive: true });
   const file = path.join(config, 'servicenow/config.json');
-  fs.writeFileSync(file, JSON.stringify({ profiles: { fixture: { instance_url: ctx.expectedHost } } }));
+  fs.writeFileSync(file, JSON.stringify({ profiles: { fixture: { instance_url: ctx.expectedHost, username: 'fixture-user' } } }));
   await ctx.command(['auth', 'status', '--json'], { env: { HOME: root, XDG_CONFIG_HOME: config, PATH: path.join(root, 'empty'), SN_PASSWORD: 'synthetic-private' } });
   assert.equal(launched, 1);
   assert.ok(!fs.readFileSync(path.join(ctx.outputDir, 'command-1.json'), 'utf8').includes('synthetic-private'));

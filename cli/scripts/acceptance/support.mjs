@@ -266,7 +266,7 @@ export function createContext(options, target, { execute = runProcess } = {}) {
       // The CLI legitimately adds session metadata to its own profile after a
       // login. Containment, a single profile and an exact target are the
       // security boundary; rejecting unknown keys would break that flow.
-      if (!selected || typeof selected.instance_url !== 'string' || typeof selected.username !== 'string') throw new Error('Isolated fixture profile is incomplete');
+      if (!selected || typeof selected.instance_url !== 'string') throw new Error('Isolated fixture profile is incomplete');
       if (Object.keys(fixtureConfig.profiles || {}).length !== 1 || origin(selected?.instance_url || '') !== target.target) throw new Error('Isolated fixture profile must match selected target');
     }
     // Never inherit deployment/provider/peer credentials into acceptance children.
