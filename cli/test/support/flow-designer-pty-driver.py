@@ -9,7 +9,10 @@ import time
 
 spec = json.loads(sys.argv[1])
 master, slave = pty.openpty()
-env = dict(os.environ)
+# Existing fixtures inherit the driver environment. Binary-level safety tests
+# pass isolateEnv so the child sees only the synthetic fixture environment and
+# no inherited JSN_* force flags.
+env = {} if spec.get('isolateEnv') else dict(os.environ)
 env.update(spec.get('env', {}))
 for key in ('JSN_NO_PROMPTS', 'CI', 'NONINTERACTIVE', 'GITHUB_ACTIONS', 'CLAUDE_CODE', 'COPILOT_AGENT', 'VSCODE_AGENT', 'CURSOR_AGENT', 'CODEX_AGENT', 'GITHUB_COPILOT_AGENT'):
     env.pop(key, None)

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -136,6 +137,87 @@ test('real PTY flow edit picks an inactive draft, reads its condition and confir
   assert.equal(result.flow.triggerInstances[0].id, 'f'.repeat(32));
 });
 
+const execFileAsync = promisify(execFile);
+
+// Read-only provider context the CLI may legitimately read before or during a
+// command: current user, current application, and the effective update set
+// (src/context.js + src/app.js printContextHeader). Those are GETs only.
+const READ_ONLY_CONTEXT_ROUTES = [
+  /^\/api\/now\/table\/sys_user$/,
+  /^\/api\/now\/table\/sys_user_preference$/,
+  /^\/api\/now\/table\/sys_scope\/[0-9a-f]{32}$/,
+  /^\/api\/now\/table\/sys_update_set\/[0-9a-f]{32}$/,
+  /^\/api\/now\/ui\/concoursepicker\/updateset$/,
+];
+
+// Every provider request must be an exact read-only context GET. A Table API
+// write, a ProcessFlow create/version/publish/execute/delete, a GraphQL POST,
+// or any unknown route fails. This deliberately does not filter on `/table/`
+// alone, so the flow mutation routes are covered too.
+function unexpectedProviderRequests(requests) {
+  return requests.filter(request => request.method !== 'GET'
+    || !READ_ONLY_CONTEXT_ROUTES.some(route => route.test(request.path)));
+}
+
+function assertNoProviderWrites(requests) {
+  const unexpected = unexpectedProviderRequests(requests);
+  assert.equal(unexpected.length, 0,
+    `unexpected provider request: ${JSON.stringify(unexpected)}; only exact read-only context GETs are allowed`);
+}
+
+// In-process recorder. Handlers stay on the event loop, so the child is always
+// executed asynchronously; waitForIdle() drains queued callbacks and in-flight
+// responses before any assertion reads the request log. It throws on timeout:
+// a recorder that never quiesces must not silently authorize a safety pass.
+async function startRecorder(t) {
+  const requests = [];
+  let inFlight = 0;
+  const server = http.createServer((req, res) => {
+    inFlight += 1;
+    requests.push({ method: req.method, path: new URL(req.url, 'http://fixture.invalid').pathname });
+    req.resume();
+    res.on('close', () => { inFlight -= 1; });
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ result: [] }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+  });
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    requests,
+    async waitForIdle(timeout = 2000) {
+      const deadline = Date.now() + timeout;
+      let observed = requests.length;
+      let quietSince = 0;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        const changed = requests.length !== observed;
+        observed = requests.length;
+        if (changed || inFlight !== 0) { quietSince = 0; continue; }
+        if (!quietSince) quietSince = Date.now();
+        else if (Date.now() - quietSince >= 100) return;
+      }
+      throw new Error(`recorder did not quiesce within ${timeout}ms: ${requests.length} requests recorded, ${inFlight} in flight`);
+    },
+  };
+}
+
+// Async replacement for spawnSync: the recorder must remain responsive while
+// the child runs. Returns the exit status instead of throwing on a CLI error.
+async function runProcess(file, args, options) {
+  try {
+    const { stdout, stderr } = await execFileAsync(file, args, { encoding: 'utf8', ...options });
+    return { status: 0, stdout, stderr };
+  } catch (error) {
+    if (error.killed || error.signal) throw new Error(`${file} did not finish within ${options.timeout}ms`, { cause: error });
+    return { status: typeof error.code === 'number' ? error.code : 1, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
+  }
+}
+
 function isolated(readOnly, instance = 'https://example.invalid') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-pty-actual-'));
   const config = path.join(root, 'config');
@@ -144,37 +226,66 @@ function isolated(readOnly, instance = 'https://example.invalid') {
     default_profile: 'fixture',
     profiles: { fixture: { instance_url: instance, auth_method: 'basic', username: 'fixture', read_only: readOnly, skip_confirmations: false } },
   }));
-  return { root, env: { HOME: path.join(root, 'home'), XDG_CONFIG_HOME: config, PATH: process.env.PATH, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' } };
+  return { root, env: { HOME: path.join(root, 'home'), XDG_CONFIG_HOME: config, TMPDIR: os.tmpdir(), PATH: process.env.PATH, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' } };
 }
-function runActual(args, env, options = {}) {
-  const result = spawnSync('python3', [driver, JSON.stringify({ command: [process.execPath, cli, ...args], steps: [], env, ...options })], { encoding: 'utf8', timeout: 60000 });
+
+async function runActualAsync(args, env, options = {}) {
+  const result = await runProcess('python3', [driver, JSON.stringify({ command: [process.execPath, cli, ...args], steps: [], env, ...options })], { timeout: 60000, maxBuffer: 10 * 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr + result.stdout);
   return JSON.parse(result.stdout);
 }
-test('actual binary read-only profile blocks guided flow creation under a TTY before any provider write', { skip }, t => {
-  const { root, env } = isolated(true);
+
+test('actual binary read-only profile blocks guided flow creation under a normal-format TTY before any provider write', { skip }, async t => {
+  const recorder = await startRecorder(t);
+  const { root, env } = isolated(true, recorder.url);
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const result = runActual(['flows', 'create', '--profile', 'fixture', '--json'], env, { expectResult: false });
-  assert.notEqual(result.status, 0);
-  assert.match(result.result.stdout, /read_only|read-only/i);
+  // Normal human output (no --json): the faithful read-only guard runs, not the
+  // JSON middleware shortcut. isolateEnv keeps inherited force flags out.
+  const result = await runActualAsync(['flows', 'create', '--profile', 'fixture'], env, { expectResult: false, isolateEnv: true });
+  await recorder.waitForIdle();
+  assert.equal(result.status, 1);
+  assert.match(result.result.stdout, /read-only/i);
   assert.doesNotMatch(result.result.stdout, /FAKE_WRITE|api\/now/i);
+  t.diagnostic(`read-only TTY provider requests: ${JSON.stringify(recorder.requests)}`);
+  assertNoProviderWrites(recorder.requests);
 });
-test('actual binary non-TTY JSON flow creation fails fast with a JSON error and no record mutation', { skip }, async t => {
-  const requests = [];
-  const server = http.createServer((req, res) => {
-    requests.push({ method: req.method, path: new URL(req.url, 'http://fixture.invalid').pathname });
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ result: [] }));
-  });
-  server.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  const { root, env } = isolated(false, `http://127.0.0.1:${server.address().port}`);
-  t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(root, { recursive: true, force: true }); });
-  const result = spawnSync(process.execPath, [cli, 'flows', 'create', '--profile', 'fixture', '--json'], { encoding: 'utf8', env, timeout: 20000 });
+test('actual binary non-TTY JSON flow creation fails fast with a JSON error and no provider mutation', { skip }, async t => {
+  const recorder = await startRecorder(t);
+  const { root, env } = isolated(false, recorder.url);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  // Async child: the in-process recorder stays responsive, then drains before
+  // the shared assertion reads the log.
+  const result = await runProcess(process.execPath, [cli, 'flows', 'create', '--profile', 'fixture', '--json'], { env, timeout: 20000, maxBuffer: 10 * 1024 * 1024 });
+  await recorder.waitForIdle();
   assert.notEqual(result.status, 0);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.ok, false);
   assert.ok(['usage_error', 'confirmation_required'].includes(payload.code), payload.code);
-  const recordWrites = requests.filter(request => request.path.startsWith('/api/now/table/') && request.method !== 'GET');
-  assert.deepEqual(recordWrites, [], 'non-TTY fail-fast must not dispatch a record mutation');
+  t.diagnostic(`non-TTY fail-fast provider requests: ${JSON.stringify(recorder.requests)}`);
+  assertNoProviderWrites(recorder.requests);
+});
+test('recorder classifier accepts only exact read-only context GETs and rejects every other provider route', { skip }, () => {
+  assertNoProviderWrites([
+    { method: 'GET', path: '/api/now/table/sys_user' },
+    { method: 'GET', path: '/api/now/table/sys_user_preference' },
+    { method: 'GET', path: `/api/now/table/sys_scope/${'a'.repeat(32)}` },
+    { method: 'GET', path: `/api/now/table/sys_update_set/${'a'.repeat(32)}` },
+    { method: 'GET', path: '/api/now/ui/concoursepicker/updateset' },
+  ]);
+  const rejected = [
+    { method: 'POST', path: '/api/now/table/sys_hub_flow' },
+    { method: 'PUT', path: '/api/now/table/sys_hub_flow' },
+    { method: 'DELETE', path: `/api/now/table/sys_hub_flow/${'a'.repeat(32)}` },
+    { method: 'POST', path: '/api/now/processflow/flow' },
+    { method: 'POST', path: '/api/now/processflow/versioning/create_version' },
+    { method: 'POST', path: '/api/now/processflow/flow/publish' },
+    { method: 'POST', path: '/api/now/processflow/flow/execute' },
+    { method: 'DELETE', path: `/api/now/processflow/flow/${'a'.repeat(32)}` },
+    { method: 'POST', path: '/api/now/graphql' },
+    { method: 'GET', path: '/api/now/table/sys_hub_flow' },
+    { method: 'GET', path: '/api/now/processflow/flow' },
+  ];
+  for (const request of rejected) {
+    assert.throws(() => assertNoProviderWrites([request]), /unexpected provider request/, `${request.method} ${request.path}`);
+  }
 });
