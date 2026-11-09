@@ -1,0 +1,14 @@
+<% case video.provider %>
+<% when :youtube %>
+  <iframe src="<%= video.embed_url %>" title="<%= title %>" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" loading="lazy"></iframe>
+<% when :joomdeck %>
+  <iframe src="<%= video.embed_url %>" title="<%= title %>" width="960" height="540" frameborder="0" allowfullscreen loading="lazy"></iframe>
+<% when :file %>
+  <video controls preload="metadata" src="<%= video.url %>" aria-label="<%= title %>"></video>
+<% else %>
+  <% if introduction %>
+    <div class="intro-poster"><p class="eyebrow">THE FULL WALKTHROUGH</p><h2>One table.<br>A change your team can ship.</h2><a class="button" href="<%= video.url %>" target="_blank" rel="noopener noreferrer">Watch the introduction ↗</a></div>
+  <% else %>
+    <p class="eyebrow">READY WHEN YOU ARE</p><h2>See it in action.</h2><a class="button" href="<%= video.url %>" target="_blank" rel="noopener noreferrer">Watch the walkthrough ↗</a>
+  <% end %>
+<% end %>
