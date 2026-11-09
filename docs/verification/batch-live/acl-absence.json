@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "data": {
+    "result": []
+  },
+  "summary": "GET api/now/table/sys_security_acl?sysparm_query=nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id,name&sysparm_limit=10",
+  "breadcrumbs": []
+}

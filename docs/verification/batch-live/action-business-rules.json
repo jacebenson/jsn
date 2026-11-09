@@ -1,0 +1,52 @@
+{
+  "ok": true,
+  "data": {
+    "result": [
+      {
+        "sys_id": "24853e6f736b1010ae42d31ee2f6a73f",
+        "action_insert": "false",
+        "action_update": "false",
+        "name": "set item checked out info on scratchpad",
+        "collection": "catalog_ui_policy_action",
+        "when": "before_display"
+      },
+      {
+        "sys_id": "61b5dd730f221010e54d6b198b767e82",
+        "action_insert": "true",
+        "action_update": "true",
+        "name": "Restrict edit if the item is checked out",
+        "collection": "catalog_ui_policy_action",
+        "when": "before"
+      },
+      {
+        "sys_id": "b0b181560a0a0bc200c5dd7f0ae28d5a",
+        "action_insert": "true",
+        "action_update": "true",
+        "name": "Set Variable Display Name Field",
+        "collection": "catalog_ui_policy_action",
+        "when": "before",
+        "script": "var variable = current.catalog_variable.getDisplayValue().split(\"IO:\")[1];\nif (!variable)\n\tvariable = current.catalog_variable.split(\"IO:\")[1];\nvar option = new GlideRecord(\"item_option_new\");\nif (option.get(variable)) {\n\tif (option.name.nil())\n\t\tcurrent.variable = option.question_text;\n\telse \n\t\tcurrent.variable = option.name;\n} else {\n\toption = new GlideRecord(\"item_option_new_set\");\n\tif (option.get(variable)) {\n\t\tcurrent.variable = option.internal_name;\n\t}\n}"
+      },
+      {
+        "sys_id": "1c962a355f031000b12e3572f2b4770f",
+        "action_insert": "false",
+        "action_update": "false",
+        "name": "Show Conflict ErrorMessage",
+        "collection": "sys_ui_policy_action",
+        "when": "before_display",
+        "script": "var msg = policyActionConflicts();\r\nif (msg != \"\")\r\n   gs.addErrorMessage(gs.getMessage(\"There are multiple UI Policies with the same Order for this field - their run order is not predictable\") + \": \" + msg);"
+      },
+      {
+        "sys_id": "d26beaa43712210066512f3c8e41f196",
+        "action_insert": "false",
+        "action_update": "false",
+        "name": "FetchAllowedScopedTables",
+        "collection": "sys_ui_policy_action",
+        "when": "before_display",
+        "script": "var fetch = new FetchAllowedScopedTables();\nfetch.fetchAllowedScopedTables();"
+      }
+    ]
+  },
+  "summary": "GET api/now/table/sys_script?sysparm_query=collectionINsys_ui_policy_action,catalog_ui_policy_action%5Eactive%3Dtrue&sysparm_fields=sys_id,name,collection,when,action_insert,action_update,script&sysparm_limit=50",
+  "breadcrumbs": []
+}

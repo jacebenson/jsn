@@ -1,0 +1,145 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch apply",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "HOLLY-BATCH-1793991459: live out-of-range integer child failure",
+      "steps": 4
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": true,
+      "approved": true
+    },
+    "context_diagnostics": [
+      {
+        "code": "global_default_update_set",
+        "severity": "warning",
+        "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+        "remediation": {
+          "command": "jsn updatesets create --name \"My Feature\""
+        }
+      }
+    ],
+    "context_changes": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-bad_page",
+      "HOLLY-BATCH-1793991459-bad_container",
+      "HOLLY-BATCH-1793991459-bad_row",
+      "HOLLY-BATCH-1793991459-bad_column"
+    ],
+    "counts": {
+      "total": 4,
+      "created": 1,
+      "updated": 0,
+      "deleted": 0,
+      "failed": 1,
+      "skipped": 2
+    },
+    "partial": true,
+    "writes_performed": true,
+    "stopped": null,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "create",
+        "depends_on": [],
+        "status": "created",
+        "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+        "payload": {
+          "id": "HOLLY-BATCH-1793991459-bad_page",
+          "title": "HOLLY-BATCH-1793991459-bad_page",
+          "public": false,
+          "draft": true
+        },
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-bad_page"
+        ],
+        "status": "failed",
+        "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+        "write_outcome": "created_unverified",
+        "payload": {
+          "sp_page": "29a713033b509f10dc18ea64c3e45a8a",
+          "name": "HOLLY-BATCH-1793991459-bad_container",
+          "order": 9007199254740991
+        },
+        "error": {
+          "code": "usage_error",
+          "message": "Write readback mismatch at order; record sp_container/a5a713033b509f10dc18ea64c3e45aa6 may exist. Inspect and clean up before retrying."
+        }
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_row",
+        "type": "sp_row",
+        "table": "sp_row",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-bad_container"
+        ],
+        "status": "skipped",
+        "skipped_reason": "dependency \"HOLLY-BATCH-1793991459-bad_container\" did not complete"
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_column",
+        "type": "sp_column",
+        "table": "sp_column",
+        "operation": "create",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-bad_row"
+        ],
+        "status": "skipped",
+        "skipped_reason": "dependency \"HOLLY-BATCH-1793991459-bad_row\" did not complete"
+      }
+    ],
+    "recovery": [
+      "A batch is not an atomic ServiceNow transaction: successful steps remain in place and are not rolled back.",
+      "Re-run recovery rule: remove or convert the completed steps before re-running (a retry must not recreate them).",
+      "Use each step's resolved sys_id below to reconcile or convert successful steps into explicit update steps.",
+      "Inspect failed steps on the instance before retrying; no automatic retry or replay was attempted.",
+      "Skipped steps made no change; retry them only after their dependency succeeds."
+    ],
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nResult: 1 created, 0 updated, 0 deleted, 1 failed, 2 skipped.\n\nHOLLY-BATCH-1793991459-bad_page [sp_page] created 29a713033b509f10dc18ea64c3e45a8a\nHOLLY-BATCH-1793991459-bad_container [sp_container] failed a5a713033b509f10dc18ea64c3e45aa6 — usage_error: Write readback mismatch at order; record sp_container/a5a713033b509f10dc18ea64c3e45aa6 may exist. Inspect and clean up before retrying.\nHOLLY-BATCH-1793991459-bad_row [sp_row] skipped (dependency \"HOLLY-BATCH-1793991459-bad_container\" did not complete)\nHOLLY-BATCH-1793991459-bad_column [sp_column] skipped (dependency \"HOLLY-BATCH-1793991459-bad_row\" did not complete)\n\nPartial batch — not an atomic transaction and not rolled back:\n  A batch is not an atomic ServiceNow transaction: successful steps remain in place and are not rolled back.\n  Re-run recovery rule: remove or convert the completed steps before re-running (a retry must not recreate them).\n  Use each step's resolved sys_id below to reconcile or convert successful steps into explicit update steps.\n  Inspect failed steps on the instance before retrying; no automatic retry or replay was attempted.\n  Skipped steps made no change; retry them only after their dependency succeeds."
+  },
+  "summary": "PARTIAL: 1 created, 0 updated, 0 deleted, 1 failed, 2 skipped",
+  "breadcrumbs": [],
+  "context": {
+    "mutation": {
+      "scope": "global",
+      "application_id": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress",
+        "application_id": "global"
+      },
+      "diagnostics": [
+        {
+          "code": "global_default_update_set",
+          "severity": "warning",
+          "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+          "remediation": {
+            "command": "jsn updatesets create --name \"My Feature\""
+          }
+        }
+      ],
+      "approval_required": true,
+      "approved": true
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "instance": "https://tygrllcdemo5.service-now.com",
+  "context": {
+    "scope": "global",
+    "application_id": "global",
+    "update_set": {
+      "name": "Default",
+      "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+      "state": "in progress",
+      "application_id": "global"
+    },
+    "diagnostics": [],
+    "approval_required": false,
+    "approved": false
+  },
+  "effective": {
+    "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+    "name": "Default [Global]",
+    "label": "Default [Global]"
+  },
+  "roles": {
+    "(unfiltered)": {
+      "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_user_role?sysparm_query=&sysparm_limit=3&sysparm_fields=sys_id%2Cname",
+      "response": {
+        "result": [
+          {
+            "sys_id": "0071ad4a93649210a1b29bf56489184e",
+            "name": "sn_customerservice.cust_data_resp_granular"
+          },
+          {
+            "sys_id": "011ba5aa0a0a0b3001a439c580549134",
+            "name": "role_delegator"
+          }
+        ]
+      }
+    },
+    "name=itil": {
+      "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_user_role?sysparm_query=name%3Ditil&sysparm_limit=3&sysparm_fields=sys_id%2Cname",
+      "response": {
+        "result": [
+          {
+            "sys_id": "282bf1fac6112285017366cb5f867469",
+            "name": "itil"
+          }
+        ]
+      }
+    },
+    "name=admin": {
+      "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_user_role?sysparm_query=name%3Dadmin&sysparm_limit=3&sysparm_fields=sys_id%2Cname",
+      "response": {
+        "result": [
+          {
+            "sys_id": "2831a114c611228501d4ea6c309d626d",
+            "name": "admin"
+          }
+        ]
+      }
+    }
+  }
+}

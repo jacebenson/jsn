@@ -1,0 +1,86 @@
+[
+  {
+    "table": "sc_cat_item",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item?sysparm_query=nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "item_option_new",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/item_option_new?sysparm_query=question_textSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "catalog_ui_policy",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_ui_policy?sysparm_query=short_descriptionSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "catalog_script_client",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_script_client?sysparm_query=nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_ui_policy",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy?sysparm_query=short_descriptionSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_data_policy2",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy2?sysparm_query=short_descriptionSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_page",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page?sysparm_query=titleSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_container",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container?sysparm_query=nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_row",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_row?sysparm_query=class_nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_column",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_column?sysparm_query=class_nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sp_instance",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_instance?sysparm_query=titleSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  },
+  {
+    "table": "sys_security_acl",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_security_acl?sysparm_query=nameSTARTSWITHHOLLY-BATCH-1793991459&sysparm_fields=sys_id&sysparm_limit=100",
+    "response": {
+      "result": []
+    }
+  }
+]

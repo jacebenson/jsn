@@ -1,0 +1,592 @@
+{
+  "command": "batch plan",
+  "instance": "https://intentionally-different.invalid",
+  "manifest": {
+    "version": 1,
+    "description": "HOLLY-BATCH-1793991459: authorized inert six-family live proof plus ACL",
+    "steps": 19
+  },
+  "context": {
+    "scope": "global",
+    "update_set": {
+      "name": "Default",
+      "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+      "state": "in progress"
+    },
+    "approval_required": false,
+    "approved": false
+  },
+  "context_diagnostics": [],
+  "order": [
+    "HOLLY-BATCH-1793991459-f0_item",
+    "HOLLY-BATCH-1793991459-f0_variable",
+    "HOLLY-BATCH-1793991459-f1_item",
+    "HOLLY-BATCH-1793991459-f1_policy",
+    "HOLLY-BATCH-1793991459-f1_variable",
+    "HOLLY-BATCH-1793991459-f1_action",
+    "HOLLY-BATCH-1793991459-f2_item",
+    "HOLLY-BATCH-1793991459-f2_script",
+    "HOLLY-BATCH-1793991459-f3_policy",
+    "HOLLY-BATCH-1793991459-f3_action",
+    "HOLLY-BATCH-1793991459-f4_policy",
+    "HOLLY-BATCH-1793991459-f4_rule",
+    "HOLLY-BATCH-1793991459-f5_page",
+    "HOLLY-BATCH-1793991459-f5_container",
+    "HOLLY-BATCH-1793991459-f5_row",
+    "HOLLY-BATCH-1793991459-f5_column",
+    "HOLLY-BATCH-1793991459-f5_instance",
+    "HOLLY-BATCH-1793991459-acl",
+    "HOLLY-BATCH-1793991459-acl_role"
+  ],
+  "counts": {
+    "steps": 19,
+    "creates": 19,
+    "updates": 0,
+    "deletes": 0,
+    "writes": 0
+  },
+  "partial": false,
+  "writes_performed": false,
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-f0_item",
+      "type": "catalog_item",
+      "table": "sc_cat_item",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "name": "HOLLY-BATCH-1793991459-f0_item",
+        "active": false,
+        "short_description": "",
+        "type": "item"
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f0_item.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f0_variable",
+      "type": "catalog_variable",
+      "table": "item_option_new",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f0_item"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "name": "holly_batch_1793991459_f0_variable",
+        "question_text": "HOLLY-BATCH-1793991459-f0_variable",
+        "type": 6,
+        "cat_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f0_item.sys_id"
+        },
+        "mandatory": false,
+        "order": 100,
+        "active": false
+      },
+      "pending_refs": [
+        {
+          "location": "fields.cat_item",
+          "ref": "steps.HOLLY-BATCH-1793991459-f0_item.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f0_variable.sys_id",
+        "steps.HOLLY-BATCH-1793991459-f0_variable.catalog_variable"
+      ],
+      "notes": [
+        "variable name derived as \"holly_batch_1793991459_f0_variable\" from the label"
+      ]
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_item",
+      "type": "catalog_item",
+      "table": "sc_cat_item",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "name": "HOLLY-BATCH-1793991459-f1_item",
+        "active": false,
+        "short_description": "",
+        "type": "item"
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_policy",
+      "type": "catalog_ui_policy",
+      "table": "catalog_ui_policy",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f1_item"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "short_description": "HOLLY-BATCH-1793991459-f1_policy",
+        "catalog_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        },
+        "active": false
+      },
+      "pending_refs": [
+        {
+          "location": "fields.catalog_item",
+          "ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f1_policy.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_variable",
+      "type": "catalog_variable",
+      "table": "item_option_new",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f1_item"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "name": "holly_batch_1793991459_f1_variable",
+        "question_text": "HOLLY-BATCH-1793991459-f1_variable",
+        "type": 6,
+        "cat_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        },
+        "mandatory": false,
+        "order": 100,
+        "active": false
+      },
+      "pending_refs": [
+        {
+          "location": "fields.cat_item",
+          "ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f1_variable.sys_id",
+        "steps.HOLLY-BATCH-1793991459-f1_variable.catalog_variable"
+      ],
+      "notes": [
+        "variable name derived as \"holly_batch_1793991459_f1_variable\" from the label"
+      ]
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_action",
+      "type": "catalog_ui_policy_action",
+      "table": "catalog_ui_policy_action",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f1_policy",
+        "HOLLY-BATCH-1793991459-f1_variable"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "ui_policy": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f1_policy.sys_id"
+        },
+        "catalog_variable": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f1_variable.catalog_variable"
+        },
+        "mandatory": "true"
+      },
+      "pending_refs": [
+        {
+          "location": "fields.ui_policy",
+          "ref": "steps.HOLLY-BATCH-1793991459-f1_policy.sys_id"
+        },
+        {
+          "location": "fields.catalog_variable",
+          "ref": "steps.HOLLY-BATCH-1793991459-f1_variable.catalog_variable"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f1_action.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f2_item",
+      "type": "catalog_item",
+      "table": "sc_cat_item",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "name": "HOLLY-BATCH-1793991459-f2_item",
+        "active": false,
+        "short_description": "",
+        "type": "item"
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f2_item.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f2_script",
+      "type": "catalog_client_script",
+      "table": "catalog_script_client",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f2_item"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "cat_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f2_item.sys_id"
+        },
+        "name": "HOLLY-BATCH-1793991459-f2_script",
+        "type": "onLoad",
+        "script": "function onLoad() {}",
+        "active": false
+      },
+      "pending_refs": [
+        {
+          "location": "fields.cat_item",
+          "ref": "steps.HOLLY-BATCH-1793991459-f2_item.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f2_script.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f3_policy",
+      "type": "ui_policy",
+      "table": "sys_ui_policy",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "short_description": "HOLLY-BATCH-1793991459-f3_policy",
+        "table": "incident",
+        "active": false
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f3_policy.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f3_action",
+      "type": "ui_policy_action",
+      "table": "sys_ui_policy_action",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f3_policy"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "ui_policy": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f3_policy.sys_id"
+        },
+        "field": "short_description",
+        "mandatory": "true"
+      },
+      "pending_refs": [
+        {
+          "location": "fields.ui_policy",
+          "ref": "steps.HOLLY-BATCH-1793991459-f3_policy.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f3_action.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f4_policy",
+      "type": "data_policy",
+      "table": "sys_data_policy2",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "model_table": "incident",
+        "short_description": "HOLLY-BATCH-1793991459-f4_policy",
+        "active": false
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f4_policy.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f4_rule",
+      "type": "data_policy_rule",
+      "table": "sys_data_policy_rule",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f4_policy"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "sys_data_policy": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f4_policy.sys_id"
+        },
+        "table": "incident",
+        "field": "short_description",
+        "mandatory": "true"
+      },
+      "pending_refs": [
+        {
+          "location": "fields.sys_data_policy",
+          "ref": "steps.HOLLY-BATCH-1793991459-f4_policy.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f4_rule.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_page",
+      "type": "sp_page",
+      "table": "sp_page",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "id": "HOLLY-BATCH-1793991459-f5_page",
+        "title": "HOLLY-BATCH-1793991459-f5_page",
+        "public": false,
+        "draft": true
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f5_page.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_container",
+      "type": "sp_container",
+      "table": "sp_container",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f5_page"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "sp_page": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_page.sys_id"
+        },
+        "name": "HOLLY-BATCH-1793991459-f5_container",
+        "order": 100
+      },
+      "pending_refs": [
+        {
+          "location": "fields.sp_page",
+          "ref": "steps.HOLLY-BATCH-1793991459-f5_page.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f5_container.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_row",
+      "type": "sp_row",
+      "table": "sp_row",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f5_container"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "sp_container": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_container.sys_id"
+        },
+        "order": 100,
+        "class_name": "HOLLY-BATCH-1793991459-f5_row"
+      },
+      "pending_refs": [
+        {
+          "location": "fields.sp_container",
+          "ref": "steps.HOLLY-BATCH-1793991459-f5_container.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f5_row.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_column",
+      "type": "sp_column",
+      "table": "sp_column",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f5_row"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "sp_row": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_row.sys_id"
+        },
+        "size": 12,
+        "class_name": "HOLLY-BATCH-1793991459-f5_column"
+      },
+      "pending_refs": [
+        {
+          "location": "fields.sp_row",
+          "ref": "steps.HOLLY-BATCH-1793991459-f5_row.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f5_column.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f5_instance",
+      "type": "sp_instance",
+      "table": "sp_instance",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-f5_column"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "sp_column": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f5_column.sys_id"
+        },
+        "sp_widget": "003cb2ae24122010f877560803d529c2",
+        "title": "HOLLY-BATCH-1793991459-f5_instance",
+        "active": false
+      },
+      "pending_refs": [
+        {
+          "location": "fields.sp_column",
+          "ref": "steps.HOLLY-BATCH-1793991459-f5_column.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-f5_instance.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-acl",
+      "type": "acl",
+      "table": "sys_security_acl",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "name": "HOLLY-BATCH-1793991459-inert",
+        "operation": "read",
+        "type": "record",
+        "active": false,
+        "advanced": false,
+        "admin_overrides": true
+      },
+      "pending_refs": [],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-acl.sys_id"
+      ],
+      "notes": []
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-acl_role",
+      "type": "acl_role",
+      "table": "sys_security_acl_role",
+      "operation": "create",
+      "status": "planned",
+      "depends_on": [
+        "HOLLY-BATCH-1793991459-acl"
+      ],
+      "target": {
+        "mode": "create"
+      },
+      "payload": {
+        "sys_security_acl": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-acl.sys_id"
+        },
+        "sys_user_role": "282bf1fac6112285017366cb5f867469"
+      },
+      "pending_refs": [
+        {
+          "location": "fields.sys_security_acl",
+          "ref": "steps.HOLLY-BATCH-1793991459-acl.sys_id"
+        }
+      ],
+      "produces": [
+        "steps.HOLLY-BATCH-1793991459-acl_role.sys_id"
+      ],
+      "notes": []
+    }
+  ],
+  "plan_id": "5b337e4397086947839658000b33b1ffe81d0df8288ede1133f622583e5823cb",
+  "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nOrder: HOLLY-BATCH-1793991459-f0_item -> HOLLY-BATCH-1793991459-f0_variable -> HOLLY-BATCH-1793991459-f1_item -> HOLLY-BATCH-1793991459-f1_policy -> HOLLY-BATCH-1793991459-f1_variable -> HOLLY-BATCH-1793991459-f1_action -> HOLLY-BATCH-1793991459-f2_item -> HOLLY-BATCH-1793991459-f2_script -> HOLLY-BATCH-1793991459-f3_policy -> HOLLY-BATCH-1793991459-f3_action -> HOLLY-BATCH-1793991459-f4_policy -> HOLLY-BATCH-1793991459-f4_rule -> HOLLY-BATCH-1793991459-f5_page -> HOLLY-BATCH-1793991459-f5_container -> HOLLY-BATCH-1793991459-f5_row -> HOLLY-BATCH-1793991459-f5_column -> HOLLY-BATCH-1793991459-f5_instance -> HOLLY-BATCH-1793991459-acl -> HOLLY-BATCH-1793991459-acl_role\nPlan: 19 step(s) — 19 create, 0 update, 0 delete; 0 writes.\nPlan ID: 33bf81c18ebfb9ceaf27e164c47d0315e48526a71590e917ed02e72a9deb7581\n\nHOLLY-BATCH-1793991459-f0_item [catalog_item] create\n  name: HOLLY-BATCH-1793991459-f0_item\n  active: false\n  short_description: \n  type: item\nHOLLY-BATCH-1793991459-f0_variable [catalog_variable] create\n  depends on: HOLLY-BATCH-1793991459-f0_item\n  name: holly_batch_1793991459_f0_variable\n  question_text: HOLLY-BATCH-1793991459-f0_variable\n  type: 6\n  cat_item: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f0_item.sys_id\"}\n  mandatory: false\n  order: 100\n  active: false\n  note: variable name derived as \"holly_batch_1793991459_f0_variable\" from the label\n  pending fields.cat_item: steps.HOLLY-BATCH-1793991459-f0_item.sys_id\nHOLLY-BATCH-1793991459-f1_item [catalog_item] create\n  name: HOLLY-BATCH-1793991459-f1_item\n  active: false\n  short_description: \n  type: item\nHOLLY-BATCH-1793991459-f1_policy [catalog_ui_policy] create\n  depends on: HOLLY-BATCH-1793991459-f1_item\n  short_description: HOLLY-BATCH-1793991459-f1_policy\n  catalog_item: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f1_item.sys_id\"}\n  active: false\n  pending fields.catalog_item: steps.HOLLY-BATCH-1793991459-f1_item.sys_id\nHOLLY-BATCH-1793991459-f1_variable [catalog_variable] create\n  depends on: HOLLY-BATCH-1793991459-f1_item\n  name: holly_batch_1793991459_f1_variable\n  question_text: HOLLY-BATCH-1793991459-f1_variable\n  type: 6\n  cat_item: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f1_item.sys_id\"}\n  mandatory: false\n  order: 100\n  active: false\n  note: variable name derived as \"holly_batch_1793991459_f1_variable\" from the label\n  pending fields.cat_item: steps.HOLLY-BATCH-1793991459-f1_item.sys_id\nHOLLY-BATCH-1793991459-f1_action [catalog_ui_policy_action] create\n  depends on: HOLLY-BATCH-1793991459-f1_policy, HOLLY-BATCH-1793991459-f1_variable\n  ui_policy: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f1_policy.sys_id\"}\n  catalog_variable: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f1_variable.catalog_variable\"}\n  mandatory: true\n  pending fields.ui_policy: steps.HOLLY-BATCH-1793991459-f1_policy.sys_id\n  pending fields.catalog_variable: steps.HOLLY-BATCH-1793991459-f1_variable.catalog_variable\nHOLLY-BATCH-1793991459-f2_item [catalog_item] create\n  name: HOLLY-BATCH-1793991459-f2_item\n  active: false\n  short_description: \n  type: item\nHOLLY-BATCH-1793991459-f2_script [catalog_client_script] create\n  depends on: HOLLY-BATCH-1793991459-f2_item\n  cat_item: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f2_item.sys_id\"}\n  name: HOLLY-BATCH-1793991459-f2_script\n  type: onLoad\n  script: function onLoad() {}\n  active: false\n  pending fields.cat_item: steps.HOLLY-BATCH-1793991459-f2_item.sys_id\nHOLLY-BATCH-1793991459-f3_policy [ui_policy] create\n  short_description: HOLLY-BATCH-1793991459-f3_policy\n  table: incident\n  active: false\nHOLLY-BATCH-1793991459-f3_action [ui_policy_action] create\n  depends on: HOLLY-BATCH-1793991459-f3_policy\n  ui_policy: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f3_policy.sys_id\"}\n  field: short_description\n  mandatory: true\n  pending fields.ui_policy: steps.HOLLY-BATCH-1793991459-f3_policy.sys_id\nHOLLY-BATCH-1793991459-f4_policy [data_policy] create\n  model_table: incident\n  short_description: HOLLY-BATCH-1793991459-f4_policy\n  active: false\nHOLLY-BATCH-1793991459-f4_rule [data_policy_rule] create\n  depends on: HOLLY-BATCH-1793991459-f4_policy\n  sys_data_policy: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f4_policy.sys_id\"}\n  table: incident\n  field: short_description\n  mandatory: true\n  pending fields.sys_data_policy: steps.HOLLY-BATCH-1793991459-f4_policy.sys_id\nHOLLY-BATCH-1793991459-f5_page [sp_page] create\n  id: HOLLY-BATCH-1793991459-f5_page\n  title: HOLLY-BATCH-1793991459-f5_page\n  public: false\n  draft: true\nHOLLY-BATCH-1793991459-f5_container [sp_container] create\n  depends on: HOLLY-BATCH-1793991459-f5_page\n  sp_page: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f5_page.sys_id\"}\n  name: HOLLY-BATCH-1793991459-f5_container\n  order: 100\n  pending fields.sp_page: steps.HOLLY-BATCH-1793991459-f5_page.sys_id\nHOLLY-BATCH-1793991459-f5_row [sp_row] create\n  depends on: HOLLY-BATCH-1793991459-f5_container\n  sp_container: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f5_container.sys_id\"}\n  order: 100\n  class_name: HOLLY-BATCH-1793991459-f5_row\n  pending fields.sp_container: steps.HOLLY-BATCH-1793991459-f5_container.sys_id\nHOLLY-BATCH-1793991459-f5_column [sp_column] create\n  depends on: HOLLY-BATCH-1793991459-f5_row\n  sp_row: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f5_row.sys_id\"}\n  size: 12\n  class_name: HOLLY-BATCH-1793991459-f5_column\n  pending fields.sp_row: steps.HOLLY-BATCH-1793991459-f5_row.sys_id\nHOLLY-BATCH-1793991459-f5_instance [sp_instance] create\n  depends on: HOLLY-BATCH-1793991459-f5_column\n  sp_column: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-f5_column.sys_id\"}\n  sp_widget: 003cb2ae24122010f877560803d529c2\n  title: HOLLY-BATCH-1793991459-f5_instance\n  active: false\n  pending fields.sp_column: steps.HOLLY-BATCH-1793991459-f5_column.sys_id\nHOLLY-BATCH-1793991459-acl [acl] create\n  name: HOLLY-BATCH-1793991459-inert\n  operation: read\n  type: record\n  active: false\n  advanced: false\n  admin_overrides: true\nHOLLY-BATCH-1793991459-acl_role [acl_role] create\n  depends on: HOLLY-BATCH-1793991459-acl\n  sys_security_acl: {\"$ref\":\"steps.HOLLY-BATCH-1793991459-acl.sys_id\"}\n  sys_user_role: 282bf1fac6112285017366cb5f867469\n  pending fields.sys_security_acl: steps.HOLLY-BATCH-1793991459-acl.sys_id\n\nNo writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply."
+}

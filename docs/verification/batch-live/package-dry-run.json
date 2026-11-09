@@ -1,0 +1,916 @@
+[
+  {
+    "id": "@jacebenson/jsn@5.4.0",
+    "name": "@jacebenson/jsn",
+    "version": "5.4.0",
+    "size": 529661,
+    "unpackedSize": 1979372,
+    "shasum": "b8d8f38423129795d61c880a0940f69bf57afb0c",
+    "integrity": "sha512-4xtBYL8kZkG1he/whnkoab7P0tbicN247gmf+L6q6NLeBRBZfVSYdPkzQKS9iWIzNVjM2hTFtqya+WopJYYPSA==",
+    "filename": "jacebenson-jsn-5.4.0.tgz",
+    "files": [
+      {
+        "path": "LICENSE",
+        "size": 1068,
+        "mode": 420
+      },
+      {
+        "path": "README.md",
+        "size": 15732,
+        "mode": 420
+      },
+      {
+        "path": "bin/jsn.js",
+        "size": 404,
+        "mode": 493
+      },
+      {
+        "path": "package.json",
+        "size": 1131,
+        "mode": 420
+      },
+      {
+        "path": "skills/servicenow/SKILL.md",
+        "size": 2157,
+        "mode": 420
+      },
+      {
+        "path": "src/amb.js",
+        "size": 15840,
+        "mode": 420
+      },
+      {
+        "path": "src/app.js",
+        "size": 8768,
+        "mode": 420
+      },
+      {
+        "path": "src/auth-recovery.js",
+        "size": 4832,
+        "mode": 420
+      },
+      {
+        "path": "src/auth.js",
+        "size": 28698,
+        "mode": 420
+      },
+      {
+        "path": "src/auth/browser-session.js",
+        "size": 1038,
+        "mode": 420
+      },
+      {
+        "path": "src/auth/credential-state.js",
+        "size": 5287,
+        "mode": 420
+      },
+      {
+        "path": "src/auth/credential-store.js",
+        "size": 6010,
+        "mode": 420
+      },
+      {
+        "path": "src/auth/oauth.js",
+        "size": 2291,
+        "mode": 420
+      },
+      {
+        "path": "src/batch-adapters/catalog.js",
+        "size": 8630,
+        "mode": 420
+      },
+      {
+        "path": "src/batch-adapters/families.js",
+        "size": 3256,
+        "mode": 420
+      },
+      {
+        "path": "src/batch-adapters/table.js",
+        "size": 1097,
+        "mode": 420
+      },
+      {
+        "path": "src/batch-engine.js",
+        "size": 20931,
+        "mode": 420
+      },
+      {
+        "path": "src/batch-manifest.js",
+        "size": 17682,
+        "mode": 420
+      },
+      {
+        "path": "src/browser-auth.js",
+        "size": 7726,
+        "mode": 420
+      },
+      {
+        "path": "src/browser-launch.js",
+        "size": 7935,
+        "mode": 420
+      },
+      {
+        "path": "src/capabilities.js",
+        "size": 5487,
+        "mode": 420
+      },
+      {
+        "path": "src/cli-adapter.js",
+        "size": 21114,
+        "mode": 420
+      },
+      {
+        "path": "src/cli.js",
+        "size": 26588,
+        "mode": 420
+      },
+      {
+        "path": "src/command-audience.js",
+        "size": 1934,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/_generic.js",
+        "size": 15008,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/_simple.js",
+        "size": 5283,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/_ticket.js",
+        "size": 12798,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/actions.js",
+        "size": 16284,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/aliases.js",
+        "size": 1208,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/approvals.js",
+        "size": 17060,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/atf.js",
+        "size": 27703,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/attachments.js",
+        "size": 4925,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/auth.js",
+        "size": 60709,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/b4rules.js",
+        "size": 711,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/batch.js",
+        "size": 9388,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/cases.js",
+        "size": 11720,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/catalog-order.js",
+        "size": 11731,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/catalog.js",
+        "size": 8768,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/catalog/enrich.js",
+        "size": 9946,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/changes.js",
+        "size": 146,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/cmdb-search.js",
+        "size": 3453,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/cmdb.js",
+        "size": 25389,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/codesearch.js",
+        "size": 4334,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/columns.js",
+        "size": 1214,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/customizations.js",
+        "size": 8739,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/decisiontables.js",
+        "size": 10198,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/diff.js",
+        "size": 8398,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/discover.js",
+        "size": 3058,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/client.js",
+        "size": 4914,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/community-sources.json",
+        "size": 697,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/community.js",
+        "size": 11610,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/db.js",
+        "size": 8747,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/docs.js",
+        "size": 5780,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/embed.js",
+        "size": 1714,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/fts.js",
+        "size": 3409,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/hrr.js",
+        "size": 2902,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/index-worker.js",
+        "size": 1005,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/index.js",
+        "size": 5432,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/ingest.js",
+        "size": 4159,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/install.js",
+        "size": 5273,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/local.js",
+        "size": 3791,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/locks.js",
+        "size": 1652,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/public/index.html",
+        "size": 8824,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/public/vendor/marked.min.js",
+        "size": 39903,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/public/vendor/purify.min.js",
+        "size": 29209,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/refresh.js",
+        "size": 6033,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/replace.js",
+        "size": 1457,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/search.js",
+        "size": 6126,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/serve.js",
+        "size": 10083,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/server.js",
+        "size": 3888,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/service-snapshot.js",
+        "size": 2515,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/snapshot-check.js",
+        "size": 776,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/snapshot.js",
+        "size": 8856,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/sync-service.js",
+        "size": 8767,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/docs/sync.js",
+        "size": 3572,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/domains.js",
+        "size": 17106,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/eval.js",
+        "size": 6304,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/flows.js",
+        "size": 24858,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/forms.js",
+        "size": 5007,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/graphql.js",
+        "size": 3131,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/groupmembers.js",
+        "size": 9330,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/grouproles.js",
+        "size": 9328,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/groups.js",
+        "size": 9399,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/history.js",
+        "size": 3726,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/import.js",
+        "size": 1148,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/incidents.js",
+        "size": 150,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/knowledge.js",
+        "size": 5868,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/lists.js",
+        "size": 5321,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/logs.js",
+        "size": 10111,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/midservers.js",
+        "size": 45610,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/perf.js",
+        "size": 7668,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/platform.js",
+        "size": 14264,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/records.js",
+        "size": 33859,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/requests.js",
+        "size": 2060,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/rest.js",
+        "size": 3206,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/restmessage.js",
+        "size": 1396,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/scan.js",
+        "size": 17996,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/scopes.js",
+        "size": 11709,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/scrapi.js",
+        "size": 15745,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/setup.js",
+        "size": 8156,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/skill.js",
+        "size": 17825,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/skipped-updates.js",
+        "size": 7785,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/snippets.js",
+        "size": 6663,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/soapmessages.js",
+        "size": 1175,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/store.js",
+        "size": 18131,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/table-behavior.js",
+        "size": 4676,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/tasks.js",
+        "size": 142,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/tickets.js",
+        "size": 7234,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/transactions.js",
+        "size": 7686,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/uipolicies.js",
+        "size": 140,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/updatesets.js",
+        "size": 55136,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/upgrade.js",
+        "size": 3561,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/users.js",
+        "size": 7431,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/version.js",
+        "size": 3237,
+        "mode": 420
+      },
+      {
+        "path": "src/commands/workflows.js",
+        "size": 6164,
+        "mode": 420
+      },
+      {
+        "path": "src/config.js",
+        "size": 6210,
+        "mode": 420
+      },
+      {
+        "path": "src/constrained-query.js",
+        "size": 1669,
+        "mode": 420
+      },
+      {
+        "path": "src/context.js",
+        "size": 7904,
+        "mode": 420
+      },
+      {
+        "path": "src/customization-guidance.js",
+        "size": 2711,
+        "mode": 420
+      },
+      {
+        "path": "src/customizations-report.js",
+        "size": 13660,
+        "mode": 420
+      },
+      {
+        "path": "src/customizations.js",
+        "size": 36284,
+        "mode": 420
+      },
+      {
+        "path": "src/decision-table-crud.js",
+        "size": 20598,
+        "mode": 420
+      },
+      {
+        "path": "src/decision-table-inspection.js",
+        "size": 12297,
+        "mode": 420
+      },
+      {
+        "path": "src/errors.js",
+        "size": 14519,
+        "mode": 420
+      },
+      {
+        "path": "src/essential-records.js",
+        "size": 2520,
+        "mode": 420
+      },
+      {
+        "path": "src/eval-repl.js",
+        "size": 4778,
+        "mode": 420
+      },
+      {
+        "path": "src/field-behavior.js",
+        "size": 1414,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-context.js",
+        "size": 9177,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-create.js",
+        "size": 70463,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-designer-interactive.js",
+        "size": 27140,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-inspection.js",
+        "size": 31162,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-publish.js",
+        "size": 16266,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-safe-edit.js",
+        "size": 3712,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-test.js",
+        "size": 5532,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-triggers.js",
+        "size": 19102,
+        "mode": 420
+      },
+      {
+        "path": "src/flow-versioning.js",
+        "size": 2464,
+        "mode": 420
+      },
+      {
+        "path": "src/frontmatter.js",
+        "size": 2156,
+        "mode": 420
+      },
+      {
+        "path": "src/help.js",
+        "size": 11683,
+        "mode": 420
+      },
+      {
+        "path": "src/helpers.js",
+        "size": 23866,
+        "mode": 420
+      },
+      {
+        "path": "src/impact-analysis.js",
+        "size": 4037,
+        "mode": 420
+      },
+      {
+        "path": "src/metadata/records.js",
+        "size": 15822,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-direct.js",
+        "size": 19193,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-install.js",
+        "size": 7507,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-linux-remote.js",
+        "size": 13132,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-remote-recipe.js",
+        "size": 3707,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-remote.js",
+        "size": 13382,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-windows-remote.js",
+        "size": 24793,
+        "mode": 420
+      },
+      {
+        "path": "src/midserver-zip.js",
+        "size": 6719,
+        "mode": 420
+      },
+      {
+        "path": "src/mutation-context.js",
+        "size": 5674,
+        "mode": 420
+      },
+      {
+        "path": "src/mutation-history.js",
+        "size": 4235,
+        "mode": 420
+      },
+      {
+        "path": "src/mutations.js",
+        "size": 2247,
+        "mode": 420
+      },
+      {
+        "path": "src/output.js",
+        "size": 25465,
+        "mode": 420
+      },
+      {
+        "path": "src/paginated-search.js",
+        "size": 6159,
+        "mode": 420
+      },
+      {
+        "path": "src/perf-capture.js",
+        "size": 5341,
+        "mode": 420
+      },
+      {
+        "path": "src/perf.js",
+        "size": 17200,
+        "mode": 420
+      },
+      {
+        "path": "src/processflow-actions.js",
+        "size": 24525,
+        "mode": 420
+      },
+      {
+        "path": "src/prompts.js",
+        "size": 1781,
+        "mode": 420
+      },
+      {
+        "path": "src/record-command-profiles.js",
+        "size": 7364,
+        "mode": 420
+      },
+      {
+        "path": "src/record-profiles.js",
+        "size": 6366,
+        "mode": 420
+      },
+      {
+        "path": "src/record-watch.js",
+        "size": 7664,
+        "mode": 420
+      },
+      {
+        "path": "src/records-engine.js",
+        "size": 2665,
+        "mode": 420
+      },
+      {
+        "path": "src/records/inspect.js",
+        "size": 10524,
+        "mode": 420
+      },
+      {
+        "path": "src/related-lists.js",
+        "size": 9137,
+        "mode": 420
+      },
+      {
+        "path": "src/resolve-record.js",
+        "size": 4349,
+        "mode": 420
+      },
+      {
+        "path": "src/scan.js",
+        "size": 15843,
+        "mode": 420
+      },
+      {
+        "path": "src/sdk-batch.js",
+        "size": 7828,
+        "mode": 420
+      },
+      {
+        "path": "src/sdk.js",
+        "size": 60578,
+        "mode": 420
+      },
+      {
+        "path": "src/session-recovery.js",
+        "size": 4872,
+        "mode": 420
+      },
+      {
+        "path": "src/session.js",
+        "size": 9806,
+        "mode": 420
+      },
+      {
+        "path": "src/setup-preferences.js",
+        "size": 3428,
+        "mode": 420
+      },
+      {
+        "path": "src/skipped-update-provider.js",
+        "size": 2760,
+        "mode": 420
+      },
+      {
+        "path": "src/skipped-updates.js",
+        "size": 11864,
+        "mode": 420
+      },
+      {
+        "path": "src/store.js",
+        "size": 29293,
+        "mode": 420
+      },
+      {
+        "path": "src/table-behavior.js",
+        "size": 52679,
+        "mode": 420
+      },
+      {
+        "path": "src/update-set-apply.js",
+        "size": 11702,
+        "mode": 420
+      },
+      {
+        "path": "src/update-set-xml.js",
+        "size": 5351,
+        "mode": 420
+      },
+      {
+        "path": "src/welcome.js",
+        "size": 12186,
+        "mode": 420
+      },
+      {
+        "path": "src/workflow-graph.js",
+        "size": 3704,
+        "mode": 420
+      },
+      {
+        "path": "src/workflow-inspection.js",
+        "size": 43206,
+        "mode": 420
+      },
+      {
+        "path": "src/workflow-steps.js",
+        "size": 3654,
+        "mode": 420
+      }
+    ],
+    "entryCount": 180,
+    "bundled": []
+  }
+]

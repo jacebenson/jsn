@@ -96,6 +96,7 @@ DATA
   jsn logs            Query system logs (log)
   jsn properties      Manage properties (e.g. "properties list --query nameLIKEincident") (property)
   jsn records         Query and manage records in any table (e.g. "records list --table incident --query priority=1")
+  jsn batch           Plan or apply ordered artifact creates, updates and deletes
   jsn transactions    Summarize syslog_transaction response times by transaction type
   jsn snippets        Save and re-run named query snippets (stored locally, no instance contact except run)
 

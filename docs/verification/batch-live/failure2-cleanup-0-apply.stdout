@@ -1,0 +1,112 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch apply",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 2
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": true,
+      "approved": true
+    },
+    "context_diagnostics": [
+      {
+        "code": "global_default_update_set",
+        "severity": "warning",
+        "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+        "remediation": {
+          "command": "jsn updatesets create --name \"My Feature\""
+        }
+      }
+    ],
+    "context_changes": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-bad_container",
+      "HOLLY-BATCH-1793991459-bad_page"
+    ],
+    "counts": {
+      "total": 2,
+      "created": 0,
+      "updated": 0,
+      "deleted": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "partial": false,
+    "writes_performed": true,
+    "stopped": null,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "delete",
+        "depends_on": [],
+        "status": "deleted",
+        "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+        "target": {
+          "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-bad_page - Container 2147483647"
+        },
+        "payload": {},
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "delete",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-bad_container"
+        ],
+        "status": "deleted",
+        "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+        "target": {
+          "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+          "match_field": "sys_id",
+          "matched": "holly_batch_1793991459_bad_page"
+        },
+        "payload": {},
+        "notes": []
+      }
+    ],
+    "recovery": [],
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nResult: 0 created, 0 updated, 2 deleted, 0 failed, 0 skipped.\n\nHOLLY-BATCH-1793991459-bad_container [sp_container] deleted a5a713033b509f10dc18ea64c3e45aa6\nHOLLY-BATCH-1793991459-bad_page [sp_page] deleted 29a713033b509f10dc18ea64c3e45a8a"
+  },
+  "summary": "Applied: 0 created, 0 updated, 2 deleted",
+  "breadcrumbs": [],
+  "context": {
+    "mutation": {
+      "scope": "global",
+      "application_id": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress",
+        "application_id": "global"
+      },
+      "diagnostics": [
+        {
+          "code": "global_default_update_set",
+          "severity": "warning",
+          "message": "Global scope + Default update set can capture customization in the wrong place or leave changes untracked. Select or create a dedicated update set; not all record changes are update-set tracked.",
+          "remediation": {
+            "command": "jsn updatesets create --name \"My Feature\""
+          }
+        }
+      ],
+      "approval_required": true,
+      "approved": true
+    }
+  }
+}

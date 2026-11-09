@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "data": {
+    "result": {
+      "ui_policy": "",
+      "value_action": "ignore",
+      "sys_updated_on": "2026-11-06 18:57:56",
+      "mandatory": "true",
+      "sys_class_name": "catalog_ui_policy_action",
+      "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+      "sys_updated_by": "jace.benson",
+      "variable_set": "",
+      "field_message_type": "none",
+      "sys_created_on": "2026-11-06 18:57:56",
+      "sys_name": "",
+      "disabled": "ignore",
+      "sys_scope": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_scope/global",
+        "value": "global"
+      },
+      "value": "",
+      "sys_created_by": "jace.benson",
+      "table": "",
+      "order": "100",
+      "catalog_variable": "",
+      "visible": "ignore",
+      "catalog_item": "",
+      "sys_mod_count": "0",
+      "sys_tags": "",
+      "sys_package": {
+        "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_package/global",
+        "value": "global"
+      },
+      "sys_update_name": "catalog_ui_policy_action_4e76dbcb3bdc1f10531d2a8693e45ad5",
+      "field": "",
+      "variable": "",
+      "cleared": "false",
+      "field_message": "",
+      "sys_policy": ""
+    }
+  },
+  "summary": "GET api/now/table/catalog_ui_policy_action/4e76dbcb3bdc1f10531d2a8693e45ad5",
+  "breadcrumbs": []
+}

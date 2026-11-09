@@ -1,0 +1,95 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch plan",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 2
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": false,
+      "approved": false
+    },
+    "context_diagnostics": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-bad_container",
+      "HOLLY-BATCH-1793991459-bad_page"
+    ],
+    "counts": {
+      "steps": 2,
+      "creates": 0,
+      "updates": 0,
+      "deletes": 2,
+      "writes": 0
+    },
+    "partial": false,
+    "writes_performed": false,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_container",
+        "type": "sp_container",
+        "table": "sp_container",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "a5a713033b509f10dc18ea64c3e45aa6",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-bad_page - Container 2147483647"
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.sp_page",
+            "ref": "steps.HOLLY-BATCH-1793991459-bad_page.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-bad_container.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-bad_page",
+        "type": "sp_page",
+        "table": "sp_page",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-bad_container"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "29a713033b509f10dc18ea64c3e45a8a",
+          "match_field": "sys_id",
+          "matched": "holly_batch_1793991459_bad_page"
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-bad_page.sys_id"
+        ],
+        "notes": []
+      }
+    ],
+    "plan_id": "8ae4e8cc3c37ae0fb7a2761a5cb51e0dd0dc7b7203f867cd441b57b848c075e5",
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nOrder: HOLLY-BATCH-1793991459-bad_container -> HOLLY-BATCH-1793991459-bad_page\nPlan: 2 step(s) — 0 create, 0 update, 2 delete; 0 writes.\nPlan ID: 8ae4e8cc3c37ae0fb7a2761a5cb51e0dd0dc7b7203f867cd441b57b848c075e5\n\nHOLLY-BATCH-1793991459-bad_container [sp_container] delete a5a713033b509f10dc18ea64c3e45aa6 (HOLLY-BATCH-1793991459-bad_page - Container 2147483647)\n  pending fields.sp_page: steps.HOLLY-BATCH-1793991459-bad_page.sys_id\nHOLLY-BATCH-1793991459-bad_page [sp_page] delete 29a713033b509f10dc18ea64c3e45a8a (holly_batch_1793991459_bad_page)\n  depends on: HOLLY-BATCH-1793991459-bad_container\n\nNo writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply."
+  },
+  "summary": "Plan: 2 step(s) — 0 create, 0 update, 2 delete; 0 writes",
+  "breadcrumbs": [
+    {
+      "action": "apply",
+      "cmd": "jsn batch apply --file /home/jace/work/jsn-batch-live/docs/verification/batch-live/failure2-cleanup-0-manifest.json --plan plan.json",
+      "description": "Apply after saving and inspecting batch plan --json as plan.json"
+    }
+  ]
+}

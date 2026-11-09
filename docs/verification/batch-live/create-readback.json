@@ -1,0 +1,752 @@
+[
+  {
+    "name": "HOLLY-BATCH-1793991459-f0_item",
+    "table": "sc_cat_item",
+    "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/70769bcb3bdc1f10531d2a8693e45a71?sysparm_fields=sys_id%2Cname%2Cactive%2Cshort_description%2Ctype",
+    "response": {
+      "result": {
+        "sys_id": "70769bcb3bdc1f10531d2a8693e45a71",
+        "short_description": "",
+        "name": "HOLLY-BATCH-1793991459-f0_item",
+        "active": "false",
+        "type": "item"
+      }
+    },
+    "checks": [
+      {
+        "field": "name",
+        "expected": "HOLLY-BATCH-1793991459-f0_item",
+        "actual": "HOLLY-BATCH-1793991459-f0_item",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      },
+      {
+        "field": "short_description",
+        "expected": "",
+        "actual": "",
+        "matches": true
+      },
+      {
+        "field": "type",
+        "expected": "item",
+        "actual": "item",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f0_variable",
+    "table": "item_option_new",
+    "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/item_option_new/1d76dbcb3bdc1f10531d2a8693e45a10?sysparm_fields=sys_id%2Cname%2Cquestion_text%2Ctype%2Ccat_item%2Cmandatory%2Corder%2Cactive",
+    "response": {
+      "result": {
+        "question_text": "HOLLY-BATCH-1793991459-f0_variable",
+        "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10",
+        "cat_item": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/70769bcb3bdc1f10531d2a8693e45a71",
+          "value": "70769bcb3bdc1f10531d2a8693e45a71"
+        },
+        "name": "holly_batch_1793991459_f0_variable",
+        "active": "false",
+        "type": "6",
+        "mandatory": "false",
+        "order": "100"
+      }
+    },
+    "checks": [
+      {
+        "field": "name",
+        "expected": "holly_batch_1793991459_f0_variable",
+        "actual": "holly_batch_1793991459_f0_variable",
+        "matches": true
+      },
+      {
+        "field": "question_text",
+        "expected": "HOLLY-BATCH-1793991459-f0_variable",
+        "actual": "HOLLY-BATCH-1793991459-f0_variable",
+        "matches": true
+      },
+      {
+        "field": "type",
+        "expected": 6,
+        "actual": "6",
+        "matches": true
+      },
+      {
+        "field": "cat_item",
+        "expected": "70769bcb3bdc1f10531d2a8693e45a71",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/70769bcb3bdc1f10531d2a8693e45a71",
+          "value": "70769bcb3bdc1f10531d2a8693e45a71"
+        },
+        "matches": false
+      },
+      {
+        "field": "mandatory",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      },
+      {
+        "field": "order",
+        "expected": 100,
+        "actual": "100",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_item",
+    "table": "sc_cat_item",
+    "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/2976dbcb3bdc1f10531d2a8693e45a36?sysparm_fields=sys_id%2Cname%2Cactive%2Cshort_description%2Ctype",
+    "response": {
+      "result": {
+        "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36",
+        "short_description": "",
+        "name": "HOLLY-BATCH-1793991459-f1_item",
+        "active": "false",
+        "type": "item"
+      }
+    },
+    "checks": [
+      {
+        "field": "name",
+        "expected": "HOLLY-BATCH-1793991459-f1_item",
+        "actual": "HOLLY-BATCH-1793991459-f1_item",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      },
+      {
+        "field": "short_description",
+        "expected": "",
+        "actual": "",
+        "matches": true
+      },
+      {
+        "field": "type",
+        "expected": "item",
+        "actual": "item",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_policy",
+    "table": "catalog_ui_policy",
+    "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_ui_policy/7976dbcb3bdc1f10531d2a8693e45a55?sysparm_fields=sys_id%2Cshort_description%2Ccatalog_item%2Cactive",
+    "response": {
+      "result": {
+        "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55",
+        "short_description": "HOLLY-BATCH-1793991459-f1_policy",
+        "catalog_item": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/2976dbcb3bdc1f10531d2a8693e45a36",
+          "value": "2976dbcb3bdc1f10531d2a8693e45a36"
+        },
+        "active": "false"
+      }
+    },
+    "checks": [
+      {
+        "field": "short_description",
+        "expected": "HOLLY-BATCH-1793991459-f1_policy",
+        "actual": "HOLLY-BATCH-1793991459-f1_policy",
+        "matches": true
+      },
+      {
+        "field": "catalog_item",
+        "expected": "2976dbcb3bdc1f10531d2a8693e45a36",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/2976dbcb3bdc1f10531d2a8693e45a36",
+          "value": "2976dbcb3bdc1f10531d2a8693e45a36"
+        },
+        "matches": false
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_variable",
+    "table": "item_option_new",
+    "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/item_option_new/b176dbcb3bdc1f10531d2a8693e45a9c?sysparm_fields=sys_id%2Cname%2Cquestion_text%2Ctype%2Ccat_item%2Cmandatory%2Corder%2Cactive",
+    "response": {
+      "result": {
+        "question_text": "HOLLY-BATCH-1793991459-f1_variable",
+        "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c",
+        "cat_item": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/2976dbcb3bdc1f10531d2a8693e45a36",
+          "value": "2976dbcb3bdc1f10531d2a8693e45a36"
+        },
+        "name": "holly_batch_1793991459_f1_variable",
+        "active": "false",
+        "type": "6",
+        "mandatory": "false",
+        "order": "100"
+      }
+    },
+    "checks": [
+      {
+        "field": "name",
+        "expected": "holly_batch_1793991459_f1_variable",
+        "actual": "holly_batch_1793991459_f1_variable",
+        "matches": true
+      },
+      {
+        "field": "question_text",
+        "expected": "HOLLY-BATCH-1793991459-f1_variable",
+        "actual": "HOLLY-BATCH-1793991459-f1_variable",
+        "matches": true
+      },
+      {
+        "field": "type",
+        "expected": 6,
+        "actual": "6",
+        "matches": true
+      },
+      {
+        "field": "cat_item",
+        "expected": "2976dbcb3bdc1f10531d2a8693e45a36",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/2976dbcb3bdc1f10531d2a8693e45a36",
+          "value": "2976dbcb3bdc1f10531d2a8693e45a36"
+        },
+        "matches": false
+      },
+      {
+        "field": "mandatory",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      },
+      {
+        "field": "order",
+        "expected": 100,
+        "actual": "100",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f1_action",
+    "table": "catalog_ui_policy_action",
+    "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_ui_policy_action/4e76dbcb3bdc1f10531d2a8693e45ad5?sysparm_fields=sys_id%2Cui_policy%2Ccatalog_variable%2Cmandatory",
+    "response": {
+      "result": {
+        "catalog_variable": "",
+        "sys_id": "4e76dbcb3bdc1f10531d2a8693e45ad5",
+        "ui_policy": "",
+        "mandatory": "true"
+      }
+    },
+    "checks": [
+      {
+        "field": "ui_policy",
+        "expected": "7976dbcb3bdc1f10531d2a8693e45a55",
+        "actual": "",
+        "matches": false
+      },
+      {
+        "field": "catalog_variable",
+        "expected": "IO:b176dbcb3bdc1f10531d2a8693e45a9c",
+        "actual": "",
+        "matches": false
+      },
+      {
+        "field": "mandatory",
+        "expected": "true",
+        "actual": "true",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f2_item",
+    "table": "sc_cat_item",
+    "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/c2769bcb3bdc1f10531d2a8693e45a46?sysparm_fields=sys_id%2Cname%2Cactive%2Cshort_description%2Ctype",
+    "response": {
+      "result": {
+        "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+        "short_description": "",
+        "name": "HOLLY-BATCH-1793991459-f2_item",
+        "active": "false",
+        "type": "item"
+      }
+    },
+    "checks": [
+      {
+        "field": "name",
+        "expected": "HOLLY-BATCH-1793991459-f2_item",
+        "actual": "HOLLY-BATCH-1793991459-f2_item",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      },
+      {
+        "field": "short_description",
+        "expected": "",
+        "actual": "",
+        "matches": true
+      },
+      {
+        "field": "type",
+        "expected": "item",
+        "actual": "item",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f2_script",
+    "table": "catalog_script_client",
+    "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/catalog_script_client/1e76dbcb3bdc1f10531d2a8693e45aba?sysparm_fields=sys_id%2Ccat_item%2Cname%2Ctype%2Cscript%2Cactive",
+    "response": {
+      "result": {
+        "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+        "cat_item": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/c2769bcb3bdc1f10531d2a8693e45a46",
+          "value": "c2769bcb3bdc1f10531d2a8693e45a46"
+        },
+        "name": "HOLLY-BATCH-1793991459-f2_script",
+        "active": "false",
+        "type": "onLoad",
+        "script": "function onLoad() {}"
+      }
+    },
+    "checks": [
+      {
+        "field": "cat_item",
+        "expected": "c2769bcb3bdc1f10531d2a8693e45a46",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sc_cat_item/c2769bcb3bdc1f10531d2a8693e45a46",
+          "value": "c2769bcb3bdc1f10531d2a8693e45a46"
+        },
+        "matches": false
+      },
+      {
+        "field": "name",
+        "expected": "HOLLY-BATCH-1793991459-f2_script",
+        "actual": "HOLLY-BATCH-1793991459-f2_script",
+        "matches": true
+      },
+      {
+        "field": "type",
+        "expected": "onLoad",
+        "actual": "onLoad",
+        "matches": true
+      },
+      {
+        "field": "script",
+        "expected": "function onLoad() {}",
+        "actual": "function onLoad() {}",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f3_policy",
+    "table": "sys_ui_policy",
+    "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy/9a761fcb3bdc1f10531d2a8693e45a4b?sysparm_fields=sys_id%2Cshort_description%2Ctable%2Cactive",
+    "response": {
+      "result": {
+        "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+        "short_description": "HOLLY-BATCH-1793991459-f3_policy",
+        "active": "false",
+        "table": "incident"
+      }
+    },
+    "checks": [
+      {
+        "field": "short_description",
+        "expected": "HOLLY-BATCH-1793991459-f3_policy",
+        "actual": "HOLLY-BATCH-1793991459-f3_policy",
+        "matches": true
+      },
+      {
+        "field": "table",
+        "expected": "incident",
+        "actual": "incident",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f3_action",
+    "table": "sys_ui_policy_action",
+    "sys_id": "56761fcb3bdc1f10531d2a8693e45a1b",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_ui_policy_action/56761fcb3bdc1f10531d2a8693e45a1b?sysparm_fields=sys_id%2Cui_policy%2Cfield%2Cmandatory",
+    "response": {
+      "result": {
+        "sys_id": "56761fcb3bdc1f10531d2a8693e45a1b",
+        "ui_policy": "",
+        "field": "short_description",
+        "mandatory": "true"
+      }
+    },
+    "checks": [
+      {
+        "field": "ui_policy",
+        "expected": "9a761fcb3bdc1f10531d2a8693e45a4b",
+        "actual": "",
+        "matches": false
+      },
+      {
+        "field": "field",
+        "expected": "short_description",
+        "actual": "short_description",
+        "matches": true
+      },
+      {
+        "field": "mandatory",
+        "expected": "true",
+        "actual": "true",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f4_policy",
+    "table": "sys_data_policy2",
+    "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy2/a2761fcb3bdc1f10531d2a8693e45a72?sysparm_fields=sys_id%2Cmodel_table%2Cshort_description%2Cactive",
+    "response": {
+      "result": {
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45a72",
+        "short_description": "HOLLY-BATCH-1793991459-f4_policy",
+        "active": "false",
+        "model_table": "incident"
+      }
+    },
+    "checks": [
+      {
+        "field": "model_table",
+        "expected": "incident",
+        "actual": "incident",
+        "matches": true
+      },
+      {
+        "field": "short_description",
+        "expected": "HOLLY-BATCH-1793991459-f4_policy",
+        "actual": "HOLLY-BATCH-1793991459-f4_policy",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f4_rule",
+    "table": "sys_data_policy_rule",
+    "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy_rule/a2761fcb3bdc1f10531d2a8693e45aca?sysparm_fields=sys_id%2Csys_data_policy%2Ctable%2Cfield%2Cmandatory",
+    "response": {
+      "result": {
+        "sys_id": "a2761fcb3bdc1f10531d2a8693e45aca",
+        "field": "short_description",
+        "sys_data_policy": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy2/a2761fcb3bdc1f10531d2a8693e45a72",
+          "value": "a2761fcb3bdc1f10531d2a8693e45a72"
+        },
+        "mandatory": "true",
+        "table": "incident"
+      }
+    },
+    "checks": [
+      {
+        "field": "sys_data_policy",
+        "expected": "a2761fcb3bdc1f10531d2a8693e45a72",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sys_data_policy2/a2761fcb3bdc1f10531d2a8693e45a72",
+          "value": "a2761fcb3bdc1f10531d2a8693e45a72"
+        },
+        "matches": false
+      },
+      {
+        "field": "table",
+        "expected": "incident",
+        "actual": "incident",
+        "matches": true
+      },
+      {
+        "field": "field",
+        "expected": "short_description",
+        "actual": "short_description",
+        "matches": true
+      },
+      {
+        "field": "mandatory",
+        "expected": "true",
+        "actual": "true",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_page",
+    "table": "sp_page",
+    "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page/b2761fcb3bdc1f10531d2a8693e45ae3?sysparm_fields=sys_id%2Cid%2Ctitle%2Cpublic%2Cdraft",
+    "response": {
+      "result": {
+        "sys_id": "b2761fcb3bdc1f10531d2a8693e45ae3",
+        "public": "false",
+        "draft": "true",
+        "id": "holly_batch_1793991459_f5_page",
+        "title": "HOLLY-BATCH-1793991459-f5_page"
+      }
+    },
+    "checks": [
+      {
+        "field": "id",
+        "expected": "HOLLY-BATCH-1793991459-f5_page",
+        "actual": "holly_batch_1793991459_f5_page",
+        "matches": false
+      },
+      {
+        "field": "title",
+        "expected": "HOLLY-BATCH-1793991459-f5_page",
+        "actual": "HOLLY-BATCH-1793991459-f5_page",
+        "matches": true
+      },
+      {
+        "field": "public",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      },
+      {
+        "field": "draft",
+        "expected": true,
+        "actual": "true",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_container",
+    "table": "sp_container",
+    "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container/b6761fcb3bdc1f10531d2a8693e45a57?sysparm_fields=sys_id%2Csp_page%2Cname%2Corder",
+    "response": {
+      "result": {
+        "sys_id": "b6761fcb3bdc1f10531d2a8693e45a57",
+        "name": "HOLLY-BATCH-1793991459-f5_page - Container 100",
+        "sp_page": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page/b2761fcb3bdc1f10531d2a8693e45ae3",
+          "value": "b2761fcb3bdc1f10531d2a8693e45ae3"
+        },
+        "order": "100"
+      }
+    },
+    "checks": [
+      {
+        "field": "sp_page",
+        "expected": "b2761fcb3bdc1f10531d2a8693e45ae3",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_page/b2761fcb3bdc1f10531d2a8693e45ae3",
+          "value": "b2761fcb3bdc1f10531d2a8693e45ae3"
+        },
+        "matches": false
+      },
+      {
+        "field": "name",
+        "expected": "HOLLY-BATCH-1793991459-f5_container",
+        "actual": "HOLLY-BATCH-1793991459-f5_page - Container 100",
+        "matches": false
+      },
+      {
+        "field": "order",
+        "expected": 100,
+        "actual": "100",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_row",
+    "table": "sp_row",
+    "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_row/c3761fcb3bdc1f10531d2a8693e45aed?sysparm_fields=sys_id%2Csp_container%2Corder%2Cclass_name",
+    "response": {
+      "result": {
+        "sys_id": "c3761fcb3bdc1f10531d2a8693e45aed",
+        "sp_container": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container/b6761fcb3bdc1f10531d2a8693e45a57",
+          "value": "b6761fcb3bdc1f10531d2a8693e45a57"
+        },
+        "class_name": "HOLLY-BATCH-1793991459-f5_row",
+        "order": "100"
+      }
+    },
+    "checks": [
+      {
+        "field": "sp_container",
+        "expected": "b6761fcb3bdc1f10531d2a8693e45a57",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_container/b6761fcb3bdc1f10531d2a8693e45a57",
+          "value": "b6761fcb3bdc1f10531d2a8693e45a57"
+        },
+        "matches": false
+      },
+      {
+        "field": "order",
+        "expected": 100,
+        "actual": "100",
+        "matches": true
+      },
+      {
+        "field": "class_name",
+        "expected": "HOLLY-BATCH-1793991459-f5_row",
+        "actual": "HOLLY-BATCH-1793991459-f5_row",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_column",
+    "table": "sp_column",
+    "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_column/43765fcb3bdc1f10531d2a8693e45a0f?sysparm_fields=sys_id%2Csp_row%2Csize%2Cclass_name",
+    "response": {
+      "result": {
+        "sys_id": "43765fcb3bdc1f10531d2a8693e45a0f",
+        "size": "12",
+        "sp_row": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_row/c3761fcb3bdc1f10531d2a8693e45aed",
+          "value": "c3761fcb3bdc1f10531d2a8693e45aed"
+        },
+        "class_name": "HOLLY-BATCH-1793991459-f5_column"
+      }
+    },
+    "checks": [
+      {
+        "field": "sp_row",
+        "expected": "c3761fcb3bdc1f10531d2a8693e45aed",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_row/c3761fcb3bdc1f10531d2a8693e45aed",
+          "value": "c3761fcb3bdc1f10531d2a8693e45aed"
+        },
+        "matches": false
+      },
+      {
+        "field": "size",
+        "expected": 12,
+        "actual": "12",
+        "matches": true
+      },
+      {
+        "field": "class_name",
+        "expected": "HOLLY-BATCH-1793991459-f5_column",
+        "actual": "HOLLY-BATCH-1793991459-f5_column",
+        "matches": true
+      }
+    ]
+  },
+  {
+    "name": "HOLLY-BATCH-1793991459-f5_instance",
+    "table": "sp_instance",
+    "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+    "endpoint": "https://tygrllcdemo5.service-now.com/api/now/table/sp_instance/5b761fcb3bdc1f10531d2a8693e45a2a?sysparm_fields=sys_id%2Csp_column%2Csp_widget%2Ctitle%2Cactive",
+    "response": {
+      "result": {
+        "sys_id": "5b761fcb3bdc1f10531d2a8693e45a2a",
+        "sp_column": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_column/43765fcb3bdc1f10531d2a8693e45a0f",
+          "value": "43765fcb3bdc1f10531d2a8693e45a0f"
+        },
+        "active": "false",
+        "title": "HOLLY-BATCH-1793991459-f5_instance",
+        "sp_widget": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_widget/003cb2ae24122010f877560803d529c2",
+          "value": "003cb2ae24122010f877560803d529c2"
+        }
+      }
+    },
+    "checks": [
+      {
+        "field": "sp_column",
+        "expected": "43765fcb3bdc1f10531d2a8693e45a0f",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_column/43765fcb3bdc1f10531d2a8693e45a0f",
+          "value": "43765fcb3bdc1f10531d2a8693e45a0f"
+        },
+        "matches": false
+      },
+      {
+        "field": "sp_widget",
+        "expected": "003cb2ae24122010f877560803d529c2",
+        "actual": {
+          "link": "https://tygrllcdemo5.service-now.com/api/now/table/sp_widget/003cb2ae24122010f877560803d529c2",
+          "value": "003cb2ae24122010f877560803d529c2"
+        },
+        "matches": false
+      },
+      {
+        "field": "title",
+        "expected": "HOLLY-BATCH-1793991459-f5_instance",
+        "actual": "HOLLY-BATCH-1793991459-f5_instance",
+        "matches": true
+      },
+      {
+        "field": "active",
+        "expected": false,
+        "actual": "false",
+        "matches": true
+      }
+    ]
+  }
+]

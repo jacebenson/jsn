@@ -1,0 +1,116 @@
+{
+  "ok": true,
+  "data": {
+    "command": "batch plan",
+    "instance": "https://tygrllcdemo5.service-now.com",
+    "manifest": {
+      "version": 1,
+      "description": "",
+      "steps": 3
+    },
+    "context": {
+      "scope": "global",
+      "update_set": {
+        "name": "Default",
+        "sys_id": "def2e6fb87833110eb5e8489cebb355f",
+        "state": "in progress"
+      },
+      "approval_required": false,
+      "approved": false
+    },
+    "context_diagnostics": [],
+    "order": [
+      "HOLLY-BATCH-1793991459-f3_policy",
+      "HOLLY-BATCH-1793991459-f2_script",
+      "HOLLY-BATCH-1793991459-f2_item"
+    ],
+    "counts": {
+      "steps": 3,
+      "creates": 0,
+      "updates": 0,
+      "deletes": 3,
+      "writes": 0
+    },
+    "partial": false,
+    "writes_performed": false,
+    "steps": [
+      {
+        "name": "HOLLY-BATCH-1793991459-f3_policy",
+        "type": "ui_policy",
+        "table": "sys_ui_policy",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "9a761fcb3bdc1f10531d2a8693e45a4b",
+          "match_field": "sys_id",
+          "matched": null
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f3_policy.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f2_script",
+        "type": "catalog_client_script",
+        "table": "catalog_script_client",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [],
+        "target": {
+          "mode": "delete",
+          "sys_id": "1e76dbcb3bdc1f10531d2a8693e45aba",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f2_script"
+        },
+        "payload": {},
+        "pending_refs": [
+          {
+            "location": "fields.cat_item",
+            "ref": "steps.HOLLY-BATCH-1793991459-f2_item.sys_id"
+          }
+        ],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f2_script.sys_id"
+        ],
+        "notes": []
+      },
+      {
+        "name": "HOLLY-BATCH-1793991459-f2_item",
+        "type": "catalog_item",
+        "table": "sc_cat_item",
+        "operation": "delete",
+        "status": "planned",
+        "depends_on": [
+          "HOLLY-BATCH-1793991459-f2_script"
+        ],
+        "target": {
+          "mode": "delete",
+          "sys_id": "c2769bcb3bdc1f10531d2a8693e45a46",
+          "match_field": "sys_id",
+          "matched": "HOLLY-BATCH-1793991459-f2_item"
+        },
+        "payload": {},
+        "pending_refs": [],
+        "produces": [
+          "steps.HOLLY-BATCH-1793991459-f2_item.sys_id"
+        ],
+        "notes": []
+      }
+    ],
+    "plan_id": "42edfa0f32d65fc287d95e0cb64c52b84dff54573b702010022e238abe98018c",
+    "_formatted": "Instance: https://tygrllcdemo5.service-now.com\nCapture context: scope global, update set Default\nOrder: HOLLY-BATCH-1793991459-f3_policy -> HOLLY-BATCH-1793991459-f2_script -> HOLLY-BATCH-1793991459-f2_item\nPlan: 3 step(s) — 0 create, 0 update, 3 delete; 0 writes.\nPlan ID: 42edfa0f32d65fc287d95e0cb64c52b84dff54573b702010022e238abe98018c\n\nHOLLY-BATCH-1793991459-f3_policy [ui_policy] delete 9a761fcb3bdc1f10531d2a8693e45a4b\nHOLLY-BATCH-1793991459-f2_script [catalog_client_script] delete 1e76dbcb3bdc1f10531d2a8693e45aba (HOLLY-BATCH-1793991459-f2_script)\n  pending fields.cat_item: steps.HOLLY-BATCH-1793991459-f2_item.sys_id\nHOLLY-BATCH-1793991459-f2_item [catalog_item] delete c2769bcb3bdc1f10531d2a8693e45a46 (HOLLY-BATCH-1793991459-f2_item)\n  depends on: HOLLY-BATCH-1793991459-f2_script\n\nNo writes performed. Run `jsn batch apply --file <manifest.json> --plan <plan.json>` to apply."
+  },
+  "summary": "Plan: 3 step(s) — 0 create, 0 update, 3 delete; 0 writes",
+  "breadcrumbs": [
+    {
+      "action": "apply",
+      "cmd": "jsn batch apply --file /home/jace/work/jsn-batch-live/docs/verification/batch-live/create-cleanup-1-manifest.json --plan plan.json",
+      "description": "Apply after saving and inspecting batch plan --json as plan.json"
+    }
+  ]
+}

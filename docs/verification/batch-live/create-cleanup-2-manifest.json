@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_variable",
+      "type": "catalog_variable",
+      "operation": "delete",
+      "target": {
+        "sys_id": "b176dbcb3bdc1f10531d2a8693e45a9c"
+      },
+      "fields": {
+        "cat_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_policy",
+      "type": "catalog_ui_policy",
+      "operation": "delete",
+      "target": {
+        "sys_id": "7976dbcb3bdc1f10531d2a8693e45a55"
+      },
+      "fields": {
+        "catalog_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f1_item.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f1_item",
+      "type": "catalog_item",
+      "operation": "delete",
+      "target": {
+        "sys_id": "2976dbcb3bdc1f10531d2a8693e45a36"
+      },
+      "fields": {}
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f0_variable",
+      "type": "catalog_variable",
+      "operation": "delete",
+      "target": {
+        "sys_id": "1d76dbcb3bdc1f10531d2a8693e45a10"
+      },
+      "fields": {
+        "cat_item": {
+          "$ref": "steps.HOLLY-BATCH-1793991459-f0_item.sys_id"
+        }
+      }
+    },
+    {
+      "name": "HOLLY-BATCH-1793991459-f0_item",
+      "type": "catalog_item",
+      "operation": "delete",
+      "target": {
+        "sys_id": "70769bcb3bdc1f10531d2a8693e45a71"
+      },
+      "fields": {}
+    }
+  ]
+}

@@ -415,6 +415,55 @@ sysID })` → an enriched catalog item: variables fetched and grouped by variabl
 set, flow/workflow/delivery-plan names resolved. Pure async data-shaping —
 no yargs, no output formatting. `catalog.js` keeps wiring, create/submit, list.
 
+## Batch manifest orchestration
+
+`jsn batch plan|apply --file` describes related artifact creates, updates and
+deletes as one versioned JSON manifest. A **step** has a unique local `name`, an
+adapter `type`, an `operation`, adapter-declared `fields` and an explicit `target`
+for update/delete. A **reference** is exactly `{"$ref":"steps.<name>.<output>"}`:
+constrained, exact, never interpolation or script evaluation. Parent fields
+require symbolic references, not hand-written IDs. Unknown steps, outputs, wrong
+producer types and cycles fail validation. Independent ready steps keep
+manifest declaration order. Create/update edges run parents first; delete edges
+are reversed so children run first. Destructive and non-destructive operations
+cannot share a reference edge.
+
+`src/batch-manifest.js` validates the closed schema and orders steps;
+`src/batch-engine.js` owns target preflight, per-step execution, statuses,
+partial results and the per-step read-only/capture-context re-check;
+`src/batch-adapters/` owns verified domain mappings, payloads and declared
+outputs. Catalog variables produce both `sys_id` and the `IO:<sys_id>`
+`catalog_variable` output consumed by catalog UI policy actions. This stays in
+the adapter, not the engine. Supported families and live mapping evidence are
+listed in `docs/batch-manifest.md` and `docs/batch-families-verification.md`.
+
+A **plan receipt** is an inspectable GET-only plan with instance, targets,
+dependency order, prepared payloads, pending references and a canonical SHA-256
+`plan_id`. Apply requires it (`--plan` in the CLI), re-plans and rejects changed
+instance/manifest/targets/payloads before any write. The hash is an integrity
+check, not a signature, authorization, one-time token or idempotency key.
+Apply substitutes only declared outputs into predicted payloads. Delete plans
+also verify existing child/parent relationships; every applied delete requires
+an explicit error-free empty GET query to prove absence. Missing/malformed
+results never count as proof. A failed child delete blocks its ancestors.
+
+Apply reports `created`/`updated`/`deleted`/`failed`/`skipped` with resolved IDs.
+Before publishing create/update outputs, it reads back supplied parent links and
+integer fields by sys_id. A successful response that silently discarded a parent
+or coerced an integer is not success. A post-write verification failure retains
+its known sys_id and `write_outcome: created_unverified|updated_unverified` so
+recovery can inspect/delete the record without recreating it. This checks these
+specific persisted fields, not every business-rule-normalized field.
+Failed create/update parents skip children; independent steps continue after
+operational failures. Safety stops skip all remaining steps. A batch is not an
+atomic ServiceNow transaction: successes persist, nothing is rolled back or
+retried automatically, and retrying creates creates new records. Failed writes
+may have uncertain remote effects and require inspection before recovery.
+Reconcile successful steps and generate a new plan before resuming. Unlisted
+children, server cascades and business-rule effects are not simulated.
+Read-only/capture-context safety is re-evaluated before every write. See
+`docs/batch-manifest.md`.
+
 ## Knowledge search
 
 `knowledge` (`kb`) searches and reads through the native Knowledge API, keeping
@@ -687,8 +736,9 @@ would overwrite it.
 - **Domain rendering lives with the domain.** `output.js` stays generic; a
   Command that needs a bespoke styled view ships `_formatted`.
 - **One canonical map per domain concept.** e.g. `item_option_new` types live
-  in `ITEM_OPTION_TYPE_NAMES` / `resolveItemOptionType` (helpers.js). A second
-  inline copy is a bug.
+  in `ITEM_OPTION_TYPE_NAMES` / `resolveItemOptionType` (helpers.js). Batch
+  adapters use the exported map through a strict resolver; they never keep a
+  second type table. A second inline copy is a bug.
 - **One owner per command token.** Registration (`CommandNode.register`) leaves
   exactly one command answering to any name or alias: a re-registration replaces
   the slot, a shared alias goes to the later registration, a canonical name that

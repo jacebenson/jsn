@@ -1,0 +1,40 @@
+{
+  "branch": {
+    "file": "docs/verification/batch-live/branch-suite.log",
+    "tests": 2116,
+    "pass": 2104,
+    "fail": 10,
+    "failures": [
+      "Linux installer announces download and extraction phases before the silent runtime start",
+      "ZIP extraction refuses pre-existing symlink escape and metadata cannot claim another MID",
+      "a crash between start and verification reconciles state instead of reporting success",
+      "collision and unsupported-platform preflight never downloads or changes existing files",
+      "failed extraction and ACL preparation clean up only newly created installation",
+      "failed native start retains an uncertain runtime and refuses cleanup when stop fails",
+      "native extraction rejects traversal and symlink ZIP entries before writing payload files",
+      "real isolated Linux launcher prepares private XML, starts, stops and removes only its owned directory",
+      "static native runner executes read-only Linux preflight without creating remote paths",
+      "static runner extracts a bounded vendor fixture, protects config, reads logs and removes only owned files"
+    ]
+  },
+  "main": {
+    "file": "docs/verification/batch-live/main-suite.log",
+    "tests": 1993,
+    "pass": 1981,
+    "fail": 10,
+    "failures": [
+      "Linux installer announces download and extraction phases before the silent runtime start",
+      "ZIP extraction refuses pre-existing symlink escape and metadata cannot claim another MID",
+      "a crash between start and verification reconciles state instead of reporting success",
+      "collision and unsupported-platform preflight never downloads or changes existing files",
+      "failed extraction and ACL preparation clean up only newly created installation",
+      "failed native start retains an uncertain runtime and refuses cleanup when stop fails",
+      "native extraction rejects traversal and symlink ZIP entries before writing payload files",
+      "real isolated Linux launcher prepares private XML, starts, stops and removes only its owned directory",
+      "static native runner executes read-only Linux preflight without creating remote paths",
+      "static runner extracts a bounded vendor fixture, protects config, reads logs and removes only owned files"
+    ]
+  },
+  "new_failures": [],
+  "resolved_failures": []
+}
