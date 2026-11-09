@@ -927,7 +927,7 @@ export class SDKClient {
     form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
     let outcome = 'unknown';
     try {
-      await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form, timeoutMs: 120000,
+      await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form, timeoutMs: 300000,
         headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
       });
       const records = await this.list('sys_remote_update_set', params);

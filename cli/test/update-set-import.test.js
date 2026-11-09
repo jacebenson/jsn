@@ -91,7 +91,7 @@ test('native import uploads multipart XML and verifies every member without comm
   assert.equal(posts.length, 1);
   assert.match(posts[0].endpoint, /\/sys_upload.do$/);
   assert.equal(posts[0].opts.body.get('sysparm_target'), 'sys_remote_update_set');
-  assert.equal(posts[0].opts.timeoutMs, 120000);
+  assert.equal(posts[0].opts.timeoutMs, 300000);
   assert.equal(await posts[0].opts.body.get('attachFile').text(), xml);
   assert.equal(history[0].outcome, 'succeeded');
 });
