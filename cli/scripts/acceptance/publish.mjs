@@ -28,7 +28,7 @@ const safeId = value => {
 };
 const HEX40 = /^[a-f0-9]{40}$/;
 const HEX64 = /^[a-f0-9]{64}$/;
-const VERSION = /^\d+\.\d+\.\d+(?:-[a-z0-9]{1,20})?$/;
+const VERSION = /^\d{1,5}\.\d{1,5}\.\d{1,5}(?:-[a-z0-9]{1,20})?$/;
 const NODE = /^v\d+\.\d+\.\d+$/;
 const RUN_KEY = /^acceptance_[a-f0-9]{32}$/;
 const MAX_BODY = 262144;
