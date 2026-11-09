@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SDKClient } from '../src/sdk.js';
+import { dispatchOperation } from '../src/store.js';
 import { createAuthRecovery } from '../src/auth-recovery.js';
 import {
   MAX_SESSION_REPLAYS, canReplayAfterRecovery, classifyAuthRejection, isLoginPage,
@@ -241,6 +242,22 @@ test('a write answered with a login page is refused, never replayed', async t =>
   assert.equal(h.recovery.state.calls, 0, 'an unsafe replay must not renew the session first');
 });
 
+for (const operation of ['install', 'update']) {
+  test(`a Store ${operation} GET answered with a login redirect is never replayed`, async t => {
+    const h = harness(t);
+    h.respond(seen => seen.path === '/api/now/table/sys_user'
+      ? h.verify('selected-user')
+      : seen.cookie === 'JSESSIONID=stale'
+        ? new Response('', { status: 302, headers: { location: '/login.do' } })
+        : new Response(JSON.stringify({ result: { tracker_id: 'b'.repeat(32) } })));
+    await assert.rejects(dispatchOperation(h.sdk, {
+      operation, app: { sys_id: 'a'.repeat(32) }, requested_version: '2.0.0', demo_data: false,
+    }), error => error.code === 'auth_error' && /not replayed/.test(error.message));
+    assert.equal(h.requests.length, 1, 'the stateful endpoint must not be submitted twice');
+    assert.equal(h.recovery.state.calls, 0);
+  });
+}
+
 test('recovery refuses to continue when the new session belongs to another account', async t => {
   const h = harness(t);
   h.respond(seen => seen.path === '/api/now/table/sys_user'
@@ -334,6 +351,8 @@ test('replay eligibility is explicit per operation', () => {
   const kind = { kind: 'login_page', status: 200 };
   assert.equal(canReplayAfterRecovery({ kind: 'http_401' }, { method: 'DELETE' }), true);
   assert.equal(canReplayAfterRecovery(kind, { method: 'GET' }), true);
+  assert.equal(canReplayAfterRecovery(kind, { method: 'GET', stateful: true }), false);
+  assert.equal(canReplayAfterRecovery({ kind: 'http_401' }, { method: 'GET', stateful: true }), true);
   assert.equal(canReplayAfterRecovery(kind, { method: 'POST' }), false);
   assert.equal(canReplayAfterRecovery(kind, { method: 'POST', allowMutationReplay: true }), true);
 });

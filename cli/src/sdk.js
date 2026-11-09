@@ -164,7 +164,7 @@ export class SDKClient {
 
   async _performAuthenticatedRequest(endpoint, opts, {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
-    allowMutationReplay = false,
+    allowMutationReplay = false, stateful = false,
   }, consume = (response) => response) {
     const method = String(opts.method || 'GET').toUpperCase();
     for (let attempt = 0; attempt <= MAX_SESSION_REPLAYS; attempt++) {
@@ -201,7 +201,7 @@ export class SDKClient {
       if (attempt >= MAX_SESSION_REPLAYS) throw this._authFailure(rejection);
       // A write or stateful processor is only replayed when the rejection
       // provably happened before execution.
-      if (!canReplayAfterRecovery(rejection, { method, allowMutationReplay })) {
+      if (!canReplayAfterRecovery(rejection, { method, stateful, allowMutationReplay })) {
         throw this._unsafeReplayError(rejection, endpoint, method);
       }
       // Browser renewal has its own existing hard timeout. Never leave a
@@ -310,10 +310,13 @@ export class SDKClient {
   }
 
   async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, readOnly = false, touchLastSeen, domain = this.domain, ...requestOptions } = opts;
+    // Some provider mutations are GET-shaped. Keep this local replay policy
+    // out of fetch options rather than treating their HTTP method as read-only.
+    const { timeout = this.timeout, readOnly = false, stateful = false, touchLastSeen, domain = this.domain, ...requestOptions } = opts;
     if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
     return this._withAuthenticatedRequest(endpoint, requestOptions, {
       timeout,
+      stateful,
       normalizeErrors: true,
       prepare: (req) => {
         req.headers.set('Accept', 'application/json');

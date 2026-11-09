@@ -132,6 +132,10 @@ login page or redirect instead, JSN refuses with an actionable error because a
 heuristic body match is not proof that the operation never ran. Callers can opt
 in through the SDK's `allowMutationReplay` setting; no JSN write path does.
 Replaying preserves the original method, body, headers and endpoint.
+Store install/update use GET-shaped mutation endpoints, so their SDK requests
+explicitly carry `stateful: true`. A login page or redirect never causes those
+operations to be resubmitted; ordinary reads and definitive HTTP 401 recovery
+retain their existing behavior.
 
 Before the replay, JSN verifies the recovered identity with one bounded
 `GET /api/now/table/sys_user` current-user read issued through the same

@@ -475,7 +475,7 @@ export async function dispatchOperation(sdk, plan) {
   const path = plan.operation === 'update' ? UPDATE_PATH : INSTALL_PATH;
   const params = new URLSearchParams({ app_id: plan.app.sys_id, version: plan.requested_version });
   if (plan.operation === 'install') params.set('load_demo_data', String(Boolean(plan.demo_data)));
-  const response = await sdk.request(`${sdk.baseURL}${path}?${params}`, { method: 'GET' });
+  const response = await sdk.request(`${sdk.baseURL}${path}?${params}`, { method: 'GET', stateful: true });
   const result = response?.result;
   if (!result || typeof result !== 'object') {
     throw errAPI(200, `The ${plan.operation} request returned no result, so the application state is unknown. Inspect the application before retrying.`);
@@ -513,7 +513,9 @@ export async function operationStatus(sdk, trackerId) {
   // version it acted on; it is the only place a failed submission says what it
   // tried to do.
   const detail = storeText(result, 'status_detail');
-  const terminal = (Number.isFinite(percent) && percent >= 100) || status === '3' || Boolean(error);
+  // CICD states are pending=0, running=1, successful=2, failed=3,
+  // canceled=4. Percentage is progress, not an operation verdict.
+  const terminal = ['2', '3', '4'].includes(status) || Boolean(error);
   return {
     tracker_id: id,
     status,
@@ -523,7 +525,7 @@ export async function operationStatus(sdk, trackerId) {
     percent_complete: Number.isFinite(percent) ? percent : null,
     error: error || null,
     terminal,
-    succeeded: terminal && !error && status !== '3',
+    succeeded: status === '2' && !error,
   };
 }
 
