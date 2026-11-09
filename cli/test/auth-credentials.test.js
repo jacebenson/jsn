@@ -599,3 +599,37 @@ describe('credential identity regressions', () => {
       assert.deepStrictEqual(deleted, []);
     });
 });
+
+describe('refreshable credentials count as authenticated', () => {
+  // The request path refreshes an expired access token at point of use (see
+  // "expired OAuth refreshes at point of use"). Status and requireAuth() must
+  // agree with that, or a usable profile reports "not authenticated" and
+  // refuses work the next request would have completed.
+  const manager = async (credentials) => {
+    const { AuthManager } = await import('../src/auth.js');
+    return new AuthManager({ getUsername: () => null, getEffectiveInstance: () => 'https://refreshable.example.com', getAuthMethod: () => 'oauth' }, { credentialStore: { load: () => credentials, save() {}, delete() {} } });
+  };
+
+  it('treats an expired token with a refresh token as authenticated', async () => {
+    const auth = await manager({ auth_method: 'oauth', access_token: 'stale', refresh_token: 'rtok', expires_at: 1 });
+    assert.equal(auth.getAuthState('https://refreshable.example.com').state, 'refreshable');
+    assert.equal(auth.isAuthenticated(), true);
+    assert.equal(auth.isAuthenticatedFor('https://refreshable.example.com', { authMethod: 'oauth' }), true);
+  });
+
+  it('treats a token expiring inside the refresh window as authenticated', async () => {
+    const soon = Math.floor(Date.now() / 1000) + 60;
+    const auth = await manager({ auth_method: 'oauth', access_token: 'almost', refresh_token: 'rtok', expires_at: soon });
+    assert.equal(auth.getAuthState('https://refreshable.example.com').state, 'refreshable');
+    assert.equal(auth.isAuthenticated(), true);
+  });
+
+  it('still reports missing and non-renewable expiry as unauthenticated', async () => {
+    const missing = await manager({ auth_method: 'oauth' });
+    assert.equal(missing.isAuthenticated(), false);
+
+    const dead = await manager({ auth_method: 'oauth', access_token: 'stale', expires_at: 1 });
+    assert.equal(dead.getAuthState('https://refreshable.example.com').state, 'expired');
+    assert.equal(dead.isAuthenticated(), false);
+  });
+});
