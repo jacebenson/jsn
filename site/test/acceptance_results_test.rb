@@ -159,7 +159,14 @@ class AcceptanceResultsTest < Minitest::Test
     post_projection(projection('results' => [{ 'id' => 'readonly.records', 'status' => 'green', 'durationMs' => 1 }]))
     assert_equal 422, last_response.status
 
-    post_projection(projection('results' => [{ 'id' => 'Dev366743', 'status' => 'passed', 'durationMs' => 1 }]))
+    post_projection(projection('results' => [{ 'id' => 'NotAnId', 'status' => 'passed', 'durationMs' => 1 }]))
+    assert_equal 422, last_response.status
+
+    bad_node = projection('provenance' => {
+      'sourceSHA' => 'b' * 40, 'version' => '5.4.0', 'node' => "v22.#{'1' * 32}.0",
+      'binarySHA256' => 'c' * 64, 'sourceDirty' => false
+    })
+    post_projection(bad_node)
     assert_equal 422, last_response.status
 
     header 'Authorization', "Bearer #{TOKEN}"
@@ -218,6 +225,17 @@ class AcceptanceResultsTest < Minitest::Test
     assert_equal 'Unrecognized test', helper.acceptance_scenario_name('readonly.catalog.unknown.list')
     assert_equal 'Unrecognized test', helper.acceptance_scenario_name('private payload title')
     assert_equal 'Status unavailable', helper.acceptance_status_explanation('unknown')
+  end
+
+  def test_issue_link_requires_both_the_list_id_and_capability_block
+    helper = Object.new.extend(AcceptanceResultsHelper)
+    check = Struct.new(:check_id, :status)
+    url = 'https://github.com/jacebenson/jsn/issues/435'
+
+    assert_equal url, helper.acceptance_related_issue(check.new('readonly.catalog.uxapplicability.list', 'blocked-capability'))
+    assert_nil helper.acceptance_related_issue(check.new('readonly.records', 'blocked-capability'))
+    assert_nil helper.acceptance_related_issue(check.new('readonly.catalog.uxapplicability.list', 'blocked-prerequisite'))
+    assert_nil helper.acceptance_related_issue(check.new('readonly.catalog.uxapplicability.list', 'passed'))
   end
 
   def test_checks_render_human_names_plain_statuses_and_collapsed_technical_ids
