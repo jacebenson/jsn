@@ -37,6 +37,34 @@ export const scenarios = [
         assert.match(JSON.stringify(result.json), /table|unknown|argument|option/i);
       }
     } },
+  { ...common, modes: ['pdi'], id: 'local.output-contract', title: 'Shared --format contract across local commands', commandPaths: ['version', 'history list', 'discover'], sources: ['cli/src/cli-adapter.js', 'cli/src/output.js'],
+    async run(ctx) {
+      const expected = {
+        'version': value => `jsn ${value.version}`,
+        'history list': value => `"entries": ${JSON.stringify(value.entries)}`,
+        'discover': value => `${value.commands.length} matching command`
+      };
+      for (const [command, marker] of Object.entries(expected)) {
+        const args = command.split(' ');
+        const explicit = data(await ctx.command([...args, '--format', 'json']));
+        const auto = await ctx.command(args);
+        assertCommand(auto, { json: true });
+        assert.equal(auto.json.ok, true, `${command} auto output was not ok`);
+        assert.deepEqual(auto.json.data, explicit, `${command} auto output disagrees with explicit JSON`);
+        const marked = await ctx.command([...args, '--format', 'markdown']);
+        assert.equal(marked.exitCode, 0, `${command} markdown failed`);
+        assert.ok(marked.stdout.includes(marker(explicit)), `${command} markdown missing human marker`);
+        assert.doesNotMatch(marked.stdout.trim(), /^\{/, `${command} markdown unexpectedly emitted a bare JSON envelope`);
+      }
+      const version = data(await ctx.command(['version', '--json']));
+      assert.equal(version.version, getVersion(), '--json shortcut disagrees with the checked-out package');
+      const malformed = await ctx.command(['version', '--format', 'xml']);
+      assert.notEqual(malformed.exitCode, 0, 'malformed --format value was accepted');
+      assert.match(malformed.stderr, /Invalid value for --format/, 'malformed --format did not fail as usage');
+      const missing = await ctx.command(['version', '--format']);
+      assert.notEqual(missing.exitCode, 0, 'missing --format value was accepted');
+      assert.match(missing.stderr, /requires a value|not enough arguments|Invalid value/i, 'missing --format did not fail as usage');
+    } },
   { ...common, id: 'readonly.records', title: 'Bounded non-PII metadata list, projection and independent readback', commandPaths: ['records list', 'records get'], sources: ['cli/src/commands/records.js', 'cli/src/records-engine.js'],
     async run(ctx) {
       const args = ['records', 'list', '--table', 'sys_db_object', '--query', 'name=sys_user', '--fields', 'sys_id,name', '--limit', '1', '--no-count'];
