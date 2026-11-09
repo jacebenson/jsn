@@ -77,10 +77,32 @@ export async function executeScenarios(scenarios, ctx, { missing = [], selection
   }
   return report;
 }
+export async function loadCatalogRecipe(ctx, file) {
+  const stat = await fs.promises.lstat(file);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Catalog recipe must be a regular private file');
+  if ((stat.mode & 0o777) !== 0o600 || stat.size > 8192) throw new Error('Catalog recipe must be mode 0600 and <= 8192 bytes');
+  let input;
+  try { input = JSON.parse(await fs.promises.readFile(file, 'utf8')); } catch { throw new Error('Catalog recipe is not valid JSON'); }
+  const allowed = ['actionTypeId', 'inputs', 'triggerInputs'];
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !allowed.includes(key))) throw new Error('Unknown catalog recipe field');
+  if (!/^[a-f0-9]{32}$/i.test(input.actionTypeId || '')) throw new Error('Catalog recipe actionTypeId must be an exact provider sys_id');
+  const checkInputs = value => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Catalog recipe inputs must be objects');
+    for (const [key, entry] of Object.entries(value)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9_]{0,80}$/.test(key)) throw new Error('Invalid catalog recipe input name');
+      if (typeof entry !== 'string' || entry.length > 500) throw new Error('Catalog recipe input values must be bounded strings');
+    }
+    return value;
+  };
+  const recipe = { actionTypeId: input.actionTypeId.toLowerCase(), inputs: checkInputs(input.inputs) };
+  if (input.triggerInputs !== undefined) recipe.triggerInputs = checkInputs(input.triggerInputs);
+  ctx.state.set('workflows.catalogRecipe', recipe);
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.help) {
-    console.log('Usage: npm --prefix cli run test:acceptance -- --profile NAME --expected-host HOST [--mode readonly|pdi] [--allow-writes] [--preflight] [--keep] [--full] [--release major|minor|patch] [--changed-file PATH] [--output-dir PRIVATE_DIR] [--cli-path VERIFIED_PACKAGE/bin/jsn.js] [--auth-config PRIVATE_JSON] [--scenario EXACT_ID]');
+    console.log('Usage: npm --prefix cli run test:acceptance -- --profile NAME --expected-host HOST [--mode readonly|pdi] [--allow-writes] [--preflight] [--keep] [--full] [--release major|minor|patch] [--changed-file PATH] [--output-dir PRIVATE_DIR] [--cli-path VERIFIED_PACKAGE/bin/jsn.js] [--auth-config PRIVATE_JSON] [--catalog-recipe PRIVATE_JSON] [--allow-retained-flows] [--scenario EXACT_ID]');
     return 0;
   }
   // Only configuration lookup occurs before target verification. No auth status,
@@ -93,6 +115,11 @@ export async function main(argv = process.argv.slice(2)) {
     const { loadAuthConfig } = await import('../../test/acceptance/auth.mjs');
     await loadAuthConfig(ctx, options.authConfig);
   }
+  if (options.allowRetainedFlows) {
+    if (options.mode !== 'pdi') throw new Error('--allow-retained-flows requires pdi mode and --allow-writes');
+    ctx.state.set('workflows.allowRetainedFlows', true);
+  }
+  if (options.catalogRecipe) await loadCatalogRecipe(ctx, path.resolve(options.catalogRecipe));
   const source = provenance(ctx.cliPath);
   const scenarios = [], missing = [];
   for (const file of ['read-only.mjs', 'read-only-catalog.mjs', 'resources.mjs', 'workflows.mjs', 'auth.mjs']) {

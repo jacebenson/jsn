@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node scripts/test.mjs",
     "test:acceptance": "node scripts/acceptance/run.mjs",
-    "test:acceptance:offline": "node --test test/acceptance-runner.test.js test/acceptance-workflows.test.js test/acceptance-auth-perf.test.js test/acceptance-integration.test.js test/acceptance-read-only-catalog.test.js",
+    "test:acceptance:offline": "node --test test/acceptance-runner.test.js test/acceptance-workflows.test.js test/acceptance-auth-perf.test.js test/acceptance-integration.test.js test/acceptance-read-only-catalog.test.js test/acceptance-publish.test.js",
     "test:mutation": "stryker run",
     "lint": "npx eslint src/ bin/ test/",
     "start": "node bin/jsn.js",

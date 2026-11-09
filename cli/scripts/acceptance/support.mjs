@@ -28,8 +28,8 @@ export const cliRoot = fileURLToPath(new URL('../../', import.meta.url));
 const redirects = /^(SERVICENOW_INSTANCE_URL|NODE_OPTIONS|NODE_EXTRA_CA_CERTS|NODE_TLS_REJECT_UNAUTHORIZED|HTTPS?_PROXY|ALL_PROXY)$/i;
 const readonlyCommands = new Set(['auth status', 'records list', 'records get', 'tables list', 'columns list', 'version', 'completion', 'history list']);
 export function parseArgs(args) {
-  const values = new Set(['mode', 'profile', 'expected-host', 'output-dir', 'release', 'changed-file', 'cli-path', 'auth-config', 'scenario']);
-  const flags = new Set(['allow-writes', 'full', 'preflight', 'keep']);
+  const values = new Set(['mode', 'profile', 'expected-host', 'output-dir', 'release', 'changed-file', 'cli-path', 'auth-config', 'catalog-recipe', 'scenario']);
+  const flags = new Set(['allow-writes', 'full', 'preflight', 'keep', 'allow-retained-flows']);
   if (args.length === 1 && args[0] === '--help') return { help: true };
   const result = { mode: 'readonly', release: 'major', changed: [], scenarios: [] };
   for (let i = 0; i < args.length; i++) {
