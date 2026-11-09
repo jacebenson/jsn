@@ -1,4 +1,7 @@
 Rails.application.routes.draw do
+  get '/results', to: 'acceptance_results#index'
+  get '/results/:run_key', to: 'acceptance_results#show'
+  post '/api/acceptance/runs', to: 'acceptance_ingest#create'
   get '/site.css', to: 'pages#stylesheet'
   get '/docs-assets/marked.js', to: 'documentation#asset', defaults: { asset: 'marked' }
   get '/docs-assets/purify.js', to: 'documentation#asset', defaults: { asset: 'purify' }
