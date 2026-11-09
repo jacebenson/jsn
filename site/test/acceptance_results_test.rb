@@ -135,6 +135,8 @@ class AcceptanceResultsTest < Minitest::Test
 
     post_projection(projection('provenance' => projection['provenance'].merge('version' => '5.4.0-pdi.example.test')))
     assert_equal 422, last_response.status
+    post_projection(projection('provenance' => projection['provenance'].merge('version' => '5.4.12345678901234567890123456789012')))
+    assert_equal 422, last_response.status
     assert_equal 0, AcceptanceRun.count
   end
 

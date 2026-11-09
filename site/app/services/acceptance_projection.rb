@@ -25,7 +25,7 @@ class AcceptanceProjection
   RUN_KEY = /\Aacceptance_[a-f0-9]{32}\z/
   SHA40 = /\A[a-f0-9]{40}\z/i
   SHA64 = /\A[a-f0-9]{64}\z/i
-  VERSION = /\A\d+\.\d+\.\d+(?:-[a-z0-9]{1,20})?\z/
+  VERSION = /\A\d{1,5}\.\d{1,5}\.\d{1,5}(?:-[a-z0-9]{1,20})?\z/
   NODE = /\Av\d+\.\d+\.\d+\z/
   DOMAIN_SOURCE = 'bounded Table API domain read via selected profile'
 
