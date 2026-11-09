@@ -186,6 +186,29 @@ function getRawValue(val) {
 }
 
 /**
+ * Does the value supplied in --data match what the API stored for a field?
+ *
+ * The Table API accepts both choice values and their display labels
+ * ("true" and "True", "ignore" and "Leave alone"), so a successful write
+ * must not be reported as dropped just because the caller supplied the
+ * label. Matches the raw value exactly, or the display label
+ * case-insensitively when the label differs from the raw value.
+ */
+function matchesPersisted(sent, val) {
+  if (val == null) return sent === '';
+  if (typeof val !== 'object') return String(val) === sent;
+
+  const raw = val.value == null ? null : String(val.value);
+  const display = val.display_value == null ? null : String(val.display_value);
+
+  if (raw != null && raw === sent) return true;
+  if (display && display !== raw) {
+    return display.toLowerCase() === sent.toLowerCase();
+  }
+  return false;
+}
+
+/**
  * Normalize a value the user supplied in --data for comparison against
  * what the API persisted. Objects like {"value": "<sys_id>"} are unwrapped.
  */
@@ -240,7 +263,7 @@ export async function verifyWriteBack(app, table, sysID, sentData) {
   for (const field of fields) {
     const sent = normalizeSupplied(sentData[field]);
     const got = getRawValue(persisted[field]);
-    if (sent !== got) {
+    if (!matchesPersisted(sent, persisted[field])) {
       mismatches.push({ field, sent, got });
     }
   }
