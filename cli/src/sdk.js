@@ -352,11 +352,13 @@ export class SDKClient {
   }
 
   async rawRequest(endpoint, opts = {}) {
-    return this._withAuthenticatedRequest(endpoint, opts, {
+    const { timeoutMs, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
       normalizeErrors: true,
+      ...(timeoutMs ? { timeout: timeoutMs } : {}),
       prepare: (req) => {
-        if (opts.body && typeof opts.body === 'string') {
-          req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
+        if (requestOptions.body && typeof requestOptions.body === 'string') {
+          req.headers.set('Content-Type', requestOptions.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
         }
       },
     }, async (resp) => {
@@ -925,7 +927,7 @@ export class SDKClient {
     form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
     let outcome = 'unknown';
     try {
-      await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form,
+      await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form, timeoutMs: 120000,
         headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
       });
       const records = await this.list('sys_remote_update_set', params);

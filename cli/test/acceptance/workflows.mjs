@@ -130,7 +130,7 @@ const updateSetTransfer = {
     const file = path.join(ctx.outputDir, `${name}.xml`);
     await savePrivate(ctx, `${name}.xml`, xml);
     await denied(ctx, ['updatesets', 'import', file, '--json'], /confirmation_required|confirmation required/i);
-    const loaded = await command(ctx, ['updatesets', 'import', file, '--yes', '--json'], { timeoutMs: 75000 });
+    const loaded = await command(ctx, ['updatesets', 'import', file, '--yes', '--json'], { timeoutMs: 150000 });
     assert.equal(loaded.sys_id, setId);
     equalFields(await readOne(ctx, 'sys_remote_update_set', setId, ['sys_id', 'state', 'name']), { state: 'loaded', name });
     equalFields(await readOne(ctx, 'sys_update_xml', memberId, ['sys_id', 'name', 'remote_update_set']), { name: `sys_properties_${propertyId}`, remote_update_set: setId });
