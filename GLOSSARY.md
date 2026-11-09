@@ -541,9 +541,20 @@ and unreached steps hide no edges. Human `STEPS` prints numbered activities,
 terminal markers (only with complete topology), and non-sequential exceptions;
 `LOOPS` uses those same numbers. Only edges within a detected cyclic component
 that return to an earlier/equal step get the closing `↺` marker. This changes no
-SCC membership or completeness semantics. Record IDs (including IDs embedded in
-scripts/free text) stay in JSON, not the formatted outline. Configuration detail
-is separate from the steps so scripts do not interrupt the numbered flow.
+SCC membership or completeness semantics. Record IDs, including IDs embedded in
+scripts/free text, are not redacted. Opt-in `--config` renders nonempty fields
+under each step; `--step` retains full values rather than bounded previews.
+
+Configuration variable definitions supply `internal_type` and `reference`, not
+an element-name-to-table map. Typed values retain their raw strings in
+`configuration`; `configuration_values` adds `raw_value`, `display_value`, `type`,
+`reference_table`, and (for references) `resolution`. Platform display values
+are preferred; unresolved reference/list values follow their declared table's
+display dictionary (including inheritance and conventional name/number columns).
+Metadata is cached per table and target IDs are deduplicated into bounded GET
+batches for the whole inspection. Missing/unreadable targets retain the ID with
+an `unresolved reference` marker. Only `glide_duration` epoch offsets become
+human durations; real date fields and already-formatted durations stay intact.
 
 ## Flow Designer action definition
 
