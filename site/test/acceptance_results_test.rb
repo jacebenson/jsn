@@ -203,6 +203,82 @@ class AcceptanceResultsTest < Minitest::Test
     assert_equal 404, last_response.status
   end
 
+  def test_every_declared_scenario_has_a_reviewed_human_name
+    helper = Object.new.extend(AcceptanceResultsHelper)
+    ids = Rails.root.join('config/acceptance_scenario_ids.txt').read.lines.map(&:strip).reject(&:empty?)
+    assert_equal ids.sort, AcceptanceResultsHelper::SCENARIO_NAMES.keys.sort
+    ids.each do |id|
+      name = helper.acceptance_scenario_name(id)
+      refute_equal 'Unrecognized test', name, id
+      refute_includes name, id
+    end
+    assert_equal 'Generate shell tab-completion script', helper.acceptance_scenario_name('local.completion')
+    assert_equal 'List UX applicability records', helper.acceptance_scenario_name('readonly.catalog.uxapplicability.list')
+    assert_equal 'Show a UX applicability record', helper.acceptance_scenario_name('readonly.catalog.uxapplicability.show')
+    assert_equal 'Unrecognized test', helper.acceptance_scenario_name('readonly.catalog.unknown.list')
+    assert_equal 'Unrecognized test', helper.acceptance_scenario_name('private payload title')
+    assert_equal 'Status unavailable', helper.acceptance_status_explanation('unknown')
+  end
+
+  def test_checks_render_human_names_plain_statuses_and_collapsed_technical_ids
+    explanations = {
+      'passed' => 'Passed: checks completed successfully',
+      'failed' => 'Failed: checks did not pass',
+      'failed-timeout' => 'Failed: test timed out',
+      'blocked-prerequisite' => 'Not run: prerequisite did not complete',
+      'blocked-access' => 'Blocked: access was denied',
+      'blocked-capability' => 'Blocked: required capability unavailable',
+      'excluded-mode' => 'Not run: excluded from this run mode',
+      'not-run' => 'Not run: test was not executed'
+    }
+    ids = %w[local.completion local.version local.history-empty readonly.catalog.uxapplicability.show readonly.records readonly.catalog.uxapplicability.list workflows.context workflows.interactive]
+    results = ids.zip(explanations.keys).map { |id, status| { 'id' => id, 'status' => status, 'durationMs' => 1 } }
+    post_projection(projection(
+      'selection' => { 'full' => false, 'selected' => ids },
+      'results' => results,
+      'summary' => { 'total' => results.size, 'counts' => explanations.keys.to_h { |status| [status, 1] }, 'complete' => false, 'missingCount' => 1 }
+    ))
+    assert_equal 201, last_response.status
+    get "/results/#{AcceptanceRun.first.run_key}"
+    assert_equal 200, last_response.status
+    document = Nokogiri::HTML(last_response.body)
+    rows = document.css('.results-table tbody tr')
+    assert_equal results.size, rows.size
+    rows.zip(results.sort_by { |result| result['id'] }).each do |row, result|
+      assert_equal AcceptanceResultsHelper::SCENARIO_NAMES.fetch(result['id']), row.at_css('td > strong').text
+      details = row.at_css('td > details')
+      refute details.key?('open')
+      assert_equal 'Technical ID', details.at_css('summary').text
+      assert_equal result['id'], details.at_css('code').text
+      assert_equal explanations.fetch(result['status']), row.at_css('.badge').text
+    end
+    assert_equal 2, AcceptanceRun.first.failed
+    # A dependent show is not another failure or a claim about the list's cause.
+    show_row = rows.find { |row| row.at_css('code').text == 'readonly.catalog.uxapplicability.show' }
+    refute_includes show_row.text, 'invalid table'
+    assert_empty show_row.css('a')
+    assert_equal 1, document.css('.results-checks a').size
+    assert_equal 'https://github.com/jacebenson/jsn/issues/435', document.at_css('.results-checks a')['href']
+    refute_includes last_response.body, 'pdi.example.test'
+    assert_equal '/results', document.at_css('a.back')['href']
+  end
+
+  def test_unknown_stored_id_has_an_explicit_fallback_and_expandable_identity
+    post_projection(projection)
+    assert_equal 201, last_response.status
+    run = AcceptanceRun.first
+    # Legacy/future stored IDs must not be turned into guessed prose. This does
+    # not permit unknown IDs through ingestion.
+    run.acceptance_checks.first.update!(check_id: 'future.scenario')
+    get "/results/#{run.run_key}"
+    assert_equal 200, last_response.status
+    document = Nokogiri::HTML(last_response.body)
+    row = document.css('.results-checks tbody tr').find { |item| item.at_css('code').text == 'future.scenario' }
+    assert_equal 'Unrecognized test', row.at_css('td > strong').text
+    refute row.at_css('details').key?('open')
+    assert_equal 'Technical ID', row.at_css('summary').text
+  end
+
   def test_excluded_and_not_run_statuses_are_grouped
     payload = projection(
       'results' => [

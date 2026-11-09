@@ -25,14 +25,22 @@
 
   <h2>Checks</h2>
   <div class="results-table-wrap">
-    <table class="results-table">
+    <table class="results-table results-checks">
       <thead><tr><th>Check</th><th>Status</th><th>Duration</th></tr></thead>
       <tbody>
         <% @checks.each do |check| %>
           <% tone = check.status == 'passed' ? 'pass' : check.status.start_with?('blocked') ? 'block' : check.status.start_with?('excluded', 'not-run') ? 'muted' : 'fail' %>
           <tr>
-            <td><code><%= check.check_id %></code></td>
-            <td><span class="badge <%= tone %>"><%= check.status %></span></td>
+            <td>
+              <strong><%= acceptance_scenario_name(check.check_id) %></strong>
+              <details><summary>Technical ID</summary><code><%= check.check_id %></code></details>
+            </td>
+            <td>
+              <span class="badge <%= tone %>"><%= acceptance_status_explanation(check.status) %></span>
+              <% if (issue_url = acceptance_related_issue(check)) %>
+                <p><%= link_to 'Related UX applicability issue #435', issue_url %></p>
+              <% end %>
+            </td>
             <td class="num"><%= (check.duration_ms / 1000.0).round(2) %>s</td>
           </tr>
         <% end %>
