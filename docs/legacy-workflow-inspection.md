@@ -72,8 +72,9 @@ no instance queries.
 numbering. It implies configuration and prints every line and character without
 preview limits, followed by all outgoing edges (including normally implicit
 sequential edges). Loop membership and closing-edge destinations are disclosed
-for that step. Record IDs remain redacted in human output; use `--json` for the
-literal values. Invalid or out-of-range step numbers fail with a usage error.
+for that step. The step outline refers to numbered destinations; IDs inside scripts,
+conditions and free text are preserved literally in human output.
+Invalid or out-of-range step numbers fail with a usage error.
 With `--json`, the normal envelope is retained while `activities`, `steps`,
 `transitions`, and `transitions_by_activity` narrow to that step and its outgoing
 edges. Loop and coverage metadata continue to describe the full inspected graph.

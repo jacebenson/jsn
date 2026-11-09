@@ -270,7 +270,10 @@ export async function listPreviewProblems(sdk, sysID, { limit = 500 } = {}) {
  * Refuse to continue while the platform still considers preview problems
  * unresolved. jsn never accepts, skips, or ignores one on the operator's behalf.
  */
-export function assertNoUnresolvedProblems({ problems, unresolved }) {
+export function assertNoUnresolvedProblems({ problems, unresolved, truncated }) {
+  if (truncated) {
+    throw errUsage('Refusing to commit: the preview problem list is truncated. Unread problems may remain unresolved. Review and commit this set in ServiceNow; jsn cannot establish that every problem is resolved.');
+  }
   if (!unresolved.length) return;
   const lines = unresolved.slice(0, 10).map((problem) => {
     const target = problem.missing_item_table

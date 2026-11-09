@@ -105,7 +105,11 @@ an unverifiable session ends recovery without replaying.
 Reads replay once after successful recovery. Writes and stateful processors
 replay only on HTTP 401, which is definitive pre-execution; a login page or
 redirect on a write is refused with an actionable error unless the caller
-explicitly opts in. Captured GCK/browser-session credentials are not renewable:
+explicitly opts in. Store install/update are GET-shaped stateful requests;
+`SDKClient.request` consumes their internal `stateful: true` policy before
+constructing the HTTP request, so login-page/redirect recovery cannot resubmit
+them. Ordinary read recovery and definitive HTTP 401 handling are unchanged.
+Captured GCK/browser-session credentials are not renewable:
 their rejection is reported with `recapture_required` and an explicit
 `jsn auth refresh <profile> --browser` step. Uncertain mutation outcomes never
 replay.

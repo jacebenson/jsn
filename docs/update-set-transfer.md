@@ -57,7 +57,10 @@ successful call whose state does not match is reported as an error, not assumed.
 description, missing item/table, and available actions; `--include-resolved`
 also shows rows a human already accepted or skipped. jsn **never** accepts,
 skips, or ignores a problem, and `commit` refuses while any problem is
-unresolved. Resolve them in ServiceNow, rerun `preview`, then commit. A commit
+unresolved. It also refuses when the problem read reaches its 500-row bound,
+because a resolved sample does not prove that unread problems are resolved.
+Review and commit such sets in ServiceNow. Resolve problems in ServiceNow, rerun
+`preview`, then commit. A commit
 resolves the local update set it created through the retrieved record's
 `update_set` reference, falling back to a name lookup only when that reference is
 absent; an ambiguous or missing local copy is reported, never guessed.

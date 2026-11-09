@@ -71,10 +71,10 @@ export function classifyAuthRejection(response, { bodyText = '' } = {}) {
  * login pages are strong evidence for reads; a write is replayed only when the
  * caller opted in explicitly (none of JSN's own write paths do).
  */
-export function canReplayAfterRecovery(rejection, { method = 'GET', allowMutationReplay = false } = {}) {
+export function canReplayAfterRecovery(rejection, { method = 'GET', stateful = false, allowMutationReplay = false } = {}) {
   if (!rejection) return false;
   if (rejection.kind === 'http_401') return true;
-  return isSafeMethod(method) || allowMutationReplay === true;
+  return (!stateful && isSafeMethod(method)) || allowMutationReplay === true;
 }
 
 /**

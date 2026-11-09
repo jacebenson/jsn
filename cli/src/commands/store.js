@@ -145,6 +145,10 @@ function emitList(app, argv, page) {
 }
 
 async function runLifecycle(argv, app, operation) {
+  // Validate wait controls before any submission. A usage error after dispatch
+  // hides an operation that may already be changing the instance.
+  const timeoutMs = argv.wait ? boundedTimeout(argv.timeout) * 1000 : undefined;
+  const pollIntervalMs = argv.wait ? boundedPoll(argv.pollInterval) * 1000 : undefined;
   const prepare = operation === 'install' ? prepareInstall : prepareUpdate;
   const plan = await prepare(app.sdk, argv.application, operation === 'install'
     ? { version: argv.version, demoData: argv.demoData === true }
@@ -177,8 +181,6 @@ async function runLifecycle(argv, app, operation) {
     });
     return;
   }
-  const timeoutMs = boundedTimeout(argv.timeout) * 1000;
-  const pollIntervalMs = boundedPoll(argv.pollInterval) * 1000;
   let progress;
   try {
     progress = await waitForOperation(app.sdk, started.tracker_id, { pollIntervalMs, timeoutMs });

@@ -16,12 +16,23 @@ The install also copies an AI agent skill file to `~/.agents/skills/servicenow/S
 
 ### Install from GitHub (test unreleased builds)
 
-To test a branch or the freshly merged `main` before it's published to npm:
+The publishable package lives in `cli/`, not the repository root. To test an
+unreleased branch, clone the repository, check out the exact branch or revision,
+and install its dependencies before running the checkout's executable:
 
 ```bash
-npm install -g github:jacebenson/jsn#main        # merged but not yet tagged
-npm install -g github:jacebenson/jsn#<branch>    # any PR/feature branch
+git clone https://github.com/jacebenson/jsn.git
+cd jsn
+git checkout <branch-or-revision>
+npm --prefix cli ci
+node cli/bin/jsn.js version
+node cli/bin/jsn.js --help
 ```
+
+For the published development channel, use `npm install -g @jacebenson/jsn@dev`.
+To install a checkout globally, run `npm install -g ./cli` from the repository
+root. Direct `github:jacebenson/jsn#<branch>` installs address the private root
+package and do not install the CLI.
 
 Go back to the released version with:
 
@@ -703,8 +714,9 @@ jsn skill install --target all  # All supported agents
 ```bash
 git clone https://github.com/jacebenson/jsn.git
 cd jsn
-npm install
+npm --prefix cli ci
 npm test
+npm run lint
 ```
 
 Releases run from the GitHub Actions workflow. Dispatch `Release production` with `patch`, `minor`, or `major`. The workflow tests and lints the repo, bumps the version, pushes the commit and tag, dispatches the npm publish workflow, and creates the GitHub release.

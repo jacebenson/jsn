@@ -288,6 +288,20 @@ test('status normalizes progress and rejects invalid tracker ids before any requ
   assert.equal(status.succeeded, false);
 });
 
+test('Store tracker status controls completion instead of a percent-only success guess', async () => {
+  for (const [status, percent_complete, terminal, succeeded] of [
+    ['0', 100, false, false], ['1', 100, false, false],
+    ['2', 50, true, true], ['3', 0, true, false], ['4', 100, true, false], ['4', 0, true, false],
+    ['', 100, false, false],
+  ]) {
+    const f = fixture({ progress: [{ status, percent_complete }] });
+    await f.run(['status', TRACKER]);
+    assert.equal(f.output[0].data.terminal, terminal, `status=${status} percent=${percent_complete}`);
+    assert.equal(f.output[0].data.succeeded, succeeded, `status=${status} percent=${percent_complete}`);
+    assert.deepEqual(f.dispatches(), []);
+  }
+});
+
 test('install requires an exact version, a not-installed app and an offered version before dispatch', async () => {
   const f = fixture();
   f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: '', active: 'true' });
@@ -373,6 +387,20 @@ test('a submission without a tracker id is an error and is not retried', async (
   await assert.rejects(f.run(['install', 'x_demo_app', '--version', '2.0.0', '--force']),
     error => error.code === 'store_tracker_missing' && /do not resubmit/i.test(error.hint));
   assert.equal(f.dispatches().length, 1);
+});
+
+test('invalid Store wait bounds fail before an install or update is dispatched', async () => {
+  for (const operation of ['install', 'update']) {
+    for (const [option, value] of [['--timeout', '0'], ['--timeout', '14401'], ['--poll-interval', '-1'], ['--poll-interval', '301']]) {
+      const installed = operation === 'update';
+      const f = fixture({ detail: { ...DETAIL, isInstalled: String(installed), version: installed ? '1.0.0' : '' } });
+      f.rows('sys_store_app').push({ sys_id: APP, name: 'Demo App', scope: 'x_demo_app', version: installed ? '1.0.0' : '' });
+      await assert.rejects(f.run([operation, 'x_demo_app', '--version', '2.0.0', '--force', '--wait', option, value]),
+        error => error.code === 'usage_error' && error.message.includes(option));
+      assert.deepEqual(f.dispatches(), [], `${operation} ${option} ${value} must not dispatch`);
+      assert.deepEqual(f.output, []);
+    }
+  }
 });
 
 test('waiting polls the tracker and verifies the version on the installed record', async () => {
