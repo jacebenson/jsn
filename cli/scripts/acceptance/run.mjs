@@ -111,6 +111,10 @@ export async function main(argv = process.argv.slice(2)) {
   const target = preflight(options, config);
   options.outputDir ||= path.join(process.env.TMPDIR || process.cwd(), `jsn-acceptance-${Date.now()}`);
   const ctx = createContext(options, target); ctx.keep = !!options.keep;
+  if (options.mode === 'pdi' && options.allowWrites) {
+    const { createProviderSessionAdapter } = await import('./session-adapter.mjs');
+    ctx.state.set('auth.browserAdapter', createProviderSessionAdapter());
+  }
   if (options.authConfig) {
     const { loadAuthConfig } = await import('../../test/acceptance/auth.mjs');
     await loadAuthConfig(ctx, options.authConfig);

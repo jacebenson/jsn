@@ -410,8 +410,8 @@ export class SDKClient {
     return result?.result || null;
   }
 
-  async create(table, data) {
-    const endpoint = `${this.baseURL}/api/now/table/${table}`;
+  async create(table, data, { inputDisplayValue = false } = {}) {
+    const endpoint = `${this.baseURL}/api/now/table/${table}${inputDisplayValue ? '?sysparm_input_display_value=true' : ''}`;
     const result = await this.request(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -419,8 +419,8 @@ export class SDKClient {
     return result?.result || null;
   }
 
-  async update(table, sysID, data) {
-    const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
+  async update(table, sysID, data, { inputDisplayValue = false } = {}) {
+    const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}${inputDisplayValue ? '?sysparm_input_display_value=true' : ''}`;
     const result = await this.request(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),

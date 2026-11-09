@@ -84,8 +84,11 @@ export function usersCmd(wrap) {
             if (!recordData.user_name) {
               throw new Error('user_name is required (use --username or --data)');
             }
-            const record = await app.sdk.create('sys_user', recordData);
-            app.ok(record, {
+            const record = await app.sdk.create('sys_user', recordData, { inputDisplayValue: Object.hasOwn(recordData, 'user_password') });
+            const safeRecord = { ...record };
+            delete safeRecord.user_password;
+            delete safeRecord.password;
+            app.ok(safeRecord, {
               summary: `Created user ${getStringField(record, 'user_name')}`,
               breadcrumbs: [
                 { action: 'view', cmd: `jsn users show ${getStringField(record, 'user_name')}`, description: `View the new user` },
@@ -105,11 +108,14 @@ export function usersCmd(wrap) {
             const id = argv.identifier;
             const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
-            const updated = await app.sdk.update('sys_user', sysID, recordData);
-            app.ok(updated, {
+            const updated = await app.sdk.update('sys_user', sysID, recordData, { inputDisplayValue: Object.hasOwn(recordData, 'user_password') });
+            const safeUpdated = { ...updated };
+            delete safeUpdated.user_password;
+            delete safeUpdated.password;
+            app.ok(safeUpdated, {
               summary: `Updated user ${id}`,
               breadcrumbs: [
-                { action: 'view', cmd: `jsn users show ${id}`, description: `View the updated user` },
+                { action: 'view', cmd: `jsn users show ${id}`, description: 'View the updated user' },
               ],
             });
           }),

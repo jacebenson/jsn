@@ -43,10 +43,17 @@ async function context(t) {
     }
     if (args[0] === 'records' && args[1] === 'create') {
       const payload = JSON.parse(await fs.readFile(args[args.indexOf('--data-file') + 1], 'utf8'));
-      assert.equal(ctx.artifacts.some(a => a.table === 'sys_user' && a.id === payload.user), true);
-      const id = 'd'.repeat(32 - ctx.artifacts.length) + String(ctx.artifacts.length).padStart(ctx.artifacts.length, '0');
+      if (payload.user) assert.equal(ctx.artifacts.some(a => a.table === 'sys_user' && a.id === payload.user), true);
+      const id = (payload.user ? 'd' : 'e').repeat(30) + String(ctx.artifacts.length).padStart(2, '0');
       ctx.db.set(id, { ...payload, sys_id: id });
       return ok({ sys_id: id });
+    }
+    if (args[0] === 'records' && args[1] === 'update') {
+      if (options.env) return fail(403);
+      const payloadFile = args.indexOf('--data-file');
+      const sysId = args[args.indexOf('--sys-id') + 1];
+      if (payloadFile >= 0) Object.assign(ctx.db.get(sysId), JSON.parse(await fs.readFile(args[payloadFile + 1], 'utf8')));
+      return ok({ sys_id: sysId });
     }
     const users = ctx.state.get('auth.fixtures')?.users || [];
     const identity = users.find(u => u.username === options.env?.SN_USERNAME);
@@ -96,8 +103,9 @@ test('wrong bootstrap identity/method and unknown domain refuse account allocati
 test('OAuth account setup checks real options, settings, private payloads and ownership before children', async t => {
   const ctx = await context(t);
   assert.equal((await createAuthFixtures(ctx)).status, 'passed');
-  assert.equal(ctx.artifacts.length, 2);
-  assert.equal(ctx.artifacts.every(a => a.table === 'sys_user' && a.cleanupArgs[2] === a.id), true);
+  assert.equal(ctx.artifacts.length, 3);
+  assert.equal(ctx.artifacts.filter(a => a.table === 'sys_user').every(a => a.cleanupArgs[2] === a.id), true);
+  assert.equal(ctx.artifacts.filter(a => a.table === 'sys_properties').length, 1);
   const users = ctx.state.get('auth.fixtures').users;
   for (const user of users) {
     const file = path.join(user.root, 'create.json');
@@ -139,7 +147,7 @@ test('wrong authenticated fixture identity fails before permission mutation', as
     ? ok({ records: [{ sys_id: 'f'.repeat(32), user_name: 'wrong' }] }) : original(args, options);
   const prior = ctx.calls.length;
   await assert.rejects(() => scenario('auth.basic-valid-permissions').run(ctx), /identity\/readback failed/);
-  assert.equal(ctx.calls.slice(prior).some(c => c.args[0] === 'users' && c.args[1] === 'update'), false);
+  assert.equal(ctx.calls.slice(prior).some(c => c.args[0] === 'records' && c.args[1] === 'update'), false);
 });
 
 test('denied-operation provider readback catches silent unexpected mutation', async t => {
@@ -147,8 +155,9 @@ test('denied-operation provider readback catches silent unexpected mutation', as
   await createAuthFixtures(ctx);
   const original = ctx.command;
   ctx.command = async (args, options) => {
-    if (args[0] === 'users' && args[1] === 'update' && options?.env) {
-      ctx.db.get(args[2]).first_name = 'unexpected';
+    if (args[0] === 'records' && args[1] === 'update' && options?.env) {
+      const property = ctx.state.get('auth.fixtures').property;
+      ctx.db.get(property.id).value = 'unexpected';
       return fail(403);
     }
     return original(args, options);
@@ -172,7 +181,7 @@ test('auth permission denial accepts only public forbidden envelopes, not prose 
     await createAuthFixtures(ctx);
     const command = ctx.command;
     ctx.command = async (args, options) => {
-      if (args[0] === 'users' && args[1] === 'update') {
+      if (args[0] === 'records' && args[1] === 'update') {
         assert.equal(options.expectedDenial(result), expected, JSON.stringify(result));
         return result;
       }
@@ -335,4 +344,30 @@ test('real pinned CLI perf suite hooks persist/read/list/compare synthetic loopb
   assert.equal(fixture.requests.filter(r => r.path.startsWith('/api/now/table/') || r.path.startsWith('/api/now/stats/')).every(r => r.method === 'GET'), true);
   assert.equal(fixture.requests.filter(r => r.method !== 'GET').every(r => r.method === 'POST' && r.path === '/angular.do' && r.query === 'get_user' && r.body === null), true, 'Only normal OAuth session bootstrap is allowed alongside read-only data requests');
   assert.equal((await fs.stat(path.join(fixture.root, 'performance-private', 'data', 'perf', 'perf.db'))).mode & 0o777, 0o600);
+});
+
+test('cookie scenarios reject unapproved acquisition and renewal evidence', async t => {
+  const ctx = await context(t);
+  await createAuthFixtures(ctx);
+  const cookie = ctx.state.get('auth.fixtures').users.find(user => user.kind === 'cookie');
+  const scenario = id => authScenarios.find(item => item.id === id);
+  const inside = path.join(cookie.root, 'session-valid.txt');
+  await fs.writeFile(inside, 'X-UserToken: synthetic\nCookie: synthetic=1\n', { mode: 0o600 });
+  const cases = [
+    [{ acquire: async () => ({ source: 'personal-browser', headersFile: inside }) }, /Real isolated provider login evidence/],
+    [{ acquire: async () => ({ source: 'isolated-provider-login', headersFile: path.join(ctx.outputDir, 'outside.txt') }) }, /must belong/],
+    [{ acquire: async () => ({ source: 'isolated-provider-login', headersFile: inside }) }, /private 0600/]
+  ];
+  await fs.chmod(inside, 0o644);
+  for (const [adapter, expected] of cases) {
+    await fs.rm(path.join(cookie.root, 'gck'), { recursive: true, force: true });
+    ctx.state.set('auth.browserAdapter', adapter);
+    await assert.rejects(() => scenario('auth.cookie-valid-permissions').run(ctx), expected);
+  }
+  ctx.state.set('auth.browserAdapter', {
+    expire: async () => {},
+    renew: async () => ({ source: 'isolated-provider-login', headersFile: path.join(ctx.outputDir, 'outside-renewed.txt') })
+  });
+  cookie.session = { cookies: 'synthetic=1', token: 'synthetic' };
+  await assert.rejects(() => scenario('auth.cookie-expired-renewal').run(ctx), /Renewed headers must belong/);
 });

@@ -108,20 +108,29 @@ function rejection(result) {
 }
 
 function permissionDenial(result) {
-  return result?.exitCode !== 0 && result?.json?.ok === false && result.json.code === 'forbidden' &&
-    /403|forbidden|access denied|not authorized|security constraints|insufficient/i.test(String(result.json.error || ''));
+  if (result?.exitCode === 0 || result?.json?.ok !== false) return false;
+  const message = [result.json.error, result.json.hint].filter(value => typeof value === 'string').join(' ');
+  // A restricted table may be invisible to the fixture account, so the CLI
+  // cannot resolve the exact owned record. Absence of an accessible record is
+  // still a provider authorization denial when the coordinator's baseline read
+  // proved the record exists and the readback is unchanged.
+  if (result.json.code === 'not_found' && /No accessible record matched/i.test(message)) return true;
+  return result.json.code === 'forbidden' &&
+    /403|forbidden|access denied|not authorized|security constraints|insufficient/i.test(message);
 }
 
-async function assertPermissions(ctx, fixture, env, other) {
+async function assertPermissions(ctx, fixture, env, _other) {
   await assertIdentity(ctx, fixture, env);
-  const before = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
-  check(value(before?.sys_id) === other.id && Object.hasOwn(before, 'first_name'), 'Denied-operation baseline missing');
-  const baselineFirstName = value(before.first_name);
+  const property = ctx.state.get(PRIVATE)?.property;
+  check(property?.id, 'Denied-operation owned property is missing');
+  const before = await ctx.read('sys_properties', { id: property.id, fields: ['sys_id', 'value'], limit: 1 });
+  check(value(before?.sys_id) === property.id && Object.hasOwn(before, 'value'), 'Denied-operation baseline missing');
+  const baselineValue = value(before.value);
   const marker = `denied_${ctx.runKey}`;
-  const result = await ctx.command(['users', 'update', other.id, '--field', `first_name=${marker}`, '--json'], { env,
-    expectedDenial: permissionDenial });
-  const after = await ctx.read('sys_user', { id: other.id, fields: ['sys_id', 'first_name'], limit: 1 });
-  check(value(after?.sys_id) === other.id && value(after.first_name) === baselineFirstName, 'Denied operation changed an owned fixture; investigate before retry');
+  const result = await ctx.command(['records', 'update', '--table', 'sys_properties', '--sys-id', property.id,
+    '--field', `value=${marker}`, '--json'], { env, expectedDenial: permissionDenial });
+  const after = await ctx.read('sys_properties', { id: property.id, fields: ['sys_id', 'value'], limit: 1 });
+  check(value(after?.sys_id) === property.id && value(after.value) === baselineValue, 'Denied operation changed an owned fixture; investigate before retry');
   check(permissionDenial(result),
   'Expected explicit provider authorization denial, not a local failure or silent success');
   await assertIdentity(ctx, fixture, env); // distinguish ACL denial from unusable auth
@@ -202,6 +211,18 @@ export async function createAuthFixtures(ctx) {
     check(Array.isArray(adminRoles) && adminRoles.length === 0, 'Administrative inherited fixture role; auth tests refused');
     if (kind === 'basic') user.env = await makeIdentity(ctx, user);
   }
+  // Owned, non-sensitive denial target. A least-privilege fixture user must
+  // read it but must not update it; the runner restores/cleans it by exact ID.
+  const propertyName = `jsn_acceptance_${createHash('sha256').update(ctx.runKey).digest('hex').slice(0, 20)}`;
+  const propertyValue = 'acceptance-baseline';
+  const propertyFile = await privateFile(root, 'property.json', { name: propertyName, value: propertyValue, description: 'JSN acceptance owned fixture' });
+  const property = await ctx.command(['records', 'create', '--table', 'sys_properties', '--data-file', propertyFile, '--json'], { writeIdentity: { name: propertyName } });
+  const propertyId = value(data(property)?.sys_id);
+  check(ID.test(propertyId || ''), 'Owned property create returned no exact ID; reconcile before retry');
+  await ctx.registerArtifact({ table: 'sys_properties', id: propertyId, kind: 'auth-property', cleanupArgs: ['records', 'delete', '--table', 'sys_properties', '--sys-id', propertyId, '--force', '--json'] });
+  const propertyRead = await ctx.read('sys_properties', { id: propertyId, fields: ['sys_id', 'value'], limit: 1 });
+  check(value(propertyRead?.sys_id) === propertyId && value(propertyRead.value) === propertyValue, 'Owned property was not persisted');
+  fixtures.property = { id: propertyId, name: propertyName };
   return { status: 'passed' };
 }
 
@@ -251,11 +272,11 @@ async function cookieValid(ctx) {
   // Its result is a private headers-file, never token/cookie arguments.
   cookie.env = await makeIdentity(ctx, cookie, 'gck');
   const acquired = await adapter.acquire({ ctx, user: cookie, env: cookie.env });
-  check(acquired?.source === 'isolated-browser-login' && path.isAbsolute(acquired.headersFile || ''), 'Real isolated browser acquisition evidence is required');
+  check(['isolated-provider-login', 'isolated-browser-login'].includes(acquired?.source) && path.isAbsolute(acquired.headersFile || ''), 'Real isolated provider login evidence is required');
   const relative = path.relative(cookie.root, acquired.headersFile);
-  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Browser headers must belong to this run-owned account directory');
+  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Provider headers must belong to this run-owned account directory');
   const stat = await fs.lstat(acquired.headersFile);
-  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Browser headers must be in a private 0600 file');
+  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Provider headers must be in a private 0600 file');
   const result = await ctx.command(['auth', 'login', '--gck', '--headers-file', acquired.headersFile, '--no-make-default', '--json'], { env: cookie.env });
   check(result.exitCode === 0, 'Cookie login failed');
   cookie.session = acquired;
@@ -271,13 +292,13 @@ async function cookieExpired(ctx) {
   }
   await adapter.expire({ ctx, user: cookie, session: cookie.session });
   const expired = await ctx.command(['records', 'list', '--table', 'sys_user', '--limit', '1', '--json'], { env: cookie.env });
-  check(rejection(expired), 'Expired browser session was not rejected as authentication failure');
+  check(rejection(expired), 'Expired provider session was not rejected as authentication failure');
   const renewed = await adapter.renew({ ctx, user: cookie, env: cookie.env });
-  check(renewed?.source === 'isolated-browser-login' && path.isAbsolute(renewed.headersFile || ''), 'Renewal requires real isolated browser evidence');
+  check(['isolated-provider-login', 'isolated-browser-login'].includes(renewed?.source) && path.isAbsolute(renewed.headersFile || ''), 'Renewal requires real isolated provider login evidence');
   const relative = path.relative(cookie.root, renewed.headersFile);
   check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Renewed headers must belong to the run-owned account directory');
   const stat = await fs.lstat(renewed.headersFile);
-  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Renewed browser headers require mode 0600');
+  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Renewed provider headers require mode 0600');
   const refresh = await ctx.command(['auth', 'refresh', '--headers-file', renewed.headersFile, '--json'], { env: cookie.env });
   check(refresh.exitCode === 0, 'Browser-session CLI renewal failed');
   cookie.session = renewed;
