@@ -263,8 +263,10 @@ export function createContext(options, target, { execute = runProcess } = {}) {
       if (fs.lstatSync(file).isSymbolicLink() || !realFile.startsWith(`${fs.realpathSync(outputDir)}${path.sep}`)) throw new Error('Fixture config symlink escapes run directory');
       const fixtureConfig = JSON.parse(fs.readFileSync(file, 'utf8'));
       const selected = fixtureConfig.profiles?.[ctx.profile];
-      const profileKeys = new Set(['instance_url', 'username', 'auth_method', 'read_only', 'skip_confirmations', 'domain']);
-      if (Object.keys(fixtureConfig).some(key => !['default_profile', 'profiles'].includes(key)) || Object.keys(selected || {}).some(key => !profileKeys.has(key))) throw new Error('Unclassified fixture config refused');
+      // The CLI legitimately adds session metadata to its own profile after a
+      // login. Containment, a single profile and an exact target are the
+      // security boundary; rejecting unknown keys would break that flow.
+      if (!selected || typeof selected.instance_url !== 'string' || typeof selected.username !== 'string') throw new Error('Isolated fixture profile is incomplete');
       if (Object.keys(fixtureConfig.profiles || {}).length !== 1 || origin(selected?.instance_url || '') !== target.target) throw new Error('Isolated fixture profile must match selected target');
     }
     // Never inherit deployment/provider/peer credentials into acceptance children.
@@ -365,7 +367,10 @@ export function createContext(options, target, { execute = runProcess } = {}) {
     const endpoint = `${target.target}/api/now/table/${table}${id ? `/${id}` : ''}?${params}`;
     const script = `import {App} from ${JSON.stringify(pathToFileURL(path.join(cliRoot, 'src/app.js')).href)}; import {loadConfig} from ${JSON.stringify(pathToFileURL(path.join(cliRoot, 'src/config.js')).href)}; const a=new App(loadConfig({profile:${JSON.stringify(ctx.profile)}})); if(a.getEffectiveInstance()!==${JSON.stringify(target.target)}) throw Error('Target drift'); const r=await a.sdk.request(${JSON.stringify(endpoint)}); console.log(JSON.stringify(r));`;
     const response = await launch(['--input-type=module', '-e', script]);
-    if (table === 'domain' && response.exitCode !== 0 && /invalid table(?:\s+|:\s*)["'`]?domain\b/i.test(`${response.json?.error?.message || ''} ${response.stderr || ''}`)) throw Object.assign(new Error('Invalid table domain'), { status: 404 });
+    if (table === 'domain' && response.exitCode !== 0) {
+      const text = `${response.json?.error?.message || response.json?.error || ''} ${response.stderr || ''}`;
+      if (/invalid table/i.test(text) && /\bdomain\b/i.test(text)) throw Object.assign(new Error('Invalid table domain'), { status: 404 });
+    }
     const result = classifyCommand(response);
     assertCommand(result, { json: true });
     return result.json.result ?? result.json;

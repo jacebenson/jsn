@@ -45,7 +45,10 @@ export async function dictionary(ctx, table, fields) {
   if (!metadata.length || metadata.length >= 500) blocked(`${table}: dictionary unavailable or truncated`);
   const byName = new Map(metadata.map(field => [String(raw(field.element)), field]));
   for (const field of Object.keys(fields)) {
-    if (!byName.has(field)) blocked(`${table}.${field}: no live dictionary evidence`);
+    // Inherited columns are not returned by an own-table dictionary query on
+    // every instance. The provider remains responsible for validating them; a
+    // read-only own-table declaration is the only pre-dispatch refusal.
+    if (!byName.has(field)) continue;
     if (String(raw(byName.get(field).read_only)) === 'true') blocked(`${table}.${field}: provider marks field read-only`);
   }
   for (const [name, field] of byName) {

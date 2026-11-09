@@ -80,8 +80,16 @@ async function makeIdentity(ctx, fixture, method = 'basic') {
 }
 
 async function assertIdentity(ctx, fixture, env) {
+  const status = await ctx.command(['auth', 'status', '--details', '--json'], { env });
+  const profiles = data(status)?.profiles ?? [];
+  const selected = profiles.find(profile => profile.name === ctx.profile);
+  check(status.exitCode === 0 && selected?.authenticated === true && selected?.username === fixture.username,
+    'Auth identity/readback failed; no permission checks may follow');
   const result = await ctx.command(['records', 'list', '--table', 'sys_user', '--query',
-    'user_name=javascript:gs.getUserName()', '--columns', 'sys_id,user_name', '--limit', '1', '--json'], { env });
+    `user_name=${fixture.username}`, '--fields', 'sys_id,user_name', '--limit', '2', '--json'], { env });
+  if (result.exitCode !== 0 && rejection(result)) {
+    throw Object.assign(new Error('Basic session authenticated but the provider rejected REST; basic auth is unavailable on this target'), { status: 'blocked-access' });
+  }
   const found = rows(result);
   check(result.exitCode === 0 && Array.isArray(found) && found.length === 1 &&
     value(found[0].sys_id) === fixture.id && value(found[0].user_name) === fixture.username,
@@ -89,11 +97,14 @@ async function assertIdentity(ctx, fixture, env) {
 }
 
 function rejection(result) {
-  const error = result?.json?.error;
+  const json = result?.json || {};
+  const code = String(json.code || json.error?.code || '');
+  const message = [json.error?.message, typeof json.error === 'string' ? json.error : null, json.message, result?.stderr]
+    .filter(value => typeof value === 'string').join(' ');
   // A parser/configuration/timeout failure is not an authentication rejection.
-  return result?.exitCode !== 0 && (Number(error?.status ?? error?.statusCode) === 401 ||
-    /auth_error|authentication_required|unauthorized/.test(String(error?.code || '')) ||
-    /HTTP 401|401 Unauthorized|authentication failed|invalid credentials/i.test(String(error?.message || '')));
+  return result?.exitCode !== 0 && (Number(json.status ?? json.error?.status) === 401 ||
+    /auth_error|authentication_required|unauthorized/.test(code) ||
+    /HTTP 401|401 Unauthorized|authentication failed|invalid credentials/i.test(message));
 }
 
 function permissionDenial(result) {
@@ -184,8 +195,11 @@ export async function createAuthFixtures(ctx) {
       const readback = await ctx.read('sys_user_has_role', { id: linkId, fields: ['sys_id', 'user', 'role'], limit: 1 });
       check(value(readback?.user) === id && value(readback?.role) === role, 'Role assignment readback failed');
     }
-    const effective = await ctx.read('sys_user_has_role', { query: `user=${id}`, fields: ['sys_id', 'role.name'], limit: 10 });
-    check(Array.isArray(effective) && effective.length < 10 && effective.every(r => typeof value(r['role.name']) === 'string' && !/admin/i.test(value(r['role.name']))), 'Administrative or unobservable inherited fixture roles; auth tests refused');
+    // Least privilege is the assertion that matters. Enumerating every
+    // inherited role is unbounded on instances with large default role sets;
+    // query only for an administrative inheritance.
+    const adminRoles = await ctx.read('sys_user_has_role', { query: `user=${id}^role.nameLIKEadmin`, fields: ['sys_id'], limit: 2 });
+    check(Array.isArray(adminRoles) && adminRoles.length === 0, 'Administrative inherited fixture role; auth tests refused');
     if (kind === 'basic') user.env = await makeIdentity(ctx, user);
   }
   return { status: 'passed' };

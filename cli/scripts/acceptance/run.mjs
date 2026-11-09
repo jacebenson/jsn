@@ -49,7 +49,7 @@ export async function executeScenarios(scenarios, ctx, { missing = [], selection
           detail = 'Scenario returned a nonpassing outcome';
         }
       }
-    } catch (error) { status = classify(error); detail = 'Scenario did not complete; inspect private command evidence'; }
+    } catch (error) { status = classify(error); detail = String(error?.message || 'Scenario failed').slice(0, 500); }
     const result = { id: scenario.id, status, durationMs: performance.now() - start, detail };
     finished.set(scenario.id, status); results.push(result); save();
   }
