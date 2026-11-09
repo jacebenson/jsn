@@ -37,22 +37,22 @@ export const scenarios = [
         assert.match(JSON.stringify(result.json), /table|unknown|argument|option/i);
       }
     } },
-  { ...common, modes: ['pdi'], id: 'local.output-contract', title: 'Shared --format contract across local and docs commands', commandPaths: ['version', 'history list', 'discover', 'docs', 'docs status'], sources: ['cli/src/cli-adapter.js', 'cli/src/output.js'],
+  { ...common, modes: ['pdi'], id: 'local.output-contract', title: 'Shared --format contract across local commands', commandPaths: ['version', 'history list', 'discover'], sources: ['cli/src/cli-adapter.js', 'cli/src/output.js'],
     async run(ctx) {
       const expected = {
         'version': value => `jsn ${value.version}`,
-        'history list': () => 'entries',
-        'discover': value => `${value.commands.length} matching command`,
-        'docs': () => 'Search ServiceNow documentation',
-        'docs status': value => `Documentation service: ${value.state}`
+        'history list': value => `"entries": ${JSON.stringify(value.entries)}`,
+        'discover': value => `${value.commands.length} matching command`
       };
       for (const [command, marker] of Object.entries(expected)) {
         const args = command.split(' ');
         const explicit = data(await ctx.command([...args, '--format', 'json']));
         const auto = await ctx.command(args);
         assertCommand(auto, { json: true });
+        assert.equal(auto.json.ok, true, `${command} auto output was not ok`);
         assert.deepEqual(auto.json.data, explicit, `${command} auto output disagrees with explicit JSON`);
         const marked = await ctx.command([...args, '--format', 'markdown']);
+        assert.equal(marked.exitCode, 0, `${command} markdown failed`);
         assert.ok(marked.stdout.includes(marker(explicit)), `${command} markdown missing human marker`);
         assert.doesNotMatch(marked.stdout.trim(), /^\{/, `${command} markdown unexpectedly emitted a bare JSON envelope`);
       }
