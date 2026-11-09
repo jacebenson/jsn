@@ -3,13 +3,26 @@ name: CI
 on:
   push:
     branches: [main]
+  # No base-branch filter. Stacked PRs and PRs opened against a merge target
+  # other than main were skipping every check, so unverified branches could be
+  # merged. The target job below fails a PR aimed at `dev`, which is regenerated
+  # from main by promote-main-to-dev and discards anything merged into it.
   pull_request:
-    branches: [main, codex/jsn-site-preview]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  target:
+    name: Merge target
+    if: github.event_name == 'pull_request' && github.base_ref == 'dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject a PR that targets the generated dev branch
+        run: |
+          echo "::error::dev is regenerated from main by promote-main-to-dev. Retarget this PR at main; a merge into dev is discarded on the next promotion."
+          exit 1
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -71,15 +84,17 @@ jobs:
   test:
     name: Tests
     if: always()
-    needs: [changes, cli, site]
+    needs: [target, changes, cli, site]
     runs-on: ubuntu-latest
     steps:
       - name: Require successful checks for affected applications
         env:
+          TARGET: ${{ needs.target.result }}
           CHANGES: ${{ needs.changes.result }}
           CLI: ${{ needs.cli.result }}
           SITE: ${{ needs.site.result }}
         run: |
+          test "$TARGET" = success || test "$TARGET" = skipped
           test "$CHANGES" = success
           test "$CLI" = success || test "$CLI" = skipped
           test "$SITE" = success || test "$SITE" = skipped
