@@ -10,6 +10,7 @@ function commandTree() {
   const yargs = {
     command(definition) { commands.push(definition); return this; },
     option() { return this; },
+    epilogue() { return this; },
   };
   flowsCmd(fn => fn).builder(yargs);
   return commands;
@@ -54,14 +55,14 @@ function styledApp() {
 test('flows root summary uses the normal output envelope without a provider call', async () => {
   const { app, envelope } = jsonApp({});
   await flowsCmd(fn => fn).handler({}, app);
-  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']);
+  assert.deepEqual(envelope().data.commands, ['schemas', 'catalog-variables [identifier]', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']);
 });
 
 test('flows root renders every subcommand in a terminal, not just the summary', async () => {
   const { app, text } = styledApp();
   await flowsCmd(fn => fn).handler({}, app);
   const rendered = text();
-  for (const name of ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']) {
+  for (const name of ['schemas', 'catalog-variables [identifier]', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']) {
     assert.ok(rendered.includes(name), `terminal output is missing ${name}`);
   }
   assert.match(rendered, /Available subcommands:/);
@@ -246,7 +247,7 @@ test('flows test is registered as a mutation, offers --record and requires confi
   const command = handler('test [identifier]');
   assert.ok(command);
   const options = [];
-  command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
+  command.builder({ option(name, definition) { options.push([name, definition]); return this; }, epilogue() { return this; } });
   assert.deepEqual(options.map(([name]) => name), ['record', 'force']);
   assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('test'), true);
 
@@ -266,7 +267,7 @@ test('flows update is a manifest mutation with confirmation and exact manifest o
   const command = handler('update [identifier]');
   assert.ok(command);
   const options = [];
-  command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
+  command.builder({ option(name, definition) { options.push([name, definition]); return this; }, epilogue() { return this; } });
   assert.deepEqual(options.map(([name]) => name), ['data', 'data-file', 'preview', 'force']);
   assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('update'), true);
 

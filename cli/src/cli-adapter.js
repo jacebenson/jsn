@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import process from 'node:process';
+import { renderSubcommandHelp } from './help.js';
 
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const names = (x) => typeof x === 'string' ? [x] : (x || []);
@@ -331,18 +332,66 @@ export class LocalCLI {
       });
   }
 
+  /**
+   * Usage line for a command page, derived from the node's own declared
+   * command. Subcommand pages printed only the path (`Usage: jsn flows`,
+   * `Usage: jsn flows show`), which hid the positionals the command accepts and
+   * never mentioned options at all.
+   */
+  _usageLine(node, path, hasChildren) {
+    if (node.usageText) return node.usageText;
+    const declared = (node.definition.command || '').trim().split(/\s+/).slice(1)
+      .filter((token) => !(hasChildren && /^\[sub-?commands?\]$/i.test(token)));
+    const parts = [this.script, ...path, ...(hasChildren ? ['<command>'] : []), ...declared, '[options]'];
+    return `Usage: ${parts.join(' ')}`;
+  }
+
+  _commandRows(node) {
+    return node.children
+      .filter((child) => child.name !== this.completionCommand && !child.definition.hidden)
+      .map((child) => ({
+        label: child.definition.command || child.name,
+        description: child.definition.describe || '',
+        note: child.aliases.length ? `[aliases: ${child.aliases.join(', ')}]` : '',
+      }));
+  }
+
+  /**
+   * Option rows carry the alias, type and default a user needs to type the
+   * command. The old line dropped all three and printed long aliases with a
+   * single dash (`-fields`), which is not a flag.
+   */
+  _optionRows(node) {
+    const rows = [];
+    for (const spec of node.options.values()) {
+      const aliases = names(spec.alias).map((alias) => (alias.length === 1 ? `-${alias}` : `--${alias}`));
+      const type = isArrayOption(spec) ? 'array' : spec.type;
+      const meta = [];
+      if (names(spec.choices).length) meta.push(`${type || 'string'}: ${names(spec.choices).join(', ')}`);
+      else if (type && type !== 'boolean') meta.push(type);
+      if (spec.default !== undefined && spec.default !== false && spec.default !== '') meta.push(`default: ${spec.default}`);
+      rows.push({
+        label: [`--${spec.name}`, ...aliases].join(', '),
+        description: spec.describe || spec.description || '',
+        note: meta.map((part) => `[${part}]`).join(' '),
+      });
+    }
+    return rows;
+  }
+
   _help(node, path = []) {
     if (!path.length && this.rootHelpRenderer) {
       process.stdout.write(this.rootHelpRenderer() + "\n");
       return;
     }
-    const lines = [node.usageText || `Usage: ${this.script} ${path.join(' ') || '<command>'}`];
-    if (node.definition.describe) lines.push(`\n${node.definition.describe}`);
-    const children = node.children.filter(n => n.name !== this.completionCommand && !n.definition.hidden);
-    if (children.length) lines.push('\nCommands:\n' + children.map((n) => `  ${n.definition.command}  ${n.definition.describe || ''}`).join('\n'));
-    if (node.options.size) lines.push('\nOptions:\n' + [...node.options].map(([name, s]) => `  --${name}${s.alias ? `, -${names(s.alias).join(', -')}` : ''}  ${s.describe || s.description || ''}`).join('\n'));
-    if (node.epilogueText) lines.push(`\n${node.epilogueText}`);
-    process.stdout.write(lines.join('\n') + '\n');
+    const commands = this._commandRows(node);
+    process.stdout.write(renderSubcommandHelp({
+      usage: this._usageLine(node, path, commands.length > 0),
+      description: node.definition.describe,
+      commands,
+      options: this._optionRows(node),
+      epilogue: node.epilogueText,
+    }));
   }
   async parse() {
     if (this.args.includes('--get-yargs-completions')) {

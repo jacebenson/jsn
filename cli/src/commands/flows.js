@@ -5,7 +5,7 @@ import { declareCapabilities } from '../capabilities.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
+import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet, readCatalogItemVariables } from '../flow-create.js';
 import { alignUpdateSetCapture } from '../context.js';
 import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
@@ -16,6 +16,8 @@ import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guided
 const pickFlow = (argv, app, query = '') => pickDesignerRecord(argv, app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', argv.action ? 'action' : 'flow', query);
 
 const FLOW_COMMANDS = [
+  { name: 'schemas', description: 'Read live trigger catalog and input schemas' },
+  { name: 'catalog-variables [identifier]', description: 'List a catalog item\'s variables for a service_catalog trigger' },
   { name: 'list', description: 'List flows' },
   { name: 'executions', description: 'Show flow executions from sys_flow_context' },
   { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
@@ -68,7 +70,7 @@ export function flowsCmd(wrap) {
       return yargs
         .command({
           command: 'schemas',
-          describe: 'Read live trigger catalog and declared inputs; supported marks verified CLI creation families',
+          describe: 'Read live trigger catalog and input schemas',
           handler: wrap(async (_argv, app) => {
             app.requireInstance();
             const catalog = await readTriggerCatalog(app.sdk);
@@ -83,6 +85,27 @@ export function flowsCmd(wrap) {
             const data = { ...catalog, structural_contract: 'Manifest keys and persistence shape are code-owned; trigger definitions and input metadata are instance-derived.' };
             data._formatted = [...catalog.categories.flatMap(c => c.triggers.map(t => `${c.name}: ${t.name} [${t.type}] ${t.supported ? 'supported' : 'not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)), ...catalog.ungrouped.map(t => `${t.name} [${t.type}] ungrouped${t.supported ? '; supported' : '; not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)].join('\n');
             app.ok(data, { summary: 'Live Flow trigger schemas' });
+          }),
+        })
+        .command({
+          command: 'catalog-variables [identifier]',
+          describe: 'List a catalog item\'s variables for a service_catalog trigger input',
+          builder: (y) => y
+            .option('catalog-item', { type: 'string', describe: 'sc_cat_item sys_id used as the trigger\'s template_catalog_item' })
+            .option('scope', { type: 'string', describe: 'Transaction scope sys_id (default: the flow\'s own scope)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const catalogItem = argv.catalogItem ?? argv['catalog-item'];
+            if (!String(catalogItem || '').trim()) throw errUsage('--catalog-item <sc_cat_item sys_id> is required; it is the trigger\'s template_catalog_item');
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const record = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
+            const flowId = unwrapSysId(record);
+            const scope = argv.scope || getStringField(record, 'sys_scope') || 'global';
+            const result = await readCatalogItemVariables(app.sdk, app.getEffectiveInstance(), flowId, catalogItem, { scope });
+            app.ok(result, {
+              summary: `${result.count} catalog variable(s) on ${catalogItem}; trigger catalog_variables input: ${result.catalog_variables_input || '(none)'}`,
+            });
           }),
         })
         .command({
@@ -316,11 +339,13 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'create',
-          describe: 'Create a draft flow from a JSON manifest or guided prompts. Use `jsn flows schemas` for instance-derived trigger and input schemas, and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs. Manifest structure remains code-owned.',
+          describe: 'Create a draft flow from a JSON manifest or guided prompts',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' })
-            .option('scope', { type: 'string', describe: 'Transaction scope sys_id or global for the guided picker' }),
+            .option('scope', { type: 'string', describe: 'Transaction scope sys_id or global for the guided picker' })
+            .epilogue('Manifest structure is code-owned. Use `jsn flows schemas` for trigger and input schemas, and\n'
+              + '`jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
@@ -345,12 +370,21 @@ export function flowsCmd(wrap) {
         .command({
           command: 'update [identifier]',
           aliases: ['edit'],
-          describe: 'Save partial edits to a Draft, or to a published/active flow whose ProcessFlow definition reports security.can_write=true: record_create_or_update trigger table/condition and existing action inputs. Published flows are edited as their working definition; the published snapshot and runtime pointers must stay unchanged, and the command fails loudly if they do not. Flows without write access are refused before any lock or content write, naming the permission. Use --preview for before/after values without writes. Flow Logic, variables, catalog-trigger edits and stage placement require Flow Designer. Never publishes or executes. Use `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for live schemas; omitted values are preserved.',
+          describe: 'Update a draft, or a published flow that reports write access',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })
             .option('preview', { type: 'boolean', default: false, describe: 'Validate and show exact before/after input values without saving or versioning' })
-            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Editable: record_create_or_update trigger table/condition, existing action inputs, and stage\n'
+              + 'placement (add a stage, or move flow steps onto one with componentIndexes). A service_catalog\n'
+              + 'trigger is created with its template_catalog_item and catalog_variables inputs. A published flow\n'
+              + 'is edited as its working definition; the published snapshot and runtime pointers must stay\n'
+              + 'unchanged, and the command fails loudly if they do not. A flow without write access is refused\n'
+              + 'before any lock or content write, naming the permission. Flow Logic, flow variables, subflows and\n'
+              + 'error handling still need Flow Designer. Never publishes or executes; omitted values are preserved.\n'
+              + 'Live schemas: `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId>\n'
+              + '--scope <scopeId>`.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
@@ -387,9 +421,13 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'unlock [identifier]',
-          describe: 'Release this user\'s stale Flow Designer safe-edit session on a flow. Recovery for an orphaned lease left by a failed update: the provider only releases the calling user\'s own session, the before/after canUserEdit and currentEditor values are printed, and an unconfirmed release fails instead of reporting success. Does not edit content, publish, or touch another user\'s session.',
+          describe: 'Release this user\'s stale safe-edit lease after a failed update',
           builder: (y) => y
-            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Recovery for an orphaned lease left by a failed update: the provider only releases the calling\n'
+              + 'user\'s own session, the before/after canUserEdit and currentEditor values are printed, and an\n'
+              + 'unconfirmed release fails instead of reporting success. Does not edit content, publish, or touch\n'
+              + 'another user\'s session.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const identifier = await pickFlow(argv, app);
@@ -412,14 +450,16 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'delete [identifier]',
-          describe: 'Delete a flow (not yet implemented)',
+          describe: 'Delete a flow (not implemented: use the Flow Designer UI)',
           handler: wrap(async (argv, app) => {
             const identifier = await pickFlow(argv, app);
             if (identifier === undefined) return;
             throw errUsage('Flow deletion requires the Flow Designer GraphQL API - not yet implemented.\n'
               + 'Use the ServiceNow web UI to delete flows.');
           }),
-        });
+        })
+        .epilogue('Run "jsn flows <command> --help" for details. In a terminal you can omit the target and pick\n'
+          + 'one; scripts use explicit identifiers and manifests.');
     },
     handler: wrap(async (_argv, app) => {
       const summary = 'Manage Flow Designer flows from the sys_hub_flow table. Flow structure comes from the ProcessFlow API, so V1, V2 and subflow definitions all render in full.';
