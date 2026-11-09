@@ -94,7 +94,9 @@ export const scenarios = fixtures.map(fixture => ({
   modes: ['pdi'], mutates: true, requires: ['workflows.context'],
   async run(ctx) {
     const { captureId } = await assertCapture(ctx);
-    const data = fixture.create(runName(ctx, fixture.command));
+    const shortName = ['rules', 'clientscripts', 'uiactions'].includes(fixture.command);
+    const recordName = shortName ? `jsn_acc_${ctx.runKey.slice(-16)}_${fixture.command}` : runName(ctx, fixture.command);
+    const data = fixture.create(recordName);
     await dictionary(ctx, fixture.table, data);
     const created = await command(ctx, [fixture.command, 'create', '--data', JSON.stringify(data), '--json']);
     const id = raw(created?.sys_id);

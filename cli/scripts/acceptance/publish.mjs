@@ -2,15 +2,33 @@
 // The token is read from the environment and is never accepted as an argument.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+// The site owns the closed scenario allowlist. When it is present in this
+// checkout, enforce it locally too; the server remains authoritative.
+const SCENARIO_IDS = (() => {
+  try {
+    return new Set(fs.readFileSync(path.join(ROOT, 'site/config/acceptance_scenario_ids.txt'), 'utf8').split('\n').filter(Boolean));
+  } catch {
+    return null;
+  }
+})();
 
 const STATUS = new Set(['passed', 'failed', 'failed-timeout', 'blocked-prerequisite', 'blocked-access', 'blocked-capability', 'excluded-mode', 'not-run']);
 const COVERAGE = new Set(['not-run', 'failed', 'blocked', 'passed', 'complete', 'incomplete']);
 const COLLECTORS = new Set(['platform_health', 'transactions', 'error_warning_summary', 'event_queue', 'ecc_queue', 'flow_executions', 'record_counts', 'scheduled_and_cleanup']);
 const COLLECTOR_STATUS = new Set(['success', 'timeout', 'permission_denied', 'unsupported', 'unavailable', 'query_failure']);
-const ID = /^[a-z][a-z0-9.-]{0,100}$/;
+const ID = /^(?:local|readonly|resources|workflows|auth)\.[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*){0,5}$/;
+const FORBIDDEN_SEGMENTS = new Set(['com', 'net', 'org', 'io', 'dev', 'internal', 'service-now', 'test', 'invalid', 'example', 'localhost']);
+const safeId = value => {
+  if (typeof value !== 'string' || value.length > 100 || !ID.test(value)) return false;
+  if (SCENARIO_IDS && !SCENARIO_IDS.has(value)) return false;
+  return value.split('.').every(segment => !FORBIDDEN_SEGMENTS.has(segment) && !/^[a-f0-9]{32}$/i.test(segment) && !/^[a-f0-9]{64}$/i.test(segment));
+};
 const HEX40 = /^[a-f0-9]{40}$/;
 const HEX64 = /^[a-f0-9]{64}$/;
-const VERSION = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/;
+const VERSION = /^\d+\.\d+\.\d+(?:-[a-z0-9]{1,20})?$/;
 const NODE = /^v\d+\.\d+\.\d+$/;
 const RUN_KEY = /^acceptance_[a-f0-9]{32}$/;
 const MAX_BODY = 262144;
@@ -23,6 +41,10 @@ const exactKeys = (value, keys, label) => {
 };
 const boundedInt = (value, max, label) => {
   if (!Number.isInteger(value) || value < 0 || value > max) fail(`Invalid ${label}`);
+  return value;
+};
+const boundedNumber = (value, max, label) => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > max) fail(`Invalid ${label}`);
   return value;
 };
 
@@ -75,12 +97,12 @@ export function validateProjection(payload) {
   if (typeof payload.selection.full !== 'boolean' || !Array.isArray(payload.selection.selected) || payload.selection.selected.length > 5000) fail('Invalid selection');
   const selected = new Set();
   for (const id of payload.selection.selected) {
-    if (typeof id !== 'string' || !ID.test(id) || selected.has(id)) fail('Invalid selected scenario');
+    if (!safeId(id) || selected.has(id)) fail('Invalid selected scenario');
     selected.add(id);
   }
   exactKeys(payload.summary, ['total', 'counts', 'complete', 'missingCount'], 'summary');
   boundedInt(payload.summary.total, 5000, 'total');
-  boundedInt(payload.summary.missingCount, 10000, 'missing count');
+  boundedInt(payload.summary.missingCount, 1000000, 'missing count');
   if (typeof payload.summary.complete !== 'boolean') fail('Invalid complete flag');
   if (!payload.summary.counts || typeof payload.summary.counts !== 'object' || Array.isArray(payload.summary.counts)) fail('Invalid summary counts');
   for (const [status, count] of Object.entries(payload.summary.counts)) if (!STATUS.has(status) || !Number.isInteger(count) || count < 0) fail('Invalid summary count');
@@ -89,9 +111,9 @@ export function validateProjection(payload) {
   const ids = new Set(), counts = {};
   for (const result of payload.results) {
     exactKeys(result, ['id', 'status', 'durationMs'], 'result');
-    if (!ID.test(result.id || '') || ids.has(result.id)) fail('Invalid result id');
+    if (!safeId(result.id) || ids.has(result.id)) fail('Invalid result id');
     if (!STATUS.has(result.status)) fail('Invalid result status');
-    boundedInt(result.durationMs, 86400000, 'duration');
+    boundedNumber(result.durationMs, 86400000, 'duration');
     ids.add(result.id);
     counts[result.status] = (counts[result.status] || 0) + 1;
   }
