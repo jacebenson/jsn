@@ -15,7 +15,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { buildStageInserts, buildStageUpdates, buildFlowStageMutation, buildFlowUpdateMutation, validateStages, validateFlowUpdateManifest, validateFlowManifest } = await import('../src/flow-create.js');
+const { buildStageInserts, buildStageUpdates, buildFlowStageMutation, buildFlowUpdateMutation, validateStages, validateFlowUpdateManifest, validateFlowManifest, stageList } = await import('../src/flow-create.js');
 
 const STAGE_UUID = '07d8521a-1759-4260-8d2a-62ac163218d8';
 
@@ -26,25 +26,53 @@ describe('flow stages', () => {
     const inserts = buildStageInserts([
       { label: 'Waiting for Approval', componentIndexes: [2, 3] },
       { label: 'Fulfillment', componentIndexes: [4] },
-    ], () => ids[next++]);
+    ], { idFactory: () => ids[next++], flowId: 'flow-1' });
 
-    assert.deepEqual(inserts.map(stage => ({
-      stageId: stage.stageId, label: stage.label, value: stage.value,
-      order: stage.order, system: stage.system, componentIndexes: stage.componentIndexes,
-      duration: stage.duration,
-    })), [
-      { stageId: 'stage-uuid-1', label: 'Waiting for Approval', value: 'waiting_for_approval', order: 0, system: false, componentIndexes: [2, 3], duration: '1970-01-01 00:00:00' },
-      { stageId: 'stage-uuid-2', label: 'Fulfillment', value: 'fulfillment', order: 1, system: false, componentIndexes: [4], duration: '1970-01-01 00:00:00' },
+    assert.deepEqual(inserts, [
+      {
+        stageId: 'stage-uuid-1', label: 'Waiting for Approval', value: 'waiting_for_approval',
+        type: 'standard', duration: '1970-01-01 00:00:00', ancestorArrPos: '0', flow: 'flow-1',
+        alwaysShow: true, order: 0, system: false, componentIndexes: [2, 3],
+        states: [
+          { label: 'Pending - has not started', name: 'pending' },
+          { label: 'In progress', name: 'in_progress' },
+          { label: 'Skipped', name: 'skipped' },
+          { label: 'Completed', name: 'complete' },
+          { label: 'Error', name: 'error' },
+        ],
+      },
+      {
+        stageId: 'stage-uuid-2', label: 'Fulfillment', value: 'fulfillment',
+        type: 'standard', duration: '1970-01-01 00:00:00', ancestorArrPos: '0', flow: 'flow-1',
+        alwaysShow: true, order: 1, system: false, componentIndexes: [4],
+        states: [
+          { label: 'Pending - has not started', name: 'pending' },
+          { label: 'In progress', name: 'in_progress' },
+          { label: 'Skipped', name: 'skipped' },
+          { label: 'Completed', name: 'complete' },
+          { label: 'Error', name: 'error' },
+        ],
+      },
     ]);
-    assert.deepEqual(inserts[0].states, {
-      pending: 'Pending - has not started', in_progress: 'In progress',
-      skipped: 'Skipped', complete: 'Completed', error: 'Error',
-    });
   });
 
   it('orders inserts by the manifest order field', () => {
-    const inserts = buildStageInserts([{ label: 'Second', order: 5 }, { label: 'First', order: 1 }], () => 'id');
+    const inserts = buildStageInserts([{ label: 'Second', order: 5 }, { label: 'First', order: 1 }], { idFactory: () => 'id' });
     assert.deepEqual(inserts.map(stage => [stage.label, stage.order]), [['First', 1], ['Second', 5]]);
+  });
+
+  it('reads stages from the object map ProcessFlow returns', () => {
+    // Live readback keys stages by stageId; a stage list is the same data.
+    const live = {
+      stages: {
+        '13c47d18-8c0c-4c98-9ee3-882eb4e9f35f': { stageId: '13c47d18-8c0c-4c98-9ee3-882eb4e9f35f', label: 'Request Approved', order: 2, componentIndexes: [] },
+        '07d8521a-1759-4260-8d2a-62ac163218d8': { stageId: '07d8521a-1759-4260-8d2a-62ac163218d8', label: 'Waiting for Approval', order: 3, componentIndexes: [2] },
+      },
+    };
+    assert.deepEqual(stageList(live).map(stage => stage.label), ['Request Approved', 'Waiting for Approval']);
+    assert.deepEqual(stageList({ stages: [{ stageId: 'a', label: 'Array form' }] }).map(stage => stage.label), ['Array form']);
+    assert.deepEqual(stageList({}), []);
+    assert.deepEqual(stageList(undefined), []);
   });
 
   it('places steps on an existing stage through stages.update', () => {
@@ -62,9 +90,10 @@ describe('flow stages', () => {
   it('creates stages through their own patch after the actions exist', () => {
     const mutation = buildFlowStageMutation({
       flowId: 'flow-1',
-      inserts: buildStageInserts([{ label: 'Delivery', componentIndexes: [1] }], () => 'inserted-uuid'),
+      inserts: buildStageInserts([{ label: 'Delivery', componentIndexes: [1] }], { idFactory: () => 'inserted-uuid', flowId: 'flow-1' }),
     });
     assert.match(mutation, /flowId: "flow-1", stages: \{insert: \[\{stageId: "inserted-uuid"/);
+    assert.match(mutation, /flow: "flow-1"/);
     assert.match(mutation, /componentIndexes: \[1\]/);
     assert.match(mutation, /stages \{ inserts \{ sysId \} \}/);
   });

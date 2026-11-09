@@ -101,7 +101,10 @@ export function flowsCmd(wrap) {
             if (identifier === undefined) return;
             const record = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
             const flowId = unwrapSysId(record);
-            const scope = argv.scope || getStringField(record, 'sys_scope') || 'global';
+            // resolveRecord reads display values; sending `Global` as a
+            // transaction scope is not a scope id. Prefer the raw value.
+            const rawScope = record?.sys_scope && typeof record.sys_scope === 'object' ? record.sys_scope.value : record?.sys_scope;
+            const scope = argv.scope || rawScope || 'global';
             const result = await readCatalogItemVariables(app.sdk, app.getEffectiveInstance(), flowId, catalogItem, { scope });
             app.ok(result, {
               summary: `${result.count} catalog variable(s) on ${catalogItem}; trigger catalog_variables input: ${result.catalog_variables_input || '(none)'}`,

@@ -204,16 +204,34 @@ export function buildFlowProperties(manifest) {
 // placed on that stage. `componentIndexes` is why a placement update must run
 // after the actions exist.
 const STAGE_DURATION = '1970-01-01 00:00:00';
-const STAGE_STATES = Object.freeze({
-  pending: 'Pending - has not started',
-  in_progress: 'In progress',
-  skipped: 'Skipped',
-  complete: 'Completed',
-  error: 'Error',
-});
+// ProcessFlow returns `states` as a list of {label, name}; the REST stage map
+// (PUT /processflow/flow/{id}/stages) returns it keyed by name. Sending the
+// keyed form is not what Flow Designer sends, so use the list on insert.
+const STAGE_STATES = [
+  { label: 'Pending - has not started', name: 'pending' },
+  { label: 'In progress', name: 'in_progress' },
+  { label: 'Skipped', name: 'skipped' },
+  { label: 'Completed', name: 'complete' },
+  { label: 'Error', name: 'error' },
+];
 const STAGE_KEYS = ['label', 'value', 'order', 'system', 'componentIndexes', 'stageId', 'duration', 'states'];
 
 const asBool = (value) => value === true || value === 'true';
+
+/**
+ * Stages as a list, whichever shape the definition uses.
+ *
+ * ProcessFlow readback carries `stages` as an object keyed by stageId; the REST
+ * stage map uses the same shape while a definition built in code may hold an
+ * array. Treating only the array form as data made a live flow look like it had
+ * no stages at all.
+ */
+export function stageList(definition) {
+  const stages = definition?.stages;
+  if (Array.isArray(stages)) return stages;
+  if (stages && typeof stages === 'object') return Object.values(stages).filter(stage => stage && typeof stage === 'object');
+  return [];
+}
 
 function stageValueFromLabel(label) {
   return String(label).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -254,7 +272,7 @@ export function validateStages(stages, { update = false } = {}) {
   return stages;
 }
 
-export function buildStageInserts(stages = [], idFactory = () => randomUUID()) {
+export function buildStageInserts(stages = [], { idFactory = () => randomUUID(), flowId } = {}) {
   return stages
     .map((stage, index) => ({ stage, index }))
     .sort((a, b) => (a.stage.order ?? a.index) - (b.stage.order ?? b.index))
@@ -262,10 +280,14 @@ export function buildStageInserts(stages = [], idFactory = () => randomUUID()) {
       stageId: idFactory(),
       label: String(stage.label).trim(),
       value: stage.value ?? stageValueFromLabel(stage.label),
+      type: 'standard',
+      duration: stage.duration ?? STAGE_DURATION,
+      ancestorArrPos: '0',
+      ...(flowId ? { flow: flowId } : {}),
+      alwaysShow: true,
       order: stage.order ?? index,
       system: stage.system ?? false,
       componentIndexes: stage.componentIndexes ?? [],
-      duration: stage.duration ?? STAGE_DURATION,
       states: stage.states ?? STAGE_STATES,
     }));
 }
@@ -530,7 +552,7 @@ function actionTypeIdOf(action) {
  */
 function assertStagesPlaced(processflow, stageInserts, flowId) {
   if (!stageInserts.length) return;
-  const saved = findArray(processflow, 'stages');
+  const saved = stageList(processflow);
   if (!saved.length) throw new Error(`Flow ${flowId} stage read-back returned no stages after placing ${stageInserts.length}`);
   for (const expected of stageInserts) {
     const matches = saved.filter(stage => stringValue(stage.stageId || stage.stage_id) === expected.stageId);
@@ -1116,7 +1138,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
 
     // Stages carry componentIndexes that name flow-step orders, so placement
     // runs after the actions exist — the same order Flow Designer uses.
-    const stageInserts = buildStageInserts(manifest.stages || [], idFactory);
+    const stageInserts = buildStageInserts(manifest.stages || [], { idFactory, flowId });
     if (stageInserts.length) {
       const stageResponse = await mutationContext('stage_placement', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
         method: 'POST',
@@ -1190,7 +1212,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const snapshots = [];
   const triggerUpdates = [];
   const actionUpdates = [];
-  const stageInserts = buildStageInserts((manifest.stages || []).filter(stage => stage.stageId === undefined), options.idFactory || (() => randomUUID()));
+  const stageInserts = buildStageInserts((manifest.stages || []).filter(stage => stage.stageId === undefined), { idFactory: options.idFactory || (() => randomUUID()), flowId });
   const stageUpdates = buildStageUpdates((manifest.stages || []).filter(stage => stage.stageId !== undefined));
   const changedActionInputs = new Map();
   const actionTargets = new Map();
@@ -1219,7 +1241,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     changedActionInputs.set(uiId, new Set(Object.keys(requested.inputs)));
     for (const [input, after] of Object.entries(requested.inputs)) changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
   }
-  const savedStages = findArray(beforeDefinition, 'stages');
+  const savedStages = stageList(beforeDefinition);
   const savedStageById = new Map(savedStages.map(stage => [stringValue(stage.stageId || stage.stage_id), stage]));
   for (const update of stageUpdates) {
     const before = savedStageById.get(update.stageId);
@@ -1274,7 +1296,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       }
       if (stageInserts.length || stageUpdates.length) {
         const requestedStageIds = new Set([...stageInserts.map(stage => stage.stageId), ...stageUpdates.map(stage => stage.stageId)]);
-        const untouched = definition => findArray(definition, 'stages')
+        const untouched = definition => stageList(definition)
           .filter(stage => !requestedStageIds.has(stringValue(stage.stageId || stage.stage_id)));
         if (!isDeepStrictEqual(untouched(beforeDefinition), untouched(processflow))) throw new Error(`Flow ${flowId} changed omitted stages; preservation failed`);
         assertStagesPlaced(processflow, [...stageInserts, ...stageUpdates.map(update => ({
