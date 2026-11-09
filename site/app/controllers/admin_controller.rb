@@ -15,6 +15,6 @@ class AdminController < BrowserController
     end
     redirect_to admin_path, notice: 'Video saved.'
   rescue ActiveRecord::RecordInvalid
-    redirect_to admin_path, alert: 'Use a full HTTPS video or watch-page URL.'
+    redirect_to admin_path, alert: FeatureVideo::URL_HELP
   end
 end
