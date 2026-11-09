@@ -1,13 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
 const fixture = new URL('./support/flow-designer-pty.js', import.meta.url).pathname;
 const driver = new URL('./support/flow-designer-pty-driver.py', import.meta.url).pathname;
 const script = new URL('./fixtures/interactive-action-script.js', import.meta.url).pathname;
+const cli = new URL('../bin/jsn.js', import.meta.url).pathname;
 const SCOPE = 'b'.repeat(32);
-function run(args, steps) {
-  const result = spawnSync('python3', [driver, JSON.stringify({ command: [process.execPath, fixture, ...args], steps })], { encoding: 'utf8', timeout: 60000 });
+function run(args, steps, options = {}) {
+  const result = spawnSync('python3', [driver, JSON.stringify({ command: [process.execPath, fixture, ...args], steps, ...options })], { encoding: 'utf8', timeout: 60000 });
   assert.equal(result.status, 0, result.stderr + result.stdout);
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.status, 0);
@@ -128,4 +132,38 @@ test('real PTY flow edit picks an inactive draft, reads its condition and confir
   assert.match(result.mutations[4].body.query, /safeEdit.*delete:/);
   assert.match(result.mutations[5].body.query, /safeEdit.*read:/);
   assert.equal(result.flow.triggerInstances[0].id, 'f'.repeat(32));
+});
+
+function isolated(readOnly) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-pty-actual-'));
+  const config = path.join(root, 'config');
+  fs.mkdirSync(path.join(config, 'servicenow'), { recursive: true });
+  fs.writeFileSync(path.join(config, 'servicenow', 'config.json'), JSON.stringify({
+    default_profile: 'fixture',
+    profiles: { fixture: { instance_url: 'https://example.invalid', auth_method: 'basic', username: 'fixture', read_only: readOnly, skip_confirmations: false } },
+  }));
+  return { root, env: { HOME: path.join(root, 'home'), XDG_CONFIG_HOME: config, PATH: process.env.PATH, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' } };
+}
+function runActual(args, env, options = {}) {
+  const result = spawnSync('python3', [driver, JSON.stringify({ command: [process.execPath, cli, ...args], steps: [], env, ...options })], { encoding: 'utf8', timeout: 60000 });
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  return JSON.parse(result.stdout);
+}
+test('actual binary read-only profile blocks guided flow creation under a TTY before any provider write', { skip }, t => {
+  const { root, env } = isolated(true);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const result = runActual(['flows', 'create', '--profile', 'fixture', '--json'], env, { expectResult: false });
+  assert.notEqual(result.status, 0);
+  assert.match(result.result.stdout, /read_only|read-only/i);
+  assert.doesNotMatch(result.result.stdout, /FAKE_WRITE|api\/now/i);
+});
+test('actual binary non-TTY JSON flow creation fails fast without prompts or provider traffic', { skip }, t => {
+  const { root, env } = isolated(false);
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [cli, 'flows', 'create', '--profile', 'fixture', '--json'], { encoding: 'utf8', env, timeout: 20000 });
+  assert.notEqual(result.status, 0);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.ok, false);
+  assert.ok(['usage_error', 'confirmation_required'].includes(payload.code), payload.code);
+  assert.doesNotMatch(result.stdout + result.stderr, /api\/now/);
 });

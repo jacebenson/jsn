@@ -10,6 +10,7 @@ import time
 spec = json.loads(sys.argv[1])
 master, slave = pty.openpty()
 env = dict(os.environ)
+env.update(spec.get('env', {}))
 for key in ('JSN_NO_PROMPTS', 'CI', 'NONINTERACTIVE', 'GITHUB_ACTIONS', 'CLAUDE_CODE', 'COPILOT_AGENT', 'VSCODE_AGENT', 'CURSOR_AGENT', 'CODEX_AGENT', 'GITHUB_COPILOT_AGENT'):
     env.pop(key, None)
 env['TERM'] = 'xterm-256color'
@@ -47,9 +48,12 @@ try:
         read_available(0.05)
     text = capture.decode(errors='replace')
     marker = 'PTY_RESULT='
-    if marker not in text:
+    if marker in text:
+        result = json.loads(text.split(marker, 1)[1].splitlines()[0])
+    elif spec.get('expectResult', True):
         raise AssertionError('No terminal result\n' + text)
-    result = json.loads(text.split(marker, 1)[1].splitlines()[0])
+    else:
+        result = {'stdout': text}
     print(json.dumps({'status': child.returncode, 'result': result}))
 finally:
     if child.poll() is None:
