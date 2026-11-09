@@ -232,6 +232,68 @@ function fixtures(ctx) {
   return stored.users;
 }
 
+function isInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+async function assertRunOutputRoot(ctx, expected = null) {
+  check(typeof ctx.outputDir === 'string' && path.isAbsolute(ctx.outputDir), 'Run output directory must be absolute');
+  const outputDir = path.resolve(ctx.outputDir);
+  const stat = await fs.lstat(outputDir);
+  check(stat.isDirectory() && !stat.isSymbolicLink(), 'Run output directory must be a real directory');
+  const real = await fs.realpath(outputDir);
+  const after = await fs.lstat(outputDir);
+  check(after.dev === stat.dev && after.ino === stat.ino && !after.isSymbolicLink(), 'Run output directory changed during validation');
+  check(await fs.realpath(outputDir) === real, 'Run output directory realpath changed during validation');
+  if (expected) {
+    check(real === expected.real && stat.dev === expected.dev && stat.ino === expected.ino, 'Run output directory was replaced during the adapter operation');
+  }
+  return { path: outputDir, real, dev: stat.dev, ino: stat.ino };
+}
+
+// The account root must be a real directory inside this run's output directory.
+// lstat+realpath+identity catch a symlinked or swapped root before any adapter
+// credential path is trusted.
+async function assertRunAccountRoot(ctx, root, label, outputIdentity = null) {
+  const output = outputIdentity ?? await assertRunOutputRoot(ctx);
+  check(typeof root === 'string' && path.isAbsolute(root), `${label} must be an absolute run-owned directory`);
+  const accountRoot = path.resolve(root);
+  check(path.relative(output.path, accountRoot) && isInside(output.path, accountRoot), `${label} must belong to the run-owned output directory`);
+  const stat = await fs.lstat(accountRoot);
+  check(stat.isDirectory() && !stat.isSymbolicLink(), `${label} must be a real run-owned directory`);
+  const rootReal = await fs.realpath(accountRoot);
+  check(path.relative(output.real, rootReal) && isInside(output.real, rootReal), `${label} resolves outside the run-owned output directory`);
+  const after = await fs.lstat(accountRoot);
+  check(after.dev === stat.dev && after.ino === stat.ino, `${label} changed during validation`);
+  await assertRunOutputRoot(ctx, output);
+  return { real: rootReal, dev: stat.dev, ino: stat.ino };
+}
+
+// Real-path containment for a credential file. Lexical containment alone
+// accepts a path through a parent symlink that points outside the account
+// directory; lstat alone follows parent symlinks and sees a regular file.
+async function assertProviderHeaders(ctx, fixture, file, label, identity, outputIdentity) {
+  check(typeof file === 'string' && path.isAbsolute(file), `${label} must be an absolute run-owned file path`);
+  const accountRoot = path.resolve(fixture.root);
+  const lexical = path.relative(accountRoot, path.resolve(file));
+  check(lexical && isInside(accountRoot, path.resolve(file)), `${label} must belong to this run-owned account directory`);
+  const parent = path.dirname(file);
+  const parentStat = await fs.lstat(parent);
+  check(parentStat.isDirectory() && !parentStat.isSymbolicLink(), `${label} parent must be a real directory`);
+  const parentReal = await fs.realpath(parent);
+  check(isInside(identity.real, parentReal), `${label} parent resolves outside this run-owned account directory`);
+  const stat = await fs.lstat(file);
+  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, `${label} must be in a private 0600 file`);
+  const rootNow = await fs.lstat(fixture.root);
+  check(!rootNow.isSymbolicLink() && rootNow.dev === identity.dev && rootNow.ino === identity.ino, `${label} account root changed during validation`);
+  const parentNow = await fs.lstat(parent);
+  check(parentNow.isDirectory() && !parentNow.isSymbolicLink() && parentNow.dev === parentStat.dev && parentNow.ino === parentStat.ino, `${label} parent changed during validation`);
+  const fileNow = await fs.lstat(file);
+  check(fileNow.isFile() && !fileNow.isSymbolicLink() && fileNow.dev === stat.dev && fileNow.ino === stat.ino, `${label} changed during validation`);
+  await assertRunOutputRoot(ctx, outputIdentity);
+}
+
 async function basicValid(ctx) {
   const [basic, cookie] = fixtures(ctx);
   const login = await ctx.command(['auth', 'login', '--basic', '--no-make-default', '--json'], { env: basic.env });
@@ -270,16 +332,19 @@ async function cookieValid(ctx) {
   if (typeof adapter?.acquire !== 'function') return blocked('No approved isolated browser-session acquisition adapter for the OAuth-created non-admin user; no personal browser/session may be reused');
   // Adapter owns real login and exact-ID session registration before returning.
   // Its result is a private headers-file, never token/cookie arguments.
+  const outputIdentity = await assertRunOutputRoot(ctx);
+  const rootIdentity = await assertRunAccountRoot(ctx, cookie.root, 'Provider session account root', outputIdentity);
   cookie.env = await makeIdentity(ctx, cookie, 'gck');
   const acquired = await adapter.acquire({ ctx, user: cookie, env: cookie.env });
+  await assertRunOutputRoot(ctx, outputIdentity);
+  await assertRunAccountRoot(ctx, cookie.root, 'Provider session account root', outputIdentity);
   check(['isolated-provider-login', 'isolated-browser-login'].includes(acquired?.source) && path.isAbsolute(acquired.headersFile || ''), 'Real isolated provider login evidence is required');
-  const relative = path.relative(cookie.root, acquired.headersFile);
-  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Provider headers must belong to this run-owned account directory');
-  const stat = await fs.lstat(acquired.headersFile);
-  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Provider headers must be in a private 0600 file');
+  await assertProviderHeaders(ctx, cookie, acquired.headersFile, 'Provider headers', rootIdentity, outputIdentity);
   const result = await ctx.command(['auth', 'login', '--gck', '--headers-file', acquired.headersFile, '--no-make-default', '--json'], { env: cookie.env });
   check(result.exitCode === 0, 'Cookie login failed');
   cookie.session = acquired;
+  cookie.rootIdentity = rootIdentity;
+  cookie.outputIdentity = outputIdentity;
   await assertPermissions(ctx, cookie, cookie.env, other);
   return { status: 'passed' };
 }
@@ -290,15 +355,20 @@ async function cookieExpired(ctx) {
   if (!cookie.session || typeof adapter?.expire !== 'function' || typeof adapter?.renew !== 'function') {
     return blocked('Requires a real acquired run-owned browser session and approved exact-session expiry/readback plus renewal adapters; corrupting a token is not expiry evidence');
   }
+  const outputIdentity = await assertRunOutputRoot(ctx, cookie.outputIdentity ?? null);
+  const rootIdentity = await assertRunAccountRoot(ctx, cookie.root, 'Renewed headers account root', outputIdentity);
+  if (cookie.rootIdentity) {
+    check(rootIdentity.real === cookie.rootIdentity.real && rootIdentity.dev === cookie.rootIdentity.dev && rootIdentity.ino === cookie.rootIdentity.ino,
+      'Renewed headers account root was replaced after acquisition');
+  }
   await adapter.expire({ ctx, user: cookie, session: cookie.session });
   const expired = await ctx.command(['records', 'list', '--table', 'sys_user', '--limit', '1', '--json'], { env: cookie.env });
   check(rejection(expired), 'Expired provider session was not rejected as authentication failure');
   const renewed = await adapter.renew({ ctx, user: cookie, env: cookie.env });
+  await assertRunOutputRoot(ctx, outputIdentity);
+  await assertRunAccountRoot(ctx, cookie.root, 'Renewed headers account root', outputIdentity);
   check(['isolated-provider-login', 'isolated-browser-login'].includes(renewed?.source) && path.isAbsolute(renewed.headersFile || ''), 'Renewal requires real isolated provider login evidence');
-  const relative = path.relative(cookie.root, renewed.headersFile);
-  check(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'Renewed headers must belong to the run-owned account directory');
-  const stat = await fs.lstat(renewed.headersFile);
-  check(stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600, 'Renewed provider headers require mode 0600');
+  await assertProviderHeaders(ctx, cookie, renewed.headersFile, 'Renewed headers', rootIdentity, outputIdentity);
   const refresh = await ctx.command(['auth', 'refresh', '--headers-file', renewed.headersFile, '--json'], { env: cookie.env });
   check(refresh.exitCode === 0, 'Browser-session CLI renewal failed');
   cookie.session = renewed;
