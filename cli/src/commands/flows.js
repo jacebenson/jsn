@@ -10,10 +10,28 @@ import { alignUpdateSetCapture } from '../context.js';
 import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
 import { releaseOwnFlowSafeEdit } from '../flow-safe-edit.js';
-import { errUsage } from '../errors.js';
+import { AppError, CodeAPI, CodeForbidden, errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
 
 const pickFlow = (argv, app, query = '') => pickDesignerRecord(argv, app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', argv.action ? 'action' : 'flow', query);
+
+// Rows the provider cascades when the sys_hub_flow record is deleted. Counted
+// before and after so the command reports what went with the flow.
+const FLOW_OWNED_TABLES = [
+  { table: 'sys_hub_flow_version', label: 'version', query: id => `flow=${id}` },
+  { table: 'sys_hub_action_instance_v2', label: 'action instance', query: id => `flow=${id}` },
+  { table: 'sys_hub_flow_logic_instance_v2', label: 'logic block', query: id => `flow=${id}` },
+  { table: 'sys_hub_flow_stage', label: 'stage', query: id => `flow=${id}` },
+  // Flow variables hang off `model`, not `flow`.
+  { table: 'sys_hub_flow_variable', label: 'flow variable', query: id => `model=${id}` },
+];
+
+function describeOwned(counts) {
+  const parts = Object.entries(counts)
+    .filter(([, count]) => count)
+    .map(([table, count]) => `${count} ${FLOW_OWNED_TABLES.find(entry => entry.table === table)?.label ?? table}${count === 1 ? '' : 's'}`);
+  return parts.length ? parts.join(', ') : 'nothing';
+}
 
 const FLOW_COMMANDS = [
   { name: 'schemas', description: 'Read live trigger catalog and input schemas' },
@@ -28,7 +46,7 @@ const FLOW_COMMANDS = [
   { name: 'update [identifier]', description: 'Update a draft, or a published flow whose definition reports write access (alias: edit)' },
   { name: 'doctor', description: 'Check whether this instance can publish flows at all' },
   { name: 'unlock [identifier]', description: 'Release this user\'s stale safe-edit session (orphaned lease) after a failed update' },
-  { name: 'delete [identifier]', description: 'Delete a flow (not implemented: use the Flow Designer UI)' },
+  { name: 'delete [identifier]', description: 'Delete a flow and the versions, actions, logic and stages it owns' },
 ];
 
 function flowInspectionAdapter(app) {
@@ -453,12 +471,53 @@ export function flowsCmd(wrap) {
         })
         .command({
           command: 'delete [identifier]',
-          describe: 'Delete a flow (not implemented: use the Flow Designer UI)',
+          describe: 'Delete a flow and everything that belongs to it',
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const identifier = await pickFlow(argv, app);
             if (identifier === undefined) return;
-            throw errUsage('Flow deletion requires the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to delete flows.');
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+              table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow',
+            }));
+            const [flow] = await app.sdk.list('sys_hub_flow', new URLSearchParams({
+              sysparm_query: `sys_id=${sysID}`,
+              sysparm_display_value: 'all',
+              sysparm_fields: 'sys_id,name,status,active,sys_scope',
+              sysparm_limit: '1',
+            }));
+            if (!flow) throw errUsage(`Flow ${identifier} (${sysID}) was not found`);
+            const name = getStringField(flow, 'name');
+            const active = getStringField(flow, 'active') === 'true';
+            const counted = async () => {
+              const counts = {};
+              for (const { table, query } of FLOW_OWNED_TABLES) {
+                counts[table] = await app.sdk.aggregateCount(table, query(sysID)).catch(() => null);
+              }
+              return counts;
+            };
+            const before = await counted();
+            const scopeName = getStringField(flow, 'sys_scope');
+            await confirmDesignerMutation(argv, app, `Delete flow "${name}" (${sysID})${active ? ', which is ACTIVE' : ''} and ${describeOwned(before)}? This cannot be undone.`);
+            try {
+              await app.sdk.delete('sys_hub_flow', sysID);
+            } catch (error) {
+              // The provider only deletes flows in the session's application scope.
+              if (/\b403\b|forbidden/i.test(error.message || '')) {
+                throw new AppError(CodeForbidden, `Flow "${name}" is in application scope ${scopeName ? `"${scopeName}"` : 'another scope'}; the provider refused the delete with HTTP 403. Switch to that scope first (jsn scopes), then retry. No delete was applied.`);
+              }
+              throw error;
+            }
+            const [stillThere] = await app.sdk.list('sys_hub_flow', new URLSearchParams({
+              sysparm_query: `sys_id=${sysID}`, sysparm_fields: 'sys_id', sysparm_limit: '1',
+            }));
+            if (stillThere) throw new AppError(CodeAPI, `Flow ${sysID} is still present after the delete request; nothing is reported as removed`);
+            const remaining = await counted();
+            const orphans = Object.entries(remaining).filter(([, count]) => count);
+            const removedText = describeOwned(before);
+            return app.ok({ flow: { id: sysID, name, active }, removed: before, remaining }, {
+              summary: `Deleted flow "${name}" (${sysID})${removedText === 'nothing' ? '' : ` with ${removedText}`}${orphans.length ? `; ${orphans.map(([table, count]) => `${count} ${table} row(s) remain`).join(', ')}` : ''}`,
+              breadcrumbs: [{ action: 'list', cmd: 'jsn flows list', description: 'List the remaining flows' }],
+            });
           }),
         })
         .epilogue('Run "jsn flows <command> --help" for details. In a terminal you can omit the target and pick\n'
