@@ -74,6 +74,12 @@ export async function syncFamily({ storage, family, source, republish = false } 
       writeJson(path.join(storage, 'status.json'), status);
       return status;
     }
+    // Only claim a new status after every existing artifact passed validation.
+    // The shared engine preserves prior fields in syncing/failed statuses, so
+    // first-build errors (and interruptions) retain identity for a safe retry.
+    // Never infer ownership from an existing unlabelled failure status.
+    const statusPath = path.join(storage, 'status.json');
+    if (!fs.existsSync(statusPath)) writeJson(statusPath, { release: family, state: 'syncing' });
     await syncDocumentation({ storage, source, branch: family });
     stampRelease(storage, family);
     return readJson(path.join(storage, 'status.json')) || { state: 'ready', release: family };

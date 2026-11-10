@@ -56,6 +56,74 @@ test('Git sync publishes additions, edits and deletions atomically and skips unc
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('a failed first family build retains identity and retries after upstream recovery', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-site-family-retry-'));
+  const source = path.join(dir, 'upstream');
+  const storage = path.join(dir, 'releases', 'brazil');
+  fs.mkdirSync(source, { recursive: true });
+  const git = (...args) => {
+    const result = spawnSync('git', ['-C', source, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  const commit = () => { git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture'); };
+  const statusPath = path.join(storage, 'status.json');
+  try {
+    git('init', '-b', 'brazil');
+    fs.writeFileSync(path.join(source, 'README'), 'Initially missing markdown');
+    commit();
+    await assert.rejects(syncFamily({ storage, source, family: 'brazil' }), /markdown/);
+    const failed = JSON.parse(fs.readFileSync(statusPath));
+    assert.equal(failed.state, 'failed');
+    assert.equal(failed.release, 'brazil');
+    assert.equal(fs.existsSync(path.join(storage, 'docs.sqlite3')), false);
+
+    fs.mkdirSync(path.join(source, 'markdown'));
+    const document = path.join(source, 'markdown', 'record.md');
+    fs.writeFileSync(document, '---\ntitle: Record\nbundle: api\n---\nRecovered documentation.');
+    commit();
+    const recovered = await syncFamily({ storage, source, family: 'brazil' });
+    assert.equal(recovered.state, 'ready');
+    assert.equal(recovered.release, 'brazil');
+    assert.equal(recovered.documents, 1);
+    assert.equal(recovered.revision, git('rev-parse', 'HEAD'));
+    const unchanged = await syncFamily({ storage, source, family: 'brazil' });
+    assert.equal(unchanged.changed, false);
+    fs.appendFileSync(document, '\nUpdated after recovery.');
+    commit();
+    const changed = await syncFamily({ storage, source, family: 'brazil' });
+    assert.equal(changed.changed, true);
+    assert.equal(changed.revision, git('rev-parse', 'HEAD'));
+    const republished = await syncFamily({ storage, source, family: 'brazil', republish: true });
+    assert.equal(republished.revision, changed.revision);
+    assert.equal(republished.changed, false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(storage, 'snapshots/manifest.json'))).release, 'brazil');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('initial unknown or foreign metadata is refused without writes, even when unsuccessful', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-site-family-unknown-'));
+  try {
+    for (const file of ['status.json', 'snapshots/manifest.json']) {
+      for (const value of [{}, { state: 'ready' }, { state: 'failed' }, { state: 'syncing' },
+        { release: 'australia', state: 'failed' }, { release: 'Brazil', state: 'syncing' }]) {
+        const storage = path.join(dir, 'brazil');
+        const target = path.join(storage, file);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        const bytes = JSON.stringify(value);
+        fs.writeFileSync(target, bytes);
+        const entries = fs.readdirSync(storage, { recursive: true });
+        for (const republish of [false, true]) {
+          await assert.rejects(syncFamily({ storage, source: path.join(dir, 'missing-source'), family: 'brazil', republish }), /family metadata/i);
+          assert.equal(fs.readFileSync(target, 'utf8'), bytes);
+          assert.deepEqual(fs.readdirSync(storage, { recursive: true }), entries);
+        }
+        fs.rmSync(storage, { recursive: true });
+      }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('one family syncs into its own storage and stamps its release on the published manifest', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-site-family-sync-'));
   const source = path.join(dir, 'upstream');
