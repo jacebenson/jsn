@@ -1,6 +1,7 @@
 // ServiceNow REST API client
 
 import { batchRead } from './sdk-batch.js';
+import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
 import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
 import { getStringField } from './helpers.js';
@@ -60,6 +61,7 @@ export class SDKClient {
     this.onMutation = opts.onMutation;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
+    this.includeReferenceLinks = opts.includeReferenceLinks === true;
     // Expected identity, used only to reject a recovery that lands on a
     // different account. Never serialized.
     this.username = opts.username || '';
@@ -380,7 +382,7 @@ export class SDKClient {
   }
 
   async list(table, params = {}, opts = {}) {
-    const query = new URLSearchParams(params).toString();
+    const query = tableReadParams(params, this).toString();
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
     const result = await this.request(endpoint, { method: 'GET', ...opts });
     return result?.result || [];
@@ -391,7 +393,7 @@ export class SDKClient {
   // table. Capture paths use this so an unexpected body becomes an unavailable
   // source instead of a complete-looking empty inventory.
   async listStrict(table, params = {}, opts = {}) {
-    const query = new URLSearchParams(params).toString();
+    const query = tableReadParams(params, this).toString();
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
     const response = await this.request(endpoint, { method: 'GET', ...opts });
     if (!response || typeof response !== 'object' || !Array.isArray(response.result)) {

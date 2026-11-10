@@ -94,6 +94,8 @@ export class OutputWriter {
     this.format = opts.format || FormatAuto;
     this.writer = opts.writer || process.stdout;
     this.jqFilter = opts.jqFilter || '';
+    this.verbose = opts.verbose === true;
+    this.raw = opts.raw === true;
   }
 
   getFormat() {
@@ -135,7 +137,9 @@ export class OutputWriter {
       const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
       const value = resolvePath(envelope, this.jqFilter);
       if (value === undefined) throw errExtractionNotFound(this.jqFilter);
-      this.writer.write(JSON.stringify(value, null, 2) + '\n');
+      const indent = this.verbose && !this.raw ? 2 : undefined;
+      const text = this.raw && typeof value === 'string' ? value : JSON.stringify(value, null, indent);
+      this.writer.write(text + '\n');
       return;
     }
 
@@ -173,7 +177,7 @@ export class OutputWriter {
     switch (format) {
       case FormatJSON:
       case FormatQuiet:
-        this.writer.write(JSON.stringify(resp, null, 2) + '\n');
+        this.writer.write(JSON.stringify(resp, null, this.verbose ? 2 : undefined) + '\n');
         break;
       case FormatMarkdown:
         this.writer.write(`**Error (${e.code})**: ${e.message}\n`);
@@ -184,7 +188,7 @@ export class OutputWriter {
           this.writer.write(colorRed(`Error (${e.code}): ${e.message}\n`));
           if (e.hint) this.writer.write(colorYellow(`Hint: ${e.hint}\n`));
         } else {
-          this.writer.write(JSON.stringify(resp, null, 2) + '\n');
+          this.writer.write(JSON.stringify(resp, null, this.verbose ? 2 : undefined) + '\n');
         }
     }
   }
@@ -217,11 +221,15 @@ export class OutputWriter {
   }
 
   writeJSON(data, opts) {
-    const resp = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
+    const resp = { ok: true, data };
+    if (this.verbose) {
+      resp.summary = opts.summary || '';
+      resp.breadcrumbs = opts.breadcrumbs || [];
+    }
     if (opts.notice) resp.notice = opts.notice;
     if (opts.context) resp.context = opts.context;
     if (opts.meta) resp.meta = opts.meta;
-    this.writer.write(JSON.stringify(resp, null, 2) + '\n');
+    this.writer.write(JSON.stringify(resp, null, this.verbose ? 2 : undefined) + '\n');
   }
 
   writeQuiet(data) {

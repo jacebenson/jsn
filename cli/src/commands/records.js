@@ -191,7 +191,7 @@ export function recordsCmd(wrap) {
               count: records.length,
               columns,
               records: displayRecords,
-              pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total } : {}) },
+              pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total, hasMore: argv.offset + argv.limit < total } : {}) },
               context: { instance_url: app.getEffectiveInstance() },
             }, {
               summary: `${records.length} record(s) from ${table}${total != null ? ` of ${total}` : ''}`,

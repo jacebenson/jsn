@@ -570,9 +570,29 @@ jsn auth modify work --read-only --no-include-counts --confirm-deletes --json
 | (default) | Terminal — styled tables |
 | `--json` | Pipelines, scripts |
 | `--markdown` | Documentation |
-| `--quiet` / `-q` | Data only, no envelope |
+| `--quiet` / `-S` | Data only, no envelope |
 | `--csv` | Spreadsheets (opens straight into Excel) |
-| `--get <path>` | Pull one value out of the JSON envelope — no jq (e.g. `--get "data.records.0.number"`) |
+| `--get <path>` / `--select <path>` | Extract a value, e.g. `--select 'data.records[0].number'` |
+| `--raw` | Print selected strings without JSON quotes |
+| `--verbose` | Restore JSON summaries, breadcrumbs and two-space indentation |
+
+JSON is compact by default and omits top-level `summary` and `breadcrumbs`.
+It retains record data, pagination, context and error details. Human formats
+are unchanged. Extraction accepts both `data.records[0].number` and
+`data.records.0.number`; non-string `--raw` results remain compact JSON.
+
+`-q` now means `--query`, not quiet. It works on commands that declare query
+support and errors on commands that do not. For example:
+
+```bash
+jsn records list --table incident -q 'active=true' --json
+jsn records list --table incident -q 'active=true' --select 'data.records[0].number' --raw
+```
+
+Table API list reads omit reference links by default. Add
+`--include-reference-links` to request the provider's reference-link objects.
+Counted list responses include `data.pagination.hasMore`; when totals are
+unavailable or disabled with `--no-count`, that field is omitted.
 
 ## Authentication
 

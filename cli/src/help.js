@@ -192,11 +192,12 @@ function renderFlags(options) {
   const lines = [];
   for (const spec of options) {
     if (spec.name === 'help') continue;
-    const alias = spec.alias.length ? `-${spec.alias.join(', -')}, ` : '';
+    const alias = spec.alias.map(name => `${name.length === 1 ? '-' : '--'}${name}`).join(', ');
+    const label = `${alias ? `${alias}, ` : ''}--${spec.name}`;
     const suffix = spec.name === 'format' && spec.choices.length
       ? ` [string: ${spec.choices.join(', ')}]`
       : ` [${spec.type}]`;
-    lines.push(`  ${`${alias}--${spec.name}`.padEnd(24)}${spec.description}${suffix}`);
+    lines.push(`  ${label.padEnd(Math.max(24, label.length + 1))}${spec.description}${suffix}`);
   }
   lines.push(`  ${'--help'.padEnd(24)}Show help${' [boolean]'}`);
   return `\nFLAGS\n${lines.join('\n')}`;

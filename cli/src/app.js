@@ -59,6 +59,7 @@ export class App {
       username: session?.username, authMethod: session?.profile?.auth_method,
     }), {
       domain: session?.domain || '',
+      includeReferenceLinks: this._authArgv?.includeReferenceLinks === true,
       username: session?.username || '',
       recovery: createAuthRecovery({ app: this, session }),
       onMutation: event => this.recordMutation(instance, session?.profileName, event),

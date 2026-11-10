@@ -62,7 +62,7 @@ async function runDelete(serverResponse) {
     });
     let result;
     try {
-      result = { code: 0, ...await exec(process.execPath, [cli, 'flows', 'delete', id, '--force', '--json'], { env, timeout: 20000 }) };
+      result = { code: 0, ...await exec(process.execPath, [cli, 'flows', 'delete', id, '--force', '--json', '--verbose'], { env, timeout: 20000 }) };
     } catch (error) {
       result = { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
     }

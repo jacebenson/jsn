@@ -19,7 +19,7 @@ function commandTree() {
 function jsonApp(sdk, { requireInstance = () => {} } = {}) {
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   return {
     app: {
       sdk,
@@ -160,7 +160,7 @@ test('flows show handler emits the normal Output envelope and formatted data', a
   inspection.catalogRecords = [{ sys_id: id, question_text: 'Permission type' }];
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   const app = {
     sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
     output,
@@ -185,7 +185,7 @@ test('flows show renders a draft whose label cache is JSON null', async () => {
   }, triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [] };
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   const app = {
     sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
     output,
@@ -209,7 +209,7 @@ test('flows list handler emits the normal JSON envelope for an interactive selec
     catalogRecords: [{ sys_id: id, question_text: 'Permission type' }] };
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   const app = {
     sdk: { aggregateCount: async () => 1, list: async () => [], inspectFlow: async () => inspection, inspectCustomAction: async () => null },
     output,

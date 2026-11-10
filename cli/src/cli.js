@@ -187,14 +187,18 @@ export function buildCLI() {
         description: 'Output in CSV format (shortcut for --format=csv)',
       },
       get: {
+        alias: 'select',
         type: 'string',
         description: 'Extract a JSON path from the output envelope (e.g. --get "data.records.0.number"); no jq needed',
       },
       quiet: {
         type: 'boolean',
         description: 'Output only data, no envelope (shortcut for --format=quiet)',
-        alias: 'q',
+        alias: 'S',
       },
+      verbose: { type: 'boolean', description: 'Keep machine-output coaching and pretty-print JSON' },
+      raw: { type: 'boolean', description: 'Print extracted strings without JSON quotes' },
+      'include-reference-links': { type: 'boolean', description: 'Include Table API reference links on reads' },
       styled: {
         type: 'boolean',
         description: 'Force styled output even when piped',
@@ -209,6 +213,8 @@ export function buildCLI() {
       // resolveRequestedFormat so the parse-time failure path applies the
       // identical policy instead of approximating it from raw tokens.
       (argv) => {
+        app.output.verbose = argv.verbose === true;
+        app.output.raw = argv.raw === true;
         const requested = resolveRequestedFormat(argv);
         if (requested) {
           argv.format = requested;
@@ -216,6 +222,10 @@ export function buildCLI() {
         }
         if (argv.get) {
           app.output.setJqFilter(argv.get);
+          if (!requested || requested === 'auto') {
+            app.output.setFormat('json');
+            argv.format = 'json';
+          }
         }
       },
       // --profile / --instance resolve through the SESSION (src/session.js).
@@ -234,6 +244,7 @@ export function buildCLI() {
           }
           app._authArgv = argv;
           applySession(app, session);
+          if (app.sdk) app.sdk.includeReferenceLinks = argv.includeReferenceLinks === true;
         } catch (err) {
           guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });
         }
@@ -548,6 +559,8 @@ export function buildCLI() {
       // negation) instead of re-scanning raw argv — one policy, one answer for
       // this command line no matter which layer rejects it.
       const formatArgv = cliInstance.parseGlobalOptions(raw);
+      app.output.verbose = formatArgv?.verbose === true;
+      app.output.raw = formatArgv?.raw === true;
       const requestedFormat = resolveRequestedFormat(formatArgv);
       if (msg === 'You must specify a command') {
         const hasLoneProfile = raw.some((a, i, arr) => {

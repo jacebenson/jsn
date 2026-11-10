@@ -1,22 +1,22 @@
 {
-  "commit": "5ce29ab",
-  "note": "Bytes produced by main when the command surface intentionally changed. Regenerate when the command surface or help layout intentionally changes.",
+  "commit": "0fb7f5f + query-parity",
+  "note": "Updated for query-parity global options and compact, trimmed JSON. Regenerate when the command surface or help layout intentionally changes.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 12036,
-    "json": 116417,
-    "quiet": 12036,
-    "csv": 12036,
-    "markdown": 12036,
-    "get": 12036
+    "help": 12284,
+    "json": 70603,
+    "quiet": 12284,
+    "csv": 12284,
+    "markdown": 12284,
+    "get": 12284
   },
   "sha256": {
-    "help": "7a775aed841e3f61a1c7928e7b363422f6cb95e9265e5b82669c94f8be89e30f",
-    "json": "e7c0600cf6877da24e9358f8c93bed4405896802cbf94bc4090893ed79532032",
-    "quiet": "7a775aed841e3f61a1c7928e7b363422f6cb95e9265e5b82669c94f8be89e30f",
-    "csv": "7a775aed841e3f61a1c7928e7b363422f6cb95e9265e5b82669c94f8be89e30f",
-    "markdown": "7a775aed841e3f61a1c7928e7b363422f6cb95e9265e5b82669c94f8be89e30f",
-    "get": "7a775aed841e3f61a1c7928e7b363422f6cb95e9265e5b82669c94f8be89e30f"
+    "help": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
+    "json": "02e19f6c0e36e516e2570c802657e949a33621e3aad1153f8f201d5714f19846",
+    "quiet": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
+    "csv": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
+    "markdown": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
+    "get": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1"
   },
   "json_command_count": 87
 }
