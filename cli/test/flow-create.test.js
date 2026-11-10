@@ -337,7 +337,10 @@ describe('flow update request shapes', () => {
               : { status: { canUserEdit: editLease, currentEditor: null } };
           return { data: { global: { snFlowDesigner: { safeEdit } } } };
         }
-        if (options.method === 'GET') return { result: { data: calls.some(call => call.options?.method === 'POST' && !JSON.parse(call.options.body).query?.includes('safeEdit(')) ? afterDefinition : baseDefinitionForRead } };
+        if (options.method === 'GET') {
+          if (endpoint.includes('/action/action_types/')) return { result: { inputs: actionSchema } };
+          return { result: { data: calls.some(call => call.options?.method === 'POST' && !JSON.parse(call.options.body).query?.includes('safeEdit(')) ? afterDefinition : baseDefinitionForRead } };
+        }
         if (endpoint.includes('/versioning/create_version')) return { result: { sys_id: 'version-update-1' } };
         assert.ok(editLease, 'does not have safe edit record for existing flow');
         return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId] } } } } } };
@@ -686,7 +689,7 @@ describe('flow update request shapes', () => {
 
   it('rejects unsupported fields, ambiguous actions, and protected targets before mutation', async () => {
     const { validateFlowUpdateManifest, updateFlowFromManifest } = await import('../src/flow-create.js');
-    assert.throws(() => validateFlowUpdateManifest({ errorHandling: {} }), /unsupported/i);
+    assert.throws(() => validateFlowUpdateManifest({ unsupportedField: {} }), /unsupported/i);
     assert.throws(() => validateFlowUpdateManifest({ actions: [{ inputs: { x: 'y' } }] }), /order and type/i);
     assert.throws(() => validateFlowUpdateManifest({ actions: [{ order: 1, type: 'Log', uiUniqueIdentifier: 'caller-id', inputs: { x: 'y' } }] }), /unsupported.*field|caller-supplied identities/i);
     const ambiguousDefinition = structuredClone(baseDefinition);
@@ -984,5 +987,51 @@ describe('flow update request shapes', () => {
     const { validateFlowUpdateManifest } = await import('../src/flow-create.js');
     assert.throws(() => validateFlowUpdateManifest({ stages: [{ label: 'One' }], stageTemplate: 'Requested Item' }), /not both/);
     assert.throws(() => validateFlowUpdateManifest({ stageTemplate: '  ' }), /non-empty string/);
+  });
+
+  it('validates errorHandling manifest and orchestrates Top Level Try/Catch with error pill bindings', async () => {
+    const { validateFlowUpdateManifest, validateErrorHandling, updateFlowFromManifest } = await import('../src/flow-create.js');
+    assert.throws(() => validateErrorHandling('not-an-object'), /must be an object/);
+    assert.throws(() => validateErrorHandling({ actions: 'not-an-array' }), /must be an array/);
+    assert.throws(() => validateErrorHandling({ actions: [{}] }), /requires type/);
+    validateErrorHandling({ actions: [{ type: 'Log' }] });
+
+    const definition = structuredClone(baseDefinition);
+    definition.labelCacheAsJsonString = '[]';
+    const after = structuredClone(definition);
+    let counter = 100;
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'gen-id-101.__status__.message',
+      label: '2 - Error Handler➛Error Status➛Message',
+      type: 'string',
+      base_type: 'string',
+      usedInstances: { 'gen-id-102': ['log_message'] },
+    }]);
+    const sdk = updateSdk(after, definition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      errorHandling: {
+        actions: [
+          {
+            type: 'Log',
+            inputs: {
+              log_message: 'Flow Error: {{error.message}}',
+            },
+          },
+        ],
+      },
+    }, { idFactory: () => `gen-id-${counter++}` });
+
+    assert.ok(result.changes.some(c => c.type === 'Top Level Try'));
+    assert.ok(result.changes.some(c => c.type === 'Top Level Catch'));
+    assert.ok(result.changes.some(c => c.component === 'errorAction' && c.type === 'Log'));
+
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected flowPatch mutation');
+    const query = JSON.parse(post.options.body).query;
+    assert.match(query, /definitionId: "e9060aa2c3013010ace8b740ad40dd51"/, 'Top Level Try included');
+    assert.match(query, /definitionId: "35d60003e6022010a5e40cdd1254dd23"/, 'Top Level Catch included');
+    assert.match(query, /parent: "gen-id-101"/, 'Error action parented to Catch block');
+    assert.match(query, /parent: "gen-id-100"/, 'Existing actions reparented to Try block');
+    assert.match(query, /labelCache: \{insert: \[.*gen-id-101\.__status__\.message.*\]\}/, 'Error message pill bound to labelCache');
   });
 });
