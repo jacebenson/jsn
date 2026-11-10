@@ -1091,6 +1091,7 @@ describe('flow update request shapes', () => {
       { name: 'forward Catch then Try and existing action move', manifest: { logic: [{ order: 4, type: 'catch', connectedToOrder: 2 }, { order: 2, type: 'try' }], actions: [{ order: 1, type: 'Log', parentOrder: 2, inputs: { log_message: 'moved' } }, { order: 5, type: 'Log', parentOrder: 4, inputs: { log_message: '{{step_4.__status__.message}}' } }] } },
       { name: 'If referencing a new earlier action', manifest: { actions: [{ order: 2, type: 'Log', inputs: { log_message: 'new' } }], logic: [{ order: 3, type: 'if', condition: '{{step_2.log_message}}=new' }] } },
       { name: 'If referencing a forward action', manifest: { logic: [{ order: 2, type: 'if', condition: '{{step_3.log_message}}=new' }], actions: [{ order: 3, type: 'Log', inputs: { log_message: 'new' } }] } },
+      { name: 'Else If connected to If with a parented child', manifest: { logic: [{ order: 2, type: 'if', condition: '{{step_3.log_message}}=new' }, { order: 4, type: 'else if', connectedToOrder: 2 }], actions: [{ order: 3, type: 'Log', parentOrder: 4, inputs: { log_message: 'new' } }] } },
     ];
     for (const c of cases) {
       const sdk = updateSdk(persistFlowPatch);
@@ -1099,7 +1100,7 @@ describe('flow update request shapes', () => {
       assert.doesNotMatch(query, /\{\{step_/, c.name);
       const patch = readFlowPatch(query);
       const logicByOrder = new Map(result.processflow.flowLogicInstances.map(l => [String(l.order), l]));
-      if (logicByOrder.has('4')) {
+      if (c.name.startsWith('forward Catch')) {
         assert.equal(logicByOrder.get('4').connectedTo, logicByOrder.get('2').uiUniqueIdentifier);
         assert.equal(result.processflow.actionInstances[0].parent, logicByOrder.get('2').uiUniqueIdentifier);
         assert.equal(patch.actions.insert[0].parent, logicByOrder.get('4').uiUniqueIdentifier);
@@ -1184,6 +1185,10 @@ describe('flow update request shapes', () => {
     const query = sdk.calls.map(c => c.options.body && JSON.parse(c.options.body).query).find(q => q?.includes('flowPatch:'));
     const patch = readFlowPatch(query);
     assert.equal(patch.actions.insert, undefined, 'rerun updates existing child rather than inserting a colliding step');
+    const overlapping = updateSdk(persistFlowPatch, before);
+    const combined = await updateFlowFromManifest(overlapping, 'https://example.service-now.com', flowId, { ...manifest, actions: [{ order: Number(before.actionInstances[1].order), type: 'Log', inputs: { log_level: 'warn' } }] });
+    assert.equal(combined.processflow.actionInstances[1].inputs[0].value.value, 'warn');
+    assert.equal(combined.processflow.actionInstances[1].inputs[1].value.value, 'error');
     const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'wrong'; return d; }, before);
     await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /omitted action/);
     assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);

@@ -822,7 +822,7 @@ function verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigg
     if (savedInputs.length !== expected.inputs.length) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input count did not match the installed schema`);
     for (const expectedInput of expected.inputs) {
       const actualInput = savedInputs.find(input => input.name === expectedInput.name);
-      if (!actualInput || inputRawValue(actualInput) !== inputRawValue(expectedInput)) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input ${expectedInput.name} did not match the requested value`);
+      if (!actualInput || !isDeepStrictEqual(inputRawValue(actualInput), inputRawValue(expectedInput))) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input ${expectedInput.name} did not match the requested value`);
     }
   }
 }
@@ -1389,7 +1389,7 @@ async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinitio
       if (existingLogics.filter(fl => String(fl.definitionId) === id).length > 1) throw new Error('Ambiguous existing error handling blocks');
     }
     if (Boolean(topTry) !== Boolean(topCatch)) throw new Error('Incomplete existing error handling pair; reconcile in Flow Designer before retrying');
-    if (topTry && (!topTry.uiUniqueIdentifier || !topCatch.uiUniqueIdentifier || !Number.isInteger(Number(topCatch.order)))) throw new Error('Malformed existing error handling identities');
+    if (topTry && (!stringValue(topTry.uiUniqueIdentifier || topTry.ui_unique_identifier) || !stringValue(topCatch.uiUniqueIdentifier || topCatch.ui_unique_identifier) || !Number.isInteger(Number(topCatch.order)))) throw new Error('Malformed existing error handling identities');
     if (topCatch?.connectedTo && topCatch.connectedTo !== topTry.uiUniqueIdentifier) throw new Error('Existing Catch is connected to a different Try');
     // 1. Ensure Top Level Try (order 0)
     let tryUiId = topTry ? stringValue(topTry.uiUniqueIdentifier || topTry.ui_unique_identifier) : '';
@@ -1560,7 +1560,7 @@ async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinitio
         const update = buildActionUpdate(existingChild, { ...eAction, inputs: errorInputs }, eIdx);
         actionUpdates.push(update);
         actionTargets.set(uiUniqueIdentifier, existingChild);
-        changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(errorInputs)));
+        changedActionInputs.set(uiUniqueIdentifier, new Set([...(changedActionInputs.get(uiUniqueIdentifier) || []), ...Object.keys(errorInputs)]));
         for (const [input, after] of Object.entries(errorInputs)) {
           changes.push({ component: 'errorAction', order: existingChild.order, type: eAction.type, input, before: inputRawValue(inputList(existingChild).find(i => i.name === input)), after });
           collectPills(after, uiUniqueIdentifier, input);
@@ -1635,7 +1635,7 @@ async function planManifestSteps({ manifest, beforeDefinition, existingActions, 
     if (new Set(targets.map(t => t.uiUniqueIdentifier)).size !== 1) throw new Error(`Conflicting ${label} aliases`);
     const target = targets[0];
     if (label === 'Catch' && !['07223332de022010ec58424b73829721', 'e9060aa2c3013010ace8b740ad40dd51'].includes(target.definitionId)) throw new Error('Catch target must be a Try block');
-    if (label === 'parent' && !Object.values(FLOW_LOGIC_DEFINITIONS).some(d => d.id === target.definitionId && /^(TRY|TOP_LEVEL_TRY|CATCH|TOP_LEVEL_CATCH|IF|ELSE|ELSE_IF)$/.test(d.type))) throw new Error('Parent target cannot contain children');
+    if (label === 'parent' && !Object.values(FLOW_LOGIC_DEFINITIONS).some(d => d.id === target.definitionId && /^(TRY|TOP_LEVEL_TRY|CATCH|TOP_LEVEL_CATCH|IF|ELSE|ELSEIF)$/.test(d.type))) throw new Error('Parent target cannot contain children');
     return target.uiUniqueIdentifier;
   };
   for (const l of logicSpecs) {
@@ -1686,7 +1686,7 @@ async function planManifestSteps({ manifest, beforeDefinition, existingActions, 
 
     const uiUniqueIdentifier = logicUiMap.get(String(l.order));
     const parentUiId = resolveLink([l.parent, l.parentOrder, l.parentUiId], 'parent', uiUniqueIdentifier);
-    const connectedTo = resolveLink([l.connectedTo, l.connectedToOrder], 'Catch', uiUniqueIdentifier);
+    const connectedTo = resolveLink([l.connectedTo, l.connectedToOrder], /catch$/.test(lType) ? 'Catch' : 'connection', uiUniqueIdentifier);
     // A Catch only works when it points at one specific Try instance. Falling
     // back to the definition id writes a link the instance cannot resolve, so
     // demand the pairing instead of guessing it.
@@ -2474,7 +2474,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
           const afterInput = inputList(readback).find(candidate => candidate.name === input.name);
           if (!afterInput) throw new Error(`Flow ${flowId} Action ${uiId} lost input ${input.name} during update`);
           if (!changed.has(input.name) && JSON.stringify(input) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} Action ${uiId} changed omitted input ${input.name}`);
-          if (changed.has(input.name) && inputRawValue(afterInput) !== inputRawValue(update.inputs.find(candidate => candidate.name === input.name))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
+          if (changed.has(input.name) && !isDeepStrictEqual(inputRawValue(afterInput), inputRawValue(update.inputs.find(candidate => candidate.name === input.name)))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
         }
       }
       completedStage = 'definition_verified';
