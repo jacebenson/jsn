@@ -35,6 +35,8 @@ test('Git sync publishes additions, edits and deletions atomically and skips unc
     result = await syncDocumentation({ storage, source });
     assert.equal(result.changed, false);
     assert.equal(fs.statSync(live).mtimeMs, before);
+    const legacy = await syncFamily({ storage, source, family: 'australia', republish: true });
+    assert.equal(legacy.release, 'australia', 'unlabelled legacy Australia metadata remains publishable');
     doc('keep', 'GlideRecord updated');
     doc('added', 'New API reference');
     fs.unlinkSync(path.join(source, 'markdown/remove.md'));
@@ -80,5 +82,32 @@ test('one family syncs into its own storage and stamps its release on the publis
     const republished = await syncFamily({ storage, family: 'brazil', source, republish: true });
     assert.equal(republished.changed, false);
     assert.equal(JSON.parse(fs.readFileSync(path.join(storage, 'snapshots', 'manifest.json'), 'utf8')).release, 'brazil');
+    for (const branch of ['australia', null, 'Brazil']) {
+      const db = new Database(path.join(storage, 'docs.sqlite3'));
+      db.prepare("DELETE FROM meta WHERE key='source_branch'").run();
+      if (branch !== null) db.prepare("INSERT INTO meta(key,value) VALUES('source_branch', ?)").run(branch);
+      db.close();
+      const before = ['docs.sqlite3', 'status.json', 'snapshots/manifest.json'].map(file => fs.readFileSync(path.join(storage, file)));
+      for (const republish of [true, false]) {
+        await assert.rejects(syncFamily({ storage, family: 'brazil', source, republish }), /family metadata/i);
+        before.forEach((bytes, i) => assert.deepEqual(fs.readFileSync(path.join(storage,
+          ['docs.sqlite3', 'status.json', 'snapshots/manifest.json'][i])), bytes));
+      }
+    }
+    const db = new Database(path.join(storage, 'docs.sqlite3'));
+    db.prepare("UPDATE meta SET value='brazil' WHERE key='source_branch'").run();
+    db.close();
+    for (const file of ['status.json', 'snapshots/manifest.json']) {
+      const target = path.join(storage, file);
+      const original = fs.readFileSync(target);
+      for (const metadata of ['{"release":"australia"}', '{}', '{broken']) {
+        fs.writeFileSync(target, metadata);
+        for (const republish of [false, true]) {
+          await assert.rejects(syncFamily({ storage, source, family: 'brazil', republish }));
+          assert.equal(fs.readFileSync(target, 'utf8'), metadata);
+        }
+      }
+      fs.writeFileSync(target, original);
+    }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

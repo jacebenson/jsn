@@ -169,6 +169,7 @@ class DocsReleasesTest < Minitest::Test
     FileUtils.mkdir_p(dir)
     File.binwrite(File.join(dir, name), bytes)
     File.write(File.join(dir, 'manifest.json'), manifest('brazil', BRAZIL_REVISION).merge('url' => "https://jsn.jace.pro/docs-index/artifacts/#{name}").to_json)
+    ENV['DOCS_RELEASES'] = 'brazil,australia,zurich'
 
     get '/docs-index/releases/brazil/manifest.json'
     assert_equal 200, last_response.status
@@ -184,6 +185,12 @@ class DocsReleasesTest < Minitest::Test
     get "/docs-index/releases/brazil/artifacts/#{name}"
     assert_equal 200, last_response.status
     assert_equal bytes, last_response.body.b
+    get '/docs-index/manifest.json'
+    assert_equal 200, last_response.status
+    assert_equal BRAZIL_REVISION, JSON.parse(last_response.body)['revision']
+    get "/docs-index/artifacts/#{name}"
+    assert_equal 200, last_response.status
+    assert_equal bytes, last_response.body.b
   end
 
   def test_legacy_default_snapshot_routes_keep_working
@@ -192,7 +199,7 @@ class DocsReleasesTest < Minitest::Test
     FileUtils.mkdir_p(File.join(@storage, 'snapshots'))
     File.binwrite(File.join(@storage, 'snapshots', name), bytes)
     File.write(File.join(@storage, 'snapshots', 'manifest.json'),
-      manifest('australia', DEFAULT_REVISION).merge('url' => "https://jsn.jace.pro/docs-index/artifacts/#{name}").to_json)
+      manifest('australia', DEFAULT_REVISION).except('release').merge('url' => "https://jsn.jace.pro/docs-index/artifacts/#{name}").to_json)
 
     get '/docs-index/manifest.json'
     assert_equal 200, last_response.status
@@ -248,6 +255,99 @@ class DocsReleasesTest < Minitest::Test
     assert_includes body, 'Zurich (archived)'
   end
 
+  def test_reordering_default_keeps_physical_corpora_and_legacy_build_history
+    legacy = DocsBuild.create!(revision: DEFAULT_REVISION, state: 'published', active: true,
+      manifest: manifest('australia', DEFAULT_REVISION).except('release'))
+    ENV['DOCS_RELEASES'] = 'brazil,australia,zurich'
+    [['brazil', BRAZIL_REVISION], ['australia', DEFAULT_REVISION], ['zurich', ZURICH_REVISION], [nil, BRAZIL_REVISION]].each do |family, revision|
+      get '/api/docs/search', { q: 'GlideRecord', release: family }.compact
+      assert_equal 200, last_response.status, family.inspect
+      data = JSON.parse(last_response.body)
+      assert_equal revision, data['revision']
+      assert_equal "#{family || 'brazil'}/gliderecord.md", data['results'].first['path']
+      get '/api/docs/status', { release: family }.compact
+      assert_equal revision, JSON.parse(last_response.body)['revision']
+    end
+    get '/docs-index/releases/australia/manifest.json'
+    assert_equal 200, last_response.status
+    assert_equal DEFAULT_REVISION, JSON.parse(last_response.body)['revision']
+    get '/docs-index/manifest.json'
+    assert_equal 503, last_response.status, 'Brazil must not inherit the legacy Australia build'
+    DocsBuild.promote!('brazil', BRAZIL_REVISION, manifest('brazil', BRAZIL_REVISION))
+    assert legacy.reload.active, 'Brazil promotion must not demote Australia history'
+    assert_nil legacy.release
+    DocsBuild.promote!('australia', 'aaaaaaa999', manifest('australia', 'aaaaaaa999'))
+    refute legacy.reload.active
+    get '/docs-index/manifest.json'
+    assert_equal BRAZIL_REVISION, JSON.parse(last_response.body)['revision']
+  end
+
+  def test_removing_legacy_family_never_reuses_its_flat_storage
+    ENV['DOCS_RELEASES'] = 'brazil,zurich'
+    get '/api/docs/search', q: 'GlideRecord'
+    assert_equal 200, last_response.status
+    assert_equal BRAZIL_REVISION, JSON.parse(last_response.body)['revision']
+    assert_equal File.join(@storage, 'releases', 'brazil'), DocsStorage.family_dir('brazil')
+    assert File.file?(File.join(@storage, 'docs.sqlite3'))
+  end
+
+  def test_wrong_missing_or_corrupt_family_metadata_is_not_served
+    file = File.join(@storage, 'releases', 'brazil', 'docs.sqlite3')
+    db = SQLite3::Database.new(file)
+    ['australia', nil, 'Brazil'].each do |branch|
+      db.execute("DELETE FROM meta WHERE key = 'source_branch'")
+      db.execute('INSERT INTO meta VALUES(?, ?)', ['source_branch', branch]) if branch
+      get '/api/docs/search', q: 'GlideRecord', release: 'brazil'
+      assert_equal 503, last_response.status, branch.inspect
+    end
+    db.close
+    File.binwrite(file, 'not sqlite')
+    get '/api/docs/search', q: 'GlideRecord', release: 'brazil'
+    assert_equal 503, last_response.status
+  ensure
+    db&.close unless db&.closed?
+  end
+
+  def test_snapshot_metadata_cannot_be_relabelled
+    dir = File.join(@storage, 'releases', 'brazil', 'snapshots')
+    FileUtils.mkdir_p(dir)
+    [manifest('australia', DEFAULT_REVISION), manifest('brazil', BRAZIL_REVISION).except('release'), []].each do |value|
+      File.write(File.join(dir, 'manifest.json'), value.to_json)
+      get '/docs-index/releases/brazil/manifest.json'
+      assert_equal 503, last_response.status
+    end
+    File.write(File.join(dir, 'manifest.json'), '{broken')
+    get '/docs-index/releases/brazil/manifest.json'
+    assert_equal 503, last_response.status
+  end
+
+  def test_flat_storage_rejects_an_explicitly_different_identity
+    db = SQLite3::Database.new(File.join(@storage, 'docs.sqlite3'))
+    db.execute('INSERT INTO meta VALUES(?, ?)', ['source_branch', 'brazil'])
+    db.close
+    get '/api/docs/search', q: 'GlideRecord', release: 'australia'
+    assert_equal 503, last_response.status
+    get '/api/docs/status', release: 'australia'
+    assert_equal 'unavailable', JSON.parse(last_response.body)['state']
+  end
+
+  def test_snapshot_artifact_symlinks_are_refused_on_both_routes
+    sentinel = File.join(@storage, 'owned-sentinel')
+    File.write(sentinel, 'private sentinel bytes')
+    name = "docs-#{BRAZIL_REVISION}-#{'d' * 64}.sqlite.gz"
+    ['snapshots', 'releases/brazil/snapshots'].each do |relative|
+      dir = File.join(@storage, relative)
+      FileUtils.mkdir_p(dir)
+      File.symlink(sentinel, File.join(dir, name))
+    end
+    ["/docs-index/artifacts/#{name}", "/docs-index/releases/brazil/artifacts/#{name}"].each do |url|
+      get url
+      assert_equal 404, last_response.status
+      refute_includes last_response.body, 'private sentinel bytes'
+    end
+    assert_equal 'private sentinel bytes', File.read(sentinel)
+  end
+
   private
 
   def manifest(release, revision)
@@ -269,6 +369,7 @@ class DocsReleasesTest < Minitest::Test
       CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
     SQL
     db.execute('INSERT INTO meta VALUES(?, ?)', ['source_revision', revision])
+    db.execute('INSERT INTO meta VALUES(?, ?)', ['source_branch', release]) unless release == 'australia'
     db.execute('INSERT INTO docs VALUES(1, ?, ?, ?, ?, ?, ?, ?)',
       [path, title, body, 'api', 'reference', release, { description: "#{title} summary.", product: 'API Reference' }.to_json])
     db.execute("INSERT INTO docs_fts(docs_fts) VALUES('rebuild')")

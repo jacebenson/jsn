@@ -10,13 +10,18 @@ class DocumentationIndex
   end
 
   def self.status(family = nil)
-    raw = JSON.parse(File.read(DocsStorage.status_path(family || DocsStorage.default_family)))
+    family ||= DocsStorage.default_family
+    DocsStorage.validate_index!(family)
+    raw = JSON.parse(File.read(DocsStorage.status_path(family)))
+    raise DocsStorage::InvalidIdentity, 'Unreadable documentation status.' unless raw.is_a?(Hash)
+    DocsStorage.validate_identity!(raw['release'], family) if raw.key?('release')
     raw.slice('state', 'checkedAt', 'publishedAt', 'documents', 'revision')
-  rescue Errno::ENOENT, JSON::ParserError
+  rescue Errno::ENOENT, JSON::ParserError, DocsStorage::InvalidIdentity
     { 'state' => 'unavailable' }
   end
 
   def self.open(family = nil)
+    DocsStorage.validate_index!(family || DocsStorage.default_family)
     worker = Rails.root.join('../cli/src/commands/docs/index-worker.js').to_s
     environment = { 'DOCS_STORAGE_DIR' => storage(family), 'JSN_DOCS_RELEASE' => nil }
     Open3.popen3(environment, ENV.fetch('NODE', 'node'), worker) do |input, output, error, thread|
@@ -29,7 +34,7 @@ class DocumentationIndex
         Process.kill('TERM', thread.pid) if thread.alive?
       end
     end
-  rescue IOError, SystemCallError, JSON::ParserError, Timeout::Error
+  rescue IOError, SystemCallError, JSON::ParserError, Timeout::Error, DocsStorage::InvalidIdentity
     raise Unavailable, 'Documentation search is temporarily unavailable.'
   end
 

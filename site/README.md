@@ -60,9 +60,15 @@ Configuration:
 - `DOCS_STORAGE_DIR`: persistent docs storage (default `site/storage/docs`).
 - `DOCS_RELEASES`: comma-separated release families, newest first (for example
   `australia,brazil,zurich,yokohama,xanadu,store`). The first entry is the
-  default served family. Each non-default family stores its own index,
+  default served family. Every family except legacy `australia` stores its own index,
   `snapshots/` and `status.json` under `DOCS_STORAGE_DIR/releases/<family>/`;
-  the default family keeps the original flat layout. Per-family publication
+  `australia` always keeps the original flat layout, even when it is not the
+  default or is removed from the registry. Changing the default never moves or
+  relabels existing corpora. The index's `meta.source_branch` identifies its
+  family; missing identity is accepted only for legacy flat Australia indexes.
+  Mismatched or unreadable identities fail instead of serving or republishing
+  another family's corpus. Legacy build rows without a release also belong to
+  Australia, not the configurable default. Per-family publication
   state lives in `DOCS_STORAGE_DIR/releases.json`. Removing a family from this
   list stops syncing it but does not delete its index, snapshots or archived
   state.

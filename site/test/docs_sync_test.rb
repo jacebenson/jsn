@@ -112,6 +112,42 @@ class DocsSyncTest < Minitest::Test
     assert_equal '2026-07-01T00:00:00Z', states['yokohama']['archivedAt']
   end
 
+  def test_reordered_default_sync_preserves_paths_and_revisions
+    original_paths = DocsStorage.families.to_h { |family| [family, DocsStorage.family_dir(family)] }
+    %w[australia brazil].each { |family| write_index(original_paths.fetch(family), revision: tips.fetch(family)) }
+    ENV['DOCS_RELEASES'] = 'brazil,australia,zurich'
+    calls = []
+    runner = lambda do |family, mode|
+      calls << [family, mode]
+      assert_equal original_paths.fetch(family), DocsStorage.family_dir(family)
+      assert_equal tips.fetch(family), JSON.parse(File.read(DocsStorage.status_path(family)))['revision']
+      [true, nil]
+    end
+    result = DocsSync.new(source: @source, node_runner: runner).run
+    assert result[:ok], result.inspect
+    assert_equal [['brazil', :republish], ['australia', :republish]], calls
+    assert_equal tips.fetch('brazil'), DocsStorage.read_states['brazil']['revision']
+    assert_equal tips.fetch('australia'), DocsStorage.read_states['australia']['revision']
+  end
+
+  def test_wrong_identity_prevents_sync_without_rewriting_corpus_or_history
+    dir = DocsStorage.family_dir('brazil')
+    write_index(dir, revision: tips.fetch('brazil'))
+    db = SQLite3::Database.new(File.join(dir, 'docs.sqlite3'))
+    db.execute("UPDATE meta SET value = 'australia' WHERE key = 'source_branch'")
+    db.close
+    write_states('brazil' => { 'state' => 'current', 'revision' => tips.fetch('brazil') })
+    before = File.binread(File.join(dir, 'docs.sqlite3'))
+    calls = []
+    result = DocsSync.new(git_runner: ->(_) { ['', nil] }, node_runner: ->(family, _) { calls << family; [true, nil] }).run
+    refute result[:ok]
+    assert_includes result[:results].find { |row| row['release'] == 'brazil' }['error'], 'mismatched'
+    refute_includes calls, 'brazil'
+    assert_equal before, File.binread(File.join(dir, 'docs.sqlite3'))
+    assert_equal 'current', DocsStorage.read_states['brazil']['state']
+    assert_equal tips.fetch('brazil'), DocsStorage.read_states['brazil']['revision']
+  end
+
   private
 
   def tips
@@ -157,6 +193,8 @@ class DocsSyncTest < Minitest::Test
       CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
     SQL
     db.execute('INSERT INTO meta VALUES(?, ?)', ['source_revision', revision])
+    family = dir == @storage ? 'australia' : File.basename(dir)
+    db.execute('INSERT INTO meta VALUES(?, ?)', ['source_branch', family])
     db.execute('INSERT INTO docs VALUES(1, ?, ?, ?, ?, ?, ?, ?)',
       ['gliderecord.md', 'GlideRecord guide', 'GlideRecord reference.', 'api', 'reference', File.basename(dir), '{}'])
     db.execute("INSERT INTO docs_fts(docs_fts) VALUES('rebuild')")

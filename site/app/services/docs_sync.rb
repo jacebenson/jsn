@@ -41,6 +41,7 @@ class DocsSync
   private
 
   def sync_family(family, states)
+    DocsStorage.validate_index!(family)
     previous = states[family] || {}
     tip, git_error = remote_tip(family)
     return failure(family, git_error) if git_error
@@ -103,8 +104,13 @@ class DocsSync
   end
 
   def status(family)
-    JSON.parse(File.read(DocsStorage.status_path(family)))
-  rescue Errno::ENOENT, JSON::ParserError
+    value = JSON.parse(File.read(DocsStorage.status_path(family)))
+    raise DocsStorage::InvalidIdentity, 'Unreadable documentation status.' unless value.is_a?(Hash)
+    DocsStorage.validate_identity!(value['release'], family) if value.key?('release')
+    value
+  rescue JSON::ParserError
+    raise DocsStorage::InvalidIdentity, 'Unreadable documentation status.'
+  rescue Errno::ENOENT
     {}
   end
 

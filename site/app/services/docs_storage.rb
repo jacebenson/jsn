@@ -1,5 +1,5 @@
 # One place that turns a documentation release family into its storage paths.
-# The default family keeps the original flat layout; every other family is
+# The legacy Australia family keeps the original flat layout; every other family is
 # additive under releases/<family>/ and is never rewritten in place.
 require 'fileutils'
 
@@ -8,6 +8,7 @@ class DocsStorage
   DEFAULT_FAMILY = 'australia'.freeze
 
   class UnknownRelease < StandardError; end
+  class InvalidIdentity < StandardError; end
 
   class << self
     def base
@@ -38,7 +39,28 @@ class DocsStorage
     end
 
     def family_dir(family = default_family)
-      family == default_family ? base : File.join(base, 'releases', family)
+      family == DEFAULT_FAMILY ? base : File.join(base, 'releases', family)
+    end
+
+    # source_branch is written by the shared sync engine, independently of
+    # document frontmatter. Only legacy Australia indexes may omit it.
+    def validate_index!(family)
+      file = index_path(family)
+      return unless File.file?(file)
+
+      db = SQLite3::Database.new(file, readonly: true)
+      branch = db.get_first_value("SELECT value FROM meta WHERE key = 'source_branch'")
+      validate_identity!(branch, family)
+    rescue SQLite3::Exception => e
+      raise InvalidIdentity, "Unreadable documentation identity: #{e.message}"
+    ensure
+      db&.close
+    end
+
+    def validate_identity!(identity, family)
+      return if identity == family || (identity.nil? && family == DEFAULT_FAMILY)
+
+      raise InvalidIdentity, 'Documentation family metadata is missing or mismatched.'
     end
 
     def index_path(family = default_family)

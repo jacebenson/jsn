@@ -1,4 +1,5 @@
 class SnapshotsController < ApplicationController
+  rescue_from DocsStorage::InvalidIdentity, with: -> { head :service_unavailable }
   def show
     family = selected_release
     return head :not_found unless family
@@ -22,9 +23,14 @@ class SnapshotsController < ApplicationController
     filename = params[:filename].to_s
     return head :not_found unless /\Adocs-[a-f0-9]{7,64}-[a-f0-9]{64}\.sqlite\.gz\z/.match?(filename)
     file = File.join(DocsStorage.snapshots_dir(family), filename)
-    return head :not_found unless File.file?(file)
+    snapshots = DocsStorage.snapshots_dir(family)
+    return head :not_found unless File.lstat(snapshots).directory?
+    directory = File.realpath(snapshots)
+    return head :not_found unless File.lstat(file).file? && File.realpath(file) == File.join(directory, filename)
     expires_in 1.year, public: true, immutable: true
     send_file file, type: 'application/gzip', disposition: 'attachment'
+  rescue Errno::ENOENT, Errno::ENOTDIR, Errno::ELOOP
+    head :not_found
   end
 
   private
@@ -40,24 +46,32 @@ class SnapshotsController < ApplicationController
   def published_manifest(family)
     if (manifest = file_manifest(family))
       return nil unless manifest.is_a?(Hash)
+      DocsStorage.validate_identity!(manifest['release'], family)
       manifest = manifest.merge('release' => family)
       manifest['url'] = local_artifact_url(manifest, family) if manifest['url'].present?
       return manifest
     end
-    promoted_manifest(family)&.merge('release' => family)
+    manifest = promoted_manifest(family)
+    return unless manifest
+    DocsStorage.validate_identity!(manifest['release'], family)
+    manifest.merge('release' => family)
   end
 
   def file_manifest(family)
     file = DocsStorage.manifest_path(family)
     return nil unless File.file?(file)
-    JSON.parse(File.read(file))
-  rescue JSON::ParserError, Errno::ENOENT
+    value = JSON.parse(File.read(file))
+    raise DocsStorage::InvalidIdentity, 'Unreadable snapshot metadata.' unless value.is_a?(Hash)
+    value
+  rescue JSON::ParserError
+    raise DocsStorage::InvalidIdentity, 'Unreadable snapshot metadata.'
+  rescue Errno::ENOENT
     nil
   end
 
   def promoted_manifest(family)
     build = DocsBuild.where(active: true, state: 'published', release: family).first
-    build ||= DocsBuild.where(active: true, state: 'published', release: nil).first if family == DocsStorage.default_family
+    build ||= DocsBuild.where(active: true, state: 'published', release: nil).first if family == DocsStorage::DEFAULT_FAMILY
     build&.manifest
   end
 

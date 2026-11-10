@@ -8,11 +8,11 @@ class DocsBuild < ApplicationRecord
     validate_manifest!(release, revision, manifest)
     transaction do
       previous = where(release: release)
-      # Rows written before the release column belong to the default family.
-      previous = previous.or(where(release: nil)) if release == DocsStorage.default_family
+      # Rows written before the release column belong to legacy Australia.
+      previous = previous.or(where(release: nil)) if release == DocsStorage::DEFAULT_FAMILY
       previous.update_all(active: false)
       build = find_by(release: release, revision: revision)
-      build ||= find_by(release: nil, revision: revision) if release == DocsStorage.default_family
+      build ||= find_by(release: nil, revision: revision) if release == DocsStorage::DEFAULT_FAMILY
       build ||= new(revision: revision)
       build.update!(release: release, state: 'published', manifest: manifest, active: true)
     end
