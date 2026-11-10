@@ -625,6 +625,15 @@ resolving values. Step orders are manifest aliases, not provider parent or Catch
 connection identities. Parent targets must be child-capable logic; Catch targets
 must be Try blocks. Missing, ambiguous, conflicting or cyclic links are refused
 before writes. Forward references use the same allocation pass as earlier steps.
+The final surviving existing-plus-new plan is checked across both step sources,
+excluding deletions. Each Catch pairs uniquely with a compatible sibling Try;
+parent ancestry and connection contradictions reject before acquiring a lease.
+Explicit top-level Try/Catch declarations cannot be combined with errorHandling.
+Condition fields belong only to If/Else If and assignment values only to Set Flow
+Variables. Assignment values use the existing string/pill wire contract (not
+arbitrary object coercion), resolve allocated identities and register their pill
+bindings. Insert readback verifies supplied schema, metadata, wrapper mode/payload
+and assignment content before Autosave; partial updates retain their narrow shape.
 
 ## Flow safe-edit session
 

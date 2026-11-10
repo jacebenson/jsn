@@ -958,6 +958,13 @@ function validateLogicManifest(manifest) {
     orders.add(l.order);
     if (l.type !== undefined && l.name !== undefined && String(l.type).toLowerCase().trim() !== String(l.name).toLowerCase().trim()) throw new Error('Conflicting logic type/name aliases');
     if (!FLOW_LOGIC_DEFINITIONS[String(l.type || l.name || '').toLowerCase().trim()]) throw new Error('Unsupported flow logic type');
+    const logicType = String(l.type || l.name).toLowerCase().trim();
+    const labels = ['condition_name', 'conditionName', 'label'].filter(k => l[k] !== undefined);
+    if (labels.some(k => typeof l[k] !== 'string') || new Set(labels.map(k => l[k])).size > 1) throw new Error('Conflicting or malformed condition label aliases');
+    if (![ 'if', 'else if' ].includes(logicType) && (l.condition !== undefined || labels.length)) throw new Error('Condition fields are supported only on If and Else If');
+    if (l.values !== undefined && logicType !== 'set flow variables') throw new Error('Assignment values are supported only on Set Flow Variables');
+    if (l.values && Object.values(l.values).some(v => typeof v !== 'string')) throw new Error('Assignment values must be strings (literal or supported pill reference)');
+    if ((manifest.errorHandling !== undefined || manifest.errorHandler !== undefined) && ['top level try', 'top level catch'].includes(logicType)) throw new Error('Explicit top-level error blocks conflict with errorHandling');
     if (l.condition !== undefined && typeof l.condition !== 'string') throw new Error('Logic condition must be a string');
     if (l.values !== undefined && (!l.values || typeof l.values !== 'object' || Array.isArray(l.values))) throw new Error('Logic values must be an object');
     for (const key of ['parent', 'parentOrder', 'parentUiId', 'connectedTo', 'connectedToOrder']) if (l[key] !== undefined && !((typeof l[key] === 'string' && l[key].trim()) || (Number.isInteger(l[key]) && l[key] > 0))) throw new Error(`Malformed logic ${key}`);
@@ -1360,6 +1367,25 @@ function validateFinalStepPlan(before, actionInserts, actionUpdates, actionDelet
     if (s.order !== undefined) orders.add(order);
     if (ui) identities.add(ui);
   }
+  const byUi = new Map(steps.map(s => [stringValue(s.uiUniqueIdentifier || s.ui_unique_identifier), s]));
+  const paired = new Set();
+  const parentOf = s => stringValue(s.parentUiId || s.parent);
+  for (const step of steps) {
+    if (step.parent && step.parentUiId && step.parent !== step.parentUiId) throw new Error('Conflicting final parent aliases');
+    const seen = new Set([stringValue(step.uiUniqueIdentifier || step.ui_unique_identifier)]);
+    let parent = parentOf(step);
+    while (parent && byUi.has(parent)) {
+      if (seen.has(parent)) throw new Error('Cyclic final parent links');
+      seen.add(parent); parent = parentOf(byUi.get(parent));
+    }
+    const catchType = { '35d60003e6022010a5e40cdd1254dd21': '07223332de022010ec58424b73829721', '35d60003e6022010a5e40cdd1254dd23': 'e9060aa2c3013010ace8b740ad40dd51' }[step.definitionId];
+    if (!catchType) continue;
+    const target = byUi.get(stringValue(step.connectedTo));
+    if (!target || target.definitionId !== catchType) throw new Error('Catch must connect to a compatible Try');
+    if (paired.has(step.connectedTo)) throw new Error('Ambiguous Catch pair: Try already paired');
+    paired.add(step.connectedTo);
+    if (parentOf(target) !== parentOf(step)) throw new Error('Catch and Try must be siblings with compatible parents');
+  }
 }
 
 function assertStepReadback(definition, expectedSteps, kind, flowId) {
@@ -1374,6 +1400,7 @@ function assertStepReadback(definition, expectedSteps, kind, flowId) {
       const value = key === 'actionTypeSysId' ? actionTypeIdOf(actual) : actual[key];
       if (String(value ?? '') !== String(expected[key])) throw new Error(`Flow ${flowId} ${kind} ${expected.uiUniqueIdentifier} ${key} did not match requested value`);
     }
+    if (expected.flowVariables && !requestedContentMatches(actual.flowVariables, expected.flowVariables)) throw new Error(`Flow ${flowId} ${kind} assignments did not match requested content`);
     if (expected.inputs) {
       for (const input of expected.inputs) {
         const found = inputList(actual).filter(i => i.name === input.name);
@@ -1737,12 +1764,14 @@ async function planManifestSteps({ manifest, beforeDefinition, existingActions, 
     const flowVarsArray = [];
     if (lType === 'set flow variables' && l.values) {
       for (const [varName, varVal] of Object.entries(l.values)) {
+        const resolvedValue = resolveStepValue(varVal);
+        collectPills(resolvedValue, uiUniqueIdentifier, varName);
         flowVarsArray.push({
           id: '',
           name: varName,
           children: [],
           displayValue: { value: '' },
-          value: { schemaless: false, schemalessValue: '', value: String(varVal) }
+          value: { schemaless: false, schemalessValue: '', value: resolvedValue }
         });
       }
     }

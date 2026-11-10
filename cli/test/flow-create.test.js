@@ -1252,6 +1252,22 @@ describe('error handling create persistence', () => {
     };
     return sdk;
   }
+  it('verifies Set Flow Variables assignments through public create before Autosave', async () => {
+    for (const mutate of [
+      d => { delete d.flowLogicInstances[0].flowVariables; return d; },
+      d => { d.flowLogicInstances[0].flowVariables[0].value.value = 'wrong'; return d; },
+      d => { d.flowLogicInstances[0].flowVariables[0].value.schemaless = true; return d; },
+    ]) {
+      const sdk = createSdk(mutate);
+      let n = 0;
+      await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, logic: [{ order: 2, type: 'set flow variables', values: { message: '42' } }] }, { ...options, idFactory: () => `generated-${++n}` }));
+      assert.equal(sdk.calls.filter(c => c.endpoint?.includes('/versioning/create_version')).length, 0);
+    }
+    const sdk = createSdk();
+    let n = 0;
+    const r = await createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, logic: [{ order: 2, type: 'set flow variables', values: { message: '{{step_1.log_message}}' } }] }, { ...options, idFactory: () => `generated-${++n}` });
+    assert.equal(r.processflow.flowLogicInstances[0].flowVariables[0].value.value, `{{${r.processflow.actionInstances[0].uiUniqueIdentifier}.log_message}}`);
+  });
   it('creates persisted Try/Catch, main/error children and friendly error pills without publishing', async () => {
     const sdk = createSdk();
     let n = 0;
