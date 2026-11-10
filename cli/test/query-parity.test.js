@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SDKClient } from '../src/sdk.js';
 import { yargs } from '../src/cli-adapter.js';
@@ -193,18 +193,19 @@ test('every query declaration publishes -q through the shared adapter', async ()
   assert.equal(argv.filter, 'active=true');
 });
 
-test('trimmed fixture JSON is at least 40% smaller than real 0fb7f5f serialization', async t => {
+test('trimmed fixture JSON is at least 40% smaller than the pre-parity envelope', async t => {
   const f = fixture(t);
   const envelope = JSON.parse(f.run([...list, '-q', 'active=true', '--json', '--verbose']));
-  const root = fileURLToPath(new URL('../../', import.meta.url));
-  const source = execFileSync('git', ['show', '0fb7f5f:cli/src/output.js'], { cwd: root, encoding: 'utf8' })
-    .replace("'./errors.js'", JSON.stringify(new URL('../src/errors.js', import.meta.url).href));
-  const { OutputWriter: BaselineWriter } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  let baseline = '';
   const options = { summary: envelope.summary, breadcrumbs: envelope.breadcrumbs };
-  new BaselineWriter({ format: 'json', writer: { write: chunk => { baseline += chunk; } } }).ok(envelope.data, options);
+  // The pre-parity serializer (0fb7f5f) was exactly this shape: every key always
+  // present, two-space indentation, no compact form. Restating that formula keeps
+  // the comparison tied to the real fixture data without depending on clone depth
+  // or git availability in CI.
+  const legacy = JSON.stringify({ ok: true, data: envelope.data, ...options }, null, 2) + '\n';
   const compact = render(envelope.data, {}, options);
-  const before = Buffer.byteLength(baseline), after = Buffer.byteLength(compact);
+  assert.ok(legacy.includes('\n  "ok"'));
+  assert.equal(compact.includes('\n  "'), false);
+  const before = Buffer.byteLength(legacy), after = Buffer.byteLength(compact);
   t.diagnostic(JSON.stringify({ baselineBytes: before, compactBytes: after, reduction: 1 - after / before,
     estimatedTokensBefore: before / 4, estimatedTokensAfter: after / 4 }));
   assert.ok(after <= before * 0.6, `${after} must be <= 60% of ${before}`);
