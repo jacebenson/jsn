@@ -80,7 +80,7 @@ it('Basic and OAuth CLI workflows preserve credentials, settings, defaults, PKCE
     const missing = await run(['auth', 'modify', 'basic', '--json'], 2);
     assert.equal(missing.code, 'usage_error');
 
-    const authorization = await run(['auth', 'login', instance, '--name', 'oauth', '--oauth', '--print-url', '--json']);
+    const authorization = await run(['auth', 'login', instance, '--name', 'oauth', '--oauth', '--print-url', '--json', '--verbose']);
     const authURL = new URL(authorization.data.authorization_url);
     expectedChallenge = authURL.searchParams.get('code_challenge');
     assert.equal(authURL.searchParams.get('code_challenge_method'), 'S256');

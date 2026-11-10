@@ -51,7 +51,7 @@ export function ticketsCmd(wrap) {
               count: records.length,
               columns,
               records: displayRecords,
-              pagination: { limit: argv.limit, offset: argv.offset },
+              pagination: { limit: argv.limit, offset: argv.offset, hasMore: records.length === argv.limit },
               context: { instance_url: app.getEffectiveInstance() },
             }, { summary: `${records.length} ticket(s)`, breadcrumbs });
           }),

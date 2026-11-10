@@ -56,7 +56,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
                   count: 0,
                   columns: pickerColumns,
                   records: [],
-                  pagination: { limit, offset: 0 },
+                  pagination: { limit, offset: 0, hasMore: false },
                   context: { instance_url: app.getEffectiveInstance() },
                 }, {
                   summary: `0 ${table}(s)`,
@@ -115,7 +115,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               count: records.length,
               columns,
               records: displayRecords,
-              pagination: { limit, offset },
+              pagination: { limit, offset, hasMore: records.length === limit },
               context: { instance_url: app.getEffectiveInstance() },
             }, {
               summary: `${records.length} ${table}(s)`,

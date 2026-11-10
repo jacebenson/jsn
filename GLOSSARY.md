@@ -353,7 +353,23 @@ set. A flow's explicit transaction scope does not select its capture update set.
 
 Everything a command emits goes through `app.output` (`src/output.js`).
 Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
-(JSON path into the envelope — jsn's jq substitute).
+(or `--select`) for JSON path extraction into the envelope.
+
+Machine JSON is compact and omits top-level `summary` and `breadcrumbs`.
+`--verbose` restores those coaching fields and two-space JSON indentation.
+Record data, pagination, context, notices, errors and metadata are retained.
+Extraction uses the same resolver for dotted and bracket array indexes;
+`--raw` prints selected strings without quotes and other selected values as
+compact JSON. Extraction bypasses interactive selection. Human formats and
+quiet's data-only shape are unchanged; quiet's short flag is now `-S`.
+The adapter gives every declared `query` option the `-q` alias and rejects
+`-q` on commands without query support.
+
+Table API list reads suppress reference links by default through shared read
+parameters. `--include-reference-links` omits that default; explicit provider
+parameters from metadata and inspection callers still take precedence. Write
+requests are unchanged. Counted list pagination adds boolean `hasMore`, derived
+from offset, limit and total without another request. Unknown totals omit it.
 
 - **Typed shapes / side-channel keys** — the declared way a command tells the
   styled writer what it's emitting: `records`/`columns`/`table`, `relationships`,

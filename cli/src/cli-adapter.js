@@ -4,6 +4,10 @@ import { renderSubcommandHelp } from './help.js';
 
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const names = (x) => typeof x === 'string' ? [x] : (x || []);
+// Query shorthand belongs only to commands that declare the query option.
+const optionSpec = (name, config = {}) => ({ ...config, name,
+  ...(name === 'query' ? { alias: [...new Set([...names(config.alias), 'q'])] } : {}),
+});
 
 /**
  * A repeatable option may be declared either way: `type: 'array'` (this
@@ -89,7 +93,7 @@ class CommandNode {
         node.register(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
         return this;
       },
-      option(name, config = {}) { node.options.set(name, { ...config, name }); return this; },
+      option(name, config = {}) { node.options.set(name, optionSpec(name, config)); return this; },
       options(config = {}) { for (const [name, value] of Object.entries(config)) this.option(name, value); return this; },
       positional(name, config = {}) { node.positionals.set(name, { ...config, name }); return this; },
       demandCommand(count, message) { node.demand = { count, message }; return this; },
@@ -119,7 +123,7 @@ export class LocalCLI {
   usage(value) { this.root.usageText = value; return this; }
   epilogue(value) { this.root.epilogueText = value; return this; }
   middleware(fn) { this.middlewares.push(...(Array.isArray(fn) ? fn : [fn])); return this; }
-  option(name, config) { this.root.options.set(name, { ...config, name }); return this; }
+  option(name, config) { this.root.options.set(name, optionSpec(name, config)); return this; }
   options(config) { for (const [name, value] of Object.entries(config)) this.option(name, value); return this; }
   command(definition, builder, handler) {
     this.root.register(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
@@ -238,6 +242,10 @@ export class LocalCLI {
     catch (err) { this._fail(err.message, err); return { values: {}, positionals: [] }; }
     const argv = { _: path.map((n) => n.name) };
     for (const [key, value] of Object.entries(parsed.values)) {
+      if (opts.validate !== false && key === 'q' && !options.has('q')) {
+        this._fail('Option -q (--query) is not supported by this command.');
+        return null;
+      }
       const spec = this._specFor(options, key, value);
       if (this._assign(argv, key, value, spec, opts) === false) return null;
     }

@@ -140,7 +140,12 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
     const start = requests.length;
     const page = await run([...command, '--columns', 'number,assigned_to', '--limit', '1', '--offset', '1', '--display-values', 'both']);
     assert.equal(page.data.records[0].number, 'INC002');
-    assert.deepEqual(page.data.pagination, { limit: 1, offset: 1 });
+    // A ticket read reports page fullness (records.length === limit) because it
+    // has no count to compare against; the --no-count records read cannot know.
+    const expectedPagination = command[0] === 'records'
+      ? { limit: 1, offset: 1 }
+      : { limit: 1, offset: 1, hasMore: true };
+    assert.deepEqual(page.data.pagination, expectedPagination);
     const reads = requests.slice(start).filter(request => request.url.pathname.startsWith('/api/now/'));
     assert.equal(reads.length, 1, 'one page read, no count, metadata or eager relationships');
     assert.equal(reads[0].url.searchParams.get('sysparm_offset'), '1');

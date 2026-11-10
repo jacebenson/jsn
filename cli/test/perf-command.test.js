@@ -37,7 +37,7 @@ function appFor(sdk = sdkFor()) {
       callback();
     },
   });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   return {
     app: {
       sdk,

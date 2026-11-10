@@ -413,7 +413,7 @@ describe('#264 follow-up: parse-time and handler-time failures agree on formatti
   it('the adapter resolves global flags with the parser, not a raw token scan', () => {
     const cli = yargs([]).options({
       json: { type: 'boolean' },
-      quiet: { type: 'boolean', alias: 'q' },
+      quiet: { type: 'boolean', alias: 'S' },
       csv: { type: 'boolean' },
       markdown: { type: 'boolean' },
       styled: { type: 'boolean' },
@@ -431,7 +431,7 @@ describe('#264 follow-up: parse-time and handler-time failures agree on formatti
     assert.equal(resolve(['--json', '--no-json', '--styled']), 'styled', '--no-json negates');
     assert.equal(resolve(['--json=false']), '', 'a negated boolean is not a request');
     assert.equal(resolve(['--format', 'json']), 'json');
-    assert.equal(resolve(['-q']), 'quiet');
+    assert.equal(resolve(['-S']), 'quiet');
 
     // A value error is the failure being rendered; it must not abort resolution.
     const bad = cli.parseGlobalOptions(['records', 'list', '--table', 'incident', '--format', 'xml', '--json']);
