@@ -160,6 +160,8 @@ export function validateFlowManifest(manifest) {
   if (manifest.variables !== undefined || manifest.flowVariables !== undefined) throw new Error('Flow-variable lifecycle is unsupported in this creation slice');
   if (manifest.errorHandling !== undefined) throw new Error('Error handling is unsupported in this creation slice');
   if (manifest.stages !== undefined) validateStages(manifest.stages);
+  if (manifest.stageTemplate !== undefined && !String(manifest.stageTemplate).trim()) throw new Error('Flow manifest stageTemplate must not be empty');
+  if (manifest.stageSet !== undefined && !String(manifest.stageSet).trim()) throw new Error('Flow manifest stageSet must not be empty');
   const trigger = manifest.trigger;
   if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) throw new Error('Flow manifest requires a trigger object');
   for (const key of Object.keys(trigger)) if (!['type', 'table', 'condition', 'inputs'].includes(key)) throw new Error(`Flow manifest trigger field "${key}" is unsupported`);
@@ -243,6 +245,75 @@ function stageValueFromLabel(label) {
  * `stageId` is only meaningful for updates: an entry without one inserts a new
  * stage, an entry with one edits the stage it names.
  */
+
+export async function resolveStageTemplate(sdk, templateIdentifier) {
+  const ident = String(templateIdentifier || "").trim();
+  if (!ident) return [];
+  // 1. Check if ident matches a stage_set sys_id or name
+  let setId = "";
+  if (/^[0-9a-fA-F]{32}$/.test(ident)) {
+    setId = ident;
+  } else {
+    // Check stage_set_table by table or stage_set by name
+    const tableMatches = await sdk.list("stage_set_table", new URLSearchParams({
+      sysparm_query: `table=${ident}^ORset.nameLIKE${ident}`,
+      sysparm_limit: "1"
+    })).catch(() => []);
+    if (tableMatches.length && tableMatches[0].set) {
+      setId = typeof tableMatches[0].set === "object" ? tableMatches[0].set.value : tableMatches[0].set;
+    } else {
+      const setMatches = await sdk.list("stage_set", new URLSearchParams({
+        sysparm_query: `nameLIKE${ident}`,
+        sysparm_limit: "1"
+      })).catch(() => []);
+      if (setMatches.length) setId = setMatches[0].sys_id;
+    }
+  }
+  if (!setId) throw new Error(`Stage template "${ident}" not found in stage_set or stage_set_table`);
+
+  // 2. Fetch stage_set_entry records for setId
+  const entries = await sdk.list("stage_set_entry", new URLSearchParams({
+    sysparm_query: `set=${setId}`,
+    sysparm_display_value: "all"
+  }));
+  if (!entries.length) throw new Error(`No stage entries found for stage template "${ident}" (${setId})`);
+
+  // Sort: Request Cancelled & Completed system stages, or order-based
+  const mapped = entries.map(e => {
+    const label = e.name?.display_value || e.name?.value || e.name || "";
+    const value = e.value?.display_value || e.value?.value || e.value || stageValueFromLabel(label);
+    const duration = e.ola?.value || e.ola?.display_value || STAGE_DURATION;
+    const orderNum = parseInt(e.order?.value || e.order || "0", 10);
+    return {
+      label,
+      value,
+      duration,
+      rawOrder: orderNum,
+      system: (label === "Request Cancelled" || label === "Completed" || value === "complete" || value === "Request Cancelled")
+    };
+  });
+
+  // Flow Designer sorts Request Cancelled (order 0, system: true), Completed (order 1, system: true), then non-system stages by rawOrder
+  const systemStages = mapped.filter(s => s.system).sort((a, b) => {
+    if (a.value === "Request Cancelled" || a.label === "Request Cancelled") return -1;
+    if (b.value === "Request Cancelled" || b.label === "Request Cancelled") return 1;
+    return a.rawOrder - b.rawOrder;
+  });
+  const normalStages = mapped.filter(s => !s.system).sort((a, b) => a.rawOrder - b.rawOrder);
+
+  const finalStages = [...systemStages, ...normalStages].map((s, idx) => ({
+    label: s.label,
+    value: s.value,
+    duration: s.duration,
+    order: idx,
+    system: s.system,
+    alwaysShow: true,
+    componentIndexes: []
+  }));
+
+  return finalStages;
+}
+
 export function validateStages(stages, { update = false } = {}) {
   if (!Array.isArray(stages)) throw new Error('Flow stages must be an array');
   for (const [index, stage] of stages.entries()) {
@@ -379,17 +450,95 @@ export function buildFlowPatchMutation({ flowId, trigger, actions }) {
   return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { inserts { sysId } updates } actions { inserts { sysId uiUniqueIdentifier } } } } } }`;
 }
 
-export function buildFlowUpdateMutation({ flowId, triggerUpdates = [], actionUpdates = [], stageInserts = [], stageUpdates = [] }) {
+
+const FLOW_LOGIC_DEFINITIONS = {
+  'if': {
+    id: 'af4e1945c3e232002841b63b12d3ae3e',
+    name: 'If',
+    type: 'IF',
+    description: 'Selectively apply one or more actions only when a list of conditions is met.',
+    compilationClass: 'com.glide.flow.compiler.logic_block.IfCompiler',
+    order: 1,
+    connectedTo: '',
+    attributes: 'allow_children=true,allow_siblings=true,icon_class=diamond-if-icon,line_type=q_if_curve,pills_draggable_outside_block=false,',
+  },
+  'else if': {
+    id: '666e5545c3e232002841b63b12d3ae99',
+    name: 'Else If',
+    type: 'ELSEIF',
+    description: 'Selectively apply one or more actions only when a list of conditions is met.',
+    compilationClass: 'com.glide.flow.compiler.logic_block.ElseIfCompiler',
+    order: 2,
+    connectedTo: 'af4e1945c3e232002841b63b12d3ae3e,666e5545c3e232002841b63b12d3ae99',
+    attributes: 'allow_children=true,allow_siblings=true,icon_class=elseif-icon,line_type=q_if_curve,pills_draggable_outside_block=false,',
+  },
+  'else': {
+    id: '1f781bf3c32232002841b63b12d3aee6',
+    name: 'Else',
+    type: 'ELSE',
+    description: 'Else statement',
+    compilationClass: 'com.glide.flow.compiler.logic_block.ElseCompiler',
+    order: 3,
+    connectedTo: '666e5545c3e232002841b63b12d3ae99,af4e1945c3e232002841b63b12d3ae3e',
+    attributes: 'allow_children=true,allow_siblings=true,disable_opening=true,icon_class=else-icon,line_type=q_if_curve,pills_draggable_outside_block=false,',
+  },
+  'set flow variables': {
+    id: '4f787d1e0f9b0010ecf0cc52ff767ea0',
+    name: 'Set Flow Variables',
+    type: 'SETFLOWVARIABLES',
+    description: "Assign a value to one or more flow variables. Change or update a variable's value during a flow.",
+    compilationClass: 'com.glide.flow.compiler.logic_block.SetVariablesCompiler',
+    order: 14,
+    connectedTo: '',
+    attributes: 'allow_children=false,allow_siblings=true,',
+  },
+  'end flow': {
+    id: 'd176605ea76103004f27b0d2187901c7',
+    name: 'End Flow',
+    type: 'END',
+    description: 'Use this flow logic to stop a flow within flow designer.',
+    compilationClass: 'com.glide.flow.compiler.logic_block.EndCompiler',
+    order: 10,
+    connectedTo: '',
+    attributes: 'allow_children=false,allow_siblings=false,disable_opening=true,',
+  }
+};
+
+export function buildFlowUpdateMutation({ flowId, triggerUpdates = [], actionUpdates = [], actionInserts = [], actionDeletes = [], flowVariableInserts = [], flowLogicInserts = [], flowLogicUpdates = [], flowLogicDeletes = [], labelCacheUpdates = [], labelCacheInserts = [], stageInserts = [], stageUpdates = [] }) {
   const updates = [];
   if (triggerUpdates.length) updates.push(`triggerInstances: {update: [${triggerUpdates.map(gqlInputObject).join(', ')}]}`);
-  if (actionUpdates.length) updates.push(`actions: {update: [${actionUpdates.map(gqlInputObject).join(', ')}]}`);
+  const actionParts = [];
+  if (actionInserts.length) actionParts.push(`insert: [${actionInserts.map(gqlInputObject).join(', ')}]`);
+  if (actionUpdates.length) actionParts.push(`update: [${actionUpdates.map(gqlInputObject).join(', ')}]`);
+  if (actionDeletes.length) actionParts.push(`delete: [${actionDeletes.map(id => gqlString(id)).join(', ')}]`);
+  if (actionParts.length) updates.push(`actions: {${actionParts.join(', ')}}`);
+  if (flowVariableInserts.length) updates.push(`flowVariables: {insert: [${flowVariableInserts.map(gqlInputObject).join(', ')}]}`);
+  const logicParts = [];
+  if (flowLogicInserts.length) logicParts.push(`insert: [${flowLogicInserts.map(gqlInputObject).join(', ')}]`);
+  if (flowLogicUpdates.length) logicParts.push(`update: [${flowLogicUpdates.map(gqlInputObject).join(', ')}]`);
+  if (flowLogicDeletes.length) logicParts.push(`delete: [${flowLogicDeletes.map(id => gqlString(id)).join(', ')}]`);
+  if (logicParts.length) updates.push(`flowLogics: {${logicParts.join(', ')}}`);
+  const labelParts = [];
+  if (labelCacheInserts.length) labelParts.push(`insert: [${labelCacheInserts.map(gqlInputObject).join(', ')}]`);
+  if (labelCacheUpdates.length) labelParts.push(`update: [${labelCacheUpdates.map(gqlInputObject).join(', ')}]`);
+  if (labelParts.length) updates.push(`labelCache: {${labelParts.join(', ')}}`);
   const stageParts = [];
-  if (stageInserts.length) stageParts.push(`insert: [${stageInserts.map(gqlInputObject).join(', ')}]`);
+  if (stageInserts.length) stageParts.push(`insert: [${stageInserts.map(s => {
+    const copy = { ...s };
+    delete copy.system;
+    return gqlInputObject(copy);
+  }).join(', ')}]`);
   if (stageUpdates.length) stageParts.push(`update: [${stageUpdates.map(gqlInputObject).join(', ')}]`);
   if (stageParts.length) updates.push(`stages: {${stageParts.join(', ')}}`);
   if (!updates.length) throw new Error('Flow update mutation requires at least one change');
   const patch = `flowPatch: {flowId: ${gqlString(flowId)}, ${updates.join(', ')}}`;
-  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { updates } actions { updates } stages { inserts { sysId } } } } } }`;
+  const returnFields = ['triggerInstances { updates }'];
+  if (actionInserts.length) returnFields.push('actions { inserts { sysId uiUniqueIdentifier } updates }');
+  else returnFields.push('actions { updates }');
+  if (flowLogicInserts.length) returnFields.push('flowLogics { inserts { sysId uiUniqueIdentifier } }');
+  if (flowVariableInserts.length) returnFields.push('flowVariables { inserts { sysId uiUniqueIdentifier } }');
+  returnFields.push('stages { inserts { sysId } }');
+  return `mutation { global { snFlowDesigner { flow(${patch}) { ${returnFields.join(' ')} } } } }`;
 }
 
 export async function readProcessFlow(sdk, instance, flowId, scope) {
@@ -735,7 +884,7 @@ async function resolveExistingAction(sdk, actions, requested, index) {
 
 export function validateFlowUpdateManifest(manifest) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('Flow update manifest must be a JSON object');
-  const allowed = new Set(['scope', 'trigger', 'actions', 'stages']);
+  const allowed = new Set(['scope', 'trigger', 'actions', 'stages', 'stageTemplate', 'stageSet', 'flowVariables', 'variables', 'flowLogics', 'deleteSteps', 'delete', 'deleteOrders']);
   for (const key of Object.keys(manifest)) if (!allowed.has(key)) throw new Error(`Flow update field "${key}" is unsupported; only trigger, existing action inputs and stages may be updated`);
   if (manifest.scope !== undefined && !String(manifest.scope).trim()) throw new Error('Flow update scope must not be empty');
   if (manifest.trigger !== undefined) {
@@ -757,7 +906,7 @@ export function validateFlowUpdateManifest(manifest) {
       if (Object.keys(action.inputs).length === 0) throw new Error(`Update action ${index + 1} inputs must contain at least one changed value`);
     }
   }
-  if (manifest.trigger === undefined && manifest.actions === undefined && manifest.stages === undefined) throw new Error('Flow update manifest must specify trigger, actions and/or stages');
+  if (manifest.trigger === undefined && manifest.actions === undefined && manifest.stages === undefined && manifest.stageTemplate === undefined && manifest.stageSet === undefined && manifest.flowVariables === undefined && manifest.variables === undefined && manifest.flowLogics === undefined && manifest.logic === undefined && manifest.deleteSteps === undefined && manifest.delete === undefined && manifest.deleteOrders === undefined) throw new Error('Flow update manifest must specify trigger, actions and/or stages');
   if (manifest.stages !== undefined) validateStages(manifest.stages, { update: true });
   return manifest;
 }
@@ -1138,7 +1287,11 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
 
     // Stages carry componentIndexes that name flow-step orders, so placement
     // runs after the actions exist — the same order Flow Designer uses.
-    const stageInserts = buildStageInserts(manifest.stages || [], { idFactory, flowId });
+    let manifestStages = manifest.stages || [];
+    if ((manifest.stageTemplate || manifest.stageSet) && manifestStages.length === 0) {
+      manifestStages = await resolveStageTemplate(sdk, manifest.stageTemplate || manifest.stageSet);
+    }
+    const stageInserts = buildStageInserts(manifestStages, { idFactory, flowId });
     if (stageInserts.length) {
       const stageResponse = await mutationContext('stage_placement', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
         method: 'POST',
@@ -1212,7 +1365,19 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const snapshots = [];
   const triggerUpdates = [];
   const actionUpdates = [];
-  const stageInserts = buildStageInserts((manifest.stages || []).filter(stage => stage.stageId === undefined), { idFactory: options.idFactory || (() => randomUUID()), flowId });
+  const actionInserts = [];
+  const actionDeletes = [];
+  const flowVariableInserts = [];
+  const flowLogicInserts = [];
+  const flowLogicUpdates = [];
+  const flowLogicDeletes = [];
+  const labelCacheUpdates = [];
+  let manifestStages = manifest.stages || [];
+  if ((manifest.stageTemplate || manifest.stageSet) && manifestStages.length === 0) {
+    const templateStages = await resolveStageTemplate(sdk, manifest.stageTemplate || manifest.stageSet);
+    manifestStages = templateStages;
+  }
+  const stageInserts = buildStageInserts(manifestStages.filter(stage => stage.stageId === undefined), { idFactory: options.idFactory || (() => randomUUID()), flowId });
   const stageUpdates = buildStageUpdates((manifest.stages || []).filter(stage => stage.stageId !== undefined));
   const changedActionInputs = new Map();
   const actionTargets = new Map();
@@ -1231,15 +1396,87 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     }
   }
   const existingActions = findExistingActions(beforeDefinition);
+  const existingOrders = new Set(existingActions.map(a => String(a.order)));
+  const idFactory = options.idFactory || (() => randomUUID());
+  const pillToInstances = new Map();
+  const actionUiMap = new Map();
+  for (const a of existingActions) {
+    const ui = stringValue(a.uiUniqueIdentifier || a.ui_unique_identifier);
+    if (a.order && ui) actionUiMap.set(String(a.order), ui);
+  }
+
   for (const [index, requested] of (manifest.actions || []).entries()) {
-    const existing = await resolveExistingAction(sdk, existingActions, requested, index);
-    const update = buildActionUpdate(existing, requested, index);
-    actionUpdates.push(update);
-    const uiId = stringValue(existing.uiUniqueIdentifier || existing.ui_unique_identifier);
-    if (actionTargets.has(uiId)) throw new Error(`Duplicate action update for order ${requested.order}; combine input changes in one action entry`);
-    actionTargets.set(uiId, existing);
-    changedActionInputs.set(uiId, new Set(Object.keys(requested.inputs)));
-    for (const [input, after] of Object.entries(requested.inputs)) changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
+    const isInsert = !existingOrders.has(String(requested.order));
+    if (isInsert) {
+      const resolved = await resolveActionType(sdk, requested.type);
+      const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
+      const uiUniqueIdentifier = requested.uiUniqueIdentifier || idFactory();
+      actionUiMap.set(String(requested.order), uiUniqueIdentifier);
+      actionInserts.push({
+        actionTypeSysId: resolved.id,
+        flowSysId: flowId,
+        generationSource: '',
+        type: 'action',
+        order: String(requested.order),
+        parent: '',
+        uiUniqueIdentifier,
+        parentUiId: '',
+        metadata: JSON.stringify(parseMaybeJson(actionDefinition.definition.metadata, {})),
+        inputs: buildTypedInputs(requested, actionDefinition.schema),
+      });
+      changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(requested.inputs || {})));
+      for (const [input, after] of Object.entries(requested.inputs || {})) {
+        changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: null, after });
+        const pillMatch = String(after).match(/\{\{([^}]+)\}\}/);
+        if (pillMatch) {
+          const pillName = pillMatch[1];
+          if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
+          pillToInstances.get(pillName).push({ uiUniqueIdentifier, inputName: input });
+        }
+      }
+    } else {
+      const existing = await resolveExistingAction(sdk, existingActions, requested, index);
+      const update = buildActionUpdate(existing, requested, index);
+      actionUpdates.push(update);
+      const uiId = stringValue(existing.uiUniqueIdentifier || existing.ui_unique_identifier);
+      if (actionTargets.has(uiId)) throw new Error(`Duplicate action update for order ${requested.order}; combine input changes in one action entry`);
+      actionTargets.set(uiId, existing);
+      changedActionInputs.set(uiId, new Set(Object.keys(requested.inputs)));
+      for (const [input, after] of Object.entries(requested.inputs)) {
+        changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
+        const pillMatch = String(after).match(/\{\{([^}]+)\}\}/);
+        if (pillMatch) {
+          const pillName = pillMatch[1];
+          if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
+          pillToInstances.get(pillName).push({ uiUniqueIdentifier: uiId, inputName: input });
+        }
+      }
+    }
+  }
+
+  // Populate labelCacheUpdates if any data pills are used
+  const existingLabelCache = beforeDefinition.label_cache || beforeDefinition.labelCache || [];
+  for (const [pillName, instances] of pillToInstances.entries()) {
+    const existingCacheEntry = existingLabelCache.find(e => e.name === pillName);
+    const existingInstances = [];
+    if (existingCacheEntry) {
+      if (Array.isArray(existingCacheEntry.usedInstances)) {
+        existingInstances.push(...existingCacheEntry.usedInstances);
+      } else if (typeof existingCacheEntry.usedInstances === 'object' && existingCacheEntry.usedInstances !== null) {
+        for (const [uiId, inputNames] of Object.entries(existingCacheEntry.usedInstances)) {
+          for (const inName of (Array.isArray(inputNames) ? inputNames : [inputNames])) {
+            existingInstances.push({ uiUniqueIdentifier: uiId, inputName: inName });
+          }
+        }
+      }
+    }
+    const combined = [...existingInstances];
+    for (const inst of instances) {
+      if (!combined.some(c => c.uiUniqueIdentifier === inst.uiUniqueIdentifier && c.inputName === inst.inputName)) {
+        combined.push(inst);
+      }
+    }
+    labelCacheUpdates.push({ name: pillName, usedInstances: combined });
   }
   const savedStages = stageList(beforeDefinition);
   const savedStageById = new Map(savedStages.map(stage => [stringValue(stage.stageId || stage.stage_id), stage]));
@@ -1254,7 +1491,175 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   for (const insert of stageInserts) {
     changes.push({ component: 'stage', stage: insert.label, input: 'insert', before: null, after: { order: insert.order, componentIndexes: insert.componentIndexes } });
   }
-  if (triggerUpdates.length === 0 && actionUpdates.length === 0 && stageInserts.length === 0 && stageUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
+
+  // Handle flowVariables insertion
+  const requestedVariables = manifest.flowVariables || manifest.variables || [];
+  const existingVars = beforeDefinition.flowVariables || [];
+  for (const [varIdx, v] of requestedVariables.entries()) {
+    const label = v.label || v.name;
+    const name = (v.name || v.label).toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const rawType = (v.type || 'string').toLowerCase();
+    const TYPE_MAP = {
+      'string': { type: 'string', label: 'String' },
+      'boolean': { type: 'boolean', label: 'True/False' },
+      'true/false': { type: 'boolean', label: 'True/False' },
+      'bool': { type: 'boolean', label: 'True/False' },
+      'integer': { type: 'integer', label: 'Integer' },
+      'int': { type: 'integer', label: 'Integer' },
+      'decimal': { type: 'decimal', label: 'Decimal' },
+      'float': { type: 'float', label: 'Floating Point Number' },
+      'date': { type: 'glide_date', label: 'Date' },
+      'glide_date': { type: 'glide_date', label: 'Date' },
+      'date/time': { type: 'glide_date_time', label: 'Date/Time' },
+      'datetime': { type: 'glide_date_time', label: 'Date/Time' },
+      'glide_date_time': { type: 'glide_date_time', label: 'Date/Time' },
+      'reference': { type: 'reference', label: 'Reference' },
+      'choice': { type: 'choice', label: 'Choice' },
+      'array.string': { type: 'array.string', label: 'Array.String' },
+      'array.reference': { type: 'array.reference', label: 'Array.Reference' },
+      'array.integer': { type: 'array.integer', label: 'Array.Integer' },
+      'array.boolean': { type: 'array.boolean', label: 'Array.True/False' },
+      'json': { type: 'json', label: 'JSON' },
+      'html': { type: 'html', label: 'HTML' }
+    };
+    const mapped = TYPE_MAP[rawType] || { type: rawType, label: v.type_label || (rawType.charAt(0).toUpperCase() + rawType.slice(1)) };
+    const type = mapped.type;
+    const type_label = v.type_label || mapped.label;
+    const varOrder = v.order || (existingVars.length + varIdx + 1);
+    const varUiId = v.uiUniqueIdentifier || idFactory();
+    flowVariableInserts.push({
+      label,
+      name,
+      type,
+      type_label,
+      order: varOrder,
+      mandatory: Boolean(v.mandatory),
+      readonly: Boolean(v.readonly),
+      attributes: `sourceUiUniqueId=,sourceType=,sourceId=,uiUniqueId=${varUiId},`,
+      uiDisplayType: type,
+      uiDisplayTypeLabel: type_label
+    });
+    changes.push({ component: 'flowVariable', input: name, before: null, after: { label, type, order: varOrder } });
+  }
+
+  // Handle flowLogics insertion and update
+  const requestedLogics = manifest.flowLogics || manifest.logic || [];
+  const logicTypeKey = t => String(t || '').toLowerCase().trim();
+  const logicUiMap = new Map(); // order -> uiUniqueIdentifier
+
+  for (const [logicIdx, l] of requestedLogics.entries()) {
+    const lType = logicTypeKey(l.type || l.name);
+    const logicDef = FLOW_LOGIC_DEFINITIONS[lType] || {
+      id: l.definitionId || l.id || '',
+      name: l.name || l.type,
+      type: (l.type || '').toUpperCase(),
+      description: '',
+      compilationClass: '',
+      order: l.order || logicIdx + 1,
+      connectedTo: l.connectedTo || '',
+      attributes: 'allow_children=true,allow_siblings=true,'
+    };
+
+    const uiUniqueIdentifier = l.uiUniqueIdentifier || idFactory();
+    logicUiMap.set(String(l.order), uiUniqueIdentifier);
+    const parentUiId = l.parentUiId || (l.parent ? (logicUiMap.get(String(l.parent)) || l.parent) : '');
+    const connectedTo = l.connectedTo || (l.connectedToOrder ? (logicUiMap.get(String(l.connectedToOrder)) || l.connectedToOrder) : logicDef.connectedTo);
+
+    let resolvedCondition = String(l.condition || '').replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
+      const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
+      return ui ? '{{' + ui + '.' + field + '}}' : match;
+    });
+
+    const inputs = [];
+    const conditionPillMatch = resolvedCondition.match(/\{\{([^}]+)\}\}/);
+    if (conditionPillMatch) {
+      const pillName = conditionPillMatch[1];
+      if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
+      pillToInstances.get(pillName).push({ uiUniqueIdentifier, inputName: 'condition' });
+    }
+
+    if (lType === 'if' || lType === 'else if') {
+      inputs.push({
+        name: 'condition_name',
+        value: { schemaless: false, schemalessValue: '', value: l.condition_name || l.conditionName || l.label || '' }
+      });
+      inputs.push({
+        name: 'condition',
+        value: { schemaless: false, schemalessValue: '', value: resolvedCondition }
+      });
+    }
+
+    const flowVarsArray = [];
+    if (lType === 'set flow variables' && l.values) {
+      for (const [varName, varVal] of Object.entries(l.values)) {
+        flowVarsArray.push({
+          id: '',
+          name: varName,
+          children: [],
+          displayValue: { value: '' },
+          value: { schemaless: false, schemalessValue: '', value: String(varVal) }
+        });
+      }
+    }
+
+    flowLogicInserts.push({
+      order: String(l.order || logicIdx + 1),
+      uiUniqueIdentifier,
+      parent: parentUiId,
+      parentUiId,
+      connectedTo,
+      metadata: '{"predicates":[]}',
+      flowSysId: flowId,
+      generationSource: '',
+      definitionId: logicDef.id,
+      type: 'flowlogic',
+      inputs,
+      outputsToAssign: [],
+      ...(flowVarsArray.length ? { flowVariables: flowVarsArray } : {}),
+      flowLogicDefinition: {
+        id: logicDef.id,
+        name: logicDef.name,
+        description: logicDef.description,
+        connectedTo: logicDef.connectedTo,
+        quiescence: 'never',
+        compilationClass: logicDef.compilationClass,
+        order: logicDef.order,
+        type: logicDef.type,
+        visible: true,
+        attributes: logicDef.attributes,
+        userCanRead: true,
+        category: '',
+        inputs: [],
+        variables: '[]'
+      }
+    });
+
+    changes.push({ component: 'flowLogic', order: l.order, type: logicDef.name, input: 'insert', before: null, after: { parent: parentUiId, connectedTo } });
+  }
+
+  // Handle deletions by step order or uiUniqueIdentifier
+  const rawDeletes = manifest.deleteSteps || manifest.delete || manifest.deleteOrders || [];
+  const deleteTargets = new Set((Array.isArray(rawDeletes) ? rawDeletes : [rawDeletes]).map(String));
+  if (deleteTargets.size > 0) {
+    const existingLogics = beforeDefinition.flowLogicInstances || beforeDefinition.flowLogics || [];
+    for (const a of existingActions) {
+      const uiId = stringValue(a.uiUniqueIdentifier || a.ui_unique_identifier);
+      const targetId = stringValue(a.sysId || a.id || a.sys_id || uiId);
+      if (deleteTargets.has(String(a.order)) || deleteTargets.has(uiId) || deleteTargets.has(targetId)) {
+        actionDeletes.push(targetId);
+        changes.push({ component: 'action', order: a.order, type: a.name, input: 'delete', before: targetId, after: null });
+      }
+    }
+    for (const fl of existingLogics) {
+      const uiId = stringValue(fl.uiUniqueIdentifier || fl.ui_unique_identifier);
+      const targetId = stringValue(fl.sysId || fl.id || fl.sys_id || uiId);
+      if (deleteTargets.has(String(fl.order)) || deleteTargets.has(uiId) || deleteTargets.has(targetId)) {
+        flowLogicDeletes.push(targetId);
+        changes.push({ component: 'flowLogic', order: fl.order, type: fl.name, input: 'delete', before: targetId, after: null });
+      }
+    }
+  }
+  if (triggerUpdates.length === 0 && actionUpdates.length === 0 && actionInserts.length === 0 && actionDeletes.length === 0 && flowVariableInserts.length === 0 && flowLogicInserts.length === 0 && flowLogicDeletes.length === 0 && stageInserts.length === 0 && stageUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
   if (options.preview) return {
     preview: true,
     flow: { id: flowId, name: target.flowName, status: lifecycle.status, active: lifecycle.active },
@@ -1281,9 +1686,42 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const outcome = await withFlowSafeEdit(sdk, instance, flowId, beforeDefinition.updated, async () => {
     let completedStage = 'validated';
     try {
+      if (stageInserts.length > 0) {
+        const stagesPayload = {};
+        for (const s of stageInserts) {
+          stagesPayload[s.stageId] = {
+            stageId: s.stageId,
+            duration: s.duration || STAGE_DURATION,
+            componentIndexes: s.componentIndexes || [],
+            label: s.label,
+            value: s.value,
+            type: s.type || 'standard',
+            order: s.order,
+            alwaysShow: s.alwaysShow ?? true,
+            states: {
+              pending: 'Pending - has not started',
+              in_progress: 'In progress',
+              skipped: 'Skipped',
+              complete: 'Completed',
+              error: 'Error'
+            },
+            system: Boolean(s._system ?? s.system)
+          };
+        }
+        const stageRegRes = await sdk.request(`${instance}${FLOW_ENDPOINT}/${encodeURIComponent(flowId)}/stages?sysparm_transaction_scope=${encodeURIComponent(scope)}`, {
+          method: 'PUT',
+          body: JSON.stringify(stagesPayload)
+        });
+        const returnedStages = stageRegRes?.result?.data || {};
+        for (const s of stageInserts) {
+          if (returnedStages[s.stageId]?.id) {
+            s.id = returnedStages[s.stageId].id;
+          }
+        }
+      }
       const patchResponse = await mutationContext('trigger_and_actions_update', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
         method: 'POST',
-        body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates, stageInserts, stageUpdates }), variables: {} }),
+        body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates, actionInserts, actionDeletes, flowVariableInserts, flowLogicInserts, flowLogicUpdates, flowLogicDeletes, labelCacheUpdates, stageInserts, stageUpdates }), variables: {} }),
       }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
       assertGraphQLSuccess(patchResponse, 'Flow trigger/action update');
       completedStage = 'patch_acknowledged';
@@ -1291,7 +1729,10 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       // Only requested values may differ. Preserve array order and opaque fields.
       // `stages` is compared separately below: a stage edit may touch specific
       // fields, while every stage the manifest did not name must stay identical.
-      for (const field of ['flowVariables', 'flowLogicInstances', 'subFlowInstances', 'flowInputs', 'flowOutputs', 'inputs', 'outputs']) {
+      const checkFields = ['subFlowInstances', 'flowInputs', 'flowOutputs', 'inputs', 'outputs'];
+      if (flowVariableInserts.length === 0) checkFields.push('flowVariables');
+      if (flowLogicInserts.length === 0 && flowLogicUpdates.length === 0 && flowLogicDeletes.length === 0) checkFields.push('flowLogicInstances');
+      for (const field of checkFields) {
         if (!isDeepStrictEqual(beforeDefinition[field], processflow[field])) throw new Error(`Flow ${flowId} changed omitted ${field}; preservation failed`);
       }
       if (stageInserts.length || stageUpdates.length) {
@@ -1309,13 +1750,23 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
         throw new Error(`Flow ${flowId} changed omitted stages; preservation failed`);
       }
       if (!triggerUpdate && !isDeepStrictEqual(beforeDefinition.triggerInstances, processflow.triggerInstances)) throw new Error(`Flow ${flowId} changed omitted triggerInstances`);
-      const maskActions = definition => findExistingActions(definition).map(action => {
-        const copy = clone(action);
-        const changed = changedActionInputs.get(stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier));
-        for (const [index, input] of inputList(copy).entries()) if (changed?.has(input.name)) inputList(copy)[index] = maskInputValue(input);
-        return copy;
-      });
-      if (!isDeepStrictEqual(maskActions(beforeDefinition), maskActions(processflow))) throw new Error(`Flow ${flowId} changed omitted action fields; preservation failed`);
+      const insertedUiIds = new Set(actionInserts.map(a => a.uiUniqueIdentifier));
+      const deletedActionIds = new Set(actionDeletes);
+      const maskActions = (definition, isAfter = false) => findExistingActions(definition)
+        .filter(action => {
+          const uiId = stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier);
+          const sId = stringValue(action.sysId || action.id || action.sys_id);
+          if (isAfter && insertedUiIds.has(uiId)) return false;
+          if (!isAfter && (deletedActionIds.has(uiId) || deletedActionIds.has(sId))) return false;
+          return true;
+        })
+        .map(action => {
+          const copy = clone(action);
+          const changed = changedActionInputs.get(stringValue(action.uiUniqueIdentifier || action.ui_unique_identifier));
+          for (const [index, input] of inputList(copy).entries()) if (changed?.has(input.name)) inputList(copy)[index] = maskInputValue(input);
+          return copy;
+        });
+      if (!isDeepStrictEqual(maskActions(beforeDefinition), maskActions(processflow, true))) throw new Error(`Flow ${flowId} changed omitted action fields; preservation failed`);
       const readbackTrigger = findArray(processflow, 'triggerInstances')[0];
       if (triggerUpdate) {
         if (!readbackTrigger || findId(readbackTrigger, ['sysId', 'sys_id', 'id', 'triggerId']) !== triggerUpdate.id) throw new Error(`Flow ${flowId} trigger update was not readable after mutation`);
