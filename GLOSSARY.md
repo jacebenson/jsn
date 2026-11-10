@@ -604,6 +604,20 @@ usage errors opt into the shared renderer's JSON envelope with
 `error.jsonEnvelope = true`; other command families retain legacy stderr usage
 errors and all usage errors keep exit status 2.
 
+## Flow error-handling reconciliation
+
+`src/flow-create.js` uses the provider's Flow Logic insert shape for top-level
+Try/Catch and parents main and error actions to their generated UI identities.
+A verified draft compares insert acknowledgements with persisted identities,
+definitions, typed input values, order, parents and connections before Autosave.
+Error actions reconcile by the ordered existing Catch children and require the
+same action type. Listed children receive partial input updates; omitted children
+remain unchanged. New children append after every existing step. Duplicate step
+identities/orders, incomplete pairs and ambiguous children stop before writing.
+Only explicitly requested reparenting is masked during preservation checks, and
+its exact target is verified separately. Neither creation nor editing publishes,
+activates or executes the flow.
+
 ## Flow safe-edit session
 
 `src/flow-safe-edit.js` owns the provider's `safeEdit` acquisition/read/release

@@ -468,7 +468,7 @@ export function buildFlowPatchMutation({ flowId, trigger, actions, flowLogicInse
   const patch = `flowPatch: {flowId: ${gqlString(flowId)}, triggerInstances: {insert: [${gqlInputObject(triggerInsert)}]}, actions: {insert: [${actionInsert.map(gqlInputObject).join(', ')}]}${extra}}`;
   // `triggerInstances.updates` is a leaf [String] on this schema; only `inserts`
   // carries identities, and only for triggers does `inserts` lack a uiUniqueIdentifier.
-  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { inserts { sysId } updates } actions { inserts { sysId uiUniqueIdentifier } } } } } }`;
+  return `mutation { global { snFlowDesigner { flow(${patch}) { triggerInstances { inserts { sysId } updates } actions { inserts { sysId uiUniqueIdentifier } } ${flowLogicInserts.length ? 'flowLogics { inserts { sysId uiUniqueIdentifier } }' : ''} } } } }`;
 }
 
 
@@ -1286,6 +1286,20 @@ function labelCacheEntry({ name, label, type, baseType, usedInstances }) {
     return entry;
  }
 
+function assertInsertedIdentities(response, definition, expected, kind, flowId) {
+  if (!expected.length) return;
+  const field = kind === 'action' ? 'actions' : 'flowLogics';
+  let inserted = [];
+  walk(response, object => { if (object[field]?.inserts) inserted = object[field].inserts; });
+  const saved = kind === 'action' ? findExistingActions(definition) : (definition.flowLogicInstances || definition.flowLogics || []);
+  for (const step of expected) {
+    const matches = inserted.filter(s => s.uiUniqueIdentifier === step.uiUniqueIdentifier);
+    const actual = saved.filter(s => stringValue(s.uiUniqueIdentifier || s.ui_unique_identifier) === step.uiUniqueIdentifier);
+    const id = matches.length === 1 && findId(matches[0], ['sysId', 'sys_id', 'id']);
+    if (!id || actual.length !== 1 || findId(actual[0], ['sysId', 'sys_id', 'id']) !== id) throw new Error(`Flow ${flowId} ${kind} ${step.uiUniqueIdentifier} persisted identity did not match the insert acknowledgement`);
+  }
+}
+
 function assertStepReadback(definition, expectedSteps, kind, flowId) {
   const saved = kind === 'action' ? findExistingActions(definition) : (definition.flowLogicInstances || definition.flowLogics || []);
   for (const expected of expectedSteps) {
@@ -1323,6 +1337,8 @@ function assertLogicPreserved(before, after, inserts, updates, deletes, flowId) 
 
 async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinition, existingActions, actionInserts, actionUpdates, flowLogicInserts, flowLogicUpdates, changes, idFactory, actionUiMap, pendingSteps, changedActionInputs, collectPills, errorHandlingInput, actionTargets = new Map() }) {
     const existingLogics = beforeDefinition.flowLogicInstances || beforeDefinition.flowLogics || [];
+    const existingSteps = [...existingActions, ...existingLogics];
+    if (existingSteps.some(s => !stringValue(s.uiUniqueIdentifier || s.ui_unique_identifier) || !Number.isInteger(Number(s.order))) || new Set(existingSteps.map(s => String(s.order))).size !== existingSteps.length || new Set(existingSteps.map(s => stringValue(s.uiUniqueIdentifier || s.ui_unique_identifier))).size !== existingSteps.length) throw new Error('Ambiguous existing step orders or identities');
     let topTry = existingLogics.find(fl => String(fl.definitionId) === 'e9060aa2c3013010ace8b740ad40dd51');
     let topCatch = existingLogics.find(fl => String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd23');
 
@@ -1371,7 +1387,7 @@ async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinitio
 
       // Re-parent all existing unparented main body actions (order >= 1) to Top Level Try
       for (const a of existingActions) {
-        if (!a.parent) {
+        if (!a.parent && !a.parentUiId && !actionUpdates.some(u => u.uiUniqueIdentifier === stringValue(a.uiUniqueIdentifier || a.ui_unique_identifier) && u.parent !== undefined)) {
           const uiId = stringValue(a.uiUniqueIdentifier || a.ui_unique_identifier);
           actionUpdates.push({
             uiUniqueIdentifier: uiId,
@@ -1407,6 +1423,10 @@ async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinitio
         }
       }
     }
+
+    // New main-body children belong to the Try even on a rerun. Explicit
+    // requested parents are retained.
+    for (const a of actionInserts) if (!a.parent && !a.parentUiId) { a.parent = tryUiId; a.parentUiId = tryUiId; }
 
     // 2. Ensure Top Level Catch
     let catchUiId = topCatch ? stringValue(topCatch.uiUniqueIdentifier || topCatch.ui_unique_identifier) : '';
@@ -1630,6 +1650,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     const processflow = await readProcessFlow(sdk, instance, flowId, scope);
     verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigger, manifest, actionInstances, inserted, stageInserts });
     assertStagesPlaced(processflow, stageInserts, flowId);
+    assertInsertedIdentities(patchResponse, processflow, flowLogicInserts, 'logic', flowId);
     assertStepReadback(processflow, actionInstances, 'action', flowId);
     assertStepReadback(processflow, flowLogicInserts, 'logic', flowId);
     for (const entry of labelCacheInserts) if (!readLabelCache(processflow).some(e => e.name === entry.name && e.label)) throw new Error(`Flow ${flowId} did not persist data pill ${entry.name}`);
@@ -2081,6 +2102,22 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const errorHandlingInput = manifest.errorHandling ?? manifest.errorHandler;
   if (errorHandlingInput !== undefined) await planErrorHandling({ sdk, instance, scope, flowId, beforeDefinition, existingActions, actionInserts, actionUpdates, flowLogicInserts, flowLogicUpdates, changes, idFactory, actionUiMap, pendingSteps, changedActionInputs, collectPills, errorHandlingInput, actionTargets });
 
+  const mergedActionUpdates = new Map();
+  for (const update of actionUpdates) {
+    const prior = mergedActionUpdates.get(update.uiUniqueIdentifier);
+    if (prior) {
+      for (const key of ['parent', 'parentUiId']) if (prior[key] !== undefined && update[key] !== undefined && prior[key] !== update[key]) throw new Error(`Conflicting action ${key} requests`);
+      const inputs = [...(prior.inputs || [])];
+      for (const input of update.inputs || []) {
+        const existing = inputs.find(i => i.name === input.name);
+        if (existing && !isDeepStrictEqual(existing, input)) throw new Error(`Conflicting action input ${input.name} requests`);
+        if (!existing) inputs.push(input);
+      }
+      Object.assign(prior, update, inputs.length ? { inputs } : {});
+    } else mergedActionUpdates.set(update.uiUniqueIdentifier, { ...update });
+  }
+  actionUpdates.splice(0, actionUpdates.length, ...mergedActionUpdates.values());
+
   // Register every referenced pill so the canvas can draw it. Runs after every
   // collection point (actions and logic blocks) so no reference is missed.
   // Existing entries keep their label/type; a pill this flow has never seen gets
@@ -2191,6 +2228,8 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       assertGraphQLSuccess(patchResponse, 'Flow trigger/action update');
       completedStage = 'patch_acknowledged';
       const processflow = await readProcessFlow(sdk, instance, flowId, scope);
+      assertInsertedIdentities(patchResponse, processflow, actionInserts, 'action', flowId);
+      assertInsertedIdentities(patchResponse, processflow, flowLogicInserts, 'logic', flowId);
       assertStepReadback(processflow, [...actionInserts, ...actionUpdates], 'action', flowId);
       assertStepReadback(processflow, [...flowLogicInserts, ...flowLogicUpdates], 'logic', flowId);
       assertLogicPreserved(beforeDefinition, processflow, flowLogicInserts, flowLogicUpdates, flowLogicDeletes, flowId);
