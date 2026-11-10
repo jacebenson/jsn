@@ -995,6 +995,8 @@ describe('flow update request shapes', () => {
     assert.throws(() => validateErrorHandling({ actions: 'not-an-array' }), /must be an array/);
     assert.throws(() => validateErrorHandling({ actions: [{}] }), /requires type/);
     validateErrorHandling({ actions: [{ type: 'Log' }] });
+    validateFlowUpdateManifest({ errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'x' } }] } });
+    assert.throws(() => validateFlowUpdateManifest({ errorHandling: { actions: 'not-an-array' } }), /must be an array/);
 
     const definition = structuredClone(baseDefinition);
     definition.labelCacheAsJsonString = '[]';
@@ -1033,5 +1035,7 @@ describe('flow update request shapes', () => {
     assert.match(query, /parent: "gen-id-101"/, 'Error action parented to Catch block');
     assert.match(query, /parent: "gen-id-100"/, 'Existing actions reparented to Try block');
     assert.match(query, /labelCache: \{insert: \[.*gen-id-101\.__status__\.message.*\]\}/, 'Error message pill bound to labelCache');
+    assert.match(query, /value: "Flow Error: \{\{gen-id-101\.__status__\.message\}\}"/, 'Inserted error action input names the Catch pill');
+    assert.doesNotMatch(query, /\{\{error\.message\}\}/, 'friendly error token never reaches the instance');
   });
 });

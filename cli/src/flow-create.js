@@ -945,6 +945,11 @@ export function validateFlowUpdateManifest(manifest) {
   }
   if (manifest.trigger === undefined && manifest.actions === undefined && manifest.stages === undefined && manifest.stageTemplate === undefined && manifest.stageSet === undefined && manifest.flowVariables === undefined && manifest.variables === undefined && manifest.flowLogics === undefined && manifest.logic === undefined && manifest.deleteSteps === undefined && manifest.delete === undefined && manifest.deleteOrders === undefined && manifest.errorHandling === undefined && manifest.errorHandler === undefined) throw new Error('Flow update manifest must specify trigger, actions and/or stages');
   if (manifest.stages !== undefined) validateStages(manifest.stages, { update: true });
+  // Accepting the key without checking its shape would still insert the Try and
+  // Catch blocks while silently dropping a malformed action list.
+  for (const key of ['errorHandling', 'errorHandler']) {
+    if (manifest[key] !== undefined) validateErrorHandling(manifest[key]);
+  }
   for (const key of ['stageTemplate', 'stageSet']) {
     if (manifest[key] === undefined) continue;
     if (typeof manifest[key] !== 'string' || !manifest[key].trim()) throw new Error(`Flow update ${key} must be a non-empty string`);
@@ -1878,6 +1883,9 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
 
     // 2. Ensure Top Level Catch
     let catchUiId = topCatch ? stringValue(topCatch.uiUniqueIdentifier || topCatch.ui_unique_identifier) : '';
+    // An existing Catch already owns its order; re-running the same manifest must
+    // place error actions after it instead of guessing a fixed slot.
+    let catchOrder = topCatch ? parseInt(topCatch.order, 10) : NaN;
     if (!topCatch) {
       catchUiId = idFactory();
       const catchDef = FLOW_LOGIC_DEFINITIONS['top level catch'];
@@ -1887,7 +1895,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       for (const fl of existingLogics) maxOrder = Math.max(maxOrder, parseInt(fl.order, 10) || 0);
       for (const a of actionInserts) maxOrder = Math.max(maxOrder, parseInt(a.order, 10) || 0);
       for (const fl of flowLogicInserts) maxOrder = Math.max(maxOrder, parseInt(fl.order, 10) || 0);
-      const catchOrder = maxOrder + 1;
+      catchOrder = maxOrder + 1;
 
       flowLogicInserts.push({
         order: String(catchOrder),
@@ -1927,7 +1935,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     // Register Catch step in pendingSteps for data pill resolution
     pendingSteps.push({
       name: 'Error Handler',
-      order: String(existingActions.length + 1),
+      order: String(Number.isFinite(catchOrder) ? catchOrder : existingActions.length + 1),
       uiUniqueIdentifier: catchUiId,
       inputs: [
         { name: '__status__.message', parameter: { label: 'Error Status➛Message', type: 'string' } },
@@ -1937,13 +1945,22 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
 
     // 3. Process errorHandling actions
     const errorActions = Array.isArray(errorHandlingInput.actions) ? errorHandlingInput.actions : [];
-    let errActionOrder = (parseInt(flowLogicInserts.find(fl => fl.definitionId === '35d60003e6022010a5e40cdd1254dd23')?.order, 10) || 20) + 1;
+    const errorPill = name => String(name)
+      .replace(/\{\{error\.message\}\}/g, `{{${catchUiId}.__status__.message}}`)
+      .replace(/\{\{error\.code\}\}/g, `{{${catchUiId}.__status__.code}}`);
+    let errActionOrder = (Number.isFinite(catchOrder) ? catchOrder : 20) + 1;
     for (const [eIdx, eAction] of errorActions.entries()) {
       const resolved = await resolveActionType(sdk, eAction.type);
       const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
       const uiUniqueIdentifier = eAction.uiUniqueIdentifier || idFactory();
       actionUiMap.set(`error_${eIdx + 1}`, uiUniqueIdentifier);
-      const insertInputs = buildTypedInputs(eAction, actionDefinition.schema);
+      // Resolve the friendly {{error.*}} tokens before the typed inputs are
+      // built: the value that reaches the instance has to name the Catch
+      // instance's own pill, otherwise the canvas stores an unresolved
+      // reference and no labelCache entry can draw it.
+      const errorInputs = Object.fromEntries(Object.entries(eAction.inputs || {})
+        .map(([input, value]) => [input, typeof value === 'string' ? errorPill(value) : value]));
+      const insertInputs = buildTypedInputs({ ...eAction, inputs: errorInputs }, actionDefinition.schema);
       pendingSteps.push({ name: eAction.type, order: String(errActionOrder), uiUniqueIdentifier, inputs: insertInputs });
       actionInserts.push({
         actionTypeSysId: resolved.id,
@@ -1959,10 +1976,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       });
       changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(eAction.inputs || {})));
       for (const [input, after] of Object.entries(eAction.inputs || {})) {
-        // Resolve {{error.message}} and {{error.code}}
-        let resolvedVal = String(after)
-          .replace(/\{\{error\.message\}\}/g, `{{${catchUiId}.__status__.message}}`)
-          .replace(/\{\{error\.code\}\}/g, `{{${catchUiId}.__status__.code}}`);
+        const resolvedVal = typeof after === 'string' ? errorPill(after) : after;
         changes.push({ component: 'errorAction', order: errActionOrder, type: eAction.type, input, before: null, after: resolvedVal });
         collectPills(resolvedVal, uiUniqueIdentifier, input);
       }
