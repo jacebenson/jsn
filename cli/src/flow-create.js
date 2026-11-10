@@ -1300,6 +1300,25 @@ function assertInsertedIdentities(response, definition, expected, kind, flowId) 
   }
 }
 
+// Compare the requested contract, allowing only additional provider fields.
+function requestedContentMatches(actual, expected) {
+  if (Array.isArray(expected)) return Array.isArray(actual) && actual.length === expected.length && expected.every((v, i) => requestedContentMatches(actual[i], v));
+  if (expected && typeof expected === 'object') return actual !== null && typeof actual === 'object' && Object.entries(expected).every(([k, v]) => requestedContentMatches(actual[k], v));
+  return isDeepStrictEqual(actual, expected);
+}
+
+function validateFinalStepPlan(before, actionInserts, actionUpdates, actionDeletes, logicInserts, logicUpdates, logicDeletes) {
+  const surviving = (steps, updates, deletes) => steps.filter(s => !deletes.includes(stringValue(s.sysId || s.id || s.sys_id || s.uiUniqueIdentifier))).map(s => ({ ...s, ...updates.find(u => u.uiUniqueIdentifier === stringValue(s.uiUniqueIdentifier || s.ui_unique_identifier)) }));
+  const steps = [...surviving(findExistingActions(before), actionUpdates, actionDeletes), ...surviving(before.flowLogicInstances || before.flowLogics || [], logicUpdates, logicDeletes), ...actionInserts, ...logicInserts];
+  const orders = new Set(), identities = new Set();
+  for (const s of steps) {
+    const ui = stringValue(s.uiUniqueIdentifier || s.ui_unique_identifier), order = String(s.order);
+    if ((s.order !== undefined && orders.has(order)) || (ui && identities.has(ui))) throw new Error('Ambiguous final step orders or identities');
+    if (s.order !== undefined) orders.add(order);
+    if (ui) identities.add(ui);
+  }
+}
+
 function assertStepReadback(definition, expectedSteps, kind, flowId) {
   const saved = kind === 'action' ? findExistingActions(definition) : (definition.flowLogicInstances || definition.flowLogics || []);
   for (const expected of expectedSteps) {
@@ -1315,7 +1334,7 @@ function assertStepReadback(definition, expectedSteps, kind, flowId) {
     if (expected.inputs) {
       for (const input of expected.inputs) {
         const found = inputList(actual).filter(i => i.name === input.name);
-        if (found.length !== 1 || !isDeepStrictEqual(inputRawValue(found[0]), inputRawValue(input))) throw new Error(`Flow ${flowId} ${kind} ${expected.uiUniqueIdentifier} input ${input.name} did not match the requested value`);
+        if (found.length !== 1 || !requestedContentMatches(found[0], input)) throw new Error(`Flow ${flowId} ${kind} ${expected.uiUniqueIdentifier} input ${input.name} did not match the requested value; preservation failed`);
       }
     }
   }
@@ -1622,6 +1641,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
       }
     }
 
+    validateFinalStepPlan({}, actionInstances, [], [], flowLogicInserts, [], []);
     const patchResponse = await mutationContext('trigger_and_actions_patch', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
       body: JSON.stringify({ query: buildFlowPatchMutation({ flowId, trigger, actions: actionInstances, flowLogicInserts, labelCacheInserts }), variables: {} }),
@@ -2155,6 +2175,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       labelCacheInserts.push(labelCacheEntry({ name: pillName, label: binding.label, type: binding.type, baseType: binding.type, usedInstances }));
     }
   }
+  validateFinalStepPlan(beforeDefinition, actionInserts, actionUpdates, actionDeletes, flowLogicInserts, flowLogicUpdates, flowLogicDeletes);
   if (triggerUpdates.length === 0 && actionUpdates.length === 0 && actionInserts.length === 0 && actionDeletes.length === 0 && flowVariableInserts.length === 0 && flowLogicInserts.length === 0 && flowLogicDeletes.length === 0 && stageInserts.length === 0 && stageUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
   if (options.preview) return {
     preview: true,
@@ -2338,7 +2359,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
           const afterInput = inputList(readback).find(candidate => candidate.name === input.name);
           if (!afterInput) throw new Error(`Flow ${flowId} Action ${uiId} lost input ${input.name} during update`);
           if (!changed.has(input.name) && JSON.stringify(input) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} Action ${uiId} changed omitted input ${input.name}`);
-          if (changed.has(input.name) && !isDeepStrictEqual(inputRawValue(afterInput), inputRawValue(update.inputs.find(candidate => candidate.name === input.name)))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
+          if (changed.has(input.name) && !isDeepStrictEqual(inputRawValue(afterInput), inputRawValue(update.inputs.find(candidate => candidate.name === input.name)))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value; preservation failed`);
         }
       }
       completedStage = 'definition_verified';

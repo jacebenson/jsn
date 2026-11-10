@@ -7,6 +7,7 @@
 //   * the instance (not the CLI) derives predicate metadata from the condition
 //     input, so the fake derives it here too and the read-back check proves it.
 import assert from 'node:assert/strict';
+import { readFlowPatch } from '../helpers/flow-patch-fixture.js';
 import { SDKClient } from '../../src/sdk.js';
 import cliAdapter from '../../src/cli-adapter.js';
 import { actionsCmd } from '../../src/commands/actions.js';
@@ -80,7 +81,7 @@ function inputEntries(segment) {
   }
   return entries;
 }
-function actionInputEntries(segment) {
+function _actionInputEntries(segment) {
   const entries = [];
   for (const match of segment.matchAll(/name: "([^"]+)", children: \[\], displayField: "[^"]*", scriptActive: false, parameter: \{[\s\S]*?\}, value: \{schemaless: false, schemalessValue: "", value: (""|"(?:\\.|[^"\\])*")\}/g)) {
     entries.push({ name: match[1], value: value(JSON.parse(match[2])) });
@@ -158,7 +159,7 @@ sdk.request = async (url, options = {}) => {
         uiUniqueIdentifier: uiId,
         actionTypeSysId: requested,
         order: String(index + 1),
-        inputs: actionInputEntries(insert.split('uiUniqueIdentifier: "').slice(1)[index].split('inputs: [').slice(1).join('inputs: [')),
+        inputs: readFlowPatch(query).actions.insert[index].inputs,
       }));
     }
     return { data: { global: { snFlowDesigner: { flow: {
