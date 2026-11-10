@@ -28,7 +28,7 @@ const FLOW_RECORD_FIELDS = 'sys_id,name,sys_scope,scope,active,status,type,sys_u
 
 // Everything this partial-update contract still cannot do, whatever the
 // lifecycle state. Published edits reuse the same component rules.
-const DEFERRED_LIFECYCLE = ['publish/activation', 'Flow Logic', 'subflows', 'flow variables', 'error handling'];
+const DEFERRED_LIFECYCLE = ['publish/activation', 'Flow Logic', 'subflows', 'flow variables'];
 
 function supportedLifecycle(published) {
   return published
