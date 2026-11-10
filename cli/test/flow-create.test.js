@@ -344,7 +344,9 @@ describe('flow update request shapes', () => {
         }
         if (endpoint.includes('/versioning/create_version')) return { result: { sys_id: 'version-update-1' } };
         assert.ok(editLease, 'does not have safe edit record for existing flow');
-        return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId] } } } } } };
+        const patch = readFlowPatch(query);
+        const identities = key => (patch[key]?.insert || []).map(s => ({ sysId: `db-${s.uiUniqueIdentifier}`, uiUniqueIdentifier: s.uiUniqueIdentifier }));
+        return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId], inserts: identities('actions') }, flowLogics: { inserts: identities('flowLogics') } } } } } };
       },
     };
   }
@@ -1146,6 +1148,8 @@ describe('flow update request shapes', () => {
     const changes = {
       unchanged: () => structuredClone(baseDefinition),
       missingAction: d => { d.actionInstances.pop(); return d; },
+      actionIdentity: d => { d.actionInstances[1].id = 'wrong'; return d; },
+      logicIdentity: d => { d.flowLogicInstances[1].id = 'wrong'; return d; },
       actionType: d => { d.actionInstances[1].actionTypeSysId = 'wrong'; return d; },
       actionOrder: d => { d.actionInstances[1].order = '99'; return d; },
       actionParent: d => { d.actionInstances[1].parent = 'wrong'; return d; },
@@ -1223,6 +1227,7 @@ describe('error handling create persistence', () => {
         overrides.graphql = { data: { global: { snFlowDesigner: { flow: {
           triggerInstances: { inserts: [{ sysId: TRIGGER_ID }] },
           actions: { inserts: patch.actions.insert.map(a => ({ sysId: `db-${a.uiUniqueIdentifier}`, uiUniqueIdentifier: a.uiUniqueIdentifier })) },
+          flowLogics: { inserts: (patch.flowLogics?.insert || []).map(l => ({ sysId: `db-${l.uiUniqueIdentifier}`, uiUniqueIdentifier: l.uiUniqueIdentifier })) },
         } } } } };
       }
       return request(endpoint, options);
