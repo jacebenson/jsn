@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 const Database = createRequire(new URL('../../cli/package.json', import.meta.url))('better-sqlite3');
-import { syncDocumentation } from '../script/sync-docs.mjs';
+import { syncDocumentation, syncFamily } from '../script/sync-docs.mjs';
 
 test('Git sync publishes additions, edits and deletions atomically and skips unchanged revisions', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-site-sync-'));
@@ -51,5 +51,34 @@ test('Git sync publishes additions, edits and deletions atomically and skips unc
     await assert.rejects(syncDocumentation({ storage, source }));
     assert.deepEqual(fs.readFileSync(live), previous);
     assert.equal(JSON.parse(fs.readFileSync(path.join(storage, 'status.json'))).state, 'failed');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('one family syncs into its own storage and stamps its release on the published manifest', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-site-family-sync-'));
+  const source = path.join(dir, 'upstream');
+  const storage = path.join(dir, 'releases', 'brazil');
+  fs.mkdirSync(path.join(source, 'markdown'), { recursive: true });
+  const git = (...args) => {
+    const result = spawnSync('git', ['-C', source, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  try {
+    git('init', '-b', 'brazil');
+    fs.writeFileSync(path.join(source, 'markdown', 'record.md'), '---\ntitle: Record\nbundle: api\n---\nBrazil documentation.');
+    git('add', '.');
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture');
+
+    const first = await syncFamily({ storage, family: 'brazil', source });
+    assert.equal(first.release, 'brazil');
+    assert.equal(first.documents, 1);
+    assert.ok(fs.existsSync(path.join(storage, 'docs.sqlite3')), 'the index stays inside the family storage directory');
+    const manifest = JSON.parse(fs.readFileSync(path.join(storage, 'snapshots', 'manifest.json'), 'utf8'));
+    assert.equal(manifest.release, 'brazil');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(storage, 'status.json'), 'utf8')).release, 'brazil');
+
+    const republished = await syncFamily({ storage, family: 'brazil', source, republish: true });
+    assert.equal(republished.changed, false);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(storage, 'snapshots', 'manifest.json'), 'utf8')).release, 'brazil');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

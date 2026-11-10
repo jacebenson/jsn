@@ -64,7 +64,7 @@
       } else if (url.hostname === 'docs.local' && url.pathname.endsWith('.md')) {
         docPath = decodeURIComponent(url.pathname.slice(1));
       }
-      if (docPath) link.href = '/documentation/read?' + new URLSearchParams({ path: docPath }) + url.hash;
+      if (docPath) link.href = '/documentation/read?' + new URLSearchParams(data.release ? { path: docPath, release: data.release } : { path: docPath }) + url.hash;
       else if (url.protocol === 'https:' || url.protocol === 'http:') { link.rel = 'noopener noreferrer'; }
     } catch { /* Leave sanitized, non-document links alone. */ }
   });

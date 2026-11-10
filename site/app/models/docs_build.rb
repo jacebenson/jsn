@@ -1,17 +1,27 @@
 class DocsBuild < ApplicationRecord
   validates :revision, format: { with: /\A[a-f0-9]{7,64}\z/ }
   validates :state, inclusion: { in: %w[building failed published] }
-  def self.promote!(revision, manifest)
-    validate_manifest!(revision, manifest)
+  validates :release, format: { with: DocsStorage::FAMILY }, allow_nil: true
+
+  # Publish a family's manifest without touching any other family's active row.
+  def self.promote!(release, revision, manifest)
+    validate_manifest!(release, revision, manifest)
     transaction do
-      update_all(active: false)
-      build = find_or_initialize_by(revision: revision)
-      build.update!(state: 'published', manifest: manifest, active: true)
+      previous = where(release: release)
+      # Rows written before the release column belong to the default family.
+      previous = previous.or(where(release: nil)) if release == DocsStorage.default_family
+      previous.update_all(active: false)
+      build = find_by(release: release, revision: revision)
+      build ||= find_by(release: nil, revision: revision) if release == DocsStorage.default_family
+      build ||= new(revision: revision)
+      build.update!(release: release, state: 'published', manifest: manifest, active: true)
     end
   end
-  def self.validate_manifest!(revision, manifest)
+
+  def self.validate_manifest!(release, revision, manifest)
     valid = manifest.is_a?(Hash) && manifest['format'] == 1 && manifest['schema'] == 1 &&
       manifest['cliCompatibility'] == 'docs-schema-1' && manifest['revision'] == revision &&
+      manifest['release'] == release && DocsStorage::FAMILY.match?(release.to_s) &&
       manifest['sha256'].to_s.match?(/\A[a-f0-9]{64}\z/)
     %w[compressedBytes databaseBytes].each { |key| valid &&= manifest[key].is_a?(Integer) && manifest[key].positive? }
     url = URI.parse(manifest.fetch('url', '')) rescue nil
