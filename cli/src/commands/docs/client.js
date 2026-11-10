@@ -59,6 +59,15 @@ export async function searchHostedDocs(options = {}) {
   if (!data || !Array.isArray(data.results) || data.results.length > limit || data.count !== data.results.length ||
       !Number.isInteger(data.total) || data.total < data.count || typeof data.revision !== 'string' ||
       !data.results.every(row => row && Number.isInteger(row.id) && typeof row.path === 'string')) throw invalidResponse();
+  // A service that predates release selection echoes no release of its own; when every
+  // row it returned is stamped with a different family, say so instead of relabelling it.
+  if (options.release && data.release === undefined) {
+    const stamped = new Set(data.results.map(row => row.release).filter(value => typeof value === 'string' && value));
+    if (stamped.size === 1 && !stamped.has(options.release)) {
+      throw new AppError('api_error', `Documentation service answered with ${[...stamped][0]} documents, expected ${options.release}.`,
+        'Update the documentation service to serve multiple releases, or omit --release.');
+    }
+  }
   return { ...data, release: options.release ?? data.release, query, limit, offset, service };
 }
 export async function getHostedDoc(idOrPath, options = {}) {

@@ -12,7 +12,8 @@ globalThis.fetch = async input => {
   }
   if (url.pathname.endsWith('.gz')) return new Response(fs.readFileSync(scenario.artifact));
   const release = scenario.responseRelease === undefined ? {} : { release: scenario.responseRelease };
-  if (url.pathname === '/api/docs/search') return Response.json({ ...release, revision: 'abcdef0', total: 1, count: 1, results: [{ id: 1, path: 'record.md', title: 'Record' }] });
+  const stamp = row => (scenario.rowRelease === undefined ? {} : { release: scenario.rowRelease === 'mixed' ? (row ? 'zurich' : 'brazil') : scenario.rowRelease });
+  if (url.pathname === '/api/docs/search') return Response.json({ ...release, revision: 'abcdef0', total: 2, count: 2, results: [{ id: 1, path: 'record.md', title: 'Record', ...stamp(false) }, { id: 2, path: 'other.md', title: 'Other', ...stamp(true) }] });
   if (url.pathname === '/api/docs/status') return Response.json({ ...release, state: 'ready' });
   return Response.json({ ...release, revision: 'abcdef0', document: { id: 1, path: 'record.md', title: 'Record', body: 'Documentation body' } });
 };

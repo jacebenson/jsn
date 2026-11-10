@@ -75,6 +75,18 @@ test('CLI refuses a mismatched response family on search/read/status but accepts
     assert.notEqual(result.status, 0); assert.equal(JSON.parse(result.stdout).code, 'api_error');
   }
 });
+test('CLI reports a legacy service that serves one family instead of relabelling it', t => {
+  const f = fixture(t);
+  f.scenario({ rowRelease: 'zurich' });
+  const refused = f.run(['record', '--release', 'brazil']);
+  assert.notEqual(refused.status, 0);
+  const error = JSON.parse(refused.stdout);
+  assert.equal(error.code, 'api_error');
+  assert.match(error.error, /answered with zurich documents, expected brazil/);
+  assert.equal(success(f.run(['record', '--release', 'zurich'])).release, 'zurich');
+  f.scenario({ rowRelease: 'mixed' });
+  assert.equal(success(f.run(['record', '--release', 'brazil'])).release, 'brazil');
+});
 test('CLI snapshot install isolates families, keeps legacy default, and releases works offline', t => {
   const f = fixture(t), artifact = snapshot(f);
   f.scenario({ ...artifact, manifest: { ...artifact.manifest, release: 'brazil' } });
