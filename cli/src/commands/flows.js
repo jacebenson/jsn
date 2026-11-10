@@ -249,6 +249,11 @@ export function flowsCmd(wrap) {
               type: 'number',
               default: 2,
               describe: 'Expand nested subflows to this depth (1 = subflow names only, 2 = one level, 3+ = deeper)',
+            })
+            .option('raw-payload', {
+              type: 'boolean',
+              default: false,
+              describe: 'Include the raw ProcessFlow document (large; it duplicates the extracted steps)',
             }),
           handler: wrap(async (argv, app) => {
             const identifier = await pickFlow(argv, app);
@@ -258,6 +263,7 @@ export function flowsCmd(wrap) {
               identifier,
               instanceURL: app.getEffectiveInstance(),
               depth: argv.depth,
+              includePayload: argv.rawPayload === true,
             });
             app.ok(inspection, {
               summary: `Flow: ${inspection.flow.name}`,

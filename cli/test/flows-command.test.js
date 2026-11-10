@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { flowsCmd } from '../src/commands/flows.js';
-import { OutputWriter, FormatJSON } from '../src/output.js';
+import { OutputWriter, FormatJSON, FormatStyled } from '../src/output.js';
 import { collectCapabilities, mutationPaths } from '../src/capabilities.js';
 
 function commandTree() {
@@ -150,7 +150,7 @@ test('flows unlock never mutates without confirmation in a noninteractive run', 
   assert.equal(queries.length, 0);
 });
 
-test('flows show handler emits the normal Output envelope and formatted data', async () => {
+test('flows show handler emits the normal Output envelope and keeps the rendered view for terminals', async () => {
   const show = commandTree().find(command => command.command === 'show [identifier]');
   assert.ok(show);
   const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
@@ -171,7 +171,40 @@ test('flows show handler emits the normal Output envelope and formatted data', a
   const envelope = JSON.parse(serialized);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.summary, 'Flow: Production flow');
-  assert.match(envelope.data._formatted, /Permission type/);
+  // The rendered ASCII view is a terminal side channel, not data: JSON keeps the
+  // fields and drops the tree that every machine consumer had to ignore.
+  assert.equal('_formatted' in envelope.data, false);
+  // The raw ProcessFlow document duplicates the extracted steps byte for byte,
+  // so `show` returns it only on request.
+  assert.equal('payload' in envelope.data, false);
+
+  let styled = '';
+  const styledWriter = new Writable({ write(chunk, _encoding, callback) { styled += chunk.toString(); callback(); } });
+  await show.handler({ identifier: 'flow-1', depth: 2 }, {
+    ...app,
+    output: new OutputWriter({ format: FormatStyled, writer: styledWriter }),
+  });
+  assert.match(styled, /Production flow/);
+  assert.match(styled, /Permission type/);
+});
+
+test('flows show returns the raw ProcessFlow document only with --raw-payload', async () => {
+  const show = commandTree().find(command => command.command === 'show [identifier]');
+  const inspection = { flow: { name: 'Production flow', active: true, version: '2', type: 'Flow', sysID: 'flow-1' }, version: {}, payload: {
+    actionInstances: [{ order: 1, actionType: { fName: 'Log' }, inputs: [{ name: 'log_message', displayValue: 'hi' }] }],
+  }, triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [] };
+  let serialized = '';
+  const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
+  const output = new OutputWriter({ format: FormatJSON, writer });
+  const app = {
+    sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
+    output,
+    ok(data, opts) { this.output.ok(data, opts); },
+    getEffectiveInstance: () => 'https://example.service-now.com',
+  };
+  await show.handler({ identifier: 'flow-1', depth: 2, rawPayload: true }, app);
+  const envelope = JSON.parse(serialized);
+  assert.equal(envelope.data.payload.actionInstances.length, 1);
 });
 
 // The exact command boundary that failed live: a draft whose label cache is the
@@ -195,8 +228,16 @@ test('flows show renders a draft whose label cache is JSON null', async () => {
   await show.handler({ identifier: 'flow-null-cache', depth: 2 }, app);
   const envelope = JSON.parse(serialized);
   assert.equal(envelope.ok, true);
-  assert.match(envelope.data._formatted, /Log/);
-  assert.match(envelope.data._formatted, /nice!/);
+  assert.equal('_formatted' in envelope.data, false);
+
+  let styled = '';
+  const styledWriter = new Writable({ write(chunk, _encoding, callback) { styled += chunk.toString(); callback(); } });
+  await show.handler({ identifier: 'flow-null-cache', depth: 2 }, {
+    ...app,
+    output: new OutputWriter({ format: FormatStyled, writer: styledWriter }),
+  });
+  assert.match(styled, /Log/);
+  assert.match(styled, /nice!/);
 });
 
 test('flows list handler emits the normal JSON envelope for an interactive selection', async () => {
@@ -223,7 +264,7 @@ test('flows list handler emits the normal JSON envelope for an interactive selec
   assert.deepEqual(Object.keys(envelope), ['ok', 'data', 'summary', 'breadcrumbs']);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.summary, 'Flow: Production flow');
-  assert.match(envelope.data._formatted, /Permission type/);
+  assert.equal('_formatted' in envelope.data, false);
   assert.equal('catalogRecords' in envelope.data, false);
 });
 

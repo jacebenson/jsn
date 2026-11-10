@@ -16,7 +16,12 @@ jsn flows show "My draft" --profile pdi
 jsn flows update "My draft" --profile pdi --data-file edit.json --preview
 jsn flows update "My draft" --profile pdi --data-file edit.json --force
 jsn flows show "My draft" --profile pdi --json
+jsn flows show "My draft" --profile pdi --json --raw-payload   # + the ProcessFlow document
 ```
+
+`flows show` returns the extracted steps, triggers, inputs and variables. The raw
+ProcessFlow document is omitted because it duplicates those arrays; add
+`--raw-payload` when you need the provider's own JSON.
 
 Example `edit.json`:
 

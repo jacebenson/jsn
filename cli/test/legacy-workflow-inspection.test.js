@@ -231,7 +231,10 @@ function assertOnlyReads(requests, { allowAuth = false } = {}) {
   assert.ok(tableRequests.length > 0, 'expected table reads');
   assert.deepEqual([...new Set(tableRequests.map(request => request.method))], ['GET']);
   const nonTable = [...new Set(requests.filter(request => !request.table).map(request => request.path))];
-  assert.deepEqual(nonTable, allowAuth ? ['/angular.do'] : []);
+  // The UI-session bootstrap is the one POST a read-only workflow may make. It
+  // is allowed, never required: header-authenticated table reads skip it.
+  const unexpected = allowAuth ? nonTable.filter(path => path !== '/angular.do') : nonTable;
+  assert.deepEqual(unexpected, []);
 }
 
 test('workflows list paginates with lookahead and reports published and checked-out versions', async () => {

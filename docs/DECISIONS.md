@@ -549,3 +549,31 @@ The note is width-aware: it wraps descriptions under the command on narrow
 terminals and never truncates or splits a command name. An interrupted first run
 (Ctrl-C) leaves either no marker and no note, or a complete marker and at most
 a partial note - never a complete note the marker does not record.
+
+## 2026-11-10: Machine output carries data, and table reads skip the UI session
+
+Three corrections from a week of agent traffic (4,800 `jsn` invocations, 1.8M
+output tokens, 50 truncated `flows show` results):
+
+`flows show` returns the extracted steps without the raw ProcessFlow document;
+`--raw-payload` keeps it. On a 10-step flow the payload was 536KB of 1.06MB of
+data, and `actionInstances`, `flowLogicInstances` and `subFlowInstances` were
+byte-identical at both levels, so every step serialized twice.
+
+Flow inspection attaches `_formatted` non-enumerably, the way `catalogitems
+show` already does, so the rendered tree stays out of the JSON envelope. The
+other commands keep their current `_formatted` contract; stripping it globally
+changes a wider surface and stays a separate decision.
+
+The context banner no longer prints for `--get`/`--select` or when stderr is
+not a terminal. It printed while the format still reported pretty, so a banner
+merged by `2>&1` landed in front of the extracted JSON and broke
+`json.load(sys.stdin)` / `jq` at character 0; it also cost three requests per
+command.
+
+Table, stats and batch requests authenticate from their own headers and no
+longer bootstrap a UI session on every invocation. Everything else keeps the
+bootstrap it reads — including binary attachment uploads, which upload with the
+session cookie and user token. An instance that needs a session for table reads
+sets `JSN_ALWAYS_WARM_SESSION=1`, which restores the previous path for the whole
+process; the CLI does not silently retry a refused read behind a caller's back.
