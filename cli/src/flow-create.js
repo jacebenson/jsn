@@ -814,8 +814,8 @@ async function resolveExistingAction(sdk, actions, requested, index) {
 
 export function validateFlowUpdateManifest(manifest) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('Flow update manifest must be a JSON object');
-  const allowed = new Set(['scope', 'trigger', 'actions', 'stages', 'flowVariables', 'variables', 'flowLogics', 'deleteSteps', 'delete', 'deleteOrders']);
-  for (const key of Object.keys(manifest)) if (!allowed.has(key)) throw new Error(`Flow update field "${key}" is unsupported; only trigger, existing action inputs and stages may be updated`);
+  const allowed = new Set(['scope', 'trigger', 'actions', 'stages', 'flowVariables', 'variables', 'flowLogics', 'logic', 'deleteSteps', 'delete', 'deleteOrders']);
+  for (const key of Object.keys(manifest)) if (!allowed.has(key)) throw new Error(`Flow update field "${key}" is unsupported; editable: trigger, action inputs, action inserts, step deletes, flow variables, flow logic, stage placement`);
   if (manifest.scope !== undefined && !String(manifest.scope).trim()) throw new Error('Flow update scope must not be empty');
   if (manifest.trigger !== undefined) {
     if (!manifest.trigger || typeof manifest.trigger !== 'object' || Array.isArray(manifest.trigger)) throw new Error('Flow update trigger must be an object');
@@ -1256,6 +1256,96 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
   }
 }
 
+// Flow Designer renders a canvas pill from the `label` of its label_cache entry;
+// the ProcessFlow read exposes that cache as `labelCacheAsJsonString` (a JSON
+// string), never as a `label_cache` array. Reading the wrong field is how a
+// write ends up with an entry that has a name and no label to draw.
+function normalizeUsedInstances(used) {
+  const out = new Map();
+  const add = (uiId, inputName) => {
+    if (!uiId || !inputName) return;
+    if (!out.has(uiId)) out.set(uiId, []);
+    const names = out.get(uiId);
+    if (!names.includes(inputName)) names.push(inputName);
+  };
+  if (Array.isArray(used)) {
+    for (const entry of used) add(stringValue(entry?.uiUniqueIdentifier), stringValue(entry?.inputName));
+  } else if (used && typeof used === 'object') {
+    for (const [uiId, names] of Object.entries(used)) {
+      for (const name of (Array.isArray(names) ? names : [names])) add(uiId, stringValue(name));
+    }
+  }
+  const result = {};
+  for (const [uiId, names] of out) result[uiId] = names;
+  return result;
+}
+
+export function readLabelCache(definition) {
+  const raw = definition?.labelCacheAsJsonString ?? definition?.label_cache ?? definition?.labelCache;
+  let entries = raw;
+  if (typeof raw === 'string') {
+    try { entries = raw.trim() ? JSON.parse(raw) : []; } catch { entries = []; }
+  }
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map(entry => ({
+      name: stringValue(entry?.name),
+      label: stringValue(entry?.label),
+      type: stringValue(entry?.type),
+      baseType: stringValue(entry?.base_type || entry?.baseType),
+      usedInstances: normalizeUsedInstances(entry?.usedInstances),
+    }))
+    .filter(entry => entry.name);
+}
+
+function describeKnownPills(cache) {
+  const names = cache.map(entry => entry.name);
+  if (!names.length) return 'this flow has no registered data pills';
+  return `registered pills: ${names.slice(0, 8).join(', ')}${names.length > 8 ? ` (+${names.length - 8} more)` : ''}`;
+}
+
+// A pill no entry covers still needs a label the canvas can draw. Resolve the
+// producing step and the field it names, then build the label Flow Designer
+// itself would: `Trigger - <trigger>➛<input>` or `<order> - <action>➛<input>`.
+// `pending` covers steps this same manifest is inserting: their identity and
+// input schema already exist here even though the flow does not carry them yet.
+export function resolvePillBinding(definition, pillName, flowId, cache, pending = []) {
+  const fail = () => {
+    throw new Error(`Flow ${flowId} has no label_cache entry for data pill {{${pillName}}}; ${describeKnownPills(cache)}. Use a pill this flow already registers, or resave the flow in Flow Designer first. No content write attempted.`);
+  };
+  const separator = pillName.indexOf('.');
+  if (separator <= 0) return fail();
+  const stepKey = pillName.slice(0, separator);
+  const fieldName = pillName.slice(separator + 1).split('.')[0];
+  const describe = (fields, name) => {
+    const field = inputList({ inputs: fields }).find(entry => stringValue(entry?.name) === name);
+    if (!field) return null;
+    return {
+      label: stringValue(field?.parameter?.label) || stringValue(field?.parameter?.name) || String(field?.name ?? ''),
+      type: stringValue(field?.parameter?.type),
+    };
+  };
+
+  const candidates = [
+    ...findArray(definition, 'triggerInstances').map(step => ({ ...step, trigger: true })),
+    ...findExistingActions(definition).map(step => ({ ...step, trigger: false })),
+    ...pending.map(step => ({ ...step, trigger: false })),
+  ];
+  for (const step of candidates) {
+    const name = stringValue(step.name);
+    const order = stringValue(step.order) || '1';
+    const uiId = stringValue(step.uiUniqueIdentifier || step.ui_unique_identifier);
+    const matchesAlias = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+$`).test(stepKey);
+    if (!matchesAlias && stepKey !== uiId) continue;
+    // Inputs and outputs both become draggable pills; look at each before failing.
+    const field = describe(step.inputs, fieldName) || describe(step.outputs, fieldName);
+    if (!field) continue;
+    const prefix = step.trigger ? `Trigger - ${name}` : `${order} - ${name}`;
+    return { label: `${prefix}➛${field.label}`, type: field.type };
+  }
+  return fail();
+}
+
 export async function updateFlowFromManifest(sdk, instance, identifier, inputManifest, options = {}) {
   const manifest = validateFlowUpdateManifest(inputManifest);
   const target = await resolveFlowForUpdate(sdk, identifier);
@@ -1320,11 +1410,25 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const existingOrders = new Set(existingActions.map(a => String(a.order)));
   const idFactory = options.idFactory || (() => randomUUID());
   const pillToInstances = new Map();
+  const pendingSteps = [];
   const actionUiMap = new Map();
   for (const a of existingActions) {
     const ui = stringValue(a.uiUniqueIdentifier || a.ui_unique_identifier);
     if (a.order && ui) actionUiMap.set(String(a.order), ui);
   }
+  // One input value can carry several pills; register every reference, not just
+  // the first, or the later ones never reach label_cache and stay blank.
+  const collectPills = (value, uiUniqueIdentifier, inputName) => {
+    for (const match of String(value).matchAll(/\{\{([^}]+)\}\}/g)) {
+      const pillName = match[1].trim();
+      if (!pillName) continue;
+      if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
+      const instances = pillToInstances.get(pillName);
+      if (!instances.some(entry => entry.uiUniqueIdentifier === uiUniqueIdentifier && entry.inputName === inputName)) {
+        instances.push({ uiUniqueIdentifier, inputName });
+      }
+    }
+  };
 
   for (const [index, requested] of (manifest.actions || []).entries()) {
     const isInsert = !existingOrders.has(String(requested.order));
@@ -1333,6 +1437,10 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
       const uiUniqueIdentifier = requested.uiUniqueIdentifier || idFactory();
       actionUiMap.set(String(requested.order), uiUniqueIdentifier);
+      const insertInputs = buildTypedInputs(requested, actionDefinition.schema);
+      // A later step in this same manifest may reference this one; its identity
+      // and schema exist now even though the flow does not carry it yet.
+      pendingSteps.push({ name: requested.type, order: String(requested.order), uiUniqueIdentifier, inputs: insertInputs });
       actionInserts.push({
         actionTypeSysId: resolved.id,
         flowSysId: flowId,
@@ -1343,17 +1451,12 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
         uiUniqueIdentifier,
         parentUiId: '',
         metadata: JSON.stringify(parseMaybeJson(actionDefinition.definition.metadata, {})),
-        inputs: buildTypedInputs(requested, actionDefinition.schema),
+        inputs: insertInputs,
       });
       changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(requested.inputs || {})));
       for (const [input, after] of Object.entries(requested.inputs || {})) {
         changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: null, after });
-        const pillMatch = String(after).match(/\{\{([^}]+)\}\}/);
-        if (pillMatch) {
-          const pillName = pillMatch[1];
-          if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
-          pillToInstances.get(pillName).push({ uiUniqueIdentifier, inputName: input });
-        }
+        collectPills(after, uiUniqueIdentifier, input);
       }
     } else {
       const existing = await resolveExistingAction(sdk, existingActions, requested, index);
@@ -1365,40 +1468,11 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       changedActionInputs.set(uiId, new Set(Object.keys(requested.inputs)));
       for (const [input, after] of Object.entries(requested.inputs)) {
         changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
-        const pillMatch = String(after).match(/\{\{([^}]+)\}\}/);
-        if (pillMatch) {
-          const pillName = pillMatch[1];
-          if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
-          pillToInstances.get(pillName).push({ uiUniqueIdentifier: uiId, inputName: input });
-        }
+        collectPills(after, uiId, input);
       }
     }
   }
 
-  // Populate labelCacheUpdates if any data pills are used
-  const existingLabelCache = beforeDefinition.label_cache || beforeDefinition.labelCache || [];
-  for (const [pillName, instances] of pillToInstances.entries()) {
-    const existingCacheEntry = existingLabelCache.find(e => e.name === pillName);
-    const existingInstances = [];
-    if (existingCacheEntry) {
-      if (Array.isArray(existingCacheEntry.usedInstances)) {
-        existingInstances.push(...existingCacheEntry.usedInstances);
-      } else if (typeof existingCacheEntry.usedInstances === 'object' && existingCacheEntry.usedInstances !== null) {
-        for (const [uiId, inputNames] of Object.entries(existingCacheEntry.usedInstances)) {
-          for (const inName of (Array.isArray(inputNames) ? inputNames : [inputNames])) {
-            existingInstances.push({ uiUniqueIdentifier: uiId, inputName: inName });
-          }
-        }
-      }
-    }
-    const combined = [...existingInstances];
-    for (const inst of instances) {
-      if (!combined.some(c => c.uiUniqueIdentifier === inst.uiUniqueIdentifier && c.inputName === inst.inputName)) {
-        combined.push(inst);
-      }
-    }
-    labelCacheUpdates.push({ name: pillName, usedInstances: combined });
-  }
   const savedStages = stageList(beforeDefinition);
   const savedStageById = new Map(savedStages.map(stage => [stringValue(stage.stageId || stage.stage_id), stage]));
   for (const update of stageUpdates) {
@@ -1492,12 +1566,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     });
 
     const inputs = [];
-    const conditionPillMatch = resolvedCondition.match(/\{\{([^}]+)\}\}/);
-    if (conditionPillMatch) {
-      const pillName = conditionPillMatch[1];
-      if (!pillToInstances.has(pillName)) pillToInstances.set(pillName, []);
-      pillToInstances.get(pillName).push({ uiUniqueIdentifier, inputName: 'condition' });
-    }
+    collectPills(resolvedCondition, uiUniqueIdentifier, 'condition');
 
     if (lType === 'if' || lType === 'else if') {
       inputs.push({
@@ -1580,6 +1649,54 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       }
     }
   }
+  // Register every referenced pill so the canvas can draw it. Runs after every
+  // collection point (actions and logic blocks) so no reference is missed.
+  // Existing entries keep their label/type; a pill this flow has never seen gets
+  // a label resolved from its producing step.
+  const labelCacheInserts = [];
+  const existingLabelCache = readLabelCache(beforeDefinition);
+  const labelCacheEntry = ({ name, label, type, baseType, usedInstances }) => {
+    // The provider stores usedInstances as a map, but a map key is a UUID and an
+    // unquoted UUID key is not valid GraphQL. Send the array form it accepts.
+    const instances = Object.entries(usedInstances || {}).flatMap(([uiUniqueIdentifier, inputNames]) =>
+      (Array.isArray(inputNames) ? inputNames : [inputNames]).map(inputName => ({ uiUniqueIdentifier, inputName })));
+    const entry = { name, usedInstances: instances };
+    if (label) entry.label = label;
+    if (type) entry.type = type;
+    if (baseType) entry.base_type = baseType;
+    return entry;
+  };
+  const mergeUsedInstances = (existing, instances) => {
+    const merged = { ...(existing || {}) };
+    for (const { uiUniqueIdentifier, inputName } of instances) {
+      if (!merged[uiUniqueIdentifier]) merged[uiUniqueIdentifier] = [];
+      if (!merged[uiUniqueIdentifier].includes(inputName)) merged[uiUniqueIdentifier].push(inputName);
+    }
+    return merged;
+  };
+  for (const [pillName, instances] of pillToInstances.entries()) {
+    const existing = existingLabelCache.find(entry => entry.name === pillName);
+    const usedInstances = mergeUsedInstances(existing?.usedInstances, instances);
+    // An entry with no caption draws nothing, so a missing label is repaired
+    // rather than passed through; a missing type is filled in when resolvable.
+    let binding = null;
+    if (!existing?.label) {
+      binding = resolvePillBinding(beforeDefinition, pillName, flowId, existingLabelCache, pendingSteps);
+    } else if (!existing.type) {
+      try { binding = resolvePillBinding(beforeDefinition, pillName, flowId, existingLabelCache, pendingSteps); } catch { binding = null; }
+    }
+    if (existing) {
+      labelCacheUpdates.push(labelCacheEntry({
+        ...existing,
+        label: existing.label || binding.label,
+        type: existing.type || binding.type,
+        baseType: existing.baseType || binding.type,
+        usedInstances,
+      }));
+    } else {
+      labelCacheInserts.push(labelCacheEntry({ name: pillName, label: binding.label, type: binding.type, baseType: binding.type, usedInstances }));
+    }
+  }
   if (triggerUpdates.length === 0 && actionUpdates.length === 0 && actionInserts.length === 0 && actionDeletes.length === 0 && flowVariableInserts.length === 0 && flowLogicInserts.length === 0 && flowLogicDeletes.length === 0 && stageInserts.length === 0 && stageUpdates.length === 0) throw new Error(`Flow ${flowId} update has no supported changes`);
   if (options.preview) return {
     preview: true,
@@ -1607,9 +1724,10 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const outcome = await withFlowSafeEdit(sdk, instance, flowId, beforeDefinition.updated, async () => {
     let completedStage = 'validated';
     try {
+      const patchQuery = buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates, actionInserts, actionDeletes, flowVariableInserts, flowLogicInserts, flowLogicUpdates, flowLogicDeletes, labelCacheUpdates, labelCacheInserts, stageInserts, stageUpdates });
       const patchResponse = await mutationContext('trigger_and_actions_update', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
         method: 'POST',
-        body: JSON.stringify({ query: buildFlowUpdateMutation({ flowId, triggerUpdates, actionUpdates, actionInserts, actionDeletes, flowVariableInserts, flowLogicInserts, flowLogicUpdates, flowLogicDeletes, labelCacheUpdates, stageInserts, stageUpdates }), variables: {} }),
+        body: JSON.stringify({ query: patchQuery, variables: {} }),
       }), updateSet => readUpdateSetCapture(sdk, updateSet, flowId));
       assertGraphQLSuccess(patchResponse, 'Flow trigger/action update');
       completedStage = 'patch_acknowledged';
@@ -1655,6 +1773,14 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
           return copy;
         });
       if (!isDeepStrictEqual(maskActions(beforeDefinition), maskActions(processflow, true))) throw new Error(`Flow ${flowId} changed omitted action fields; preservation failed`);
+      // A pill the provider accepted but did not store still renders blank, so
+      // read the cache back instead of trusting the mutation acknowledgement.
+      const readbackCache = readLabelCache(processflow);
+      for (const entry of [...labelCacheInserts, ...labelCacheUpdates]) {
+        const saved = readbackCache.find(candidate => candidate.name === entry.name);
+        if (!saved) throw new Error(`Flow ${flowId} did not persist data pill ${entry.name} to label_cache; the reference would render blank`);
+        if (!saved.label) throw new Error(`Flow ${flowId} persisted data pill ${entry.name} without a label; the reference would render blank`);
+      }
       const readbackTrigger = findArray(processflow, 'triggerInstances')[0];
       if (triggerUpdate) {
         if (!readbackTrigger || findId(readbackTrigger, ['sysId', 'sys_id', 'id', 'triggerId']) !== triggerUpdate.id) throw new Error(`Flow ${flowId} trigger update was not readable after mutation`);

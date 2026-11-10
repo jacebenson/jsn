@@ -677,7 +677,7 @@ describe('flow update request shapes', () => {
 
   it('rejects unsupported fields, ambiguous actions, and protected targets before mutation', async () => {
     const { validateFlowUpdateManifest, updateFlowFromManifest } = await import('../src/flow-create.js');
-    assert.throws(() => validateFlowUpdateManifest({ logic: [] }), /unsupported/i);
+    assert.throws(() => validateFlowUpdateManifest({ errorHandling: {} }), /unsupported/i);
     assert.throws(() => validateFlowUpdateManifest({ actions: [{ inputs: { x: 'y' } }] }), /order and type/i);
     assert.throws(() => validateFlowUpdateManifest({ actions: [{ order: 1, type: 'Log', uiUniqueIdentifier: 'caller-id', inputs: { x: 'y' } }] }), /unsupported.*field|caller-supplied identities/i);
     const ambiguousDefinition = structuredClone(baseDefinition);
@@ -750,7 +750,140 @@ describe('flow update request shapes', () => {
     assert.equal(sdk.calls.filter(call => call.options?.method === 'POST').length, 0, 'an unsupported family must not be written');
   });
 
-  // A read-back that does not carry the requested value is a failure: no Autosave.
+  // The canvas draws a pill from its label_cache entry's `label`; ProcessFlow
+  // exposes that cache as `labelCacheAsJsonString`, not as a `label_cache` array.
+  function labelDefinition() {
+    const definition = structuredClone(baseDefinition);
+    definition.triggerInstances[0].name = 'Service Catalog';
+    definition.actionInstances[0].name = 'Log';
+    definition.triggerInstances[0].inputs[0] = {
+      ...definition.triggerInstances[0].inputs[0],
+      parameter: { name: 'table', label: 'Table', type: 'table_name' },
+    };
+    definition.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Service Catalog_1.request_item',
+      label: 'Trigger - Service Catalog➛Request Item',
+      type: 'reference',
+      base_type: 'reference',
+      usedInstances: { 'other-action-ui': ['record'] },
+    }]);
+    return definition;
+  }
+
+  function labelCacheQuery(sdk) {
+    const post = sdk.calls.find(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected a flowPatch mutation');
+    return JSON.parse(post.options.body).query;
+  }
+
+  it('binds an existing data pill through labelCacheAsJsonString and keeps its label', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.request_item}}');
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Service Catalog_1.request_item',
+      label: 'Trigger - Service Catalog➛Request Item',
+      type: 'reference',
+      base_type: 'reference',
+      usedInstances: { 'other-action-ui': ['record'], 'action-ui-123': ['log_message'] },
+    }]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.request_item}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{update: \[/);
+    assert.match(query, /name: "Service Catalog_1\.request_item"/);
+    assert.match(query, /label: "Trigger - Service Catalog➛Request Item"/);
+    assert.match(query, /type: "reference"/);
+    assert.match(query, /usedInstances: \[\{uiUniqueIdentifier: "other-action-ui", inputName: "record"\}, \{uiUniqueIdentifier: "action-ui-123", inputName: "log_message"\}\]/, 'the new instance is merged in, not replacing the old ones');
+  });
+
+  it('resolves a pill this flow never registered into a captioned insert', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.table}}');
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Service Catalog_1.table',
+      label: 'Trigger - Service Catalog➛Table',
+      type: 'table_name',
+      base_type: 'table_name',
+      usedInstances: { 'action-ui-123': ['log_message'] },
+    }]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.table}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{insert: \[/);
+    assert.match(query, /name: "Service Catalog_1\.table"/);
+    assert.match(query, /label: "Trigger - Service Catalog➛Table"/);
+    assert.match(query, /type: "table_name"/);
+  });
+
+  it('registers every pill in one input value, not just the first', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    const both = '{{Service Catalog_1.request_item}} / {{Service Catalog_1.table}}';
+    after.actionInstances[0].inputs[1].value = wrapped(both);
+    after.labelCacheAsJsonString = JSON.stringify([
+      { name: 'Service Catalog_1.request_item', label: 'Trigger - Service Catalog➛Request Item', type: 'reference', base_type: 'reference', usedInstances: { 'other-action-ui': ['record'], 'action-ui-123': ['log_message'] } },
+      { name: 'Service Catalog_1.table', label: 'Trigger - Service Catalog➛Table', type: 'table_name', base_type: 'table_name', usedInstances: { 'action-ui-123': ['log_message'] } },
+    ]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: both } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{[\s\S]*name: "Service Catalog_1\.request_item"/);
+    assert.match(query, /labelCache: \{[\s\S]*name: "Service Catalog_1\.table"/);
+  });
+
+  it('repairs a registered pill whose label is empty instead of passing it through', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    definition.labelCacheAsJsonString = JSON.stringify([{ name: 'Service Catalog_1.table', label: '', type: 'table_name', usedInstances: {} }]);
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.table}}');
+    after.labelCacheAsJsonString = JSON.stringify([{ name: 'Service Catalog_1.table', label: 'Trigger - Service Catalog➛Table', type: 'table_name', base_type: 'table_name', usedInstances: { 'action-ui-123': ['log_message'] } }]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.table}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{update: \[/);
+    assert.match(query, /label: "Trigger - Service Catalog➛Table"/);
+  });
+
+  it('fails when the provider acknowledges the patch but drops the pill caption', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.table}}');
+    const sdk = updateSdk(after, definition);
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.table}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }),
+      /did not persist data pill Service Catalog_1\.table/,
+    );
+  });
+
+  it('refuses a pill no step produces instead of writing a captionless entry', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const sdk = updateSdk(definition, definition);
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Nope_1.thing}}' } }] }),
+      /no label_cache entry for data pill \{\{Nope_1\.thing\}\}.*registered pills: Service Catalog_1\.request_item/,
+    );
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 0, 'an unresolvable pill must not be written');
+  });
+
+  it('resolves pill labels from trigger inputs, action outputs, and steps this manifest inserts', async () => {
+    const { resolvePillBinding } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    definition.actionInstances[0].outputs = [{ name: 'result', parameter: { name: 'result', label: 'Result', type: 'string' } }];
+    assert.equal(resolvePillBinding(definition, 'Service Catalog_1.table', flowId, []).label, 'Trigger - Service Catalog➛Table');
+    assert.equal(resolvePillBinding(definition, 'action-ui-123.result', flowId, []).label, '1 - Log➛Result');
+    const pending = [{ name: 'Log', order: '2', uiUniqueIdentifier: 'inserted-action-ui', inputs: [{ name: 'log_message', parameter: { name: 'log_message', label: 'Message', type: 'string' } }] }];
+    assert.equal(resolvePillBinding(definition, 'inserted-action-ui.log_message', flowId, [], pending).label, '2 - Log➛Message');
+    assert.throws(() => resolvePillBinding(definition, 'Nope_1.thing', flowId, []), /no label_cache entry for data pill/);
+  });
+
   it('refuses a wrong saved action input and writes no Autosave version', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const afterDefinition = structuredClone(baseDefinition);
