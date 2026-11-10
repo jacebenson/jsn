@@ -10,6 +10,7 @@ import { ingestDocs } from './ingest.js';
 import { refreshDocs } from './refresh.js';
 import { installSnapshot } from './snapshot.js';
 import { publishServiceSnapshot } from './service-snapshot.js';
+import { DEFAULT_DOCS_RELEASE, resolveDocsDbPath, resolveDocsRelease } from './db.js';
 
 const defaultStorage = path.join(process.env.JSN_DATA_HOME || path.join(os.homedir(), '.jsn'), 'docs-service');
 function git(args) {
@@ -25,10 +26,11 @@ function writeStatus(storage, status) {
 async function performSync(options = {}) {
   const storage = options.storage || process.env.DOCS_STORAGE_DIR || defaultStorage;
   const source = options.source || process.env.DOCS_SOURCE_URL || 'https://github.com/ServiceNow/ServiceNowDocs.git';
-  const branch = options.branch || process.env.DOCS_SOURCE_BRANCH || 'australia';
+  const family = options.release || process.env.JSN_DOCS_RELEASE;
+  const branch = family ? resolveDocsRelease(family) : options.branch || process.env.DOCS_SOURCE_BRANCH || DEFAULT_DOCS_RELEASE;
   fs.mkdirSync(storage, { recursive: true });
   const repo = path.join(storage, 'source');
-  const live = path.join(storage, 'docs.sqlite3');
+  const live = family ? resolveDocsDbPath(family) : path.join(storage, 'docs.sqlite3');
   const staging = path.join(storage, `build-${randomUUID()}.sqlite3`);
   let previous = {};
   try { previous = JSON.parse(fs.readFileSync(path.join(storage, 'status.json'), 'utf8')); } catch { /* first run */ }
@@ -43,7 +45,7 @@ async function performSync(options = {}) {
   try {
     // Only the first installation uses the hosted seed. Updates always use GitHub.
     // Custom source repositories must never be seeded with an unrelated corpus.
-    if (!fs.existsSync(live) && ((!options.source && !process.env.DOCS_SOURCE_URL) || options.manifestURL) && branch === 'australia') {
+    if (!fs.existsSync(live) && ((!options.source && !process.env.DOCS_SOURCE_URL) || options.manifestURL) && branch === DEFAULT_DOCS_RELEASE) {
       try {
         const seed = await installSnapshot({ dbPath: live,
           manifestURL: options.manifestURL || process.env.DOCS_BOOTSTRAP_MANIFEST_URL,
@@ -67,7 +69,7 @@ async function performSync(options = {}) {
       try { current = db.prepare("SELECT value FROM meta WHERE key='source_revision'").get()?.value; }
       finally { db.close(); }
       if (remote && current === remote) {
-        await publishServiceSnapshot(storage);
+        await publishServiceSnapshot(storage, { dbPath: live, release: family });
         const status = { ...previous, state: 'ready', revision: current, checkedAt: new Date().toISOString(), startedAt, error: null, changed: false };
         writeStatus(storage, status);
         return status;
@@ -97,7 +99,7 @@ async function performSync(options = {}) {
       } finally { db.close(); }
     }
     if (oldRevision === revision && !options.force) {
-      await publishServiceSnapshot(storage);
+      await publishServiceSnapshot(storage, { dbPath: live, release: family });
       const status = { ...previous, state: 'ready', revision, checkedAt: new Date().toISOString(), startedAt, error: null, changed: false };
       writeStatus(storage, status);
       return status;
@@ -121,7 +123,7 @@ async function performSync(options = {}) {
       db.pragma('journal_mode = DELETE');
     } finally { db.close(); }
     fs.renameSync(staging, live);
-    await publishServiceSnapshot(storage);
+    await publishServiceSnapshot(storage, { dbPath: live, release: family });
     const status = { state: 'ready', revision, documents: count, startedAt, checkedAt: new Date().toISOString(), publishedAt: new Date().toISOString(), changed: true, error: null, result };
     writeStatus(storage, status);
     return status;

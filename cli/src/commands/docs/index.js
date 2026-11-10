@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { resolveDocsDbPath } from './db.js';
 
 export class DocumentationError extends Error {
   constructor(message, status = 503) { super(message); this.status = status; }
@@ -47,12 +48,12 @@ export function documentationSummary(input) {
   };
 }
 export class DocumentationIndex {
-  constructor(storage) {
-    try { this.db = new Database(path.join(storage, 'docs.sqlite3'), { readonly: true, fileMustExist: true, timeout: 2000 }); }
+  constructor(storage, release) {
+    try { this.db = new Database(release ? resolveDocsDbPath(release) : path.join(storage, 'docs.sqlite3'), { readonly: true, fileMustExist: true, timeout: 2000 }); }
     catch { throw new DocumentationError('Documentation is being prepared. Please try again shortly.'); }
   }
   close() { this.db.close(); }
-  revision() { return this.db.prepare("SELECT value FROM meta WHERE key = 'source_revision'").get()?.value || ''; }
+  revision() { return this.db.prepare("SELECT value FROM meta WHERE key = 'source_revision'").get()?.value || this.db.prepare("SELECT value FROM meta WHERE key = 'snapshot_revision'").get()?.value || ''; }
   search({ query, limit = 20, offset = 0, bundle } = {}) {
     const text = String(query || '').trim();
     if (!text || text.length > 200) throw new DocumentationError('Enter a search of 1 to 200 characters.', 400);

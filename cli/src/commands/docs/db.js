@@ -5,9 +5,11 @@ import path from 'node:path';
 import os from 'node:os';
 import Database from 'better-sqlite3';
 import { docsReaderLease } from './locks.js';
+import { AppError } from '../../errors.js';
 
 const LEGACY_DOCS_DIR_NAME = 'servicenow-cli/docs';
 const DOCS_DIR_NAME = 'docs';
+export const DEFAULT_DOCS_RELEASE = 'australia'; // Bump when a new release family ships.
 
 function xdgCacheHome() {
   if (process.env.XDG_CACHE_HOME) return process.env.XDG_CACHE_HOME;
@@ -79,16 +81,29 @@ export function getDocsDbPath() {
   return path.join(getDocsCacheDir(), 'docs.db');
 }
 
-export function getDocsSourceDir() {
-  return path.join(getDocsCacheDir(), 'source');
+export function resolveDocsRelease(value, config = {}) {
+  const release = value ?? config.docs?.release ?? DEFAULT_DOCS_RELEASE;
+  if (typeof release !== 'string' || !/^[a-z0-9-]{1,40}$/.test(release)) {
+    throw new AppError('usage_error', 'Documentation release must contain 1–40 lowercase letters, digits or dashes.');
+  }
+  return release;
 }
 
-export function getDocsSourceMarkdownDir() {
-  return path.join(getDocsSourceDir(), 'markdown');
+export function resolveDocsDbPath(release = DEFAULT_DOCS_RELEASE) {
+  release = resolveDocsRelease(release);
+  return release === DEFAULT_DOCS_RELEASE ? getDocsDbPath() : path.join(jsnDataHome(), DOCS_DIR_NAME, 'releases', release, 'docs.db');
 }
 
-export function getDocsCommunityDir() {
-  return path.join(getDocsCacheDir(), 'community');
+export function getDocsSourceDir(release) {
+  return path.join(path.dirname(resolveDocsDbPath(release)), 'source');
+}
+
+export function getDocsSourceMarkdownDir(release) {
+  return path.join(getDocsSourceDir(release), 'markdown');
+}
+
+export function getDocsCommunityDir(release) {
+  return path.join(path.dirname(resolveDocsDbPath(release)), 'community');
 }
 
 export function ensureDocsCacheDir() {
@@ -122,15 +137,15 @@ export function* walkDocs(roots) {
 }
 
 export function defaultDocsRoots(opts = {}) {
-  const communityDir = opts.communityDir || getDocsCommunityDir();
+  const communityDir = opts.communityDir || getDocsCommunityDir(opts.release);
   return [
-    { dir: opts.docsDir || getDocsSourceMarkdownDir(), prefix: '' },
+    { dir: opts.docsDir || getDocsSourceMarkdownDir(opts.release), prefix: '' },
     { dir: communityDir, prefix: 'community/' },
   ];
 }
 
 export function openDocsDb(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const release = docsReaderLease(dbPath);
   let db;
@@ -156,8 +171,8 @@ export function closeDocsDb(db) {
   }
 }
 
-export function docsDbExists() {
-  return fs.existsSync(getDocsDbPath());
+export function docsDbExists(release) {
+  return fs.existsSync(resolveDocsDbPath(release));
 }
 
 export function getSchemaVersion(db) {

@@ -289,12 +289,40 @@ Local mode downloads the public documentation on first use and checks for update
 daily while running. The server starts again automatically when needed. A first
 search can report that the index is still being prepared; later updates preserve
 the last working index if offline. Local storage lives under
-`~/.jsn/docs-service` (`JSN_DATA_HOME` overrides the parent directory).
+`~/.jsn/docs/docs.db` for the default family. Other families use
+`~/.jsn/docs/releases/NAME/docs.db`. `JSN_DATA_HOME` overrides the parent directory.
+Existing default-family installs keep their original index path.
 
 To host the same service yourself, run `jsn docs --serve --host 0.0.0.0 --port 3000`.
 It manages its own index; expose it through your normal HTTPS proxy. The hosted
 website and this server share one search engine. `JSN_DOCS_URL` temporarily
 overrides the saved choice without starting a local server.
+
+Choose a family with `jsn docs "GlideRecord" --release brazil`. The same option
+applies to `--path`, `docs show <ID>`, `docs status`, `docs sync`, `docs install`
+and `--serve`. Resolution is `--release` first, then the optional `docs.release`
+preference, then `australia`. Release names contain 1–40 lowercase letters,
+digits or dashes. The service decides which families exist.
+
+Documentation preferences are saved in the global profile config at
+`$XDG_CONFIG_HOME/servicenow/config.json`, normally
+`~/.config/servicenow/config.json`. Alongside `docs.source` and `docs.url`, set
+`docs.release` without changing the service URL:
+
+```json
+{ "docs": { "source": "hosted", "url": "https://jsn.jace.pro", "release": "brazil" } }
+```
+
+`jsn docs releases` lists installed families, revisions, document counts, index
+paths and the default marker without contacting the network. To install an
+optional local index, use `jsn docs install --source snapshot --release brazil`,
+or `jsn docs sync --release brazil --no-embed`. Sync downloads the named Git
+branch; `--no-ingest` downloads only the source. Snapshot installs use
+`/docs-index/releases/NAME/manifest.json` and verify the declared release. Only
+the default family can fall back to the old `/docs-index/manifest.json` when
+the family manifest returns 404. That legacy manifest may omit `release`.
+`jsn docs --serve --release brazil` serves only Brazil and rejects requests
+for other families. Search, read and status JSON include the selected `release`.
 
 Exact paths remain stable across revisions. Numeric IDs can be pinned with
 `--revision <search-revision>`. Older `docs search`, `docs show` and `docs status`

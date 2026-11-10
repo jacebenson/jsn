@@ -5,7 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { URL } from 'node:url';
 import Database from 'better-sqlite3';
-import { getDocsDbPath, hasEmbeddings, closeDocsDb } from './db.js';
+import { resolveDocsDbPath, hasEmbeddings, closeDocsDb } from './db.js';
 import { sanitizeFts5Query } from './fts.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
@@ -65,7 +65,7 @@ function serveStatic(req, res, filePath) {
 }
 
 export function serveDocs(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const port = parseInt(opts.port, 10) || 3000;
   const host = opts.host || '127.0.0.1';
 
@@ -254,7 +254,7 @@ export function serveDocs(opts = {}) {
       if (resolved) return;
       resolved = true;
       server.removeListener('error', onError);
-      process.stderr.write(`ServiceNow docs search listening on http://${host}:${currentPort}\n`);
+      process.stderr.write(`ServiceNow docs search for ${opts.release || 'default'} listening on http://${host}:${currentPort}\n`);
       resolve({ server, port: currentPort, host, dbPath });
     }
 

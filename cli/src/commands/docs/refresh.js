@@ -7,17 +7,17 @@ import { docsReaderLease } from './locks.js';
 import { errUsageHint } from '../../errors.js';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { withDocsDb, getDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
+import { withDocsDb, resolveDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function refreshDocs(opts = {}) {
-  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir() : null);
+  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir(opts.release) : null);
   if (resource) fs.mkdirSync(path.dirname(resource), { recursive: true });
   const release = resource && !opts.sourceLeaseHeld ? docsReaderLease(resource) : () => {};
   try { return refreshDocsLocked(opts); } finally { release(); }
 }
 function refreshDocsLocked(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const roots = opts.roots || defaultDocsRoots(opts);
 
   if (roots.some(root => (!root.prefix || opts.roots) && (!fs.existsSync(root.dir) || !fs.statSync(root.dir).isDirectory()))) {

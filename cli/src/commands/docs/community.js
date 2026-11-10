@@ -10,7 +10,7 @@ import process from 'node:process';
 import TurndownService from 'turndown';
 import { parseFrontmatter, stringifyFrontmatter } from '../../frontmatter.js';
 import Database from 'better-sqlite3';
-import { getDocsCommunityDir, getDocsDbPath, docsDbExists } from './db.js';
+import { getDocsCommunityDir, resolveDocsDbPath, docsDbExists } from './db.js';
 import { refreshDocs } from './refresh.js';
 import { ingestDocs } from './ingest.js';
 
@@ -216,7 +216,7 @@ export async function syncCommunity(opts = {}) {
   const expand = opts.expand === true;
   const force = opts.force === true;
   const delayMs = opts.delayMs != null ? opts.delayMs : 500;
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
 
   const results = { hubs: [], articles: [], skipped: [], errors: [] };
 
@@ -326,8 +326,8 @@ function findExisting(url, urlIndex) {
   return urlIndex.get(url) || null;
 }
 
-export function listCommunityDocs({ dbPath } = {}) {
-  const dbFile = dbPath || getDocsDbPath();
+export function listCommunityDocs({ dbPath, release } = {}) {
+  const dbFile = dbPath || resolveDocsDbPath(release);
   if (!fs.existsSync(dbFile)) return { total: 0, docs: [] };
   const db = new Database(dbFile, { readonly: true });
   const rows = db
