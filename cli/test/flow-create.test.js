@@ -146,6 +146,20 @@ describe('flow creation manifest', () => {
 });
 
 describe('flow creation preflight', () => {
+  it('rejects duplicate Catch pairing without parent, patch or Autosave writes', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      logic: [{ order: 2, type: 'try' }, { order: 3, type: 'catch', connectedToOrder: 2 }, { order: 4, type: 'catch', connectedToOrder: 2 }],
+      errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] },
+    }, { ...options, idFactory: (() => { let n = 0; return () => `pair-${++n}`; })() }), error => {
+      assert.match(error.message, /Ambiguous Catch pair/);
+      assert.doesNotMatch(error.message, /orphan|partial/i);
+      return true;
+    });
+    assert.deepEqual(sdk.calls.filter(c => c.kind === 'request' && c.options.method === 'POST'), []);
+  });
   it('rejects unsupported error-action inputs without parent, patch or Autosave writes', async () => {
     const { createFlowFromManifest } = await import('../src/flow-create.js');
     const sdk = makeSdk();
@@ -1138,6 +1152,27 @@ describe('flow update request shapes', () => {
     const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'try-ui'; return d; }, before);
     await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /parent.*requested/);
     assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);
+  });
+
+  it('previews deletion and reuse of an existing logic order but rejects deleted references', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.flowLogicInstances = [{ id: 'old-logic', uiUniqueIdentifier: 'old-ui', definitionId: '07223332de022010ec58424b73829721', order: '2', parent: '', parentUiId: '', inputs: [] }];
+    const replacement = { deleteSteps: ['old-ui'], actions: [{ order: 2, type: 'Log', inputs: { log_message: 'replacement' } }] };
+    const sdk = updateSdk(persistFlowPatch, before);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, replacement, { preview: true });
+    assert.equal(result.preview, true);
+    assert.ok(result.changes.some(c => c.input === 'delete' && c.before === 'old-logic'));
+    assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
+    for (const reference of [
+      { actions: [{ order: 3, type: 'Log', parent: 'old-ui', inputs: { log_message: 'bad' } }] },
+      { actions: [{ order: 3, type: 'Log', inputs: { log_message: '{{step_2.__status__.message}}' } }] },
+      { actions: [{ order: 3, type: 'Log', inputs: { log_message: '{{old-ui.__status__.message}}' } }] },
+    ]) {
+      const bad = updateSdk(persistFlowPatch, before);
+      await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, { deleteSteps: ['old-ui'], ...reference }, { preview: true }), /Absent|deleted/i);
+      assert.equal(bad.calls.filter(c => c.options.method !== 'GET').length, 0);
+    }
   });
 
   it('rejects absent, wrong-type, ambiguous and conflicting logic links before any write', async () => {

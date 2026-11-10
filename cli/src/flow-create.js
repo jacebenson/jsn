@@ -1651,8 +1651,24 @@ async function planManifestSteps({ manifest, beforeDefinition, existingActions, 
     (kind === 'action' ? actionUiMap : logicUiMap).set(order, ui);
     return entry;
   };
+  const rawDeletes = manifest.deleteSteps || manifest.delete || manifest.deleteOrders || [];
+  const deleteTargets = new Set((Array.isArray(rawDeletes) ? rawDeletes : [rawDeletes]).map(String));
+  const isDeleted = step => {
+    const ui = stringValue(step.uiUniqueIdentifier || step.ui_unique_identifier);
+    const id = stringValue(step.sysId || step.id || step.sys_id || ui);
+    return [String(step.order), ui, id].some(value => deleteTargets.has(value));
+  };
+  const deletedUis = new Set();
+  for (const step of [...existingActions, ...existingLogics]) {
+    if (!isDeleted(step)) continue;
+    deletedUis.add(stringValue(step.uiUniqueIdentifier || step.ui_unique_identifier));
+    actionUiMap.delete(String(step.order));
+    logicUiMap.delete(String(step.order));
+  }
+  existingActions = existingActions.filter(step => !isDeleted(step));
+  existingOrders = new Set(existingActions.map(step => String(step.order)));
   for (const step of existingActions) register(step, 'action');
-  for (const step of existingLogics) register(step, 'logic');
+  for (const step of existingLogics.filter(step => !isDeleted(step))) register(step, 'logic');
   const logicSpecs = manifest.flowLogics || manifest.logic || [];
   for (const l of logicSpecs) {
     const type = String(l.type || l.name).toLowerCase().trim();
@@ -1704,11 +1720,16 @@ async function planManifestSteps({ manifest, beforeDefinition, existingActions, 
   // {{4.message}}). Resolve that only once the owning map entry exists, but do
   // it before any value is packaged: a token that survives into the payload
   // stores an unresolvable reference the canvas renders blank.
-  const resolveStepPill = value => String(value).replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
-    const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
-    if (!ui) throw new Error(`Absent step reference ${match}`);
-    return `{{${ui}.${field}}}`;
-  });
+  const resolveStepPill = value => {
+    for (const match of String(value).matchAll(/\{\{([^}]+)\}\}/g)) {
+      if ([...deletedUis].some(ui => match[1].startsWith(`${ui}.`))) throw new Error(`Absent deleted step reference ${match[0]}`);
+    }
+    return String(value).replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
+      const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
+      if (!ui) throw new Error(`Absent step reference ${match}`);
+      return `{{${ui}.${field}}}`;
+    });
+  };
   const resolveStepValue = value => {
     if (typeof value === 'string') return resolveStepPill(value);
     if (Array.isArray(value)) return value.map(resolveStepValue);
@@ -1908,6 +1929,8 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     } else labelCacheInserts.push(labelCacheEntry({ name: pill.name, label: binding.label, type: binding.type, baseType: binding.type, usedInstances: { [pill.uiUniqueIdentifier]: [pill.inputName] } }));
   }
 
+  validateFinalStepPlan({}, actionInstances, [], [], flowLogicInserts, [], []);
+
   let parentResponse;
   try {
     parentResponse = await mutationContext('parent_create', readUpdateSet, snapshots, () => sdk.request(`${instance}${FLOW_ENDPOINT}?param_only_properties=true&sysparm_transaction_scope=${encodeURIComponent(scope)}`, {
@@ -1936,7 +1959,6 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     for (const action of actionInstances) action.flowSysId = flowId;
     for (const logic of flowLogicInserts) logic.flowSysId = flowId;
 
-    validateFinalStepPlan({}, actionInstances, [], [], flowLogicInserts, [], []);
     const patchResponse = await mutationContext('trigger_and_actions_patch', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
       body: JSON.stringify({ query: buildFlowPatchMutation({ flowId, trigger, actions: actionInstances, flowLogicInserts, labelCacheInserts }), variables: {} }),
