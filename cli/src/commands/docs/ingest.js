@@ -7,14 +7,14 @@ import { docsReaderLease } from './locks.js';
 import { installDatabase } from './replace.js';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { withDocsDb, initDocsSchema, getDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
+import { withDocsDb, initDocsSchema, resolveDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function ingestDocs(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const staging = `${dbPath}.${randomUUID()}.building`;
-  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir() : null);
+  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir(opts.release) : null);
   if (resource) fs.mkdirSync(path.dirname(resource), { recursive: true });
   const releaseSource = resource && !opts.sourceLeaseHeld ? docsReaderLease(resource) : () => {};
   try {
@@ -25,7 +25,7 @@ export function ingestDocs(opts = {}) {
   } finally { releaseSource(); fs.rmSync(staging, { force: true }); }
 }
 function ingestStagedDocs(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const embed = opts.embed !== false;
   const roots = opts.roots || defaultDocsRoots(opts);
 

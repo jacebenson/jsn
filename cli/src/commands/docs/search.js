@@ -1,7 +1,7 @@
 // CLI search against the docs SQLite database.
 
 import fs from 'node:fs';
-import { getDocsDbPath, hasEmbeddings, openDocsDb, closeDocsDb, withDocsDb, getMeta } from './db.js';
+import { resolveDocsDbPath, hasEmbeddings, openDocsDb, closeDocsDb, withDocsDb, getMeta } from './db.js';
 import { sanitizeFts5Query } from './fts.js';
 import { encodeText, similarity, bytesToPhases, DEFAULT_DIM } from './hrr.js';
 
@@ -20,7 +20,7 @@ function safeParse(s) {
  * handle (pass opts.dbPath to target a non-default database — used by tests).
  */
 export function getDocByIdOrPath(idOrPath, opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const db = openDocsDb({ dbPath });
   try {
     let row;
@@ -44,7 +44,7 @@ export function getDocByIdOrPath(idOrPath, opts = {}) {
 }
 
 export function searchDocs(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const q = (opts.query || '').toString().trim();
   if (!q) {
     throw new Error('Query is required.');

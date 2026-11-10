@@ -4,7 +4,8 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import Database from 'better-sqlite3';
-import { getDocsDbPath, getDocsCacheDir } from './db.js';
+import { resolveDocsDbPath, resolveDocsRelease, DEFAULT_DOCS_RELEASE } from './db.js';
+import { docsServiceUrl } from './client.js';
 import { docsReaderLease } from './locks.js';
 import { ingestDocs } from './ingest.js';
 import { installDatabase } from './replace.js';
@@ -36,7 +37,7 @@ export function validateDatabase(filename) {
     return count;
   } finally { db.close(); }
 }
-export function buildSnapshot({ docsDir, outputDir, revision, artifactBaseURL, embed = true }) {
+export function buildSnapshot({ docsDir, outputDir, revision, artifactBaseURL, embed = true, release }) {
   if (!/^[a-f0-9]{7,64}$/.test(revision || '')) throw new Error('A source commit revision is required');
   fs.mkdirSync(outputDir, { recursive: true });
   const temporary = fs.mkdtempSync(path.join(outputDir, '.build-'));
@@ -52,7 +53,7 @@ export function buildSnapshot({ docsDir, outputDir, revision, artifactBaseURL, e
     const documents = validateDatabase(filename);
     const bytes = fs.readFileSync(filename), compressed = gzipSync(bytes);
     const name = `docs-schema-${SNAPSHOT_SCHEMA}-${revision}.sqlite.gz`;
-    const manifest = validateManifest({ format: 1, schema: SNAPSHOT_SCHEMA, cliCompatibility: 'docs-schema-1', revision,
+    const manifest = validateManifest({ format: 1, schema: SNAPSHOT_SCHEMA, cliCompatibility: 'docs-schema-1', revision, ...(release ? { release: resolveDocsRelease(release) } : {}),
       sha256: digest(compressed), compressedBytes: compressed.length, databaseBytes: bytes.length,
       documents, buildSeconds: result.secs, builtAt: new Date().toISOString(), url: new URL(name, artifactBaseURL.endsWith('/') ? artifactBaseURL : artifactBaseURL + '/').href });
     const artifact = path.join(outputDir, name);
@@ -68,7 +69,7 @@ export function buildSnapshot({ docsDir, outputDir, revision, artifactBaseURL, e
 async function download(url, maxBytes, fetchFn, timeout = 600000) {
   const response = await fetchFn(url, { signal: AbortSignal.timeout(timeout) });
   if (response.url && new URL(response.url).protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(response.url).hostname)) throw new Error('Docs download redirected to insecure transport');
-  if (!response.ok) throw new Error(`Docs download rejected (HTTP ${response.status})`);
+  if (!response.ok) throw Object.assign(new Error(`Docs download rejected (HTTP ${response.status})`), { status: response.status });
   if (Number(response.headers.get('content-length')) > maxBytes) { await response.body?.cancel(); throw new Error('Docs download exceeds size limit'); }
   const parts = []; let size = 0;
   for await (const chunk of response.body) {
@@ -83,11 +84,30 @@ export async function fetchManifest(url = DEFAULT_MANIFEST_URL, { fetchFn = fetc
   validateManifest({ format: 1, schema: 1, cliCompatibility: 'docs-schema-1', revision: 'abcdef0', sha256: '0'.repeat(64), compressedBytes: 1, databaseBytes: 1, url });
   return validateManifest(JSON.parse((await download(url, 65536, fetchFn, 15000)).toString('utf8')));
 }
+export function validateManifestRelease(manifest, release, legacy = false) {
+  if (manifest.release !== undefined && manifest.release !== release) throw new Error(`Docs snapshot release ${manifest.release} does not match requested release ${release}; existing index retained`);
+  if (manifest.release === undefined && (!legacy || release !== DEFAULT_DOCS_RELEASE)) throw new Error(`Docs snapshot manifest must declare release ${release}; existing index retained`);
+  return manifest;
+}
+export async function fetchReleaseManifest({ release = DEFAULT_DOCS_RELEASE, serviceUrl, manifestURL, fetchFn = fetch } = {}) {
+  release = resolveDocsRelease(release);
+  if (manifestURL) return { manifest: validateManifestRelease(await fetchManifest(manifestURL, { fetchFn }), release, release === DEFAULT_DOCS_RELEASE), manifestURL };
+  const service = docsServiceUrl(serviceUrl);
+  const familyURL = new URL(`docs-index/releases/${release}/manifest.json`, service).href;
+  try { return { manifest: validateManifestRelease(await fetchManifest(familyURL, { fetchFn }), release), manifestURL: familyURL }; }
+  catch (error) {
+    if (release !== DEFAULT_DOCS_RELEASE || error.status !== 404) throw error;
+    const legacyURL = new URL('docs-index/manifest.json', service).href;
+    return { manifest: validateManifestRelease(await fetchManifest(legacyURL, { fetchFn }), release, true), manifestURL: legacyURL };
+  }
+}
 export function snapshotEstimate(manifest) {
   return `${(manifest.compressedBytes / 1048576).toFixed(1)} MiB; estimated ${Math.max(1, Math.ceil(manifest.compressedBytes / 5242880))} seconds at 5 MiB/s plus verification (actual time varies)`;
 }
-export async function installSnapshot({ manifestURL = DEFAULT_MANIFEST_URL, manifest, dbPath = getDocsDbPath(), fetchFn = fetch } = {}) {
+export async function installSnapshot({ release = DEFAULT_DOCS_RELEASE, manifestURL = DEFAULT_MANIFEST_URL, manifest, dbPath = resolveDocsDbPath(release), fetchFn = fetch } = {}) {
+  release = resolveDocsRelease(release);
   manifest = manifest ? validateManifest(manifest) : await fetchManifest(manifestURL, { fetchFn });
+  validateManifestRelease(manifest, release, release === DEFAULT_DOCS_RELEASE && !new URL(manifestURL).pathname.includes('/docs-index/releases/'));
   const compressed = await download(manifest.url, manifest.compressedBytes, fetchFn);
   if (compressed.length !== manifest.compressedBytes || digest(compressed) !== manifest.sha256) throw new Error('Docs snapshot checksum/size mismatch; existing index retained');
   const bytes = gunzipSync(compressed, { maxOutputLength: manifest.databaseBytes });
@@ -106,10 +126,10 @@ export async function installSnapshot({ manifestURL = DEFAULT_MANIFEST_URL, mani
       fs.writeFileSync(receiptStage, JSON.stringify({ ...manifest, manifestURL, checkedAt: Date.now() }), { mode: 0o600 });
       installDatabase(staged, dbPath, { afterInstall: () => fs.renameSync(receiptStage, receipt) });
     } finally { fs.rmSync(receiptStage, { force: true }); }
-    return { revision: manifest.revision, documents: manifest.documents, dbPath, source: 'snapshot' };
+    return { release, revision: manifest.revision, documents: manifest.documents, dbPath, source: 'snapshot' };
   } finally { fs.rmSync(staged, { force: true }); }
 }
-export function rollbackSnapshot(dbPath = getDocsDbPath()) {
+export function rollbackSnapshot(dbPath = resolveDocsDbPath()) {
   const previous = `${dbPath}.previous`;
   if (!fs.existsSync(previous)) throw new Error('No previous docs snapshot is available');
   validateDatabase(previous);
@@ -118,13 +138,14 @@ export function rollbackSnapshot(dbPath = getDocsDbPath()) {
   finally { fs.rmSync(staged, { force: true }); }
   return { dbPath, rolledBack: true };
 }
-export function docsSnapshotStatus() {
-  const receipt = path.join(getDocsCacheDir(), 'docs.db.snapshot.json');
+export function docsSnapshotStatus(family) {
+  const dbPath = resolveDocsDbPath(family);
+  const receipt = `${dbPath}.snapshot.json`;
   let release, db;
   try {
-    release = docsReaderLease(getDocsDbPath());
+    release = docsReaderLease(dbPath);
     const value = JSON.parse(fs.readFileSync(receipt, 'utf8'));
-    db = new Database(getDocsDbPath(), { readonly: true, fileMustExist: true });
+    db = new Database(dbPath, { readonly: true, fileMustExist: true });
     return db.prepare("SELECT value FROM meta WHERE key='snapshot_revision'").get()?.value === value.revision ? value : null;
   } catch { return null; } finally { db?.close(); release?.(); }
 }

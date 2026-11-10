@@ -1,11 +1,11 @@
 // Populate HRR phase-vector embeddings for semantic reranking.
 
 import fs from 'node:fs';
-import { withDocsDb, getDocsDbPath } from './db.js';
+import { withDocsDb, resolveDocsDbPath } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function embedDocs(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
 
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found: ${dbPath}. Run "jsn docs sync" first.`);
