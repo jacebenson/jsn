@@ -140,12 +140,26 @@ describe('flow creation manifest', () => {
     assert.throws(() => validateFlowManifest({ ...manifest, trigger: { ...manifest.trigger, table: '  ' } }), /table must not be empty/i);
     assert.throws(() => validateFlowManifest({ ...manifest, trigger: { ...manifest.trigger, inputs: [] } }), /inputs must be an object/i);
     assert.throws(() => validateFlowManifest({ ...manifest, trigger: { ...manifest.trigger, unexpected: 1 } }), /trigger field "unexpected" is unsupported/i);
-    assert.throws(() => validateFlowManifest({ ...manifest, logic: [] }), /Flow Logic.*unsupported/i);
+    assert.throws(() => validateFlowManifest({ ...manifest, logic: [{ type: 'unknown', order: 2 }] }), /Unsupported flow logic type/i);
     assert.throws(() => validateFlowManifest({ ...manifest, actions: [{ type: 'Log', inputs: 'bad' }] }), /inputs.*object/i);
   });
 });
 
 describe('flow creation preflight', () => {
+  it('rejects duplicate Catch pairing without parent, patch or Autosave writes', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      logic: [{ order: 2, type: 'try' }, { order: 3, type: 'catch', connectedToOrder: 2 }, { order: 4, type: 'catch', connectedToOrder: 2 }],
+      errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] },
+    }, { ...options, idFactory: (() => { let n = 0; return () => `pair-${++n}`; })() }), error => {
+      assert.match(error.message, /Ambiguous Catch pair/);
+      assert.doesNotMatch(error.message, /orphan|partial/i);
+      return true;
+    });
+    assert.deepEqual(sdk.calls.filter(c => c.kind === 'request' && c.options.method === 'POST'), []);
+  });
   it('rejects unsupported error-action inputs without parent, patch or Autosave writes', async () => {
     const { createFlowFromManifest } = await import('../src/flow-create.js');
     const sdk = makeSdk();
@@ -428,7 +442,7 @@ describe('flow update request shapes', () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     for (const field of ['triggerInstances', 'flowVariables', 'flowLogicInstances', 'subFlowInstances']) {
       const before = structuredClone(baseDefinition);
-      if (field !== 'triggerInstances') before[field] = [{ id: 'keep', opaque: { a: 1 } }];
+      if (field !== 'triggerInstances') before[field] = [{ id: 'keep', uiUniqueIdentifier: 'keep-ui', order: '9', definitionId: 'af4e1945c3e232002841b63b12d3ae3e', opaque: { a: 1 } }];
       const after = structuredClone(before);
       after.actionInstances[0].inputs[1].value = wrapped('new message');
       after[field] = [];
@@ -1057,6 +1071,129 @@ describe('flow update request shapes', () => {
     assert.doesNotMatch(query, /\{\{error\.message\}\}/, 'friendly error token never reaches the instance');
   });
 
+  it('orchestrates inner Try and Catch flow logic with parented actions and status pill bindings', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    definition.labelCacheAsJsonString = '[]';
+    const after = structuredClone(definition);
+    let counter = 200;
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'gen-id-201.__status__.message',
+      label: '4 - Catch➛Error Status➛Message',
+      type: 'string',
+      base_type: 'string',
+      usedInstances: { 'gen-id-203': ['log_message'] },
+    }]);
+    const sdk = updateSdk(persistFlowPatch, definition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      logic: [
+        { order: 2, type: 'try' },
+        { order: 4, type: 'catch', connectedToOrder: 2 },
+      ],
+      actions: [
+        { order: 3, type: 'Log', parentOrder: 2, inputs: { log_message: 'inside try' } },
+        { order: 5, type: 'Log', parent: 4, inputs: { log_message: 'inside catch: {{step_4.__status__.message}}' } },
+      ],
+    }, { idFactory: () => `gen-id-${counter++}` });
+
+    assert.ok(result.changes.some(c => c.type === 'Try' && c.order === 2));
+    assert.ok(result.changes.some(c => c.type === 'Catch' && c.order === 4));
+    assert.ok(result.changes.some(c => c.type === 'Log' && c.order === 3));
+    assert.ok(result.changes.some(c => c.type === 'Log' && c.order === 5));
+
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected flowPatch mutation');
+    const query = JSON.parse(post.options.body).query;
+    assert.match(query, /definitionId: "07223332de022010ec58424b73829721"/, 'Try definition included');
+    assert.match(query, /definitionId: "35d60003e6022010a5e40cdd1254dd21"/, 'Catch definition included');
+    assert.match(query, /connectedTo: "gen-id-200"/, 'Catch connected to Try');
+    assert.match(query, /parent: "gen-id-200"/, 'Step 3 parented to Try block');
+    assert.match(query, /parent: "gen-id-201"/, 'Step 5 parented to Catch block');
+    assert.match(query, /labelCache: \{insert: \[.*gen-id-201\.__status__\.message.*\]\}/, 'Catch status pill bound to labelCache');
+    assert.match(query, /value: "inside catch: \{\{gen-id-201\.__status__\.message\}\}"/, 'Inserted action input names the Catch pill');
+    assert.doesNotMatch(query, /\{\{step_4/, 'order token never reaches the instance');
+  });
+
+  it('resolves existing, new and forward step identities independent of manifest ordering', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const cases = [
+      { name: 'forward Catch then Try and existing action move', manifest: { logic: [{ order: 4, type: 'catch', connectedToOrder: 2 }, { order: 2, type: 'try' }], actions: [{ order: 1, type: 'Log', parentOrder: 2, inputs: { log_message: 'moved' } }, { order: 5, type: 'Log', parentOrder: 4, inputs: { log_message: '{{step_4.__status__.message}}' } }] } },
+      { name: 'If referencing a new earlier action', manifest: { actions: [{ order: 2, type: 'Log', inputs: { log_message: 'new' } }], logic: [{ order: 3, type: 'if', condition: '{{step_2.log_message}}=new' }] } },
+      { name: 'If referencing a forward action', manifest: { logic: [{ order: 2, type: 'if', condition: '{{step_3.log_message}}=new' }], actions: [{ order: 3, type: 'Log', inputs: { log_message: 'new' } }] } },
+      { name: 'Else If connected to If with a parented child', manifest: { logic: [{ order: 2, type: 'if', condition: '{{step_3.log_message}}=new' }, { order: 4, type: 'else if', connectedToOrder: 2 }], actions: [{ order: 3, type: 'Log', parentOrder: 4, inputs: { log_message: 'new' } }] } },
+    ];
+    for (const c of cases) {
+      const sdk = updateSdk(persistFlowPatch);
+      const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, c.manifest);
+      const query = sdk.calls.map(c => c.options.body && JSON.parse(c.options.body).query).find(q => q?.includes('flowPatch:'));
+      assert.doesNotMatch(query, /\{\{step_/, c.name);
+      const patch = readFlowPatch(query);
+      const logicByOrder = new Map(result.processflow.flowLogicInstances.map(l => [String(l.order), l]));
+      if (c.name.startsWith('forward Catch')) {
+        assert.equal(logicByOrder.get('4').connectedTo, logicByOrder.get('2').uiUniqueIdentifier);
+        assert.equal(result.processflow.actionInstances[0].parent, logicByOrder.get('2').uiUniqueIdentifier);
+        assert.equal(patch.actions.insert[0].parent, logicByOrder.get('4').uiUniqueIdentifier);
+      } else {
+        const action = result.processflow.actionInstances.find(a => a.order === String(c.manifest.actions[0].order));
+        assert.equal(patch.flowLogics.insert[0].inputs[1].value.value, `{{${action.uiUniqueIdentifier}.log_message}}=new`);
+      }
+    }
+  });
+
+  it('resolves children under existing logic UI identities and verifies requested reparenting exactly', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.flowLogicInstances = [{ id: 'try-id', uiUniqueIdentifier: 'try-ui', definitionId: '07223332de022010ec58424b73829721', order: '2' }, { id: 'catch-id', uiUniqueIdentifier: 'catch-ui', definitionId: '35d60003e6022010a5e40cdd1254dd21', order: '4', connectedTo: 'try-ui' }];
+    const manifest = { actions: [{ order: 1, type: 'Log', parentOrder: 4, inputs: { log_message: 'moved' } }, { order: 5, type: 'Log', parentOrder: 2, inputs: { log_message: 'new' } }] };
+    const sdk = updateSdk(persistFlowPatch, before);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, manifest);
+    assert.equal(result.processflow.actionInstances[0].parent, 'catch-ui');
+    assert.equal(result.processflow.actionInstances[1].parent, 'try-ui');
+    const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'try-ui'; return d; }, before);
+    await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /parent.*requested/);
+    assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);
+  });
+
+  it('previews deletion and reuse of an existing logic order but rejects deleted references', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.flowLogicInstances = [{ id: 'old-logic', uiUniqueIdentifier: 'old-ui', definitionId: '07223332de022010ec58424b73829721', order: '2', parent: '', parentUiId: '', inputs: [] }];
+    const replacement = { deleteSteps: ['old-ui'], actions: [{ order: 2, type: 'Log', inputs: { log_message: 'replacement' } }] };
+    const sdk = updateSdk(persistFlowPatch, before);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, replacement, { preview: true });
+    assert.equal(result.preview, true);
+    assert.ok(result.changes.some(c => c.input === 'delete' && c.before === 'old-logic'));
+    assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
+    for (const reference of [
+      { actions: [{ order: 3, type: 'Log', parent: 'old-ui', inputs: { log_message: 'bad' } }] },
+      { actions: [{ order: 3, type: 'Log', inputs: { log_message: '{{step_2.__status__.message}}' } }] },
+      { actions: [{ order: 3, type: 'Log', inputs: { log_message: '{{old-ui.__status__.message}}' } }] },
+    ]) {
+      const bad = updateSdk(persistFlowPatch, before);
+      await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, { deleteSteps: ['old-ui'], ...reference }, { preview: true }), /Absent|deleted/i);
+      assert.equal(bad.calls.filter(c => c.options.method !== 'GET').length, 0);
+    }
+  });
+
+  it('rejects absent, wrong-type, ambiguous and conflicting logic links before any write', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    for (const manifest of [
+      { logic: [{ order: 2, type: 'catch', connectedToOrder: 99 }] },
+      { logic: [{ order: 2, type: 'catch', connectedToOrder: 1 }] },
+      { logic: [{ order: 2, type: 'if' }, { order: 3, type: 'catch', connectedToOrder: 2 }] },
+      { logic: [{ order: 2, type: 'try' }, { order: 3, type: 'catch' }] },
+      { logic: [{ order: 2, type: 'try' }, { order: 3, type: 'try' }], actions: [{ order: 1, type: 'Log', parent: 2, parentOrder: 3, inputs: { log_message: 'bad' } }] },
+      { logic: [{ order: 2, type: 'try', parentOrder: 3 }, { order: 3, type: 'try', parentOrder: 2 }] },
+      { logic: [{ order: 2, type: 'try', uiUniqueIdentifier: {} }] },
+      { logic: [], flowLogics: [] },
+      { actions: [{ order: 2, type: 'Log', parentOrder: 1, inputs: { log_message: 'bad' } }] },
+    ]) {
+      const sdk = updateSdk(persistFlowPatch);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, manifest));
+      assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0, JSON.stringify(manifest));
+    }
+  });
+
   it('rejects dropped or altered error handling before Autosave through the public updater', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const changes = {
@@ -1165,6 +1302,22 @@ describe('error handling create persistence', () => {
     };
     return sdk;
   }
+  it('verifies Set Flow Variables assignments through public create before Autosave', async () => {
+    for (const mutate of [
+      d => { delete d.flowLogicInstances[0].flowVariables; return d; },
+      d => { d.flowLogicInstances[0].flowVariables[0].value.value = 'wrong'; return d; },
+      d => { d.flowLogicInstances[0].flowVariables[0].value.schemaless = true; return d; },
+    ]) {
+      const sdk = createSdk(mutate);
+      let n = 0;
+      await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, logic: [{ order: 2, type: 'set flow variables', values: { message: '42' } }] }, { ...options, idFactory: () => `generated-${++n}` }));
+      assert.equal(sdk.calls.filter(c => c.endpoint?.includes('/versioning/create_version')).length, 0);
+    }
+    const sdk = createSdk();
+    let n = 0;
+    const r = await createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, logic: [{ order: 2, type: 'set flow variables', values: { message: '{{step_1.log_message}}' } }] }, { ...options, idFactory: () => `generated-${++n}` });
+    assert.equal(r.processflow.flowLogicInstances[0].flowVariables[0].value.value, `{{${r.processflow.actionInstances[0].uiUniqueIdentifier}.log_message}}`);
+  });
   it('creates persisted Try/Catch, main/error children and friendly error pills without publishing', async () => {
     const sdk = createSdk();
     let n = 0;
@@ -1178,6 +1331,17 @@ describe('error handling create persistence', () => {
     assert.equal(result.lifecycle.published, false);
     assert.ok(!result.lifecycle.deferred.includes('error handling'));
   });
+  it('creates inner Try/Catch and parented actions using the same provider-shaped lifecycle', async () => {
+    const sdk = createSdk();
+    let n = 0;
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, actions: [{ ...manifest.actions[0], order: 3, parentOrder: 2 }, { type: 'Log', order: 5, parentOrder: 4, inputs: { log_message: '{{step_4.__status__.message}}' } }], logic: [{ order: 4, type: 'catch', connectedToOrder: 2 }, { order: 2, type: 'try' }] }, { ...options, idFactory: () => `inner-${++n}` });
+    const [topCatch, topTry] = result.processflow.flowLogicInstances;
+    assert.equal(topCatch.connectedTo, topTry.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[0].parent, topTry.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[1].parent, topCatch.uiUniqueIdentifier);
+    assert.equal(result.lifecycle.published, false);
+  });
+
   it('does not Autosave create when error logic or child payload was dropped or altered', async () => {
     for (const mutate of [d => { d.actionInstances[0].inputs[1].value.schemaless = true; return d; }, d => { d.actionInstances[1].inputs[1].value.schemalessValue = 'evil'; return d; }, d => { d.actionInstances[1].inputs[1].parameter.type = 'integer'; return d; }, d => { d.flowLogicInstances[1].inputs[0].value.schemaless = true; return d; }, d => { d.flowLogicInstances = []; return d; }, d => { d.actionInstances[1].parent = 'wrong'; return d; }, d => { d.flowLogicInstances[1].connectedTo = 'wrong'; return d; }]) {
       const sdk = createSdk(mutate);
