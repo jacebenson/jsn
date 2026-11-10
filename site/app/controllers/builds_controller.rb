@@ -2,10 +2,13 @@ class BuildsController < ApplicationController
   before_action :authenticate_publisher
   def create
     revision, state = params[:revision].to_s, params[:state].to_s
+    release = params[:release].to_s.presence || DocsStorage.default_family
+    return render json: { error: 'Invalid release' }, status: :unprocessable_entity unless DocsStorage::FAMILY.match?(release)
+
     if state == 'published'
-      DocsBuild.promote!(revision, params.require(:manifest).to_unsafe_h)
+      DocsBuild.promote!(release, revision, params.require(:manifest).to_unsafe_h)
     elsif %w[building failed].include?(state)
-      build = DocsBuild.find_or_initialize_by(revision: revision)
+      build = DocsBuild.find_or_initialize_by(release: release, revision: revision)
       # A retry/failure never demotes the last known-good publication.
       build.update!(state: state) unless build.persisted? && build.state == 'published'
     else
