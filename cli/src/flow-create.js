@@ -489,6 +489,26 @@ const FLOW_LOGIC_DEFINITIONS = {
     connectedTo: '07223332de022010ec58424b73829721,e9060aa2c3013010ace8b740ad40dd51',
     attributes: 'allow_siblings=true,draw_curve=true,line_type=q_curve,visible_in_picker=false,visible_in_ui=false,',
   },
+  'try': {
+    id: '07223332de022010ec58424b73829721',
+    name: 'Try',
+    type: 'TRY',
+    description: 'Allow a flow to continue running when an error occurs within a flow logic block. Run a sequence of actions in response to errors within the flow logic block',
+    compilationClass: 'com.glide.flow.compiler.logic_block.TryCompiler',
+    order: 15,
+    connectedTo: '',
+    attributes: 'allow_siblings=true,disable_opening=true,draw_curve=true,icon_class=try,line_type=cc_curve,visible_in_picker=true,',
+  },
+  'catch': {
+    id: '35d60003e6022010a5e40cdd1254dd21',
+    name: 'Catch',
+    type: 'CATCH',
+    description: 'Catch and handle an error',
+    compilationClass: 'com.glide.flow.compiler.logic_block.CatchCompiler',
+    order: 16,
+    connectedTo: '07223332de022010ec58424b73829721',
+    attributes: 'allow_siblings=true,disable_opening=true,draw_curve=true,icon_class=catch,line_type=q_curve,visible_in_picker=false,',
+  },
   'if': {
     id: 'af4e1945c3e232002841b63b12d3ae3e',
     name: 'If',
@@ -937,7 +957,7 @@ export function validateFlowUpdateManifest(manifest) {
     if (!Array.isArray(manifest.actions)) throw new Error('Flow update actions must be an array');
     for (const [index, action] of manifest.actions.entries()) {
       if (!action || typeof action !== 'object' || Array.isArray(action)) throw new Error(`Update action ${index + 1} must be an object`);
-      for (const key of Object.keys(action)) if (!['order', 'type', 'inputs'].includes(key)) throw new Error(`Update action ${index + 1} field "${key}" is unsupported; caller-supplied identities are not accepted`);
+      for (const key of Object.keys(action)) if (!['order', 'type', 'inputs', 'parent', 'parentOrder', 'parentUiId'].includes(key)) throw new Error(`Update action ${index + 1} field "${key}" is unsupported; caller-supplied identities are not accepted`);
       if (!Number.isInteger(action.order) || action.order < 1 || !String(action.type || '').trim()) throw new Error(`Update action ${index + 1} requires a positive integer order and type`);
       if (!action.inputs || typeof action.inputs !== 'object' || Array.isArray(action.inputs)) throw new Error(`Update action ${index + 1} inputs must be an object`);
       if (Object.keys(action.inputs).length === 0) throw new Error(`Update action ${index + 1} inputs must contain at least one changed value`);
@@ -1449,8 +1469,8 @@ export function resolvePillBinding(definition, pillName, flowId, cache, pending 
     ...findArray(definition, 'triggerInstances').map(step => ({ ...step, trigger: true })),
     ...findExistingActions(definition).map(step => ({ ...step, trigger: false })),
     ...pending.map(step => ({ ...step, trigger: false })),
-    ...(findArray(definition, 'flowLogicInstances') || []).filter(fl => String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd23').map(fl => ({
-      name: 'Error Handler',
+    ...(findArray(definition, 'flowLogicInstances') || []).filter(fl => String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd23' || String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd21').map(fl => ({
+      name: String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd23' ? 'Error Handler' : 'Catch',
       order: stringValue(fl.order),
       uiUniqueIdentifier: stringValue(fl.uiUniqueIdentifier || fl.ui_unique_identifier),
       trigger: false,
@@ -1547,6 +1567,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const pillToInstances = new Map();
   const pendingSteps = [];
   const actionUiMap = new Map();
+  const logicUiMap = new Map(); // order -> uiUniqueIdentifier
   for (const a of existingActions) {
     const ui = stringValue(a.uiUniqueIdentifier || a.ui_unique_identifier);
     if (a.order && ui) actionUiMap.set(String(a.order), ui);
@@ -1565,6 +1586,112 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     }
   };
 
+  // Handle flowLogics insertion and update
+  const requestedLogics = manifest.flowLogics || manifest.logic || [];
+  const logicTypeKey = t => String(t || '').toLowerCase().trim();
+
+  for (const [logicIdx, l] of requestedLogics.entries()) {
+    const lType = logicTypeKey(l.type || l.name);
+    const logicDef = FLOW_LOGIC_DEFINITIONS[lType] || {
+      id: l.definitionId || l.id || '',
+      name: l.name || l.type,
+      type: (l.type || '').toUpperCase(),
+      description: '',
+      compilationClass: '',
+      order: l.order || logicIdx + 1,
+      connectedTo: l.connectedTo || '',
+      attributes: 'allow_children=true,allow_siblings=true,'
+    };
+
+    const uiUniqueIdentifier = l.uiUniqueIdentifier || idFactory();
+    logicUiMap.set(String(l.order), uiUniqueIdentifier);
+    const parentUiId = l.parentUiId || (l.parent ? (logicUiMap.get(String(l.parent)) || l.parent) : '');
+    const connectedTo = l.connectedTo || (l.connectedToOrder ? (logicUiMap.get(String(l.connectedToOrder)) || l.connectedToOrder) : logicDef.connectedTo);
+
+    let resolvedCondition = String(l.condition || '').replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
+      const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
+      return ui ? '{{' + ui + '.' + field + '}}' : match;
+    });
+
+    const inputs = [];
+    collectPills(resolvedCondition, uiUniqueIdentifier, 'condition');
+
+    if (lType === 'if' || lType === 'else if') {
+      inputs.push({
+        name: 'condition_name',
+        value: { schemaless: false, schemalessValue: '', value: l.condition_name || l.conditionName || l.label || '' }
+      });
+      inputs.push({
+        name: 'condition',
+        value: { schemaless: false, schemalessValue: '', value: resolvedCondition }
+      });
+    } else if (lType === 'catch' || lType === 'top level catch') {
+      inputs.push({
+        name: 'enabled',
+        value: { schemaless: false, schemalessValue: '', value: 'true' }
+      });
+    }
+
+    const flowVarsArray = [];
+    if (lType === 'set flow variables' && l.values) {
+      for (const [varName, varVal] of Object.entries(l.values)) {
+        flowVarsArray.push({
+          id: '',
+          name: varName,
+          children: [],
+          displayValue: { value: '' },
+          value: { schemaless: false, schemalessValue: '', value: String(varVal) }
+        });
+      }
+    }
+
+    flowLogicInserts.push({
+      order: String(l.order || logicIdx + 1),
+      uiUniqueIdentifier,
+      parent: parentUiId,
+      parentUiId,
+      connectedTo,
+      metadata: '{"predicates":[]}',
+      flowSysId: flowId,
+      generationSource: '',
+      definitionId: logicDef.id,
+      type: 'flowlogic',
+      inputs,
+      outputsToAssign: [],
+      ...(flowVarsArray.length ? { flowVariables: flowVarsArray } : {}),
+      flowLogicDefinition: {
+        id: logicDef.id,
+        name: logicDef.name,
+        description: logicDef.description,
+        connectedTo: logicDef.connectedTo,
+        quiescence: 'never',
+        compilationClass: logicDef.compilationClass,
+        order: logicDef.order,
+        type: logicDef.type,
+        visible: true,
+        attributes: logicDef.attributes,
+        userCanRead: true,
+        category: '',
+        inputs: [],
+        variables: '[]'
+      }
+    });
+
+    if (lType === 'catch' || lType === 'top level catch') {
+      pendingSteps.push({
+        name: 'Catch',
+        order: String(l.order || logicIdx + 1),
+        uiUniqueIdentifier,
+        inputs: [
+          { name: '__status__.message', parameter: { label: 'Error Status➛Message', type: 'string' } },
+          { name: '__status__.code', parameter: { label: 'Error Status➛Code', type: 'integer' } }
+        ]
+      });
+    }
+
+    changes.push({ component: 'flowLogic', order: l.order, type: logicDef.name, input: 'insert', before: null, after: { parent: parentUiId, connectedTo } });
+  }
+
   for (const [index, requested] of (manifest.actions || []).entries()) {
     const isInsert = !existingOrders.has(String(requested.order));
     if (isInsert) {
@@ -1576,22 +1703,27 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       // A later step in this same manifest may reference this one; its identity
       // and schema exist now even though the flow does not carry it yet.
       pendingSteps.push({ name: requested.type, order: String(requested.order), uiUniqueIdentifier, inputs: insertInputs });
+      const actParent = requested.parentUiId || (requested.parent ? (logicUiMap.get(String(requested.parent)) || requested.parent) : '');
       actionInserts.push({
         actionTypeSysId: resolved.id,
         flowSysId: flowId,
         generationSource: '',
         type: 'action',
         order: String(requested.order),
-        parent: '',
+        parent: actParent,
         uiUniqueIdentifier,
-        parentUiId: '',
+        parentUiId: actParent,
         metadata: JSON.stringify(parseMaybeJson(actionDefinition.definition.metadata, {})),
         inputs: insertInputs,
       });
       changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(requested.inputs || {})));
       for (const [input, after] of Object.entries(requested.inputs || {})) {
-        changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: null, after });
-        collectPills(after, uiUniqueIdentifier, input);
+        let resolvedAfter = String(after).replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
+          const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
+          return ui ? '{{' + ui + '.' + field + '}}' : match;
+        });
+        changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: null, after: resolvedAfter });
+        collectPills(resolvedAfter, uiUniqueIdentifier, input);
       }
     } else {
       const existing = await resolveExistingAction(sdk, existingActions, requested, index);
@@ -1679,96 +1811,6 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       uiDisplayTypeLabel: type_label
     });
     changes.push({ component: 'flowVariable', input: name, before: null, after: { label, type, order: varOrder } });
-  }
-
-  // Handle flowLogics insertion and update
-  const requestedLogics = manifest.flowLogics || manifest.logic || [];
-  const logicTypeKey = t => String(t || '').toLowerCase().trim();
-  const logicUiMap = new Map(); // order -> uiUniqueIdentifier
-
-  for (const [logicIdx, l] of requestedLogics.entries()) {
-    const lType = logicTypeKey(l.type || l.name);
-    const logicDef = FLOW_LOGIC_DEFINITIONS[lType] || {
-      id: l.definitionId || l.id || '',
-      name: l.name || l.type,
-      type: (l.type || '').toUpperCase(),
-      description: '',
-      compilationClass: '',
-      order: l.order || logicIdx + 1,
-      connectedTo: l.connectedTo || '',
-      attributes: 'allow_children=true,allow_siblings=true,'
-    };
-
-    const uiUniqueIdentifier = l.uiUniqueIdentifier || idFactory();
-    logicUiMap.set(String(l.order), uiUniqueIdentifier);
-    const parentUiId = l.parentUiId || (l.parent ? (logicUiMap.get(String(l.parent)) || l.parent) : '');
-    const connectedTo = l.connectedTo || (l.connectedToOrder ? (logicUiMap.get(String(l.connectedToOrder)) || l.connectedToOrder) : logicDef.connectedTo);
-
-    let resolvedCondition = String(l.condition || '').replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
-      const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
-      return ui ? '{{' + ui + '.' + field + '}}' : match;
-    });
-
-    const inputs = [];
-    collectPills(resolvedCondition, uiUniqueIdentifier, 'condition');
-
-    if (lType === 'if' || lType === 'else if') {
-      inputs.push({
-        name: 'condition_name',
-        value: { schemaless: false, schemalessValue: '', value: l.condition_name || l.conditionName || l.label || '' }
-      });
-      inputs.push({
-        name: 'condition',
-        value: { schemaless: false, schemalessValue: '', value: resolvedCondition }
-      });
-    }
-
-    const flowVarsArray = [];
-    if (lType === 'set flow variables' && l.values) {
-      for (const [varName, varVal] of Object.entries(l.values)) {
-        flowVarsArray.push({
-          id: '',
-          name: varName,
-          children: [],
-          displayValue: { value: '' },
-          value: { schemaless: false, schemalessValue: '', value: String(varVal) }
-        });
-      }
-    }
-
-    flowLogicInserts.push({
-      order: String(l.order || logicIdx + 1),
-      uiUniqueIdentifier,
-      parent: parentUiId,
-      parentUiId,
-      connectedTo,
-      metadata: '{"predicates":[]}',
-      flowSysId: flowId,
-      generationSource: '',
-      definitionId: logicDef.id,
-      type: 'flowlogic',
-      inputs,
-      outputsToAssign: [],
-      ...(flowVarsArray.length ? { flowVariables: flowVarsArray } : {}),
-      flowLogicDefinition: {
-        id: logicDef.id,
-        name: logicDef.name,
-        description: logicDef.description,
-        connectedTo: logicDef.connectedTo,
-        quiescence: 'never',
-        compilationClass: logicDef.compilationClass,
-        order: logicDef.order,
-        type: logicDef.type,
-        visible: true,
-        attributes: logicDef.attributes,
-        userCanRead: true,
-        category: '',
-        inputs: [],
-        variables: '[]'
-      }
-    });
-
-    changes.push({ component: 'flowLogic', order: l.order, type: logicDef.name, input: 'insert', before: null, after: { parent: parentUiId, connectedTo } });
   }
 
   // Handle deletions by step order or uiUniqueIdentifier

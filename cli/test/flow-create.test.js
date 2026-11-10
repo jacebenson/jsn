@@ -1034,4 +1034,45 @@ describe('flow update request shapes', () => {
     assert.match(query, /parent: "gen-id-100"/, 'Existing actions reparented to Try block');
     assert.match(query, /labelCache: \{insert: \[.*gen-id-101\.__status__\.message.*\]\}/, 'Error message pill bound to labelCache');
   });
+
+  it('orchestrates inner Try and Catch flow logic with parented actions and status pill bindings', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    definition.labelCacheAsJsonString = '[]';
+    const after = structuredClone(definition);
+    let counter = 200;
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'gen-id-201.__status__.message',
+      label: '4 - Catch➛Error Status➛Message',
+      type: 'string',
+      base_type: 'string',
+      usedInstances: { 'gen-id-203': ['log_message'] },
+    }]);
+    const sdk = updateSdk(after, definition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      logic: [
+        { order: 2, type: 'try' },
+        { order: 4, type: 'catch', connectedToOrder: 2 },
+      ],
+      actions: [
+        { order: 3, type: 'Log', parent: 2, inputs: { log_message: 'inside try' } },
+        { order: 5, type: 'Log', parent: 4, inputs: { log_message: 'inside catch: {{step_4.__status__.message}}' } },
+      ],
+    }, { idFactory: () => `gen-id-${counter++}` });
+
+    assert.ok(result.changes.some(c => c.type === 'Try' && c.order === 2));
+    assert.ok(result.changes.some(c => c.type === 'Catch' && c.order === 4));
+    assert.ok(result.changes.some(c => c.type === 'Log' && c.order === 3));
+    assert.ok(result.changes.some(c => c.type === 'Log' && c.order === 5));
+
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected flowPatch mutation');
+    const query = JSON.parse(post.options.body).query;
+    assert.match(query, /definitionId: "07223332de022010ec58424b73829721"/, 'Try definition included');
+    assert.match(query, /definitionId: "35d60003e6022010a5e40cdd1254dd21"/, 'Catch definition included');
+    assert.match(query, /connectedTo: "gen-id-200"/, 'Catch connected to Try');
+    assert.match(query, /parent: "gen-id-200"/, 'Step 3 parented to Try block');
+    assert.match(query, /parent: "gen-id-201"/, 'Step 5 parented to Catch block');
+    assert.match(query, /labelCache: \{insert: \[.*gen-id-201\.__status__\.message.*\]\}/, 'Catch status pill bound to labelCache');
+  });
 });
