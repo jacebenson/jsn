@@ -113,8 +113,8 @@ function createdDefinition() {
     actionInstances: [{
       id: 'action-123', uiUniqueIdentifier: 'generated-1', actionTypeSysId: ACTION_ID, order: '1',
       inputs: [
-        { name: 'log_level', value: wrapped('info') },
-        { name: 'log_message', value: wrapped(manifest.actions[0].inputs.log_message) },
+        { id: 'i1', name: 'log_level', children: [], displayField: '', scriptActive: false, parameter: { id: 'i1', name: 'log_level', type: 'choice', mandatory: false, defaultValue: 'info', choices: ['info', 'warn', 'error'], attributes: '' }, value: wrapped('info'), displayValue: wrapped('info') },
+        { id: 'i2', name: 'log_message', children: [], displayField: '', scriptActive: false, parameter: { id: 'i2', name: 'log_message', type: 'string', mandatory: true, attributes: '' }, value: wrapped(manifest.actions[0].inputs.log_message), displayValue: wrapped(manifest.actions[0].inputs.log_message) },
       ],
     }],
   };
@@ -1147,6 +1147,10 @@ describe('flow update request shapes', () => {
   it('rejects dropped or altered error handling before Autosave through the public updater', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const changes = {
+      actionMode: d => { d.actionInstances[1].inputs[1].value.schemaless = true; return d; },
+      actionPayload: d => { d.actionInstances[1].inputs[1].value.schemalessValue = 'evil'; return d; },
+      actionSchema: d => { d.actionInstances[1].inputs[1].parameter.type = 'integer'; return d; },
+      catchMode: d => { d.flowLogicInstances[1].inputs[0].value.schemaless = true; return d; },
       unchanged: () => structuredClone(baseDefinition),
       missingAction: d => { d.actionInstances.pop(); return d; },
       actionIdentity: d => { d.actionInstances[1].id = 'wrong'; return d; },
@@ -1192,6 +1196,15 @@ describe('flow update request shapes', () => {
     const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'wrong'; return d; }, before);
     await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /omitted action/);
     assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);
+  });
+
+  it('rejects combined main action and surviving Catch order before leases or writes', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const eh = { errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] } };
+    const first = await updateFlowFromManifest(updateSdk(persistFlowPatch), 'https://example.service-now.com', flowId, eh);
+    const sdk = updateSdk(persistFlowPatch, first.processflow);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { ...eh, actions: [{ order: 2, type: 'Log', inputs: { log_message: 'main' } }] }));
+    assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
   });
 
   it('rejects malformed nested error inputs, identities, aliases and ambiguous Catch children before writes', async () => {
@@ -1264,7 +1277,7 @@ describe('error handling create persistence', () => {
   });
 
   it('does not Autosave create when error logic or child payload was dropped or altered', async () => {
-    for (const mutate of [d => { d.flowLogicInstances = []; return d; }, d => { d.actionInstances[1].parent = 'wrong'; return d; }, d => { d.flowLogicInstances[1].connectedTo = 'wrong'; return d; }]) {
+    for (const mutate of [d => { d.actionInstances[0].inputs[1].value.schemaless = true; return d; }, d => { d.actionInstances[1].inputs[1].value.schemalessValue = 'evil'; return d; }, d => { d.actionInstances[1].inputs[1].parameter.type = 'integer'; return d; }, d => { d.flowLogicInstances[1].inputs[0].value.schemaless = true; return d; }, d => { d.flowLogicInstances = []; return d; }, d => { d.actionInstances[1].parent = 'wrong'; return d; }, d => { d.flowLogicInstances[1].connectedTo = 'wrong'; return d; }]) {
       const sdk = createSdk(mutate);
       let n = 0;
       await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] } }, { ...options, idFactory: () => `generated-${++n}` }), /persist|requested/);
