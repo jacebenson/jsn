@@ -9,9 +9,20 @@ import { buildSnapshot } from '../src/commands/docs/snapshot.js';
 
 const binary = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 const preload = new URL('./support/docs-release-fetch.js', import.meta.url).href;
+function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
+}
 function fixture(t) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-docs-release-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const stops = [];
+  // A server still running at teardown keeps the fixture directory open, and
+  // Windows then refuses the removal with EPERM. Stop children first, then
+  // remove, retrying because Windows can release handles after process exit.
+  t.after(async () => {
+    for (const stop of stops.reverse()) await stop();
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  });
   const scenario = path.join(home, 'scenario.json'), requests = path.join(home, 'requests.txt');
   fs.writeFileSync(scenario, '{}'); fs.writeFileSync(requests, '');
   const configDir = path.join(home, 'config', 'servicenow');
@@ -19,7 +30,7 @@ function fixture(t) {
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, 'config'), XDG_CACHE_HOME: path.join(home, 'cache'), JSN_DATA_HOME: home,
     JSN_DOCS_URL: 'https://fixture.test/', DOCS_TEST_SCENARIO: scenario, DOCS_TEST_REQUESTS: requests,
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_DOCS_CHECK: '1' };
-  return { home, env, scenario: value => fs.writeFileSync(scenario, JSON.stringify(value)),
+  return { home, env, stop: stop => stops.push(stop), scenario: value => fs.writeFileSync(scenario, JSON.stringify(value)),
     config: value => fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify(value)),
     requests: () => fs.readFileSync(requests, 'utf8').trim().split('\n').filter(Boolean).map(value => new URL(value)),
     run: (args, json = true) => spawnSync(process.execPath, ['--import', preload, binary, 'docs', ...args, ...(json ? ['--json'] : [])], { env, cwd: home, encoding: 'utf8', timeout: 15000 }) };
@@ -131,7 +142,7 @@ test('CLI --serve reports and serves the selected family index', async t => {
   f.scenario({ ...artifact, manifest: { ...artifact.manifest, release: 'brazil' } });
   success(f.run(['install', '--source', 'snapshot', '--release', 'brazil']));
   const child = spawn(process.execPath, [binary, 'docs', '--serve', '--release', 'brazil', '--port', '0', '--json'], { env: f.env, cwd: f.home });
-  t.after(() => { child.kill('SIGTERM'); });
+  f.stop(() => stopChild(child));
   let output = '';
   const data = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server did not start: ' + output)), 10000);
@@ -144,7 +155,7 @@ test('CLI --serve reports and serves the selected family index', async t => {
   assert.equal(response.status, 200); assert.equal(result.release, 'brazil'); assert.equal(result.count, 1);
   const wrong = await fetch(new URL('api/docs/status?release=australia', data.url));
   assert.equal(wrong.status, 400);
-  await new Promise(resolve => { child.once('exit', resolve); child.kill('SIGTERM'); });
+  await stopChild(child);
 });
 test('CLI sync clones and updates the requested family branch with no ingestion', t => {
   const f = fixture(t);
