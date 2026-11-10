@@ -965,6 +965,11 @@ export function validateFlowUpdateManifest(manifest) {
   }
   if (manifest.trigger === undefined && manifest.actions === undefined && manifest.stages === undefined && manifest.stageTemplate === undefined && manifest.stageSet === undefined && manifest.flowVariables === undefined && manifest.variables === undefined && manifest.flowLogics === undefined && manifest.logic === undefined && manifest.deleteSteps === undefined && manifest.delete === undefined && manifest.deleteOrders === undefined && manifest.errorHandling === undefined && manifest.errorHandler === undefined) throw new Error('Flow update manifest must specify trigger, actions and/or stages');
   if (manifest.stages !== undefined) validateStages(manifest.stages, { update: true });
+  // Accepting the key without checking its shape would still insert the Try and
+  // Catch blocks while silently dropping a malformed action list.
+  for (const key of ['errorHandling', 'errorHandler']) {
+    if (manifest[key] !== undefined) validateErrorHandling(manifest[key]);
+  }
   for (const key of ['stageTemplate', 'stageSet']) {
     if (manifest[key] === undefined) continue;
     if (typeof manifest[key] !== 'string' || !manifest[key].trim()) throw new Error(`Flow update ${key} must be a non-empty string`);
@@ -1589,6 +1594,16 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   // Handle flowLogics insertion and update
   const requestedLogics = manifest.flowLogics || manifest.logic || [];
   const logicTypeKey = t => String(t || '').toLowerCase().trim();
+  // A manifest names steps by order ({{step_4.__status__.message}} or
+  // {{4.message}}). Resolve that only once the owning map entry exists, but do
+  // it before any value is packaged: a token that survives into the payload
+  // stores an unresolvable reference the canvas renders blank.
+  const resolveStepPill = value => String(value).replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
+    const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
+    return ui ? `{{${ui}.${field}}}` : match;
+  });
+  const resolveStepInputs = inputs => Object.fromEntries(Object.entries(inputs || {})
+    .map(([input, value]) => [input, typeof value === 'string' ? resolveStepPill(value) : value]));
 
   for (const [logicIdx, l] of requestedLogics.entries()) {
     const lType = logicTypeKey(l.type || l.name);
@@ -1607,11 +1622,14 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     logicUiMap.set(String(l.order), uiUniqueIdentifier);
     const parentUiId = l.parentUiId || (l.parent ? (logicUiMap.get(String(l.parent)) || l.parent) : '');
     const connectedTo = l.connectedTo || (l.connectedToOrder ? (logicUiMap.get(String(l.connectedToOrder)) || l.connectedToOrder) : logicDef.connectedTo);
+    // A Catch only works when it points at one specific Try instance. Falling
+    // back to the definition id writes a link the instance cannot resolve, so
+    // demand the pairing instead of guessing it.
+    if ((lType === 'catch' || lType === 'top level catch') && l.connectedTo === undefined && l.connectedToOrder === undefined) {
+      throw new Error(`Flow logic at order ${l.order} is a Catch block; set connectedToOrder to the Try block's order so the pair stays linked`);
+    }
 
-    let resolvedCondition = String(l.condition || '').replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
-      const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
-      return ui ? '{{' + ui + '.' + field + '}}' : match;
-    });
+    let resolvedCondition = resolveStepPill(l.condition || '');
 
     const inputs = [];
     collectPills(resolvedCondition, uiUniqueIdentifier, 'condition');
@@ -1699,11 +1717,14 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
       const uiUniqueIdentifier = requested.uiUniqueIdentifier || idFactory();
       actionUiMap.set(String(requested.order), uiUniqueIdentifier);
-      const insertInputs = buildTypedInputs(requested, actionDefinition.schema);
+      // Resolve before packaging: the instance must receive the producing step's
+      // own pill name, not the order-based token from the manifest.
+      const insertInputs = buildTypedInputs({ ...requested, inputs: resolveStepInputs(requested.inputs) }, actionDefinition.schema);
       // A later step in this same manifest may reference this one; its identity
       // and schema exist now even though the flow does not carry it yet.
       pendingSteps.push({ name: requested.type, order: String(requested.order), uiUniqueIdentifier, inputs: insertInputs });
-      const actParent = requested.parentUiId || (requested.parent ? (logicUiMap.get(String(requested.parent)) || requested.parent) : '');
+      const parentKey = requested.parentUiId || requested.parentOrder || requested.parent;
+      const actParent = requested.parentUiId || (parentKey !== undefined ? (logicUiMap.get(String(parentKey)) || String(parentKey)) : '');
       actionInserts.push({
         actionTypeSysId: resolved.id,
         flowSysId: flowId,
@@ -1718,24 +1739,23 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       });
       changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(requested.inputs || {})));
       for (const [input, after] of Object.entries(requested.inputs || {})) {
-        let resolvedAfter = String(after).replace(/\{\{(?:step_)?(\d+)\.([^}]+)\}\}/g, (match, order, field) => {
-          const ui = actionUiMap.get(String(order)) || logicUiMap.get(String(order));
-          return ui ? '{{' + ui + '.' + field + '}}' : match;
-        });
+        const resolvedAfter = typeof after === 'string' ? resolveStepPill(after) : after;
         changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: null, after: resolvedAfter });
         collectPills(resolvedAfter, uiUniqueIdentifier, input);
       }
     } else {
       const existing = await resolveExistingAction(sdk, existingActions, requested, index);
-      const update = buildActionUpdate(existing, requested, index);
+      const resolvedRequest = { ...requested, inputs: resolveStepInputs(requested.inputs) };
+      const update = buildActionUpdate(existing, resolvedRequest, index);
       actionUpdates.push(update);
       const uiId = stringValue(existing.uiUniqueIdentifier || existing.ui_unique_identifier);
       if (actionTargets.has(uiId)) throw new Error(`Duplicate action update for order ${requested.order}; combine input changes in one action entry`);
       actionTargets.set(uiId, existing);
       changedActionInputs.set(uiId, new Set(Object.keys(requested.inputs)));
       for (const [input, after] of Object.entries(requested.inputs)) {
-        changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after });
-        collectPills(after, uiId, input);
+        const resolvedAfter = typeof after === 'string' ? resolveStepPill(after) : after;
+        changes.push({ component: 'action', order: requested.order, type: requested.type, input, before: inputRawValue(inputList(existing).find(field => field.name === input)), after: resolvedAfter });
+        collectPills(resolvedAfter, uiId, input);
       }
     }
   }
@@ -1920,6 +1940,9 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
 
     // 2. Ensure Top Level Catch
     let catchUiId = topCatch ? stringValue(topCatch.uiUniqueIdentifier || topCatch.ui_unique_identifier) : '';
+    // An existing Catch owns its order; re-running the manifest must place the
+    // error actions after it instead of guessing a fixed slot.
+    let catchOrder = topCatch ? parseInt(topCatch.order, 10) : NaN;
     if (!topCatch) {
       catchUiId = idFactory();
       const catchDef = FLOW_LOGIC_DEFINITIONS['top level catch'];
@@ -1929,7 +1952,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       for (const fl of existingLogics) maxOrder = Math.max(maxOrder, parseInt(fl.order, 10) || 0);
       for (const a of actionInserts) maxOrder = Math.max(maxOrder, parseInt(a.order, 10) || 0);
       for (const fl of flowLogicInserts) maxOrder = Math.max(maxOrder, parseInt(fl.order, 10) || 0);
-      const catchOrder = maxOrder + 1;
+      catchOrder = maxOrder + 1;
 
       flowLogicInserts.push({
         order: String(catchOrder),
@@ -1969,7 +1992,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
     // Register Catch step in pendingSteps for data pill resolution
     pendingSteps.push({
       name: 'Error Handler',
-      order: String(existingActions.length + 1),
+      order: String(Number.isFinite(catchOrder) ? catchOrder : existingActions.length + 1),
       uiUniqueIdentifier: catchUiId,
       inputs: [
         { name: '__status__.message', parameter: { label: 'Error Status➛Message', type: 'string' } },
@@ -1979,13 +2002,21 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
 
     // 3. Process errorHandling actions
     const errorActions = Array.isArray(errorHandlingInput.actions) ? errorHandlingInput.actions : [];
-    let errActionOrder = (parseInt(flowLogicInserts.find(fl => fl.definitionId === '35d60003e6022010a5e40cdd1254dd23')?.order, 10) || 20) + 1;
+    const errorPill = name => String(name)
+      .replace(/\{\{error\.message\}\}/g, `{{${catchUiId}.__status__.message}}`)
+      .replace(/\{\{error\.code\}\}/g, `{{${catchUiId}.__status__.code}}`);
+    let errActionOrder = (Number.isFinite(catchOrder) ? catchOrder : 20) + 1;
     for (const [eIdx, eAction] of errorActions.entries()) {
       const resolved = await resolveActionType(sdk, eAction.type);
       const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
       const uiUniqueIdentifier = eAction.uiUniqueIdentifier || idFactory();
       actionUiMap.set(`error_${eIdx + 1}`, uiUniqueIdentifier);
-      const insertInputs = buildTypedInputs(eAction, actionDefinition.schema);
+      // The friendly {{error.*}} tokens have to be resolved before the typed
+      // inputs are built, or the inserted action keeps the token and the canvas
+      // stores a reference no labelCache entry can draw.
+      const errorInputs = Object.fromEntries(Object.entries(eAction.inputs || {})
+        .map(([input, value]) => [input, typeof value === 'string' ? errorPill(value) : value]));
+      const insertInputs = buildTypedInputs({ ...eAction, inputs: errorInputs }, actionDefinition.schema);
       pendingSteps.push({ name: eAction.type, order: String(errActionOrder), uiUniqueIdentifier, inputs: insertInputs });
       actionInserts.push({
         actionTypeSysId: resolved.id,
@@ -2001,10 +2032,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
       });
       changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(eAction.inputs || {})));
       for (const [input, after] of Object.entries(eAction.inputs || {})) {
-        // Resolve {{error.message}} and {{error.code}}
-        let resolvedVal = String(after)
-          .replace(/\{\{error\.message\}\}/g, `{{${catchUiId}.__status__.message}}`)
-          .replace(/\{\{error\.code\}\}/g, `{{${catchUiId}.__status__.code}}`);
+        const resolvedVal = typeof after === 'string' ? errorPill(after) : after;
         changes.push({ component: 'errorAction', order: errActionOrder, type: eAction.type, input, before: null, after: resolvedVal });
         collectPills(resolvedVal, uiUniqueIdentifier, input);
       }
