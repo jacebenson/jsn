@@ -300,7 +300,7 @@ describe('flow update request shapes', () => {
     ] }],
   };
 
-  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition) {
+  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition, extra = {}) {
     const calls = [];
     let versionReads = 0;
     let editLease = false;
@@ -313,10 +313,19 @@ describe('flow update request shapes', () => {
         if (table === 'sys_update_xml') return [{ sys_id: 'xml-update-1', payload: flowId }];
         if (table === 'sys_db_object') return [{ name: { value: 'ticket' }, label: { value: 'Ticket' }, super_class: { value: '' } }];
         if (table === 'sys_dictionary') return [];
+        if (table === 'stage_set_table') return extra.stageSetId ? [{ set: { value: extra.stageSetId } }] : [];
+        if (table === 'stage_set') return extra.stageSetId ? [{ sys_id: extra.stageSetId }] : [];
+        if (table === 'stage_set_entry') return extra.stageEntries || [];
         return [];
       },
       async request(endpoint, options = {}) {
         calls.push({ endpoint, options });
+        if (options.method === 'PUT' && endpoint.includes('/stages?')) {
+          const payload = JSON.parse(options.body);
+          const data = {};
+          for (const key of Object.keys(payload)) data[key] = { id: `db-${key}` };
+          return { result: { data } };
+        }
         const query = options.body && JSON.parse(options.body).query;
         if (query?.includes('safeEdit(')) {
           const isUpsert = query.includes('upsert:');
@@ -892,5 +901,88 @@ describe('flow update request shapes', () => {
     await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }), /log_message did not match the requested value/);
     assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0, 'no Autosave after a failed read-back');
     assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 1);
+  });
+
+  // Stage templates: `order` arrives display-formatted ("1,000"), system stages
+  // (Request Cancelled / Completed) sort ahead of the ordinary ones, and the
+  // stage rows are registered over REST before the GraphQL patch references them.
+  const STAGE_SET_ID = 'b'.repeat(32);
+  const stageEntries = () => ([
+    { name: { value: 'Request Cancelled', display_value: 'Request Cancelled' }, value: { value: 'Request Cancelled', display_value: 'Request Cancelled' }, order: { value: '1,000', display_value: '1,000' }, ola: { value: '1970-01-01 00:00:00', display_value: '0 Seconds' } },
+    { name: { value: 'Completed', display_value: 'Completed' }, value: { value: 'complete', display_value: 'complete' }, order: { value: '1,100', display_value: '1,100' }, ola: { value: '1970-01-01 00:00:00', display_value: '0 Seconds' } },
+    { name: { value: 'Request Approved', display_value: 'Request Approved' }, value: { value: 'request_approved', display_value: 'request_approved' }, order: { value: '90', display_value: '90' }, ola: { value: '1970-01-01 00:00:00', display_value: '0 Seconds' } },
+    { name: { value: 'Waiting for Approval', display_value: 'Waiting for Approval' }, value: { value: 'waiting_for_approval', display_value: 'waiting_for_approval' }, order: { value: '100', display_value: '100' }, ola: { value: '1970-01-02 00:00:00', display_value: '1 Day' } },
+  ]);
+
+  it('resolves a stage template by name into ordered stages with parsed durations', async () => {
+    const { resolveStageTemplate } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition, baseDefinition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    const stages = await resolveStageTemplate(sdk, 'Requested Item');
+    assert.deepEqual(stages.map(stage => stage.label), ['Request Cancelled', 'Completed', 'Request Approved', 'Waiting for Approval']);
+    assert.deepEqual(stages.map(stage => stage.order), [0, 1, 2, 3], 'the thousands separator in order must not collapse to 1');
+    assert.equal(stages[0].system, true);
+    assert.equal(stages[2].system, false);
+    assert.equal(stages[3].duration, '1970-01-02 00:00:00', 'the ola duration is carried, not replaced by the default');
+  });
+
+  it('refuses a stage template identifier that would rewrite the lookup query', async () => {
+    const { resolveStageTemplate } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition, baseDefinition);
+    await assert.rejects(resolveStageTemplate(sdk, 'Requested^Item'), /query separator/);
+    await assert.rejects(resolveStageTemplate(sdk, '   '), /must not be empty/);
+  });
+
+  it('registers stage rows over REST before referencing them in the flow patch', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    const after = structuredClone(definition);
+    after.stages = {
+      'stage-0': { stageId: 'stage-0', label: 'Request Cancelled', order: 0, componentIndexes: [] },
+      'stage-1': { stageId: 'stage-1', label: 'Completed', order: 1, componentIndexes: [] },
+      'stage-2': { stageId: 'stage-2', label: 'Request Approved', order: 2, componentIndexes: [] },
+      'stage-3': { stageId: 'stage-3', label: 'Waiting for Approval', order: 3, componentIndexes: [] },
+    };
+    let counter = 0;
+    const sdk = updateSdk(after, definition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { stageTemplate: 'Requested Item' }, { idFactory: () => `stage-${counter++}`, readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const put = sdk.calls.find(call => call.options.method === 'PUT' && call.endpoint.includes('/stages?'));
+    assert.ok(put, 'expected the stage pre-registration PUT');
+    assert.deepEqual(Object.keys(JSON.parse(put.options.body)), ['stage-0', 'stage-1', 'stage-2', 'stage-3']);
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.match(JSON.parse(post.options.body).query, /stages: \{insert: \[/);
+  });
+
+  it('fails the update when stage registration does not confirm every stage', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    const sdk = updateSdk(definition, definition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    const request = sdk.request;
+    sdk.request = async (endpoint, options = {}) => {
+      if (options.method === 'PUT' && endpoint.includes('/stages?')) return { result: { data: {} } };
+      return request(endpoint, options);
+    };
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { stageTemplate: 'Requested Item' }, { idFactory: () => 'stage-x', readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }),
+      /stage registration did not confirm/,
+    );
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:')).length, 0, 'no flow patch after an unconfirmed stage registration');
+  });
+
+  it('refuses to insert stages into a flow that already has stages', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    definition.stages = { 'old-1': { stageId: 'old-1', label: 'Triage', order: 0, componentIndexes: [] } };
+    const sdk = updateSdk(definition, definition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { stageTemplate: 'Requested Item' }, { idFactory: () => 'stage-x', readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }),
+      /already has 1 stage\(s\) \(Triage\); inserting stages replaces the flow's stage list/,
+    );
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'PUT').length, 0, 'no stage registration for a refused manifest');
+  });
+
+  it('refuses a manifest that names both stages and a stage template', async () => {
+    const { validateFlowUpdateManifest } = await import('../src/flow-create.js');
+    assert.throws(() => validateFlowUpdateManifest({ stages: [{ label: 'One' }], stageTemplate: 'Requested Item' }), /not both/);
+    assert.throws(() => validateFlowUpdateManifest({ stageTemplate: '  ' }), /non-empty string/);
   });
 });
