@@ -1580,6 +1580,44 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     throw new Error(`Flow creation refused before any content write: capture context could not be established. ${error.message}`, { cause: error });
   }
 
+  const actionInstances = [];
+  for (const [index, action] of manifest.actions.entries()) {
+    const resolved = await resolveActionType(sdk, action.type);
+    const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
+    actionInstances.push({
+      actionTypeSysId: resolved.id,
+      flowSysId: '',
+      generationSource: '',
+      type: 'action',
+      order: String(index + 1),
+      parent: '',
+      uiUniqueIdentifier: idFactory(),
+      parentUiId: '',
+      metadata: JSON.stringify(parseMaybeJson(actionDefinition.definition.metadata, {})),
+      inputs: buildTypedInputs(action, actionDefinition.schema),
+    });
+  }
+
+  const flowLogicInserts = [];
+  const labelCacheInserts = [];
+  const pendingSteps = [];
+  const pills = [];
+  if (manifest.errorHandling !== undefined) {
+    await planErrorHandling({ sdk, instance, scope, flowId: '', beforeDefinition: {}, existingActions: [], actionInserts: actionInstances, actionUpdates: [], flowLogicInserts, flowLogicUpdates: [], changes: [], idFactory, actionUiMap: new Map(), pendingSteps, changedActionInputs: new Map(), collectPills: (value, uiUniqueIdentifier, inputName) => {
+      for (const match of String(value).matchAll(/\{\{([^}]+)\}\}/g)) pills.push({ name: match[1], uiUniqueIdentifier, inputName });
+    }, errorHandlingInput: manifest.errorHandling });
+    for (const pill of pills) {
+      const binding = resolvePillBinding({}, pill.name, '', [], pendingSteps);
+      const previous = labelCacheInserts.find(e => e.name === pill.name);
+      if (previous) {
+        if (!previous.usedInstances.some(i => i.uiUniqueIdentifier === pill.uiUniqueIdentifier && i.inputName === pill.inputName)) previous.usedInstances.push({ uiUniqueIdentifier: pill.uiUniqueIdentifier, inputName: pill.inputName });
+      }
+      else labelCacheInserts.push(labelCacheEntry({ name: pill.name, label: binding.label, type: binding.type, baseType: binding.type, usedInstances: { [pill.uiUniqueIdentifier]: [pill.inputName] } }));
+    }
+  }
+
+  validateFinalStepPlan({}, actionInstances, [], [], flowLogicInserts, [], []);
+
   let parentResponse;
   try {
     parentResponse = await mutationContext('parent_create', readUpdateSet, snapshots, () => sdk.request(`${instance}${FLOW_ENDPOINT}?param_only_properties=true&sysparm_transaction_scope=${encodeURIComponent(scope)}`, {
@@ -1605,43 +1643,9 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     const definition = await resolveTriggerDefinition(sdk, manifest.trigger.type);
     const trigger = await buildCreateTrigger(sdk, flowId, manifest, definition, options);
 
-    const actionInstances = [];
-    for (const [index, action] of manifest.actions.entries()) {
-      const resolved = await resolveActionType(sdk, action.type);
-      const actionDefinition = await readActionDefinition(sdk, instance, resolved.id, scope);
-      actionInstances.push({
-        actionTypeSysId: resolved.id,
-        flowSysId: flowId,
-        generationSource: '',
-        type: 'action',
-        order: String(index + 1),
-        parent: '',
-        uiUniqueIdentifier: idFactory(),
-        parentUiId: '',
-        metadata: JSON.stringify(parseMaybeJson(actionDefinition.definition.metadata, {})),
-        inputs: buildTypedInputs(action, actionDefinition.schema),
-      });
-    }
+    for (const action of actionInstances) action.flowSysId = flowId;
+    for (const logic of flowLogicInserts) logic.flowSysId = flowId;
 
-    const flowLogicInserts = [];
-    const labelCacheInserts = [];
-    const pendingSteps = [];
-    const pills = [];
-    if (manifest.errorHandling !== undefined) {
-      await planErrorHandling({ sdk, instance, scope, flowId, beforeDefinition: {}, existingActions: [], actionInserts: actionInstances, actionUpdates: [], flowLogicInserts, flowLogicUpdates: [], changes: [], idFactory, actionUiMap: new Map(), pendingSteps, changedActionInputs: new Map(), collectPills: (value, uiUniqueIdentifier, inputName) => {
-        for (const match of String(value).matchAll(/\{\{([^}]+)\}\}/g)) pills.push({ name: match[1], uiUniqueIdentifier, inputName });
-      }, errorHandlingInput: manifest.errorHandling });
-      for (const pill of pills) {
-        const binding = resolvePillBinding({}, pill.name, flowId, [], pendingSteps);
-        const previous = labelCacheInserts.find(e => e.name === pill.name);
-        if (previous) {
-          if (!previous.usedInstances.some(i => i.uiUniqueIdentifier === pill.uiUniqueIdentifier && i.inputName === pill.inputName)) previous.usedInstances.push({ uiUniqueIdentifier: pill.uiUniqueIdentifier, inputName: pill.inputName });
-        }
-        else labelCacheInserts.push(labelCacheEntry({ name: pill.name, label: binding.label, type: binding.type, baseType: binding.type, usedInstances: { [pill.uiUniqueIdentifier]: [pill.inputName] } }));
-      }
-    }
-
-    validateFinalStepPlan({}, actionInstances, [], [], flowLogicInserts, [], []);
     const patchResponse = await mutationContext('trigger_and_actions_patch', readUpdateSet, snapshots, () => sdk.request(`${instance}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
       body: JSON.stringify({ query: buildFlowPatchMutation({ flowId, trigger, actions: actionInstances, flowLogicInserts, labelCacheInserts }), variables: {} }),

@@ -145,6 +145,21 @@ describe('flow creation manifest', () => {
   });
 });
 
+describe('flow creation preflight', () => {
+  it('rejects unsupported error-action inputs without parent, patch or Autosave writes', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest, errorHandling: { actions: [{ type: 'Log', inputs: { not_in_schema: 'bad' } }] },
+    }, { ...options, idFactory: (() => { let n = 0; return () => `preflight-${++n}`; })() }), error => {
+      assert.match(error.message, /Unsupported input "not_in_schema"/);
+      assert.doesNotMatch(error.message, /orphan|partial/i);
+      return true;
+    });
+    assert.deepEqual(sdk.calls.filter(c => c.kind === 'request' && c.options.method === 'POST'), []);
+  });
+});
+
 describe('flow creation request shapes', () => {
   it('registers flows create with inline and file manifest inputs', async () => {
     const { flowsCmd } = await import('../src/commands/flows.js');
