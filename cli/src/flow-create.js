@@ -800,7 +800,7 @@ function verifyCreatedFlowReadback({ flowId, processflow, trigger, insertedTrigg
     if (savedInputs.length !== expected.inputs.length) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input count did not match the installed schema`);
     for (const expectedInput of expected.inputs) {
       const actualInput = savedInputs.find(input => input.name === expectedInput.name);
-      if (!actualInput || inputRawValue(actualInput) !== inputRawValue(expectedInput)) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input ${expectedInput.name} did not match the requested value`);
+      if (!actualInput || !isDeepStrictEqual(inputRawValue(actualInput), inputRawValue(expectedInput))) throw new Error(`Created Action ${expected.uiUniqueIdentifier} input ${expectedInput.name} did not match the requested value`);
     }
   }
 }
@@ -1346,7 +1346,7 @@ async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinitio
       if (existingLogics.filter(fl => String(fl.definitionId) === id).length > 1) throw new Error('Ambiguous existing error handling blocks');
     }
     if (Boolean(topTry) !== Boolean(topCatch)) throw new Error('Incomplete existing error handling pair; reconcile in Flow Designer before retrying');
-    if (topTry && (!topTry.uiUniqueIdentifier || !topCatch.uiUniqueIdentifier || !Number.isInteger(Number(topCatch.order)))) throw new Error('Malformed existing error handling identities');
+    if (topTry && (!stringValue(topTry.uiUniqueIdentifier || topTry.ui_unique_identifier) || !stringValue(topCatch.uiUniqueIdentifier || topCatch.ui_unique_identifier) || !Number.isInteger(Number(topCatch.order)))) throw new Error('Malformed existing error handling identities');
     if (topCatch?.connectedTo && topCatch.connectedTo !== topTry.uiUniqueIdentifier) throw new Error('Existing Catch is connected to a different Try');
     // 1. Ensure Top Level Try (order 0)
     let tryUiId = topTry ? stringValue(topTry.uiUniqueIdentifier || topTry.ui_unique_identifier) : '';
@@ -1517,7 +1517,7 @@ async function planErrorHandling({ sdk, instance, scope, flowId, beforeDefinitio
         const update = buildActionUpdate(existingChild, { ...eAction, inputs: errorInputs }, eIdx);
         actionUpdates.push(update);
         actionTargets.set(uiUniqueIdentifier, existingChild);
-        changedActionInputs.set(uiUniqueIdentifier, new Set(Object.keys(errorInputs)));
+        changedActionInputs.set(uiUniqueIdentifier, new Set([...(changedActionInputs.get(uiUniqueIdentifier) || []), ...Object.keys(errorInputs)]));
         for (const [input, after] of Object.entries(errorInputs)) {
           changes.push({ component: 'errorAction', order: existingChild.order, type: eAction.type, input, before: inputRawValue(inputList(existingChild).find(i => i.name === input)), after });
           collectPills(after, uiUniqueIdentifier, input);
@@ -2338,7 +2338,7 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
           const afterInput = inputList(readback).find(candidate => candidate.name === input.name);
           if (!afterInput) throw new Error(`Flow ${flowId} Action ${uiId} lost input ${input.name} during update`);
           if (!changed.has(input.name) && JSON.stringify(input) !== JSON.stringify(afterInput)) throw new Error(`Flow ${flowId} Action ${uiId} changed omitted input ${input.name}`);
-          if (changed.has(input.name) && inputRawValue(afterInput) !== inputRawValue(update.inputs.find(candidate => candidate.name === input.name))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
+          if (changed.has(input.name) && !isDeepStrictEqual(inputRawValue(afterInput), inputRawValue(update.inputs.find(candidate => candidate.name === input.name)))) throw new Error(`Flow ${flowId} Action ${uiId} input ${input.name} did not match the requested value`);
         }
       }
       completedStage = 'definition_verified';

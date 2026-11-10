@@ -1083,6 +1083,10 @@ describe('flow update request shapes', () => {
     const query = sdk.calls.map(c => c.options.body && JSON.parse(c.options.body).query).find(q => q?.includes('flowPatch:'));
     const patch = readFlowPatch(query);
     assert.equal(patch.actions.insert, undefined, 'rerun updates existing child rather than inserting a colliding step');
+    const overlapping = updateSdk(persistFlowPatch, before);
+    const combined = await updateFlowFromManifest(overlapping, 'https://example.service-now.com', flowId, { ...manifest, actions: [{ order: Number(before.actionInstances[1].order), type: 'Log', inputs: { log_level: 'warn' } }] });
+    assert.equal(combined.processflow.actionInstances[1].inputs[0].value.value, 'warn');
+    assert.equal(combined.processflow.actionInstances[1].inputs[1].value.value, 'error');
     const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'wrong'; return d; }, before);
     await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /omitted action/);
     assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);
