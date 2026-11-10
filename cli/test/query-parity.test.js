@@ -143,6 +143,16 @@ test('CLI pagination hasMore uses count and offset, no-count makes no extra call
   assert.equal(f.requests().length - before, 1);
 });
 
+test('core ticket commands publish hasMore from page fullness', t => {
+  const f = fixture(t);
+  const full = JSON.parse(f.run(['incidents', 'list', '-q', 'active=true', '--limit', '3', '--json'])).data.pagination;
+  assert.equal(full.hasMore, true);
+  const short = JSON.parse(f.run(['incidents', 'list', '-q', 'active=true', '--limit', '3', '--offset', '3', '--json'])).data.pagination;
+  assert.equal(short.hasMore, false, 'a short page cannot have more');
+  const tickets = JSON.parse(f.run(['tickets', 'list', '-q', 'active=true', '--limit', '3', '--json'])).data.pagination;
+  assert.equal(tickets.hasMore, true);
+});
+
 test('list and listStrict preserve explicit reference parameters and never mutate input', async () => {
   const sdk = new SDKClient('https://fixture.example.test', null);
   const seen = [];
