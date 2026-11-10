@@ -58,8 +58,23 @@ failed build leaves the last good index in place. The next run retries safely.
 Configuration:
 
 - `DOCS_STORAGE_DIR`: persistent docs storage (default `site/storage/docs`).
+- `DOCS_RELEASES`: comma-separated release families, newest first (for example
+  `australia,brazil,zurich,yokohama,xanadu,store`). The first entry is the
+  default served family. Every family except legacy `australia` stores its own index,
+  `snapshots/` and `status.json` under `DOCS_STORAGE_DIR/releases/<family>/`;
+  `australia` always keeps the original flat layout, even when it is not the
+  default or is removed from the registry. Changing the default never moves or
+  relabels existing corpora. The index's `meta.source_branch` identifies its
+  family; missing identity is accepted only for legacy flat Australia indexes.
+  Mismatched or unreadable identities fail instead of serving or republishing
+  another family's corpus. Legacy build rows without a release also belong to
+  Australia, not the configurable default. Per-family publication
+  state lives in `DOCS_STORAGE_DIR/releases.json`. Removing a family from this
+  list stops syncing it but does not delete its index, snapshots or archived
+  state.
 - `DOCS_SOURCE_URL`: public source clone URL (default ServiceNowDocs above).
-- `DOCS_SOURCE_BRANCH`: release branch (default `australia`).
+- `DOCS_SOURCE_BRANCH`: release branch used when `DOCS_RELEASES` is not set
+  (default `australia`). With a registry, each family's name is its branch.
 - `NODE_BIN`: optional Node executable for the Rails sync task.
 - `NODE`: optional Node executable for the shared search adapter.
 
@@ -72,11 +87,20 @@ than just one database.
 
 ```text
 GET /api/docs/search?q=GlideRecord&limit=20&offset=0
-GET /api/docs/search?q=GlideRecord&bundle=api
-GET /api/docs/document?path=some/path.md
-GET /api/docs/123?revision=<revision-from-search>
-GET /api/docs/status
+GET /api/docs/search?q=GlideRecord&bundle=api&release=brazil
+GET /api/docs/document?path=some/path.md&release=brazil
+GET /api/docs/123?revision=<revision-from-search>&release=brazil
+GET /api/docs/status?release=brazil
+GET /api/docs/releases
 ```
+
+`release` selects a documentation family; omitting it serves the default
+(first) family. Every response echoes the served `release` at the top level. An
+unknown family is a 400 whose message lists the valid families, and a malformed
+family name is also a 400 (never a 404). `GET /api/docs/releases` returns
+`releases` entries with `release`, `default`, `state`, `revision`, `documents`,
+`publishedAt` and `archivedAt`; archived families remain searchable and
+downloadable. A missing state file returns an empty list.
 
 Search returns `query`, `revision`, `total`, `count`, `limit`, `offset` and
 `results` (ID, path, title, bundle, type, release, snippet). Read returns
@@ -142,9 +166,13 @@ this repository. The Docker image requires a separate deployment/build check.
 
 Legacy snapshot registry routes (`/docs-index/*`, `/internal/docs-builds`) remain
 for compatibility with earlier work and require a published snapshot manifest;
-they are not prerequisites for the public search/read service. Snapshot
-publication still uses `DOCS_PUBLISH_TOKEN`. The CLI release process remains
-independent from the Rails service.
+they are not prerequisites for the public search/read service. Release-aware
+clients use `/docs-index/releases/<family>/manifest.json`, `/download` and
+`/artifacts/<file>`; the legacy `/docs-index/manifest.json` and `/download` keep
+serving the default family. An unknown family on a snapshot route is a 404, and
+archived families stay downloadable. Snapshot publication still uses
+`DOCS_PUBLISH_TOKEN`. The CLI release process remains independent from the Rails
+service.
 
 ## Documentation presentation
 
