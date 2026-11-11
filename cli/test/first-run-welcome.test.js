@@ -1,7 +1,7 @@
 // First-run welcome (issue #387).
 //
 // Contract: bare `jsn` on a fresh installation with a human at the terminal
-// gets a short orientation above the unchanged grouped help, exactly once.
+// gets a short standalone orientation, exactly once; explicit help is unchanged.
 // It must never appear in machine-readable output, piped output, `--help`, or
 // an already-configured installation, and it must never itself touch an
 // instance, the network, or credentials.
@@ -114,14 +114,12 @@ describe('first-run welcome decision', () => {
     }), false);
   });
 
-  it('points at setup, auth, help and docs without promising an instance', () => {
+  it('points at setup and help without a command catalog', () => {
     const text = welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR });
     assert.match(text, /jsn setup/);
-    assert.match(text, /jsn auth login <instance>/);
+    assert.doesNotMatch(text, /jsn auth login/);
     assert.match(text, /jsn --help/);
-    assert.match(text, /jsn docs search/);
-    assert.match(text, /Prints once/);
-    assert.match(text, /Nothing above needs an instance/);
+    assert.doesNotMatch(text, /jsn docs search/);
   });
 
   it('writes the marker when it shows and stays silent afterwards', () => {
@@ -156,21 +154,17 @@ describe('welcome content', () => {
     assert.ok(!hasAnsi(text), 'the note must not emit ANSI escapes');
   });
 
-  it('explains setup versus auth login, where config lives, the skill and the update path', () => {
+  it('shows one setup action, secondary help, config location and installed version', () => {
     const text = welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR });
     // setup is the interactive first connection; auth login is the scriptable one.
-    assert.match(text, /jsn setup\s+first connection \+ defaults, interactive/);
-    assert.match(text, /jsn auth login <instance>\s+one connection, scriptable, no wizard/);
+    assert.match(text, /jsn setup\s+connect to ServiceNow/);
     // Where the marker and profiles actually live.
     assert.match(text, /Config: .*servicenow[\\/]config\.json/);
     // The agent skill, docs search, and a version/update path derived from disk.
-    assert.match(text, /jsn skill install/);
-    assert.match(text, /jsn docs search <query>/);
-    assert.match(text, /jsn upgrade/);
+    assert.match(text, /jsn --help/);
     assert.ok(text.includes(getVersion()), 'the installed version comes from package.json and must be shown');
     // Once-only is stated, and so is the escape hatch.
-    assert.match(text, /Prints once/);
-    assert.match(text, /JSN_NO_WELCOME=1/);
+    assert.doesNotMatch(text, /Usage: jsn/);
   });
 
   it('mentions only commands that exist and are declared instance-free', async () => {
@@ -190,7 +184,7 @@ describe('welcome content', () => {
       const match = /^\s{4}jsn ([a-z][a-z-]*)/.exec(line);
       if (match) mentioned.add(match[1]);
     }
-    assert.deepStrictEqual([...mentioned].sort(), ['auth', 'docs', 'setup', 'skill'],
+    assert.deepStrictEqual([...mentioned].sort(), ['setup'],
       'the note should only point at setup, auth, docs and skill');
     for (const name of mentioned) {
       assert.ok(caps.has(name), `"jsn ${name}" is not a registered command`);
@@ -222,8 +216,7 @@ describe('welcome content', () => {
         assert.ok(line.length <= columns, `${columns} columns, ${line.length} wide: ${JSON.stringify(line)}`);
       }
       const text = lines.join('\n');
-      for (const command of ['jsn setup', 'jsn auth login <instance>', 'jsn --help',
-        'jsn docs search <query>', 'jsn skill install']) {
+      for (const command of ['jsn setup', 'jsn --help']) {
         assert.ok(text.includes(command), `${command} must survive a ${columns}-column terminal intact`);
       }
     }
@@ -282,7 +275,7 @@ describe('bare `jsn` first run', () => {
     assert.ok(!hasWelcome(docs.stdout));
   });
 
-  it('shows the orientation above full help exactly once on a real terminal', { skip: PTY_SKIP }, () => {
+  it('shows the standalone orientation exactly once on a real terminal', { skip: PTY_SKIP }, () => {
     const { meta, help } = loadBaseFixture();
     const { dir, marker } = freshConfigHome();
 
@@ -290,13 +283,12 @@ describe('bare `jsn` first run', () => {
     assert.strictEqual(first.status, 0, first.output);
     assert.ok(hasWelcome(first.output), 'first run must show the note');
     assert.match(first.output, /jsn setup/);
-    assert.match(first.output, /jsn auth login <instance>/);
-    // Help is not replaced, only preceded - and it is still byte-identical.
+    assert.doesNotMatch(first.output, /jsn auth login/);
+    // Only the first-run front door replaces the catalog; subsequent help is unchanged.
     const helpStart = first.output.indexOf('Usage: jsn <command>');
-    assert.ok(helpStart > 0, 'help must follow the note');
-    assert.strictEqual(first.output.slice(helpStart), help,
-      'help under the note must be the base commit help byte for byte');
-    assert.strictEqual(sha256(first.output.slice(helpStart)), meta.sha256.help);
+    assert.equal(helpStart, -1, 'first-run front door must not append the catalog');
+    assert.ok(first.output.trim().split('\n').length <= 8);
+    assert.strictEqual(sha256(help), meta.sha256.help);
     assert.ok(!hasAnsi(first.output), 'a TTY must not add escape codes');
     assert.ok(fs.existsSync(marker), 'first PTY run must persist the marker');
 
@@ -323,9 +315,10 @@ describe('bare `jsn` first run', () => {
 });
 
 describe('first-run note wording stays honest to the marker', () => {
-  it('says the note prints once and names the exact switch that hides it', () => {
+  it('keeps the standalone front door separate from catalog output', () => {
     const text = stripAnsi(welcomeText({ columns: 80, env: {}, configDir: CONTENT_CONFIG_DIR }));
-    assert.match(text, /^Prints once\. Hide it with JSN_NO_WELCOME=1\./m);
+    assert.match(text, /jsn setup/);
+    assert.doesNotMatch(text, /Usage: jsn/);
     assert.strictEqual(WELCOME_MARKER, '.welcomed');
   });
 });

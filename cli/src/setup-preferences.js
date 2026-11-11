@@ -26,9 +26,9 @@ export async function askConnectionPreferences(defaults, prompts = { confirm }) 
 
 export async function chooseConnectionPreferences(config, flags = {}, prompts = { confirm }) {
   const defaults = connectionPreferences(config, {}, flags);
-  const summary = `Read-only: ${defaults.read_only ? 'yes' : 'no'} · Delete confirmations: ${defaults.skip_confirmations ? 'off' : 'on'} · Result totals: ${defaults.include_counts ? 'on' : 'off'}`;
-  if (await prompts.confirm({ message: `${summary}\nUse these defaults for this connection?`, default: true })) return defaults;
-  return askConnectionPreferences(defaults, prompts);
+  const summary = `${defaults.read_only ? 'read-only' : 'writes allowed'} · delete confirmations ${defaults.skip_confirmations ? 'off' : 'on'} · result totals ${defaults.include_counts ? 'on' : 'off'}`;
+  if (await prompts.confirm({ message: `Accept defaults? ${summary}`, default: true })) return defaults;
+  return connectionPreferences(config, await askConnectionPreferences(defaults, prompts), flags);
 }
 
 export async function configureDocumentation(config, prompts = { input, confirm }) {

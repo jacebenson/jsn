@@ -26,6 +26,17 @@ test('connection defaults take one choice; customize exposes the three settings'
   assert.deepEqual(await chooseConnectionPreferences(config, {}, { confirm: async () => answers.shift() }), { read_only: false, skip_confirmations: false, include_counts: true });
   assert.equal(answers.length, 0);
 });
+test('accept-defaults confirmation names saved settings, defaults to Yes, and preserves explicit flags on customization', async () => {
+  const config = { connectionDefaults: { read_only: true, skip_confirmations: false, include_counts: false } };
+  const messages = [], answers = [false, false, true, true];
+  const settings = await chooseConnectionPreferences(config, { 'read-only': true, 'skip-confirmations': true, 'include-counts': false }, {
+    confirm: async question => { messages.push(question.message); if (messages.length === 1) assert.equal(question.default, true); return answers.shift(); },
+  });
+  assert.equal(messages[0], 'Accept defaults? read-only · delete confirmations off · result totals off');
+  assert.deepEqual(messages.slice(1), ['Read-only connections (block changes)?', 'Confirm before deleting records?', 'Include result totals on list commands?']);
+  assert.deepEqual(settings, { read_only: true, skip_confirmations: true, include_counts: false });
+});
+
 test('global defaults and hosted source persist without changing profiles or trusting project defaults', async t => {
   isolate(t);
   const config = createConfig(); config.profiles.legacy = { instance_url: 'https://example.test' };

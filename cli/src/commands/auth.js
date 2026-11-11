@@ -322,19 +322,21 @@ export async function loginWizard(app, argv = {}) {
   const request = { ...argv, profile: undefined, instance, name: name.trim() };
   if (method === 'browser') request.browser = true;
   if (method === 'oauth') request.oauth = true;
+  const settings = await chooseConnectionPreferences(app.config, profileSettingValues(argv), { confirm });
   if (method === 'basic') {
     request.basic = true;
     const username = await input({ message: 'Username:', validate: value => value.trim() ? true : 'A username is required' });
     request._basicCredentials = { username: username.trim(), password: await password({ message: 'Password:' }) };
   }
-  const settings = await chooseConnectionPreferences(app.config, profileSettingValues(argv), { confirm });
   request['read-only'] = settings.read_only;
   request['skip-confirmations'] = settings.skip_confirmations;
   request['include-counts'] = settings.include_counts;
-  request.makeDefault = argv.makeDefault ?? await confirm({
-    message: 'Use this profile by default?', default: !app.config.defaultProfile,
-  });
+  request.makeDefault = argv.makeDefault ?? (Object.keys(app.config.profiles || {}).length === 0 && !app.config.defaultProfile
+    ? true : await confirm({ message: 'Use this profile by default?', default: !app.config.defaultProfile }));
   const result = await loginProfile(request, app);
+  if (result.authenticated) {
+    process.stdout.write(`Connection preset: ${settings.read_only ? 'read-only' : 'writes allowed'} · deletes ${settings.skip_confirmations ? 'without confirmation' : 'ask first'} · totals ${settings.include_counts ? 'on' : 'off'}\nChange with: jsn auth modify ${result.profile} --read-only\n`);
+  }
   return { instanceURL: instance, profileName: result.profile, loggedIn: result.authenticated };
 }
 

@@ -1,8 +1,7 @@
 // First-run welcome (issue #387).
 //
-// A brand-new install that runs bare `jsn` gets grouped help, which assumes
-// the reader already knows what to do with it. This adds a short orientation
-// above that help, exactly once, only when a human is reading it.
+// A brand-new install gets a compact front door instead of the command catalog,
+// exactly once, only when a human is reading it.
 //
 // Invariants (see docs/DECISIONS.md):
 //   - at most once: a marker file in the XDG config dir records that the note
@@ -10,7 +9,7 @@
 //     both print it;
 //   - human terminal only: no --json/--quiet/--csv/--markdown/--get, no piped
 //     output, no agent/CI environments;
-//   - never instead of help: the grouped help below it is unchanged;
+//   - explicit help stays comprehensive; the first-run front door stands alone;
 //   - never an instance or auth operation: the note only points at local and
 //     interactive commands, so it cannot block setup or require credentials;
 //   - nothing on this path reaches the network, prompts, or reads an instance;
@@ -39,21 +38,10 @@ const MIN_WIDTH = 24;
 
 const HUMAN_FORMATS = new Set(['', 'auto', 'styled']);
 
-/**
- * What a first run actually needs next. Every command here exists, is visible
- * to a profile-less install, and works without an instance:
- *   - `jsn setup` opens the interactive add-connection wizard (and defaults);
- *   - `jsn auth login <instance>` adds one connection without the wizard;
- *   - `jsn --help` is the grouped command list this note sits above;
- *   - `jsn docs search` queries ServiceNow documentation, not an instance;
- *   - `jsn skill install` writes the bundled agent skill from local files.
- */
+/** One obvious next action, plus secondary discovery; no command catalog. */
 const STEPS = [
-  { command: 'jsn setup', detail: 'first connection + defaults, interactive' },
-  { command: 'jsn auth login <instance>', detail: 'one connection, scriptable, no wizard' },
+  { command: 'jsn setup', detail: 'connect to ServiceNow' },
   { command: 'jsn --help', detail: 'every command and flag' },
-  { command: 'jsn docs search <query>', detail: 'search ServiceNow documentation' },
-  { command: 'jsn skill install', detail: 'install the jsn skill for your AI agent' },
 ];
 
 /**
@@ -145,8 +133,8 @@ function renderSteps(width) {
 }
 
 /**
- * The orientation text. Kept short: it must fit above the grouped help without
- * pushing it off the first screen, and it must stay inside 12 lines at 80
+ * The orientation text. Kept short: it stands alone on the first screen
+ * instead of the command catalog, and stays inside 12 lines at 80
  * columns.
  *
  * Everything shown is derived from local state: the version comes from the
@@ -177,11 +165,8 @@ export function welcomeLines({
     ...wrapText(title, width),
     ...wrapText(configLabel, width),
     '',
-    '  Next steps',
+    '  Get started',
     ...renderSteps(width),
-    '',
-    ...wrapText('Nothing above needs an instance. jsn asks for credentials only when needed.', width),
-    ...wrapText('Prints once. Hide it with JSN_NO_WELCOME=1. Update with jsn upgrade.', width),
   ];
 }
 
@@ -304,7 +289,7 @@ export function markWelcomeSeen(configDir = globalConfigDir()) {
 }
 
 /**
- * Show the welcome (above the caller's own help output) when this is a first
+ * Show the standalone welcome instead of the catalog when this is a first
  * run, then record it. Returns the text that was shown, or '' when nothing was.
  *
  * The marker is claimed before anything is printed, so an interrupted run

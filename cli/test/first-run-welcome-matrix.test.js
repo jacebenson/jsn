@@ -67,7 +67,8 @@ describe('first-run welcome matrix (issue #387)', () => {
     assert.strictEqual(welcomes, 1, `exactly one racing process may welcome:\nA:${welcomeBlock(a.output).slice(0, 2)}\nB:${welcomeBlock(b.output).slice(0, 2)}`);
     for (const run of [a, b]) {
       assert.strictEqual(run.status, 0, run.output.slice(0, 400));
-      assert.match(run.output, /Usage: jsn <command> \[options\]/, 'both processes still print help');
+      if (hasWelcome(run.output)) assert.doesNotMatch(run.output, /Usage: jsn/);
+      else assert.match(run.output, /Usage: jsn <command> \[options\]/);
     }
     assertMarkerComplete(marker, 'row 1');
     assert.strictEqual(fs.statSync(marker).mode & 0o777, 0o600);
@@ -108,7 +109,7 @@ describe('first-run welcome matrix (issue #387)', () => {
     try {
       const first = runPty(dir, [], { columns: 80 });
       assert.strictEqual(first.status, 0, first.output);
-      assert.match(first.output, /Usage: jsn <command> \[options\]/, 'help must still print');
+      assert.doesNotMatch(first.output, /Usage: jsn/);
       assert.ok(!fs.existsSync(marker), 'no marker can be written in a read-only dir');
       assertNoStackTrace(first.output, 'row 2');
       assert.ok(hasWelcome(first.output),
@@ -116,7 +117,7 @@ describe('first-run welcome matrix (issue #387)', () => {
 
       const second = runPty(dir, [], { columns: 80 });
       assert.strictEqual(second.status, 0, second.output);
-      assert.match(second.output, /Usage: jsn <command> \[options\]/);
+      assert.doesNotMatch(second.output, /Usage: jsn/);
       assertNoStackTrace(second.output, 'row 2 (second run)');
     } finally {
       fs.chmodSync(configDir, 0o700);
@@ -157,11 +158,10 @@ describe('first-run welcome matrix (issue #387)', () => {
         assert.ok(line.length <= columns, `${columns} columns, line is ${line.length}: ${JSON.stringify(line)}`);
       }
       const text = block.join('\n');
-      for (const command of ['jsn setup', 'jsn auth login <instance>', 'jsn --help',
-        'jsn docs search <query>', 'jsn skill install']) {
+      for (const command of ['jsn setup', 'jsn --help']) {
         assert.ok(text.includes(command), `${command} was damaged at ${columns} columns`);
       }
-      assert.match(result.output, /Usage: jsn <command> \[options\]/, 'help still follows the note');
+      assert.doesNotMatch(result.output, /Usage: jsn/);
     }
   });
 

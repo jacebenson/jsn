@@ -15,6 +15,8 @@ describe('Setup Handler — zero profiles', () => {
     let wizardCalled = false;
     let selectCalled = false;
     let defaultsConfigured = false;
+    let saved;
+    mock.module('../src/config.js', { namedExports: { saveConfig: config => { saved = structuredClone(config); } } });
 
     mock.module('../src/commands/auth.js', {
       namedExports: {
@@ -36,7 +38,8 @@ describe('Setup Handler — zero profiles', () => {
 
     mock.module('../src/setup-preferences.js', { namedExports: {
       configureGlobalDefaults: async config => { defaultsConfigured = true; config.connectionDefaults = {}; config.docs = { source: 'hosted' }; },
-      configureDocumentation: async () => {},
+      configureDocumentation: async () => { throw new Error('must not ask documentation questions'); },
+      connectionPreferences: () => ({ read_only: false, skip_confirmations: false, include_counts: true }),
     } });
 
     const { setupCmd } = await import('../src/commands/setup.js');
@@ -51,7 +54,14 @@ describe('Setup Handler — zero profiles', () => {
 
     await cmd.handler({ app, _: ['setup'] });
     assert.ok(wizardCalled, 'loginWizard should be called with zero profiles');
-    assert.ok(defaultsConfigured, 'global preferences should be configured before the connection wizard');
+    assert.equal(defaultsConfigured, false, 'first run must not prompt for defaults');
+    assert.deepEqual(saved.connectionDefaults, { read_only: false, skip_confirmations: false, include_counts: true });
+    assert.equal(saved.docs, undefined);
     assert.ok(!selectCalled, 'hub menu must NOT be shown with zero profiles');
+    wizardCalled = false;
+    await cmd.handler({ app, 'configure-defaults': true });
+    assert.ok(defaultsConfigured, 'explicit defaults switch must reach the existing settings operation');
+    assert.equal(wizardCalled, false);
+    await assert.rejects(cmd.handler({ app, 'configure-docs': true }), /must not ask documentation questions/);
   });
 });

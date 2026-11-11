@@ -1,4 +1,5 @@
-import { configureGlobalDefaults, configureDocumentation } from '../setup-preferences.js';
+import { configureGlobalDefaults, configureDocumentation, connectionPreferences } from '../setup-preferences.js';
+import { saveConfig } from '../config.js';
 import { select } from '../prompts.js';
 import { loginWizard, loginProfile, showAuthStatus, switchProfile, modifyProfile, logoutProfile, removeConnection } from './auth.js';
 import { errUsageHint } from '../errors.js';
@@ -37,6 +38,7 @@ const setupHelp = () => [
   'Use --no-read-only, --no-confirm-deletes, --no-include-counts or --no-make-default for the opposite value.',
   'Use --json for structured output. Explicit flags avoid implicit pickers; ambiguous targets return an error.',
   'Discover all options with jsn auth <command> --help.',
+  'Configure settings directly: jsn setup --configure-defaults or jsn setup --configure-docs.',
 ].join('\n');
 
 /** The setup hub prompt; q and Escape resolve with no selected action. */
@@ -119,11 +121,19 @@ export function setupCmd(wrap) {
   return {
     command: 'setup',
     describe: 'Set up JSN defaults and manage ServiceNow connections (interactive)',
-    builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' }).epilogue(setupHelp()),
+    builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' })
+      .option('configure-defaults', { type: 'boolean', describe: 'Configure defaults for future connections without the hub' })
+      .option('configure-docs', { type: 'boolean', describe: 'Configure documentation without the hub' }).epilogue(setupHelp()),
     handler: wrap(async (argv, app) => {
       if (argv['docs-source']) {
         const { installDocumentation } = await import('./docs/install.js');
         app.ok(await installDocumentation(argv['docs-source']));
+        return;
+      }
+      if (argv['configure-defaults'] || argv['configure-docs']) {
+        if (argv['configure-defaults']) await configureGlobalDefaults(app.config, { documentation: false });
+        if (argv['configure-docs']) await configureDocumentation(app.config);
+        app.ok({ settings: true }, { summary: 'Settings saved; existing connections unchanged' });
         return;
       }
       const { canUsePicker } = await import('../helpers.js');
@@ -132,8 +142,10 @@ export function setupCmd(wrap) {
       }
       const profileNames = Object.keys(app.config.profiles || {});
       const firstSetup = !app.config.connectionDefaults;
-      if (firstSetup) await configureGlobalDefaults(app.config);
-      else if (!app.config.docs) await configureDocumentation(app.config);
+      if (firstSetup) {
+        app.config.connectionDefaults = connectionPreferences(app.config);
+        await saveConfig(app.config);
+      }
       if (profileNames.length === 0 && firstSetup) {
         const result = await loginWizard(app, argv);
         await showAuthStatus({ ...argv, profile: result.profileName }, app);
