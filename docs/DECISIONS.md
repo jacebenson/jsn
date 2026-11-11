@@ -1,5 +1,23 @@
 # JSN decisions
 
+## Root help is concise; `--all-commands --help` is the reference (2026-11-11)
+
+Ordinary `jsn --help` is a task directory: common commands with short
+descriptions, a few essential global flags, three runnable examples, and
+pointers to `jsn discover <word>`, `jsn discover --table <table>`,
+`jsn <command> <action> --help`, and `jsn --all-commands --help`. It does not
+repeat the executable name on every command row. The full grouped reference,
+including every registered command and global option, is reached with
+`--all-commands --help`; the tips and picker details live there so the short
+page stays short.
+
+Command rows still come from the live registry. A concise description uses the
+command's declared `summary` when present and its registered description
+otherwise; it is never a blind truncation of the full text. Full help keeps the
+long descriptions, including mutation safety text. Machine discovery JSON does
+not gain a summary field, and profile/capability visibility is unchanged.
+Bare `jsn` home behavior remains owned by `src/welcome.js`.
+
 ## Table behavior discovery extends `tables` (2026-11-04)
 
 Phase 1 of issue #398 adds `jsn tables behavior <table>` as a subcommand of the

@@ -10,20 +10,49 @@
 // (`approvals`, `cmdb`, `docs`, `perf`, `platform`, … were missing from the
 // hand-written list while being fully registered).
 
-function renderGroup(name, commands) {
+const COMMON_COMMANDS = [
+  'incidents', 'requests', 'tasks', 'changes', 'approvals', 'knowledge', 'records', 'setup', 'discover',
+];
+
+const CONCISE_FLAGS = ['instance', 'profile', 'json'];
+
+const CONCISE_EXAMPLES = [
+  'jsn incidents list --query "active=true" --limit 5',
+  'jsn records list --table incident --limit 5 --json',
+  'jsn discover catalog',
+];
+
+const CONCISE_MORE = [
+  { label: 'jsn <command> <action> --help', description: 'Options for one command or action' },
+  { label: 'jsn discover <word>', description: 'Find commands by task words' },
+  { label: 'jsn discover --table <table>', description: 'Find commands configured for a table' },
+  { label: 'jsn --all-commands --help', description: 'Every registered command and global flag' },
+  { label: 'jsn --json', description: 'Registered command surface as JSON' },
+];
+
+function renderGroup(name, commands, width = helpWidth()) {
   const lines = [`\n${name}`];
   lines.push('─'.repeat(50));
+  let rows = [];
+  const flush = () => {
+    if (!rows.length) return;
+    lines.push(renderRows(rows, { width, indent: 2 }));
+    rows = [];
+  };
   for (const cmd of commands) {
     if (cmd.divider) {
+      flush();
       lines.push('');
       lines.push(`  ${cmd.divider}`);
       continue;
     }
-    const aliasPart = cmd.alias ? ` (${cmd.alias})` : '';
-    const padded = `  jsn ${cmd.name}`.padEnd(22);
-    const status = cmd.status ? ` ${cmd.status}` : '';
-    lines.push(`${padded}${cmd.desc}${aliasPart}${status}`);
+    rows.push({
+      label: cmd.name,
+      description: cmd.desc,
+      note: cmd.alias ? `(${cmd.alias})` : '',
+    });
   }
+  flush();
   return lines.join('\n');
 }
 
@@ -186,21 +215,57 @@ function rowsFor(hint, byName, used, config) {
   return rows;
 }
 
-function renderFlags(options) {
+function renderFlags(options, { full = false, width = helpWidth() } = {}) {
   // Derived from the registered global options, so a new global flag cannot be
-  // missing from help (--get and --csv were, along with the csv format choice).
-  const lines = [];
-  for (const spec of options) {
+  // missing from the full reference (--get and --csv were, along with the csv
+  // format choice). The concise page shows only the flags needed to point a
+  // command at an instance and choose machine output.
+  const rows = [];
+  const specs = full
+    ? options
+    : CONCISE_FLAGS.map((name) => options.find((spec) => spec.name === name)).filter(Boolean);
+  for (const spec of specs) {
     if (spec.name === 'help') continue;
     const alias = spec.alias.map(name => `${name.length === 1 ? '-' : '--'}${name}`).join(', ');
     const label = `${alias ? `${alias}, ` : ''}--${spec.name}`;
     const suffix = spec.name === 'format' && spec.choices.length
-      ? ` [string: ${spec.choices.join(', ')}]`
-      : ` [${spec.type}]`;
-    lines.push(`  ${label.padEnd(Math.max(24, label.length + 1))}${spec.description}${suffix}`);
+      ? `[string: ${spec.choices.join(', ')}]`
+      : `[${spec.type}]`;
+    rows.push({ label, description: spec.description, note: suffix });
   }
-  lines.push(`  ${'--help'.padEnd(24)}Show help${' [boolean]'}`);
-  return `\nFLAGS\n${lines.join('\n')}`;
+  rows.push({ label: '--help', description: 'Show help', note: '[boolean]' });
+  return `\nFLAGS\n${renderRows(rows, { width, indent: 2 })}`;
+}
+
+/**
+ * The ordinary root page: common task commands, a few flags, runnable
+ * examples, and pointers to the exhaustive reference and local discovery.
+ */
+function renderConciseHelp(config, registry, width) {
+  const commands = Array.isArray(registry?.commands) ? registry.commands : [];
+  const byName = new Map(commands.map((command) => [command.name, command]));
+  const common = COMMON_COMMANDS
+    .map((name) => byName.get(name))
+    .filter((command) => command && !isCapabilityHidden(command.name, config))
+    .map((command) => ({
+      name: command.name,
+      desc: command.summary || command.description || '',
+    }));
+
+  return [
+    'Usage: jsn <command> [options]',
+    '',
+    'Command-line interface for ServiceNow',
+    renderGroup('COMMON COMMANDS', common, width),
+    '',
+    'EXAMPLES',
+    ...CONCISE_EXAMPLES.map((example) => `  ${example}`),
+    renderFlags(Array.isArray(registry?.options) ? registry.options : [], { width }),
+    '',
+    'MORE',
+    renderRows(CONCISE_MORE, { width, indent: 2 }),
+    '',
+  ].join('\n');
 }
 
 export function renderTips() {
@@ -212,7 +277,7 @@ TIPS
   Cross-table task searches and custom tables: "jsn records list --help"
   Specialized commands offer configured columns, lookup, and table-specific views; inspect discovery results for details
   Raw endpoints when needed: "jsn rest --help"; examples and intent guidance: "jsn discover --help"
-  Use "jsn <command> --help" for details, or "jsn <command> list --help" for list options
+  Use "jsn <command> <action> --help" for options on one command or action
   "jsn --json" prints the registered command surface as JSON for scripts and agents
 
 LEARN MORE
@@ -223,14 +288,22 @@ LEARN MORE
 }
 
 /**
- * Render the grouped root help.
+ * Render root help.
+ *
+ * The ordinary page is a concise task directory. `full: true` (used by
+ * `--all-commands --help`) renders the exhaustive grouped reference: every
+ * visible registered command and every registered global option, plus the
+ * tips and picker details that would crowd the short page.
  *
  * @param {object} config — profile config (capability-conditioned hiding)
  * @param {{commands: Array, options: Array}} [registry] — from
  *   `cli.commandRegistry()`. Without it only the hint tables render, which is
  *   the fallback for callers that have no registry (unit tests).
+ * @param {{full?: boolean, width?: number}} [opts]
  */
-export function renderHelp(config, registry = null) {
+export function renderHelp(config, registry = null, { full = false, width = helpWidth() } = {}) {
+  if (!full) return renderConciseHelp(config, registry, width);
+
   const commands = Array.isArray(registry?.commands) ? registry.commands : [];
   const byName = new Map(commands.map((command) => [command.name, command]));
   const used = new Set();
@@ -238,14 +311,14 @@ export function renderHelp(config, registry = null) {
   const sections = Object.entries(COMMAND_GROUPS)
     .map(([name, hint]) => [name, rowsFor(hint, byName, used, config)])
     .filter(([, rows]) => rows.some((row) => !row.divider))
-    .map(([name, rows]) => renderGroup(name, rows));
+    .map(([name, rows]) => renderGroup(name, rows, width));
 
   // Anything registered that the hint tables don't place. This is the safety
   // net that keeps help complete as commands are added at the root.
   const unplaced = commands
     .filter((command) => !used.has(command.name) && !isCapabilityHidden(command.name, config))
     .map((command) => ({ name: command.name, alias: command.aliases[0] || '', desc: command.description || '' }));
-  if (unplaced.length) sections.push(renderGroup('MORE', unplaced));
+  if (unplaced.length) sections.push(renderGroup('MORE', unplaced, width));
 
   return [
     'Usage: jsn <command> [options]',
@@ -254,7 +327,7 @@ export function renderHelp(config, registry = null) {
     '',
     ...sections,
     '',
-    renderFlags(Array.isArray(registry?.options) ? registry.options : []),
+    renderFlags(Array.isArray(registry?.options) ? registry.options : [], { full: true, width }),
     renderTips(),
     '',
   ].join('\n');

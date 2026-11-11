@@ -101,7 +101,7 @@ test('CLI -q without query support fails clearly instead of silently ignoring it
 
 test('CLI compact/verbose JSON and bracket/dotted/raw selection', t => {
   const f = fixture(t);
-  const help = f.run(['--help']);
+  const help = f.run(['--all-commands', '--help']);
   assert.match(help, /--select, --get/);
   assert.match(help, /--include-reference-links\s+Include/);
   const compact = f.run([...list, '--json']);

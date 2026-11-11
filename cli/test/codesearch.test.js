@@ -22,7 +22,7 @@ function run(args) {
 
 describe('codesearch command', () => {
   it('is registered and shows in help', () => {
-    const r = run(['help']);
+    const r = run(['--all-commands', '--help']);
     assert.match(r.stdout + r.stderr, /codesearch/, 'codesearch missing from help');
   });
 

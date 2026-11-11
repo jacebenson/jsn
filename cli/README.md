@@ -121,7 +121,7 @@ jsn records list --table incident --limit 10 --json
 jsn flows list
 ```
 
-Run `jsn --help` for the command list. See the [CLI guide](https://github.com/jacebenson/jsn/blob/main/docs/cli-guide.md) for authentication, output formats, development, and examples. The [docs site](https://jacebenson.github.io/jsn/) has feature guides.
+Run `jsn --help` for a concise command overview, or `jsn --all-commands --help` for the complete command and flag reference. See the [CLI guide](https://github.com/jacebenson/jsn/blob/main/docs/cli-guide.md) for authentication, output formats, development, and examples. The [docs site](https://jacebenson.github.io/jsn/) has feature guides.
 
 ## AI agents
 

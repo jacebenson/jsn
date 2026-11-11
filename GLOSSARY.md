@@ -217,7 +217,8 @@ catalog selection. Marker claiming remains exclusive and mode 0600.
 
 Machine formats, piped output, agent/CI environments, `TERM=dumb`, and the
 literal `JSN_NO_WELCOME=1` retain their existing discovery behavior. Explicit
-`--help` and `--all-commands --help` retain reference help; explicit `--profile`
+`--help` is a concise task directory; `--all-commands --help` is the exhaustive
+command and global-option reference; explicit `--profile`
 retains its picker contract. The home is width-aware and never prompts.
 Successful interactive setup add-connection wizards end with one authentication
 confirmation and one next command, not a preset recap and status table. Safety

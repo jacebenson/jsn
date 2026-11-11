@@ -83,6 +83,7 @@ export function recordsCmd(wrap) {
   return {
     command: 'records [subcommand]',
     describe: 'Query and manage records in any table (e.g. "records list --table incident --query priority=1")',
+    summary: 'Query any table when no specialized command fits',
     builder: (yargs) => {
       return yargs
         .command({

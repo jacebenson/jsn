@@ -1,22 +1,22 @@
 {
-  "commit": "0fb7f5f + query-parity",
-  "note": "Updated for query-parity global options and compact, trimmed JSON. Regenerate when the command surface or help layout intentionally changes.",
+  "commit": "393b91d + concise root help",
+  "note": "Updated for the concise root help page; --all-commands --help is the exhaustive reference. Regenerate when the command surface or help layout intentionally changes.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 12284,
-    "json": 70603,
-    "quiet": 12284,
-    "csv": 12284,
-    "markdown": 12284,
-    "get": 12284
+    "help": 1393,
+    "json": 70856,
+    "quiet": 1393,
+    "csv": 1393,
+    "markdown": 1393,
+    "get": 1393
   },
   "sha256": {
-    "help": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
-    "json": "02e19f6c0e36e516e2570c802657e949a33621e3aad1153f8f201d5714f19846",
-    "quiet": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
-    "csv": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
-    "markdown": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1",
-    "get": "7b6b31d6b6a9b4ef08f31e44949c291ac7b7b101c7581b9c21364beb8d987fe1"
+    "help": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
+    "json": "4e392bd5dad5b62707ac3f7d93f6bca1c365f4e7a9ca0e500ad40316826c6379",
+    "quiet": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
+    "csv": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
+    "markdown": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
+    "get": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188"
   },
   "json_command_count": 87
 }

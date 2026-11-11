@@ -46,7 +46,7 @@ test('CLI discovery supports JSON, extraction, text, exact table filtering and c
 });
 
 test('root help avoids the inaccurate universal picker/query claim and explains discovery', () => {
-  const help = run('--help');
+  const help = run('--all-commands', '--help');
   assert.match(help, /jsn discover --table incident/);
   assert.match(help, /Some list commands offer a picker/);
   assert.match(help, /search fields vary by command/);
