@@ -1,23 +1,50 @@
 import { it, mock, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { browserCandidates } from '../src/browser-launch.js';
 import os from 'node:os';
 import path from 'node:path';
 import * as helpers from '../src/helpers.js';
 
 let inputs = [], confirmations = [], method = 'basic', prompted = [];
+let installedBrowsers = ['chrome'];
+// Keep the real discovery and picker, but never inspect host browser installs.
+const candidates = browserCandidates();
+const browserPaths = new Set(candidates.flatMap(browser => browser.candidates));
+const realAccess = fsPromises.access.bind(fsPromises);
+const realStat = fsPromises.stat.bind(fsPromises);
+mock.method(fsPromises, 'access', async (filename, ...args) => {
+  if (!browserPaths.has(filename)) return realAccess(filename, ...args);
+  if (candidates.some(browser => installedBrowsers.includes(browser.value) && browser.candidates[0] === filename)) return;
+  throw Object.assign(new Error('No fixture browser at this path'), { code: 'ENOENT' });
+});
+mock.method(fsPromises, 'stat', async (filename, ...args) => {
+  if (browserPaths.has(filename)) return { isFile: () => true };
+  return realStat(filename, ...args);
+});
 mock.module('../src/helpers.js', { namedExports: { ...helpers, canUsePicker: app => app.isInteractive() } });
 mock.module('@inquirer/prompts', { namedExports: {
-  input: async question => { prompted.push(question.message); return inputs.shift(); },
-  select: async () => method,
+  input: async question => { prompted.push(question.message.replace(' (Esc to cancel)', '')); return inputs.shift(); },
+  select: async question => {
+    const message = question.message.replace(' (Esc to cancel)', '');
+    prompted.push(message);
+    if (message === 'Log in using which browser?') {
+      assert.deepEqual(question.choices.map(({ name, value }) => ({ name, value })), [
+        { name: 'Google Chrome', value: 'chrome' }, { name: 'Microsoft Edge', value: 'edge' },
+      ]);
+      return 'edge';
+    }
+    return method;
+  },
   search: async question => {
     const choices = await question.source('');
     assert.deepEqual(choices, [{ name: 'old', value: 'old' }, { name: 'another', value: 'another' }]);
     assert.deepEqual(await question.source('ANOTHER'), [{ name: 'another', value: 'another' }]);
     return 'another';
   },
-  confirm: async question => { prompted.push(question.message); return confirmations.shift(); },
-  password: async () => 'fixture-password',
+  confirm: async question => { prompted.push(question.message.replace(' (Esc to cancel)', '')); return confirmations.shift(); },
+  password: async question => { prompted.push(question.message.replace(' (Esc to cancel)', '')); return 'fixture-password'; },
 } });
 const { loginWizard, loginProfile, modifyProfile, pickProfile, refreshProfile, switchProfile } = await import('../src/commands/auth.js');
 const { dispatchSetupAction } = await import('../src/commands/setup.js');
@@ -33,7 +60,7 @@ after(() => {
   if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previousXdg;
   fs.rmSync(directory, { recursive: true, force: true });
 });
-beforeEach(() => { inputs = []; confirmations = []; prompted = []; method = 'basic'; });
+beforeEach(() => { inputs = []; confirmations = []; prompted = []; method = 'basic'; installedBrowsers = ['chrome']; });
 
 function fixture(interactive = true) {
   const writes = [], output = [], logins = [];
@@ -56,11 +83,70 @@ function fixture(interactive = true) {
   return { app, writes, output, logins };
 }
 
+for (const authMethod of ['basic', 'oauth', 'browser']) {
+  it(`fresh ${authMethod} wizard asks three connection questions, accepts defaults and conditional credentials`, async () => {
+    const { app } = fixture();
+    app.config = { profiles: {} };
+    method = authMethod; inputs = ['dev12345', 'dev12345', 'limited']; confirmations = [true];
+    let output = '';
+    const write = mock.method(process.stdout, 'write', text => { output += text; return true; });
+    try { await loginWizard(app); } finally { write.mock.restore(); }
+    assert.deepEqual(prompted, ['ServiceNow instance name or URL:', 'Profile name:', 'Authentication method:',
+      'Accept defaults? writes allowed · delete confirmations on · result totals on',
+      ...(authMethod === 'basic' ? ['Username:', 'Password:'] : [])]);
+    assert.equal(app.config.defaultProfile, 'dev12345');
+    assert.equal(app.config.profiles.dev12345.read_only, false);
+    assert.equal(app.config.profiles.dev12345.skip_confirmations, false);
+    assert.equal(app.config.profiles.dev12345.include_counts, true);
+    assert.match(output, /Connection preset: writes allowed · deletes ask first · totals on/);
+    assert.match(output, /jsn auth modify dev12345 --read-only/);
+  });
+}
+
+it('fresh browser wizard keeps four onboarding questions and asks which of multiple browsers to use', async () => {
+  const { app, logins } = fixture();
+  app.config = { profiles: {} };
+  installedBrowsers = ['chrome', 'edge'];
+  method = 'browser'; inputs = ['dev12345', 'dev12345']; confirmations = [true];
+  await loginWizard(app);
+  assert.deepEqual(prompted, ['ServiceNow instance name or URL:', 'Profile name:', 'Authentication method:',
+    'Accept defaults? writes allowed · delete confirmations on · result totals on', 'Log in using which browser?']);
+  assert.equal(logins.length, 1);
+  assert.equal(logins[0][0], 'https://dev12345.service-now.com');
+  assert.equal(logins[0][1].launch, true);
+  assert.deepEqual(logins[0][1].browser, {
+    name: 'Microsoft Edge', value: 'edge', executable: candidates.find(browser => browser.value === 'edge').candidates[0],
+  });
+  assert.equal(app.config.defaultProfile, 'dev12345');
+  assert.equal(app.config.profiles.dev12345.auth_method, 'gck');
+});
+
+it('wizard shows explicit preference flags in its single defaults confirmation', async () => {
+  const { app } = fixture(); app.config = { profiles: {} };
+  method = 'oauth'; inputs = ['dev12345', 'dev12345']; confirmations = [true];
+  await loginWizard(app, { 'read-only': true, 'skip-confirmations': true, 'include-counts': false });
+  assert.deepEqual(prompted, ['ServiceNow instance name or URL:', 'Profile name:', 'Authentication method:',
+    'Accept defaults? read-only · delete confirmations off · result totals off']);
+  assert.equal(app.config.profiles.dev12345.read_only, true);
+  assert.equal(app.config.profiles.dev12345.skip_confirmations, true);
+  assert.equal(app.config.profiles.dev12345.include_counts, false);
+});
+
+it('derived profile collision asks for another name and retains the default decision', async () => {
+  const { app } = fixture();
+  method = 'oauth'; inputs = ['https://old.example.com', 'new-name']; confirmations = [true, false];
+  app.config.profiles['old-example-com'] = { instance_url: 'https://old.example.com' };
+  await loginWizard(app);
+  assert.deepEqual(prompted, ['ServiceNow instance name or URL:', 'Profile name:',
+    'Authentication method:', 'Accept defaults? writes allowed · delete confirmations on · result totals on', 'Use this profile by default?']);
+  assert.ok(app.config.profiles['new-name']); assert.equal(app.config.defaultProfile, 'old');
+});
+
 it('guided Basic login and direct login use the same verification, settings, and persistence', async () => {
   const guided = fixture();
-  inputs = ['https://new.example.com', 'limited', 'limited'];
-  confirmations = [false, true, true, false, false];
-  await loginWizard(guided.app);
+  inputs = ['https://new.example.com', 'limited'];
+  confirmations = [true, false];
+  await loginWizard(guided.app, { name: 'limited', 'read-only': true, 'confirm-deletes': true, 'include-counts': false });
   assert.equal(guided.writes.length, 1);
   assert.equal(guided.writes[0][2], 'limited');
   const direct = fixture(false);
@@ -75,9 +161,9 @@ it('guided Basic login and direct login use the same verification, settings, and
 
 it('guided OAuth login uses a new identity without inheriting the old active username', async () => {
   const { app, logins } = fixture();
-  method = 'oauth'; inputs = ['https://new.example.com', 'oauth-new'];
-  confirmations = [false, true, true, false, true];
-  await loginWizard(app);
+  method = 'oauth'; inputs = ['https://new.example.com'];
+  confirmations = [true, true];
+  await loginWizard(app, { name: 'oauth-new' });
   assert.deepEqual(logins[0], ['https://new.example.com', null]);
   assert.equal(app.config.profiles['oauth-new'].auth_method, 'oauth');
   assert.equal(app.config.profiles['oauth-new'].username, 'limited');

@@ -19,7 +19,13 @@ Run the setup wizard and choose OAuth when available:
 jsn setup
 ```
 
-JSN stores named profiles so you can switch between instances without rewriting commands. Start with read-only mode while you learn the command surface.
+JSN asks for your instance, a profile name (prefilled from the instance), and an authentication method. Accept the compact defaults confirmation to connect, or choose No to customize. Basic authentication also asks for your username and password. The first profile becomes your default automatically.
+
+The default preset allows writes, asks before deleting records, and includes result totals. To block writes while learning, run `jsn auth modify <profile> --read-only`. Saved defaults and explicit flags are respected.
+
+Change defaults later with `jsn setup --configure-defaults`, or choose **JSN settings → Defaults and documentation** in the setup hub. Use `jsn setup --configure-docs` to choose a documentation source; until then JSN uses hosted documentation. These switches bypass the hub and run the same settings questions.
+
+On a fresh interactive installation, bare `jsn` shows a small welcome pointing to `jsn setup`. Use `jsn --help` for the complete command catalog.
 
 ```bash
 jsn auth status

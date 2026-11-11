@@ -55,6 +55,7 @@ test('setup advertises every management action and browser-session files/stdin s
     assert.ok(help.includes(action.command));
   }
   assert.match(help, /--headers-file/); assert.match(help, /--wait-file/);
+  assert.match(help, /--configure-defaults/); assert.match(help, /--configure-docs/);
   assert.match(help, /SN_USERNAME and SN_PASSWORD/);
   const usage = JSON.parse((await run(['setup', '--json'], { expected: 2 })).stdout);
   assert.equal(usage.code, 'usage_error');

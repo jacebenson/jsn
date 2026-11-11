@@ -514,20 +514,16 @@ as `unsupported` with the trigger type named rather than matched by text.
 ## First-run welcome orients above help, once (2026-11-04)
 
 Issue #387 adds a short orientation before setup: bare `jsn` on a fresh
-installation prints a few next steps and then the existing grouped help,
-unchanged. It is not a connection wizard and never starts an auth or instance
+installation prints a compact front door without appending the grouped catalog.
+Explicit `jsn --help` remains comprehensive; scripted and configured-user output is unchanged. It is not a connection wizard and never starts an auth or instance
 operation, so setup and authentication stay optional until a command needs
 ServiceNow.
 
 What it says (12 lines maximum at 80 columns, plain ASCII):
-`jsn setup` (first connection plus defaults, interactive) and
-`jsn auth login <instance>` (one connection, scriptable, no wizard) as the two
-ways in; `jsn --help` for the command list; `jsn docs search <query>` for
-ServiceNow documentation; `jsn skill install` for the agent skill file. It also
-names where config lives (`<config dir>/config.json`, resolved the same way the
-CLI resolves it), the installed version (read from the packaged `package.json`,
-never from the network), `jsn upgrade`, that it prints once, and
-`JSN_NO_WELCOME=1`.
+`jsn setup` is the obvious next step; `jsn --help` is the secondary pointer to
+the complete command list. The welcome also names the local config path and
+installed package version. It does not perform network, auth or instance work.
+The `JSN_NO_WELCOME=1` suppression switch remains available.
 
 It is shown at most once, recorded by a `.welcomed` marker in the XDG config dir
 (the same directory the daily-check markers use, mode 0600). The marker is

@@ -69,6 +69,8 @@ deadline = started + float(spec.get('timeout') or 30)
 pending = spec.get('signal') or None
 signalled = False
 signal_delivered = False
+steps = list(spec.get('steps') or [])
+step_offset = 0
 
 
 def maybe_signal():
@@ -103,6 +105,10 @@ while child.poll() is None and time.monotonic() < deadline:
         except OSError:
             break
     maybe_signal()
+    if steps and steps[0]['wait'].encode() in capture[step_offset:]:
+        step = steps.pop(0)
+        step_offset = len(capture)
+        os.write(master, step['send'].encode())
 if child.poll() is None:
     child.kill()
 child.wait()

@@ -601,12 +601,12 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        // First-run orientation (issue #387) sits above the unchanged help.
+        // First-run orientation replaces the catalog only for a fresh human terminal.
         // maybeShowWelcome decides for itself: human terminal, no machine
         // format, no configured profile, and not shown before.
         const config = loadConfig(formatArgv);
-        maybeShowWelcome({ argv: formatArgv, requestedFormat, cfg: config });
-        process.stdout.write(renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, formatArgv)) + '\n');
+        const welcome = maybeShowWelcome({ argv: formatArgv, requestedFormat, cfg: config });
+        if (!welcome) process.stdout.write(renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, formatArgv)) + '\n');
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,
