@@ -298,6 +298,22 @@ export function formatRecordForDisplay(record, columns) {
   return result;
 }
 
+/**
+ * Identify requested columns that ServiceNow omitted from every returned row
+ * (because the field does not exist on the table or is blocked by ACLs).
+ * An existing empty column is still present as a key (`col in row === true`).
+ *
+ * @param {Array<object>} records — raw records from ServiceNow Table API
+ * @param {string[]} columns — requested column names
+ * @returns {string[]} columns absent from all returned records
+ */
+export function findOmittedColumns(records, columns) {
+  if (!Array.isArray(records) || records.length === 0 || !Array.isArray(columns) || columns.includes('*')) {
+    return [];
+  }
+  return columns.filter(col => col && col !== '*' && !records.some(r => r && typeof r === 'object' && col in r));
+}
+
 export function truncateString(str, maxLen) {
   if (!str || str.length <= maxLen) return str;
   return str.slice(0, maxLen - 3) + '...';

@@ -1,4 +1,4 @@
-import { formatCommandList, formatRecordForDisplay, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { errUsage } from '../errors.js';
@@ -149,7 +149,9 @@ export function recordsCmd(wrap) {
             const fields = resolveFieldsParam(columns);
             const params = recordListParams({ limit: argv['sys-id'] ? 1 : argv.limit, offset: argv.offset, fields, query });
             const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues });
-            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const missingColumns = fields ? findOmittedColumns(records, columns) : [];
+            const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
+            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, presentColumns)) : records;
 
             // include_counts: default opt-in on every list. Opt out per-profile
             // (config include_counts:false) or per-invocation (--no-count).
@@ -190,6 +192,12 @@ export function recordsCmd(wrap) {
               table,
               count: records.length,
               columns,
+              ...(missingColumns.length ? {
+                missing_columns: missingColumns,
+                warnings: [
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                ],
+              } : {}),
               records: displayRecords,
               pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total, hasMore: argv.offset + argv.limit < total } : {}) },
               context: { instance_url: app.getEffectiveInstance() },
