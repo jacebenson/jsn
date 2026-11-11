@@ -568,8 +568,8 @@ changes a wider surface and stays a separate decision.
 The context banner no longer prints for `--get`/`--select` or when stderr is
 not a terminal. It printed while the format still reported pretty, so a banner
 merged by `2>&1` landed in front of the extracted JSON and broke
-`json.load(sys.stdin)` / `jq` at character 0; it also cost three requests per
-command.
+`json.load(sys.stdin)` / `jq` at character 0; it also cost five requests per
+command (user, application preference, update-set preference, scope, update set).
 
 Table, stats and batch requests authenticate from their own headers and no
 longer bootstrap a UI session on every invocation. Everything else keeps the

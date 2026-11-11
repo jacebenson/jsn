@@ -60,12 +60,22 @@ describe('printContextHeader', () => {
   it('still prints the banner on a terminal without an extraction', async (t) => {
     const { App } = await import('../src/app.js');
     const { OutputWriter } = await import('../src/output.js');
+    const queries = [];
     const app = {
       getEffectiveInstance: () => 'https://example.service-now.com',
       output: new OutputWriter({ format: 'styled' }),
       context: {},
       session: {},
-      sdk: { list: async () => [], get: async () => ({}) },
+      sdk: {
+        list: async (table, params) => {
+          queries.push(`${table} ${params?.get?.('sysparm_query') ?? ''}`);
+          return table === 'sys_user' ? [{ sys_id: 'u1', name: 'Tester' }] : [{ value: 'scope-id' }];
+        },
+        get: async (table) => {
+          queries.push(`${table} get`);
+          return table === 'sys_scope' ? { scope: 'x_scope' } : { name: 'My Update Set' };
+        },
+      },
     };
     const previous = process.env.JSN_NO_HEADER;
     delete process.env.JSN_NO_HEADER;
@@ -84,6 +94,15 @@ describe('printContextHeader', () => {
     await App.prototype.printContextHeader.call(app, {});
     const printed = stderr.mock.calls.map(call => String(call.arguments[0])).join('');
     assert.match(printed, /PROFILE\s+USER/);
+    // The banner's price is exactly five instance reads; that is the number the
+    // `--get`/non-TTY guard avoids. Pinned here so it cannot drift silently.
+    assert.deepEqual(queries, [
+      'sys_user user_name=javascript:gs.getUserName()',
+      'sys_user_preference user=u1^name=apps.current_app',
+      'sys_user_preference user=u1^name=sys_update_set',
+      'sys_scope get',
+      'sys_update_set get',
+    ]);
   });
 
   for (const format of ['json', 'quiet']) {
