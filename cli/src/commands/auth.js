@@ -299,7 +299,7 @@ async function readBrowserSessionFile(file) {
 }
 
 /** Collect human answers, then call the same login operation as auth login. */
-export async function loginWizard(app, argv = {}) {
+export async function loginWizard(app, argv = {}, { concise = false } = {}) {
   const { input, select, confirm, password } = await import('../prompts.js');
   const explicitInstance = resolveWizardInstance(app, argv);
   const instance = resolveInstanceArg(explicitInstance || await input({
@@ -333,8 +333,8 @@ export async function loginWizard(app, argv = {}) {
   request['include-counts'] = settings.include_counts;
   request.makeDefault = argv.makeDefault ?? (Object.keys(app.config.profiles || {}).length === 0 && !app.config.defaultProfile
     ? true : await confirm({ message: 'Use this profile by default?', default: !app.config.defaultProfile }));
-  const result = await loginProfile(request, app);
-  if (result.authenticated) {
+  const result = await loginProfile(request, app, { concise });
+  if (result.authenticated && !concise) {
     process.stdout.write(`Connection preset: ${settings.read_only ? 'read-only' : 'writes allowed'} · deletes ${settings.skip_confirmations ? 'without confirmation' : 'ask first'} · totals ${settings.include_counts ? 'on' : 'off'}\nChange with: jsn auth modify ${result.profile} --read-only\n`);
   }
   return { instanceURL: instance, profileName: result.profile, loggedIn: result.authenticated };
@@ -552,7 +552,7 @@ function canLogoutBareProfile(app, instance, target, explicitlySelected) {
   return sameInstance.length <= 1;
 }
 
-export async function loginProfile(argv, app) {
+export async function loginProfile(argv, app, { concise = false } = {}) {
   argv = profileSettingValues(argv);
   validateLoginSelectors(argv);
   if (argv.name !== undefined) {
@@ -810,7 +810,12 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
       description: 'Set these at login; --skip-confirmations disables delete prompts',
     },
   ] : [];
-  app.ok(result, { summary, breadcrumbs });
+  if (concise && canUsePicker(app, argv)) {
+    const next = setDefault ? 'jsn incidents list' : `jsn --profile ${quoteShellArg(profileName)} incidents list`;
+    app.ok(result, { summary: `${summary}\nNext: ${next}`, breadcrumbs: [] });
+  } else {
+    app.ok(result, { summary, breadcrumbs });
+  }
   return result;
 }
 

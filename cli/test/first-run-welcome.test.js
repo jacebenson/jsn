@@ -298,8 +298,8 @@ describe('bare `jsn` first run', () => {
     const second = runPty(dir, [], { columns: 80 });
     assert.strictEqual(second.status, 0, second.output);
     assert.ok(!hasWelcome(second.output));
-    assert.strictEqual(second.output.slice(second.output.indexOf('Usage: jsn <command>')), help,
-      'second run must print the same byte-identical help');
+    assert.match(second.output, /jsn setup/);
+    assert.doesNotMatch(second.output, /Usage:|CORE|FLAGS/);
   });
 
   it('keeps the note out of an agent or CI environment even on a TTY', { skip: PTY_SKIP }, () => {

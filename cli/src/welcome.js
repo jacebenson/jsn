@@ -116,12 +116,12 @@ function configLabels(env, configDir) {
  * @param {number} width
  * @returns {string[]}
  */
-function renderSteps(width) {
-  const commandWidth = Math.max(...STEPS.map((step) => step.command.length));
+function renderSteps(width, steps = STEPS) {
+  const commandWidth = Math.max(...steps.map((step) => step.command.length));
   const alignedColumn = 4 + commandWidth + 2;
-  const oneLine = STEPS.every((step) => alignedColumn + step.detail.length <= width);
+  const oneLine = steps.every((step) => alignedColumn + step.detail.length <= width);
   const lines = [];
-  for (const step of STEPS) {
+  for (const step of steps) {
     if (oneLine) {
       lines.push(`    ${step.command.padEnd(commandWidth)}  ${step.detail}`);
       continue;
@@ -289,16 +289,29 @@ export function markWelcomeSeen(configDir = globalConfigDir()) {
 }
 
 /**
- * Show the standalone welcome instead of the catalog when this is a first
- * run, then record it. Returns the text that was shown, or '' when nothing was.
- *
- * The marker is claimed before anything is printed, so an interrupted run
- * (Ctrl-C) can leave the note unshown but never printed twice.
- *
- * @param {object} [opts] — same inputs as shouldShowWelcome, plus the
- *   welcomeText inputs (columns, version)
- * @returns {string}
+ * Every human bare invocation gets a local-only home. The legacy welcome
+ * marker controls only the greeting, never whether the catalog is selected.
  */
+export function maybeShowHome({ argv = {}, requestedFormat = '', cfg = {}, env = process.env,
+  configDir = globalConfigDir(), interactive = canPrompt(), columns = process.stdout?.columns } = {}) {
+  if (env.JSN_NO_WELCOME === '1' || !interactive || argv.get || !HUMAN_FORMATS.has(requestedFormat || '')) return '';
+  const width = layoutWidth(columns);
+  const selected = cfg.activeProfile || cfg.defaultProfile;
+  const profile = selected && cfg.profiles?.[selected] ? selected : undefined;
+  const steps = profile ? [
+    { command: 'jsn incidents list', detail: 'browse incidents' },
+    { command: 'jsn setup', detail: 'manage connections' },
+    { command: 'jsn --help', detail: 'every command and flag' },
+  ] : STEPS;
+  const greeting = shouldShowWelcome({ argv, requestedFormat, cfg, env, configDir, interactive })
+    && claimWelcome(configDir) !== 'taken';
+  const heading = profile ? `Profile: ${profile}` : greeting ? 'Welcome to jsn' : 'Get started';
+  const text = [...wrapText(heading, width), '', ...renderSteps(width, steps)].join('\n');
+  process.stdout.write(`${text}\n\n`);
+  return text;
+}
+
+/** Legacy once-only note API; bare CLI discovery uses maybeShowHome. */
 export function maybeShowWelcome(opts = {}) {
   if (!shouldShowWelcome(opts)) return '';
   const configDir = opts.configDir || globalConfigDir();

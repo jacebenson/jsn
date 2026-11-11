@@ -511,7 +511,26 @@ Flow coverage is record triggers only. Flow templates and timer/catalog/REST/SLA
 triggers have no table-scoped join exposed by the platform, so they are reported
 as `unsupported` with the trigger type named rather than matched by text.
 
+## Compact human home supersedes once-only catalog selection
+
+Bare interactive human `jsn` always shows a small local home. The existing
+`.welcomed` marker decides only whether to greet; it cannot send returning
+users to the command catalog. Fresh users see setup then help. Configured users
+see the selected local profile and a few next commands, without auth, probes,
+network, config paths, or version banners. Explicit help and machine/agent/piped
+output retain their existing contracts, including the explicit profile picker.
+
+The interactive setup add-connection wizard opts into concise success output:
+one authentication confirmation and one next command. It skips the redundant
+preset recap and status view, not authentication checks or safety prompts.
+Explicit auth login/status retain their existing output. The browser PTY fixture
+substitutes browser acquisition only; real loopback verification and persistence
+still run. Browser discovery is deterministic, never inherited from the host.
+
 ## First-run welcome orients above help, once (2026-11-04)
+
+Historical decision; the compact human home above supersedes catalog selection
+and config/version banners, while preserving the exclusive greeting marker.
 
 Issue #387 adds a short orientation before setup: bare `jsn` on a fresh
 installation prints a compact front door without appending the grouped catalog.

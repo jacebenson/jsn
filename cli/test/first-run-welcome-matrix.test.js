@@ -68,7 +68,7 @@ describe('first-run welcome matrix (issue #387)', () => {
     for (const run of [a, b]) {
       assert.strictEqual(run.status, 0, run.output.slice(0, 400));
       if (hasWelcome(run.output)) assert.doesNotMatch(run.output, /Usage: jsn/);
-      else assert.match(run.output, /Usage: jsn <command> \[options\]/);
+      else assert.match(run.output, /Get started/);
     }
     assertMarkerComplete(marker, 'row 1');
     assert.strictEqual(fs.statSync(marker).mode & 0o777, 0o600);
@@ -144,7 +144,8 @@ describe('first-run welcome matrix (issue #387)', () => {
     const second = runPty(dir, [], { columns: 80, env, unset: ['HOME'] });
     assert.strictEqual(second.status, 0, second.output);
     assert.ok(!hasWelcome(second.output), 'the note must not be duplicated across runs');
-    assert.match(second.output, /Usage: jsn <command> \[options\]/);
+    assert.match(second.output, /Get started/);
+    assert.doesNotMatch(second.output, /Usage:|CORE|FLAGS/);
   });
 
   it('row 4: 40- and 60-column terminals keep every command intact and nothing overflows', { skip: PTY_SKIP }, () => {
@@ -175,8 +176,8 @@ describe('first-run welcome matrix (issue #387)', () => {
     // The two runs use different throwaway config dirs, so the "Config:" line
     // legitimately differs; every other line must be identical.
     const wording = (output) => welcomeBlock(output).filter((line) => !line.startsWith('Config: '));
-    assert.strictEqual(welcomeBlock(noColor.output).filter((line) => line.startsWith('Config: ')).length, 1,
-      'the note always says where config lives');
+    assert.strictEqual(welcomeBlock(noColor.output).filter((line) => line.startsWith('Config: ')).length, 0,
+      'the home needs no config-path banner');
     assert.deepStrictEqual(wording(noColor.output), wording(plain.output),
       'NO_COLOR must not change the wording');
     assert.ok(hasWelcome(noColor.output), 'NO_COLOR must not hide the note');
@@ -211,13 +212,14 @@ describe('first-run welcome matrix (issue #387)', () => {
   it('row 7: an already-configured profile gets no welcome and no marker', { skip: PTY_SKIP }, () => {
     const { dir, configDir, marker } = freshConfigHome('jsn-configured-');
     writeGlobalConfig(dir, {
-      defaultProfile: 'prod',
+      default_profile: 'prod',
       profiles: { prod: { instance_url: 'https://acme.service-now.com' } },
     });
     const result = runPty(dir, [], { columns: 80 });
     assert.strictEqual(result.status, 0, result.output);
     assert.ok(!hasWelcome(result.output), 'a configured installation is not a first run');
-    assert.match(result.output, /Usage: jsn <command> \[options\]/);
+    assert.match(result.output, /Profile: prod/);
+    assert.doesNotMatch(result.output, /Usage:|CORE|FLAGS/);
     assert.ok(!fs.existsSync(marker), 'a skipped run must not create the marker as a side effect');
     assert.deepStrictEqual(fs.readdirSync(configDir).sort(), ['config.json'],
       'the run must not add files to a configured installation');
@@ -304,7 +306,8 @@ describe('first-run welcome matrix (issue #387)', () => {
     const lateFollowUp = runPty(late.dir, [], { columns: 80 });
     assert.strictEqual(lateFollowUp.status, 0, lateFollowUp.output);
     assert.ok(!hasWelcome(lateFollowUp.output), 'an interrupted first run must not repeat the note');
-    assert.match(lateFollowUp.output, /Usage: jsn <command> \[options\]/);
+    assert.match(lateFollowUp.output, /Get started/);
+    assert.doesNotMatch(lateFollowUp.output, /Usage:|CORE|FLAGS/);
   });
 
   it('row 11: PTY assertions skip cleanly on Windows instead of failing', () => {
