@@ -1,15 +1,42 @@
 import { it, mock, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { browserCandidates } from '../src/browser-launch.js';
 import os from 'node:os';
 import path from 'node:path';
 import * as helpers from '../src/helpers.js';
 
 let inputs = [], confirmations = [], method = 'basic', prompted = [];
+let installedBrowsers = ['chrome'];
+// Keep the real discovery and picker, but never inspect host browser installs.
+const candidates = browserCandidates();
+const browserPaths = new Set(candidates.flatMap(browser => browser.candidates));
+const realAccess = fsPromises.access.bind(fsPromises);
+const realStat = fsPromises.stat.bind(fsPromises);
+mock.method(fsPromises, 'access', async (filename, ...args) => {
+  if (!browserPaths.has(filename)) return realAccess(filename, ...args);
+  if (candidates.some(browser => installedBrowsers.includes(browser.value) && browser.candidates[0] === filename)) return;
+  throw Object.assign(new Error('No fixture browser at this path'), { code: 'ENOENT' });
+});
+mock.method(fsPromises, 'stat', async (filename, ...args) => {
+  if (browserPaths.has(filename)) return { isFile: () => true };
+  return realStat(filename, ...args);
+});
 mock.module('../src/helpers.js', { namedExports: { ...helpers, canUsePicker: app => app.isInteractive() } });
 mock.module('@inquirer/prompts', { namedExports: {
   input: async question => { prompted.push(question.message.replace(' (Esc to cancel)', '')); return inputs.shift(); },
-  select: async question => { prompted.push(question.message.replace(' (Esc to cancel)', '')); return method; },
+  select: async question => {
+    const message = question.message.replace(' (Esc to cancel)', '');
+    prompted.push(message);
+    if (message === 'Log in using which browser?') {
+      assert.deepEqual(question.choices.map(({ name, value }) => ({ name, value })), [
+        { name: 'Google Chrome', value: 'chrome' }, { name: 'Microsoft Edge', value: 'edge' },
+      ]);
+      return 'edge';
+    }
+    return method;
+  },
   search: async question => {
     const choices = await question.source('');
     assert.deepEqual(choices, [{ name: 'old', value: 'old' }, { name: 'another', value: 'another' }]);
@@ -33,7 +60,7 @@ after(() => {
   if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previousXdg;
   fs.rmSync(directory, { recursive: true, force: true });
 });
-beforeEach(() => { inputs = []; confirmations = []; prompted = []; method = 'basic'; });
+beforeEach(() => { inputs = []; confirmations = []; prompted = []; method = 'basic'; installedBrowsers = ['chrome']; });
 
 function fixture(interactive = true) {
   const writes = [], output = [], logins = [];
@@ -75,6 +102,24 @@ for (const authMethod of ['basic', 'oauth', 'browser']) {
     assert.match(output, /jsn auth modify dev12345 --read-only/);
   });
 }
+
+it('fresh browser wizard keeps four onboarding questions and asks which of multiple browsers to use', async () => {
+  const { app, logins } = fixture();
+  app.config = { profiles: {} };
+  installedBrowsers = ['chrome', 'edge'];
+  method = 'browser'; inputs = ['dev12345', 'dev12345']; confirmations = [true];
+  await loginWizard(app);
+  assert.deepEqual(prompted, ['ServiceNow instance name or URL:', 'Profile name:', 'Authentication method:',
+    'Accept defaults? writes allowed · delete confirmations on · result totals on', 'Log in using which browser?']);
+  assert.equal(logins.length, 1);
+  assert.equal(logins[0][0], 'https://dev12345.service-now.com');
+  assert.equal(logins[0][1].launch, true);
+  assert.deepEqual(logins[0][1].browser, {
+    name: 'Microsoft Edge', value: 'edge', executable: candidates.find(browser => browser.value === 'edge').candidates[0],
+  });
+  assert.equal(app.config.defaultProfile, 'dev12345');
+  assert.equal(app.config.profiles.dev12345.auth_method, 'gck');
+});
 
 it('wizard shows explicit preference flags in its single defaults confirmation', async () => {
   const { app } = fixture(); app.config = { profiles: {} };
