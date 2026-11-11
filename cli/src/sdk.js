@@ -36,6 +36,26 @@ function serializeCookies(cookieJar) {
   return [...cookieJar].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
+// REST resources that authenticate from the request's own headers. Every CLI
+// invocation is a fresh Node process, so `_warmSession()` always pays 2-3
+// sequential requests to mint UI cookies these paths never read — measured on a
+// live instance, `jsn records list` spent 4 round-trips on one list. Anything
+// else (script processors, GraphQL, the concourse picker, xmlhttp.do, update-set
+// export/import, binary attachment uploads) keeps the session bootstrap it
+// needs, and JSN_ALWAYS_WARM_SESSION=1 restores it for every path.
+const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch'];
+
+export function needsUiSession(url, { stateful = false, forceSession = false } = {}) {
+  if (stateful || forceSession) return true;
+  let pathname;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return true;
+  }
+  return !STATELESS_REST_PREFIXES.some(prefix => pathname.startsWith(prefix));
+}
+
 // Build the sys.scripts.do POST body for background script execution.
 // Extracted for testability (issue #177): maps script-mode options to the
 // form fields on ServiceNow's Script Background form. Defaults preserve the
@@ -178,7 +198,14 @@ export class SDKClient {
       try {
         const req = new Request(endpoint, { ...opts, signal: controller.signal });
         if (prepare) prepare(req);
-        await this._setAuth(req, { skipOAuthSession });
+        // Bootstrap the UI session only for the surfaces that read it. Table,
+        // stats and batch requests authenticate from their headers, so warming
+        // there was latency and an extra failure mode for nothing.
+        const skipSession = skipOAuthSession || !needsUiSession(endpoint, {
+          stateful,
+          forceSession: process.env.JSN_ALWAYS_WARM_SESSION === '1',
+        });
+        await this._setAuth(req, { skipOAuthSession: skipSession });
         const response = await fetch(req);
         if (!skipOAuthSession && this.recovery) {
           // A 401 is definitive; only then is the body sniffed for a login

@@ -4,7 +4,7 @@ import { getStringField } from './helpers.js';
  * Inspect a flow through the narrow remote adapter and render its deep view.
  * The adapter only needs inspectFlow and inspectCustomAction.
  */
-export async function inspectFlow({ adapter, identifier, instanceURL = '', depth = 2 }) {
+export async function inspectFlow({ adapter, identifier, instanceURL = '', depth = 2, includePayload = false }) {
   if (!adapter || typeof adapter.inspectFlow !== 'function') {
     throw new TypeError('flow inspection adapter must provide inspectFlow');
   }
@@ -19,7 +19,31 @@ export async function inspectFlow({ adapter, identifier, instanceURL = '', depth
     catalogLookupCache: new Map(),
   };
   const formatted = await formatFlowInspection(inspection, ctx);
-  return { ...inspection, _formatted: formatted };
+  const shaped = includePayload ? inspection : omitRawPayload(inspection);
+  const result = { ...shaped };
+  // Same convention as `catalogitems show`: the rendered view is a styled-mode
+  // side channel, so it must not appear in the JSON envelope. Attached
+  // enumerably it shipped the whole ASCII tree (4.9KB on one flow) next to the
+  // fields it renders, on top of an already oversized payload.
+  Object.defineProperty(result, '_formatted', { value: formatted, enumerable: false, configurable: true });
+  return result;
+}
+
+/**
+ * The raw ProcessFlow document is both the bulk of a `flows show` response and
+ * a duplicate of it: actionInstances, flowLogicInstances and subFlowInstances
+ * are copied out of the payload onto the inspection, so every step serializes
+ * twice. Measured on a 10-step flow: 536KB of payload inside 1.06MB of data,
+ * with all three arrays byte-identical at both levels. The styled view is
+ * rendered from the payload before this runs, and `--raw-payload` keeps it for
+ * the rare caller that needs the provider document itself.
+ */
+function omitRawPayload(inspection) {
+  if (!inspection || typeof inspection !== 'object' || Array.isArray(inspection)) return inspection;
+  if (!Object.prototype.hasOwnProperty.call(inspection, 'payload')) return inspection;
+  const copy = { ...inspection };
+  delete copy.payload;
+  return copy;
 }
 
 function normalizeInspection(value) {

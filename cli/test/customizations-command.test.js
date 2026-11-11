@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec = promisify(execFile);
 
-test('actual CLI capture permits authentication bootstrap but only GET table reads; saved review is offline', async () => {
+test('actual CLI capture performs only GET table reads and keeps the saved review offline', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customization-cli-'));
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -88,7 +88,10 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     assert.deepEqual(compare.data.interpretation, guidance);
     assert.match(compare.data._formatted, /not proven creation\/deletion/);
     assert.ok(requests.some(req => req.url.includes('/api/now/table/sys_metadata')));
-    assert.ok(requests.some(req => req.method === 'POST' && req.url.startsWith('/angular.do?')));
+    // Table reads authenticate from their own headers, so a capture needs no UI
+    // session bootstrap at all. If one is ever required, the only POST the
+    // read-only boundary allows is the auth login itself.
+    assert.equal(requests.some(req => req.method === 'POST'), false, 'header-authenticated reads need no session bootstrap');
     assert.ok(requests.filter(req => req.url.startsWith('/api/now/table/')).every(req => req.method === 'GET'));
     assert.ok(requests.every(req => req.method === 'GET' || (req.method === 'POST' && req.url.startsWith('/angular.do?'))));
     const count = requests.length;

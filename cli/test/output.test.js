@@ -31,6 +31,80 @@ describe('OutputWriter format methods', () => {
 });
 
 describe('printContextHeader', () => {
+  it('is suppressed when an extraction path is requested', async (t) => {
+    const { App } = await import('../src/app.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const app = {
+      getEffectiveInstance: () => 'https://example.service-now.com',
+      output: new OutputWriter({ format: 'styled' }),
+      sdk: {
+        list: () => assert.fail('Suppressed header must not query the instance'),
+        get: () => assert.fail('Suppressed header must not query the instance'),
+      },
+    };
+    const previous = process.env.JSN_NO_HEADER;
+    delete process.env.JSN_NO_HEADER;
+    t.after(() => {
+      if (previous === undefined) delete process.env.JSN_NO_HEADER;
+      else process.env.JSN_NO_HEADER = previous;
+    });
+    const stdout = t.mock.method(process.stdout, 'write', () => true);
+    const stderr = t.mock.method(process.stderr, 'write', () => true);
+    // `--get` prints an extracted JSON value; a banner merged by `2>&1` landed
+    // in front of it and broke json.load / jq at character 0.
+    await App.prototype.printContextHeader.call(app, { get: 'data.records' });
+    assert.equal(stdout.mock.callCount(), 0);
+    assert.equal(stderr.mock.callCount(), 0);
+  });
+
+  it('still prints the banner on a terminal without an extraction', async (t) => {
+    const { App } = await import('../src/app.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const queries = [];
+    const app = {
+      getEffectiveInstance: () => 'https://example.service-now.com',
+      output: new OutputWriter({ format: 'styled' }),
+      context: {},
+      session: {},
+      sdk: {
+        list: async (table, params) => {
+          queries.push(`${table} ${params?.get?.('sysparm_query') ?? ''}`);
+          return table === 'sys_user' ? [{ sys_id: 'u1', name: 'Tester' }] : [{ value: 'scope-id' }];
+        },
+        get: async (table) => {
+          queries.push(`${table} get`);
+          return table === 'sys_scope' ? { scope: 'x_scope' } : { name: 'My Update Set' };
+        },
+      },
+    };
+    const previous = process.env.JSN_NO_HEADER;
+    delete process.env.JSN_NO_HEADER;
+    t.after(() => {
+      if (previous === undefined) delete process.env.JSN_NO_HEADER;
+      else process.env.JSN_NO_HEADER = previous;
+    });
+    t.mock.method(process.stdout, 'write', () => true);
+    const stderr = t.mock.method(process.stderr, 'write', () => true);
+    const descriptor = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+    t.after(() => {
+      if (descriptor) Object.defineProperty(process.stderr, 'isTTY', descriptor);
+      else delete process.stderr.isTTY;
+    });
+    await App.prototype.printContextHeader.call(app, {});
+    const printed = stderr.mock.calls.map(call => String(call.arguments[0])).join('');
+    assert.match(printed, /PROFILE\s+USER/);
+    // The banner's price is exactly five instance reads; that is the number the
+    // `--get`/non-TTY guard avoids. Pinned here so it cannot drift silently.
+    assert.deepEqual(queries, [
+      'sys_user user_name=javascript:gs.getUserName()',
+      'sys_user_preference user=u1^name=apps.current_app',
+      'sys_user_preference user=u1^name=sys_update_set',
+      'sys_scope get',
+      'sys_update_set get',
+    ]);
+  });
+
   for (const format of ['json', 'quiet']) {
     it(`suppressed for ${format} format without making API requests`, async (t) => {
       const { App } = await import('../src/app.js');

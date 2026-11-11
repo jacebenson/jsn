@@ -95,10 +95,20 @@ export class App {
     return this.session?.instance || '';
   }
 
-  async printContextHeader(_argv = {}) {
+  async printContextHeader(argv = {}) {
     if (!this.getEffectiveInstance() || !this.sdk) return;
     if (process.env.JSN_NO_HEADER) return;
     if (this.output.getFormat() === FormatJSON || this.output.getFormat() === FormatQuiet) return;
+
+    // The banner is a terminal affordance, never data. `--get`/`--select`
+    // prints an extracted JSON value while the format still reports pretty, so
+    // a banner on stderr merged with `2>&1` landed in front of the JSON and
+    // broke `jsn ... 2>&1 | jq` / `json.load(sys.stdin)` at character 0. Skip
+    // it whenever an extraction was requested or stderr is not a terminal
+    // (nobody reads it there, and it costs five HTTP requests per command:
+    // user, application preference, update-set preference, scope, update set).
+    if (argv.get !== undefined && argv.get !== null && argv.get !== false) return;
+    if (process.stderr.isTTY !== true) return;
 
     let userDisplayName = 'Unknown';
     let userSysID = '';

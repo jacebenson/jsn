@@ -73,6 +73,13 @@ test('context header starts both independent lookups before either finishes', as
   t.after(() => { if (previous === undefined) delete process.env.JSN_NO_HEADER; else process.env.JSN_NO_HEADER = previous; });
   const chunks = [];
   t.mock.method(process.stderr, 'write', (text) => { chunks.push(text); return true; });
+  // The banner is a terminal affordance: it only prints when stderr is one.
+  const descriptor = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
+  Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(process.stderr, 'isTTY', descriptor);
+    else delete process.stderr.isTTY;
+  });
   await App.prototype.printContextHeader.call(app, { _: ['records', 'list'] });
   assert.equal(started.length, 2);
   assert.equal(app.context.scope, 'x_test');

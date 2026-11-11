@@ -376,10 +376,13 @@ from offset, limit and total without another request. Unknown totals omit it.
   `_context`, `_attachments`, `_variables`. Documented on `writeStyled`.
 - **`_formatted`** — a Command may pre-render its styled view as a string on
   `data._formatted`; the writer prints it verbatim (and suppresses the raw
-  field dump). JSON/quiet formats ignore it. This is the honest escape hatch —
-  15+ commands use it. Domain-specific visuals (e.g. `auth status` badges)
-  belong in the Command that owns the domain, rendered into `_formatted` —
-  **not** as special cases inside `output.js`.
+  field dump). JSON/quiet formats ignore it, so attach it non-enumerably
+  (`Object.defineProperty`, as `catalogitems show` and flow inspection do) —
+  an enumerable `_formatted` ships the rendered tree inside the envelope.
+  This is the honest escape hatch — 15+ commands use it. Domain-specific
+  visuals (e.g. `auth status` badges) belong in the Command that owns the
+  domain, rendered into `_formatted` — **not** as special cases inside
+  `output.js`.
 - **One format resolution.** `resolveRequestedFormat(argv)` (`src/cli.js`) is
   the single policy for which format a command line asked for, and the format
   middleware applies it. A parse-time failure never reaches that middleware, so
