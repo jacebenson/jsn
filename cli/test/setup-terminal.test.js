@@ -23,13 +23,35 @@ test('fresh terminal welcome is a short local-only front door; explicit help sta
   const normalized = welcome.output.replace(/Welcome to jsn [^ ]+ /, 'Welcome to jsn <version> ')
     .replace(/^Config: .*$/m, 'Config: <config-file>');
   assert.equal(normalized, fs.readFileSync('test/fixtures/first-run/compact-welcome.txt', 'utf8'));
-  const help = runPty(directory, ['--help'], { env });
-  assert.equal(help.status, 0, help.output);
-  assert.match(help.output, /CORE/); assert.match(help.output, /FLAGS/);
+  const repeated = runPty(directory, [], { env });
+  assert.equal(repeated.status, 0, repeated.output);
+  assert.match(repeated.output, /jsn setup/);
+  assert.doesNotMatch(repeated.output, /Usage:|CORE|FLAGS/);
+  fs.writeFileSync(path.join(directory, 'servicenow/config.json'), JSON.stringify({ default_profile: 'selected', profiles: { selected: { instance_url: 'http://127.0.0.1:1' } } }));
+  const configured = runPty(directory, [], { env });
+  assert.equal(configured.status, 0, configured.output);
+  assert.match(configured.output, /Profile: selected/);
+  assert.doesNotMatch(configured.output, /Usage:|CORE|FLAGS|Config:/);
+  if (process.env.JSN_ONBOARDING_PROOF) {
+    fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-repeated.txt`, repeated.output);
+    fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-configured.txt`, configured.output);
+  }
+  for (const args of [['--help'], ['--all-commands', '--help']]) {
+    const help = runPty(directory, args, { env });
+    assert.equal(help.status, 0, help.output);
+    assert.match(help.output, /CORE/); assert.match(help.output, /FLAGS/);
+  }
+  const machine = runPty(directory, ['--json'], { env });
+  assert.equal(machine.status, 0, machine.output);
+  assert.ok(JSON.parse(machine.output).data.commands.length > 0);
+  const quiet = runPty(directory, ['--quiet'], { env });
+  assert.equal(quiet.status, 0, quiet.output);
+  assert.match(quiet.output, /Usage: jsn/); // Preserve the existing quiet discovery contract.
+  assert.doesNotMatch(quiet.output, /Profile: selected|Get started/);
   if (process.env.JSN_ONBOARDING_PROOF) fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-welcome.txt`, welcome.output);
 });
 
-test('real setup terminal accepts one preset, saves first profile and asks no global settings', { skip }, async t => {
+for (const method of ['basic', 'browser']) test(`real ${method} setup terminal saves one profile and ends with one confirmation and next command`, { skip }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-setup-terminal-'));
   const requests = [];
   const server = http.createServer((request, response) => {
@@ -45,33 +67,37 @@ test('real setup terminal accepts one preset, saves first profile and asks no gl
   t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true }); });
   const instance = `http://127.0.0.1:${server.address().port}`;
   const spec = { command: [process.execPath, CLI, 'setup'], cwd: directory,
-    env: { ...BASE_ENV, XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory, XDG_CACHE_HOME: directory, TERM: 'xterm-256color' },
+    env: { ...BASE_ENV, XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory, XDG_CACHE_HOME: directory, TERM: 'xterm-256color', ...(method === 'browser' ? { NODE_OPTIONS: `--import=${path.resolve('test/support/setup-browser-fixture.js')}` } : {}) },
     columns: 120, timeout: 20,
     steps: [
       { wait: 'ServiceNow instance name or URL:', send: instance + '\r' },
       { wait: 'Profile name:', send: 'fixture\r' },
-      { wait: 'Authentication method:', send: '\x1b[B\x1b[B\r' },
+      { wait: 'Authentication method:', send: method === 'basic' ? '\x1b[B\x1b[B\r' : '\r' },
       { wait: 'Accept defaults?', send: '\r' },
-      { wait: 'Username:', send: 'fixture\r' },
-      { wait: 'Password:', send: 'offline-fixture-password\r' },
+      ...(method === 'basic' ? [{ wait: 'Username:', send: 'fixture\r' },
+        { wait: 'Password:', send: 'offline-fixture-password\r' }] : []),
     ] };
   const result = await new Promise((resolve, reject) => execFile('python3', [PTY_DRIVER, JSON.stringify(spec)], { timeout: 30000 },
     (error, stdout, stderr) => error ? reject(new Error(stderr || error.message)) : resolve(JSON.parse(stdout))));
   const output = stripVTControlCharacters(result.output).replaceAll('\r', '');
   if (process.env.JSN_ONBOARDING_PROOF) {
-    fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-setup-raw.txt`, result.output);
-    fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-setup.txt`, output);
+    fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-${method}-setup-raw.txt`, result.output);
+    fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-${method}-setup.txt`, output);
   }
   assert.equal(result.status, 0, output);
   const completed = output.match(/✔[^\n]*/g) || [];
-  assert.equal(completed.length, 6, completed.join('\n'));
+  assert.equal(completed.length, method === 'basic' ? 6 : 4, completed.join('\n'));
   assert.match(completed[0], /ServiceNow instance/);
   assert.match(completed[1], /Profile name/);
   assert.match(completed[2], /Authentication method/);
   assert.match(completed[3], /Accept defaults\? writes allowed · delete confirmations on · result totals on/);
-  assert.match(completed[4], /Username/); assert.match(completed[5], /Password/);
+  if (method === 'basic') { assert.match(completed[4], /Username/); assert.match(completed[5], /Password/); }
   assert.doesNotMatch(output, /Read-only connections|Use JSN-hosted|Use this profile by default/);
-  assert.match(output, /Connection preset: writes allowed · deletes ask first · totals on/);
+  const ending = output.slice(output.lastIndexOf(method === 'basic' ? '✔ Password:' : '✔ Accept defaults?')).split('\n').slice(1).filter(line => line.trim());
+  assert.equal(ending.length, 2, ending.join('\n'));
+  assert.match(ending[0], /Authenticated to .* as fixture \(profile: fixture\)/);
+  assert.equal(ending[1], 'Next: jsn incidents list');
+  assert.doesNotMatch(output, /Connection preset:|Verify this profile:|CREDENTIALS|Renew session:/);
   const config = JSON.parse(fs.readFileSync(path.join(directory, 'servicenow/config.json'), 'utf8'));
   assert.equal(config.default_profile, 'fixture');
   assert.deepEqual(config.connection_defaults, { read_only: false, skip_confirmations: false, include_counts: true });

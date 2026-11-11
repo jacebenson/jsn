@@ -1,7 +1,5 @@
-Welcome to jsn <version> (ServiceNow from your terminal)
-Config: <config-file>
+Welcome to jsn
 
-  Get started
     jsn setup   connect to ServiceNow
     jsn --help  every command and flag
 

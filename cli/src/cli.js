@@ -10,7 +10,7 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
-import { maybeShowWelcome } from './welcome.js';
+import { maybeShowHome } from './welcome.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
@@ -601,11 +601,10 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        // First-run orientation replaces the catalog only for a fresh human terminal.
-        // maybeShowWelcome decides for itself: human terminal, no machine
-        // format, no configured profile, and not shown before.
+        // Human terminals always get the compact local home. Machine and
+        // non-interactive discovery retain their existing reference output.
         const config = loadConfig(formatArgv);
-        const welcome = maybeShowWelcome({ argv: formatArgv, requestedFormat, cfg: config });
+        const welcome = maybeShowHome({ argv: formatArgv, requestedFormat, cfg: config });
         if (!welcome) process.stdout.write(renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, formatArgv)) + '\n');
         process.exit(0);
       }

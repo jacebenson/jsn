@@ -205,24 +205,23 @@ completion share this policy. `--all-commands` restores the full surface.
 Explicit command paths are always registered; this is presentation, never an
 ACL or an authorization claim. Role changes are picked up on authentication.
 
-## First-run welcome
+## Compact home and first-run welcome
 
-`src/welcome.js`. A short orientation printed **above**, never instead of, the
-grouped root help when a fresh installation runs bare `jsn`. It names the two
-ways in (`jsn setup`, interactive; `jsn auth login <instance>`, scriptable),
-`jsn --help`, `jsn docs search`, `jsn skill install`, where config lives, the
-installed version from `package.json`, and `jsn upgrade`; every command it
-mentions is registered and declared `noInstance`. It requires no instance or
-credentials and never reaches the network. It is shown at most once - a
-`.welcomed` marker in the XDG config dir, claimed exclusively before the note is
-printed, so racing first runs cannot both print it - and only to a human
-terminal: never for `--json`/`--quiet`/`--csv`/`--markdown`/`--get`, piped
-output, agent/CI environments, `TERM=dumb`, an installation that already has a
-connection, or `JSN_NO_WELCOME=1` (the literal `1`; `0` and empty do not
-suppress). A suppressed or piped run does not consume the once-only marker. The
-text is width-aware: at 80 columns it stays within 12 lines, and on narrower
-terminals it wraps rather than truncating a command name. It is not a connection
-wizard: authentication stays optional until an instance-backed command needs it.
+`src/welcome.js`. Bare human-terminal `jsn` always shows a compact home instead
+of the grouped catalog. An unconfigured installation points to `jsn setup` and,
+secondarily, `jsn --help`. A configured home names the selected local profile
+and offers a few next commands; it never verifies credentials, probes an
+instance, or reaches the network. No config-path or version banner is needed.
+The `.welcomed` marker controls only the once-only greeting, not home versus
+catalog selection. Marker claiming remains exclusive and mode 0600.
+
+Machine formats, piped output, agent/CI environments, `TERM=dumb`, and the
+literal `JSN_NO_WELCOME=1` retain their existing discovery behavior. Explicit
+`--help` and `--all-commands --help` retain reference help; explicit `--profile`
+retains its picker contract. The home is width-aware and never prompts.
+Successful interactive setup add-connection wizards end with one authentication
+confirmation and one next command, not a preset recap and status table. Safety
+defaults remain visible before acceptance; explicit auth commands are unchanged.
 
 ## Capability registry
 

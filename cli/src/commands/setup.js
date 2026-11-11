@@ -89,7 +89,7 @@ export async function authHubMenu({ promptFn = authHubPrompt, input, output, has
  */
 export async function dispatchSetupAction(app, argv, action) {
   if (action === 'add') {
-    return loginWizard(app, argv);
+    return loginWizard(app, argv, { concise: true });
   } else if (action === 'login') {
     return loginProfile(argv, app);
   } else if (action === 'status') {
@@ -147,14 +147,13 @@ export function setupCmd(wrap) {
         await saveConfig(app.config);
       }
       if (profileNames.length === 0 && firstSetup) {
-        const result = await loginWizard(app, argv);
-        await showAuthStatus({ ...argv, profile: result.profileName }, app);
+        await loginWizard(app, argv, { concise: true });
         return;
       }
       const action = await authHubMenu({ hasProfiles: profileNames.length > 0 });
       if (action === undefined) return;
       const result = await dispatchSetupAction(app, argv, action);
-      if (!['status', 'advanced'].includes(action)) await showAuthStatus({ ...argv, profile: result?.profile || result?.profileName }, app);
+      if (!['add', 'status', 'advanced'].includes(action)) await showAuthStatus({ ...argv, profile: result?.profile || result?.profileName }, app);
     }),
   };
 }
