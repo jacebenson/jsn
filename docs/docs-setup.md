@@ -25,7 +25,7 @@ The default preset allows writes, asks before deleting records, and includes res
 
 Change defaults later with `jsn setup --configure-defaults`, or choose **JSN settings → Defaults and documentation** in the setup hub. Use `jsn setup --configure-docs` to choose a documentation source; until then JSN uses hosted documentation. These switches bypass the hub and run the same settings questions.
 
-On a fresh interactive installation, bare `jsn` shows a small welcome pointing to `jsn setup`. Use `jsn --help` for the complete command catalog.
+On a fresh interactive installation, bare `jsn` shows a small welcome pointing to `jsn setup`. Use `jsn --help` for common commands and examples, or `jsn --all-commands --help` for the complete command and flag reference.
 
 ```bash
 jsn auth status

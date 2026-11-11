@@ -86,7 +86,7 @@ describe('jsn completion', () => {
   });
 
   it('appears in help output', () => {
-    const r = spawnSync('node', [CLI, 'help'], { encoding: 'utf-8', env: ENV });
+    const r = spawnSync('node', [CLI, '--all-commands', '--help'], { encoding: 'utf-8', env: ENV });
     assert.match(r.stdout + r.stderr, /completion/, '"completion" not mentioned in help output');
   });
 

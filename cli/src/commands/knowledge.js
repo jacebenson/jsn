@@ -26,6 +26,7 @@ export function knowledgeCmd(wrap) {
   return {
     command: 'knowledge [subcommand]', aliases: ['kb'],
     describe: 'Search and read knowledge articles through the Knowledge API',
+    summary: 'Search and read knowledge articles',
     handler: wrap(async (argv, app) => emit(app, argv,
       { subcommands: argv.subcommands || [], _formatted: formatCommandList({ title: 'Knowledge articles', commands: argv.subcommands || [] }) },
       'Search and read knowledge articles', [{ action: 'search', cmd: 'jsn knowledge search <text>', description: 'Find accessible articles' }])),

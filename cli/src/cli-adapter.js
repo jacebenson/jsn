@@ -293,12 +293,16 @@ export class LocalCLI {
    * discovery output are generated from, so neither can drift away from the
    * commands that actually exist. Builders run here (idempotently) because a
    * parent's children are only registered when its builder is invoked.
+   *
+   * `summaries: true` adds the command's short summary for the concise human
+   * help page. Machine discovery leaves it out, so the JSON schema and bytes
+   * stay unchanged.
    */
-  commandRegistry() {
+  commandRegistry({ summaries = false } = {}) {
     const visible = (node) => node.name !== this.completionCommand && !node.definition.hidden;
     const serialize = (node) => {
       node.build();
-      return {
+      const entry = {
         name: node.name,
         command: node.definition.command || node.name,
         aliases: [...node.aliases],
@@ -312,6 +316,8 @@ export class LocalCLI {
           help: `jsn ${node.name} ${child.name} --help`,
         })),
       };
+      if (summaries) entry.summary = node.definition.summary || '';
+      return entry;
     };
     return {
       commands: this.root.children.filter(visible).map(serialize),

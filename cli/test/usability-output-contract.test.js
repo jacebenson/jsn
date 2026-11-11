@@ -187,30 +187,34 @@ describe('#3 parent commands are machine-readable and never silently succeed', (
     // Capability-conditioned hiding (domains) is the ONLY allowed omission, so
     // compare with the capability present and then confirm the omission itself.
     const config = { activeProfile: 'p', profiles: { p: { domain_separation: true } } };
-    const help = renderHelp(config, registry);
-    const missing = registry.commands.filter((command) => !help.includes(`jsn ${command.name}`));
+    const help = renderHelp(config, registry, { full: true });
+    const commandRows = help.split('\n').filter((line) => /^ {2}\S/.test(line));
+    const missing = registry.commands.filter((command) => !commandRows.some((line) => line.trimStart().startsWith(`${command.name} `)));
     assert.deepEqual(missing.map((command) => command.name), [],
       'root help dropped a registered command (it must land in a group or MORE)');
-    const hidden = registry.commands.filter((command) => !renderHelp({}, registry).includes(`jsn ${command.name}`));
+    const hiddenHelp = renderHelp({}, registry, { full: true });
+    const hiddenRows = hiddenHelp.split('\n').filter((line) => /^ {2}\S/.test(line));
+    const hidden = registry.commands.filter((command) => !hiddenRows.some((line) => line.trimStart().startsWith(`${command.name} `)));
     assert.deepEqual(hidden.map((command) => command.name), ['domains'],
       'only the capability-conditioned command may be omitted');
   });
 
   it('capability-conditioned hiding is preserved (domains)', () => {
     const { registry } = buildRegistry();
-    const withoutDS = renderHelp({ activeProfile: 'p', profiles: { p: {} } }, registry);
-    assert.ok(!withoutDS.includes('jsn domains'), 'domains must stay hidden without the plugin');
-    const withDS = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: true } } }, registry);
-    assert.ok(withDS.includes('jsn domains'), 'domains must appear when the profile has it');
+    const withoutDS = renderHelp({ activeProfile: 'p', profiles: { p: {} } }, registry, { full: true });
+    assert.ok(!/^\s{2}domains\s/m.test(withoutDS), 'domains must stay hidden without the plugin');
+    const withDS = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: true } } }, registry, { full: true });
+    assert.ok(/^\s{2}domains\s/m.test(withDS), 'domains must appear when the profile has it');
   });
 
   it('global flags are generated from the registry (--get and --csv were missing)', () => {
     const { registry } = buildRegistry();
-    const help = renderHelp({}, registry);
+    const help = renderHelp({}, registry, { full: true });
     for (const flag of ['--instance', '--profile', '--format', '--json', '--csv', '--get', '--quiet', '--styled', '--markdown', '--help']) {
       assert.ok(help.includes(flag), `root help is missing ${flag}`);
     }
-    assert.match(help, /--format\s+.*\[string: auto, json, markdown, styled, quiet, csv\]/);
+    assert.match(help, /--format\s+Output format/);
+    assert.match(help, /\[string: auto, json, markdown, styled, quiet, csv\]/);
   });
 
   it('explicit --help stays human readable (no JSON envelope)', () => {

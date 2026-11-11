@@ -53,6 +53,7 @@ test('selected profiles filter help, JSON, discover and completion without remov
       const text = run(['--profile', 'limited', ...args]);
       assert.match(text, /jsn incidents/); assert.doesNotMatch(text, /jsn eval\s/);
     }
+    assert.match(run(['--profile', 'limited', '--all-commands', '--help']), /^ {2}eval\s{2,}/m);
     assert.doesNotMatch(run(['help']), /jsn eval\s/);
     const names = args => JSON.parse(run(args)).data.commands.map(command => command.name);
     assert(!names(['--profile', 'limited', '--json']).includes('eval'));
@@ -65,7 +66,7 @@ test('selected profiles filter help, JSON, discover and completion without remov
     // Self-update changes the local installation, not ServiceNow records. Its
     // canonical registration and update alias must be reachable for everyone.
     for (const name of ['limited', 'admin', 'readonly']) {
-      assert.match(run(['--profile', name, '--help']), /jsn upgrade/);
+      assert.match(run(['--profile', name, 'upgrade', '--help']), /Usage: jsn upgrade/);
       const entry = JSON.parse(run(['--profile', name, '--json'])).data.commands.find(c => c.name === 'upgrade');
       assert.ok(entry.aliases.includes('update'));
       assert.ok(names(['--profile', name, 'discover', 'update', '--json']).includes('upgrade'));

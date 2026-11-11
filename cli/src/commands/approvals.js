@@ -173,6 +173,7 @@ export function approvalsCmd(wrap) {
   return {
     command: 'approvals [subcommand]',
     describe: 'Manage approval requests (list, approve, reject, submit, history)',
+    summary: 'List, approve, or reject approval requests',
     builder: (yargs) => {
       return yargs
         .command({

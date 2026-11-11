@@ -36,11 +36,13 @@ test('fresh terminal welcome is a short local-only front door; explicit help sta
     fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-repeated.txt`, repeated.output);
     fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-configured.txt`, configured.output);
   }
-  for (const args of [['--help'], ['--all-commands', '--help']]) {
-    const help = runPty(directory, args, { env });
-    assert.equal(help.status, 0, help.output);
-    assert.match(help.output, /CORE/); assert.match(help.output, /FLAGS/);
-  }
+  const conciseHelp = runPty(directory, ['--help'], { env });
+  assert.equal(conciseHelp.status, 0, conciseHelp.output);
+  assert.match(conciseHelp.output, /COMMON COMMANDS/); assert.match(conciseHelp.output, /FLAGS/);
+  assert.doesNotMatch(conciseHelp.output, /^CORE$/m);
+  const fullHelp = runPty(directory, ['--all-commands', '--help'], { env });
+  assert.equal(fullHelp.status, 0, fullHelp.output);
+  assert.match(fullHelp.output, /CORE/); assert.match(fullHelp.output, /FLAGS/);
   const machine = runPty(directory, ['--json'], { env });
   assert.equal(machine.status, 0, machine.output);
   assert.ok(JSON.parse(machine.output).data.commands.length > 0);

@@ -121,6 +121,7 @@ export function setupCmd(wrap) {
   return {
     command: 'setup',
     describe: 'Set up JSN defaults and manage ServiceNow connections (interactive)',
+    summary: 'Connect to ServiceNow and manage profiles',
     builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' })
       .option('configure-defaults', { type: 'boolean', describe: 'Configure defaults for future connections without the hub' })
       .option('configure-docs', { type: 'boolean', describe: 'Configure documentation without the hub' }).epilogue(setupHelp()),

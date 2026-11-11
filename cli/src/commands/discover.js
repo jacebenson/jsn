@@ -20,6 +20,7 @@ export function discoverCmd(wrap, getRegistry) {
   return {
     command: 'discover [query]',
     describe: 'Find commands by words in their names, aliases, descriptions, or configured table',
+    summary: 'Find commands by task word or table',
     builder: y => y
       .positional('query', { type: 'string', describe: 'Search words (quote multiple words)' })
       .option('table', { type: 'string', describe: 'Find specialized commands configured for this exact table' })

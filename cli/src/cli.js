@@ -605,7 +605,11 @@ export function buildCLI() {
         // non-interactive discovery retain their existing reference output.
         const config = loadConfig(formatArgv);
         const welcome = maybeShowHome({ argv: formatArgv, requestedFormat, cfg: config });
-        if (!welcome) process.stdout.write(renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, formatArgv)) + '\n');
+        if (!welcome) {
+          const registry = visibleCommandRegistry(
+            cliInstance.commandRegistry({ summaries: true }), config, formatArgv);
+          process.stdout.write(renderHelp(config, registry, { full: formatArgv?.allCommands === true }) + '\n');
+        }
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,
@@ -628,7 +632,9 @@ export function buildCLI() {
   cliInstance.rootHelpRenderer = () => {
     const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
     const config = loadConfig(options);
-    return renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, options));
+    const registry = visibleCommandRegistry(
+      cliInstance.commandRegistry({ summaries: true }), config, options);
+    return renderHelp(config, registry, { full: options?.allCommands === true });
   };
 
   // Snapshot the root command names (plus aliases) for the completion
