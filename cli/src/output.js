@@ -364,6 +364,12 @@ export class OutputWriter {
         this.writeFormattedRecord(data, tableName);
       }
 
+      if (Array.isArray(data.warnings) && data.warnings.length > 0 && !data._formatted) {
+        for (const w of data.warnings) {
+          this.writer.write(colorYellow(`⚠ ${w}\n`));
+        }
+      }
+
       if (Array.isArray(data.records) && data.records.length > 0) {
         // A _formatted visual (e.g. cmdb relationship tree) replaces the
         // flat table in styled mode — showing both is noise.

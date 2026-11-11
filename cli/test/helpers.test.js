@@ -62,6 +62,29 @@ describe('formatRecordForDisplay', () => {
   });
 });
 
+describe('findOmittedColumns', () => {
+  it('returns requested columns absent from every returned row', async () => {
+    const { findOmittedColumns } = await import('../src/helpers.js');
+    const rows = [
+      {
+        sys_id: { display_value: 'id1', value: 'id1' },
+        number: { display_value: 'DMND001', value: 'DMND001' },
+        description: { display_value: '', value: '' },
+      },
+    ];
+    assert.deepStrictEqual(
+      findOmittedColumns(rows, ['number', 'description', 'state_label']),
+      ['state_label']
+    );
+  });
+
+  it('returns empty array when records are empty or wildcard * is requested', async () => {
+    const { findOmittedColumns } = await import('../src/helpers.js');
+    assert.deepStrictEqual(findOmittedColumns([], ['number', 'state_label']), []);
+    assert.deepStrictEqual(findOmittedColumns([{ sys_id: '1' }], ['*']), []);
+  });
+});
+
 describe('truncateString', () => {
   it('returns short strings unchanged', async () => {
     const { truncateString } = await import('../src/helpers.js');

@@ -1,5 +1,5 @@
 import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
-import { formatRecordForDisplay, getStringField, buildQuerySuffix, resolveFieldsParam, buildRecordPayload, confirmDelete } from '../helpers.js';
+import { formatRecordForDisplay, findOmittedColumns, getStringField, buildQuerySuffix, resolveFieldsParam, buildRecordPayload, confirmDelete } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
 import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -28,7 +28,9 @@ export function ticketsCmd(wrap) {
             const q = argv.query ? argv.query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
             const params = recordListParams({ limit: argv.limit, offset: argv.offset, fields, query: q });
             const records = await listRecords(app.sdk, { table: 'task', params, displayValues: argv.displayValues });
-            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const missingColumns = fields ? findOmittedColumns(records, columns) : [];
+            const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
+            const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, presentColumns)) : records;
             const breadcrumbs = [
               { action: 'create', cmd: 'jsn tickets create -f short_description=New ticket', description: 'Create a new ticket' },
             ];
@@ -50,6 +52,12 @@ export function ticketsCmd(wrap) {
               table: 'task',
               count: records.length,
               columns,
+              ...(missingColumns.length ? {
+                missing_columns: missingColumns,
+                warnings: [
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on task): ${missingColumns.join(', ')}. Run \`jsn columns --table task\` to inspect valid fields.`,
+                ],
+              } : {}),
               records: displayRecords,
               pagination: { limit: argv.limit, offset: argv.offset, hasMore: records.length === argv.limit },
               context: { instance_url: app.getEffectiveInstance() },

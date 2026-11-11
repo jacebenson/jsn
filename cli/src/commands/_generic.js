@@ -2,7 +2,7 @@ import { constrainQuery, constrainedQueryHelp } from '../constrained-query.js';
 import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic table-based CRUD command builder
 
-import { formatRecordForDisplay, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
+import { formatRecordForDisplay, findOmittedColumns, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
@@ -171,11 +171,19 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const q = `${constrainedQuery}${constrainedQuery ? '^' : ''}ORDERBYDESCsys_updated_on`;
           const params = recordListParams({ limit, fields: ['sys_id', ...columns], query: q });
           const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
+          const missingColumns = findOmittedColumns(records, columns);
+          const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
           app.ok({
             table,
             count: records.length,
             columns,
-            records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, columns)),
+            ...(missingColumns.length ? {
+              missing_columns: missingColumns,
+              warnings: [
+                `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+              ],
+            } : {}),
+            records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, presentColumns)),
             context: { instance_url: app.getEffectiveInstance() },
           }, {
             summary: `${records.length} ${name}(s)`,

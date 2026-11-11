@@ -2,7 +2,7 @@ import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
 import { resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
@@ -88,7 +88,9 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const params = recordListParams({ limit, offset, fields, query: q });
 
             const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
-            const displayRecords = fields && !argv.displayValues && opts.listProjection !== 'full' ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const missingColumns = fields ? findOmittedColumns(records, columns) : [];
+            const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
+            const displayRecords = fields && !argv.displayValues && opts.listProjection !== 'full' ? records.map(r => formatRecordForDisplay(r, presentColumns)) : records;
 
             const breadcrumbs = [
               { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },
@@ -114,6 +116,12 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               table,
               count: records.length,
               columns,
+              ...(missingColumns.length ? {
+                missing_columns: missingColumns,
+                warnings: [
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                ],
+              } : {}),
               records: displayRecords,
               pagination: { limit, offset, hasMore: records.length === limit },
               context: { instance_url: app.getEffectiveInstance() },
