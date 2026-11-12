@@ -86,6 +86,27 @@ Firefox and normal-profile browser integration remain future work.
 
 ## Runtime authentication recovery
 
+Basic-auth TOTP is a pre-dispatch session gate, not credential renewal or an
+authentication-method fallback. Basic normal requests, including Table/Stats/
+Batch and public raw-response operations, bootstrap login to detect exact
+`mfa_code_required`; other methods retain stateless REST warming policy. Without
+an MFA challenge, stateless Basic REST keeps Basic Authorization rather than
+using UI cookies/tokens as authentication proof. Public raw responses retain
+caller-owned bodies and the shared bounded recovery/replay policy; only private
+authentication exchanges bypass it. A masked six-digit code is ephemeral. Cookies,
+CSRF and nonce remain on one challenge; a redirect alone is not success:
+cookie-only `get_user` must return a token, and the current-user cookie/CSRF
+probe must identify the selected Basic username before releasing the operation.
+Every challenge HTTP exchange/body has an independent client-timeout deadline;
+the operation deadline excludes human typing. Once recognized, any challenge
+failure is terminal for the client and cannot dispatch, fall back to Basic,
+re-prompt on later requests, or record a mutation outcome. Noninteractive output
+gets `mfa_required`; failed verification gets sanitized `mfa_code_rejected`.
+Interactive records propagates these structured errors and `PromptCancelled`
+before count fallback/wrapping. Escape remains `Cancelled.` / exit 0. No TOTP
+seed storage or local generation exists. See `docs/AUTH_LIFECYCLE.md` for the
+fixture-only verification boundary and lifecycle.
+
 `src/auth-recovery.js` creates the App-owned, identity-scoped recovery provider
 passed to the SDK as `opts.recovery`. Its `recover({ status, kind })` returns
 true only after replacing credentials. Its safe `error` supplies guidance

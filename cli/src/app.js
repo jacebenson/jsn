@@ -16,7 +16,7 @@ import { saveConfig } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
-import { canPrompt } from './helpers.js';
+import { canPrompt, canUsePicker } from './helpers.js';
 import { guardMutationContext } from './mutation-context.js';
 import process from 'node:process';
 
@@ -63,6 +63,7 @@ export class App {
       username: session?.username || '',
       recovery: createAuthRecovery({ app: this, session }),
       onMutation: event => this.recordMutation(instance, session?.profileName, event),
+      canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
   }
 
@@ -73,6 +74,7 @@ export class App {
       domain: options.domain ?? profile.domain ?? '',
       username: options.username || '',
       onMutation: event => this.recordMutation(instance, options.profileName || null, event),
+      canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
   }
 

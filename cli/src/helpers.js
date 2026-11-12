@@ -5,7 +5,7 @@ import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 import { getActiveProfile } from './config.js';
-import { errConfirmationRequired } from './errors.js';
+import { errConfirmationRequired, isTerminalAuthError } from './errors.js';
 
 /**
  * Detect whether a human is actually available to answer interactive
@@ -420,6 +420,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   try {
     totalCount = await app.sdk.aggregateCount(table, query || '');
   } catch (err) {
+    if (isTerminalAuthError(err)) throw err;
     countError = err;
   }
   if (totalCount === 0) return null; // measured empty
@@ -435,6 +436,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       if (!Array.isArray(probe)) throw new Error('list returned a non-array result');
       if (probe.length === 0) return null; // the list itself confirms empty
     } catch (err) {
+      if (isTerminalAuthError(err)) throw err;
       // Both the count and the list failed — surface the failure instead of
       // reporting an empty result nobody measured.
       throw new Error(
@@ -467,6 +469,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
         value: formatValue ? formatValue(r) : r,
       }));
     } catch (err) {
+      if (isTerminalAuthError(err)) throw err;
       console.error('serverSource error:', err.message || err);
       return [];
     }

@@ -626,6 +626,15 @@ jsn auth login https://dev12345.service-now.com
 ```
 
 For Basic Auth, set `SN_USERNAME` and `SN_PASSWORD`, then run `jsn auth login --basic <instance>`.
+
+If the instance requires TOTP MFA, Basic requests prompt for a masked six-digit
+authenticator code before sending the operation. Escape cancels cleanly.
+Noninteractive, `--json`, and `--get` invocations fail with `mfa_required` and
+guidance instead of prompting. JSN never stores TOTP seeds or generates codes.
+Configure OAuth or a browser session explicitly for unattended use. MFA failure
+never switches authentication methods or sends the pending operation. See the
+[authentication lifecycle](AUTH_LIFECYCLE.md#basic-auth-totp-challenges-402) for
+timeouts, identity verification, and the fixture-only verification boundary.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
 
 ### OAuth from scripts or a remote terminal

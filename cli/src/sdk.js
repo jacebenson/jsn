@@ -4,7 +4,9 @@ import { batchRead } from './sdk-batch.js';
 import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
 import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
-import { getStringField } from './helpers.js';
+import { canPrompt, getStringField } from './helpers.js';
+import { errMfaRequired, errMfaRejected, isTerminalAuthError } from './errors.js';
+import { buildMfaVerificationBody, extractMfaFormTokens, normalizeTotpCode, parseLoginStatus } from './auth/mfa.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
 import {
@@ -43,6 +45,8 @@ function serializeCookies(cookieJar) {
 // else (script processors, GraphQL, the concourse picker, xmlhttp.do, update-set
 // export/import, binary attachment uploads) keeps the session bootstrap it
 // needs, and JSN_ALWAYS_WARM_SESSION=1 restores it for every path.
+// Basic is the exception: normal requests must first detect any TOTP challenge
+// before a pending operation can be sent. See docs/AUTH_LIFECYCLE.md.
 const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch'];
 
 export function needsUiSession(url, { stateful = false, forceSession = false } = {}) {
@@ -88,6 +92,13 @@ export class SDKClient {
     this.oauthCookies = null;
     this._sessionPromise = null;
     this.sessionUserToken = '';
+    this._sessionFailure = null;
+    this._mfaRecognized = false;
+    this.canInteract = opts.canInteract || canPrompt;
+    this.promptMfaCode = opts.promptMfaCode || (async config => {
+      const { mfaCode } = await import('./prompts.js');
+      return mfaCode(config);
+    });
     // Session state is versioned so concurrent requests can tell "my headers
     // are from the session that was just replaced" apart from "this rejection
     // is new". One recovery is in flight per client at a time.
@@ -95,7 +106,7 @@ export class SDKClient {
     this._recoveryPromise = null;
   }
 
-  async _setAuth(req, { skipOAuthSession = false } = {}) {
+  async _setAuth(req, { skipOAuthSession = false, basicSession = false } = {}) {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
@@ -111,14 +122,21 @@ export class SDKClient {
     }
     switch (creds.auth_method) {
       case 'basic':
-        if (!skipOAuthSession) {
+        // Basic credentials may demand a login challenge even on stateless
+        // REST. Only explicit internal bootstrap requests bypass this gate.
+        if (this._sessionFailure) throw this._sessionFailure;
+        if (!skipOAuthSession || basicSession || this._mfaRecognized) {
           const cookies = await this._warmSession();
-          if (cookies) {
+          // Stateless REST historically uses Basic. A non-challenge UI
+          // bootstrap (even one minting guest cookies/tokens) must not replace
+          // working REST credentials. Only verified MFA overrides that policy.
+          if (cookies && (!skipOAuthSession || this._mfaRecognized)) {
             req.headers.set('Cookie', cookies);
             if (this.sessionUserToken) req.headers.set('X-UserToken', this.sessionUserToken);
             break;
           }
         }
+        if (this._mfaRecognized) throw errMfaRejected();
         req.headers.set('Authorization', 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`).toString('base64'));
         break;
       case 'token':
@@ -162,7 +180,7 @@ export class SDKClient {
         return value;
       });
     } catch (error) {
-      if (event) await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
+      if (event && !error?.notSent && error?.name !== 'PromptCancelled') await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
         ? 'failed' : 'unknown', http_status: error.status || null });
       throw error;
     }
@@ -193,19 +211,20 @@ export class SDKClient {
       // Headers for this attempt belong to the session as it is right now.
       const generation = this._sessionGeneration;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      let timer;
       let rejection;
       try {
         const req = new Request(endpoint, { ...opts, signal: controller.signal });
         if (prepare) prepare(req);
-        // Bootstrap the UI session only for the surfaces that read it. Table,
-        // stats and batch requests authenticate from their headers, so warming
-        // there was latency and an extra failure mode for nothing.
+        // Header-authenticated REST skips UI warming for OAuth/token/GCK.
+        // Basic must still check for TOTP before dispatch; internal bootstrap
+        // requests explicitly bypass that check to avoid recursion.
         const skipSession = skipOAuthSession || !needsUiSession(endpoint, {
           stateful,
           forceSession: process.env.JSN_ALWAYS_WARM_SESSION === '1',
         });
-        await this._setAuth(req, { skipOAuthSession: skipSession });
+        await this._setAuth(req, { skipOAuthSession: skipSession, basicSession: !skipOAuthSession });
+        timer = setTimeout(() => controller.abort(), timeout);
         const response = await fetch(req);
         if (!skipOAuthSession && this.recovery) {
           // A 401 is definitive; only then is the body sniffed for a login
@@ -377,7 +396,8 @@ export class SDKClient {
 
   // Public raw-response seam for callers that must inspect non-2xx bodies.
   async fetchResponse(endpoint, opts = {}) {
-    return this._fetchWithAuth(endpoint, opts);
+    const { timeout = this.timeout, stateful = false, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, { timeout, stateful });
   }
 
   async rawRequest(endpoint, opts = {}) {
@@ -1188,9 +1208,13 @@ export class SDKClient {
   }
 
   async _warmSession() {
+    if (this._sessionFailure) throw this._sessionFailure;
     if (this.oauthCookies) return this.oauthCookies;
     if (!this._sessionPromise) {
-      this._sessionPromise = this._initializeSession().finally(() => {
+      this._sessionPromise = this._initializeSession().catch(error => {
+        if (isTerminalAuthError(error)) this._sessionFailure = error;
+        throw error;
+      }).finally(() => {
         this._sessionPromise = null;
       });
     }
@@ -1198,6 +1222,7 @@ export class SDKClient {
   }
 
   async _initializeSession() {
+    let challenged = false;
     try {
       const creds = await this.authProvider.getCredentials();
       if (creds.auth_method === 'oauth') {
@@ -1221,7 +1246,7 @@ export class SDKClient {
       }
       const endpoint = `${this.baseURL}/angular.do`;
       const cookieJar = new Map();
-      const loginResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=view_form.login`, {
+      const loginStatus = await this._mfaExchange('/angular.do?sysparm_type=view_form.login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -1230,8 +1255,17 @@ export class SDKClient {
           user_name: creds.username,
           user_password: creds.password,
         }).toString(),
-      });
-      collectSetCookies(cookieJar, loginResp);
+      }, cookieJar, async response => parseLoginStatus(await response.text()));
+      challenged = loginStatus?.status === 'mfa_code_required';
+      if (challenged) {
+        this._mfaRecognized = true;
+        const token = await this._completeMfaChallenge(cookieJar, creds.username);
+        if (!serializeCookies(cookieJar)) throw errMfaRejected();
+        this.sessionUserToken = token;
+        this.oauthCookies = serializeCookies(cookieJar);
+        return this.oauthCookies;
+      }
+      if (this._mfaRecognized) throw errMfaRejected();
       const refreshResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=get_user`, {
         method: 'POST',
         headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
@@ -1241,9 +1275,88 @@ export class SDKClient {
       const cookies = serializeCookies(cookieJar);
       this.oauthCookies = cookies;
       return cookies;
-    } catch {
+    } catch (error) {
+      if (challenged || this._mfaRecognized) throw isTerminalAuthError(error) ? error : errMfaRejected();
       return '';
     }
+  }
+
+  // Each network exchange, including its body, has a deadline independent of
+  // human code entry. The race also bounds streams that do not honor abort.
+  async _mfaExchange(path, options, cookieJar, consume = response => response) {
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(errMfaRejected());
+      }, this.timeout);
+    });
+    try {
+      return await Promise.race([deadline, (async () => {
+        const response = await fetch(new Request(`${this.baseURL}${path}`, {
+          ...options, redirect: 'manual', signal: controller.signal,
+          headers: { ...options.headers, Cookie: serializeCookies(cookieJar) },
+        }));
+        collectSetCookies(cookieJar, response);
+        try {
+          return await consume(response);
+        } finally {
+          if (!response.bodyUsed) await response.body?.cancel?.();
+        }
+      })()]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async _completeMfaChallenge(cookieJar, username) {
+    if (!this.canInteract()) throw errMfaRequired();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const code = normalizeTotpCode(await this.promptMfaCode({
+        message: attempt === 1 ? 'Enter the 6-digit authenticator code:' : `Code rejected. Enter a new code (${attempt}/3):`,
+      }));
+      if (!code) continue;
+      const tokens = await this._mfaExchange('/validate_multifactor_auth_code.do', { method: 'GET' }, cookieJar, async response => {
+        if (!response.ok) throw errMfaRejected();
+        return extractMfaFormTokens(await response.text());
+      });
+      if (!tokens.csrf || !tokens.processNonce) throw errMfaRejected();
+      const accepted = await this._mfaExchange('/validate_mfa_code.do', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: buildMfaVerificationBody({ ...tokens, code }).toString(),
+      }, cookieJar, response => {
+        if (response.headers.get('x-mfa_token') === 'invalid') return false;
+        const location = response.headers.get('location') || '';
+        const destination = new URL(location, this.baseURL);
+        if (response.status !== 302 || !location || destination.origin !== new URL(this.baseURL).origin
+          || /login|logout|expired|multifactor|validate_mfa/i.test(destination.pathname)) throw errMfaRejected();
+        return true;
+      });
+      if (!accepted) continue;
+      const token = await this._mfaExchange('/angular.do?sysparm_type=get_user', { method: 'POST' }, cookieJar, async response => {
+        const body = await response.text();
+        const token = response.headers.get('x-usertoken-response');
+        if (!response.ok || !token || /\bguest\b|login\.do|session_expired/i.test(body)) throw errMfaRejected();
+        return token;
+      });
+      // A token is not identity proof. Use the same cookie/CSRF session and
+      // compare the authenticated current user with the selected Basic user.
+      const params = new URLSearchParams({ sysparm_query: 'user_name=javascript:gs.getUserName()',
+        sysparm_fields: 'user_name', sysparm_limit: '1', sysparm_display_value: 'false' });
+      await this._mfaExchange(`/api/now/table/sys_user?${params}`, {
+        method: 'GET', headers: { Accept: 'application/json', 'X-UserToken': token },
+      }, cookieJar, async response => {
+        if (!response.ok) throw errMfaRejected();
+        const payload = await response.json();
+        const field = Array.isArray(payload?.result) && payload.result.length === 1 ? payload.result[0]?.user_name : null;
+        const identity = typeof field === 'object' && field ? field.value : field;
+        if (!username || identity !== username || identity === 'guest'
+          || (this.username && identity !== this.username)) throw errMfaRejected();
+      });
+      return token;
+    }
+    throw errMfaRejected();
   }
 
   async _getScriptsPageCSRF(cookies) {

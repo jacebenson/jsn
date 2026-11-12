@@ -88,10 +88,9 @@ test('actual CLI capture performs only GET table reads and keeps the saved revie
     assert.deepEqual(compare.data.interpretation, guidance);
     assert.match(compare.data._formatted, /not proven creation\/deletion/);
     assert.ok(requests.some(req => req.url.includes('/api/now/table/sys_metadata')));
-    // Table reads authenticate from their own headers, so a capture needs no UI
-    // session bootstrap at all. If one is ever required, the only POST the
-    // read-only boundary allows is the auth login itself.
-    assert.equal(requests.some(req => req.method === 'POST'), false, 'header-authenticated reads need no session bootstrap');
+    // Basic explicitly checks for MFA before table reads. Auth POSTs remain
+    // allowed, but every data request must still be read-only.
+    assert.ok(requests.some(req => req.method === 'POST' && req.url.startsWith('/angular.do?')));
     assert.ok(requests.filter(req => req.url.startsWith('/api/now/table/')).every(req => req.method === 'GET'));
     assert.ok(requests.every(req => req.method === 'GET' || (req.method === 'POST' && req.url.startsWith('/angular.do?'))));
     const count = requests.length;
