@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { SDKClient } from '../src/sdk.js';
 import { publishFlows } from '../src/flow-publish.js';
 
@@ -68,10 +67,9 @@ for (const caller of ['fetchResponse', 'publishFlows']) {
   });
 }
 
-// Compare the exact accepted base behavior, not a second copy of the new logic.
-const baseSource = execFileSync('git', ['show', 'f0d1980e62414c01049559ef775a628ad21a1343:cli/src/sdk.js'], { encoding: 'utf8' });
-const rewritten = baseSource.replace(/from '(\.\/[^']+)'/g, (_, path) => `from '${new URL(path, new URL('../src/sdk.js', import.meta.url)).href}'`);
-const { SDKClient: BaseClient } = await import(`data:text/javascript;base64,${Buffer.from(rewritten).toString('base64')}`);
+// Ordinary Basic REST must work even when the optional UI bootstrap is unavailable
+// or anonymous. Pin the public contract directly; historical comparison is evidence,
+// not a runtime dependency on Git or on a particular checkout's object history.
 for (const [label, body, status, token] of [
   ['guest', 'guest', 200, ''],
   ['nonJSON', '<html>UI unavailable</html>', 200, ''],
@@ -79,7 +77,7 @@ for (const [label, body, status, token] of [
   ['guest with token', 'guest', 200, 'anonymous-token'],
 ]) {
   test(`Basic REST retains base compatibility with ${label} bootstrap`, async t => {
-    let requests = [];
+    const requests = [];
     t.mock.method(globalThis, 'fetch', async req => {
       requests.push(req);
       if (new URL(req.url).pathname === '/angular.do') return reply(body, status,
@@ -87,14 +85,13 @@ for (const [label, body, status, token] of [
       return req.headers.get('Authorization')?.startsWith('Basic ')
         ? reply('{"result":[{"sys_id":"rest-success"}]}') : reply('unauthorized', 401);
     });
-    for (const Client of [BaseClient, SDKClient]) {
-      requests = [];
-      const client = new Client(base, credentials, { canInteract: () => false });
-      assert.deepEqual(await client.list('incident'), [{ sys_id: 'rest-success' }]);
-      const operations = requests.filter(req => new URL(req.url).pathname === '/api/now/table/incident');
-      assert.equal(operations.length, 1);
-      assert.match(operations[0].headers.get('Authorization'), /^Basic /);
-      assert.equal(operations[0].headers.get('Cookie'), null);
-    }
+    const client = new SDKClient(base, credentials, { canInteract: () => false });
+    assert.deepEqual(await client.list('incident'), [{ sys_id: 'rest-success' }]);
+    const operations = requests.filter(req => new URL(req.url).pathname === '/api/now/table/incident');
+    assert.equal(operations.length, 1);
+    // Known fixture-user:fixture-password header, independently specified rather
+    // than derived from the client or accepted merely for having a Basic prefix.
+    assert.equal(operations[0].headers.get('Authorization'), 'Basic Zml4dHVyZS11c2VyOmZpeHR1cmUtcGFzc3dvcmQ=');
+    assert.equal(operations[0].headers.get('Cookie'), null);
   });
 }
