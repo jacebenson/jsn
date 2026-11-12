@@ -1,10 +1,7 @@
 name: Documentation site
+# CI owns automatic path selection. Manual runs remain available for diagnosis.
 on:
-  pull_request:
-    paths: ['site/**', 'docs/**', 'cli/src/commands/docs/**', 'cli/package*.json', 'scripts/build-docs-site.mjs', '.github/workflows/docs-site.yml']
-  push:
-    branches: [main]
-    paths: ['site/**', 'docs/**', 'cli/src/commands/docs/**', 'cli/package*.json', 'scripts/build-docs-site.mjs', '.github/workflows/docs-site.yml']
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,27 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 'lts/*'
-      - run: npm --prefix cli ci
-      - run: npm --prefix docs ci
-      - run: node scripts/build-docs-site.mjs
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.4'
-          bundler-cache: true
-          working-directory: site
-      - run: bundle exec rails db:prepare
-        working-directory: site
-        env:
-          RAILS_ENV: test
-      - run: bundle exec ruby test/site_test.rb
-        working-directory: site
-        env:
-          RAILS_ENV: test
-      - run: docker build -f site/Dockerfile -t jsn-docs-validation .
+      - name: Build website and shared documentation engine
+        run: docker build -f site/Dockerfile -t jsn-site:test .
+      # bin/test loads every *_test.rb, including site_test.rb's preserved URL,
+      # asset, redirect, and manifest assertions formerly run separately here.
+      - name: Verify website routes and documentation API
+        run: docker run --rm --entrypoint bin/test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
+      - name: Verify shared sync and Markdown handling
+        run: >-
+          docker run --rm --entrypoint node jsn-site:test
+          --test test/sync-docs.test.mjs test/markdown.test.mjs
+      - name: Extract built URL inventory
+        run: |
+          container=$(docker create jsn-site:test)
+          trap 'docker rm "$container"' EXIT
+          mkdir -p site/tmp
+          docker cp "$container:/app/site/tmp/preserved-urls.json" site/tmp/preserved-urls.json
       - uses: actions/upload-artifact@v7
         with:
           name: docs-site-url-inventory
           path: site/tmp/preserved-urls.json
+          if-no-files-found: error
