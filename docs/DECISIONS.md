@@ -1,5 +1,32 @@
 # JSN decisions
 
+## CI validation ownership
+
+CI selects affected applications once. Its website job calls `docs-site.yml`,
+which builds the production Docker image once and runs all Rails tests through
+`site/bin/test` plus the shared sync and Markdown JavaScript tests. This includes
+`site_test.rb`'s preserved URL/body equality, assets, redirect, and manifest
+assertions; the built URL inventory remains an uploaded artifact. The docs
+workflow has manual and reusable entry points, not a second automatic push/PR
+trigger. The required `Tests` aggregator waits for the reusable website job.
+
+Only superseded PR CI runs may be cancelled. Main CI uses a unique run group;
+publish, promotion, snapshot, and release runs remain non-cancelling. Keep Linux
+and Windows CLI validation and independent publish/release tests: no latest-green
+lookup may replace exact-source validation. Trusted publisher workflow filenames,
+`dev`/`prod` environments, OIDC permissions, manual patch/minor/major release,
+tag/version equality, and explicit GITHUB_TOKEN downstream dispatch are contracts.
+`cli/test/workflow-contracts.test.js` guards these deliberate invariants.
+
+The public results page is `/results`, with `/results/:run_key` detail pages.
+It displays sanitized acceptance runs, not a run of the current npm release.
+A successful HTTP response or a historical passing subset is not production
+acceptance. Do not turn the live site into a blocking release dependency until
+an exact-version/source scenario, fixture or approved run producer, freshness
+expectation, and outage/failure policy are agreed. Existing local acceptance
+page tests remain part of the Docker suite; this change adds no live release gate
+and performs no PDI mutation or public acceptance ingestion.
+
 ## Root help is concise; `--all-commands --help` is the reference (2026-11-11)
 
 Ordinary `jsn --help` is a task directory: common commands with short

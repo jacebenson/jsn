@@ -10,6 +10,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Only obsolete PR validation may be cancelled. Main runs remain independent.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -69,17 +74,7 @@ jobs:
     name: Website tests
     needs: changes
     if: needs.changes.outputs.site == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build website and shared documentation engine
-        run: docker build -f site/Dockerfile -t jsn-site:test .
-      - name: Verify website routes and documentation API
-        run: docker run --rm --entrypoint bin/test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
-      - name: Verify shared sync and Markdown handling
-        run: >-
-          docker run --rm --entrypoint node jsn-site:test
-          --test test/sync-docs.test.mjs test/markdown.test.mjs
+    uses: ./.github/workflows/docs-site.yml
 
   test:
     name: Tests
