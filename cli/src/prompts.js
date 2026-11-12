@@ -30,6 +30,15 @@ export function cancellablePrompt(prompt) {
 
 export const input = lazyPrompt('input');
 export const password = lazyPrompt('password');
+
+// Use the shared Escape contract and a masked prompt; codes stay ephemeral.
+export async function mfaCode(config = {}, context = {}) {
+  return password({
+    ...config, mask: '*',
+    validate: answer => /^\d{6}$/.test(String(answer ?? '').replace(/[\s-]/g, ''))
+      || 'Enter the 6-digit code from your authenticator app.',
+  }, context);
+}
 export const select = lazyPrompt('select');
 export const search = lazyPrompt('search');
 export const confirm = lazyPrompt('confirm');

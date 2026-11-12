@@ -23,7 +23,11 @@ test('request variants retain distinct headers, bootstrap policy and response sh
   assert.equal(requests[1].headers.get('Content-Type'), 'application/x-www-form-urlencoded');
   assert.equal(requests[1].headers.get('X-Now-Domain'), null);
   assert.equal(requests[2].headers.get('Accept'), null);
-  assert.deepEqual(authOptions, [{ skipOAuthSession: false }, { skipOAuthSession: false }, { skipOAuthSession: true }]);
+  assert.deepEqual(authOptions, [
+    { skipOAuthSession: false, basicSession: true },
+    { skipOAuthSession: false, basicSession: true },
+    { skipOAuthSession: true, basicSession: false },
+  ]);
 });
 
 test('text and JSON requests reject API errors while raw responses remain inspectable', async (t) => {

@@ -103,6 +103,62 @@ Pending OAuth PKCE state is also identity-scoped when the profile username is kn
 
 The focused auth tests cover same-instance username isolation, explicit refresh/logout identity, method separation, read-only diagnostics, legacy handling, redaction, and concurrent username-scoped PKCE state.
 
+## Basic-auth TOTP challenges (#402)
+
+Basic credentials can require TOTP even for Table, Stats and Batch calls. Those
+normal SDK request paths therefore bootstrap Basic login **before** dispatching
+the pending operation. OAuth/token and GCK retain the endpoint-based stateless
+policy: Table/Stats/Batch do not warm a UI session, while processors and other
+cookie-dependent surfaces still do. `JSN_ALWAYS_WARM_SESSION=1` remains available.
+This deliberate Basic-only exception costs login round trips; it prevents a
+mutation from being used as a probe for an unresolved MFA challenge. Internal
+auth bootstrap bypasses recursion, not a recognized challenge's terminal state.
+
+Only JSON `status: "mfa_code_required"` enters MFA. Bad credentials, ACL failures,
+transport errors and unrecognized login bodies are not guessed to be MFA; the
+pre-existing non-MFA Basic behavior remains. The MFA lifecycle is:
+
+1. POST the username/password login form and retain the response cookies.
+2. Ask for a masked six-digit authenticator code with shared Escape cancellation.
+   Non-TTY, CI/agent, `--json`, and `--get` invocations fail with `mfa_required`
+   and guidance instead. Authentication methods never switch automatically.
+3. GET `/validate_multifactor_auth_code.do`, retaining rotated cookies and reading
+   `sysparm_ck` and `sysparm_process_nonce`. POST these with the ephemeral code
+   to `/validate_mfa_code.do` using cookies only. An explicit invalid-code header
+   permits a fresh code, up to three entries. Unexpected responses are terminal.
+4. A same-origin 302 to a non-login/non-expired destination is only a candidate,
+   not authentication proof. POST cookie-only `get_user`; require HTTP success
+   and `x-usertoken-response`, and reject guest/login responses. Then read the
+   authenticated current `sys_user` with cookies plus that token and require an
+   exact username match to the selected Basic credentials. Require cookies too.
+5. Only then publish the session cookie/token pair and dispatch the pending
+   operation. The existing session-generation, verified-recovery, and safe-replay
+   rules remain unchanged; Basic has no automatic credential renewal.
+
+Every network exchange in this challenge, including form and verification body
+consumption, is independently bounded by the SDK client's timeout (30 seconds by
+default) and an AbortController. The pending operation's timeout starts only
+after authentication, so human typing consumes none of it.
+
+Once recognized, all challenge failures (including transport/body failures,
+timeouts, malformed forms, rejected codes and identity mismatches) terminate the
+invocation with sanitized `mfa_code_rejected`, or preserve `PromptCancelled` /
+`mfa_required`. The failure is cached on the client, never retried as a fresh
+prompt and never downgraded to a Basic Authorization header. Interactive records
+preserves these outcomes before aggregate-count fallback, list-probe wrapping
+and source error handling. Escape retains `Cancelled.` with exit 0. No pending
+operation or mutation-history outcome is emitted on these pre-dispatch failures.
+
+Codes, passwords, cookies and CSRF/nonce values are not logged or added to errors
+or mutation history. No TOTP seed is accepted or stored, and no code is generated
+locally. Use an explicitly configured OAuth or browser-session profile when an
+unattended workload cannot complete TOTP.
+
+**Verification boundary:** this implementation is fixture/mock tested only.
+Live MFA acceptance, provider-family form compatibility, and live invalid-code
+retry behavior remain unverified; the available phone enrollment was deleted.
+The earlier live runtime-recovery evidence below is not live TOTP acceptance.
+
 ## Runtime authentication recovery
 
 Normal commands do not run an auth-status preflight or use a fixed session-age

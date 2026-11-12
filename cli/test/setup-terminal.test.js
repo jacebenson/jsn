@@ -107,6 +107,8 @@ for (const method of ['basic', 'browser']) test(`real ${method} setup terminal s
   assert.equal(config.profiles.fixture.read_only, false);
   assert.equal(config.profiles.fixture.skip_confirmations, false);
   assert.equal(config.profiles.fixture.include_counts, true);
-  assert.ok(requests.length > 0); assert.ok(requests.every(request => request.startsWith('GET ')));
+  assert.ok(requests.length > 0);
+  assert.ok(requests.every(request => request.startsWith('GET ')
+    || (method === 'basic' && request.startsWith('POST /angular.do?'))));
   t.diagnostic(completed.join('\n'));
 });

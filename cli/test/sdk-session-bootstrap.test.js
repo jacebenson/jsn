@@ -8,9 +8,8 @@ const basicAuth = {
 
 /**
  * The UI session bootstrap (`/angular.do`) mints cookies and an X-UserToken for
- * processor-style endpoints. Table, stats, batch and attachment requests carry
- * their own Authorization header, so warming there only added 2-3 sequential
- * round-trips to every CLI invocation (a fresh Node process never has cookies).
+ * processor-style endpoints. OAuth Table, stats and batch requests skip it;
+ * Basic deliberately checks for a TOTP challenge before operation dispatch.
  */
 test('needsUiSession is false only for header-authenticated REST resources', () => {
   const base = 'https://example.service-now.com';
@@ -42,8 +41,8 @@ test('needsUiSession keeps the bootstrap for stateful callers and the env overri
   assert.equal(needsUiSession('not a url'), true);
 });
 
-function spyClient() {
-  const client = new SDKClient('https://example.service-now.com', basicAuth);
+function spyClient(auth = basicAuth) {
+  const client = new SDKClient('https://example.service-now.com', auth);
   const state = { warmed: 0, requests: [] };
   client._warmSession = async () => {
     state.warmed += 1;
@@ -64,12 +63,12 @@ function stubFetch(t, state) {
 }
 
 test('a table read authenticates from its header without bootstrapping a session', async (t) => {
-  const { client, state } = spyClient();
+  const { client, state } = spyClient({ getCredentials: async () => ({ auth_method: 'oauth', access_token: 'fixture' }) });
   stubFetch(t, state);
   await client.request('https://example.service-now.com/api/now/table/sys_user?sysparm_limit=1');
   assert.equal(state.warmed, 0);
   assert.equal(state.requests.length, 1);
-  assert.match(state.requests[0].authorization, /^Basic /);
+  assert.equal(state.requests[0].authorization, 'Bearer fixture');
   assert.equal(state.requests[0].cookie, null);
 });
 

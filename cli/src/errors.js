@@ -3,6 +3,28 @@
 export const CodeUsage = 'usage_error';
 export const CodeNotFound = 'not_found';
 export const CodeAuth = 'auth_error';
+export const CodeMfaRequired = 'mfa_required';
+export const CodeMfaRejected = 'mfa_code_rejected';
+
+// These errors are terminal for the invocation and precede operation dispatch.
+export function errMfaRequired() {
+  const error = new AppError(CodeMfaRequired,
+    'Multi-factor authentication requires a six-digit authenticator code.',
+    'Re-run in an interactive terminal without --json/--get, or explicitly configure OAuth or a browser session with jsn auth login. JSN never stores TOTP seeds or generates codes.');
+  error.notSent = true;
+  return error;
+}
+
+export function errMfaRejected() {
+  const error = new AppError(CodeMfaRejected, 'MFA verification could not establish the selected authenticated session.',
+    'The challenge failed, expired, or could not be verified. Re-run the command to start a new challenge.');
+  error.notSent = true;
+  return error;
+}
+
+export function isTerminalAuthError(error) {
+  return error?.name === 'PromptCancelled' || error?.code === CodeMfaRequired || error?.code === CodeMfaRejected;
+}
 export const CodeForbidden = 'forbidden';
 export const CodeRateLimit = 'rate_limited';
 export const CodeNetwork = 'network_error';
@@ -237,7 +259,7 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
   if (err.name === 'PromptCancelled') return { stream: 'stderr', text: 'Cancelled.\n', exitCode: 0 };
   const code = err.code || 'unknown';
 
-  if (code === CodeAuth) {
+  if (code === CodeAuth || code === CodeMfaRequired || code === CodeMfaRejected) {
     if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
     let text = `Error (auth): ${err.message}\n`;
     if (err.hint) text += `\nHint: ${err.hint}\n`;

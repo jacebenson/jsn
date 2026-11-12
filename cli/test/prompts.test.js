@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { select, search, confirm, input, password, checkbox, PromptCancelled } from '../src/prompts.js';
+import { select, search, confirm, input, password, mfaCode, checkbox, PromptCancelled } from '../src/prompts.js';
 import { renderAppError } from '../src/errors.js';
 
 for (const [name, prompt, extra] of [
   ['select', select, { choices: [{ name: 'One', value: 'one' }] }],
   ['search', search, { source: () => [{ name: 'One', value: 'one' }] }],
   ['confirm', confirm, {}], ['input', input, {}], ['password', password, {}],
+  ['mfaCode', mfaCode, {}],
   ['checkbox', checkbox, { choices: [{ name: 'One', value: 'one' }] }],
 ]) {
   test(`Escape cancels ${name} and cleans up keyboard listeners`, async () => {
@@ -21,6 +22,18 @@ for (const [name, prompt, extra] of [
     assert.equal(stream.listenerCount('keypress'), originalListeners);
   });
 }
+
+test('MFA code input is masked and returns only the ephemeral answer', async () => {
+  const stream = new PassThrough(), output = new PassThrough();
+  let visible = '';
+  output.on('data', chunk => { visible += chunk; });
+  const pending = mfaCode({ message: 'Authenticator code' }, { input: stream, output });
+  setImmediate(() => stream.write('123456\r'));
+  assert.equal(await pending, '123456');
+  assert.doesNotMatch(visible, /123456/);
+  assert.match(visible, /\*+/);
+  assert.equal(stream.listenerCount('keypress'), 0);
+});
 
 test('arrow keys and Enter still select an answer', async () => {
   const stream = new PassThrough();
