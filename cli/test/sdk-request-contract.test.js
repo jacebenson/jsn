@@ -26,7 +26,7 @@ test('request variants retain distinct headers, bootstrap policy and response sh
   assert.deepEqual(authOptions, [
     { skipOAuthSession: false, basicSession: true },
     { skipOAuthSession: false, basicSession: true },
-    { skipOAuthSession: true, basicSession: false },
+    { skipOAuthSession: false, basicSession: true },
   ]);
 });
 

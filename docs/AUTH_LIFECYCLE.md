@@ -113,6 +113,12 @@ cookie-dependent surfaces still do. `JSN_ALWAYS_WARM_SESSION=1` remains availabl
 This deliberate Basic-only exception costs login round trips; it prevents a
 mutation from being used as a probe for an unresolved MFA challenge. Internal
 auth bootstrap bypasses recursion, not a recognized challenge's terminal state.
+Public `fetchResponse` operations use the same pre-dispatch gate and bounded,
+identity-verified recovery/replay rules; their response bodies remain available
+for the caller (including binary and non-2xx bodies). Only private authentication
+exchanges bypass warming/recovery. Without a recognized MFA challenge, stateless
+Basic REST retains its Basic Authorization header, even if UI bootstrap returns
+guest cookies or a token; those cookies are not proof of REST authentication.
 
 Only JSON `status: "mfa_code_required"` enters MFA. Bad credentials, ACL failures,
 transport errors and unrecognized login bodies are not guessed to be MFA; the
@@ -156,7 +162,8 @@ unattended workload cannot complete TOTP.
 
 **Verification boundary:** this implementation is fixture/mock tested only.
 Live MFA acceptance, provider-family form compatibility, and live invalid-code
-retry behavior remain unverified; the available phone enrollment was deleted.
+retry behavior remain unverified on the current revision. The user has re-enrolled
+phone TOTP; live acceptance remains reserved for the parent after independent review.
 The earlier live runtime-recovery evidence below is not live TOTP acceptance.
 
 ## Runtime authentication recovery

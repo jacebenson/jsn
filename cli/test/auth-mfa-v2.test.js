@@ -83,6 +83,14 @@ function harness(t, { failure = '', canInteract = true, prompt, timeout = 100, i
   return { client, requests, mutations, prompts: () => prompts };
 }
 
+test('public raw response waits for verified MFA and leaves its body unread', async t => {
+  const h = harness(t);
+  const response = await h.client.fetchResponse('https://fixture.invalid/api/now/wfa_fluent/activate_flows', { method: 'POST' });
+  assert.equal(response.bodyUsed, false);
+  assert.deepEqual(await response.json(), { result: { sys_id: 'fixture-created' } });
+  assert.equal(h.prompts(), 1);
+});
+
 test('Basic REST operations complete MFA, rotate cookies, verify identity and then dispatch', async t => {
   const h = harness(t);
   assert.equal((await h.client.create('incident', { short_description: 'fixture' })).sys_id, 'fixture-created');

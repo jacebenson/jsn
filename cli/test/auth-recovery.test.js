@@ -344,10 +344,9 @@ test('successful GCK command makes exactly one request with no preflight or reco
   assert.equal(f.counts.calls, 1); assert.equal(f.counts.refreshes, 0);
 });
 
-test('bootstrap raw responses never invoke recovery', async t => {
+test('private authentication bootstrap responses never invoke recovery', async t => {
   const f = fixture(t); f.respond([401]);
   t.mock.method(f.sdk.recovery, 'recover', () => assert.fail('bootstrap recovery'));
-  assert.equal((await f.sdk.fetchResponse(`${instance}/bootstrap`)).status, 401);
   assert.equal((await f.sdk._fetchWithAuth(`${instance}/bootstrap`)).status, 401);
   assert.equal(f.counts.refreshes, 0);
 });

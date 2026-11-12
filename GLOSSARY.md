@@ -88,8 +88,12 @@ Firefox and normal-profile browser integration remain future work.
 
 Basic-auth TOTP is a pre-dispatch session gate, not credential renewal or an
 authentication-method fallback. Basic normal requests, including Table/Stats/
-Batch, bootstrap login to detect exact `mfa_code_required`; other methods retain
-stateless REST warming policy. A masked six-digit code is ephemeral. Cookies,
+Batch and public raw-response operations, bootstrap login to detect exact
+`mfa_code_required`; other methods retain stateless REST warming policy. Without
+an MFA challenge, stateless Basic REST keeps Basic Authorization rather than
+using UI cookies/tokens as authentication proof. Public raw responses retain
+caller-owned bodies and the shared bounded recovery/replay policy; only private
+authentication exchanges bypass it. A masked six-digit code is ephemeral. Cookies,
 CSRF and nonce remain on one challenge; a redirect alone is not success:
 cookie-only `get_user` must return a token, and the current-user cookie/CSRF
 probe must identify the selected Basic username before releasing the operation.

@@ -127,7 +127,10 @@ export class SDKClient {
         if (this._sessionFailure) throw this._sessionFailure;
         if (!skipOAuthSession || basicSession || this._mfaRecognized) {
           const cookies = await this._warmSession();
-          if (cookies) {
+          // Stateless REST historically uses Basic. A non-challenge UI
+          // bootstrap (even one minting guest cookies/tokens) must not replace
+          // working REST credentials. Only verified MFA overrides that policy.
+          if (cookies && (!skipOAuthSession || this._mfaRecognized)) {
             req.headers.set('Cookie', cookies);
             if (this.sessionUserToken) req.headers.set('X-UserToken', this.sessionUserToken);
             break;
@@ -393,7 +396,8 @@ export class SDKClient {
 
   // Public raw-response seam for callers that must inspect non-2xx bodies.
   async fetchResponse(endpoint, opts = {}) {
-    return this._fetchWithAuth(endpoint, opts);
+    const { timeout = this.timeout, stateful = false, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, { timeout, stateful });
   }
 
   async rawRequest(endpoint, opts = {}) {
