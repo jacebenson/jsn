@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { diffUpdateSets } from '../update-set-diff.js';
 import path from 'node:path';
 import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '../update-set-xml.js';
 import { editor, confirm } from '../prompts.js';
@@ -548,6 +549,15 @@ export function updateSetsCmd(wrap) {
     describe: 'Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.',
     builder: (yargs) => {
       return yargs
+        .command({
+          command: 'diff',
+          describe: 'Read-only captured-set comparison: jsn updatesets diff --source dev --target test [--from 2w|2026-10-01]. Not deployment readiness; bounded count-verified reads (20 x 200 rows/query).',
+          builder: y => y
+            .option('source', { type: 'string', demandOption: true, describe: 'Source profile' })
+            .option('target', { type: 'string', demandOption: true, describe: 'Target profile (all dates)' })
+            .option('from', { type: 'string', default: '2w', describe: 'Source sys_updated_on UTC window: 2w, 14d or YYYY-MM-DD; not completion history' }),
+          handler: wrap(diffUpdateSets),
+        })
         .command({
           command: 'list',
           aliases: ['ls'],
