@@ -16,6 +16,7 @@ import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../upd
 declareCapabilities('updatesets', {
   mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen', 'preview', 'commit'],
   mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen', 'preview', 'commit'],
+  skipContextHeaderSubcommands: ['diff'],
   localPreviewSubcommands: ['import'],
 });
 

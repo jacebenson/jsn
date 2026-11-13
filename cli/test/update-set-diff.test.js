@@ -9,10 +9,60 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { credKey } from '../src/auth/credential-store.js';
-import { parseDiffWindow, readDiffTable } from '../src/update-set-diff.js';
+import { parseDiffWindow, readDiffTable, diffUpdateSets } from '../src/update-set-diff.js';
 
 const execute = promisify(execFile);
 const id = n => n.toString(16).padStart(32, '0');
+test('count changes, page budget and provider 403 never establish absence', async () => {
+  for (const mode of ['changed', 'budget', '403']) {
+    let counts = 0;
+    let pages = 0;
+    const sdk = { baseURL: 'http://fixture', request: async url => {
+      if (mode === '403') throw new Error('Provider 403 Forbidden');
+      if (url.includes('/stats/')) return { result: { stats: { count: mode === 'budget' ? '21' : String(++counts) } } };
+      return { result: [{ sys_id: id(++pages) }] };
+    } };
+    const coverage = [];
+    assert.equal((await readDiffTable(sdk, 'test', '', ['sys_id'], coverage, mode)).complete, false);
+    assert.match(coverage[0].error, mode === 'changed' ? /count changed/ : mode === 'budget' ? /Page budget/ : /403/);
+    assert.equal(coverage[0].fetched, mode === 'budget' ? 20 : mode === 'changed' ? 1 : 0);
+  }
+});
+
+test('named grouping, missing ancestor, artifact reasons and empty selection coverage', async () => {
+  let selection = 'full';
+  const rows = [
+    { sys_id: id(1), name: 'Orphan child', state: 'complete', parent: id(99), sys_updated_on: '' },
+    { sys_id: id(2), name: 'Standalone fix', state: 'complete', parent: '', sys_updated_on: '' },
+  ];
+  const sdk = side => ({ baseURL: 'http://fixture', request: async value => {
+    const url = new URL(value);
+    const table = url.pathname.split('/').at(-1);
+    const query = url.searchParams.get('sysparm_query');
+    if (table === 'sys_update_set' && query.includes('state=complete') && selection === 'error') throw new Error('Provider 403 Forbidden');
+    let data = table === 'sys_update_set' ? (query.includes('state=complete') && selection === 'empty' ? [] : rows) : table === 'sys_remote_update_set' ? rows.map(row => ({ sys_id: row.sys_id, remote_sys_id: row.sys_id, update_set: '', name: row.name, state: 'committed' })) :
+      (side === 'source' ? ['shared', 'only_source'] : ['shared', 'only_target']).map((name, i) => ({ sys_id: id(200 + i), name, action: 'INSERT_OR_UPDATE', payload: side, update_set: id(1), remote_update_set: id(1) }));
+    return url.pathname.includes('/stats/') ? { result: { stats: { count: String(data.length) } } } : { result: data };
+  } });
+  const app = { config: { profiles: { source: { instance_url: 'http://source' }, target: { instance_url: 'http://target' } } }, getSDKForProfile: (_, options) => sdk(options.profileName), ok() {} };
+  const run = () => diffUpdateSets({ source: 'source', target: 'target', from: '2026-10-01' }, app);
+  const report = await run();
+  assert.match(report._formatted, /Batch: \(unreadable/);
+  assert.match(report._formatted, /Standalone update sets/);
+  assert.match(report._formatted, /shared: content differs/);
+  assert.match(report._formatted, /only_source: missing-in-target/);
+  assert.match(report._formatted, /only_target: target-only/);
+  assert.equal(report.sets[0].parent_name, null);
+  assert.equal(report.sets[0].parent, id(99));
+  assert.deepEqual(report.sets[0].capture_counts, { source: 2, target: 2 });
+  selection = 'empty';
+  assert.match((await run())._formatted, /No selected sets:/);
+  selection = 'error';
+  const failed = await run();
+  assert.doesNotMatch(failed._formatted, /No selected sets:/);
+  assert.match(failed._formatted, /Source selection unreadable or incomplete/);
+});
+
 test('date windows validate calendar dates and default to two weeks', () => {
   const now = new Date('2026-10-15T00:00:00Z');
   assert.equal(parseDiffWindow(undefined, now), '2026-10-01 00:00:00');
@@ -81,7 +131,10 @@ test('real CLI uses independent profiles, read-only evidence, JSON/get/human and
   assert.equal(report.sets[0].base, id(10));
   assert.equal(Object.hasOwn(report, '_formatted'), false);
   const human = await run(['--format', 'styled', '--from', '2026-10-01']);
-  assert.match(human.stdout, /BASE \| PARENT/);
+  assert.match(human.stdout, /Batch: Batch/);
+  assert.match(human.stdout, /parent: Batch/);
+  assert.match(human.stdout, /Captures: source 1 \/ target 1/);
+  assert.match(human.stdout, /sys_script_.*: content differs/);
   assert.match(human.stdout, /context only/);
   if (process.env.JSN_DIFF_CAPTURE) await fs.writeFile(process.env.JSN_DIFF_CAPTURE, human.stdout);
   const extracted = await run(['--get', 'data.sets.0.status', '--from', '2w']);
@@ -95,4 +148,8 @@ test('real CLI uses independent profiles, read-only evidence, JSON/get/human and
   assert.ok(calls.filter(call => call.path.endsWith('sys_remote_update_set')).every(call => !call.query.includes('sys_updated_on')));
   assert.ok(calls.some(call => call.source && call.query?.includes('state=complete^sys_updated_on>=')));
   assert.equal(await fs.readFile(path.join(configDir, 'config.json'), 'utf8'), config);
+  for (const default_profile of [undefined, 'unrelated']) {
+    await fs.writeFile(path.join(configDir, 'config.json'), JSON.stringify({ ...JSON.parse(config), default_profile }));
+    assert.match((await run(['--format', 'styled'])).stdout, /Batch: Batch/);
+  }
 });

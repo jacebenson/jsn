@@ -118,10 +118,15 @@ export async function diffUpdateSets(argv, app) {
     }
     if (!all.has(base) && base !== '(cycle)') base = `(unreadable ${base})`;
     const result = { sys_id: id, name: raw(row.name), state: raw(row.state), parent: raw(row.parent), base, context: !selectedIDs.has(id), status: 'Unknown', evidence: [] };
+    result.base_name = all.has(base) ? raw(all.get(base).name) : null;
+    result.parent_name = all.has(result.parent) ? raw(all.get(result.parent).name) : null;
+    result.group = !result.parent && ![...all.values()].some(member => raw(member.parent) === id) ? 'standalone' : 'batch';
+    result.capture_counts = { source: null, target: null };
     sets.push(result);
     if (result.context) { result.evidence.push('Hierarchy context only; not selected for comparison'); continue; }
     if (!selected.complete || !remote.complete) { result.evidence.push('Incomplete source selection or target inventory'); continue; }
     const a = await contents(source, 'update_set', id, coverage, `source contents ${id}`);
+    result.capture_counts.source = a.complete ? a.rows.length : null;
     const left = captureMap(a.rows);
     if (!a.complete || !left) { result.evidence.push('Incomplete or ambiguous source captured contents'); continue; }
     const candidates = remote.rows.filter(candidate => raw(candidate.remote_sys_id) === id);
@@ -131,6 +136,7 @@ export async function diffUpdateSets(argv, app) {
     const candidate = candidates[0];
     if (raw(candidate.state) !== 'committed') { result.status = 'Retrieved not committed'; result.evidence.push(`Target retrieved state: ${raw(candidate.state) || '(empty)'}`); continue; }
     const b = await contents(target, 'remote_update_set', raw(candidate.sys_id), coverage, `target contents ${raw(candidate.sys_id)}`);
+    result.capture_counts.target = b.complete ? b.rows.length : null;
     const right = captureMap(b.rows);
     if (!a.complete || !b.complete || !left || !right) { result.evidence.push('Incomplete or ambiguous captured contents'); continue; }
     result.changes = [...new Set([...left.keys(), ...right.keys()])].filter(key => left.get(key) !== right.get(key)).map(name => ({ name, source: left.has(name), target: right.has(name) }));
@@ -138,9 +144,16 @@ export async function diffUpdateSets(argv, app) {
     result.evidence.push('Origin remote_sys_id equals source sys_id; committed retrieved state; count-verified captured name/action/payload comparison');
   }
   const report = { source: argv.source, target: argv.target, from, date_basis: 'sys_updated_on (UTC)', caveat, coverage, hierarchy_cycles: [...new Set(cycles)], sets };
-  const lines = [`Update sets: ${argv.source} → ${argv.target} (since ${from} UTC)`, caveat, '', 'BASE | PARENT | SOURCE STATE | TARGET STATUS | SET'];
-  const grouped = [...sets].sort((a, b) => a.base.localeCompare(b.base) || a.parent.localeCompare(b.parent) || a.sys_id.localeCompare(b.sys_id));
-  for (const set of grouped) lines.push(`${set.base || '-'} | ${set.parent || '-'} | ${set.state} | ${set.status}${set.context ? ' (context only)' : ''} | ${set.name} [${set.sys_id}]`, `  ${set.evidence.join('; ')}`);
+  const lines = [`Update sets: ${argv.source} → ${argv.target} (since ${from} UTC)`, caveat];
+  if (!selected.rows.length) lines.push(selected.complete ? 'No selected sets: no currently complete source sets in this window.' : 'Source selection unreadable or incomplete; absence of selected sets is not established.');
+  const grouped = [...sets].sort((a, b) => a.group.localeCompare(b.group) || a.base.localeCompare(b.base) || a.parent.localeCompare(b.parent) || a.sys_id.localeCompare(b.sys_id));
+  let heading;
+  for (const set of grouped) {
+    const group = set.group === 'standalone' ? 'Standalone update sets' : `Batch: ${set.base_name || set.base} [${set.base}]`;
+    if (heading !== group) { lines.push('', group); heading = group; }
+    lines.push(`  ${set.name} — ${set.status}${set.context ? ' (context only)' : ''}`, `    Source state: ${set.state}; parent: ${set.parent ? (set.parent_name || `unreadable ${set.parent}`) : '(none)'}`, `    Captures: source ${set.capture_counts.source ?? 'unknown'} / target ${set.capture_counts.target ?? 'unknown'}`, `    ${set.evidence.join('; ')}`);
+    for (const change of set.changes || []) lines.push(`    ${change.name}: ${!change.target ? 'missing-in-target' : !change.source ? 'target-only' : 'content differs'}`);
+  }
   for (const entry of coverage.filter(entry => entry.status !== 'complete')) lines.push(`Coverage ${entry.source}: ${entry.status} — ${entry.error}`);
   if (cycles.length) lines.push(`Hierarchy cycles: ${[...new Set(cycles)].join(', ')}`);
   Object.defineProperty(report, '_formatted', { value: lines.join('\n'), enumerable: false });
