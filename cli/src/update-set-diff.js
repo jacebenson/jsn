@@ -144,19 +144,56 @@ export async function diffUpdateSets(argv, app) {
     result.evidence.push('Origin remote_sys_id equals source sys_id; committed retrieved state; count-verified captured name/action/payload comparison');
   }
   const report = { source: argv.source, target: argv.target, from, date_basis: 'sys_updated_on (UTC)', caveat, coverage, hierarchy_cycles: [...new Set(cycles)], sets };
-  const lines = [`Update sets: ${argv.source} → ${argv.target} (since ${from} UTC)`, caveat];
-  if (!selected.rows.length) lines.push(selected.complete ? 'No selected sets: no currently complete source sets in this window.' : 'Source selection unreadable or incomplete; absence of selected sets is not established.');
-  const grouped = [...sets].sort((a, b) => a.group.localeCompare(b.group) || a.base.localeCompare(b.base) || a.parent.localeCompare(b.parent) || a.sys_id.localeCompare(b.sys_id));
-  let heading;
-  for (const set of grouped) {
-    const group = set.group === 'standalone' ? 'Standalone update sets' : `Batch: ${set.base_name || set.base} [${set.base}]`;
-    if (heading !== group) { lines.push('', group); heading = group; }
-    lines.push(`  ${set.name} — ${set.status}${set.context ? ' (context only)' : ''}`, `    Source state: ${set.state}; parent: ${set.parent ? (set.parent_name || `unreadable ${set.parent}`) : '(none)'}`, `    Captures: source ${set.capture_counts.source ?? 'unknown'} / target ${set.capture_counts.target ?? 'unknown'}`, `    ${set.evidence.join('; ')}`);
-    for (const change of set.changes || []) lines.push(`    ${change.name}: ${!change.target ? 'missing-in-target' : !change.source ? 'target-only' : 'content differs'}`);
-  }
-  for (const entry of coverage.filter(entry => entry.status !== 'complete')) lines.push(`Coverage ${entry.source}: ${entry.status} — ${entry.error}`);
-  if (cycles.length) lines.push(`Hierarchy cycles: ${[...new Set(cycles)].join(', ')}`);
-  Object.defineProperty(report, '_formatted', { value: lines.join('\n'), enumerable: false });
+  const formatted = formatUpdateSetDiff(report, argv);
+  Object.defineProperty(report, '_formatted', { value: formatted, enumerable: false });
   app.ok(report, { summary: 'Captured update-set comparison' });
   return report;
+}
+
+// Pure production renderer also supports replaying a saved report without instance reads.
+export function formatUpdateSetDiff(report, { verbose = false } = {}) {
+  const { sets, coverage } = report;
+  if (verbose) {
+    const lines = [`Update sets: ${report.source} → ${report.target} (since ${report.from} UTC)`, report.caveat];
+    if (!sets.filter(set => !set.context).length) lines.push(report.coverage.find(entry => entry.source === 'source selection')?.status === 'complete' ? 'No selected sets: no currently complete source sets in this window.' : 'Source selection unreadable or incomplete; absence of selected sets is not established.');
+    const grouped = [...sets].sort((a, b) => a.group.localeCompare(b.group) || a.base.localeCompare(b.base) || a.parent.localeCompare(b.parent) || a.sys_id.localeCompare(b.sys_id));
+    let heading;
+    for (const set of grouped) {
+      const group = set.group === 'standalone' ? 'Standalone update sets' : `Batch: ${set.base_name || set.base} [${set.base}]`;
+      if (heading !== group) { lines.push('', group); heading = group; }
+      lines.push(`  ${set.name} — ${set.status}${set.context ? ' (context only)' : ''}`, `    Source state: ${set.state}; parent: ${set.parent ? (set.parent_name || `unreadable ${set.parent}`) : '(none)'}`, `    Captures: source ${set.capture_counts.source ?? 'unknown'} / target ${set.capture_counts.target ?? 'unknown'}`, `    ${set.evidence.join('; ')}`);
+      lines.push(`    Source ID: ${set.sys_id}; parent ID: ${set.parent || '(none)'}`);
+      for (const candidate of set.candidates || []) lines.push(`    Target candidate: ${candidate.sys_id}; state: ${candidate.state}; update set: ${candidate.update_set || '(none)'}`);
+      for (const change of set.changes || []) lines.push(`    ${change.name}: ${!change.target ? 'missing-in-target' : !change.source ? 'target-only' : 'content differs'}`);
+    }
+    for (const entry of coverage) lines.push(`Coverage ${entry.source}: ${entry.status} — ${entry.fetched}/${entry.total ?? '?'}${entry.error ? ` — ${entry.error}` : ''}`);
+    if (report.hierarchy_cycles.length) lines.push(`Hierarchy cycles: ${report.hierarchy_cycles.join(', ')}`);
+    return lines.join('\n');
+  }
+  const lines = [`Update sets: ${report.source} → ${report.target} (since ${report.from} UTC)`, report.caveat];
+  if (!sets.some(set => !set.context)) lines.push(coverage.find(entry => entry.source === 'source selection')?.status === 'complete'
+    ? 'No selected sets: no currently complete source sets in this window.'
+    : 'Source selection unreadable or incomplete; absence of selected sets is not established.');
+  const groups = new Map();
+  for (const set of sets) {
+    const key = set.group === 'standalone' ? 'standalone' : set.base;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(set);
+  }
+  for (const members of groups.values()) {
+    const first = members[0];
+    lines.push('', first.group === 'standalone' ? 'Standalone update sets' : `Batch: ${first.base_name || '(unreadable batch)'}`);
+    const rows = members.map(set => [set.name, set.parent ? (set.parent_name || '(unreadable)') : '—', set.state, set.context ? 'Context only' : set.status, `${set.capture_counts.source ?? '?'} / ${set.capture_counts.target ?? '?'}`]);
+    const header = ['Update set', 'Parent', 'Source state', 'Target status', 'Captures S/T'];
+    const widths = header.map((title, i) => Math.max(title.length, ...rows.map(row => row[i].length)));
+    for (const row of [header, ...rows]) lines.push('  ' + row.map((cell, i) => cell.padEnd(widths[i])).join('  ').trimEnd());
+    for (const set of members.filter(set => !set.context && ['Different', 'Unknown'].includes(set.status))) {
+      lines.push(`  ${set.name} — ${set.status}: ${set.evidence.join('; ')}`);
+      for (const change of set.changes || []) lines.push(`    ${change.name}: ${!change.target ? 'missing-in-target' : !change.source ? 'target-only' : 'content differs'}`);
+    }
+  }
+  if (coverage.some(entry => entry.status !== 'complete')) lines.push('Coverage incomplete: classifications may be Unknown; use --verbose or --json for evidence.');
+  if (report.hierarchy_cycles.length) lines.push('Hierarchy cycles detected; see --verbose or --json.');
+  lines.push('', 'Captures S/T = source / target; ? = not compared or unreadable. Context only = hierarchy member outside selection.', 'Use --verbose for IDs and full evidence; --json retains coverage and identities.');
+  return lines.join('\n');
 }
