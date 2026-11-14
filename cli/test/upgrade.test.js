@@ -61,7 +61,38 @@ test('registry and installation failures cannot report success', async () => {
   assert.deepEqual(broken.output, []);
 });
 
+for (const [current, requested, expected] of [
+  ['5.4.0', undefined, 'latest'],
+  ['5.4.1-dev.1', undefined, 'dev'],
+  ['5.4.0', 'dev', 'dev'],
+  ['5.4.1-dev.1', 'main', 'latest'],
+]) {
+  test(`offline update gives manual install for ${current}, ${requested}`, async () => {
+    const f = fixture(current, null);
+    await assert.rejects(f.run({ channel: requested }), error => {
+      assert.ok(error.hint.includes(`npm install -g @jacebenson/jsn@${expected}`));
+      return true;
+    });
+    assert.deepEqual(f.installs, []);
+    assert.deepEqual(f.output, []);
+  });
+}
+
+test('main aliases stable and permits downgrade from dev', async () => {
+  const f = fixture('5.5.0-dev.1', '5.4.0');
+  await f.run({ channel: 'main' });
+  assert.equal(f.checks[0].channel, 'latest');
+  assert.deepEqual(f.installs, [['install', '-g', '@jacebenson/jsn@latest']]);
+});
+
 for (const command of ['upgrade', 'update']) {
+  test(`real CLI ${command} accepts main as stable`, () => {
+    const result = spawnSync(process.execPath, ['bin/jsn.js', command, '--dry-run', '--channel', 'main', '--json'], {
+      encoding: 'utf8', env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).data.installCmd, 'npm install -g @jacebenson/jsn@latest');
+  });
   test(`real CLI ${command} dry-run works without an instance`, () => {
     const result = spawnSync(process.execPath, ['bin/jsn.js', command, '--dry-run', '--channel', 'dev', '--json'], {
       encoding: 'utf8', env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },
