@@ -702,6 +702,14 @@ Keep one logged-in application tab open for the instance; multiple matching
 tabs are rejected. The debugging connection grants access to that browser
 profile, so close it when finished.
 
+If `jsn` runs over SSH and the browser is on your own machine, neither path
+above is usable: `--browser` would open a window on the remote host, and
+`--browser-url` needs a debugging port. The proposed alternative is a
+browser-extension handoff over an SSH local forward; see
+[`browser-extension-auth-design.md`](browser-extension-auth-design.md) for the
+design, threat model, and open questions. It is not implemented yet, so the
+supported fallback today is `--headers-file <path|->`.
+
 For CI/CD, set environment variables:
 
 ```bash
