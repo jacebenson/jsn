@@ -43,12 +43,12 @@ export function upgradeCmd(wrap, { version = getVersion, check = checkLatest, in
     aliases: ['update'],
     describe: 'Upgrade jsn through npm (preserves the installed release channel)',
     builder: (y) => y
-      .option('channel', { type: 'string', choices: ['dev', 'latest'], describe: 'Choose the npm release channel' })
+      .option('channel', { type: 'string', choices: ['dev', 'main', 'latest'], describe: 'Choose dev or stable (main/latest)' })
       .option('dry-run', { type: 'boolean', describe: 'Show the install command without installing' })
       .option('force', { type: 'boolean', describe: 'Reinstall even when the selected version is not newer' }),
     handler: wrap(async (argv, app) => {
       const current = version();
-      const channel = argv.channel || getReleaseChannel(current);
+      const channel = argv.channel === 'main' ? 'latest' : argv.channel || getReleaseChannel(current);
       const args = ['install', '-g', `@jacebenson/jsn@${channel}`];
       const command = `npm ${args.join(' ')}`;
       if (argv.dryRun || argv['dry-run']) {
@@ -56,7 +56,7 @@ export function upgradeCmd(wrap, { version = getVersion, check = checkLatest, in
         return;
       }
       const latest = await check({ version: current, channel });
-      if (!latest) throw new AppError(CodeNetwork, 'Could not check the npm release channel.', 'Check connectivity and retry; use --dry-run to inspect the command.');
+      if (!latest) throw new AppError(CodeNetwork, 'Could not check the npm release channel.', `Check connectivity and retry, or install manually: ${command}`);
       const switching = argv.channel && channel !== getReleaseChannel(current);
       if (!argv.force && !switching && !isNewer(latest, current)) {
         app.ok({ version: current, latest, channel, upToDate: true }, { summary: `jsn ${current} — no newer version available` });
