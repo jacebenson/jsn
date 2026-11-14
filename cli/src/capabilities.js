@@ -97,6 +97,11 @@ export function dailyCheckSkipCommands(caps = collectCapabilities()) {
   return out;
 }
 
+export function skipsContextHeader(argv, caps = collectCapabilities()) {
+  return contextHeaderSkipCommands(caps).has(argv._?.[0])
+    || caps.get(argv._?.[0])?.skipContextHeaderSubcommands?.includes(argv._?.[1]) === true;
+}
+
 export function contextHeaderSkipCommands(caps = collectCapabilities()) {
   const out = dailyCheckSkipCommands(caps);
   for (const [name, capability] of caps) {
