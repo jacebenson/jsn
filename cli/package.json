@@ -27,7 +27,7 @@
   "dependencies": {
     "@inquirer/core": "^10.3.2",
     "@inquirer/prompts": "^7.10.1",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.1.1",
     "js-yaml": "^5.5.0",
     "saxes": "^6.0.0",
     "turndown": "^7.2.5"
