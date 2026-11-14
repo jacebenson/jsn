@@ -170,10 +170,12 @@ export function formatUpdateSetDiff(report, { verbose = false } = {}) {
     if (report.hierarchy_cycles.length) lines.push(`Hierarchy cycles: ${report.hierarchy_cycles.join(', ')}`);
     return lines.join('\n');
   }
-  const lines = [`Update sets: ${report.source} → ${report.target} (since ${report.from} UTC)`, report.caveat];
-  if (!sets.some(set => !set.context)) lines.push(coverage.find(entry => entry.source === 'source selection')?.status === 'complete'
+  const labels = { Matching: 'Committed, matching', Missing: 'Missing in target', 'Retrieved not committed': 'Loaded, not committed', Different: 'Content differs', Unknown: 'Unable to verify' };
+  const lines = [`${report.source} → ${report.target} · since ${report.from} UTC`, 'Complete source sets last updated in this window. Captured updates, not deployment readiness.'];
+  const selected = sets.filter(set => !set.context);
+  if (!selected.length) lines.push(coverage.find(entry => entry.source === 'source selection')?.status === 'complete'
     ? 'No selected sets: no currently complete source sets in this window.'
-    : 'Source selection unreadable or incomplete; absence of selected sets is not established.');
+    : 'Source selection unreadable or incomplete; retry with --verbose to inspect coverage.');
   const groups = new Map();
   for (const set of sets) {
     const key = set.group === 'standalone' ? 'standalone' : set.base;
@@ -183,17 +185,44 @@ export function formatUpdateSetDiff(report, { verbose = false } = {}) {
   for (const members of groups.values()) {
     const first = members[0];
     lines.push('', first.group === 'standalone' ? 'Standalone update sets' : `Batch: ${first.base_name || '(unreadable batch)'}`);
-    const rows = members.map(set => [set.name, set.parent ? (set.parent_name || '(unreadable)') : '—', set.state, set.context ? 'Context only' : set.status, `${set.capture_counts.source ?? '?'} / ${set.capture_counts.target ?? '?'}`]);
-    const header = ['Update set', 'Parent', 'Source state', 'Target status', 'Captures S/T'];
-    const widths = header.map((title, i) => Math.max(title.length, ...rows.map(row => row[i].length)));
-    for (const row of [header, ...rows]) lines.push('  ' + row.map((cell, i) => cell.padEnd(widths[i])).join('  ').trimEnd());
-    for (const set of members.filter(set => !set.context && ['Different', 'Unknown'].includes(set.status))) {
-      lines.push(`  ${set.name} — ${set.status}: ${set.evidence.join('; ')}`);
-      for (const change of set.changes || []) lines.push(`    ${change.name}: ${!change.target ? 'missing-in-target' : !change.source ? 'target-only' : 'content differs'}`);
+    const ids = new Set(members.map(set => set.sys_id));
+    const children = new Map();
+    for (const set of members) {
+      if (!children.has(set.parent)) children.set(set.parent, []);
+      children.get(set.parent).push(set);
     }
+    const visited = new Set();
+    const render = root => {
+      const pending = [{ set: root, depth: 0 }];
+      while (pending.length) {
+        const { set, depth, last = true } = pending.pop();
+        if (visited.has(set.sys_id)) continue;
+        visited.add(set.sys_id);
+        const indent = '  '.repeat(depth + 1);
+        lines.push(`${indent}${depth ? (last ? '└─ ' : '├─ ') : ''}${set.name} — ${set.context ? `Context only (${set.state})` : labels[set.status] || labels.Unknown}`);
+        if (!set.context && set.status === 'Different') {
+          for (const change of set.changes || []) lines.push(`${indent}   ${change.name}: ${!change.target ? 'missing-in-target' : !change.source ? 'target-only' : 'content differs'}`);
+        }
+        if (!set.context && set.status === 'Unknown') {
+          const reason = set.evidence?.[0] || 'Comparison evidence unavailable';
+          lines.push(`${indent}   ${reason}; inspect --verbose and retry after resolving it.`);
+        }
+        const descendants = children.get(set.sys_id) || [];
+        for (let i = descendants.length - 1; i >= 0; i--) pending.push({ set: descendants[i], depth: depth + 1, last: i === descendants.length - 1 });
+      }
+    };
+    // Root-first traversal preserves provider order among siblings. A second pass
+    // covers cycles and missing ancestors once each, without recursion.
+    for (const set of members) if (!ids.has(set.parent)) render(set);
+    for (const set of members) render(set);
   }
-  if (coverage.some(entry => entry.status !== 'complete')) lines.push('Coverage incomplete: classifications may be Unknown; use --verbose or --json for evidence.');
-  if (report.hierarchy_cycles.length) lines.push('Hierarchy cycles detected; see --verbose or --json.');
-  lines.push('', 'Captures S/T = source / target; ? = not compared or unreadable. Context only = hierarchy member outside selection.', 'Use --verbose for IDs and full evidence; --json retains coverage and identities.');
+  if (selected.length) {
+    const counts = new Map();
+    for (const set of selected) {
+      const label = labels[set.status] || labels.Unknown;
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    lines.push('', [...counts].map(([label, count]) => `${count} ${label}`).join(' · '));
+  }
   return lines.join('\n');
 }
