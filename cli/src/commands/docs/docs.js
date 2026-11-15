@@ -9,6 +9,10 @@ import { listDocsReleases } from './releases.js';
 
 declareCapabilities('docs', { noInstance: true, skipDailyChecks: true });
 
+function presented(data, text) {
+  return Object.defineProperty(data, '_formatted', { value: text, enumerable: false });
+}
+
 async function search(argv, app) {
   const query = Array.isArray(argv.query) ? argv.query.join(' ') : argv.query;
   const result = await searchHostedDocs({ query, limit: argv.limit, offset: argv.offset, bundle: argv.bundle, release: resolveDocsRelease(argv.release, app.config), serviceUrl: await documentationService(app.config, resolveDocsRelease(argv.release, app.config)) });
@@ -29,11 +33,18 @@ async function search(argv, app) {
 async function read(argv, app) {
   const maxLines = argv.lines ?? 80;
   if (!Number.isInteger(maxLines) || maxLines < 1 || maxLines > 10000) throw new AppError('usage_error', 'Use --lines 1–10000.');
-  const row = await getHostedDoc(argv.path || argv['id-or-path'], { revision: argv.revision, release: resolveDocsRelease(argv.release, app.config), serviceUrl: await documentationService(app.config, resolveDocsRelease(argv.release, app.config)) });
+  const row = await getHostedDoc(argv.path || argv['id-or-path'], { outline: argv.outline, section: argv.section, revision: argv.revision, release: resolveDocsRelease(argv.release, app.config), serviceUrl: await documentationService(app.config, resolveDocsRelease(argv.release, app.config)) });
   const title = row.title || row.path;
+  const provenance = `${row.path}\nRelease: ${row.release} | Revision: ${row.revision}\nService: ${row.service}`;
+  if (row.outline) {
+    const text = row.outline.map(h => `${'  '.repeat(h.ancestors.length)}${h.title}  [lines ${h.start_line}–${h.end_line}]\n${'  '.repeat(h.ancestors.length)}  ${h.id}`).join('\n');
+    return app.ok(presented(row, `${title}\n${provenance}\n\n${text || 'No selectable headings.'}\n\nUse --section '<ID>' with this --path. Selection includes preamble and ancestor introductions.\nOther sections and linked prerequisites may still matter.\nRetrieval: ${row.retrieval.execution}; full document transferred: ${row.retrieval.full_document_transferred}\n`));
+  }
   const lines = row.body.split('\n');
   const hint = lines.length > maxLines ? `\n\n… ${lines.length - maxLines} more lines (use --lines ${Math.min(lines.length, 10000)} or --json for full content)` : '';
-  app.ok({ ...row, _formatted: `Doc ${row.id}: ${title} in ${row.release}\n${'─'.repeat(Math.min(title.length, 80))}\n\n${lines.slice(0, maxLines).join('\n')}${hint}\n` }, { summary: `Doc ${row.id}: ${title} in ${row.release}` });
+  const content = row.section ? row.body : lines.slice(0, maxLines).join('\n') + hint;
+  const context = row.section ? `\nComplete selected subtree: ${row.section.title}\n${row.retrieval.context_policy}\nOther sections to check: ${row.retrieval.context_sections.map(h => h.title).join('; ') || 'none'}.\nUse --outline to retrieve their IDs.\nSemantic answer completeness: unknown. Retrieval: ${row.retrieval.execution}.\n` : '';
+  app.ok(presented(row, `Doc ${row.id}: ${title} in ${row.release}\n${provenance}${context}\n${content}\n`), { summary: `Doc ${row.id}: ${title} in ${row.release}` });
 }
 
 export function docsCmd(wrap) {
@@ -53,7 +64,9 @@ export function docsCmd(wrap) {
       .option('bundle', { type: 'string', describe: 'Filter by documentation bundle' })
       .option('path', { type: 'string', describe: 'Read an exact document path or ID from search results' })
       .option('revision', { type: 'string', describe: 'Require the revision returned by search (recommended with IDs)' })
-      .option('lines', { type: 'number', default: 80, describe: 'Preview lines; JSON contains the full Markdown body' })
+      .option('outline', { type: 'boolean', describe: 'List revision-bound section IDs for --path, without document body' })
+      .option('section', { type: 'string', describe: 'Read a complete subtree by outline ID or exact unique heading; includes ancestor introductions' })
+      .option('lines', { type: 'number', default: 80, describe: 'Full-document human preview lines; JSON and selected sections are not truncated' })
       .command({ command: 'releases', describe: 'List locally installed documentation families', handler: wrap(async (_argv, app) => {
         const releases = listDocsReleases();
         app.ok({ releases, _formatted: releases.length ? releases.map(row => `${row.release}${row.default ? ' (default)' : ''}  ${row.revision || 'unknown'}  ${row.documents} documents  ${row.indexPath}`).join('\n') + '\n' : 'No local documentation families installed.\n' }, { summary: `${releases.length} local documentation release(s)` });
@@ -90,6 +103,7 @@ export function docsCmd(wrap) {
         for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close());
         return;
       }
+      if ((argv.outline || argv.section !== undefined) && !argv.path) throw new AppError('usage_error', 'Use --path with --outline or --section.');
       if (argv.path) return read(argv, app);
       if (argv.query?.length) return search(argv, app);
       const service = await documentationService(app.config, resolveDocsRelease(argv.release, app.config));

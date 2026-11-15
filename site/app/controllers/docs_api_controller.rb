@@ -21,8 +21,14 @@ class DocsApiController < ApplicationController
           status: :conflict
       end
       expires_in 1.minute, public: true
+      if params.key?(:outline) && params[:outline] != 'true'
+        raise DocumentationIndex::InvalidQuery, 'outline must be true.'
+      end
+      selection = { outline: params[:outline] == 'true' }
+      selection[:section] = params[:section] if params.key?(:section)
+      document = index.document(id: params[:id], path: params[:path], **selection)
       render json: { release: @release, revision: index.revision,
-        document: index.document(id: params[:id], path: params[:path]) }
+        section_protocol: document.dig('retrieval', 'protocol'), document: document }
     end
   end
 
