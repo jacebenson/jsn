@@ -10,7 +10,7 @@ import { globalConfigDir } from '../config.js';
  *
  * Whitelist approach (issue #143 findings #2/#3): first map the `://`
  * protocol separator to `_` exactly as the Go version's encoding does
- * (so existing keyring keys like `https_dev437538.service-now.com` keep
+ * (so existing keyring keys like `https_example.service-now.com` keep
  * matching), then drop everything outside [a-zA-Z0-9._-]. Blacklist
  * stripping of just `/` and `:` left quotes, `$()`, backticks, `;`,
  * spaces, and backslashes — which broke out of double-quoted shell args

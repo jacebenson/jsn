@@ -10,7 +10,7 @@ The mandatory doctor initially stopped with `authenticated: false` and
 approved credential renewal, this command exited 0 immediately before the smoke:
 
 ```sh
-node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi
+node cli/scripts/verify-jsn.mjs doctor --profile pdi
 ```
 
 Doctor reported authenticated/verified true and probe_status succeeded. Cleanup

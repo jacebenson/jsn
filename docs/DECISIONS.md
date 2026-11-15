@@ -193,9 +193,7 @@ Mutation commands require the instance, respect read-only profile boundaries, an
 
 ## Verification is project-owned
 
-The pstack-shaped launch, drive, proof, evidence, and cleanup instructions live in
-`cli/.agents/skills/verify/`, next to the CLI they drive, rather than in a root
-`.agents/` directory. General product knowledge lives in `docs/`, so verification
+Contributor verification instructions live in `docs/verification/`, with executable helpers in `cli/scripts/`. General product knowledge lives in `docs/`, so verification
 procedures and product description do not drift into one document.
 
 ## Skipped batches require preview-bound consent
@@ -689,13 +687,9 @@ The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under
 thing that owns it: website assets and preview helpers under `site/scripts/`,
 CLI acceptance and docs-publishing helpers under `cli/scripts/`, contributor
 research under `docs/research/`, repo-only CI tooling under `.github/scripts/`,
-and the project verification skill under `cli/.agents/skills/verify/`.
+and contributor verification guides under `docs/verification/`.
 
-The verification skill stays a conventional `.agents/skills` tree, nested under
-the package it verifies. Its helper resolves the repository root from the working
-directory, so `node cli/.agents/skills/verify/scripts/verify-jsn.mjs` works from
-the root, but an agent that only scans `<repo>/.agents/skills/` no longer finds it
-automatically. Point such agents at the nested path.
+Verification uses neutral contributor documentation rather than personal agent orchestration or skill autodiscovery. Run `node cli/scripts/verify-jsn.mjs` from the repository root. The manual instance lane uses independently configured GitHub environments, not local profile state.
 
 Recorded verification evidence under `docs/verification/` keeps the command paths
 it captured. Those files describe runs that happened at the time, so later layout

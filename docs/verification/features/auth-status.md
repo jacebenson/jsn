@@ -2,14 +2,14 @@
 
 ## Sub-features
 
-`auth status` reports configured profiles, selected/default state, auth method, probe state, and read-only settings. `auth switch` changes the active local profile and is a local configuration mutation, so the kitchen does not run it automatically.
+`auth status` reports configured profiles, selected/default state, auth method, probe state, and read-only settings. `auth switch` changes the active local profile and is a local configuration mutation, so the verifier does not run it automatically.
 
 ## How to get to it (user POV)
 
 Run `node bin/jsn.js --profile pdi auth status --json`, or use the helper:
 
 ```bash
-node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
+node cli/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
 ```
 
 ## Driving it with the JSN CLI

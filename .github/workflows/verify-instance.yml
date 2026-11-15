@@ -1,0 +1,42 @@
+name: Verify selected instance
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Read-only target, configured independently'
+        type: choice
+        required: true
+        default: pdi
+        options: [pdi, vendor-1, vendor-2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-instance-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    # Never execute a dispatched feature branch with environment secrets.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 'lts/*'
+      - run: npm --prefix cli ci --ignore-scripts
+      - name: Read one metadata record, print only closed summary
+        env:
+          JSN_VERIFY_TARGET: ${{ inputs.target }}
+          JSN_VERIFY_ENABLED: ${{ vars.JSN_VERIFY_ENABLED }}
+          SERVICENOW_INSTANCE_URL: ${{ secrets.JSN_INSTANCE_URL }}
+          SERVICENOW_OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
+        run: node cli/scripts/verify-instance.mjs

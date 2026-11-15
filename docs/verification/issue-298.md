@@ -15,11 +15,11 @@ Branch `feat/298-updatesets-import`.
 - `import` now refuses `--name`, `--local`, and `--state` explicitly, and points
   at preview/commit/reopen for the state transitions.
 
-## Live verification — dev366743.service-now.com, 2026-11-05
+## Live verification — example.service-now.com, 2026-11-05
 
-Environment: `pdi` profile, user `admin`, OAuth, jsn 5.1.0 branch head, Node
+Environment: `pdi` profile, user `[redacted]`, OAuth, jsn 5.1.0 branch head, Node
 26.8.1. The instance has the `sn_cicd` plugin and scope, the
-`sn_cicd.sys_ci_automation` role is assigned to `admin`, and
+`sn_cicd.sys_ci_automation` role is assigned to the test user, and
 `sys_update_preview_problem` started and ended the run empty.
 
 ### Endpoint behavior (verbatim)
@@ -28,13 +28,13 @@ Environment: `pdi` profile, user `admin`, OAuth, jsn 5.1.0 branch head, Node
 progress tracker, not a finished result:
 
 ```json
-{"result":{"status":"0","status_label":"Pending","status_message":"","status_detail":"","error":"","links":{"progress":{"id":"ee54f3629358d35016c8fd18dd03d60c","url":"https://dev366743.service-now.com/api/sn_cicd/progress/ee54f3629358d35016c8fd18dd03d60c"}},"percent_complete":0}}
+{"result":{"status":"0","status_label":"Pending","status_message":"","status_detail":"","error":"","links":{"progress":{"id":"REDACTED_PROGRESS_ID","url":"https://example.service-now.com/api/sn_cicd/progress/REDACTED_PROGRESS_ID"}},"percent_complete":0}}
 ```
 
 `GET /api/sn_cicd/progress/{id}` (terminal success):
 
 ```json
-{"result":{"status":"2","status_label":"Successful","status_message":"Preview successful for Doom 0.1.0. Commit this update set to continue.","status_detail":"","error":"","links":{"progress":{"id":"ee54f3629358d35016c8fd18dd03d60c"}},"percent_complete":100,"remote_update_set_id":"437a09e4830c9b101f9ccfd6feaad3e9","was_previewed":"","has_preview_problem":"false","preview_problem_count":"","preview_problem_url":""}}
+{"result":{"status":"2","status_label":"Successful","status_message":"Preview successful for Doom 0.1.0. Commit this update set to continue.","status_detail":"","error":"","links":{"progress":{"id":"REDACTED_PROGRESS_ID"}},"percent_complete":100,"remote_update_set_id":"437a09e4830c9b101f9ccfd6feaad3e9","was_previewed":"","has_preview_problem":"false","preview_problem_count":"","preview_problem_url":""}}
 ```
 
 A preview that fails validation reports success at the HTTP layer and failure in

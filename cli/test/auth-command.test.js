@@ -120,11 +120,11 @@ describe('resolveWizardInstance', () => {
     const app = {
       config: {
         defaultProfile: 'dev227772',
-        profiles: { dev227772: { instance_url: 'https://dev227772.service-now.com' } },
+        profiles: { dev227772: { instance_url: 'https://example.service-now.com' } },
       },
       // This is what the real App exposes. The wizard must not treat it as
       // an explicit instance when adding a new profile.
-      getEffectiveInstance: () => 'https://dev227772.service-now.com',
+      getEffectiveInstance: () => 'https://example.service-now.com',
     };
     assert.strictEqual(resolveWizardInstance(app, {}), '');
   });

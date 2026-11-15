@@ -4,7 +4,7 @@ The final requested flow is **three connection questions plus one defaults confi
 
 ## Execution
 
-From `/home/jace/workspace/jsn-onboarding` (Node v26.12.1):
+From `<checkout>` (Node v26.12.1):
 
 - `JSN_ONBOARDING_PROOF=$PWD/cli/scratch/onboarding npm --prefix cli test`: exit 0; 2141 tests, 2139 passed, 2 opt-in tests skipped, 0 failed.
 - `npm --prefix cli run lint`: exit 0.

@@ -241,7 +241,7 @@ describe('auth login method selection', () => {
 
   it('uses the stored Basic Auth method for an existing profile', async () => {
     const { shouldUseBasicAuth } = await import('../src/commands/auth.js');
-    const instance = 'https://cmdbpetadebraptor1.service-now.com';
+    const instance = 'https://fixture.service-now.com';
     const config = {
       profiles: {
         snugb: { instance_url: instance, auth_method: 'basic' },
