@@ -33,6 +33,7 @@ jobs:
     outputs:
       cli: ${{ steps.changes.outputs.cli }}
       site: ${{ steps.changes.outputs.site }}
+      docs: ${{ steps.changes.outputs.docs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,6 +45,25 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node scripts/changed-components.mjs "$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+  docs:
+    name: Documentation checks
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+      # Builtins only: no npm ci, no build, no network. Remote links are counted
+      # but never fetched, so an upstream outage cannot fail the job.
+      - name: Check Markdown links, paths and packaged README
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/check-docs.mjs "$BASE_SHA"
 
   cli:
     name: CLI tests
@@ -79,7 +99,7 @@ jobs:
   test:
     name: Tests
     if: always()
-    needs: [target, changes, cli, site]
+    needs: [target, changes, cli, site, docs]
     runs-on: ubuntu-latest
     steps:
       - name: Require successful checks for affected applications
@@ -88,8 +108,10 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           CLI: ${{ needs.cli.result }}
           SITE: ${{ needs.site.result }}
+          DOCS: ${{ needs.docs.result }}
         run: |
           test "$TARGET" = success || test "$TARGET" = skipped
           test "$CHANGES" = success
           test "$CLI" = success || test "$CLI" = skipped
           test "$SITE" = success || test "$SITE" = skipped
+          test "$DOCS" = success || test "$DOCS" = skipped

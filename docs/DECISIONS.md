@@ -12,6 +12,17 @@ workflows and the selector itself select both. Manifest changes, including scrip
 removal, are genuine CLI changes and must not be excluded. Deterministic temporary
 Git histories in `cli/test/changed-components.test.js` exercise this matrix.
 
+Documentation prose no application reads is validated by a third, lightweight
+`docs` selection. Root README, `AGENTS.md`, `cli/README.md` and
+`cli/examples/README.md` select it alone, so a README-only PR no longer pays for
+the Linux/Windows CLI matrix. Markdown is never excluded by extension: everything
+else under `cli/`, including `cli/skills/**` shipped in the package and Markdown
+fixtures tests read, keeps CLI selection. `scripts/check-docs.mjs` runs on Node
+builtins without installation, build or network, validates relative link and path
+targets in changed Markdown, and requires the packaged README and advertised
+`files` entries to exist. Remote links are counted but not fetched. The `Tests`
+aggregator fails when this job fails and passes when it is skipped.
+
 CI selects affected applications once. Its website job calls `docs-site.yml`,
 which builds the production Docker image once and runs all Rails tests through
 `site/bin/test` plus the shared sync and Markdown JavaScript tests. This includes
