@@ -7,6 +7,11 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
+      target:
+        description: 'One configured instance environment'
+        type: choice
+        options: [pdi, vendor-1, vendor-2]
+        default: vendor-1
       mode:
         description: 'readonly or approved disposable PDI mutation suite'
         type: choice
@@ -22,41 +27,58 @@ permissions:
 
 # Do not cancel cleanup or overwrite a partial run with a second producer.
 concurrency:
-  group: acceptance-${{ github.event.inputs.mode || 'readonly' }}
+  group: acceptance-${{ inputs.target || vars.JSN_ACCEPTANCE_TARGET || 'vendor-1' }}
   cancel-in-progress: false
 
 jobs:
-  configuration:
-    if: github.repository == 'jacebenson/jsn' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.ref_type == 'tag' && github.event.inputs.mode != 'pdi'))
+  selection:
+    if: github.repository == 'jacebenson/jsn' && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.ref_type == 'tag' && inputs.mode != 'pdi'))
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.mode == 'pdi' && 'acceptance-pdi' || 'acceptance-readonly' }}
+    outputs:
+      target: ${{ steps.select.outputs.target }}
+      sha: ${{ steps.select.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      - id: select
+        env:
+          MANUAL_TARGET: ${{ inputs.target }}
+          CONFIGURED_TARGET: ${{ vars.JSN_ACCEPTANCE_TARGET }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { selectTarget } from './cli/scripts/acceptance/config.mjs';
+          const target = selectTarget(process.env.MANUAL_TARGET, process.env.CONFIGURED_TARGET);
+          const sha = process.env.CANDIDATE_SHA;
+          if (!/^[a-f0-9]{40}$/.test(sha)) throw Error('Invalid candidate SHA');
+          execFileSync('git', ['merge-base', '--is-ancestor', sha, `origin/${process.env.DEFAULT_BRANCH}`]);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `target=${target}\nsha=${sha}\n`);
+          NODE
+
+  configuration:
+    needs: selection
+    runs-on: ubuntu-latest
+    environment: ${{ needs.selection.outputs.target }}
     outputs:
       ready: ${{ steps.config.outputs.ready }}
     steps:
       - id: config
         name: Configuration readiness, not acceptance
         env:
-          ENABLED: ${{ vars.JSN_ACCEPTANCE_ENABLED }}
-          PROFILE: ${{ secrets.JSN_ACCEPTANCE_PROFILE_JSON }}
+          ENABLED: ${{ vars.JSN_VERIFY_ENABLED }}
+          INSTANCE_URL: ${{ vars.JSN_INSTANCE_URL }}
+          OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
           INGEST_TOKEN: ${{ secrets.JSN_ACCEPTANCE_INGEST_TOKEN }}
           INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
-          MODE: ${{ github.event.inputs.mode || 'readonly' }}
-          APPROVED: ${{ github.event.inputs.disposable_approved || 'false' }}
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if [ "$MODE" = pdi ] && [ "$APPROVED" != true ]; then
-            echo '::error::PDI mutations require explicit disposable approval and protected environment review'
-            exit 1
-          fi
-          if [ "$MODE" = pdi ]; then
-            protected=$(gh api repos/jacebenson/jsn/environments/acceptance-pdi --jq 'any(.protection_rules[]; .type == "required_reviewers" and (.reviewers | length) > 0)')
-            if [ "$protected" != true ]; then
-              echo '::error::Disposable PDI lane requires an environment with required reviewers'
-              exit 1
-            fi
-          fi
-          if [ "$ENABLED" != true ] || [ -z "$PROFILE" ] || [ -z "$INGEST_TOKEN" ] || [ -z "$INGEST_URL" ]; then
+          if [ "$ENABLED" != true ] || [ -z "$INSTANCE_URL" ] || [ -z "$OAUTH_TOKEN" ] || [ -z "$INGEST_TOKEN" ] || [ -z "$INGEST_URL" ]; then
             echo 'ready=false' >> "$GITHUB_OUTPUT"
             echo '::warning::Acceptance NOT CONFIGURED. Live execution skipped. This is not a passing acceptance run.'
             echo 'Acceptance NOT CONFIGURED; live execution skipped, no public run fabricated.' >> "$GITHUB_STEP_SUMMARY"
@@ -66,27 +88,52 @@ jobs:
 
   acceptance:
     name: Genuine acceptance and publication
-    needs: configuration
+    needs: [selection, configuration]
     if: needs.configuration.outputs.ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    environment: ${{ github.event.inputs.mode == 'pdi' && 'acceptance-pdi' || 'acceptance-readonly' }}
+    environment: ${{ needs.selection.outputs.target }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ needs.selection.outputs.sha }}
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 'lts/*'
-          cache: npm
-          cache-dependency-path: cli/package-lock.json
-      - run: npm --prefix cli ci
+      - run: npm --prefix cli ci --ignore-scripts
       - name: Stage immutable existing producer alongside exact candidate CLI
         run: node cli/scripts/acceptance/prepare.mjs
+      - id: protection
+        name: Reverify mutation approval and required reviewers
+        env:
+          MODE: ${{ inputs.mode || 'readonly' }}
+          APPROVED: ${{ inputs.disposable_approved || 'false' }}
+          TARGET: ${{ needs.selection.outputs.target }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ "$MODE" = pdi ] && { [ "$APPROVED" != true ] || [ "$TARGET" != pdi ] || [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; }; then
+            echo '::error::PDI mutations require explicit disposable approval and protected environment review'
+            exit 1
+          fi
+          if [ "$MODE" = pdi ]; then
+            protected=$(gh api repos/jacebenson/jsn/environments/pdi --jq 'any(.protection_rules[]; .type == "required_reviewers" and (.reviewers | length) > 0)')
+            if [ "$protected" != true ]; then
+              echo '::error::Disposable PDI lane requires an environment with required reviewers'
+              exit 1
+            fi
+          fi
+          echo "verified=${protected:-false}" >> "$GITHUB_OUTPUT"
       - name: Execute suite and publish even when the suite fails
         env:
-          JSN_ACCEPTANCE_PROFILE_JSON: ${{ secrets.JSN_ACCEPTANCE_PROFILE_JSON }}
+          ACCEPTANCE_TARGET: ${{ needs.selection.outputs.target }}
+          JSN_VERIFY_ENABLED: ${{ vars.JSN_VERIFY_ENABLED }}
+          SERVICENOW_INSTANCE_URL: ${{ vars.JSN_INSTANCE_URL }}
+          SERVICENOW_OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
+          ACCEPTANCE_REVIEWERS_VERIFIED: ${{ steps.protection.outputs.verified }}
           JSN_ACCEPTANCE_INGEST_TOKEN: ${{ secrets.JSN_ACCEPTANCE_INGEST_TOKEN }}
           JSN_ACCEPTANCE_INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
           ACCEPTANCE_MODE: ${{ github.event.inputs.mode || 'readonly' }}

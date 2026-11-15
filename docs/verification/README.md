@@ -42,7 +42,7 @@ Only the selected environment needs configuration. A missing, disabled or offlin
 
 For an ephemeral PDI replacement, edit **Settings → Environments → pdi** and replace the `JSN_INSTANCE_URL` variable and matching `JSN_OAUTH_TOKEN` secret together. Enable it only when ready. To retire it, set `JSN_VERIFY_ENABLED=false` and remove its secrets in GitHub. Rotate vendor tokens in their own environments the same way. No remote environments or secrets are created by repository scripts.
 
-This lane is separate from the existing acceptance/publication workflow and its opt-in write authorization. Adding these three environments does not configure or trigger that workflow.
+This one-record smoke test remains manual and separate from the [live acceptance suite](../acceptance-ci.md). Acceptance reuses the selected environment's URL, enabled flag and OAuth secret, plus repository-scoped publication settings. Main pushes and releases use `JSN_ACCEPTANCE_TARGET` or `vendor-1`; manual acceptance offers all three targets. Acceptance defaults to readonly. An instance alone does not configure publication. Mutation acceptance is PDI-only and additionally requires explicit approval and verified environment reviewers.
 
 ## Historical evidence and identifiers
 

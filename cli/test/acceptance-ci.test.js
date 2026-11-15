@@ -8,7 +8,8 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { load } from 'js-yaml';
 import { validateProjection, publishResults } from '../scripts/acceptance/publish.mjs';
-import { runAndPublish } from '../scripts/acceptance/ci.mjs';
+import { runAndPublish, seedProfile } from '../scripts/acceptance/ci.mjs';
+import { selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
 import { prepare, HARNESS_SHA } from '../scripts/acceptance/prepare.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -31,6 +32,34 @@ async function server(t, handler) {
   return `http://127.0.0.1:${s.address().port}/api/acceptance/runs`;
 }
 function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); }
+
+test('target defaults, independent missing configuration and explicit mutation authorization', () => {
+  assert.equal(selectTarget(), 'vendor-1');
+  assert.equal(selectTarget('', 'pdi'), 'pdi');
+  assert.equal(selectTarget('vendor-2', 'pdi'), 'vendor-2');
+  assert.throws(() => selectTarget('', 'typo'));
+  const env = { ACCEPTANCE_TARGET: 'vendor-1', JSN_VERIFY_ENABLED: 'true', SERVICENOW_INSTANCE_URL: 'https://mock.invalid', SERVICENOW_OAUTH_TOKEN: token };
+  const config = instanceConfiguration(env);
+  assert.equal(config.profile.read_only, true);
+  assert.deepEqual(config.credentials, { auth_method: 'oauth', access_token: token });
+  for (const key of ['JSN_VERIFY_ENABLED', 'SERVICENOW_INSTANCE_URL', 'SERVICENOW_OAUTH_TOKEN']) {
+    assert.throws(() => instanceConfiguration({ ...env, [key]: '' }), /NOT CONFIGURED/);
+  }
+  assert.throws(() => instanceConfiguration({ ...env, ACCEPTANCE_TARGET: 'pdi', SERVICENOW_OAUTH_TOKEN: '' }));
+  assert.equal(instanceConfiguration(env).target, 'vendor-1');
+  for (const target of ['pdi', 'vendor-1', 'vendor-2']) {
+    for (const approved of ['false', 'true']) for (const reviewers of ['false', 'true']) {
+      const input = { target, mode: 'pdi', approved, reviewers };
+      if (target === 'pdi' && approved === 'true' && reviewers === 'true') authorizeMode(input);
+      else assert.throws(() => authorizeMode(input));
+    }
+  }
+  assert.equal(instanceConfiguration({ ...env, ACCEPTANCE_TARGET: 'pdi', ACCEPTANCE_MODE: 'pdi', ACCEPTANCE_DISPOSABLE_APPROVED: 'true', ACCEPTANCE_REVIEWERS_VERIFIED: 'true' }).profile.read_only, false);
+  assert.equal(instanceConfiguration(env).profile.read_only, true);
+  const clean = producerEnvironment({ ...env, GH_TOKEN: token, JSN_ACCEPTANCE_INGEST_TOKEN: token, NODE_OPTIONS: token, HTTPS_PROXY: token }, '/private', '/private/config');
+  assert.ok(!JSON.stringify(clean).includes(token));
+  assert.equal(clean.HOME, '/private');
+});
 
 test('scenario allowlist accepts LF and Windows CRLF without weakening unknown-ID rejection', async t => {
   for (const newline of ['\n', '\r\n']) {
@@ -149,7 +178,41 @@ test('immutable real producer executes failing scenarios and restored passing sc
     catalog.push(...module.scenarios);
   }
   for (const scenario of catalog) assert.ok(allowed.has(scenario.id), `Producer scenario not accepted by current site: ${scenario.id}`);
-  const { selectScenarios } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  const { selectScenarios, createContext, preflight } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  // Exercise the pinned adapter's real CLI launch and SDK read with the exact
+  // ephemeral file auth contract. Loopback only, no credential env inheritance.
+  let requests = 0;
+  const origin = new URL(await server(t, (req, res) => {
+    requests++;
+    assert.equal(req.headers.authorization, `Bearer ${token}`);
+    assert.equal(req.method, 'GET');
+    json(res, 200, { result: [{ sys_id: 'd'.repeat(32), name: 'incident' }] });
+  })).origin;
+  const privateRoot = path.join(dir, 'private'); fs.mkdirSync(privateRoot);
+  const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: token } });
+  const isolated = producerEnvironment(process.env, privateRoot, configHome);
+  const configuration = JSON.parse(fs.readFileSync(path.join(configHome, 'servicenow/config.json')));
+  assert.equal(configuration.auth_method, 'oauth');
+  assert.deepEqual(Object.keys(configuration.profiles), ['acceptance-ci']);
+  const options = { profile: 'acceptance-ci', expectedHost: origin, mode: 'readonly', outputDir: path.join(dir, 'adapter-run') };
+  assert.throws(() => preflight({ ...options, allowWrites: true }, configuration, {}), /refuses/);
+  const ctx = createContext(options, preflight(options, configuration, {}), {
+    execute: async (exe, args, opts) => {
+      // Inject only the same isolated parent paths the production producer sees.
+      const { runProcess } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+      return runProcess(exe, args, { ...opts, env: { ...opts.env, ...isolated } });
+    },
+  });
+  assert.deepEqual(await ctx.read('sys_db_object', { fields: ['sys_id', 'name'] }), [{ sys_id: 'd'.repeat(32), name: 'incident' }]);
+  const readCount = requests;
+  await assert.rejects(() => ctx.command(['records', 'create', '--table', 'incident', '--data', '{}']), /refused/);
+  assert.equal(requests, readCount);
+  // CLI's independent profile guard must reject writes without the harness too.
+  const { runProcess } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  const refused = await runProcess(process.execPath, [path.join(dir, 'cli/bin/jsn.js'), 'records', 'create', '--table', 'incident', '--data', '{}', '--profile', 'acceptance-ci', '--json'], { env: isolated });
+  assert.notEqual(refused.exitCode, 0);
+  assert.match(refused.stdout + refused.stderr, /read.only/i);
+  assert.equal(requests, readCount);
   const readonly = catalog.filter(s => s.modes.includes('readonly')).map(s => s.id);
   const selection = selectScenarios(catalog, { scenarios: readonly });
   assert.equal(selection.full, false); assert.deepEqual(selection.ids, readonly);
@@ -176,14 +239,42 @@ function workflowGuard(w) {
   assert.deepEqual(Object.keys(w.on).sort(), ['push', 'release', 'workflow_dispatch']);
   assert.deepEqual(w.on.push.branches, ['main']); assert.equal(w.concurrency['cancel-in-progress'], false);
   assert.equal(w.jobs.acceptance.if, "needs.configuration.outputs.ready == 'true'");
-  assert.match(w.jobs.configuration.if, /github.repository == 'jacebenson\/jsn'/);
-  assert.match(w.jobs.configuration.steps[0].run, /required_reviewers/);
+  assert.match(w.jobs.selection.if, /github.repository == 'jacebenson\/jsn'/);
+  assert.match(w.jobs.selection.steps[1].run, /merge-base.*--is-ancestor/);
+  const protection = w.jobs.acceptance.steps.find(s => s.id === 'protection');
+  assert.match(protection.run, /required_reviewers/);
+  assert.match(protection.run, /APPROVED.*true/);
+  assert.match(protection.run, /TARGET.*pdi/);
+  assert.match(protection.run, /protected.*true/);
+  assert.equal(w.jobs.acceptance.steps.find(s => s.run === 'node cli/scripts/acceptance/ci.mjs').env.ACCEPTANCE_REVIEWERS_VERIFIED, '${{ steps.protection.outputs.verified }}');
+  assert.equal(w.jobs.acceptance.environment, '${{ needs.selection.outputs.target }}');
+  assert.deepEqual(w.on.workflow_dispatch.inputs.target.options, ['pdi', 'vendor-1', 'vendor-2']);
+  assert.ok(!JSON.stringify(w).includes('PROFILE_JSON'));
   assert.match(w.jobs.configuration.steps[0].run, /ready=false/);
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/checkout')).with['persist-credentials'], false);
   assert.ok(!JSON.stringify(w).includes('pull_request_target'));
   assert.ok(w.jobs.acceptance.steps.some(s => s.run === 'node cli/scripts/acceptance/ci.mjs'));
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/upload-artifact')).with.path, 'acceptance-public.json');
 }
+test('actual mutation shell gate fails closed and restores approved reviewed PDI', t => {
+  const w = load(fs.readFileSync(path.join(root, '.github/workflows/acceptance.yml'), 'utf8'));
+  const script = w.jobs.acceptance.steps.find(s => s.id === 'protection').run;
+  const dir = temporary(t);
+  const gh = path.join(dir, process.platform === 'win32' ? 'gh.exe' : 'gh');
+  if (process.platform === 'win32') { t.skip('bash protection gate tested on Linux'); return; }
+  fs.writeFileSync(gh, '#!/bin/sh\nprintf "%s\\n" "$MOCK_REVIEWERS"\n', { mode: 0o700 });
+  const run = overrides => spawnSync('bash', ['-eo', 'pipefail', '-c', script], { encoding: 'utf8', env: {
+    PATH: `${dir}${path.delimiter}${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, 'output'),
+    MODE: 'pdi', TARGET: 'pdi', APPROVED: 'true', DEFAULT_BRANCH: 'main', GITHUB_REF: 'refs/heads/main', MOCK_REVIEWERS: 'true', ...overrides,
+  } });
+  assert.equal(run({}).status, 0);
+  for (const overrides of [{ APPROVED: 'false' }, { TARGET: 'vendor-1' }, { TARGET: 'vendor-2' }, { MOCK_REVIEWERS: 'false' }, { MOCK_REVIEWERS: '' }, { GITHUB_REF: 'refs/tags/v1' }]) {
+    assert.notEqual(run(overrides).status, 0, JSON.stringify(overrides));
+    assert.equal(run({}).status, 0);
+  }
+  assert.equal(run({ MODE: 'readonly', TARGET: 'vendor-1', APPROVED: 'false', MOCK_REVIEWERS: 'false' }).status, 0);
+});
+
 test('trusted workflow rejects unsafe trigger/regression and restores pass', () => {
   const w = load(fs.readFileSync(path.join(root, '.github/workflows/acceptance.yml'), 'utf8'));
   workflowGuard(w);
