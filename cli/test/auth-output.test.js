@@ -97,6 +97,14 @@ Profile 4        Not configured   Available    Not checked  Read/write  Confirm 
 
 * selected profile
 
+Profile protections (ACCESS / DELETES):
+  Read-only: blocks mutation commands, including writes, deletes and raw REST even with GET.
+  Read/write: permits profile operations, subject to each command's guards.
+  Confirm: guarded deletes require confirmation; --force bypasses this prompt, not read-only.
+  No prompt: profile skips standard delete confirmation; command-specific safeguards still apply.
+ACCESS is a JSN profile setting, not ServiceNow ACL authorization.
+CREDENTIALS describes local availability; only CONNECTION Verified confirms the status probe succeeded.
+
 prod: jsn auth login --profile prod
 
 Show users and instance URLs: jsn auth status --details
