@@ -260,7 +260,11 @@ test('projection matches actual Rails-owned schema when Ruby is available', t =>
   for (const duration of [12.5, 1, 0.00001, 0.0000001234, 0.0001]) {
     const p = fixture(); p.results[0].durationMs = duration;
     const result = spawnSync('ruby', ['-e', ruby, path.join(root, 'site')], { input: JSON.stringify(p), encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr); assert.deepEqual(result.stdout.trim().split('\n'), [p.runKey, projectionDigest(p)]);
+    assert.equal(result.status, 0, result.stderr);
+    // Ruby puts uses CRLF on Windows; compare records, not transport newlines.
+    for (const output of [result.stdout, result.stdout.replace(/\r?\n/g, '\r\n')]) {
+      assert.deepEqual(output.trim().split(/\r?\n/), [p.runKey, projectionDigest(p)], `duration ${duration}`);
+    }
   }
 });
 
