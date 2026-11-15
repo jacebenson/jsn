@@ -799,6 +799,15 @@ The server owns Git synchronization, daily refresh and atomic publication.
 IDs may be pinned with `--revision`; exact paths identify documents across revisions.
 Legacy search/show/status spellings remain callable but hidden from normal help.
 
+A **documentation section** is a source-faithful CommonMark heading subtree,
+identified by a document/release/revision/body-bound opaque ID, not a browser slug.
+`--outline` lists boundaries; `--section` includes the selected complete subtree,
+preamble and ancestor introductions. Syntactic completeness never establishes
+semantic answer completeness. Older services can return full text for client-side
+selection, explicitly reported as a full-document transfer. See
+`docs/TARGETED_DOCS.md`. Document-reader presentation is non-enumerable so machine
+output carries the body once; general output formatting is unchanged.
+
 ## Defaults for future connections
 
 Installation-wide `connection_defaults` contain read-only, delete confirmation

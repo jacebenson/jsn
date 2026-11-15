@@ -1,5 +1,6 @@
 // Public documentation service. Deliberately independent of instance credentials.
 import { AppError } from '../../errors.js';
+import { selectDocument, SECTION_PROTOCOL } from './sections.js';
 
 export const DEFAULT_DOCS_URL = 'https://jsn.jace.pro';
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -73,12 +74,27 @@ export async function searchHostedDocs(options = {}) {
 export async function getHostedDoc(idOrPath, options = {}) {
   const identifier = String(idOrPath || '');
   if (!identifier) throw new AppError('usage_error', 'Provide a document ID or exact path.');
+  if ((options.outline && options.section !== undefined) || (options.section !== undefined && !String(options.section).trim())) throw new AppError('usage_error', 'Use either --outline or one nonempty --section.');
   const numeric = /^\d+$/.test(identifier);
   const { data, service } = await request(numeric ? `api/docs/${identifier}` : 'api/docs/document', {
     ...(numeric ? {} : { path: identifier }), revision: options.revision, release: options.release,
+    outline: options.outline || undefined, section: options.section,
   }, options);
-  if (!data || !data.document || typeof data.document.body !== 'string' || typeof data.document.path !== 'string' || typeof data.revision !== 'string') throw invalidResponse();
-  return { ...data.document, release: options.release ?? data.release, revision: data.revision, service };
+  const targeted = options.outline || options.section !== undefined;
+  const native = data?.section_protocol === SECTION_PROTOCOL;
+  if (!data?.document || typeof data.document.path !== 'string' || typeof data.revision !== 'string' ||
+      (!(targeted && native && options.outline) && typeof data.document.body !== 'string')) throw invalidResponse();
+  if (options.revision && data.revision !== options.revision) throw new AppError('api_error', 'Documentation revision mismatch. Refresh the outline.');
+  if (options.release && data.document.release && data.document.release !== options.release) throw new AppError('api_error', `Documentation service returned release ${data.document.release}, expected ${options.release}.`);
+  let row = { ...data.document, release: options.release ?? data.release ?? data.document.release, revision: data.revision, service };
+  if (targeted) {
+    if (!native) row = selectDocument(row, options);
+    const mode = options.outline ? 'outline' : 'section';
+    if (row.retrieval?.protocol !== SECTION_PROTOCOL || row.retrieval?.mode !== mode ||
+        (options.outline ? !Array.isArray(row.outline) : !row.section || row.retrieval.subtree_complete !== true)) throw invalidResponse();
+    row.retrieval = { ...row.retrieval, execution: native ? 'service' : 'client-fallback', full_document_transferred: !native };
+  }
+  return row;
 }
 export async function getHostedDocsStatus(options = {}) {
   const { data, service } = await request('api/docs/status', { release: options.release }, options);

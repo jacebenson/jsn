@@ -1,5 +1,6 @@
 // One search engine for the hosted website and the optional local service.
 import fs from 'node:fs';
+import { selectDocument } from './sections.js';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { resolveDocsDbPath } from './db.js';
@@ -72,11 +73,11 @@ export class DocumentationIndex {
       .all(...binds, text, text, text, limit, offset).map(documentationSummary);
     return { query: text, revision: this.revision(), total, count: results.length, limit, offset, results };
   }
-  document({ id, path: docPath } = {}) {
+  document({ id, path: docPath, outline = false, section } = {}) {
     const select = 'SELECT id, path, title, bundle, doc_type, release, body FROM docs WHERE';
     const row = docPath ? this.db.prepare(`${select} path = ?`).get(docPath)
       : /^\d{1,18}$/.test(String(id)) ? this.db.prepare(`${select} id = ?`).get(String(id)) : null;
     if (!row) throw new DocumentationError('Document not found.', 404);
-    return row;
+    return outline || section !== undefined ? selectDocument({ ...row, revision: this.revision() }, { outline, section }) : row;
   }
 }

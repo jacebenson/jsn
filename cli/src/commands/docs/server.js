@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { SECTION_PROTOCOL } from './sections.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -27,7 +28,9 @@ export async function startDocumentationServer({ storage = serviceStorage(), hos
       if (url.pathname === '/api/docs/search') return send(200, { ...index.search({ query: params.q, limit: params.limit ?? 20, offset: params.offset ?? 0, bundle: params.bundle }), release });
       const revision = index.revision();
       if (params.revision && params.revision !== revision) return send(409, { error: 'Documentation has changed. Search again or retrieve by exact path.' });
-      return send(200, { release, revision, document: index.document({ path: params.path, id: url.pathname.split('/').at(-1) }) });
+      if (params.outline !== undefined && params.outline !== 'true') return send(400, { error: 'outline must be true.' });
+      const document = index.document({ path: params.path, id: url.pathname.split('/').at(-1), outline: params.outline === 'true', section: params.section });
+      return send(200, { release, revision, section_protocol: SECTION_PROTOCOL, document });
     } catch (error) { send(error.status || 503, { error: error.status ? error.message : 'Documentation search is temporarily unavailable.' }); }
     finally { index?.close(); }
   });

@@ -58,6 +58,34 @@ class DocumentationTest < Minitest::Test
     assert_includes last_response.body, 'Find records.'
     refute_includes last_response.body, "<script>alert('xss')</script>"
   end
+  def test_targeted_reader_uses_shared_parser_and_revision_guard
+    db = SQLite3::Database.new(File.join(@storage, 'docs.sqlite3'))
+    db.execute('UPDATE docs SET body = ? WHERE id = 1', ["# GlideRecord\n\nGlobal only.\n\n## Method\n<table><tr><td>value</td></tr></table>\n\n### Example\n```js\n# fake\n```\n\n## Other\nOutside\n"])
+    db.close
+    get '/api/docs/document', path: 'api/gliderecord.md', outline: 'true'
+    assert_equal 200, last_response.status
+    outline = JSON.parse(last_response.body)
+    assert_equal 'sections-v1', outline['section_protocol']
+    refute outline['document'].key?('body')
+    assert_equal ['GlideRecord', 'Method', 'Example', 'Other'], outline['document']['outline'].map { |h| h['title'] }
+    id = outline['document']['outline'][1]['id']
+    get '/api/docs/document', path: 'api/gliderecord.md', section: id, revision: 'fixture123'
+    assert_equal 200, last_response.status
+    selected = JSON.parse(last_response.body)['document']
+    assert_includes selected['body'], 'Global only.'
+    assert_includes selected['body'], '<table>'
+    assert_includes selected['body'], '# fake'
+    refute_includes selected['body'], 'Outside'
+    assert_equal true, selected['retrieval']['subtree_complete']
+    get '/api/docs/document', path: 'api/gliderecord.md', section: 'absent'
+    assert_equal 400, last_response.status
+    get '/api/docs/document', path: 'api/gliderecord.md', section: id, revision: 'stale'
+    assert_equal 409, last_response.status
+    get '/api/docs/document', path: 'api/gliderecord.md', outline: 'false'
+    assert_equal 400, last_response.status
+    get '/api/docs/document', path: 'api/gliderecord.md', outline: 'true', section: id
+    assert_equal 400, last_response.status
+  end
   def test_public_reader_assets
     previous = ActionController::Base.allow_forgery_protection
     ActionController::Base.allow_forgery_protection = true
