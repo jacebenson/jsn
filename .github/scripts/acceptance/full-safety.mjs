@@ -18,6 +18,38 @@ export function fullPlan(scenarios, mode = 'pdi') {
     tables: ['sys_update_set', ...['properties','views','includes','rules','clientscripts','uiactions','scheduledjobs','uipolicies'].map(k => profiles[k].table), 'sys_hub_flow', 'sys_hub_trigger_instance_v2', 'sys_hub_action_instance', 'sys_hub_flow_version', 'sys_flow_context', 'sys_user', 'sys_user_has_role', 'sys_properties'].filter((v,i,a) => a.indexOf(v) === i).sort(),
     scenarios: scenarios.map(s => ({ id: s.id, mutates: s.mutates, applicable: s.modes.includes(mode), requires: s.requires, commands: s.commandPaths, blockedReason: scenarioPolicy(s) })) };
 }
+// Closed vocabulary only: never retain provider messages, names, hosts or argv.
+export async function runContextScenario(ctx, run) {
+  const command = ctx.command, read = ctx.read;
+  let stage = 'context.snapshot.application';
+  ctx.command = async (args, opts) => {
+    if (args[0] === 'rest') stage = args[1].endsWith('/application') ? 'context.snapshot.application' : 'context.snapshot.updateset';
+    else if (args[0] === 'updatesets' && args[1] === 'create') stage = 'context.capture.create-select';
+    return command(args, opts);
+  };
+  ctx.read = async (table, query) => {
+    if (table === 'sys_update_set' && !ctx.state.has('workflows.originalContext')) stage = query.id ? 'context.restore.record' : 'context.restore.unique-name';
+    const result = await read(table, query);
+    if (table === 'sys_update_set' && query.id && query.fields?.includes('name') && !ctx.state.has('workflows.originalContext')) {
+      const row = Array.isArray(result) ? result[0] : result;
+      ctx.state.set('safety.restoreName', raw(row?.name));
+    }
+    return result;
+  };
+  try { return await run(ctx); }
+  catch (error) {
+    const reasons = new Map([
+      ['Original effective application/update-set cannot be restored exactly; no context writes performed', 'context.snapshot.invalid'],
+      ['Original update-set name, scope or state cannot be restored exactly; no context writes performed', 'context.restore.invalid-record'],
+      ['Original update-set name is ambiguous or unreadable; no context writes performed', 'context.restore.ambiguous-name'],
+      ['Only exact snapshotted session restoration is permitted', 'context.guard.unapproved-transition'],
+      ['Provider denied access', 'provider.access-denied'],
+      ['Provider capability unavailable', 'provider.capability-unavailable'],
+    ]);
+    ctx.state.set('safety.contextDiagnostic', { stage, reason: reasons.get(error.message) || 'context.operation.failed' });
+    throw error;
+  } finally { ctx.command = command; ctx.read = read; }
+}
 export function guardFullContext(ctx, { inventory, receiptFile, target }) {
   const original = ctx.command;
   const owned = new Map();
