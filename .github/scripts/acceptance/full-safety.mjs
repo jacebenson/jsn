@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { preserveRecovery } from './recovery.mjs';
 import profiles from '../../../cli/src/record-command-profiles.js';
 const ID = /^[a-f0-9]{32}$/;
 const raw = x => x?.value ?? x;
@@ -112,7 +113,11 @@ export function guardFullContext(ctx, { inventory, receiptFile, target }) {
   // erase history and not permission to prevent restoration of session context.
   ctx.cleanup = async () => {
     const failures = [];
-    if (await ctx.reconcileWrites()) return ['unresolved-write-intent'];
+    if (await ctx.reconcileWrites()) {
+      const recovery = preserveRecovery(ctx, path.dirname(receiptFile), target);
+      fs.writeFileSync(receiptFile, JSON.stringify({ runKey:ctx.runKey, target, status:'unresolved-write-intent', countsUnavailable:true, ...recovery },null,2), {mode:0o600});
+      return ['unresolved-write-intent'];
+    }
     const manifest = JSON.parse(fs.readFileSync(path.join(ctx.outputDir, 'artifacts.json')));
     for (const a of [...manifest.artifacts].reverse()) {
       if (a.cleaned) continue;

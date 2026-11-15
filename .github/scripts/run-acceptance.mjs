@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fullPlan, guardFullContext, runContextScenario, scenarioPolicy } from './acceptance/full-safety.mjs';
+import { preserveRecovery } from './acceptance/recovery.mjs';
 import { contextAdapterV1 } from './acceptance/context-v1.mjs';
 import { HARNESS_SHA, FILES } from './acceptance/prepare.mjs';
 import { publishResults, validateProjection } from './acceptance/publish.mjs';
@@ -101,6 +102,7 @@ export async function runLocal(options) {
   try { fs.mkdirSync(path.dirname(output), { recursive: true, mode: 0o700 }); fs.mkdirSync(output, { mode: 0o700 }); }
   catch { throw new LocalFailure('output: unable to create a private run directory; check parent-directory permissions'); }
   const temporary = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-local-acceptance-')); fs.chmodSync(temporary, 0o700);
+  let recoveryContext;
   let stage = 'npm artifact';
   try {
     const artifact = await acquireArtifact(options.version, temporary);
@@ -155,6 +157,7 @@ export async function runLocal(options) {
     const contextOptions = { mode, allowWrites: mode === 'pdi', profile: 'acceptance', expectedHost: origin, outputDir: privateRun };
     support.preflight(contextOptions, JSON.parse(fs.readFileSync(path.join(config, 'servicenow/config.json'))), {});
     const ctx = support.createContext(contextOptions, { target: origin }, { execute });
+    recoveryContext = ctx;
     // The pinned context enforces this option internally but does not expose it.
     // The versioned context adapter also checks the same preflighted approval.
     ctx.allowWrites = contextOptions.allowWrites;
@@ -230,7 +233,11 @@ export async function runLocal(options) {
       'output permission': 'unable to save private summary files; check run-directory permissions',
     };
     throw new LocalFailure(`${stage}: ${reasons[stage]}`);
-  } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
+  } finally {
+    // A failed preservation must not erase the only remaining recovery source.
+    if (recoveryContext) preserveRecovery(recoveryContext, output, options.target);
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 }
 export async function main(args = process.argv.slice(2)) {
   const options = parseOptions(args);
