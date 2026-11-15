@@ -1,50 +1,20 @@
-// jsn codesearch — search across ServiceNow code artifacts (script includes,
-// business rules, client scripts, UI actions, ...) via the sn_codesearch
-// plugin REST API. Issue #180.
+// GraphQL read-only queries; no sn_codesearch engine or Flow downloads.
+import { searchGraphQL } from '../codesearch-graphql.js';
 
-import { errUsage } from '../errors.js';
-
-const DEFAULT_SEARCH_GROUP = 'sn_devstudio.Studio Search Group';
-
-// Flatten the API's nested shape into one row per record/field so the output
-// controller can render it as a table / CSV / JSON.
-//
-// API shape:
-//   result: [ { recordType, hits: [ { name, className, tableLabel,
-//     matches: [ { field, fieldLabel,
-//       lineMatches: [ { line, context, escaped } ] } ] } ] } ] }
-// NOTE: with ?table=<t> the API returns a single object, not an array.
-export function flattenHits(result) {
-  const groups = Array.isArray(result) ? result : (result ? [result] : []);
-  const rows = [];
-  for (const group of groups) {
-    for (const hit of group.hits || []) {
-      for (const match of hit.matches || []) {
-        const lines = (match.lineMatches || []).filter((lm) => lm.context);
-        rows.push({
-          table: hit.className || group.recordType,
-          name: hit.name,
-          field: match.field,
-          lines: lines.map((lm) => lm.line).join(','),
-          matches: lines.length,
-          context: lines[0]?.context?.trim() || '',
-          sys_id: hit.sys_id || hit.sysId || '',
-        });
-      }
-    }
+export function renderCodeSearch(data) {
+  const out = [`${data.recordCount} record(s), ${data.fieldCount} field(s), ${data.matchCount} match(es) — ${data.status}`];
+  for (const row of data.records) {
+    out.push(`${row.table}  ${row.name}  .${row.field}  (lines ${row.lines})`);
+    if (row.context) out.push(`    ${row.context}`);
   }
-  return rows;
-}
-
-// Pre-rendered text view for styled/terminal output (output.js uses
-// data._formatted when present).
-function renderFormatted(rows, term) {
-  if (rows.length === 0) return `No code matches for "${term}".\n`;
-  const out = [];
-  for (const r of rows) {
-    out.push(`${r.table}  ${r.name}  .${r.field}  (lines ${r.lines})`);
-    if (r.context) out.push(`    ${r.context}`);
+  if (!data.records.length) out.push(`No visible code matches for "${data.term}".`);
+  const gaps = data.coverage.filter((item) => item.status !== 'complete');
+  for (const gap of gaps) {
+    out.push(`${gap.table}: ${gap.status} (${gap.reason})`);
+    if (gap.unsupportedFields?.length) out.push(`    Unsupported fields: ${gap.unsupportedFields.join(', ')}`);
   }
+  if (data.configuration.status !== 'complete') out.push(`Search configuration: ${data.configuration.reason}`);
+  out.push(data.hint);
   return out.join('\n') + '\n';
 }
 
@@ -52,52 +22,26 @@ export function codesearchCmd(wrap) {
   return {
     command: 'codesearch [subcommand]',
     aliases: ['codesearch'],
-    describe: 'Search code across ServiceNow artifacts (script includes, business rules, client scripts, ...)',
-    builder: (yargs) => yargs
-      .command({
-        command: 'search <term>',
-        describe: 'Search code for a term (e.g. "codesearch search GlideAjax")',
-        builder: (y) => y
-          .positional('term', { type: 'string', describe: 'Search term' })
-          .option('limit', { alias: 'l', type: 'number', default: 100, describe: 'Max results' })
-          .option('table', { alias: 't', type: 'string', describe: 'Restrict to one source table (e.g. sys_script_include)' })
-          .option('scope', { alias: 's', type: 'string', describe: 'Restrict to an app scope (e.g. x_my_app)' })
-          .option('search-group', { type: 'string', default: DEFAULT_SEARCH_GROUP, describe: 'Search group to use' })
-          .option('all-scopes', { type: 'boolean', default: true, describe: 'Search across all scopes (default true)' }),
-        handler: wrap(async (argv, app) => {
-          if (!argv.term || !argv.term.trim()) {
-            throw errUsage('A search term is required', 'Example: jsn codesearch search GlideAjax');
-          }
-
-          const params = new URLSearchParams();
-          params.set('term', argv.term);
-          params.set('limit', String(argv.limit));
-          params.set('search_group', argv.searchGroup);
-          params.set('search_all_scopes', String(argv.allScopes));
-          if (argv.table) params.set('table', argv.table);
-          if (argv.scope) params.set('scope', argv.scope);
-
-          const url = `${app.getEffectiveInstance()}/api/sn_codesearch/code_search/search?${params.toString()}`;
-          let payload;
-          try {
-            payload = await app.sdk.request(url);
-          } catch (err) {
-            if (err.code === 'api_error' && /404/.test(err.message)) {
-              err.message += '\n\nHint: the sn_codesearch plugin may not be active on this instance.';
-            }
-            throw err;
-          }
-
-          const result = payload?.result || [];
-          const rows = flattenHits(result);
-
-          app.ok(
-            { term: argv.term, count: rows.length, records: rows, _formatted: renderFormatted(rows, argv.term) },
-            { summary: `${rows.length} code match(es) for "${argv.term}"` },
-          );
-        }),
-      })
-      .demandCommand(1, 'Specify a subcommand: search'),
+    describe: 'Search code across ServiceNow artifacts with read-only GraphQL queries',
+    builder: (yargs) => yargs.command({
+      command: 'search <term>',
+      describe: 'Search code; Flow internals require separate jsn flows search',
+      builder: (y) => y
+        .positional('term', { type: 'string', describe: 'Literal case-insensitive search term (no encoded-query separators)' })
+        .option('limit', { alias: 'l', type: 'number', default: 100, describe: 'Max matching records (coverage is partial when reached)' })
+        .option('table', { alias: 't', type: 'string', describe: 'Restrict to a curated or configured source table' })
+        .option('scope', { alias: 's', type: 'string', describe: 'Restrict to an app scope (e.g. x_my_app)' })
+        .option('search-group', { type: 'string', default: 'sn_devstudio.Studio Search Group', describe: 'Layer configured fields and filters from this group over the curated catalog' })
+        .option('all-scopes', { type: 'boolean', default: true, describe: 'Search all scopes; false requires --scope' })
+        .option('page-size', { type: 'number', default: 250, describe: 'GraphQL page window size (max 1000)' })
+        .option('max-pages', { type: 'number', default: 20, describe: 'Maximum pages per table (max 1000)' })
+        .option('max-requests', { type: 'number', default: 1000, describe: 'Data-call budget including configuration, excluding SDK auth/bootstrap (max 10000)' }),
+      handler: wrap(async (argv, app) => {
+        const data = await searchGraphQL(app, argv);
+        Object.defineProperty(data, '_formatted', { value: renderCodeSearch(data), enumerable: false });
+        app.ok(data, { summary: `${data.recordCount} record(s), ${data.fieldCount} field(s), ${data.matchCount} match(es) — ${data.status}` });
+      }),
+    }).demandCommand(1, 'Specify a subcommand: search'),
     handler: () => {},
   };
 }
