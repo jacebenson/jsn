@@ -74,6 +74,12 @@ class AcceptanceResultsTest < Minitest::Test
     assert_equal 2, run.total
     assert_equal 2, run.acceptance_checks.count
     refute_includes last_response.body, 'b' * 40
+    header 'Authorization', nil
+    get "/results/#{run.run_key}"
+    assert_equal 200, last_response.status
+    assert_includes last_response.body, %(data-payload-digest="#{run.payload_digest}")
+    assert_includes last_response.body, %(data-run-key="#{run.run_key}")
+    assert_includes last_response.body, 'does not mean passing tests'
   end
 
   def test_duplicate_is_idempotent_and_changed_payload_conflicts

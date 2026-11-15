@@ -1,7 +1,11 @@
 // Closed configuration contract shared by readiness and execution.
 export const TARGETS = ['pdi', 'vendor-1', 'vendor-2'];
-export function selectTarget(manual, configured) {
-  const target = manual || configured || 'vendor-1';
+export function selectTargets(manual = 'both') {
+  if (manual === 'both' || !manual) return ['vendor-1', 'vendor-2'];
+  return [selectTarget(manual)];
+}
+export function selectTarget(manual) {
+  const target = manual || 'vendor-1';
   if (!TARGETS.includes(target)) throw new Error('Invalid acceptance target');
   return target;
 }

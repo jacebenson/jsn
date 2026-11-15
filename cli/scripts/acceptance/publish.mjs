@@ -1,6 +1,21 @@
 // Publish only the closed public projection produced by the acceptance runner.
 // The token is read from the environment and is never accepted as an argument.
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
+
+export function projectionDigest(payload) {
+  // Match the Rails JSON canonicalizer, including small fractional durations.
+  const canonical = value => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+    if (typeof value === 'number' && !Number.isInteger(value) && Math.abs(value) < 0.0001) {
+      const [mantissa, exponent] = value.toExponential().split('e');
+      return `${mantissa.includes('.') ? mantissa : mantissa + '.0'}e${Number(exponent) < 0 ? '-' : '+'}${String(Math.abs(Number(exponent))).padStart(2, '0')}`;
+    }
+    return JSON.stringify(value);
+  };
+  return createHash('sha256').update(canonical(payload)).digest('hex');
+}
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -173,7 +188,7 @@ export async function publishResults({ file, url, token, fetchImpl = fetch }) {
       try {
         const read = await fetchImpl(readURL, { redirect: 'error', signal: AbortSignal.timeout(15000) });
         const text = await read.text();
-        if (!read.ok || !text.includes(payload.provenance.version) || !text.includes(payload.provenance.sourceSHA))
+        if (!read.ok || !text.includes(`data-run-key="${payload.runKey}"`) || !text.includes(`data-payload-digest="${projectionDigest(payload)}"`) || !text.includes(payload.provenance.version) || !text.includes(payload.provenance.sourceSHA))
           return { ok: false, httpStatus: read.status, result: 'readback-failed' };
       } catch { return { ok: false, httpStatus: 0, result: 'readback-failed' }; }
       return { ok: true, httpStatus: response.status, result: accepted ? 'accepted' : 'duplicate' };

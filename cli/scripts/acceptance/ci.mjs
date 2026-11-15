@@ -6,7 +6,7 @@ import { validateProjection, publishResults } from './publish.mjs';
 import { HARNESS_SHA } from './prepare.mjs';
 import { instanceConfiguration, producerEnvironment } from './config.mjs';
 
-export async function runAndPublish({ run, file, publicFile, url, token, publish = publishResults, expectedSHA }) {
+export async function runAndPublish({ run, file, publicFile, url, token, publish = publishResults, expectedSHA, evidenceFile }) {
   let code = 1;
   try { code = await run(); } catch { /* Still upload an already saved partial run. */ }
   let payload;
@@ -18,11 +18,19 @@ export async function runAndPublish({ run, file, publicFile, url, token, publish
     console.error('No valid candidate projection; nothing published');
     return 1;
   }
+  let executedCount = 0;
+  try {
+    const evidence = fs.readFileSync(evidenceFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    executedCount = new Set(evidence.filter(e => e.runKey === payload.runKey && payload.results.some(r => r.id === e.id && ['passed', 'failed', 'failed-timeout'].includes(r.status))).map(e => e.id)).size;
+  } catch { /* No authenticated scenario evidence cannot qualify. */ }
   let outcome;
   try { outcome = await publish({ file: publicFile, url, token }); }
   catch { outcome = { ok: false, result: 'refused' }; }
   console.log(JSON.stringify({ suiteExit: code, publication: outcome.result, httpStatus: outcome.httpStatus ?? 0, complete: payload.summary.complete, missingCount: payload.summary.missingCount, harnessSHA: HARNESS_SHA }));
-  return code !== 0 ? code : !outcome.ok ? 1 : payload.summary.complete ? 0 : 2;
+  const delivered = executedCount > 0 && outcome.ok === true;
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `delivered=${delivered}\nrun_key=${payload.runKey}\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ${process.env.ACCEPTANCE_TARGET} delivery: ${delivered ? 'verified' : 'FAILED'}\nAuthenticated executed scenarios: ${executedCount}. Suite exit: ${code}. Complete: ${payload.summary.complete}. Missing: ${payload.summary.missingCount}. Counts: ${JSON.stringify(payload.summary.counts)}. Publication: ${outcome.result}.\nRun: /results/${payload.runKey}\n`);
+  return delivered ? 0 : 1;
 }
 
 export async function seedProfile(privateRoot, input) {
@@ -45,7 +53,7 @@ export async function main() {
     const configHome = await seedProfile(privateRoot, input);
     const output = path.join(privateRoot, 'run');
     const env = producerEnvironment(process.env, privateRoot, configHome);
-    const args = ['cli/scripts/acceptance/run.mjs', '--profile', 'acceptance-ci', '--expected-host', host.origin, '--mode', mode, '--output-dir', output];
+    const args = ['cli/scripts/acceptance/execute.mjs', '--profile', 'acceptance-ci', '--expected-host', host.origin, '--mode', mode, '--output-dir', output];
     if (mode === 'pdi') args.push('--full', '--allow-writes');
     else {
       // Explicitly label the automatic read-only lane as a subset on /results.
@@ -59,7 +67,7 @@ export async function main() {
       run: () => spawnSync(process.execPath, args, { cwd: root, env, stdio: 'ignore' }).status ?? 1,
       file: path.join(output, 'public-summary.json'), publicFile: path.join(root, 'acceptance-public.json'),
       url: process.env.JSN_ACCEPTANCE_INGEST_URL, token: process.env.JSN_ACCEPTANCE_INGEST_TOKEN,
-      expectedSHA: process.env.GITHUB_SHA,
+      expectedSHA: process.env.GITHUB_SHA, evidenceFile: path.join(output, 'executed.jsonl'),
     });
   } finally { fs.rmSync(privateRoot, { recursive: true, force: true }); }
 }

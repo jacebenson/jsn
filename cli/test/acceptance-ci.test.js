@@ -7,9 +7,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { load } from 'js-yaml';
-import { validateProjection, publishResults } from '../scripts/acceptance/publish.mjs';
+import { validateProjection, publishResults, projectionDigest } from '../scripts/acceptance/publish.mjs';
 import { runAndPublish, seedProfile } from '../scripts/acceptance/ci.mjs';
-import { selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
+import { selectTargets, selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
 import { prepare, HARNESS_SHA } from '../scripts/acceptance/prepare.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -35,9 +35,11 @@ function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'appl
 
 test('target defaults, independent missing configuration and explicit mutation authorization', () => {
   assert.equal(selectTarget(), 'vendor-1');
-  assert.equal(selectTarget('', 'pdi'), 'pdi');
+  assert.deepEqual(selectTargets(), ['vendor-1', 'vendor-2']);
+  assert.deepEqual(selectTargets('both'), ['vendor-1', 'vendor-2']);
+  assert.deepEqual(selectTargets('pdi'), ['pdi']);
   assert.equal(selectTarget('vendor-2', 'pdi'), 'vendor-2');
-  assert.throws(() => selectTarget('', 'typo'));
+  assert.throws(() => selectTargets('typo'));
   const env = { ACCEPTANCE_TARGET: 'vendor-1', JSN_VERIFY_ENABLED: 'true', SERVICENOW_INSTANCE_URL: 'https://mock.invalid', SERVICENOW_OAUTH_TOKEN: token };
   const config = instanceConfiguration(env);
   assert.equal(config.profile.read_only, true);
@@ -92,7 +94,7 @@ test('HTTP auth, exact-key duplicate retry, failed-run publication, conflict and
     if (req.method === 'GET') {
       reads.push(req.headers.authorization);
       assert.equal(req.url, `/results/${p.runKey}`);
-      res.end(`${sha} 5.4.0`); return;
+      res.end(`${sha} 5.4.0 data-run-key="${p.runKey}" data-payload-digest="${projectionDigest(p)}"`); return;
     }
     let body = ''; for await (const chunk of req) body += chunk;
     if (req.headers.authorization !== `Bearer ${token}`) { json(res, 401, { error: 'unauthorized' }); return; }
@@ -133,7 +135,7 @@ test('accepted response needs matching run key and actual public revision readba
   const p = fixture(); fs.writeFileSync(file, JSON.stringify(p));
   let read = false, key = p.runKey;
   const url = await server(t, (req, res) => {
-    if (req.method === 'GET') { res.end(read ? `${sha} 5.4.0` : 'stale'); return; }
+    if (req.method === 'GET') { res.end(read ? `${sha} 5.4.0 data-run-key="${p.runKey}" data-payload-digest="${projectionDigest(p)}"` : `${sha} 5.4.0 data-run-key="${p.runKey}" data-payload-digest="${'0'.repeat(64)}"`); return; }
     json(res, 201, { status: 'accepted', runKey: key });
   });
   assert.equal((await publishResults({ file, url, token })).result, 'readback-failed');
@@ -143,19 +145,21 @@ test('accepted response needs matching run key and actual public revision readba
 
 test('nonzero or thrown suite still uploads partial, restores pass, refuses missing evidence', async t => {
   const dir = temporary(t), file = path.join(dir, 'private.json');
+  const evidenceFile = path.join(dir, 'executed.jsonl');
+  fs.writeFileSync(evidenceFile, JSON.stringify({runKey: fixture().runKey, id: 'readonly.records'}) + '\n');
   let published = 0;
-  const runCase = async (name, run) => runAndPublish({ run, file, publicFile: path.join(dir, `${name}.json`), expectedSHA: sha,
+  const runCase = async (name, run) => runAndPublish({ run, file, publicFile: path.join(dir, `${name}.json`), expectedSHA: sha, evidenceFile,
     publish: async ({ file: f }) => { const p = validateProjection(JSON.parse(fs.readFileSync(f))); assert.equal(p.results[0].status, name === 'restored' ? 'passed' : 'failed'); published++; return { ok: true, result: 'accepted' }; } });
   fs.writeFileSync(file, JSON.stringify(fixture(true)));
-  assert.equal(await runCase('failed', () => 1), 1);
-  assert.equal(await runCase('thrown', () => { throw new Error('private'); }), 1);
+  assert.equal(await runCase('failed', () => 1), 0);
+  assert.equal(await runCase('thrown', () => { throw new Error('private'); }), 0);
   fs.writeFileSync(file, JSON.stringify(fixture()));
   assert.equal(await runCase('restored', () => 0), 0);
   assert.equal(published, 3);
   assert.equal(await runAndPublish({ run: () => 0, file, publicFile: path.join(dir, 'rejected.json'), expectedSHA: sha, publish: async () => ({ ok: false, result: 'rejected', httpStatus: 422 }) }), 1);
   const partial = fixture(); partial.summary.complete = false; partial.summary.missingCount = 1;
   fs.writeFileSync(file, JSON.stringify(partial));
-  assert.equal(await runAndPublish({ run: () => 2, file, publicFile: path.join(dir, 'partial.json'), expectedSHA: sha, publish: async () => ({ ok: true, result: 'accepted' }) }), 2);
+  assert.equal(await runAndPublish({ run: () => 2, file, publicFile: path.join(dir, 'partial.json'), expectedSHA: sha, evidenceFile, publish: async () => ({ ok: true, result: 'accepted' }) }), 0);
   assert.equal(await runAndPublish({ run: () => 0, file, publicFile: path.join(dir, 'wrong-sha.json'), expectedSHA: 'f'.repeat(40), publish: async () => { throw new Error('must not publish'); } }), 1);
   fs.rmSync(file); assert.equal(await runCase('absent', () => 1), 1); assert.equal(published, 3);
 });
@@ -213,32 +217,61 @@ test('immutable real producer executes failing scenarios and restored passing sc
   assert.notEqual(refused.exitCode, 0);
   assert.match(refused.stdout + refused.stderr, /read.only/i);
   assert.equal(requests, readCount);
+  const second = createContext({ ...options, outputDir: path.join(dir, 'second-target') }, preflight(options, configuration, {}));
+  assert.notEqual(ctx.runKey, second.runKey, 'Producer UUID keys must not collide across anonymized target contexts');
+  const providerContext = ctx;
+  const { observeScenario } = await import('../scripts/acceptance/execute.mjs');
   const readonly = catalog.filter(s => s.modes.includes('readonly')).map(s => s.id);
   const selection = selectScenarios(catalog, { scenarios: readonly });
   assert.equal(selection.full, false); assert.deepEqual(selection.ids, readonly);
   for (const fails of [true, false]) {
     const outputDir = path.join(dir, fails ? 'fail' : 'pass');
     const ctx = { runKey: fixture().runKey, mode: 'readonly', profile: 'mock', expectedHost: 'https://unused.invalid', outputDir, state: new Map(), cleanup: async () => [] };
-    const scenarios = [{ id: 'readonly.records', modes: ['readonly'], mutates: false, requires: [], run: async () => { assert.equal(fails, false, 'deliberate regression'); } }];
+    ctx.read = providerContext.read; ctx.command = providerContext.command;
+    const scenarios = [observeScenario({ id: 'readonly.records', modes: ['readonly'], mutates: false, requires: [], run: async c => { await c.read('sys_db_object', { fields: ['sys_id', 'name'] }); assert.equal(fails, false, 'deliberate regression'); } })];
     const report = await executeScenarios(scenarios, ctx, { provenance: fixture().provenance });
     assert.equal(report.summary.complete, !fails);
     const result = validateProjection(JSON.parse(fs.readFileSync(path.join(outputDir, 'public-summary.json'))));
     assert.equal(result.results[0].status, fails ? 'failed' : 'passed');
     assert.ok(result.results[0].durationMs >= 0);
+    const file = path.join(outputDir, 'public-summary.json');
+    const evidenceFile = path.join(outputDir, 'executed.jsonl');
+    let stored;
+    const url = await server(t, async (req, res) => {
+      if (req.method === 'GET') { res.end(`${sha} 5.4.0 data-run-key="${stored.runKey}" data-payload-digest="${projectionDigest(stored)}"`); return; }
+      let raw = ''; for await (const chunk of req) raw += chunk;
+      stored = validateProjection(JSON.parse(raw));
+      json(res, 201, { status: 'accepted', runKey: stored.runKey });
+    });
+    assert.equal(await runAndPublish({ run: () => fails ? 1 : 0, file, publicFile: path.join(outputDir, 'published.json'), expectedSHA: sha, evidenceFile, publish: async ({ file: f }) => {
+      const actual = JSON.parse(fs.readFileSync(f));
+      assert.equal(actual.results[0].status, fails ? 'failed' : 'passed');
+      assert.equal(actual.summary.complete, !fails);
+      return publishResults({ file: f, url, token });
+    } }), 0);
+    assert.equal(stored.results[0].status, fails ? 'failed' : 'passed');
+    assert.equal(await runAndPublish({ run: () => 0, file, publicFile: path.join(outputDir, 'no-evidence.json'), expectedSHA: sha, publish: async () => ({ok:true, result:'accepted'}) }), 1);
   }
 });
 
 test('projection matches actual Rails-owned schema when Ruby is available', t => {
   if (spawnSync('ruby', ['--version']).status !== 0) { t.skip('Ruby unavailable; website CI owns Rails tests'); return; }
-  const ruby = "require 'json'; require 'pathname'; module Rails; def self.root; Pathname.new(ARGV[0]); end; end; require ARGV[0] + '/app/services/acceptance_projection'; p = AcceptanceProjection.parse(STDIN.read); puts p.run_key";
-  const result = spawnSync('ruby', ['-e', ruby, path.join(root, 'site')], { input: JSON.stringify(fixture()), encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout.trim(), fixture().runKey);
+  const ruby = "require 'json'; require 'digest'; require 'pathname'; module Rails; def self.root; Pathname.new(ARGV[0]); end; end; require ARGV[0] + '/app/services/acceptance_projection'; p = AcceptanceProjection.parse(STDIN.read); puts p.run_key; puts p.canonical_digest";
+  for (const duration of [12.5, 1, 0.00001, 0.0000001234, 0.0001]) {
+    const p = fixture(); p.results[0].durationMs = duration;
+    const result = spawnSync('ruby', ['-e', ruby, path.join(root, 'site')], { input: JSON.stringify(p), encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); assert.deepEqual(result.stdout.trim().split('\n'), [p.runKey, projectionDigest(p)]);
+  }
 });
 
 function workflowGuard(w) {
   assert.deepEqual(Object.keys(w.on).sort(), ['push', 'release', 'workflow_dispatch']);
   assert.deepEqual(w.on.push.branches, ['main']); assert.equal(w.concurrency['cancel-in-progress'], false);
-  assert.equal(w.jobs.acceptance.if, "needs.configuration.outputs.ready == 'true'");
+  assert.equal(w.jobs.delivery.if, 'always()');
+  assert.deepEqual(w.jobs.delivery.needs, ['selection', 'vendor-1', 'vendor-2', 'pdi']);
+  for (const target of ['vendor-1', 'vendor-2']) assert.deepEqual(w.jobs[target].needs, 'selection');
+  const target = load(fs.readFileSync(path.join(root, '.github/workflows/acceptance-target.yml'), 'utf8'));
+  w = { ...w, jobs: { ...w.jobs, acceptance: target.jobs.acceptance } };
   assert.match(w.jobs.selection.if, /github.repository == 'jacebenson\/jsn'/);
   assert.match(w.jobs.selection.steps[1].run, /merge-base.*--is-ancestor/);
   const protection = w.jobs.acceptance.steps.find(s => s.id === 'protection');
@@ -247,18 +280,18 @@ function workflowGuard(w) {
   assert.match(protection.run, /TARGET.*pdi/);
   assert.match(protection.run, /protected.*true/);
   assert.equal(w.jobs.acceptance.steps.find(s => s.run === 'node cli/scripts/acceptance/ci.mjs').env.ACCEPTANCE_REVIEWERS_VERIFIED, '${{ steps.protection.outputs.verified }}');
-  assert.equal(w.jobs.acceptance.environment, '${{ needs.selection.outputs.target }}');
-  assert.deepEqual(w.on.workflow_dispatch.inputs.target.options, ['pdi', 'vendor-1', 'vendor-2']);
+  assert.equal(w.jobs.acceptance.environment, '${{ inputs.target }}');
+  assert.deepEqual(w.on.workflow_dispatch.inputs.target.options, ['both', 'pdi', 'vendor-1', 'vendor-2']);
   assert.ok(!JSON.stringify(w).includes('PROFILE_JSON'));
-  assert.match(w.jobs.configuration.steps[0].run, /ready=false/);
+  assert.equal(w.jobs.acceptance['continue-on-error'], true);
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/checkout')).with['persist-credentials'], false);
   assert.ok(!JSON.stringify(w).includes('pull_request_target'));
   assert.ok(w.jobs.acceptance.steps.some(s => s.run === 'node cli/scripts/acceptance/ci.mjs'));
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/upload-artifact')).with.path, 'acceptance-public.json');
 }
 test('actual mutation shell gate fails closed and restores approved reviewed PDI', t => {
-  const w = load(fs.readFileSync(path.join(root, '.github/workflows/acceptance.yml'), 'utf8'));
-  const script = w.jobs.acceptance.steps.find(s => s.id === 'protection').run;
+  const target = load(fs.readFileSync(path.join(root, '.github/workflows/acceptance-target.yml'), 'utf8'));
+  const script = target.jobs.acceptance.steps.find(s => s.id === 'protection').run;
   const dir = temporary(t);
   const gh = path.join(dir, process.platform === 'win32' ? 'gh.exe' : 'gh');
   if (process.platform === 'win32') { t.skip('bash protection gate tested on Linux'); return; }
@@ -278,7 +311,7 @@ test('actual mutation shell gate fails closed and restores approved reviewed PDI
 test('trusted workflow rejects unsafe trigger/regression and restores pass', () => {
   const w = load(fs.readFileSync(path.join(root, '.github/workflows/acceptance.yml'), 'utf8'));
   workflowGuard(w);
-  for (const mutate of [x => { x.on.pull_request = {}; }, x => { x.jobs.acceptance.if = 'always()'; }, x => { x.concurrency['cancel-in-progress'] = true; }]) {
+  for (const mutate of [x => { x.on.pull_request = {}; }, x => { x.jobs.delivery.if = 'success()'; }, x => { x.concurrency['cancel-in-progress'] = true; }]) {
     const changed = structuredClone(w); mutate(changed); assert.throws(() => workflowGuard(changed)); workflowGuard(w);
   }
   const release = load(fs.readFileSync(path.join(root, '.github/workflows/release-prod.yml'), 'utf8'));
