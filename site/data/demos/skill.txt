@@ -7,5 +7,5 @@
  ◯ Agents (open standard)
  ◯ OpenCode
 
-~/.hermes/profiles/holly/skills/servicenow/SKILL.md
+~/.hermes/profiles/example/skills/servicenow/SKILL.md
 (space to toggle, enter to confirm)

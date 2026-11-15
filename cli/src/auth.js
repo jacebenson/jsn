@@ -26,11 +26,11 @@ export { classifyCredentialState } from './auth/credential-state.js';
 
 // ─── Basic auth from environment variables ───
 // SN_USERNAME / SN_PASSWORD — global credentials
-// SN_<INSTANCE>_USERNAME / SN_<INSTANCE>_PASSWORD — instance-specific (e.g. SN_DEV328604_USERNAME)
+// SN_<INSTANCE>_USERNAME / SN_<INSTANCE>_PASSWORD — instance-specific (e.g. SN_EXAMPLE_USERNAME)
 
 function envVarName(instance) {
   // Normalize instance URL to an env-var-safe name
-  // e.g. https://dev328604.service-now.com → DEV328604
+  // e.g. https://example.service-now.com → EXAMPLE
   const host = instance.replace(/https?:\/\//, '').replace(/\/.*$/, '').replace(/\.service-now\.com.*/, '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   return host;
 }
@@ -44,7 +44,7 @@ function getBasicAuthFromEnv(instance) {
     return null;
   }
 
-  // Try instance-specific env vars first (e.g. SN_DEV328604_USERNAME)
+  // Try instance-specific env vars first (e.g. SN_EXAMPLE_USERNAME)
   const host = envVarName(instance);
   const instanceUser = process.env[`SN_${host}_USERNAME`];
   const instancePass = process.env[`SN_${host}_PASSWORD`];

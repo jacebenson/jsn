@@ -8,7 +8,7 @@ No credential contents, private records, usernames, or hostnames are retained he
 Exact commands:
 
 ```sh
-node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi
+node cli/scripts/verify-jsn.mjs doctor --profile pdi
 node docs/verification/related-lists-live-read.mjs pdi
 ```
 

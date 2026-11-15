@@ -94,7 +94,7 @@ RITM0010001 (Requested Item)
   Topic:  Moveworks!  What is Slate?  He can tell you!
   Speaker:  Teo
 
-Link:  https://dev227772.service-now.com/requested_item.do?sys_id=02dedb44839e8b10f7bfc670ceaad36c
+Link:  https://example.service-now.com/requested_item.do?sys_id=02dedb44839e8b10f7bfc670ceaad36c
 
 
   → update: jsn req update RITM0010001 --data '{...}' — Update this request
