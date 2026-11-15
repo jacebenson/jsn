@@ -16,10 +16,10 @@ jobs:
       # asset, redirect, and manifest assertions formerly run separately here.
       - name: Verify website routes and documentation API
         run: docker run --rm --entrypoint bin/test -e SECRET_KEY_BASE=ci-test-only jsn-site:test
-      - name: Verify shared sync and Markdown handling
+      - name: Verify shared sync, Markdown and public WebMCP guidance
         run: >-
           docker run --rm --entrypoint node jsn-site:test
-          --test test/sync-docs.test.mjs test/markdown.test.mjs
+          --test test/sync-docs.test.mjs test/markdown.test.mjs test/webmcp.test.mjs
       - name: Extract built URL inventory
         run: |
           container=$(docker create jsn-site:test)
