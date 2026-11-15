@@ -1,0 +1,56 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+
+const exec = promisify(execFile);
+const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
+
+test('real CLI read-only profile supports cold/warm/refresh and machine/human formats without instance writes', async t => {
+  const directory = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-flow-search-cli-'));
+  const fixture = JSON.parse(await fs.readFile(new URL('./fixtures/flow-search-encoded.json', import.meta.url), 'utf8'));
+  const requests = [];
+  const id = 'a'.repeat(32);
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    requests.push({ method: req.method, path: url.pathname });
+    let response = { result: [] };
+    if (url.pathname === '/api/now/stats/sys_hub_flow') response = { result: { stats: { count: '1' } } };
+    if (url.pathname === '/api/now/table/sys_hub_flow') response = { result: Number(url.searchParams.get('sysparm_offset')) ? [] : [{ sys_id: id, name: 'Offline fixture', type: 'flow', sys_updated_on: '2026-01-01 00:00:00' }] };
+    if (url.pathname === `/api/now/processflow/flow/${id}`) response = { result: { data: fixture.definition, errorCode: '0', errorMessage: '' } };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(response));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await fs.rm(directory, { recursive: true, force: true }); });
+  const configDir = path.join(directory, 'config');
+  await fs.mkdir(path.join(configDir, 'servicenow'), { recursive: true });
+  await fs.writeFile(path.join(configDir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
+  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: path.join(directory, 'cache'), JSN_DATA_HOME: path.join(directory, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
+  const run = (...args) => exec(process.execPath, [cli, 'flows', 'search', 'current.number', ...args], { env, timeout: 20000 });
+  const cold = await run('--json');
+  assert.equal(cold.stderr, '');
+  assert.equal(JSON.parse(cold.stdout).data.match_count, 1);
+  assert.equal(JSON.parse(cold.stdout).data.cache.state, 'built');
+  const warm = JSON.parse((await run('--json')).stdout).data;
+  assert.equal(warm.cache.state, 'reused');
+  assert.equal(warm.cache.reused_definitions, 1);
+  assert.equal(JSON.parse((await run('--refresh', '--json')).stdout).data.cache.state, 'refreshed');
+  assert.equal((await run('--get', 'data.match_count')).stdout.trim(), '1');
+  const human = await run('--format', 'styled');
+  if (process.env.JSN_FLOW_SEARCH_EVIDENCE) await fs.writeFile(process.env.JSN_FLOW_SEARCH_EVIDENCE, human.stdout);
+  assert.match(human.stdout, /current.number/);
+  assert.match(human.stdout, /decoded/);
+  assert.match((await run('--format', 'markdown')).stdout, /current.number/);
+  assert.match((await run('--format', 'csv')).stdout, /current.number/);
+  assert.ok(requests.some(request => request.path.includes('/processflow/')));
+  assert.ok(requests.every(request => request.method === 'GET' || (request.method === 'POST' && request.path === '/angular.do')), JSON.stringify(requests));
+  const cacheFile = JSON.parse(cold.stdout).data.cache.file;
+  assert.doesNotMatch(await fs.readFile(cacheFile, 'utf8'), /synthetic-fixture-only|Authorization|Basic /);
+});

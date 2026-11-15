@@ -1,3 +1,4 @@
+import { searchFlows, formatFlowSearch } from '../flow-search.js';
 import fs from 'node:fs';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
@@ -36,6 +37,7 @@ function describeOwned(counts) {
 const FLOW_COMMANDS = [
   { name: 'schemas', description: 'Read live trigger catalog and input schemas' },
   { name: 'catalog-variables [identifier]', description: 'List a catalog item\'s variables for a service_catalog trigger' },
+  { name: 'search <term>', description: 'Download, decode and search a private local flow cache (--refresh to rebuild)' },
   { name: 'list', description: 'List flows' },
   { name: 'executions', description: 'Show flow executions from sys_flow_context' },
   { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
@@ -86,6 +88,26 @@ export function flowsCmd(wrap) {
     describe: 'Manage Flow Designer flows',
     builder: (yargs) => {
       return yargs
+        .command({
+          command: 'search <term>',
+          describe: 'Download/decode visible flows into a private cache and search literal text (first use can be slow)',
+          builder: y => y
+            .positional('term', { type: 'string', describe: 'Case-insensitive literal text to find in readable definitions' })
+            .option('refresh', { type: 'boolean', default: false, describe: 'Rebuild the decoded cache; warm searches still revalidate source access' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const session = app.session || {};
+            const result = await searchFlows({
+              sdk: app.sdk, term: argv.term, refresh: argv.refresh,
+              context: { profile: session.profileName, username: session.username, domain: session.domain, authMethod: session.profile?.auth_method },
+              progress: message => {
+                if (!argv.json && !argv.get && (!argv.format || ['auto', 'pretty', 'styled'].includes(argv.format))) process.stderr.write(`${message}\n`);
+              },
+            });
+            Object.defineProperty(result, '_formatted', { value: formatFlowSearch(result), enumerable: false });
+            app.ok(result, { summary: `${result.match_count} matching line(s) in ${result.matching_flows} flow(s); ${result.coverage.decoded}/${result.coverage.inventoried} definitions decoded${result.coverage.complete_visible_inventory ? '' : '; PARTIAL/UNKNOWN coverage'}` });
+          }),
+        })
         .command({
           command: 'schemas',
           describe: 'Read live trigger catalog and input schemas',
