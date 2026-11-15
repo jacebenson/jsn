@@ -9,6 +9,6 @@ try {
 // Root command wiring and workflows are shared CI infrastructure. Never exempt
 // cli/package.json: website dependencies come from that published package too.
 const workflow = files.some(file => file.startsWith('.github/workflows/') || file === 'scripts/changed-components.mjs' || file === 'package.json');
-const cli = workflow || files.some(file => file.startsWith('cli/'));
+const cli = workflow || files.some(file => file.startsWith('cli/') || file.startsWith('scripts/acceptance/'));
 const site = workflow || files.some(file => /^(site\/|docs\/|cli\/src\/commands\/docs\/|cli\/package(?:-lock)?\.json$|scripts\/build-docs-site\.mjs$)/.test(file));
 process.stdout.write(`cli=${cli}\nsite=${site}\n`);

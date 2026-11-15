@@ -33,9 +33,14 @@ It displays sanitized acceptance runs, not a run of the current npm release.
 A successful HTTP response or a historical passing subset is not production
 acceptance. Do not turn the live site into a blocking release dependency until
 an exact-version/source scenario, fixture or approved run producer, freshness
-expectation, and outage/failure policy are agreed. Existing local acceptance
-page tests remain part of the Docker suite; this change adds no live release gate
-and performs no PDI mutation or public acceptance ingestion.
+expectation, and outage/failure policy are agreed. Local acceptance page tests
+remain part of the Docker suite. The separate observational workflow documented
+in [acceptance-ci.md](acceptance-ci.md) reuses the pinned genuine producer and
+publishes its closed projection when dedicated test/auth and ingest settings are
+configured. Missing configuration skips execution, never reports passing
+acceptance. The default lane is an explicit readonly subset. PDI mutations need
+manual approval and a protected disposable-target environment. This does not add
+a required release gate or authorize a live write during implementation.
 
 ## Root help is concise; `--all-commands --help` is the reference (2026-11-11)
 

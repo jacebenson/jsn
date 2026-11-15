@@ -103,3 +103,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+
+      # GITHUB_TOKEN-created releases do not trigger release workflows. Dispatch
+      # the exact tag explicitly, independently of npm publication and gating.
+      - name: Dispatch observational acceptance for the exact release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run acceptance.yml --ref "$TAG" -f mode=readonly
