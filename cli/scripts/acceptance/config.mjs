@@ -19,7 +19,7 @@ export function instanceConfiguration(env) {
   const target = selectTarget(env.ACCEPTANCE_TARGET);
   const mode = env.ACCEPTANCE_MODE || 'readonly';
   authorizeMode({ target, mode, approved: env.ACCEPTANCE_DISPOSABLE_APPROVED, reviewers: env.ACCEPTANCE_REVIEWERS_VERIFIED });
-  if (env.JSN_VERIFY_ENABLED !== 'true' || !env.SERVICENOW_INSTANCE_URL || !env.SERVICENOW_OAUTH_TOKEN) throw new Error('Acceptance NOT CONFIGURED');
+  if (env.JSN_VERIFY_ENABLED !== 'true' || !env.SERVICENOW_INSTANCE_URL || !(env.SERVICENOW_OAUTH_TOKEN || env.SERVICENOW_OAUTH_REFRESH_TOKEN)) throw new Error('Acceptance NOT CONFIGURED');
   const host = new URL(env.SERVICENOW_INSTANCE_URL);
   if (host.protocol !== 'https:' || host.username || host.password || host.pathname !== '/' || host.search || host.hash || host.port) throw new Error('Invalid target origin');
   return { target, mode, host, profile: { instance_url: host.origin, read_only: mode === 'readonly' }, credentials: { auth_method: 'oauth', access_token: env.SERVICENOW_OAUTH_TOKEN } };

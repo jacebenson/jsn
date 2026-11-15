@@ -6,6 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { environmentOAuth } from './oauth-environment.mjs';
+
+export async function refreshAndVerify(env = process.env, options = {}) {
+  if (!['pdi', 'vendor-1', 'vendor-2'].includes(env.JSN_VERIFY_TARGET) || env.JSN_VERIFY_ENABLED !== 'true') return verifyInstance(env, options);
+  try {
+    const auth = await environmentOAuth(env, options);
+    return { ...verifyInstance({ ...env, SERVICENOW_OAUTH_TOKEN: auth.accessToken }, options), authSource: auth.source };
+  } catch (error) {
+    return { ok: false, target: env.JSN_VERIFY_TARGET, status: ['invalid_url', 'not_configured', 'authentication_failed'].includes(error.message) ? error.message : 'unavailable' };
+  }
+}
+
 export function verifyInstance(env = process.env, { allowLocal = false } = {}) {
   const target = env.JSN_VERIFY_TARGET;
   const failure = (status) => ({ ok: false, target: ['pdi', 'vendor-1', 'vendor-2'].includes(target) ? target : null, status });
@@ -40,7 +52,7 @@ export function verifyInstance(env = process.env, { allowLocal = false } = {}) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = verifyInstance();
+  const result = await refreshAndVerify();
   console.log(JSON.stringify(result));
   process.exitCode = result.ok ? 0 : 1;
 }

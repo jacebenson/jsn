@@ -17,6 +17,8 @@ on:
     secrets:
       JSN_OAUTH_TOKEN:
         required: false
+      JSN_OAUTH_REFRESH_TOKEN:
+        required: false
       JSN_ACCEPTANCE_INGEST_TOKEN:
         required: false
     outputs:
@@ -77,6 +79,8 @@ jobs:
           JSN_VERIFY_ENABLED: ${{ vars.JSN_VERIFY_ENABLED }}
           SERVICENOW_INSTANCE_URL: ${{ vars.JSN_INSTANCE_URL }}
           SERVICENOW_OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
+          SERVICENOW_OAUTH_REFRESH_TOKEN: ${{ secrets.JSN_OAUTH_REFRESH_TOKEN }}
+          SERVICENOW_OAUTH_CLIENT_ID: ${{ vars.JSN_OAUTH_CLIENT_ID }}
           ACCEPTANCE_REVIEWERS_VERIFIED: ${{ steps.protection.outputs.verified }}
           JSN_ACCEPTANCE_INGEST_TOKEN: ${{ secrets.JSN_ACCEPTANCE_INGEST_TOKEN }}
           JSN_ACCEPTANCE_INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}

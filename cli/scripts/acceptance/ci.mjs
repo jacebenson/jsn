@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { environmentOAuth } from '../oauth-environment.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -47,6 +48,9 @@ export async function main() {
   const root = process.cwd();
   const input = instanceConfiguration(process.env);
   const { mode, host } = input;
+  const auth = await environmentOAuth(process.env);
+  input.credentials.access_token = auth.accessToken;
+  console.log(JSON.stringify({ authSource: auth.source }));
   const privateRoot = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || process.env.TMPDIR, 'jsn-acceptance-'));
   fs.chmodSync(privateRoot, 0o700);
   try {

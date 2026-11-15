@@ -8,6 +8,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { load } from 'js-yaml';
 import { validateProjection, publishResults, projectionDigest } from '../scripts/acceptance/publish.mjs';
+import { environmentOAuth } from '../scripts/oauth-environment.mjs';
 import { runAndPublish, seedProfile } from '../scripts/acceptance/ci.mjs';
 import { selectTargets, selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
 import { prepare, HARNESS_SHA } from '../scripts/acceptance/prepare.mjs';
@@ -187,13 +188,18 @@ test('immutable real producer executes failing scenarios and restored passing sc
   // ephemeral file auth contract. Loopback only, no credential env inheritance.
   let requests = 0;
   const origin = new URL(await server(t, (req, res) => {
+    if (req.url === '/oauth_token.do') {
+      assert.equal(req.method, 'POST');
+      json(res, 200, { access_token: token, expires_in: 300 }); return;
+    }
     requests++;
     assert.equal(req.headers.authorization, `Bearer ${token}`);
     assert.equal(req.method, 'GET');
     json(res, 200, { result: [{ sys_id: 'd'.repeat(32), name: 'incident' }] });
   })).origin;
   const privateRoot = path.join(dir, 'private'); fs.mkdirSync(privateRoot);
-  const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: token } });
+  const refreshed = await environmentOAuth({ SERVICENOW_INSTANCE_URL: origin, SERVICENOW_OAUTH_REFRESH_TOKEN: 'fake-refresh' }, { allowLocal: true });
+  const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: refreshed.accessToken } });
   const isolated = producerEnvironment(process.env, privateRoot, configHome);
   const configuration = JSON.parse(fs.readFileSync(path.join(configHome, 'servicenow/config.json')));
   assert.equal(configuration.auth_method, 'oauth');
@@ -208,6 +214,22 @@ test('immutable real producer executes failing scenarios and restored passing sc
     },
   });
   assert.deepEqual(await ctx.read('sys_db_object', { fields: ['sys_id', 'name'] }), [{ sys_id: 'd'.repeat(32), name: 'incident' }]);
+  // Start the pinned producer inside the seeded parent environment. Do not
+  // reinject paths into its children: exercise its real environment filter.
+  const { runProcess: launchSeeded } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  const supportURL = pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href;
+  const seeded = await launchSeeded(process.execPath, ['--input-type=module', '-e', `
+    import fs from 'node:fs';
+    import {createContext,preflight} from ${JSON.stringify(supportURL)};
+    const options = ${JSON.stringify({ ...options, outputDir: path.join(dir, 'seeded-producer-run') })};
+    const config = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME + '/servicenow/config.json'));
+    const ctx = createContext(options, preflight(options,config,{}));
+    await ctx.read('sys_db_object',{fields:['sys_id','name']});
+    const result = await ctx.command(['records','list','--table','sys_db_object','--limit','1','--no-count','--json']);
+    if(result.exitCode !== 0 || result.json?.ok !== true) process.exitCode=1;
+  `], { env: isolated });
+  assert.equal(seeded.exitCode, 0, seeded.stderr.replaceAll(token, '[redacted]'));
+  assert.ok(!(seeded.stdout + seeded.stderr).includes(token));
   const readCount = requests;
   await assert.rejects(() => ctx.command(['records', 'create', '--table', 'incident', '--data', '{}']), /refused/);
   assert.equal(requests, readCount);
