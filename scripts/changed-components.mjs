@@ -6,7 +6,9 @@ try {
   files = !base || /^0+$/.test(base) ? ['cli/', 'site/']
     : execFileSync('git', ['diff', '--name-only', base, 'HEAD'], { encoding: 'utf8' }).trim().split('\n');
 } catch { files = ['cli/', 'site/']; }
-const workflow = files.some(file => file.startsWith('.github/workflows/') || file === 'scripts/changed-components.mjs');
+// Root command wiring and workflows are shared CI infrastructure. Never exempt
+// cli/package.json: website dependencies come from that published package too.
+const workflow = files.some(file => file.startsWith('.github/workflows/') || file === 'scripts/changed-components.mjs' || file === 'package.json');
 const cli = workflow || files.some(file => file.startsWith('cli/') || file.startsWith('scripts/acceptance/'));
 const site = workflow || files.some(file => /^(site\/|docs\/|cli\/src\/commands\/docs\/|cli\/package(?:-lock)?\.json$|scripts\/build-docs-site\.mjs$)/.test(file));
 process.stdout.write(`cli=${cli}\nsite=${site}\n`);

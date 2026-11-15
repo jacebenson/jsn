@@ -28,7 +28,10 @@ the Rails suite. Workflow guides formerly at root paths redirect to `/docs/.../`
 public CSS, media and the unchanged versioned WebMCP bundle. Asset preparation
 (`npm run docs`) derives `site/config/features.json`, public assets, sitemap,
 robots and llms text without npm dependencies or generated Markdown HTML.
-`npm run docs:serve` launches the isolated Rails preview. Runtime Markdown uses
+Run these npm commands from the repository root, not `cli/`. The published CLI
+package has no website build or preview scripts. `npm run docs:serve` launches
+the isolated Rails preview; `npm run docs:serve -- --test` runs its Rails tests.
+Runtime Markdown uses
 the existing vendored Marked parser; Rails sanitizes its output and restricts
 source lookup and local links. `/documentation` and `/api/docs/*` remain the
 separate ServiceNow corpus reader/search service, unchanged by this migration.

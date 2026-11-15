@@ -11,9 +11,7 @@
     "test": "node scripts/test.mjs",
     "test:mutation": "stryker run",
     "lint": "npx eslint src/ bin/ test/",
-    "start": "node bin/jsn.js",
-    "docs": "node ../scripts/build-docs-site.mjs",
-    "docs:serve": "../site/bin/preview"
+    "start": "node bin/jsn.js"
   },
   "keywords": [
     "servicenow",
