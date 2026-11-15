@@ -96,10 +96,16 @@ function performance(value) {
 
 export function validateProjection(payload) {
   exactKeys(payload, ['schemaVersion', 'runKey', 'mode', 'provenance', 'platform', 'environment', 'selection', 'summary', 'performance', 'results'], 'projection');
-  if (payload.schemaVersion !== 1) fail('Unsupported schema version');
+  if (![1, 2].includes(payload.schemaVersion)) fail('Unsupported schema version');
   if (!RUN_KEY.test(payload.runKey || '')) fail('Invalid run key');
   if (!['readonly', 'pdi'].includes(payload.mode)) fail('Invalid mode');
-  exactKeys(payload.provenance, ['sourceSHA', 'version', 'node', 'binarySHA256', 'sourceDirty'], 'provenance');
+  const extra = payload.schemaVersion === 2 ? ['artifactKind', 'registryIntegrity', 'harnessSHA', 'producerSHA', 'target'] : [];
+  exactKeys(payload.provenance, ['sourceSHA', 'version', 'node', 'binarySHA256', 'sourceDirty', ...extra], 'provenance');
+  if (payload.schemaVersion === 2) {
+    const p = payload.provenance;
+    if (!['checkout', 'npm'].includes(p.artifactKind) || !HEX40.test(p.harnessSHA || '') || !HEX40.test(p.producerSHA || '') || !/^[a-z][a-z0-9-]{0,30}$/.test(p.target || '')) fail('Invalid local provenance');
+    if (p.artifactKind === 'checkout' ? p.registryIntegrity !== null : !/^sha512-[A-Za-z0-9+/]{86}==$/.test(p.registryIntegrity || '')) fail('Invalid registry integrity');
+  }
   if (!HEX40.test(payload.provenance.sourceSHA || '')) fail('Invalid source revision');
   if (!VERSION.test(payload.provenance.version || '')) fail('Invalid CLI version');
   if (!NODE.test(payload.provenance.node || '')) fail('Invalid node version');

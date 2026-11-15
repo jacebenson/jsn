@@ -48,6 +48,22 @@ class AcceptanceResultsTest < Minitest::Test
     post '/api/acceptance/runs', payload.to_json, 'CONTENT_TYPE' => 'application/json'
   end
 
+  def test_local_v2_artifact_identity_is_closed_and_keeps_npm_source_separate
+    payload = projection('schemaVersion' => 2)
+    payload['provenance'].merge!('artifactKind' => 'npm', 'registryIntegrity' => 'sha512-' + 'A' * 86 + '==', 'harnessSHA' => 'd' * 40, 'producerSHA' => 'e' * 40, 'target' => 'vendor-1')
+    post_projection(payload)
+    assert_equal 201, last_response.status
+    assert_equal 'b' * 40, AcceptanceRun.first.source_sha
+    payload['runKey'] = "acceptance_#{'f' * 32}"
+    payload['provenance']['target'] = 'private.example.com'
+    post_projection(payload)
+    assert_equal 422, last_response.status
+    payload['provenance']['target'] = 'vendor-1'
+    payload['provenance']['registryIntegrity'] = 'invalid'
+    post_projection(payload)
+    assert_equal 422, last_response.status
+  end
+
   def test_token_is_required_and_ingestion_fails_closed_when_unconfigured
     ENV['ACCEPTANCE_INGEST_TOKEN'] = nil
     post_projection(projection)

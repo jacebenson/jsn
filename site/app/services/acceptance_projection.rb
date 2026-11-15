@@ -44,7 +44,7 @@ class AcceptanceProjection
 
   def validate!
     integral!(payload, %w[schemaVersion runKey mode provenance platform environment selection summary performance results], 'projection')
-    invalid! unless payload['schemaVersion'] == SCHEMA_VERSION
+    invalid! unless [1, 2].include?(payload['schemaVersion'])
     invalid! unless RUN_KEY.match?(payload['runKey'].to_s)
     invalid! unless %w[readonly pdi].include?(payload['mode'])
     validate_provenance!
@@ -107,7 +107,18 @@ class AcceptanceProjection
 
   def validate_provenance!
     provenance = payload['provenance']
-    integral!(provenance, %w[sourceSHA version node binarySHA256 sourceDirty], 'provenance')
+    extra = payload['schemaVersion'] == 2 ? %w[artifactKind registryIntegrity harnessSHA producerSHA target] : []
+    integral!(provenance, %w[sourceSHA version node binarySHA256 sourceDirty] + extra, 'provenance')
+    if payload['schemaVersion'] == 2
+      invalid! unless %w[checkout npm].include?(provenance['artifactKind'])
+      invalid! unless SHA40.match?(provenance['harnessSHA'].to_s) && SHA40.match?(provenance['producerSHA'].to_s)
+      invalid! unless /\A[a-z][a-z0-9-]{0,30}\z/.match?(provenance['target'].to_s)
+      if provenance['artifactKind'] == 'checkout'
+        invalid! unless provenance['registryIntegrity'].nil?
+      else
+        invalid! unless /\Asha512-[A-Za-z0-9+\/]{86}==\z/.match?(provenance['registryIntegrity'].to_s)
+      end
+    end
     invalid! unless SHA40.match?(provenance['sourceSHA'].to_s)
     invalid! unless SHA64.match?(provenance['binarySHA256'].to_s)
     invalid! unless VERSION.match?(provenance['version'].to_s)
