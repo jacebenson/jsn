@@ -1,5 +1,88 @@
 # Live acceptance CI and public results
 
+## Local one-command run
+
+```sh
+./.github/scripts/test-instance.sh --profile vendor-1
+./.github/scripts/test-instance.sh --profile vendor-1 --dry-run
+./.github/scripts/test-instance.sh --profile vendor-1 --version 5.5.5 --dry-run
+```
+
+The executable wrapper works from any working directory when invoked by its
+path. Default behavior is **full READWRITE + publish**, using a private ephemeral
+profile with `read_only: false` and an exact target. Existing profiles are never
+modified. This deliberately maps local `full` to the immutable producer's older
+`pdi` mode; it does not imply that a vendor target is a disposable instance.
+`--dry-run` skips **publication only**: the same provider writes still execute.
+Use `--readonly` explicitly for the 71-scenario GET-only subset. Use `--plan` to
+export all 92 immutable scenarios, command paths, prerequisites, mutation tables
+and blocked surfaces without provider calls. Full selection is not a claim of
+complete product coverage; blocked prerequisites and inventory gaps remain visible.
+Failed or blocked checks retain the runner's nonzero exit status. For bounded
+failure isolation, invoke the Node runner directly with an exact scenario ID:
+
+```sh
+node .github/scripts/run-acceptance.mjs --profile YOUR_PROFILE --target vendor1 \
+  --version 5.5.5 --mode full --scenario workflows.flow-lifecycle
+```
+
+This selects only that scenario and its transitive dependencies (including
+`workflows.context`), not the full catalog. It performs real reviewed provider
+writes and does not publish unless `--publish` is explicit. Unknown IDs or missing
+dependencies fail closed. Private Flow diagnostics distinguish CLI failure from
+assertion failure and retain only closed reason codes and response shape; an
+unclassified CLI failure is an evidence gap, not proof of a provider limitation.
+
+Omitting
+`--version` tests the current checkout; exact npm versions verify registry integrity
+and candidate identity separately from the pinned producer provenance.
+
+```sh
+./.github/scripts/test-instance.sh --profile vendor-1 --plan
+./.github/scripts/test-instance.sh --profile vendor-1 --readonly --dry-run
+```
+
+Full mode creates uniquely named run-owned inactive resource fixtures, a dedicated
+capture set and an inspected Log-only property-triggered flow. Update/delete,
+publish/unlock and flow test commands require acknowledged current-run IDs; flow
+tests also require a current-run property. No existing business record is updated.
+The original effective application/update-set is snapshotted and independently
+read back after restoration. Unresolved writes prevent unsafe follow-up dispatch.
+Native update-set import/commit (global-setting/history effects) and catalog order
+(no reviewed provider fulfillment recipe) remain explicitly blocked, not passed.
+Auth and interactive scenarios retain upstream prerequisite checks; no Basic,
+TOTP, domain, catalog recipe or external session evidence is invented.
+
+`cleanup-receipt.json` is private (0600), contains only target label, run ownership,
+table/type/owned IDs and created/deleted/retained counts, plus restoration status.
+Supported exact-ID cleanup is attempted in finally, including failed scenarios.
+Capture history and unsupported flow graphs are deliberately retained; no force
+schema deletion or guessed graph cascade is attempted. Their retention is not a
+reason to suppress all other writes. Public reports never contain these IDs,
+provider URLs, credentials or usernames. `local-summary.json` distinguishes full
+selection, applicability, blocked prerequisites and static inventory gaps.
+
+Node loads `${HERMES_HOME:-$HOME/.hermes}/.env` if present; use `--env-file FILE`
+to override it. This file is parsed as dotenv, never executed as shell code.
+Existing environment variables take precedence. Publication requires
+`JSN_ACCEPTANCE_INGEST_URL` and `JSN_ACCEPTANCE_INGEST_TOKEN`, checked before
+provider calls. The ingest deployment must support this PR's schema version 2.
+
+`--profile` first selects an exact local JSN profile. Logical target labels can
+instead map to local profiles through private dotenv settings:
+
+```dotenv
+JSN_TEST_PROFILE_VENDOR_1=your_local_profile_name
+JSN_TEST_PROFILE_VENDOR_2=your_other_local_profile_name
+```
+
+These are profile names, not URLs or credentials. There is no GitHub lookup or
+hardcoded personal mapping. An absent profile prints available safe profile names
+and the required alias key. Summaries default to unique directories under
+`$HOME/private-acceptance/`; no output directory is created in the repository.
+The lower-level Node runner below remains available for explicit output or saved
+result publication.
+
 ## Execution and target selection
 
 Trusted main pushes and published releases independently attempt **both vendor-1

@@ -96,17 +96,33 @@ function performance(value) {
 
 export function validateProjection(payload) {
   exactKeys(payload, ['schemaVersion', 'runKey', 'mode', 'provenance', 'platform', 'environment', 'selection', 'summary', 'performance', 'results'], 'projection');
-  if (payload.schemaVersion !== 1) fail('Unsupported schema version');
+  if (![1, 2].includes(payload.schemaVersion)) fail('Unsupported schema version');
   if (!RUN_KEY.test(payload.runKey || '')) fail('Invalid run key');
   if (!['readonly', 'pdi'].includes(payload.mode)) fail('Invalid mode');
-  exactKeys(payload.provenance, ['sourceSHA', 'version', 'node', 'binarySHA256', 'sourceDirty'], 'provenance');
+  const extra = payload.schemaVersion === 2 ? ['artifactKind', 'registryIntegrity', 'harnessSHA', 'producerSHA', 'target'] : [];
+  exactKeys(payload.provenance, ['sourceSHA', 'version', 'node', 'binarySHA256', 'sourceDirty', ...extra], 'provenance');
+  if (payload.schemaVersion === 2) {
+    const p = payload.provenance;
+    if (!['checkout', 'npm'].includes(p.artifactKind) || !HEX40.test(p.harnessSHA || '') || !HEX40.test(p.producerSHA || '') || !/^[a-z][a-z0-9-]{0,30}$/.test(p.target || '')) fail('Invalid local provenance');
+    if (p.artifactKind === 'checkout' ? p.registryIntegrity !== null : !/^sha512-[A-Za-z0-9+/]{86}==$/.test(p.registryIntegrity || '')) fail('Invalid registry integrity');
+  }
   if (!HEX40.test(payload.provenance.sourceSHA || '')) fail('Invalid source revision');
   if (!VERSION.test(payload.provenance.version || '')) fail('Invalid CLI version');
   if (!NODE.test(payload.provenance.node || '')) fail('Invalid node version');
   if (!HEX64.test(payload.provenance.binarySHA256 || '')) fail('Invalid binary digest');
   if (typeof payload.provenance.sourceDirty !== 'boolean') fail('Invalid dirty flag');
   if (payload.platform !== 'linux') fail('Invalid platform');
-  exactKeys(payload.environment, ['domainSeparation'], 'environment');
+  exactKeys(payload.environment, ['domainSeparation', ...(payload.schemaVersion === 2 && 'release' in payload.environment ? ['release'] : [])], 'environment');
+  if ('release' in payload.environment) {
+    const r = payload.environment.release;
+    exactKeys(r, ['family', 'version', 'build', 'patch', 'hotfix', 'source', 'fields', 'reason'], 'release');
+    if (r.source !== 'sys_properties.name,value via bounded records list' || !['metadata-unavailable-or-unrecognized', 'version-patch-hotfix-not-independently-exposed'].includes(r.reason)) fail('Invalid release source');
+    if (r.family !== null && !/^(?:australia|zurich|yokohama|xanadu|washingtondc|vancouver|utah|tokyo|sandiego|rome|quebec|paris|orlando|newyork|madrid|london|kingston|jakarta|istanbul|helsinki|geneva|fuji|eureka|dublin|calgary|berlin|aspen)$/i.test(r.family)) fail('Invalid release family');
+    if (r.build !== null && !/^glide-[a-z0-9_-]{1,180}$/i.test(r.build)) fail('Invalid release build');
+    if ([r.version, r.patch, r.hotfix].some(v => v !== null)) fail('Unverified release field');
+    exactKeys(r.fields, [...(r.family === null ? [] : ['family']), ...(r.build === null ? [] : ['build'])], 'release fields');
+    if (r.fields.family !== undefined && r.fields.family !== 'glide.buildname' || r.fields.build !== undefined && r.fields.build !== 'glide.buildtag') fail('Invalid release field source');
+  }
   if (!['UNKNOWN', 'KNOWN', 'NOT-INSTALLED'].includes(payload.environment.domainSeparation)) fail('Invalid environment');
   exactKeys(payload.selection, ['full', 'selected'], 'selection');
   if (typeof payload.selection.full !== 'boolean' || !Array.isArray(payload.selection.selected) || payload.selection.selected.length > 5000) fail('Invalid selection');

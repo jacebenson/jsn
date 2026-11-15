@@ -12,6 +12,7 @@ class AcceptanceResultsController < BrowserController
   def show
     @run = AcceptanceRun.find_by(run_key: params[:run_key])
     return render plain: 'Acceptance run not found.', status: :not_found unless @run
+    @local_metadata = @run.local_metadata.present? ? JSON.parse(@run.local_metadata) : nil
     @checks = @run.acceptance_checks.order(:check_id)
     @performance = @run.performance.present? ? JSON.parse(@run.performance) : nil
   rescue JSON::ParserError
