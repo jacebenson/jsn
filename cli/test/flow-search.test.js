@@ -53,28 +53,67 @@ test('cold/warm/refresh cache searches decoded text and revalidates access befor
   const { sdk, calls, definitions } = provider();
   const options = { sdk, cacheRoot, context: { profile: 'reader', username: 'alice', domain: '' }, term: 'current.number' };
   const cold = await searchFlows(options);
-  assert.equal(cold.cache.state, 'built');
+  const windows = process.platform === 'win32';
+  assert.equal(cold.cache.state, windows ? 'disabled' : 'built');
   assert.equal(cold.coverage.decoded, 2);
   assert.equal(cold.coverage.complete_visible_inventory, true);
   assert.equal(cold.match_count, 1);
   assert.equal(cold.matches[0].line, 1);
   assert.match(cold.matches[0].path, /script/);
-  assert.equal((await fs.stat(cold.cache.file)).mode & 0o777, 0o600);
-  assert.equal((await fs.stat(path.dirname(cold.cache.file))).mode & 0o777, 0o700);
+  if (windows) {
+    assert.equal(cold.cache.file, null);
+    assert.deepEqual(await fs.readdir(cacheRoot), []);
+  } else {
+    assert.equal((await fs.stat(cold.cache.file)).mode & 0o777, 0o600);
+    assert.equal((await fs.stat(path.dirname(cold.cache.file))).mode & 0o777, 0o700);
+  }
   const warm = await searchFlows(options);
-  assert.equal(warm.cache.state, 'reused');
-  assert.equal(warm.cache.reused_definitions, 2);
+  assert.equal(warm.cache.state, windows ? 'disabled' : 'reused');
+  assert.equal(warm.cache.reused_definitions, windows ? 0 : 2);
   assert.ok(calls.filter(url => url.includes('/processflow/')).length === 4);
   const refreshed = await searchFlows({ ...options, refresh: true });
-  assert.equal(refreshed.cache.state, 'refreshed');
+  assert.equal(refreshed.cache.state, windows ? 'disabled' : 'refreshed');
   assert.equal(refreshed.cache.reused_definitions, 0);
   const other = await searchFlows({ ...options, context: { ...options.context, username: 'bob' } });
-  assert.notEqual(other.cache.file, cold.cache.file);
+  if (windows) assert.equal(other.cache.file, null);
+  else assert.notEqual(other.cache.file, cold.cache.file);
   definitions.set('a'.repeat(32), new Error('403 Forbidden'));
   const denied = await searchFlows(options);
   assert.equal(denied.match_count, 0, 'must not return stale privileged cached source');
   assert.equal(denied.coverage.complete_visible_inventory, false);
   assert.equal(denied.failures[0].stage, 'download');
+});
+
+test('Windows policy never touches cache paths and re-downloads after access revocation', async t => {
+  const root = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'flow-windows-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const { sdk, definitions, calls } = provider();
+  const options = { sdk, platform: 'win32', term: 'current', cacheRoot: path.join(root, 'missing') };
+  const cold = await searchFlows(options);
+  assert.equal(cold.match_count, 1);
+  assert.equal(cold.cache.state, 'disabled');
+  assert.equal(cold.cache.file, null);
+  assert.match(formatFlowSearch(cold), /Windows.*in-memory/);
+  assert.deepEqual(await fs.readdir(root), []);
+  // A file in place of the cache root would fail any disk traversal. It must
+  // remain untouched, even with refresh and an identity change.
+  await fs.writeFile(options.cacheRoot, 'old sensitive cache sentinel');
+  const warm = await searchFlows({ ...options, refresh: true, context: { username: 'bob' } });
+  assert.equal(warm.match_count, 1);
+  assert.equal(warm.cache.reused_definitions, 0);
+  assert.equal(warm.cache.previous_age_seconds, null);
+  assert.equal(calls.filter(url => url.includes('/processflow/')).length, 4);
+  definitions.set('a'.repeat(32), new Error('403 Forbidden'));
+  assert.equal((await searchFlows(options)).match_count, 0);
+  assert.equal(await fs.readFile(options.cacheRoot, 'utf8'), 'old sensitive cache sentinel');
+  // Directory junctions need no Windows symlink privilege; POSIX uses a symlink.
+  await fs.rm(options.cacheRoot);
+  const target = path.join(root, 'target');
+  await fs.mkdir(target);
+  await fs.symlink(target, options.cacheRoot, process.platform === 'win32' ? 'junction' : 'dir');
+  await searchFlows(options);
+  assert.deepEqual(await fs.readdir(target), []);
+  assert.equal((await fs.lstat(options.cacheRoot)).isSymbolicLink(), true);
 });
 
 test('partial downloads and corrupted encoded definitions remain distinct from decoded coverage', async t => {
@@ -114,6 +153,11 @@ test('cache isolation includes instance, profile, identity and domain and reject
     files.push((await searchFlows({ sdk, cacheRoot, context, term: 'current' })).cache.file);
   }
   files.push((await searchFlows({ sdk: { ...sdk, baseURL: 'https://other.service-now.com' }, cacheRoot, context: { profile: 'one' }, term: 'current' })).cache.file);
+  if (process.platform === 'win32') {
+    assert.deepEqual(files, Array(5).fill(null));
+    assert.deepEqual(await fs.readdir(cacheRoot), []);
+    return; // No persisted identities exist to cross-contaminate on Windows.
+  }
   assert.equal(new Set(files).size, 5);
   await fs.chmod(files[0], 0o644);
   await assert.rejects(searchFlows({ sdk, cacheRoot, context: { profile: 'one' }, term: 'current' }), /permissions/);

@@ -7,13 +7,15 @@ jsn flows search 'current.number' --json
 jsn flows search 'current.number' --get data.matches
 ```
 
-`flows search <term>` is separate from normal code search. First use automatically downloads visible Flow Designer definitions, decodes them and writes a private local cache. It never prompts, publishes, executes, creates or updates flows. Read-only profiles are supported.
+`flows search <term>` is separate from normal code search. First use automatically downloads visible Flow Designer definitions and decodes them. POSIX systems write a private local cache; Windows searches in memory only. It never prompts, publishes, executes, creates or updates flows. Read-only profiles are supported.
 
 Search is case-insensitive literal text. Each result identifies the flow name and sys_id, ProcessFlow source endpoint, JSON source path and line within that string value. Counts describe matching lines and distinct matching flows, not occurrences. Text and scripts are not truncated. JSON, extraction, styled, Markdown and CSV use the normal output writer.
 
 ## Cache and authorization
 
-The cache lives under `$XDG_CACHE_HOME/jsn/flow-search`, or `~/.cache/jsn/flow-search`. Names are SHA-256 digests of instance origin, selected profile, username, authentication method and domain. Directories have mode 0700 and files 0600; symlink files and unsafe permissions are refused. Files contain readable definition strings and source digests, not authentication credentials. Treat cached source as sensitive. Removing that directory clears the cache.
+On Windows, disk caching is disabled because Node permission bits do not verify private Windows ACLs. Every invocation (including `--refresh`) downloads and decodes live definitions in memory. Reports explicitly return `cache.state: disabled`, `file: null`, zero reused definitions and a reason; human output explains the tradeoff. No cache paths are created, read, modified or followed, including existing symlinks/junctions/reparse points. Any cache left by an earlier version is **not secured or deleted**: remove old sensitive files manually using a trusted path. This avoids an external ACL-tool dependency but forfeits decoded-cache reuse on Windows. Live search, source authorization, coverage and output formats are unchanged.
+
+On POSIX systems, the cache lives under `$XDG_CACHE_HOME/jsn/flow-search`, or `~/.cache/jsn/flow-search`. Names are SHA-256 digests of instance origin, selected profile, username, authentication method and domain. Directories have mode 0700 and files 0600; symlink files and unsafe permissions are refused. Files contain readable definition strings and source digests, not authentication credentials. Treat cached source as sensitive. Removing that directory clears the cache.
 
 Warm searches reuse decoded definitions whose current source hash is unchanged. `--refresh` discards that decoded cache and rebuilds it. Reports include prior cache age, capture time and reused-definition count.
 

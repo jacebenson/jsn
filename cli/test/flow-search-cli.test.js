@@ -37,11 +37,12 @@ test('real CLI read-only profile supports cold/warm/refresh and machine/human fo
   const cold = await run('--json');
   assert.equal(cold.stderr, '');
   assert.equal(JSON.parse(cold.stdout).data.match_count, 1);
-  assert.equal(JSON.parse(cold.stdout).data.cache.state, 'built');
+  const windows = process.platform === 'win32';
+  assert.equal(JSON.parse(cold.stdout).data.cache.state, windows ? 'disabled' : 'built');
   const warm = JSON.parse((await run('--json')).stdout).data;
-  assert.equal(warm.cache.state, 'reused');
-  assert.equal(warm.cache.reused_definitions, 1);
-  assert.equal(JSON.parse((await run('--refresh', '--json')).stdout).data.cache.state, 'refreshed');
+  assert.equal(warm.cache.state, windows ? 'disabled' : 'reused');
+  assert.equal(warm.cache.reused_definitions, windows ? 0 : 1);
+  assert.equal(JSON.parse((await run('--refresh', '--json')).stdout).data.cache.state, windows ? 'disabled' : 'refreshed');
   assert.equal((await run('--get', 'data.match_count')).stdout.trim(), '1');
   const human = await run('--format', 'styled');
   if (process.env.JSN_FLOW_SEARCH_EVIDENCE) await fs.writeFile(process.env.JSN_FLOW_SEARCH_EVIDENCE, human.stdout);
@@ -52,5 +53,9 @@ test('real CLI read-only profile supports cold/warm/refresh and machine/human fo
   assert.ok(requests.some(request => request.path.includes('/processflow/')));
   assert.ok(requests.every(request => request.method === 'GET' || (request.method === 'POST' && request.path === '/angular.do')), JSON.stringify(requests));
   const cacheFile = JSON.parse(cold.stdout).data.cache.file;
-  assert.doesNotMatch(await fs.readFile(cacheFile, 'utf8'), /synthetic-fixture-only|Authorization|Basic /);
+  if (windows) {
+    assert.equal(cacheFile, null);
+    await assert.rejects(fs.stat(env.XDG_CACHE_HOME), { code: 'ENOENT' });
+    assert.match(human.stdout, /Windows.*in-memory/);
+  } else assert.doesNotMatch(await fs.readFile(cacheFile, 'utf8'), /synthetic-fixture-only|Authorization|Basic /);
 });

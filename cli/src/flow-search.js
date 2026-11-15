@@ -43,6 +43,7 @@ export function formatFlowSearch(report) {
   const { coverage: c, cache } = report;
   return [
     `${report.match_count} matching line(s) in ${report.matching_flows} flow(s)`,
+    ...(cache.disabled_reason ? [cache.disabled_reason] : []),
     `Cache ${cache.state}; prior age ${cache.previous_age_seconds === null ? 'n/a' : `${Math.floor(cache.previous_age_seconds)}s`}; ${cache.reused_definitions} decoded definitions reused. Live source access revalidated.`,
     `Visible inventory: provider ${c.provider_count ?? 'unknown'}, inventoried ${c.inventoried}, downloaded ${c.downloaded}, decoded ${c.decoded}. ${c.complete_visible_inventory ? 'Visible inventory accounted for.' : 'PARTIAL/UNKNOWN coverage.'}`,
     c.scope,
@@ -51,17 +52,21 @@ export function formatFlowSearch(report) {
   ].join('\n');
 }
 
-export async function searchFlows({ sdk, term, context = {}, refresh = false, cacheRoot, pageSize = 100, maxPages = 10000, progress = () => {} }) {
+export async function searchFlows({ sdk, term, context = {}, refresh = false, cacheRoot, platform = process.platform, pageSize = 100, maxPages = 10000, progress = () => {} }) {
   if (!String(term || '').trim()) throw new Error('A nonempty literal search term is required');
   if (!Number.isInteger(pageSize) || pageSize < 1 || !Number.isInteger(maxPages) || maxPages < 1) throw new Error('Invalid flow pagination bounds');
   const instance = new URL(sdk.baseURL).origin;
   const directory = path.join(cacheRoot || process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'jsn', 'flow-search');
-  await secureDirectory(directory);
+  // Node's Windows mode bits cannot establish a private DACL. Do not touch
+  // cache paths (including existing files or reparse points) on that platform.
+  const diskCache = platform !== 'win32';
+  if (diskCache) await secureDirectory(directory);
   const key = digest({ instance, profile: context.profile || '', username: context.username || '', authMethod: context.authMethod || '', domain: context.domain || '' });
-  const file = path.join(directory, `${key}.json`);
-  const previous = refresh ? null : await readCache(file);
+  const file = diskCache ? path.join(directory, `${key}.json`) : null;
+  const previous = !diskCache || refresh ? null : await readCache(file);
   const previousById = new Map((previous?.flows || []).map(flow => [flow.sys_id, flow]));
-  progress(previous ? 'Revalidating flow visibility and source permissions before reusing decoded cache.' : 'Downloading visible flow definitions and decoding a private local cache. First use can be slow; no instance records are changed.');
+  if (!diskCache) progress('Disk cache disabled on Windows: private ACLs are not verified. Searching freshly downloaded definitions in memory only.');
+  if (diskCache) progress(previous ? 'Revalidating flow visibility and source permissions before reusing decoded cache.' : 'Downloading visible flow definitions and decoding a private local cache. First use can be slow; no instance records are changed.');
   const failures = [];
   const get = route => sdk.request(`${instance}${route}`, { method: 'GET' });
   let expected;
@@ -131,7 +136,7 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
     } catch (error) { failures.push({ ...row, stage: 'decode', message: error.message }); }
   }
   const captured = new Date().toISOString();
-  await writeCache(file, { schema: 1, captured_at: captured, flows });
+  if (diskCache) await writeCache(file, { schema: 1, captured_at: captured, flows });
   const matches = [];
   const needle = String(term).toLowerCase();
   for (const flow of flows) for (const entry of flow.entries) {
@@ -142,7 +147,7 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
   const complete = exhausted && expected !== null && expected === rows.size && !failures.length;
   return {
     term, match_count: matches.length, matching_flows: new Set(matches.map(match => match.sys_id)).size, matches, failures,
-    cache: { state: refresh ? 'refreshed' : previous ? 'reused' : 'built', file, captured_at: captured, previous_age_seconds: previous ? Math.max(0, (Date.now() - Date.parse(previous.captured_at)) / 1000) : null, reused_definitions: reused, live_source_revalidation: true },
+    cache: { state: !diskCache ? 'disabled' : refresh ? 'refreshed' : previous ? 'reused' : 'built', disabled_reason: diskCache ? null : 'Windows private cache ACLs are not verified; live in-memory search only', file, captured_at: captured, previous_age_seconds: previous ? Math.max(0, (Date.now() - Date.parse(previous.captured_at)) / 1000) : null, reused_definitions: reused, live_source_revalidation: true },
     coverage: { provider_count: expected, inventoried: rows.size, downloaded, decoded: flows.length, complete_visible_inventory: complete, scope: 'ACL-visible sys_hub_flow ProcessFlow definitions only. Referenced custom action implementation scripts, inaccessible flows, and fields omitted by provider ACLs are not included. No instance-wide completeness claim.' },
   };
 }
