@@ -1,0 +1,16 @@
+{
+  "provenance": "Synthetic provider-shaped fixture, using the existing SDK's observed base64-gzip values contract. No instance source or credentials.",
+  "definition": {
+    "name": "Offline script fixture",
+    "triggerInstances": [],
+    "actionInstances": [
+      {
+        "id": "offline-step",
+        "name": "Script",
+        "values": "H4sIAAAAAAAC/22OsQoCMRBEfyVsLX6Ah4X/YKcpcscigdxemOweyJF/NwkWFnbDY2Z4B0XJpoUu7nGQhJVborIgZqWToz0kG2gPcOBiSd3VLQaw6FlsnRnTU8BqkG9h6sMc0M6U0cb/jvWdf0mtvsHNtMvct1sp8SVdyg8JxDAnHpa+fgBYxBCStAAAAA=="
+      }
+    ],
+    "flowLogicInstances": [],
+    "subFlowInstances": []
+  }
+}
