@@ -185,16 +185,50 @@ test('immutable real producer executes failing scenarios and restored passing sc
   const { selectScenarios, createContext, preflight } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
   // Exercise the pinned adapter's real CLI launch and SDK read with the exact
   // ephemeral file auth contract. Loopback only, no credential env inheritance.
-  let requests = 0;
+  let requests = 0, acceptCredentials = true;
   const origin = new URL(await server(t, (req, res) => {
     requests++;
     assert.equal(req.headers.authorization, `Bearer ${token}`);
     assert.equal(req.method, 'GET');
+    if (!acceptCredentials) { json(res, 401, { error: { message: 'mock authentication rejected' } }); return; }
     json(res, 200, { result: [{ sys_id: 'd'.repeat(32), name: 'incident' }] });
   })).origin;
   const privateRoot = path.join(dir, 'private'); fs.mkdirSync(privateRoot);
   const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: token } });
   const isolated = producerEnvironment(process.env, privateRoot, configHome);
+  // Spawn the producer boundary itself: merging isolated paths back into each
+  // CLI child below would hide a regression in the pinned environment filter.
+  // A rejected token must not emit authenticated scenario evidence; recovery
+  // must work with the same seeded file credentials and no session bootstrap.
+  const { runProcess: launchProducer } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  for (const [index, accepts] of [true, false, true].entries()) {
+    acceptCredentials = accepts;
+    const outputDir = path.join(dir, `isolated-producer-${index}`);
+    const script = `
+      import fs from 'node:fs';
+      import { createContext, preflight } from ${JSON.stringify(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href)};
+      import { observeScenario } from ${JSON.stringify(pathToFileURL(path.join(root, 'cli/scripts/acceptance/execute.mjs')).href)};
+      const options = ${JSON.stringify({ profile: 'acceptance-ci', expectedHost: origin, mode: 'readonly', outputDir })};
+      const config = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(configHome, 'servicenow/config.json'))}, 'utf8'));
+      const ctx = createContext(options, preflight(options, config));
+      const scenario = observeScenario({ id: 'readonly.records', run: async c => {
+        const rows = await c.read('sys_db_object', { fields: ['sys_id', 'name'] });
+        if (rows.length !== 1) throw Error('mock read mismatch');
+        const result = await c.command(['records', 'list', '--table', 'sys_db_object', '--fields', 'sys_id,name', '--limit', '1', '--json']);
+        if (result.exitCode !== 0 || result.json?.ok !== true) throw Error('mock CLI rejection');
+      }});
+      let ok = false;
+      try { await scenario.run(ctx); ok = true; } catch { /* closed status only */ }
+      console.log(JSON.stringify({ ok, evidence: fs.existsSync(${JSON.stringify(path.join(outputDir, 'executed.jsonl'))}) }));
+    `;
+    const before = requests;
+    const result = await launchProducer(process.execPath, ['--input-type=module', '-e', script], { env: isolated });
+    assert.equal(result.exitCode, 0, 'isolated producer must complete without private diagnostics');
+    assert.deepEqual(result.json, { ok: accepts, evidence: accepts });
+    assert.ok(requests > before, 'actual producer children must reach the mock provider');
+    assert.ok(!result.stdout.includes(token));
+    assert.ok(!result.stderr.includes(token));
+  }
   const configuration = JSON.parse(fs.readFileSync(path.join(configHome, 'servicenow/config.json')));
   assert.equal(configuration.auth_method, 'oauth');
   assert.deepEqual(Object.keys(configuration.profiles), ['acceptance-ci']);
