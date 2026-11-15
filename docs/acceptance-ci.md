@@ -1,5 +1,42 @@
 # Live acceptance CI and public results
 
+## Local one-command run
+
+```sh
+./.github/scripts/test-instance.sh --profile vendor-1
+./.github/scripts/test-instance.sh --profile vendor-1 --dry-run
+./.github/scripts/test-instance.sh --profile vendor-1 --version 5.5.5 --dry-run
+```
+
+The executable wrapper works from any working directory when invoked by its
+path. Default behavior is **run + publish**. `--dry-run` is opt-in: it still
+executes all 71 readonly provider scenarios and saves the same private summaries,
+but never sends the publication POST. It is **not** a no-network preview.
+Neither mode enables business-data writes. Failed or blocked checks retain the
+runner's nonzero exit status. Omitting `--version` tests the current checkout;
+`--version` requires an exact npm version. The tested version is printed.
+
+Node loads `${HERMES_HOME:-$HOME/.hermes}/.env` if present; use `--env-file FILE`
+to override it. This file is parsed as dotenv, never executed as shell code.
+Existing environment variables take precedence. Publication requires
+`JSN_ACCEPTANCE_INGEST_URL` and `JSN_ACCEPTANCE_INGEST_TOKEN`, checked before
+provider calls. The ingest deployment must support this PR's schema version 2.
+
+`--profile` first selects an exact local JSN profile. Logical target labels can
+instead map to local profiles through private dotenv settings:
+
+```dotenv
+JSN_TEST_PROFILE_VENDOR_1=your_local_profile_name
+JSN_TEST_PROFILE_VENDOR_2=your_other_local_profile_name
+```
+
+These are profile names, not URLs or credentials. There is no GitHub lookup or
+hardcoded personal mapping. An absent profile prints available safe profile names
+and the required alias key. Summaries default to unique directories under
+`$HOME/private-acceptance/`; no output directory is created in the repository.
+The lower-level Node runner below remains available for explicit output or saved
+result publication.
+
 ## Execution and target selection
 
 Trusted main pushes and published releases independently attempt **both vendor-1

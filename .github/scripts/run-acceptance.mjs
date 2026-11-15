@@ -100,6 +100,7 @@ export async function runLocal(options) {
   let stage = 'npm artifact';
   try {
     const artifact = await acquireArtifact(options.version, temporary);
+    console.log(`Tested version: ${artifact.identity.version} (${artifact.identity.kind})`);
     stage = 'profile/auth';
     const { origin, creds } = await credentials(options);
     stage = 'harness preparation';
