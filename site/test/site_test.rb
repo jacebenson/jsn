@@ -38,15 +38,34 @@ class SiteTest < Minitest::Test
     assert_equal 422, last_response.status
     assert_equal 'abcdef012345', DocsBuild.find_by(active: true).revision
   end
+  def test_feature_catalog_and_site_owned_media
+    Feature.all.each do |feature|
+      get "/features/#{feature.fetch('canonicalSlug')}/"
+      assert_equal 200, last_response.status, feature['canonicalSlug']
+      assert_includes last_response.body, ERB::Util.html_escape(feature.fetch('title'))
+      assert_includes last_response.body, '/assets/webmcp.js?v=2'
+    end
+    MarkdownGuide::IMAGES.values.each do |url|
+      get url
+      assert_equal 200, last_response.status, url
+      assert_equal 'image/png', last_response.media_type
+    end
+  end
+
   def test_all_existing_documentation_urls_and_assets
     urls = JSON.parse(File.read(Rails.root.join('tmp/preserved-urls.json')))
     assert_operator urls.length, :>, 10
+    redirects = JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json')))
     urls.each do |url|
       get url
-      assert_equal 200, last_response.status, url
-      relative = url.delete_prefix('/')
-      relative += 'index.html' if relative.empty? || relative.end_with?('/')
-      assert_equal File.binread(Rails.root.join('public', relative)), last_response.body.b, url
+      if redirects.key?(url)
+        assert_equal 301, last_response.status, url
+        assert_equal URI.join('http://www.example.com', redirects.fetch(url)).to_s, last_response.headers['location'], url
+      else
+        assert_equal 200, last_response.status, url
+        assert_includes last_response.body, 'guide-body', url
+        assert_includes last_response.body, '/assets/webmcp.js?v=2', url
+      end
     end
     %w[/robots.txt /sitemap.xml /css/style.css /assets/webmcp.js].each do |url|
       get url

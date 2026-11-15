@@ -1,6 +1,5 @@
 ---
 title: JSN output and automation
-layout: comparison.njk
 subtitle: Use readable terminal output for people and JSON output for scripts and agents.
 docStep: 5
 docLabel: Output

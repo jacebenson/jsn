@@ -381,6 +381,21 @@ branch semantics. Generic records continue to accept advanced encoded queries.
 Field-investigation help documents schema, overrides, query rules and ACL
 coverage by symptom, without claiming a universal priority or effective-access
 proof from a list of ACL records.
+## Rails renders allowlisted Markdown guides without a static-site generator
+
+Public guide ownership is `site/config/guides.json` → maintained Markdown in
+`docs/` → vendored Marked parser → Rails HTML5 sanitizer → shared Rails layout.
+Request input never becomes a filesystem path. Contributor ADR/audit/evidence
+files stay in the repository but are not implicitly published. The original
+54-URL HTML inventory has an explicit runtime route or deliberate compatibility
+redirect in `site/config/legacy-guide-urls.json`; contributor records redirect
+to canonical GitHub source rather than silently becoming public guides.
+Showcase/SEO/demo sources and public assets move to `site/data/` and
+`site/static/`. The asset preparation step needs only Node built-ins, not npm
+installation or an HTML generator. The separate ServiceNow corpus ingestion,
+search, release selection, snapshots, and `/documentation` reader are unchanged.
+This supersedes only the static HTML preservation phase of the earlier decision.
+
 ## Rails serves existing documentation output and distributes an independent index
 
 Keep the documentation service in `site/`, beside the Node CLI and existing

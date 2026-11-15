@@ -1,0 +1,4 @@
+<% content_for :title, 'JSN · Guides' %>
+<section class="shell guide-hero"><p class="eyebrow">JSN guides</p><h1>Less clicking.<br>Start here.</h1><p>Install the CLI, connect safely, and choose the output you need.</p></section>
+<section class="shell guide-list"><% @guides.each_with_index do |guide, index| %><a class="guide-card" href="<%= guide.url %>"><span class="eyebrow">0<%= index + 1 %> / GUIDE</span><h2><%= guide.title %> →</h2><p><%= guide.metadata['subtitle'] %></p></a><% end %></section>
+<link rel="stylesheet" href="/guide.css">

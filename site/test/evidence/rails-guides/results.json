@@ -1,0 +1,207 @@
+{
+  "pages": [
+    {
+      "url": "/",
+      "status": 200,
+      "title": "JSN \u00b7 A little less clicking.",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "SERVICENOW CHANGES. READY TO SHIP.\n\nIt works.\nNow make it shippable.\n\nA CLI for ServiceNow that fits the way your team already ships.\nFollow one real change, fr",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    },
+    {
+      "url": "/docs/",
+      "status": 200,
+      "title": "JSN \u00b7 Guides",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "JSN guides\n\nLess clicking.\nStart here.\n\nInstall the CLI, connect safely, and choose the output you need.\n\n01 / GUIDE\nInstall JSN \u2192\n\nInstall the ServiceNow CLI l",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    },
+    {
+      "url": "/docs/install/",
+      "status": 200,
+      "title": "Install JSN \u00b7 JSN",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "JSN GUIDES\nInstall JSN\nSet up JSN\nUse JSN safely\nJSN output and automation\nUse JSN with AI agents\nJSN CLI guide\nFlow Designer interactive commands\nFlow definiti",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    },
+    {
+      "url": "/docs/setup/",
+      "status": 200,
+      "title": "Set up JSN \u00b7 JSN",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "JSN GUIDES\nInstall JSN\nSet up JSN\nUse JSN safely\nJSN output and automation\nUse JSN with AI agents\nJSN CLI guide\nFlow Designer interactive commands\nFlow definiti",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    },
+    {
+      "url": "/docs/safety/",
+      "status": 200,
+      "title": "Use JSN safely \u00b7 JSN",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "JSN GUIDES\nInstall JSN\nSet up JSN\nUse JSN safely\nJSN output and automation\nUse JSN with AI agents\nJSN CLI guide\nFlow Designer interactive commands\nFlow definiti",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    },
+    {
+      "url": "/docs/output/",
+      "status": 200,
+      "title": "JSN output and automation \u00b7 JSN",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "JSN GUIDES\nInstall JSN\nSet up JSN\nUse JSN safely\nJSN output and automation\nUse JSN with AI agents\nJSN CLI guide\nFlow Designer interactive commands\nFlow definiti",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    },
+    {
+      "url": "/features/",
+      "status": 200,
+      "title": "JSN \u00b7 A little less clicking.",
+      "width": 1280,
+      "scroll": 1280,
+      "text": "SERVICENOW CHANGES. READY TO SHIP.\n\nIt works.\nNow make it shippable.\n\nA CLI for ServiceNow that fits the way your team already ships.\nFollow one real change, fr",
+      "native": true,
+      "api": [
+        "ontoolchange",
+        "executeTool",
+        "getTools",
+        "registerTool",
+        "constructor"
+      ]
+    }
+  ],
+  "native": {
+    "api": {
+      "supported": true,
+      "getTools": "function",
+      "executeTool": "function"
+    },
+    "tools": [
+      {
+        "name": "jsn_bug_guidance",
+        "description": "How to file a JSN bug. Returns existing GitHub issue chooser; never creates or posts an issue."
+      },
+      {
+        "name": "jsn_docs_search",
+        "description": "Search public guidance. source=jsn searches existing JSN feature catalog (not ServiceNow reference); source=servicenow uses hosted public ServiceNow docs API. No instance access."
+      },
+      {
+        "name": "jsn_feature_request_guidance",
+        "description": "How to request a JSN feature. Returns existing GitHub issue chooser; never creates or posts an issue."
+      },
+      {
+        "name": "jsn_install_guidance",
+        "description": "How to install JSN. Instructions only; never executes commands. Choose stable/dev explicitly."
+      },
+      {
+        "name": "jsn_remove_guidance",
+        "description": "How to uninstall global npm JSN. Instructions only; never deletes profiles, credentials, caches, or agent skills."
+      },
+      {
+        "name": "jsn_update_guidance",
+        "description": "How to update JSN preserving stable/dev channel. Instructions only; cannot inspect local installation. Choose the installed channel unless intentionally switching."
+      }
+    ],
+    "executions": {
+      "jsn_bug_guidance": "{\"url\":\"https://github.com/jacebenson/jsn/issues/new/choose\",\"existing\":\"https://github.com/jacebenson/jsn/issues\",\"note\":\"Search existing issues first. Include JSN version/channel, OS/Node version, reproduction steps, expected and actual behavior. Redact credentials, instance URLs and private records. No repository-specific issue templates currently exist; use the chooser or blank issue. Human review and GitHub sign-in/submission required.\"}",
+      "jsn_docs_search": "{\"source\":\"JSN public feature guidance\",\"results\":[{\"title\":\"Auth & setup\u2197\",\"url\":\"https://jsn.jace.pro/features/servicenow-cli-auth-setup/\"}],\"install\":\"https://jsn.jace.pro/docs/install/\",\"browse\":\"https://jsn.jace.pro/#features\",\"note\":\"Feature catalog only; use dedicated tools for installation/update/removal.\"}",
+      "jsn_feature_request_guidance": "{\"url\":\"https://github.com/jacebenson/jsn/issues/new/choose\",\"existing\":\"https://github.com/jacebenson/jsn/issues\",\"note\":\"Search existing issues first. Describe use case, desired behavior, alternatives, and acceptance criteria. Redact credentials, instance URLs and private records. No repository-specific issue templates currently exist; use the chooser or blank issue. Human review and GitHub sign-in/submission required.\"}",
+      "jsn_install_guidance": "{\"commands\":[\"npm install -g @jacebenson/jsn\",\"jsn version\"],\"channel\":\"stable\",\"note\":\"Use current Node.js LTS and npm on Windows, macOS, or Linux. No connection or credentials needed for public documentation.\",\"sources\":[\"https://jsn.jace.pro/docs/install/\"]}",
+      "jsn_remove_guidance": "{\"commands\":[\"npm uninstall -g @jacebenson/jsn\"],\"note\":\"Removes the npm-installed global package and command link, not user-created JSN profiles, credentials, documentation caches, or separately installed agent skills. This tool performs no removal. Manage retained data separately with explicit human review.\",\"sources\":[\"https://jsn.jace.pro/docs/install/\",\"https://docs.npmjs.com/cli/commands/npm-uninstall\"]}",
+      "jsn_update_guidance": "{\"commands\":[\"jsn version --check\",\"npm install -g @jacebenson/jsn\",\"jsn version\"],\"channel\":\"stable\",\"note\":\"Check your installed version first: -dev. versions use @dev; stable uses npm latest. Choose the matching channel unless intentionally switching. No pinned version supplied.\",\"sources\":[\"https://jsn.jace.pro/docs/install/\",\"https://github.com/jacebenson/jsn/blob/main/cli/src/commands/version.js\",\"https://www.npmjs.com/package/@jacebenson/jsn\"]}"
+    }
+  },
+  "mobile": {
+    "width": 390,
+    "scroll": 390,
+    "bodyMargin": "0px",
+    "code": "jsn setup\n"
+  },
+  "assets": [
+    {
+      "url": "/assets/webmcp.js?v=2",
+      "status": 200,
+      "type": "text/javascript",
+      "bytes": 7178
+    },
+    {
+      "url": "/css/style.css",
+      "status": 200,
+      "type": "text/css",
+      "bytes": 8745
+    },
+    {
+      "url": "/images/codesearch-graphql-offline-fixture.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 33212
+    },
+    {
+      "url": "/assets/flow-search-offline.png",
+      "status": 200,
+      "type": "image/png",
+      "bytes": 49102
+    },
+    {
+      "url": "/sitemap.xml",
+      "status": 200,
+      "type": "application/xml",
+      "bytes": 4058
+    },
+    {
+      "url": "/robots.txt",
+      "status": 200,
+      "type": "text/plain",
+      "bytes": 66
+    },
+    {
+      "url": "/llms.txt",
+      "status": 200,
+      "type": "text/plain",
+      "bytes": 3828
+    }
+  ]
+}
