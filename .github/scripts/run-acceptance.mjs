@@ -12,6 +12,7 @@ import { AuthManager } from '../../cli/src/auth.js';
 import { environmentOAuth, validatedOrigin } from './oauth-environment.mjs';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const exactVersion = /^\d+\.\d+\.\d+(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?$/;
+class LocalFailure extends Error {}
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = args => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 export function parseOptions(args) {
@@ -19,29 +20,20 @@ export function parseOptions(args) {
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
     if (key === '--publish') { if (options.publish) throw Error(); options.publish = true; continue; }
-    if (!['--version', '--profile', '--target', '--output', '--result'].includes(key) || options[key.slice(2)] !== undefined || !args[i + 1] || args[i + 1].startsWith('--')) throw Error();
+    if (!['--version', '--profile', '--target', '--output', '--result', '--mode'].includes(key) || options[key.slice(2)] !== undefined || !args[i + 1] || args[i + 1].startsWith('--')) throw Error();
     options[key.slice(2)] = args[++i];
   }
   if (options.result) { if (!options.publish || Object.keys(options).some(k => !['result', 'publish'].includes(k))) throw Error(); return options; }
-  if (!options.output || !options.target || !/^[a-z][a-z0-9-]{0,30}$/.test(options.target) || (options.version !== undefined && !exactVersion.test(options.version))) throw Error();
+  if (options.mode && options.mode !== 'readonly') throw Error('mode: full mutations refused; disposable-table and retained-flow safety are not configured');
+  if (!options.target || !/^[a-z][a-z0-9-]{0,30}$/.test(options.target) || (options.version !== undefined && !exactVersion.test(options.version))) throw Error();
   if (!options.profile && !process.env.SERVICENOW_INSTANCE_URL) throw Error();
+  options.output ||= path.join(os.homedir(), 'private-acceptance', `${options.target}-${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`);
   return options;
 }
 export function selectedExitCode(summary) {
   if (Object.keys(summary.counts).some(status => !['passed', 'failed', 'failed-timeout', 'blocked-prerequisite', 'blocked-access', 'blocked-capability', 'excluded-mode', 'not-run'].includes(status))) return 1;
   if (summary.counts.failed || summary.counts['failed-timeout']) return 1;
   return summary.total > 0 && summary.counts.passed === summary.total ? 0 : 2;
-}
-export function allowedCommand(args) {
-  // Exact command templates: no arbitrary tables, flags, queries or scripts.
-  if (!Array.isArray(args) || args.some(x => typeof x !== 'string')) return false;
-  const text = JSON.stringify(args);
-  const fixed = [ ['version', '--json'], ['version'], ['history', 'list', '--json', '--limit', '1'], ['records', 'list', '--json'],
-    ['records', 'list', '--table', 'sys_properties', '--query', 'nameSTARTSWITHglide.build', '--fields', 'name,value', '--limit', '10', '--no-count', '--json'] ];
-  if (fixed.some(a => JSON.stringify(a) === text)) return true;
-  const list = ['records', 'list', '--table', 'sys_db_object', '--query', 'name=sys_user', '--fields', 'sys_id,name', '--limit', '1', '--no-count'];
-  if ([['--json'], ['--format', 'markdown']].some(tail => JSON.stringify([...list, ...tail]) === text)) return true;
-  return args.length === 9 && args[0] === 'records' && args[1] === 'get' && args[2] === '--table' && args[3] === 'sys_db_object' && args[4] === '--sys-id' && /^[a-f0-9]{32}$/.test(args[5]) && JSON.stringify(args.slice(6)) === JSON.stringify(['--fields', 'sys_id,name', '--json']);
 }
 export async function acquireArtifact(version, temporary) {
   if (!version) {
@@ -72,7 +64,7 @@ export async function acquireArtifact(version, temporary) {
 async function credentials(options) {
   const config = loadConfig();
   const profile = options.profile ? config.profiles?.[options.profile] : null;
-  if (options.profile && !profile) throw Error();
+  if (options.profile && !profile) throw new LocalFailure('profile: selected profile does not exist; configure it before running acceptance');
   const origin = validatedOrigin(profile?.instance_url || process.env.SERVICENOW_INSTANCE_URL, { allowLocal: true });
   const manager = new AuthManager({ getEffectiveInstance: () => origin, getUsername: () => profile?.username });
   let creds = await manager.getCredentialsFor(origin, profile?.username, { username: profile?.username, authMethod: profile?.auth_method, refresh: false });
@@ -80,71 +72,90 @@ async function credentials(options) {
     const refreshed = await environmentOAuth({ ...process.env, SERVICENOW_INSTANCE_URL: origin, SERVICENOW_OAUTH_TOKEN: creds.access_token, SERVICENOW_OAUTH_REFRESH_TOKEN: process.env.SERVICENOW_OAUTH_REFRESH_TOKEN || creds.refresh_token }, { allowLocal: true, warn: () => {} });
     creds = { ...creds, access_token: refreshed.accessToken };
   }
-  if (!['oauth', 'basic'].includes(creds.auth_method)) throw Error();
+  if (!['oauth', 'basic'].includes(creds.auth_method)) throw new LocalFailure('auth: readonly local acceptance requires usable OAuth or Basic credentials; authenticate the selected profile');
   return { origin, creds };
 }
+export function stageHarness(temporary, version) {
+  // Stage byte-identical producer resources beside the current harness imports.
+  const harness = path.join(temporary, 'harness'); fs.mkdirSync(harness);
+  fs.cpSync(path.join(ROOT, 'cli'), path.join(harness, 'cli'), { recursive: true, filter: file => !file.includes(`${path.sep}node_modules`) });
+  fs.symlinkSync(path.join(ROOT, 'cli/node_modules'), path.join(harness, 'cli/node_modules'), 'dir');
+  for (const file of FILES) { const dest = path.join(harness, file); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, execFileSync('git', ['show', `${HARNESS_SHA}:${file}`], { cwd: ROOT, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })); }
+  // Expected version belongs to the separately verified candidate, not the
+  // pinned producer. No producer or SDK source bytes are rewritten.
+  const packageFile = path.join(harness, 'cli/package.json');
+  const harnessPackage = JSON.parse(fs.readFileSync(packageFile));
+  harnessPackage.version = version;
+  fs.writeFileSync(packageFile, JSON.stringify(harnessPackage));
+  return harness;
+}
 export async function runLocal(options) {
-  const output = path.resolve(options.output);
-  if (fs.existsSync(output)) throw Error();
+  if (options.mode && options.mode !== 'readonly') throw Error('mode: full mutations refused; no proven disposable-table configuration');
+  const output = path.resolve(options.output || path.join(os.homedir(), 'private-acceptance', `${options.target}-${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`));
+  if (output === ROOT || output.startsWith(`${ROOT}${path.sep}`)) throw Error('output: choose a directory outside the repository');
+  if (fs.existsSync(output)) throw Error('output: directory already exists; omit --output for a unique run directory');
+  try { fs.mkdirSync(path.dirname(output), { recursive: true, mode: 0o700 }); fs.mkdirSync(output, { mode: 0o700 }); }
+  catch { throw new LocalFailure('output: unable to create a private run directory; check parent-directory permissions'); }
   const temporary = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-local-acceptance-')); fs.chmodSync(temporary, 0o700);
+  let stage = 'npm artifact';
   try {
     const artifact = await acquireArtifact(options.version, temporary);
+    stage = 'profile/auth';
     const { origin, creds } = await credentials(options);
+    stage = 'harness preparation';
     const home = path.join(temporary, 'home'), config = path.join(home, 'config');
     fs.mkdirSync(path.join(config, 'servicenow'), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(config, 'servicenow/config.json'), JSON.stringify({ default_profile: 'acceptance', profiles: { acceptance: { instance_url: origin, auth_method: creds.auth_method, read_only: true, ephemeral: true } } }), { mode: 0o600 });
     const env = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(home, 'cache'), JSN_DATA_HOME: path.join(home, 'data'), DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_DOCS_CHECK: '1', ...(creds.auth_method === 'oauth' ? { SERVICENOW_OAUTH_TOKEN: creds.access_token } : { SN_USERNAME: creds.username, SN_PASSWORD: creds.password }) };
-    // Stage byte-identical producer resources beside the current harness imports.
-    const harness = path.join(temporary, 'harness'); fs.mkdirSync(harness);
-    fs.cpSync(path.join(ROOT, 'cli'), path.join(harness, 'cli'), { recursive: true, filter: file => !file.includes(`${path.sep}node_modules`) });
-    fs.symlinkSync(path.join(ROOT, 'cli/node_modules'), path.join(harness, 'cli/node_modules'), 'dir');
-    for (const file of FILES) { const dest = path.join(harness, file); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, execFileSync('git', ['show', `${HARNESS_SHA}:${file}`], { cwd: ROOT, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })); }
+    const harness = stageHarness(temporary, artifact.identity.version);
     const support = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/support.mjs')));
+    const { executeScenarios } = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/run.mjs')));
+    const hooks = await import(pathToFileURL(path.join(harness, 'cli/test/acceptance/performance.mjs')));
     const executable = path.join(artifact.root, 'bin/jsn.js');
     const measurements = [];
-    const command = async args => {
-      // Deliberately narrow adapter, not the producer's same-source override.
-      if (!allowedCommand(args)) throw Error();
-      const result = await support.runProcess(process.execPath, [executable, ...args, '--profile', 'acceptance'], { cwd: temporary, env, timeoutMs: 30000, maxBytes: 2 * 1024 * 1024 });
-      if (result.timedOut || result.overflow) throw Object.assign(Error(), { status: result.timedOut ? 'failed-timeout' : 'failed' });
+    const ownExecutable = path.join(harness, 'cli/bin/jsn.js');
+    const execute = async (node, args, opts) => {
+      // createContext retains its source guard and complete command/GET safety
+      // checks. Only its canonical CLI launch is routed to the verified package.
+      // Independent SDK readbacks continue to use the trusted harness SDK.
+      const candidate = args[0] === ownExecutable;
+      const childEnv = { ...opts.env, ...env };
+      for (const key of ['JSN_DATA_HOME', 'XDG_CACHE_HOME']) if (opts.env[key]) childEnv[key] = opts.env[key];
+      const result = await support.runProcess(node, candidate ? [executable, ...args.slice(1)] : args, { ...opts, env: childEnv });
       measurements.push({ passed: result.exitCode === 0, format: args.includes('--json') ? 'machine' : 'human', durationMs: result.durationMs, outputBytes: Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) });
       return result;
     };
-    const actual = await command(['version', '--json']);
+    stage = 'candidate version';
+    const actual = await execute(process.execPath, [ownExecutable, 'version', '--json'], { cwd: temporary, env, timeoutMs: 30000 });
     if (actual.exitCode !== 0 || actual.json?.data?.version !== artifact.identity.version) throw Error();
-    const headers = creds.auth_method === 'oauth' ? { Authorization: `Bearer ${creds.access_token}` } : { Authorization: `Basic ${Buffer.from(`${creds.username}:${creds.password}`).toString('base64')}` };
-    const ctx = { state: new Map(), command, read: async (table, { id, fields, limit }) => {
-      if (table !== 'sys_db_object' || !/^[a-f0-9]{32}$/.test(id) || limit !== 1 || JSON.stringify(fields) !== JSON.stringify(['sys_id', 'name'])) throw Error();
-      const url = new URL(`/api/now/table/${table}/${id}`, origin); url.search = new URLSearchParams({ sysparm_fields: fields.join(','), sysparm_limit: String(limit) }).toString();
-      const response = await fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(15000) }); if (!response.ok) throw Error(); return (await response.json()).result;
-    } };
-    const { scenarios } = await import(pathToFileURL(path.join(harness, 'cli/test/acceptance/read-only.mjs')));
-    // local.version embeds checkout version equality; the actual artifact check
-    // above replaces that assumption without modifying immutable producer bytes.
-    const selected = scenarios.filter(s => !['local.version', 'local.completion'].includes(s.id));
-    const versionStart = performance.now();
-    const humanVersion = await command(['version']);
-    const versionPassed = humanVersion.exitCode === 0 && /\d+\.\d+\.\d+/.test(humanVersion.stdout);
-    const results = [{ id: 'local.version', status: versionPassed ? 'passed' : 'failed', durationMs: actual.durationMs + performance.now() - versionStart }];
     const allScenarios = [];
     for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) allScenarios.push(...(await import(pathToFileURL(path.join(harness, `cli/test/acceptance/${name}.mjs`)))).scenarios);
     const { bindScenarios, coverageDetails } = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/bindings.mjs')));
     bindScenarios(allScenarios);
-    const selectedIds = ['local.version', ...selected.map(s => s.id)];
+    const selection = support.selectScenarios(allScenarios, { full: true, mode: 'readonly' });
+    const selected = allScenarios.filter(s => s.modes.includes('readonly'));
+    if (selected.some(s => s.mutates)) throw Error('harness: mutating scenario declared readonly');
+    const selectedIds = selection.ids.filter(id => selected.some(s => s.id === id));
     const inventory = JSON.parse(fs.readFileSync(path.join(harness, 'cli/test/acceptance/coverage.json')));
     const coverage = coverageDetails(inventory, allScenarios, selectedIds, 'readonly');
     const missing = coverage.gaps;
     const omitted = allScenarios.filter(s => s.modes.includes('readonly') && !selectedIds.includes(s.id)).map(s => s.id);
-    for (const scenario of selected) {
-      if (scenario.mutates || !scenario.modes.includes('readonly')) throw Error();
-      const start = performance.now(); let status = 'passed';
-      try { const outcome = await scenario.run(ctx); if (outcome?.status && outcome.status !== 'passed') status = support.classify({ status: outcome.status, message: '' }); } catch (error) { status = support.classify(error); }
-      results.push({ id: scenario.id, status, durationMs: performance.now() - start });
-    }
+    stage = 'readonly suite';
+    const ctx = support.createContext({ mode: 'readonly', profile: 'acceptance', outputDir: path.join(temporary, 'private-run') }, { target: origin }, { execute });
+    const command = ctx.command;
+    // Wrappers add progress only; immutable scenario callbacks and dependency
+    // handling remain owned by executeScenarios, including finally hooks.
+    const progressing = selected.map(s => ({ ...s, async run(context) {
+      console.log(`[${selectedIds.indexOf(s.id) + 1}/${selected.length}] ${s.id} running`);
+      return s.run(context);
+    } }));
+    const report = await executeScenarios(progressing, ctx, { missing: [...missing], selection: { ...selection, ids: selectedIds }, provenance: artifact.identity, suiteHooks: hooks });
+    for (const [index, result] of report.results.entries()) console.log(`[${index + 1}/${selected.length}] ${result.id} ${result.status} ${Math.round(result.durationMs)}ms`);
+    const results = report.results.map(({ id, status, durationMs }) => ({ id, status, durationMs }));
     const release = { family: null, version: null, build: null, patch: null, hotfix: null, source: 'sys_properties.name,value via bounded records list', fields: {}, reason: 'metadata-unavailable-or-unrecognized' };
     try {
       const metadata = await command(['records', 'list', '--table', 'sys_properties', '--query', 'nameSTARTSWITHglide.build', '--fields', 'name,value', '--limit', '10', '--no-count', '--json']);
-      const rows = metadata.json?.data?.records;
+      const rows = metadata.json?.data?.records ?? metadata.json?.data;
       if (metadata.exitCode === 0 && metadata.json?.ok === true && Array.isArray(rows)) {
         const raw = v => typeof v === 'object' && v !== null ? v.value : v;
         for (const row of rows) {
@@ -158,21 +169,40 @@ export async function runLocal(options) {
       }
     } catch { /* Only the closed unavailable reason is retained. */ }
     const counts = {}; for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
-    const payload = { schemaVersion: 2, runKey: `acceptance_${randomUUID().replaceAll('-', '')}`, mode: 'readonly', provenance: { sourceSHA: artifact.identity.sourceSHA, version: artifact.identity.version, node: process.version, binarySHA256: sha(fs.readFileSync(executable)), sourceDirty: artifact.identity.sourceDirty }, platform: 'linux', environment: { domainSeparation: 'UNKNOWN' }, selection: { full: false, selected: selectedIds }, summary: { total: results.length, counts, complete: missing.length === 0 && results.every(r => r.status === 'passed'), missingCount: missing.length }, performance: null, results };
+    const payload = { schemaVersion: 2, runKey: `acceptance_${randomUUID().replaceAll('-', '')}`, mode: 'readonly', provenance: { sourceSHA: artifact.identity.sourceSHA, version: artifact.identity.version, node: process.version, binarySHA256: sha(fs.readFileSync(executable)), sourceDirty: artifact.identity.sourceDirty }, platform: 'linux', environment: { domainSeparation: 'UNKNOWN' }, selection: { full: true, selected: selectedIds }, summary: { total: results.length, counts, complete: report.summary.missing.length === 0 && results.every(r => r.status === 'passed'), missingCount: report.summary.missing.length }, performance: ctx.state.has('performance.suite') ? hooks.publicPerformance(ctx.state.get('performance.suite')) : null, results };
     Object.assign(payload.provenance, { artifactKind: artifact.identity.kind, registryIntegrity: artifact.identity.integrity, harnessSHA: git(['rev-parse', 'HEAD']), producerSHA: HARNESS_SHA, target: options.target });
     payload.environment.release = release;
+    stage = 'report schema';
     validateProjection(payload);
+    stage = 'output permission';
     fs.mkdirSync(output, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(output, 'public-summary.json'), JSON.stringify(payload, null, 2), { mode: 0o600 });
-    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: { scope: 'partial-readonly-first-slice', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, omittedReadonly: omitted, obligations: coverage.counts, missing }, executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: { scope: 'full-readonly-catalog', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, applicableReadonly: selected.length, excludedMutationScenarios: allScenarios.filter(s => !s.modes.includes('readonly')).map(s => s.id), omittedReadonly: omitted, obligations: { ...coverage.counts, interpretation: 'static inventory requirement and option-assertion gaps; not a scenario or test count' }, missing: report.summary.missing }, executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
     return { file: path.join(output, 'public-summary.json'), summary: payload.summary };
+  } catch (error) {
+    if (error instanceof LocalFailure) throw error;
+    const reasons = {
+      'npm artifact': 'exact version unavailable, registry unreachable, integrity mismatch or npm installation failed; verify the version and npm connectivity',
+      'profile/auth': 'profile target or credentials unavailable; authenticate the selected OAuth or Basic profile',
+      'harness preparation': 'pinned producer or CLI dependencies unavailable; fetch the pinned revision and run npm --prefix cli ci --ignore-scripts',
+      'candidate version': 'candidate executable did not report the verified exact package version',
+      'readonly suite': 'guarded producer could not finish; check the local harness and private scratch-directory permissions',
+      'report schema': 'result projection failed the publication schema; no unvalidated report saved',
+      'output permission': 'unable to save private summary files; check run-directory permissions',
+    };
+    throw new LocalFailure(`${stage}: ${reasons[stage]}`);
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
 export async function main(args = process.argv.slice(2)) {
   const options = parseOptions(args);
   const result = options.result ? { file: path.resolve(options.result) } : await runLocal(options);
-  if (result.summary) console.log(JSON.stringify(result.summary));
+  if (result.summary) {
+    console.log(JSON.stringify(result.summary));
+    const directory = path.dirname(result.file), name = path.basename(directory);
+    const location = !args.includes('--output') && path.dirname(directory) === path.join(os.homedir(), 'private-acceptance') && /^[a-z0-9.TZ-]+$/.test(name) ? `$HOME/private-acceptance/${name}` : 'the explicit output directory';
+    console.log(`Saved public-summary.json and local-summary.json in ${location}`);
+  }
   if (options.publish) { const publication = await publishResults({ file: result.file, url: process.env.JSN_ACCEPTANCE_INGEST_URL, token: process.env.JSN_ACCEPTANCE_INGEST_TOKEN }); console.log(JSON.stringify(publication)); if (!publication.ok) return 1; }
   return result.summary ? selectedExitCode(result.summary) : 0;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then(code => { process.exitCode = code; }).catch(() => { console.error('Local acceptance refused or failed; no provider diagnostics retained'); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then(code => { process.exitCode = code; }).catch(error => { console.error(/^(mode|output|profile|auth|npm artifact|profile\/auth|harness preparation|candidate version|readonly suite|report schema|output permission):/.test(error.message) ? error.message : 'options: use --version EXACT --profile NAME --target LABEL; output defaults to a unique private directory'); process.exitCode = 1; });

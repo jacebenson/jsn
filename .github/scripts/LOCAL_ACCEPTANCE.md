@@ -1,4 +1,4 @@
-# Local acceptance (readonly first slice)
+# Local acceptance (full existing readonly suite)
 
 From the repository root, with current Node LTS, npm and Git installed:
 
@@ -6,11 +6,13 @@ From the repository root, with current Node LTS, npm and Git installed:
 npm --prefix cli ci --ignore-scripts
 # Required once if this is a shallow clone lacking the reviewed producer:
 git fetch --no-tags origin 65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba
-node --env-file=/home/jace/.hermes/.env .github/scripts/run-acceptance.mjs --version 5.5.5 --profile NAME --target vendor-1 --output "$HOME/private-acceptance/run-1"
+node --env-file=/home/jace/.hermes/.env .github/scripts/run-acceptance.mjs --version 5.5.5 --profile vendor --target vendor1
 # Omit --version to test this checkout instead.
 ```
 
-The output directory must not exist. Target is a generic label, not a URL or
+By default each run gets a timestamp/UUID directory under `$HOME/private-acceptance`.
+Optional `--output DIRECTORY` must name a new directory outside the repository;
+an existing directory produces an actionable error rather than overwriting reports. Target is a generic label, not a URL or
 profile name. Profiles alone supply provider authentication: no GitHub access or
 duplicated environment credentials are needed. OAuth and Basic profiles are
 supported; browser-cookie profiles currently refuse. Alternatively omit
@@ -28,14 +30,35 @@ the executing Node runtime; it does not establish historical Node support.
 Published package install scripts are disabled. Native optional features needing
 install scripts are outside this slice.
 
-Four selected checks run: artifact version (JSON and human), isolated empty history,
-parser rejection, and bounded metadata list/get with independent readback and
-human output. The artifact version check replaces the pinned producer's
-checkout-equality version assumption; no producer bytes or same-source artifact
-guard are modified. This is **partial readonly coverage**, never the full
-acceptance suite or a release gate. Unsupported old command surfaces fail
-honestly. Exit 0 means the selected checks passed, not complete product coverage.
-Exit 1 means refusal, failed selected checks or failed publication; exit 2 means blocked/excluded/not-run selected checks. Completion is deliberately omitted pending #494. Full readonly obligations and omitted scenario IDs are derived from the immutable catalog and retained locally; missingCount counts genuine unfulfilled inventory obligations, not omitted scenarios.
+All applicable readonly scenarios from the immutable `read-only`,
+`read-only-catalog`, `resources`, `workflows`, and `auth` modules are selected
+through the existing producer selection helper: currently **71 scenarios**, with
+no hand-maintained subset. The producer's `createContext` guards,
+`executeScenarios` dependency/status/cleanup handling, and before/after performance
+hooks execute unchanged. Scenarios unsupported by an older candidate fail or block
+honestly; they are never silently dropped. Progress shows scenario IDs, counts,
+status and duration without provider diagnostics.
+
+The source guard still validates the harness executable. A separate explicit
+process adapter routes only that canonical executable to the integrity-verified
+candidate. Independent reads use the trusted harness SDK. The staged harness
+package's expected version is set to the verified candidate version; no pinned
+producer bytes or SDK source bytes are patched.
+
+This is the **full existing readonly scenario catalog**, not full-product or
+mutation acceptance. Mutation-only scenario IDs are reported as out of mode.
+`--mode full`/`pdi` refuse clearly: the existing PDI workflows can retain update
+sets/flows and no proven disposable-table safety configuration has been agreed.
+No write authorization is inferred from running the readonly suite.
+
+Exit 0 means every selected scenario passed, not complete product coverage.
+Exit 1 means refusal, failed scenarios or failed publication; exit 2 means
+blocked/excluded/not-run selected scenarios. Static inventory requirements and
+option-assertion gaps are computed by the immutable `coverageDetails` mechanism;
+they are **not additional executed tests**. `summary.complete` stays false when
+these obligations remain even if all 71 scenarios pass. Local reports retain the
+actual selected IDs, catalog/mode counts, gaps, and separately labeled static
+obligation counts.
 
 Only allowlisted summaries are retained (directory 0700, files 0600). Raw CLI
 stdout/stderr, URLs, usernames, profile data, credentials and source errors are
@@ -76,6 +99,9 @@ node --test .github/tests/local-acceptance.test.js
 npm run test:workflows
 ```
 
-This fixture downloads and actually executes npm 5.5.5 plus the checkout, checks
+This fixture downloads and actually executes npm 5.5.5 plus the checkout, selects
+and records all 71 immutable readonly scenarios, and checks
 GET-only provider calls, rejection/privacy, and mocked website POST/digest
-readback. It is not evidence of a live ServiceNow or production-site run.
+readback. The deliberately partial HTTP provider fixture proves critical metadata
+checks pass and other unsupported fixture surfaces fail/block; it does not claim
+71 passing provider scenarios. It is not evidence of a live ServiceNow or production-site run.

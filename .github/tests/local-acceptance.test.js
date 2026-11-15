@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import { parseOptions, runLocal, allowedCommand, selectedExitCode, acquireArtifact } from '../scripts/run-acceptance.mjs';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { FILES, HARNESS_SHA } from '../scripts/acceptance/prepare.mjs';
+import { parseOptions, runLocal, selectedExitCode, acquireArtifact, stageHarness } from '../scripts/run-acceptance.mjs';
 import { publishResults, projectionDigest, validateProjection } from '../scripts/acceptance/publish.mjs';
 
-test('adapter denies command drift and nonpassing selected outcomes', async () => {
-  for (const args of [['completion'], ['records', 'delete'], ['records', 'list', '--table', 'sys_user'], ['version', '--instance', 'evil'], ['records', 'list', '--query', 'javascript:gs.now()']]) assert.equal(allowedCommand(args), false);
+test('adapter rejects nonpassing selected outcomes and unverified artifacts', async () => {
   for (const status of ['blocked-prerequisite', 'blocked-access', 'blocked-capability', 'excluded-mode', 'not-run', 'unsupported', 'failed']) assert.notEqual(selectedExitCode({ total: 1, counts: { [status]: 1 } }), 0);
   assert.equal(selectedExitCode({ total: 1, counts: { passed: 1 } }), 0);
   for (const version of ['latest', '^5.5.5', '5.5.5 --eval']) await assert.rejects(acquireArtifact(version, '/unused'));
@@ -24,7 +26,30 @@ test('adapter denies command drift and nonpassing selected outcomes', async () =
 test('local options require exact versions, target labels and explicit publication', () => {
   for (const version of ['latest', '^5.5.5', '5', '5.5.5 --eval']) assert.throws(() => parseOptions(['--version', version, '--target', 'vendor-1', '--output', 'out']));
   assert.throws(() => parseOptions(['--result', 'out']));
+  assert.throws(() => parseOptions(['--mode', 'full', '--profile', 'vendor', '--target', 'vendor1']), /mutations refused/);
+  const first = parseOptions(['--version', '5.5.5', '--profile', 'vendor', '--target', 'vendor1']);
+  const second = parseOptions(['--version', '5.5.5', '--profile', 'vendor', '--target', 'vendor1']);
+  assert.notEqual(first.output, second.output);
+  assert.equal(path.dirname(first.output), path.join(os.homedir(), 'private-acceptance'));
   assert.deepEqual(parseOptions(['--publish', '--result', 'out']), { publish: true, result: 'out' });
+});
+
+test('immutable producer bytes and source guard survive candidate adaptation', async () => {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'acceptance-guard-'));
+  try {
+    const harness = stageHarness(root, '5.5.5');
+    for (const file of FILES) assert.deepEqual(fs.readFileSync(path.join(harness, file)), execFileSync('git', ['show', `${HARNESS_SHA}:${file}`], { maxBuffer: 16 * 1024 * 1024 }));
+    const support = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/support.mjs')));
+    const foreign = path.join(root, 'foreign');
+    for (const file of ['src', 'bin', 'package.json']) fs.cpSync(path.join(harness, 'cli', file), path.join(foreign, file), { recursive: true });
+    const pkg = JSON.parse(fs.readFileSync(path.join(foreign, 'package.json'))); pkg.version = '9.9.9';
+    fs.writeFileSync(path.join(foreign, 'package.json'), JSON.stringify(pkg));
+    assert.throws(() => support.createContext({ profile: 'acceptance', mode: 'readonly', outputDir: path.join(root, 'bad'), cliPath: path.join(foreign, 'bin/jsn.js') }, { target: 'http://127.0.0.1' }), /source provenance/);
+    let dispatches = 0;
+    const ctx = support.createContext({ profile: 'acceptance', mode: 'readonly', outputDir: path.join(root, 'good') }, { target: 'http://127.0.0.1' }, { execute: async () => { dispatches++; throw Error('unexpected dispatch'); } });
+    for (const args of [['records', 'delete', '--table', 'sys_user', '--sys-id', 'a'.repeat(32)], ['version', '--instance', 'private-target'], ['records', 'list', '--table', 'sys_user', '--query', 'javascript:evil()']]) await assert.rejects(ctx.command(args));
+    assert.equal(dispatches, 0);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitized retention and exact publish readback', { timeout: 240000 }, async () => {
@@ -59,17 +84,22 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       assert.equal(payload.provenance.version, '5.5.5');
       assert.equal(payload.results.find(r => r.id === 'readonly.records').status, 'passed');
       assert.equal(payload.summary.complete, false);
-      assert.equal(payload.results.length, 4);
+      assert.equal(payload.results.length, 71);
+      assert.equal(payload.selection.full, true);
       assert.equal(payload.results.find(r => r.id === 'local.version').status, 'passed');
-      assert.equal(payload.results.some(r => r.id === 'local.completion'), false);
+      assert.equal(payload.results.find(r => r.id === 'local.completion').status, 'passed');
       assert.equal(payload.summary.missingCount > 1, true);
-      assert.equal(selectedExitCode(payload.summary), 0);
+      assert.notEqual(selectedExitCode(payload.summary), 0); // Fixture covers metadata only, not fabricated full provider behavior.
       assert.equal(payload.environment.release.family, 'Zurich');
       const poisoned = structuredClone(payload); poisoned.environment.release.build = 'https://private-host.example';
       assert.throws(() => validateProjection(poisoned));
       const local = JSON.parse(fs.readFileSync(path.join(output, 'local-summary.json')));
       assert.equal(local.coverage.missing.length, payload.summary.missingCount);
-      assert.equal(local.humanMeasurementsPassed, 2);
+      assert.ok(local.humanMeasurementsPassed >= 2);
+      assert.equal(local.coverage.applicableReadonly, 71);
+      assert.deepEqual(local.coverage.omittedReadonly, []);
+      assert.equal(new Set(payload.selection.selected).size, 71);
+      assert.deepEqual(payload.results.map(r => r.id), payload.selection.selected);
       assert.equal(local.release.family, 'Zurich');
       assert.equal(local.release.fields.family, 'glide.buildname');
       assert.equal(local.release.patch, null);
@@ -89,6 +119,10 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
     assert.notEqual(selectedExitCode(failed.summary), 0);
     assert.equal((await publishResults({ file: failed.file, url: `${origin}/api/acceptance/runs`, token })).ok, true);
     assert.equal(stored.summary.complete, false);
+    mode = 200;
+    const restored = await runLocal({ target: 'vendor-2', output: path.join(root, 'restored') });
+    assert.equal(JSON.parse(fs.readFileSync(restored.file)).results.find(r => r.id === 'readonly.records').status, 'passed');
+    assert.equal(restored.summary.total, 71);
     assert.equal(requests.filter(r => !r.path.startsWith('/api/acceptance/') && !r.path.startsWith('/results/')).every(r => r.method === 'GET'), true);
     await assert.rejects(runLocal({ target: 'vendor-1', output: path.join(root, 'checkout') }));
     // Keep sanitized evidence only when explicitly requested by the developer.
