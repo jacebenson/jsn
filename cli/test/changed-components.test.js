@@ -13,7 +13,7 @@ test('website npm commands belong to the private repository, not the published C
   const repository = read('package.json');
   const cli = read('cli/package.json');
   assert.equal(repository.private, true);
-  assert.equal(repository.scripts.docs, 'node scripts/build-docs-site.mjs');
+  assert.equal(repository.scripts.docs, 'node site/scripts/build-docs-site.mjs');
   assert.equal(repository.scripts['docs:serve'], 'site/bin/preview');
   assert.equal(repository.scripts.test, 'npm --prefix cli test');
   assert.equal(repository.scripts.lint, 'npm --prefix cli run lint');
@@ -21,7 +21,7 @@ test('website npm commands belong to the private repository, not the published C
   assert.equal(Object.hasOwn(cli.scripts, 'docs:serve'), false);
 });
 
-const script = fileURLToPath(new URL('../../scripts/changed-components.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../../.github/scripts/changed-components.mjs', import.meta.url));
 test('affected application selection keeps prose docs light and runtime paths checked', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-changes-'));
   const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -79,15 +79,15 @@ test('affected application selection keeps prose docs light and runtime paths ch
     expect('site/static/style.css', false, true, false);
     expect('site/data/showcases.js', false, true, false);
     expect('site/test/site_test.rb', false, true, false);
-    expect('scripts/build-docs-site.mjs', false, true, false);
+    expect('site/scripts/build-docs-site.mjs', false, true, false);
 
     // Shared command wiring, workflows and unknown root tooling stay fail-safe.
     expect('package.json', true, true, false);
-    expect('scripts/changed-components.mjs', true, true, false);
+    expect('.github/scripts/changed-components.mjs', true, true, false);
     expect('.github/workflows/ci.yml', true, true, false);
     expect('.github/workflows/docs-site.yml', true, true, false);
     expect('ops/unclassified-tool.mjs', true, true, false);
-    expect('scripts/acceptance/publish.mjs', true, false, false);
+    expect('cli/scripts/acceptance/publish.mjs', true, false, false);
 
     // Deleted and renamed guide files are still website changes.
     commit('docs/retired-guide.md');

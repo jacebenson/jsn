@@ -2,8 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import features from '../site/data/showcases.js';
-const root = fileURLToPath(new URL('../', import.meta.url));
+import features from '../data/showcases.js';
+const root = fileURLToPath(new URL('../../', import.meta.url));
 const site = path.join(root, 'site');
 fs.writeFileSync(path.join(site, 'config/features.json'), JSON.stringify(features, null, 2) + '\n');
 const destination = path.join(site, 'public');

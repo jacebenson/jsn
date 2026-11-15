@@ -5,7 +5,7 @@ description: Verify the JSN CLI with OpenCode-compatible pstack workflows. Use b
 
 # Verify JSN
 
-This project-local skill is the JSN CLI driver for OpenCode. It follows the pstack-claude verification shape without copying the Cursor plugin. The OpenCode-compatible pstack skills are installed through the documented shared Agent Skills path at `~/.agents/skills/`, while this repo-owned skill lives at `.agents/skills/verify/`. Run it from the repository root.
+This project-local skill is the JSN CLI driver for OpenCode. It follows the pstack-claude verification shape without copying the Cursor plugin. The OpenCode-compatible pstack skills are installed through the documented shared Agent Skills path at `~/.agents/skills/`, while this repo-owned skill lives at `cli/.agents/skills/verify/`, beside the package it verifies. The helper resolves the repository root from the working directory, so run it from the repository root. Discovery tradeoff: an agent that only scans `<repo>/.agents/skills/` will not find this skill automatically; point it at `cli/.agents/skills/verify/` or run the agent from `cli/`.
 
 ## Launch
 
@@ -30,7 +30,7 @@ Use `node cli/bin/jsn.js` in evidence so the checkout under test is unambiguous.
 Run the read-only doctor before any instance-backed drive:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
 ```
 
 The doctor proves the repository binary, package version, selected profile name, configured instance hostname, auth method, and authentication state. It prints no usernames, tokens, cookies, passwords, or credential contents. `--allow-unauthenticated` is only for the hosted-docs lane, which does not use instance credentials. Without it, an unauthenticated or stale profile fails and must not be driven.
@@ -49,7 +49,7 @@ Runtime references only:
 The safe, end-to-end lane uses the Rails documentation REST service. It contacts no ServiceNow instance:
 
 ```bash
-JSN_DOCS_URL=http://localhost:3000 node .agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
+JSN_DOCS_URL=http://localhost:3000 node cli/.agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
 ```
 
 The helper captures both machine-readable JSON and human-readable Markdown output. The underlying commands are existing JSN commands:
@@ -63,7 +63,7 @@ node cli/bin/jsn.js docs search "GlideRecord" --limit 3 --markdown
 For an authenticated disposable profile only, use existing read-only commands and run the doctor again immediately before driving:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile <disposable-read-only-profile>
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile <disposable-read-only-profile>
 node cli/bin/jsn.js --profile <disposable-read-only-profile> records list --table incident --limit 3 --columns number,short_description --json
 node cli/bin/jsn.js --profile <disposable-read-only-profile> rest --method GET --table incident --query "sysparm_limit=3" --json
 ```
@@ -89,7 +89,7 @@ Treat these files as local run artifacts. Do not add credentials, cookies, priva
 The helper has no long-lived process. After every run, including failed runs, execute:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs cleanup
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs cleanup
 ```
 
 Cleanup removes only helper scratch state. It does not remove evidence. For an instance-backed experiment, delete only records created by that experiment, verify they are gone, and never clean up by process name or broad table deletion. No mutation path is enabled by this skill until a disposable ServiceNow profile is established.
@@ -99,9 +99,9 @@ Cleanup removes only helper scratch state. It does not remove evidence. For an i
 The helper is executable and owns redaction, evidence capture, exit-code checks, and cleanup:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
-JSN_DOCS_URL=http://localhost:3000 node .agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
-node .agents/skills/verify/scripts/verify-jsn.mjs cleanup
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
+JSN_DOCS_URL=http://localhost:3000 node cli/.agents/skills/verify/scripts/verify-jsn.mjs drive --query GlideRecord
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs cleanup
 ```
 
 A successful hosted-docs proof requires the doctor result, one JSON drive result, one human-readable drive result, evidence surviving cleanup, and no secret-like keys in the evidence files.

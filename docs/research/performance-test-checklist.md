@@ -6,20 +6,20 @@ This version is mapped to JSN, not the MCP server. Test in a disposable or sub-p
 
 ## Existing JSN commands
 
-Run these from the JSN repository:
+Run these from the JSN repository root (the CLI entry is `cli/bin/jsn.js`):
 
 ```bash
-node bin/jsn.js platform health --all-nodes --json
-node bin/jsn.js transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)' --json
-node bin/jsn.js logs list --query 'level=error' --columns 'level,message,source,sys_created_on,sys_id' --limit 50 --json
-node bin/jsn.js logs follow --level error --tail 50 --interval 2000
-node bin/jsn.js flows executions --since '<start>' --until '<end>' --summary --json
-node bin/jsn.js records list --table syslog_transaction --query '<encoded query>' --columns 'sys_id,type,response_time,sys_created_on' --limit 50 --json
-node bin/jsn.js records aggregate --table sysevent --query '<encoded query>' --group-by queue --count --json
-node bin/jsn.js eval --file ./read-only-probe.js --json
+node cli/bin/jsn.js platform health --all-nodes --json
+node cli/bin/jsn.js transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)' --json
+node cli/bin/jsn.js logs list --query 'level=error' --columns 'level,message,source,sys_created_on,sys_id' --limit 50 --json
+node cli/bin/jsn.js logs follow --level error --tail 50 --interval 2000
+node cli/bin/jsn.js flows executions --since '<start>' --until '<end>' --summary --json
+node cli/bin/jsn.js records list --table syslog_transaction --query '<encoded query>' --columns 'sys_id,type,response_time,sys_created_on' --limit 50 --json
+node cli/bin/jsn.js records aggregate --table sysevent --query '<encoded query>' --group-by queue --count --json
+node cli/bin/jsn.js eval --file ./read-only-probe.js --json
 ```
 
-Use the installed binary instead of `node bin/jsn.js` when appropriate. The two forms exercise the same CLI.
+Use the installed binary instead of `node cli/bin/jsn.js` when appropriate. The two forms exercise the same CLI.
 
 ## Test matrix
 

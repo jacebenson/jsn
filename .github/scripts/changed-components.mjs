@@ -23,9 +23,7 @@ const isMarkdown = file => /\.mdx?$/i.test(file);
 const cliProseDoc = file => /^cli\/(?:README\.md|examples\/README\.md)$/i.test(file);
 const cliDocsEngine = file => file.startsWith('cli/src/commands/docs/');
 const cliSharedPackage = file => /^cli\/package(?:-lock)?\.json$/.test(file);
-const acceptanceScript = file => file.startsWith('scripts/acceptance/');
 const sitePath = file => file.startsWith('site/') || file.startsWith('docs/');
-const docsSiteScript = file => /^scripts\/(?:build-docs-site|build-docs-snapshot|publish-docs-manifest|verify-docs-snapshot|report-docs-build)\.mjs$/.test(file);
 
 function classify(file) {
   const docs = isMarkdown(file);
@@ -35,14 +33,12 @@ function classify(file) {
   // configuration does, while prose such as the PR template stays docs-only.
   if (file.startsWith('.github/workflows/')) return { cli: true, site: true, docs };
   if (file.startsWith('.github/') && !isMarkdown(file)) return { cli: true, site: true, docs };
-  if (file === 'package.json' || file === 'scripts/changed-components.mjs') {
+  if (file === 'package.json' || file === '.github/scripts/changed-components.mjs') {
     return { cli: true, site: true, docs };
   }
   if (cliProseDoc(file)) return { cli: false, site: false, docs: true };
   if (file.startsWith('cli/')) return { cli: true, site: cliDocsEngine(file) || cliSharedPackage(file), docs };
   if (sitePath(file)) return { cli: false, site: true, docs };
-  if (docsSiteScript(file)) return { cli: false, site: true, docs };
-  if (acceptanceScript(file)) return { cli: true, site: false, docs };
   // Remaining Markdown is repository prose (root README, AGENTS.md, agent
   // notes); a lightweight docs check covers it.
   if (isMarkdown(file)) return { cli: false, site: false, docs: true };

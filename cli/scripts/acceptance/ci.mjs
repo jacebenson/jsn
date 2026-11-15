@@ -43,7 +43,7 @@ export async function main() {
     const configDir = path.join(configHome, 'servicenow');
     fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ default_profile: 'acceptance-ci', profiles: { 'acceptance-ci': input.profile } }), { mode: 0o600 });
-    const { credKey } = await import('../../cli/src/auth/credential-store.js');
+    const { credKey } = await import('../../src/auth/credential-store.js');
     fs.writeFileSync(path.join(configDir, 'credentials', `${credKey(input.profile.instance_url, input.profile.username)}.json`), JSON.stringify(input.credentials), { mode: 0o600 });
     const output = path.join(privateRoot, 'run');
     const env = { ...process.env, XDG_CONFIG_HOME: configHome, DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus' };
