@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { OutputWriter } from '../src/output.js';
 
 function capture(data, options = {}, opts = {}) {
@@ -84,7 +84,7 @@ test('real CLI emits one stderr notice for counted records and uncounted tickets
     SERVICENOW_INSTANCE_URL: '', SERVICENOW_FORMAT: '', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1',
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' };
   function run(command, flags = []) {
-    const result = spawnSync(process.execPath, ['--import', preload,
+    const result = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href,
       fileURLToPath(new URL('../bin/jsn.js', import.meta.url)), ...command, '--instance', 'https://fixture.example.test',
       '--limit', '2', '--columns', 'number,short_description', '--csv', ...flags],
     { env, cwd: directory, encoding: 'utf8', timeout: 15000 });
