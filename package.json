@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "npm --prefix cli test",
+    "test:workflows": "node --test .github/tests/*.test.js",
     "lint": "npm --prefix cli run lint",
     "docs": "node site/scripts/build-docs-site.mjs",
     "docs:serve": "site/bin/preview"

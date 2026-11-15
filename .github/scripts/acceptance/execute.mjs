@@ -25,9 +25,9 @@ export function observeScenario(scenario) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) {
-    const { scenarios } = await import(`../../test/acceptance/${name}.mjs`);
+    const { scenarios } = await import(`../../../cli/test/acceptance/${name}.mjs`);
     scenarios.forEach(observeScenario);
   }
-  const { main } = await import('./run.mjs');
+  const { main } = await import('../../../cli/scripts/acceptance/run.mjs');
   main().then(code => { process.exitCode = code; }).catch(() => { console.error('Acceptance execution refused'); process.exitCode = 1; });
 }

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import { environmentOAuth } from '../oauth-environment.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateProjection, publishResults } from './publish.mjs';
 import { HARNESS_SHA } from './prepare.mjs';
 import { instanceConfiguration, producerEnvironment } from './config.mjs';
@@ -38,22 +39,25 @@ export async function seedProfile(privateRoot, input) {
   const configDir = path.join(configHome, 'servicenow');
   fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ auth_method: 'oauth', default_profile: 'acceptance-ci', profiles: { 'acceptance-ci': input.profile } }), { mode: 0o600 });
-  const { credKey } = await import('../../src/auth/credential-store.js');
+  const { credKey } = await import('../../../cli/src/auth/credential-store.js');
   fs.writeFileSync(path.join(configDir, 'credentials', `${credKey(input.profile.instance_url, input.profile.username)}.json`), JSON.stringify(input.credentials), { mode: 0o600 });
   return configHome;
 }
 
 export async function main() {
-  const root = process.cwd();
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
   const input = instanceConfiguration(process.env);
   const { mode, host } = input;
+  const auth = await environmentOAuth(process.env);
+  input.credentials.access_token = auth.accessToken;
+  console.log(JSON.stringify({ authSource: auth.source }));
   const privateRoot = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || process.env.TMPDIR, 'jsn-acceptance-'));
   fs.chmodSync(privateRoot, 0o700);
   try {
     const configHome = await seedProfile(privateRoot, input);
     const output = path.join(privateRoot, 'run');
     const env = producerEnvironment(process.env, privateRoot, configHome);
-    const args = ['cli/scripts/acceptance/execute.mjs', '--profile', 'acceptance-ci', '--expected-host', host.origin, '--mode', mode, '--output-dir', output];
+    const args = [path.join(root, '.github/scripts/acceptance/execute.mjs'), '--profile', 'acceptance-ci', '--expected-host', host.origin, '--mode', mode, '--output-dir', output];
     if (mode === 'pdi') args.push('--full', '--allow-writes');
     else {
       // Explicitly label the automatic read-only lane as a subset on /results.

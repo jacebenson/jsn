@@ -17,7 +17,7 @@ export function projectionDigest(payload) {
   return createHash('sha256').update(canonical(payload)).digest('hex');
 }
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 // The site owns the closed scenario allowlist. When it is present in this
@@ -215,6 +215,6 @@ export async function main(argv = process.argv.slice(2)) {
   return outcome.ok ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${path.resolve(process.argv[1])}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().then(code => { process.exitCode = code; }).catch(() => { console.error('Publish refused; projection or endpoint invalid'); process.exitCode = 1; });
 }

@@ -16,8 +16,22 @@ secret-bearing jobs. Manual feature refs are refused. Candidate checkouts disabl
 persisted Git credentials. Dependencies install without lifecycle scripts or caches
 before credential injection. No target host or credentials appear in artifacts.
 
-`prepare.mjs` stages the existing producer at immutable commit
+GitHub-only orchestration is owned by `.github/scripts/acceptance/`:
+`config.mjs` selects targets, `ci.mjs` seeds the isolated producer and publishes,
+`execute.mjs` observes execution, and `publish.mjs` validates delivery.
+`.github/scripts/oauth-environment.mjs` is shared with the GitHub verification
+wrapper, `.github/scripts/verify-instance.mjs`. These are not CLI product code
+and are outside the published npm package. Generic local verification remains
+`cli/scripts/verify-jsn.mjs`.
+
+`.github/scripts/acceptance/prepare.mjs` stages the existing producer at immutable commit
 `65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba`, without replacing candidate CLI source.
+Generated runner resources deliberately retain the producer's original
+`cli/scripts/acceptance/{bindings,run,session-adapter,support}.mjs` and
+`cli/test/acceptance/` paths so its relative imports remain byte-for-byte intact.
+They are temporary, untracked harness resources, not installed product code;
+the npm package allowlist excludes scripts and tests. No tracked helper is copied
+back into `cli/` as a compatibility shim.
 Existing producer files cause refusal rather than silent replacement. Readonly
 runs select every declared readonly scenario across read-only, read-only-catalog,
 resources, workflows and auth. This is an explicit subset, not full-product
@@ -33,7 +47,9 @@ Use the existing environments. Configure both vendors independently:
 | --- | --- | --- | --- |
 | Each selected environment | Variable | `JSN_INSTANCE_URL` | HTTPS origin without path, query, credentials or port |
 | Each selected environment | Variable | `JSN_VERIFY_ENABLED` | `true` after authorization review |
-| Each selected environment | Secret | `JSN_OAUTH_TOKEN` | OAuth access token authorized for readonly checks |
+| Each selected environment | Secret | `JSN_OAUTH_REFRESH_TOKEN` | Refresh token from the authorized JSN OAuth public-client login |
+| Each selected environment | Variable | `JSN_OAUTH_CLIENT_ID` | Optional override matching the login client; omit to use JSN source default |
+| Each selected environment | Secret | `JSN_OAUTH_TOKEN` | Legacy access-token fallback, used only when refresh token is absent |
 | Repository | Variable | `JSN_ACCEPTANCE_INGEST_URL` | HTTPS ingest URL ending `/api/acceptance/runs` |
 | Repository | Secret | `JSN_ACCEPTANCE_INGEST_TOKEN` | Matching server `ACCEPTANCE_INGEST_TOKEN`, at least 32 characters |
 
@@ -44,6 +60,32 @@ CLI children, so the adapter seeds one OAuth file-store profile in a private
 environment without GitHub, ingest, proxy or Node-injection credentials. Private
 files are deleted on exit and never uploaded. Access-token-only configuration has
 no renewal metadata. Auth rejection does not establish that a token expired.
+
+Both verification and acceptance refresh before their real checks in the same
+process. The exact validated HTTPS instance origin receives one bounded (15s)
+form POST to `/oauth_token.do`: `grant_type=refresh_token`, `client_id`, and
+`refresh_token`. Redirects are rejected. The client ID comes from
+`JSN_OAUTH_CLIENT_ID` (mapped to `SERVICENOW_OAUTH_CLIENT_ID`) or the authoritative
+`getOAuthClientID()` source default. Current JSN uses a public PKCE client: no
+client secret or PKCE verifier is required for refresh. Match any override to the
+client that issued the refresh token; do not invent a confidential-client secret.
+Configured refresh failure fails closed with no stale-token retry. An absent
+refresh token permits legacy access-token use, which must still pass the real
+authenticated check. Closed output identifies `refreshed` versus
+`legacy_access_token`; raw provider responses and credentials are never logged.
+
+Refresh responses stay in memory; no refresh credential is written to files,
+artifacts, step/job outputs or GitHub settings. Acceptance retains its existing
+private ephemeral access-token profile solely for the pinned producer. If the
+provider returns a different refresh token, a fixed warning reports that the
+replacement is **not persisted**. The current run uses the new access token, but
+operators must securely replace the environment refresh secret for the next run.
+No settings-write PAT is needed or requested. Provider rotation behavior has not
+been live-verified; refresh-token expiration/revocation and local profile refresh
+can also invalidate the static GitHub secret. This is automatic access-token
+refresh, not a promise of indefinitely unattended renewal. The OAuth POST is an
+authentication operation, not a ServiceNow business-record write; readonly and
+mutation-approval boundaries are unchanged.
 
 Manual `mode=pdi` requires single target `pdi`, default-branch dispatch,
 `disposable_approved=true`, and an existing environment with required reviewers.
@@ -106,11 +148,21 @@ run; retries of a publication retain the original key.
 
 ```sh
 npm --prefix cli ci
-node --test cli/test/acceptance-ci.test.js cli/test/workflow-contracts.test.js
+npm run test:workflows
+node --test cli/test/workflow-contracts.test.js
 npm test
 npm run lint
 node .github/scripts/check-docs.mjs origin/main
 ```
+
+GitHub tooling tests live in `.github/tests/`, outside the CLI product suite.
+`npm run test:workflows` runs them once using Node’s built-in test runner and
+the installed `cli/` dependencies for real CLI integration. The CI GitHub tooling
+job uses full history for the immutable producer and is enforced by the existing
+Tests gate. The existing conservative selector covers non-prose `.github/`
+changes; docs-only checks remain dependency-free. PR492’s isolated seeded-parent
+authentication success/rejection/recovery regression is included here, with only
+its observer import relocated; PR492 should not be merged separately.
 
 Offline tests exercise the actual pinned producer against loopback, deliberate
 assertion failures and restored success, file-store OAuth, independent readonly

@@ -1,6 +1,7 @@
 // Reuse the real reviewed acceptance producer, not node:test or synthetic results.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 export const HARNESS_SHA = '65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba';
 export const FILES = [
@@ -18,7 +19,8 @@ export function prepare(root) {
     fs.writeFileSync(target, bytes, { flag: 'wx', mode: 0o600 });
   }
 }
-if (process.argv[1] && import.meta.url === new URL(`file://${path.resolve(process.argv[1])}`).href) {
-  execFileSync('git', ['fetch', '--no-tags', 'https://github.com/jacebenson/jsn.git', HARNESS_SHA], { stdio: 'ignore' });
-  prepare(process.cwd());
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  execFileSync('git', ['fetch', '--no-tags', 'https://github.com/jacebenson/jsn.git', HARNESS_SHA], { cwd: root, stdio: 'ignore' });
+  prepare(root);
 }

@@ -87,7 +87,9 @@ test('affected application selection keeps prose docs light and runtime paths ch
     expect('.github/workflows/ci.yml', true, true, false);
     expect('.github/workflows/docs-site.yml', true, true, false);
     expect('ops/unclassified-tool.mjs', true, true, false);
-    expect('cli/scripts/acceptance/publish.mjs', true, false, false);
+    expect('.github/scripts/acceptance/publish.mjs', true, true, false);
+    expect('.github/scripts/oauth-environment.mjs', true, true, false);
+    expect('.github/tests/acceptance-ci.test.js', true, true, false);
 
     // Deleted and renamed guide files are still website changes.
     commit('docs/retired-guide.md');

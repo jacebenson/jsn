@@ -39,4 +39,6 @@ jobs:
           JSN_VERIFY_ENABLED: ${{ vars.JSN_VERIFY_ENABLED }}
           SERVICENOW_INSTANCE_URL: ${{ vars.JSN_INSTANCE_URL }}
           SERVICENOW_OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
-        run: node cli/scripts/verify-instance.mjs
+          SERVICENOW_OAUTH_REFRESH_TOKEN: ${{ secrets.JSN_OAUTH_REFRESH_TOKEN }}
+          SERVICENOW_OAUTH_CLIENT_ID: ${{ vars.JSN_OAUTH_CLIENT_ID }}
+        run: node .github/scripts/verify-instance.mjs
