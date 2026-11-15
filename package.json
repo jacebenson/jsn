@@ -5,7 +5,7 @@
   "scripts": {
     "test": "npm --prefix cli test",
     "lint": "npm --prefix cli run lint",
-    "docs": "node scripts/build-docs-site.mjs",
+    "docs": "node site/scripts/build-docs-site.mjs",
     "docs:serve": "site/bin/preview"
   }
 }

@@ -14,7 +14,8 @@ parallel documentation work; adding a file here does **not** publish it.
 ## Contributor material (not published as HTML)
 
 Architecture/decision records (`DECISIONS.md`, `docs-distribution-architecture.md`),
-state, parity reports, test audits, `evidence/`, and `verification/` remain source
+state, parity reports, test audits, `evidence/`, `verification/`, and source-backed
+`research/` notes (see [research/README.md](research/README.md)) remain source
 records for contributors. They are not copied into the public document root.
 The old generator accidentally published these. Their old URLs deliberately
 redirect to the corresponding canonical GitHub source, never to a generic guide.

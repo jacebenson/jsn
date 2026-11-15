@@ -9,7 +9,7 @@
 Run `node bin/jsn.js --profile pdi auth status --json`, or use the helper:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi --allow-unauthenticated
 ```
 
 ## Driving it with the JSN CLI

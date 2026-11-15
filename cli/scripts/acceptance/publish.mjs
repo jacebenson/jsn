@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 // The site owns the closed scenario allowlist. When it is present in this
 // checkout, enforce it locally too; the server remains authoritative.
 const SCENARIO_IDS = (() => {

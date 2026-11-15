@@ -1,6 +1,6 @@
 // Lightweight documentation validation. Node builtins only: no installation,
 // no build, and no network. Run from the repository root.
-//   node scripts/check-docs.mjs [base-sha]
+//   node .github/scripts/check-docs.mjs [base-sha]
 // With a base, only Markdown changed since that base is validated, so an
 // existing unrelated defect does not block a docs edit. Without a usable base,
 // every tracked Markdown file is validated.

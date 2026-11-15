@@ -7,7 +7,7 @@ Date: 2026-10-28 (America/Chicago). Branch: `codex/dynamic-metadata`.
 Immediately before the live read, this branch ran:
 
 ```sh
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi
 ```
 
 Sanitized result at 2026-10-29 04:30:30 UTC: exit 0, `ok:true`,

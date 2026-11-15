@@ -8,7 +8,7 @@ mkdir -p "$STATE/docs"
 export BUNDLE_GEMFILE="$ROOT/site/Gemfile"
 export DOCS_SYNC_DISABLED=1 DOCS_STORAGE_DIR="$STATE/docs"
 export RAILS_ENV=development DATABASE_URL="sqlite3:$STATE/development.sqlite3"
-node "$ROOT/scripts/build-docs-site.mjs"
+node "$ROOT/site/scripts/build-docs-site.mjs"
 cd "$ROOT/site"
 "$RUBY_BIN" bin/bundle check
 if [[ "${1:-}" == --test ]]; then

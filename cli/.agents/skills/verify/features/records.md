@@ -13,7 +13,7 @@ Run `node bin/jsn.js records list --table incident --limit 3 --columns number,sh
 Doctor the profile immediately before the read:
 
 ```bash
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile <disposable-read-only-profile>
+node cli/.agents/skills/verify/scripts/verify-jsn.mjs doctor --profile <disposable-read-only-profile>
 node bin/jsn.js --profile <disposable-read-only-profile> records list --table incident --limit 3 --columns number,short_description --json
 ```
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-const script = fileURLToPath(new URL('../../scripts/check-docs.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../../.github/scripts/check-docs.mjs', import.meta.url));
 
 test('docs check validates links, packaged README and stays offline', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-docs-'));

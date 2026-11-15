@@ -44,7 +44,7 @@ jobs:
       - id: changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/changed-components.mjs "$BASE_SHA" >> "$GITHUB_OUTPUT"
+        run: node .github/scripts/changed-components.mjs "$BASE_SHA" >> "$GITHUB_OUTPUT"
 
   docs:
     name: Documentation checks
@@ -63,7 +63,7 @@ jobs:
       - name: Check Markdown links, paths and packaged README
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/check-docs.mjs "$BASE_SHA"
+        run: node .github/scripts/check-docs.mjs "$BASE_SHA"
 
   cli:
     name: CLI tests

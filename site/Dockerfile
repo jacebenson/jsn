@@ -3,8 +3,8 @@ WORKDIR /app
 COPY site/data/ site/data/
 COPY site/static/ site/static/
 COPY site/config/ site/config/
-COPY scripts/build-docs-site.mjs scripts/
-RUN node scripts/build-docs-site.mjs
+COPY site/scripts/build-docs-site.mjs site/scripts/
+RUN node site/scripts/build-docs-site.mjs
 
 FROM node:lts-bookworm-slim AS indexer
 WORKDIR /app
