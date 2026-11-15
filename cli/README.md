@@ -13,7 +13,7 @@ npm install -g @jacebenson/jsn
 jsn setup
 ```
 
-Setup connects a named profile to your instance. Its default preset allows writes, so enable read-only mode before exploring. See [setup and authentication](https://github.com/jacebenson/jsn/blob/main/docs/docs-setup.md).
+Setup connects a named profile to your instance. Its default preset allows writes, so enable read-only mode before exploring. See [setup and authentication](https://jsn.jace.pro/docs/setup/).
 
 For unreleased changes, use `npm install -g @jacebenson/jsn@dev`; see [channels and updates](https://github.com/jacebenson/jsn/blob/main/docs/releases.md).
 
@@ -30,22 +30,22 @@ Instance reads use your selected profile; add `--profile <name>` to choose anoth
 
 ## Choose output
 
-Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://github.com/jacebenson/jsn/blob/main/docs/cli-guide.md#output-formats).
+Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
 
 ## Work safely
 
 Use `jsn auth modify <profile> --read-only` to block instance writes. ServiceNow roles and ACLs still decide what you can access. Help and discovery may show a compact command list for the connected account; this is not an access grant or an exhaustive capability check.
 
-Writes are not universally dry-run operations or confirmation prompts. Inspect each command's help, target profile, scope, and update set before changing anything. Use `--force` only for an approved operation. See [safety guidance](https://github.com/jacebenson/jsn/blob/main/docs/docs-safety.md).
+Writes are not universally dry-run operations or confirmation prompts. Inspect each command's help, target profile, scope, and update set before changing anything. Use `--force` only for an approved operation. See [safety guidance](https://jsn.jace.pro/docs/safety/).
 
 ## AI agents
 
-Inspect the bundled skill with `jsn skill show`, then use `jsn skill install` to select your agent or `jsn skill install --target hermes` for Hermes. Reinstall after upgrading JSN; reinstalling replaces recorded copies, including local edits. See [agent installation](https://github.com/jacebenson/jsn/blob/main/docs/docs-agents.md).
+Inspect the bundled skill with `jsn skill show`, then use `jsn skill install` to select your agent or `jsn skill install --target hermes` for Hermes. Reinstall after upgrading JSN; reinstalling replaces recorded copies, including local edits. See [agent installation](https://jsn.jace.pro/docs/agents/).
 
 ## Go deeper
 
-- [CLI guide and feature workflows](https://github.com/jacebenson/jsn/blob/main/docs/cli-guide.md)
-- [Documentation search and local hosting](https://github.com/jacebenson/jsn/blob/main/docs/docs-install.md)
+- [CLI guide and feature workflows](https://jsn.jace.pro/docs/cli-guide/)
+- [Documentation search and local hosting](https://jsn.jace.pro/docs/install/)
 - [Feature library](https://jsn.jace.pro/#features)
 - [Development and contributing](https://github.com/jacebenson/jsn#development-and-contributing)
 - [MIT license](https://github.com/jacebenson/jsn/blob/main/LICENSE)

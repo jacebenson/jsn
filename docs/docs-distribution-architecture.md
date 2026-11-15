@@ -2,6 +2,11 @@
 
 Decision for #324, recorded before moving the serving layer.
 
+Historical migration plan: the later Rails Markdown migration removes the
+Eleventy project described below. Current ownership and URL compatibility are
+documented in [README.md](README.md) and `site/README.md`; this decision record
+is retained as evidence, not published as a public guide.
+
 ## Current ownership and deployment
 
 The CLI and its public documentation live in this repository. `docs/` is a

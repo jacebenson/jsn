@@ -1,6 +1,5 @@
 ---
 title: Set up JSN
-layout: comparison.njk
 subtitle: Connect JSN to a ServiceNow instance with a named profile and safe defaults.
 docStep: 2
 docLabel: Connect

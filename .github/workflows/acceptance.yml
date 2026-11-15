@@ -1,0 +1,102 @@
+name: Live acceptance results
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'readonly or approved disposable PDI mutation suite'
+        type: choice
+        options: [readonly, pdi]
+        default: readonly
+      disposable_approved:
+        description: 'I authorize writes on the protected disposable PDI target'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Do not cancel cleanup or overwrite a partial run with a second producer.
+concurrency:
+  group: acceptance-${{ github.event.inputs.mode || 'readonly' }}
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    if: github.repository == 'jacebenson/jsn' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.ref_type == 'tag' && github.event.inputs.mode != 'pdi'))
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.mode == 'pdi' && 'acceptance-pdi' || 'acceptance-readonly' }}
+    outputs:
+      ready: ${{ steps.config.outputs.ready }}
+    steps:
+      - id: config
+        name: Configuration readiness, not acceptance
+        env:
+          ENABLED: ${{ vars.JSN_ACCEPTANCE_ENABLED }}
+          PROFILE: ${{ secrets.JSN_ACCEPTANCE_PROFILE_JSON }}
+          INGEST_TOKEN: ${{ secrets.JSN_ACCEPTANCE_INGEST_TOKEN }}
+          INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
+          MODE: ${{ github.event.inputs.mode || 'readonly' }}
+          APPROVED: ${{ github.event.inputs.disposable_approved || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ "$MODE" = pdi ] && [ "$APPROVED" != true ]; then
+            echo '::error::PDI mutations require explicit disposable approval and protected environment review'
+            exit 1
+          fi
+          if [ "$MODE" = pdi ]; then
+            protected=$(gh api repos/jacebenson/jsn/environments/acceptance-pdi --jq 'any(.protection_rules[]; .type == "required_reviewers" and (.reviewers | length) > 0)')
+            if [ "$protected" != true ]; then
+              echo '::error::Disposable PDI lane requires an environment with required reviewers'
+              exit 1
+            fi
+          fi
+          if [ "$ENABLED" != true ] || [ -z "$PROFILE" ] || [ -z "$INGEST_TOKEN" ] || [ -z "$INGEST_URL" ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::Acceptance NOT CONFIGURED. Live execution skipped. This is not a passing acceptance run.'
+            echo 'Acceptance NOT CONFIGURED; live execution skipped, no public run fabricated.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  acceptance:
+    name: Genuine acceptance and publication
+    needs: configuration
+    if: needs.configuration.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: ${{ github.event.inputs.mode == 'pdi' && 'acceptance-pdi' || 'acceptance-readonly' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: npm --prefix cli ci
+      - name: Stage immutable existing producer alongside exact candidate CLI
+        run: node scripts/acceptance/prepare.mjs
+      - name: Execute suite and publish even when the suite fails
+        env:
+          JSN_ACCEPTANCE_PROFILE_JSON: ${{ secrets.JSN_ACCEPTANCE_PROFILE_JSON }}
+          JSN_ACCEPTANCE_INGEST_TOKEN: ${{ secrets.JSN_ACCEPTANCE_INGEST_TOKEN }}
+          JSN_ACCEPTANCE_INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
+          ACCEPTANCE_MODE: ${{ github.event.inputs.mode || 'readonly' }}
+          ACCEPTANCE_DISPOSABLE_APPROVED: ${{ github.event.inputs.disposable_approved || 'false' }}
+        run: node scripts/acceptance/ci.mjs
+      - name: Preserve only the validated closed public projection
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-public-${{ github.run_id }}-${{ github.run_attempt }}
+          path: acceptance-public.json
+          if-no-files-found: ignore
+          retention-days: 14

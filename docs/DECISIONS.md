@@ -2,6 +2,16 @@
 
 ## CI validation ownership
 
+Website asset preparation and preview belong to the private root npm commands,
+not the published `cli/package.json`. `site/**`, `docs/**` and
+`scripts/build-docs-site.mjs` select website checks without CLI checks. Keep the
+existing conservative `docs/**` policy for contributor records too; publication
+remains allowlisted separately. CLI commands/tests select CLI checks. Shared
+`cli/src/commands/docs/**`, CLI package/lockfile edits, root npm command wiring,
+workflows and the selector itself select both. Manifest changes, including script
+removal, are genuine CLI changes and must not be excluded. Deterministic temporary
+Git histories in `cli/test/changed-components.test.js` exercise this matrix.
+
 CI selects affected applications once. Its website job calls `docs-site.yml`,
 which builds the production Docker image once and runs all Rails tests through
 `site/bin/test` plus the shared sync and Markdown JavaScript tests. This includes
@@ -23,9 +33,14 @@ It displays sanitized acceptance runs, not a run of the current npm release.
 A successful HTTP response or a historical passing subset is not production
 acceptance. Do not turn the live site into a blocking release dependency until
 an exact-version/source scenario, fixture or approved run producer, freshness
-expectation, and outage/failure policy are agreed. Existing local acceptance
-page tests remain part of the Docker suite; this change adds no live release gate
-and performs no PDI mutation or public acceptance ingestion.
+expectation, and outage/failure policy are agreed. Local acceptance page tests
+remain part of the Docker suite. The separate observational workflow documented
+in [acceptance-ci.md](acceptance-ci.md) reuses the pinned genuine producer and
+publishes its closed projection when dedicated test/auth and ingest settings are
+configured. Missing configuration skips execution, never reports passing
+acceptance. The default lane is an explicit readonly subset. PDI mutations need
+manual approval and a protected disposable-target environment. This does not add
+a required release gate or authorize a live write during implementation.
 
 ## Root help is concise; `--all-commands --help` is the reference (2026-11-11)
 
@@ -381,6 +396,21 @@ branch semantics. Generic records continue to accept advanced encoded queries.
 Field-investigation help documents schema, overrides, query rules and ACL
 coverage by symptom, without claiming a universal priority or effective-access
 proof from a list of ACL records.
+## Rails renders allowlisted Markdown guides without a static-site generator
+
+Public guide ownership is `site/config/guides.json` → maintained Markdown in
+`docs/` → vendored Marked parser → Rails HTML5 sanitizer → shared Rails layout.
+Request input never becomes a filesystem path. Contributor ADR/audit/evidence
+files stay in the repository but are not implicitly published. The original
+54-URL HTML inventory has an explicit runtime route or deliberate compatibility
+redirect in `site/config/legacy-guide-urls.json`; contributor records redirect
+to canonical GitHub source rather than silently becoming public guides.
+Showcase/SEO/demo sources and public assets move to `site/data/` and
+`site/static/`. The asset preparation step needs only Node built-ins, not npm
+installation or an HTML generator. The separate ServiceNow corpus ingestion,
+search, release selection, snapshots, and `/documentation` reader are unchanged.
+This supersedes only the static HTML preservation phase of the earlier decision.
+
 ## Rails serves existing documentation output and distributes an independent index
 
 Keep the documentation service in `site/`, beside the Node CLI and existing

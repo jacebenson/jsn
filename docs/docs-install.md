@@ -1,6 +1,5 @@
 ---
 title: Install JSN
-layout: comparison.njk
 subtitle: Install the ServiceNow CLI locally with npm, then verify the command is available.
 docStep: 1
 docLabel: Install

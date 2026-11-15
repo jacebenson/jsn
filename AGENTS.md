@@ -21,8 +21,10 @@ Runtime deps — keep this list short, every addition needs a reason:
 | `saxes` | Strict, entity-safe XML inspection before native update-set upload |
 | `turndown` | HTML → markdown for docs ingestion |
 
-The docs site is a separate npm project in `docs/`; its Eleventy dependency
-belongs in `docs/package.json`, not this project.
+The Rails website lives in `site/`; `docs/` retains Markdown guides and contributor
+records, not an npm project. Run `npm run docs` and `npm run docs:serve` from
+the repository root to prepare assets and preview the website. These commands
+do not belong in the published CLI package.
 
 Tests: `node:test` runner + eslint.
 

@@ -1,6 +1,5 @@
 ---
 title: Use JSN with AI agents
-layout: comparison.njk
 subtitle: Give Hermes, OpenCode, VS Code, Claude Code, Cursor, Codex, Copilot, or any shell-capable language-model harness a safe ServiceNow tool.
 docStep: 4
 docLabel: Agents

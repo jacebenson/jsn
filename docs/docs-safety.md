@@ -1,6 +1,5 @@
 ---
 title: Use JSN safely
-layout: comparison.njk
 subtitle: JSN defaults to inspection first and puts explicit gates around destructive ServiceNow changes.
 docStep: 3
 docLabel: Safety

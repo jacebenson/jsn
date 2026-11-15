@@ -1,30 +1,23 @@
-// Preserve the existing Eleventy URL tree while changing the serving process.
-import { spawnSync } from 'node:child_process';
+// Prepare site-owned assets/data only. Markdown is rendered live by Rails.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import features from '../docs/_data/showcases.js';
+import features from '../site/data/showcases.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
-fs.mkdirSync(path.join(root, 'site/config'), { recursive: true });
-fs.writeFileSync(path.join(root, 'site/config/features.json'), JSON.stringify(features, null, 2) + '\n');
-const built = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'], { cwd: path.join(root, 'docs'), stdio: 'inherit', shell: process.platform === 'win32' });
-if (built.status !== 0) process.exit(built.status || 1);
-const source = path.join(root, 'docs', '_site'), destination = path.join(root, 'site', 'public');
+const site = path.join(root, 'site');
+fs.writeFileSync(path.join(site, 'config/features.json'), JSON.stringify(features, null, 2) + '\n');
+const destination = path.join(site, 'public');
 fs.mkdirSync(destination, { recursive: true });
+// public is exclusively generated; static sources live in site/static.
 for (const name of fs.readdirSync(destination)) if (name !== '.keep') fs.rmSync(path.join(destination, name), { recursive: true, force: true });
-fs.cpSync(source, destination, { recursive: true });
-// Rails owns these pages. Generated docs continue to be served unchanged.
-fs.rmSync(path.join(destination, 'index.html'), { force: true });
-fs.rmSync(path.join(destination, 'features'), { recursive: true, force: true });
-const urls = [];
-function walk(dir) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full);
-    else if (entry.name.endsWith('.html') && path.relative(source, full) !== 'index.html' && !path.relative(source, full).startsWith('features' + path.sep)) urls.push('/' + path.relative(source, full).split(path.sep).join('/').replace(/index\.html$/, ''));
-  }
-}
-walk(source);
-fs.mkdirSync(path.join(root, 'site', 'tmp'), { recursive: true });
-fs.writeFileSync(path.join(root, 'site', 'tmp', 'preserved-urls.json'), JSON.stringify(urls));
-process.stdout.write(`Copied existing documentation output; ${urls.length} HTML URLs preserved.\n`);
+fs.cpSync(path.join(site, 'static'), destination, { recursive: true });
+const origin = 'https://jsn.jace.pro';
+const guides = JSON.parse(fs.readFileSync(path.join(site, 'config/guides.json'), 'utf8'));
+const urls = ['/', '/features/', '/docs/', ...features.map(f => `/features/${f.canonicalSlug}/`), ...Object.keys(guides).map(slug => `/docs/${slug}/`)];
+fs.writeFileSync(path.join(destination, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`);
+fs.writeFileSync(path.join(destination, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(url => `<url><loc>${origin}${url}</loc></url>`).join('')}</urlset>\n`);
+const llms = fs.readFileSync(path.join(site, 'data/llms.txt'), 'utf8');
+fs.writeFileSync(path.join(destination, 'llms.txt'), llms + '\nfeature_pages:\n' + features.map(f => `- /features/${f.canonicalSlug}/ - ${f.seoTitle}`).join('\n') + '\n');
+fs.mkdirSync(path.join(site, 'tmp'), { recursive: true });
+fs.copyFileSync(path.join(site, 'config/preserved-urls.json'), path.join(site, 'tmp/preserved-urls.json'));
+console.log(`Prepared assets, ${features.length} features and ${Object.keys(guides).length} Rails Markdown guides; no npm dependencies or static HTML generator.`);

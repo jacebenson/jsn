@@ -1,0 +1,213 @@
+{
+  "browser": "155.0.8059.84",
+  "tools": [
+    {
+      "name": "jsn_bug_guidance",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "annotations": {
+        "consequentialHint": false,
+        "readOnlyHint": true,
+        "untrustedContentHint": true
+      }
+    },
+    {
+      "name": "jsn_docs_search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "jsn",
+              "servicenow"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "source"
+        ]
+      },
+      "annotations": {
+        "consequentialHint": false,
+        "readOnlyHint": true,
+        "untrustedContentHint": true
+      }
+    },
+    {
+      "name": "jsn_feature_request_guidance",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "annotations": {
+        "consequentialHint": false,
+        "readOnlyHint": true,
+        "untrustedContentHint": true
+      }
+    },
+    {
+      "name": "jsn_install_guidance",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "dev"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "channel"
+        ]
+      },
+      "annotations": {
+        "consequentialHint": false,
+        "readOnlyHint": true,
+        "untrustedContentHint": true
+      }
+    },
+    {
+      "name": "jsn_remove_guidance",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "annotations": {
+        "consequentialHint": false,
+        "readOnlyHint": true,
+        "untrustedContentHint": true
+      }
+    },
+    {
+      "name": "jsn_update_guidance",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "dev"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "channel"
+        ]
+      },
+      "annotations": {
+        "consequentialHint": false,
+        "readOnlyHint": true,
+        "untrustedContentHint": true
+      }
+    }
+  ],
+  "results": {
+    "jsn_install_guidance": {
+      "commands": [
+        "npm install -g @jacebenson/jsn",
+        "jsn version"
+      ],
+      "channel": "stable",
+      "note": "Use current Node.js LTS and npm on Windows, macOS, or Linux. No connection or credentials needed for public documentation.",
+      "sources": [
+        "https://jsn.jace.pro/docs/install/"
+      ]
+    },
+    "jsn_update_guidance": {
+      "commands": [
+        "jsn version --check",
+        "npm install -g @jacebenson/jsn@dev",
+        "jsn version"
+      ],
+      "channel": "dev",
+      "note": "Check your installed version first: -dev. versions use @dev; stable uses npm latest. Choose the matching channel unless intentionally switching. No pinned version supplied.",
+      "sources": [
+        "https://jsn.jace.pro/docs/install/",
+        "https://github.com/jacebenson/jsn/blob/main/cli/src/commands/version.js",
+        "https://www.npmjs.com/package/@jacebenson/jsn"
+      ]
+    },
+    "jsn_remove_guidance": {
+      "commands": [
+        "npm uninstall -g @jacebenson/jsn"
+      ],
+      "note": "Removes the npm-installed global package and command link, not user-created JSN profiles, credentials, documentation caches, or separately installed agent skills. This tool performs no removal. Manage retained data separately with explicit human review.",
+      "sources": [
+        "https://jsn.jace.pro/docs/install/",
+        "https://docs.npmjs.com/cli/commands/npm-uninstall"
+      ]
+    },
+    "jsn_bug_guidance": {
+      "url": "https://github.com/jacebenson/jsn/issues/new/choose",
+      "existing": "https://github.com/jacebenson/jsn/issues",
+      "note": "Search existing issues first. Include JSN version/channel, OS/Node version, reproduction steps, expected and actual behavior. Redact credentials, instance URLs and private records. No repository-specific issue templates currently exist; use the chooser or blank issue. Human review and GitHub sign-in/submission required."
+    },
+    "jsn_feature_request_guidance": {
+      "url": "https://github.com/jacebenson/jsn/issues/new/choose",
+      "existing": "https://github.com/jacebenson/jsn/issues",
+      "note": "Search existing issues first. Describe use case, desired behavior, alternatives, and acceptance criteria. Redact credentials, instance URLs and private records. No repository-specific issue templates currently exist; use the chooser or blank issue. Human review and GitHub sign-in/submission required."
+    },
+    "jsn_docs_search": {
+      "source": "JSN public feature guidance",
+      "results": [
+        {
+          "title": "Auth & setup↗",
+          "url": "https://jsn.jace.pro/features/servicenow-cli-auth-setup/"
+        }
+      ],
+      "install": "https://jsn.jace.pro/docs/install/",
+      "browse": "https://jsn.jace.pro/#features",
+      "note": "Feature catalog only; use dedicated tools for installation/update/removal."
+    },
+    "localServiceNow": {
+      "error": "ServiceNow documentation unavailable (HTTP 503). Retry at https://jsn.jace.pro/documentation."
+    },
+    "hostedServiceNow": {
+      "source": "ServiceNow documentation hosted by JSN (not JSN CLI guidance)",
+      "release": "australia",
+      "results": [
+        {
+          "title": "GlideRecord - Client",
+          "excerpt": "The GlideRecord API provides methods that perform database operations.",
+          "url": "https://jsn.jace.pro/documentation/read?path=api-reference%2Fc_GlideRecordClientSideAPI.md&release=australia"
+        },
+        {
+          "title": "GlideRecordUtil - Global",
+          "excerpt": "The GlideRecordUtil script include is a utility class for working with GlideRecords.Returns the GlideRecord object for the specified configu",
+          "url": "https://jsn.jace.pro/documentation/read?path=api-reference%2Fserver-api-reference%2Fc_GlideRecordUtilAPI.md&release=australia"
+        },
+        {
+          "title": "GlideRecord - Scoped",
+          "excerpt": "The scoped GlideRecord API is used for database operations.Adds a filter to return active records.Adds an encoded query to other queries tha",
+          "url": "https://jsn.jace.pro/documentation/read?path=api-reference%2Fserver-api-reference%2Fc_GlideRecordScopedAPI.md&release=australia"
+        },
+        {
+          "title": "GlideRecord - Global",
+          "excerpt": "The GlideRecord API is used for database operations.Creates an instance of the GlideRecord class for the specified table.Adds a filter to re",
+          "url": "https://jsn.jace.pro/documentation/read?path=api-reference%2Fserver-api-reference%2Fc_GlideRecordAPI.md&release=australia"
+        }
+      ],
+      "browse": "https://jsn.jace.pro/documentation?q=GlideRecord"
+    },
+    "invalid": "{\"error\":\"Invalid channel.\"}"
+  },
+  "errors": []
+}
