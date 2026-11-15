@@ -18,7 +18,22 @@ Use `--readonly` explicitly for the 71-scenario GET-only subset. Use `--plan` to
 export all 92 immutable scenarios, command paths, prerequisites, mutation tables
 and blocked surfaces without provider calls. Full selection is not a claim of
 complete product coverage; blocked prerequisites and inventory gaps remain visible.
-Failed or blocked checks retain the runner's nonzero exit status. Omitting
+Failed or blocked checks retain the runner's nonzero exit status. For bounded
+failure isolation, invoke the Node runner directly with an exact scenario ID:
+
+```sh
+node .github/scripts/run-acceptance.mjs --profile YOUR_PROFILE --target vendor1 \
+  --version 5.5.5 --mode full --scenario workflows.flow-lifecycle
+```
+
+This selects only that scenario and its transitive dependencies (including
+`workflows.context`), not the full catalog. It performs real reviewed provider
+writes and does not publish unless `--publish` is explicit. Unknown IDs or missing
+dependencies fail closed. Private Flow diagnostics distinguish CLI failure from
+assertion failure and retain only closed reason codes and response shape; an
+unclassified CLI failure is an evidence gap, not proof of a provider limitation.
+
+Omitting
 `--version` tests the current checkout; exact npm versions verify registry integrity
 and candidate identity separately from the pinned producer provenance.
 
