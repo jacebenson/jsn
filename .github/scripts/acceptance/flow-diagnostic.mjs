@@ -6,6 +6,10 @@ const REASONS = [
   ['Flow creation refused before any content write:', 'capture.preflight-refusal'],
   ['Flow creation response did not include a Flow ID', 'parent.create.missing-identity'],
   ['confirmation_required', 'confirmation-required'],
+  ['Could not locate the bindings file', 'runtime.native-binding-missing'],
+  ['NODE_MODULE_VERSION', 'runtime.native-binding-abi'],
+  ['Flow manifest requires', 'manifest.required-field'],
+  ['read-only', 'policy.read-only'],
 ];
 export function flowCommandDiagnostic(args, result) {
   const text = `${result.stdout || ''}\n${result.stderr || ''}`;
@@ -18,6 +22,9 @@ export function flowCommandDiagnostic(args, result) {
     ok: typeof result.json?.ok === 'boolean' ? result.json.ok : null,
     dataKeys: Object.keys(result.json?.data || {}).filter(k => ['flow','trigger','actions','version','processflow','preview','context_id','success','sys_id','records','result'].includes(k)),
     errorCode: ['confirmation_required','forbidden','unauthorized','validation_error','flow_create_failed','internal_error'].includes(code) ? code : null,
+    exceptionType: text.match(/(?:^|\n)(?:Error: )?(TypeError|ReferenceError|SyntaxError|RangeError|AggregateError|Error):/)?.[1] || null,
+    transportCode: text.match(/\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ERR_MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_REQUIRE_ESM)\b/)?.[1] || null,
+    failurePhase: /creation incomplete and left orphan draft flow/.test(text) ? 'parent-allocated-content-incomplete' : null,
     reason: REASONS.find(([literal]) => text.includes(literal))?.[1] || (result.exitCode === 0 ? null : 'cli.failure.unclassified'),
   };
 }
