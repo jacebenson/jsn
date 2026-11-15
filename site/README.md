@@ -7,11 +7,10 @@ for publishing administration and are separate from ServiceNow/CLI credentials.
 
 ## Local development
 
-From the repository root, build the static JSN setup/reference pages once:
+From the repository root, prepare site assets/data (no npm install in `docs/`):
 
 ```sh
 npm --prefix cli ci
-npm --prefix docs ci
 node scripts/build-docs-site.mjs
 cd site
 bin/bundle install
@@ -138,12 +137,13 @@ At `/admin`, review sync status and publish an HTTPS recording URL per feature.
 Direct MP4/WebM links render a native video player; hosted watch-page URLs open at
 the provider. Clear a URL to remove a video. The app does not upload video files.
 Feature and documentation pages remain public. The feature catalog comes from
-`docs/_data/showcases.js`, exported during the site build; Rails owns `/` and
-`/features`, while Eleventy builds the remaining static documentation URL tree.
+`site/data/showcases.js`, exported during asset preparation. Rails owns `/`,
+`/features`, and allowlisted Markdown guides at `/docs/`. No static HTML
+generator runs. See `docs/README.md` for the publication boundary and URL map.
 
 ## Tests
 
-After building the static docs, from `site/`:
+After preparing assets, from `site/`:
 
 ```sh
 RAILS_ENV=test bin/rails db:prepare
@@ -152,7 +152,7 @@ node --test test/sync-docs.test.mjs
 ```
 
 Tests cover public API/search/reads, input limits, revision mismatch, sanitized
-Markdown, account/session security, video publishing, preserved static docs, and
+Markdown, account/session security, video publishing, Markdown guides/legacy redirects, and
 Git fixture additions/edits/deletions, unchanged revisions, and failed publication.
 
 ## Deployment
@@ -195,11 +195,13 @@ the category rather than displaying an empty bundle/type separator.
 
 ## Staging and homepage introduction
 
-Keep the existing Eleventy deployment at `jsn.jace.pro` until the Rails site and
-recordings are ready. The Rails preview is intended for `jsn2.jace.pro` on Chonky
-through Coolify. Deploy it as a separate application/branch; do not repoint or
-restart the existing production app. Eleventy remains in the repository and
-currently builds the JSN setup/reference pages for the preview image too.
+This migration changes the image build, not any running application or hosting
+configuration. Production deployment requires a separate approval. For an isolated
+local preview without corpus syncing, run `site/bin/preview [PORT]` from any
+directory. It uses your installed Ruby/bundle (optional `PREVIEW_RUBY`), stores
+state under `site/tmp/preview`, and binds loopback. `site/bin/preview --test`
+prepares an isolated test database and runs the complete Rails suite.
+Markdown edits are visible on refresh without rebuilding or duplicating prose.
 
 The homepage reserves the main video area for the introductory walkthrough.
 Until footage has been recorded and edited, it deliberately says “Video coming

@@ -1,10 +1,10 @@
-FROM node:lts-bookworm-slim AS docs
+FROM node:lts-bookworm-slim AS assets
 WORKDIR /app
-COPY docs/package*.json docs/
-RUN npm --prefix docs ci
-COPY docs/ docs/
+COPY site/data/ site/data/
+COPY site/static/ site/static/
+COPY site/config/ site/config/
 COPY scripts/build-docs-site.mjs scripts/
-RUN mkdir -p site/tmp && node scripts/build-docs-site.mjs
+RUN node scripts/build-docs-site.mjs
 
 FROM node:lts-bookworm-slim AS indexer
 WORKDIR /app
@@ -26,9 +26,11 @@ COPY --from=indexer /app/cli/package.json /app/cli/package.json
 COPY --from=indexer /app/cli/node_modules /app/cli/node_modules
 COPY --from=indexer /app/cli/src /app/cli/src
 COPY site/ ./
-COPY --from=docs /app/site/public ./public
-COPY --from=docs /app/site/config/features.json ./config/features.json
-COPY --from=docs /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json
+# Only allowlisted Markdown is reachable; contributor evidence is not a static tree.
+COPY docs/ /app/docs/
+COPY --from=assets /app/site/public ./public
+COPY --from=assets /app/site/config/features.json ./config/features.json
+COPY --from=assets /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json
 ENV RAILS_ENV=production PORT=3000
 RUN groupadd --system jsn && useradd --system --create-home --gid jsn jsn && chown -R jsn:jsn /app/site
 USER jsn

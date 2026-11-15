@@ -1,7 +1,6 @@
 # Public website WebMCP guidance
 
-The shared `/assets/webmcp.js?v=2` asset is loaded by Eleventy HTML pages and the
-Rails layout. It progressively enhances the page only in secure contexts with
+The shared `/assets/webmcp.js?v=2` asset is loaded by the shared Rails layout, including Markdown guides. It progressively enhances the page only in secure contexts with
 `document.modelContext.registerTool`. Ordinary browsing, authorization, and the
 existing documentation API do not change. Tools are tab-bound, not a server MCP
 endpoint, local CLI bridge, or ServiceNow connection.
@@ -47,7 +46,7 @@ It documents `document.modelContext.registerTool`, `getTools`, and `executeTool`
 After `node scripts/build-docs-site.mjs`, run:
 
 ```sh
-node --check docs/assets/webmcp.js
+node --check site/static/assets/webmcp.js
 node --test site/test/*.test.mjs
 npm test
 npm run lint

@@ -1,4 +1,9 @@
 Rails.application.routes.draw do
+  get '/docs', to: 'guides#index'
+  get '/docs/*guide', to: 'guides#show', format: false
+  JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json'))).each do |old_url, target|
+    get old_url, to: redirect(target, status: 301)
+  end
   get '/results', to: 'acceptance_results#index'
   get '/results/:run_key', to: 'acceptance_results#show'
   post '/api/acceptance/runs', to: 'acceptance_ingest#create'

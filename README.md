@@ -4,7 +4,7 @@ JSN is a command-line interface for ServiceNow, with a documentation website.
 
 - [`cli/`](cli/README.md): the published `@jacebenson/jsn` npm package, tests and bundled agent skill.
 - [`site/`](site/README.md): the Rails website and public documentation API.
-- [`docs/`](docs/): the Eleventy source for the website’s static reference pages.
+- [`docs/`](docs/): maintained Markdown guides and contributor evidence (see its publication allowlist).
 
 The documentation engine is shipped inside the CLI package and reused by the website.
 There is one search implementation and no separate search package to publish.

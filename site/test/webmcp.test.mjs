@@ -81,10 +81,9 @@ test('network failures and cancellation return concise explicit errors', async (
   const cancelled = setup({ fetch: async () => { throw new DOMException('stop', 'AbortError'); } });
   assert.equal((await cancelled.call('jsn_docs_search', { query: 'x', source: 'servicenow' })).error, 'Cancelled.');
 });
-test('built static pages and dynamic shared layout load identical versioned asset', () => {
+test('site-owned bundle matches prepared asset and shared layout', () => {
   const layout = fs.readFileSync(new URL('../app/views/layouts/application.html.erb', import.meta.url), 'utf8');
-  const page = fs.readFileSync(new URL('../public/docs/install/index.html', import.meta.url), 'utf8');
-  for (const html of [layout, page]) assert.match(html, /src="\/assets\/webmcp.js\?v=2" defer/);
-  const sourcePath = new URL('../../docs/assets/webmcp.js', import.meta.url);
+  assert.match(layout, /src="\/assets\/webmcp.js\?v=2" defer/);
+  const sourcePath = new URL('../static/assets/webmcp.js', import.meta.url);
   if (fs.existsSync(sourcePath)) assert.equal(source, fs.readFileSync(sourcePath, 'utf8'));
 });

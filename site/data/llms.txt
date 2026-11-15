@@ -1,8 +1,3 @@
----
-permalink: /llms.txt
-eleventyExcludeFromCollections: true
-layout: false
----
 # llms.txt — JSN (ServiceNow CLI)
 
 name: JSN — ServiceNow CLI
@@ -30,10 +25,6 @@ primary_sections:
 - /docs/safety/ - Safe operation and mutation boundaries
 - /docs/agents/ - Use JSN with AI agents
 - /docs/output/ - Human and JSON output
-
-feature_pages:
-{% for s in showcases %}- /features/{{ s.canonicalSlug }}/ - {{ s.seoTitle }}
-{% endfor %}
 
 audience:
 ServiceNow developers, admins, architects, and AI agents operating ServiceNow instances.
