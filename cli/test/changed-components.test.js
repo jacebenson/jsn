@@ -24,6 +24,7 @@ test('affected application selection includes shared docs and fails safe without
       ['cli/src/commands/docs/example.js', true, true],
       ['cli/package-lock.json', true, true],
       ['scripts/build-docs-site.mjs', false, true],
+      ['scripts/acceptance/publish.mjs', true, false],
       ['.github/workflows/docs-site.yml', true, true],
       ['scripts/changed-components.mjs', true, true],
     ];
