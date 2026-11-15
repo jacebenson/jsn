@@ -41,4 +41,4 @@ jobs:
           SERVICENOW_OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
           SERVICENOW_OAUTH_REFRESH_TOKEN: ${{ secrets.JSN_OAUTH_REFRESH_TOKEN }}
           SERVICENOW_OAUTH_CLIENT_ID: ${{ vars.JSN_OAUTH_CLIENT_ID }}
-        run: node cli/scripts/verify-instance.mjs
+        run: node .github/scripts/verify-instance.mjs

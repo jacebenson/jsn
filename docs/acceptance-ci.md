@@ -16,8 +16,22 @@ secret-bearing jobs. Manual feature refs are refused. Candidate checkouts disabl
 persisted Git credentials. Dependencies install without lifecycle scripts or caches
 before credential injection. No target host or credentials appear in artifacts.
 
-`prepare.mjs` stages the existing producer at immutable commit
+GitHub-only orchestration is owned by `.github/scripts/acceptance/`:
+`config.mjs` selects targets, `ci.mjs` seeds the isolated producer and publishes,
+`execute.mjs` observes execution, and `publish.mjs` validates delivery.
+`.github/scripts/oauth-environment.mjs` is shared with the GitHub verification
+wrapper, `.github/scripts/verify-instance.mjs`. These are not CLI product code
+and are outside the published npm package. Generic local verification remains
+`cli/scripts/verify-jsn.mjs`.
+
+`.github/scripts/acceptance/prepare.mjs` stages the existing producer at immutable commit
 `65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba`, without replacing candidate CLI source.
+Generated runner resources deliberately retain the producer's original
+`cli/scripts/acceptance/{bindings,run,session-adapter,support}.mjs` and
+`cli/test/acceptance/` paths so its relative imports remain byte-for-byte intact.
+They are temporary, untracked harness resources, not installed product code;
+the npm package allowlist excludes scripts and tests. No tracked helper is copied
+back into `cli/` as a compatibility shim.
 Existing producer files cause refusal rather than silent replacement. Readonly
 runs select every declared readonly scenario across read-only, read-only-catalog,
 resources, workflows and auth. This is an explicit subset, not full-product
@@ -134,11 +148,21 @@ run; retries of a publication retain the original key.
 
 ```sh
 npm --prefix cli ci
-node --test cli/test/acceptance-ci.test.js cli/test/workflow-contracts.test.js
+npm run test:workflows
+node --test cli/test/workflow-contracts.test.js
 npm test
 npm run lint
 node .github/scripts/check-docs.mjs origin/main
 ```
+
+GitHub tooling tests live in `.github/tests/`, outside the CLI product suite.
+`npm run test:workflows` runs them once using Node’s built-in test runner and
+the installed `cli/` dependencies for real CLI integration. The CI GitHub tooling
+job uses full history for the immutable producer and is enforced by the existing
+Tests gate. The existing conservative selector covers non-prose `.github/`
+changes; docs-only checks remain dependency-free. PR492’s isolated seeded-parent
+authentication success/rejection/recovery regression is included here, with only
+its observer import relocated; PR492 should not be merged separately.
 
 Offline tests exercise the actual pinned producer against loopback, deliberate
 assertion failures and restored success, file-store OAuth, independent readonly

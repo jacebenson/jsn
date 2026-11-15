@@ -16,7 +16,7 @@ For documentation-only checks, doctor accepts `--allow-unauthenticated`. Start t
 
 ## GitHub read-only verification
 
-The **Verify selected instance** workflow is manual only. It reads one `sys_db_object` metadata row for `name=incident`, requests only `name`, and disables counts. It does not run the mutation integration suite, publish acceptance results, deploy, or upload artifacts. Output is a closed summary containing target, status, and on success check and record counts. Raw command output, error messages, hosts, users, tokens and records are not printed.
+The **Verify selected instance** workflow invokes `.github/scripts/verify-instance.mjs`, sharing `.github/scripts/oauth-environment.mjs` with acceptance. These GitHub-only helpers are not shipped in npm; the reusable local `cli/scripts/verify-jsn.mjs` helper stays separate. The workflow is manual only. It reads one `sys_db_object` metadata row for `name=incident`, requests only `name`, and disables counts. It does not run the mutation integration suite, publish acceptance results, deploy, or upload artifacts. Output is a closed summary containing target, status, and on success check and record counts. Raw command output, error messages, hosts, users, tokens and records are not printed.
 
 In GitHub, open **Settings → Environments → New environment**. Create any of these exact names as needed:
 

@@ -48,7 +48,7 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import { execFileSync } from 'node:child_process';
-          import { selectTargets } from './cli/scripts/acceptance/config.mjs';
+          import { selectTargets } from './.github/scripts/acceptance/config.mjs';
           const targets = selectTargets(process.env.MANUAL_TARGET);
           if (process.env.MODE === 'pdi' && (targets.length !== 1 || targets[0] !== 'pdi')) throw Error('PDI mode requires explicit single PDI');
           const sha = process.env.CANDIDATE_SHA;

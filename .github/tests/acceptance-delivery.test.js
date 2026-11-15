@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { load } from 'js-yaml';
+import { createRequire } from 'node:module';
+const { load } = createRequire(new URL('../../cli/package.json', import.meta.url))('js-yaml');
 import { observeScenario } from '../scripts/acceptance/execute.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');

@@ -6,12 +6,13 @@ import http from 'node:http';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { load } from 'js-yaml';
+import { createRequire } from 'node:module';
+const { load } = createRequire(new URL('../../cli/package.json', import.meta.url))('js-yaml');
 import { validateProjection, publishResults, projectionDigest } from '../scripts/acceptance/publish.mjs';
 import { environmentOAuth } from '../scripts/oauth-environment.mjs';
 import { runAndPublish, seedProfile } from '../scripts/acceptance/ci.mjs';
 import { selectTargets, selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
-import { prepare, HARNESS_SHA } from '../scripts/acceptance/prepare.mjs';
+import { prepare, HARNESS_SHA, FILES } from '../scripts/acceptance/prepare.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const sha = 'a'.repeat(40), token = 'private-mock-token-'.repeat(3);
@@ -67,10 +68,10 @@ test('target defaults, independent missing configuration and explicit mutation a
 test('scenario allowlist accepts LF and Windows CRLF without weakening unknown-ID rejection', async t => {
   for (const newline of ['\n', '\r\n']) {
     const dir = temporary(t);
-    fs.mkdirSync(path.join(dir, 'cli/scripts/acceptance'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.github/scripts/acceptance'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'site/config'), { recursive: true });
-    const modulePath = path.join(dir, 'cli/scripts/acceptance/publish.mjs');
-    fs.copyFileSync(path.join(root, 'cli/scripts/acceptance/publish.mjs'), modulePath);
+    const modulePath = path.join(dir, '.github/scripts/acceptance/publish.mjs');
+    fs.copyFileSync(path.join(root, '.github/scripts/acceptance/publish.mjs'), modulePath);
     fs.writeFileSync(path.join(dir, 'site/config/acceptance_scenario_ids.txt'), `readonly.records${newline}`);
     const { validateProjection: validate } = await import(pathToFileURL(modulePath).href);
     validate(fixture());
@@ -174,6 +175,10 @@ test('immutable real producer executes failing scenarios and restored passing sc
   try { execFileSync('git', ['-C', dir, 'cat-file', '-e', HARNESS_SHA], { stdio: 'ignore' }); }
   catch { t.skip('Pinned historical producer absent in shallow checkout; run full-history integration locally'); return; }
   prepare(dir);
+  for (const file of FILES) {
+    const pinned = execFileSync('git', ['show', `${HARNESS_SHA}:${file}`], { cwd: dir, maxBuffer: 16 * 1024 * 1024 });
+    assert.deepEqual(fs.readFileSync(path.join(dir, file)), pinned, `Staged producer must remain byte-for-byte immutable: ${file}`);
+  }
   fs.symlinkSync(path.join(root, 'cli/node_modules'), path.join(dir, 'cli/node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   const { executeScenarios } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/run.mjs')).href);
   const allowed = new Set(fs.readFileSync(path.join(root, 'site/config/acceptance_scenario_ids.txt'), 'utf8').split('\n'));
@@ -186,7 +191,7 @@ test('immutable real producer executes failing scenarios and restored passing sc
   const { selectScenarios, createContext, preflight } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
   // Exercise the pinned adapter's real CLI launch and SDK read with the exact
   // ephemeral file auth contract. Loopback only, no credential env inheritance.
-  let requests = 0;
+  let requests = 0, acceptCredentials = true;
   const origin = new URL(await server(t, (req, res) => {
     if (req.url === '/oauth_token.do') {
       assert.equal(req.method, 'POST');
@@ -195,12 +200,46 @@ test('immutable real producer executes failing scenarios and restored passing sc
     requests++;
     assert.equal(req.headers.authorization, `Bearer ${token}`);
     assert.equal(req.method, 'GET');
+    if (!acceptCredentials) { json(res, 401, { error: { message: 'mock authentication rejected' } }); return; }
     json(res, 200, { result: [{ sys_id: 'd'.repeat(32), name: 'incident' }] });
   })).origin;
   const privateRoot = path.join(dir, 'private'); fs.mkdirSync(privateRoot);
   const refreshed = await environmentOAuth({ SERVICENOW_INSTANCE_URL: origin, SERVICENOW_OAUTH_REFRESH_TOKEN: 'fake-refresh' }, { allowLocal: true });
   const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: refreshed.accessToken } });
   const isolated = producerEnvironment(process.env, privateRoot, configHome);
+  // Spawn the producer boundary itself: merging isolated paths back into each
+  // CLI child below would hide a regression in the pinned environment filter.
+  // A rejected token must not emit authenticated scenario evidence; recovery
+  // must work with the same seeded file credentials and no session bootstrap.
+  const { runProcess: launchProducer } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  for (const [index, accepts] of [true, false, true].entries()) {
+    acceptCredentials = accepts;
+    const outputDir = path.join(dir, `isolated-producer-${index}`);
+    const script = `
+      import fs from 'node:fs';
+      import { createContext, preflight } from ${JSON.stringify(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href)};
+      import { observeScenario } from ${JSON.stringify(pathToFileURL(path.join(root, '.github/scripts/acceptance/execute.mjs')).href)};
+      const options = ${JSON.stringify({ profile: 'acceptance-ci', expectedHost: origin, mode: 'readonly', outputDir })};
+      const config = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(configHome, 'servicenow/config.json'))}, 'utf8'));
+      const ctx = createContext(options, preflight(options, config));
+      const scenario = observeScenario({ id: 'readonly.records', run: async c => {
+        const rows = await c.read('sys_db_object', { fields: ['sys_id', 'name'] });
+        if (rows.length !== 1) throw Error('mock read mismatch');
+        const result = await c.command(['records', 'list', '--table', 'sys_db_object', '--fields', 'sys_id,name', '--limit', '1', '--json']);
+        if (result.exitCode !== 0 || result.json?.ok !== true) throw Error('mock CLI rejection');
+      }});
+      let ok = false;
+      try { await scenario.run(ctx); ok = true; } catch { /* closed status only */ }
+      console.log(JSON.stringify({ ok, evidence: fs.existsSync(${JSON.stringify(path.join(outputDir, 'executed.jsonl'))}) }));
+    `;
+    const before = requests;
+    const result = await launchProducer(process.execPath, ['--input-type=module', '-e', script], { env: isolated });
+    assert.equal(result.exitCode, 0, 'isolated producer must complete without private diagnostics');
+    assert.deepEqual(result.json, { ok: accepts, evidence: accepts });
+    assert.ok(requests > before, 'actual producer children must reach the mock provider');
+    assert.ok(!result.stdout.includes(token));
+    assert.ok(!result.stderr.includes(token));
+  }
   const configuration = JSON.parse(fs.readFileSync(path.join(configHome, 'servicenow/config.json')));
   assert.equal(configuration.auth_method, 'oauth');
   assert.deepEqual(Object.keys(configuration.profiles), ['acceptance-ci']);
@@ -230,6 +269,20 @@ test('immutable real producer executes failing scenarios and restored passing sc
   `], { env: isolated });
   assert.equal(seeded.exitCode, 0, seeded.stderr.replaceAll(token, '[redacted]'));
   assert.ok(!(seeded.stdout + seeded.stderr).includes(token));
+  // Invoke the relocated wrapper itself from an unrelated cwd against the real
+  // unmodified pinned producer, not just an imported observer function.
+  const wrapper = path.join(dir, '.github/scripts/acceptance/execute.mjs');
+  fs.mkdirSync(path.dirname(wrapper), { recursive: true });
+  fs.copyFileSync(path.join(root, '.github/scripts/acceptance/execute.mjs'), wrapper);
+  const invokedOutput = path.join(dir, 'invoked-producer-run');
+  const invoked = await launchSeeded(process.execPath, [wrapper, '--profile', 'acceptance-ci', '--expected-host', origin,
+    '--mode', 'readonly', '--scenario', 'readonly.records', '--output-dir', invokedOutput], { cwd: privateRoot, env: isolated });
+  assert.ok([0, 1, 2].includes(invoked.exitCode), invoked.stderr);
+  const invokedProjection = validateProjection(JSON.parse(fs.readFileSync(path.join(invokedOutput, 'public-summary.json'))));
+  assert.ok(invokedProjection.results.some(r => r.id === 'readonly.records'));
+  const invokedEvidence = fs.readFileSync(path.join(invokedOutput, 'executed.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(invokedEvidence.some(e => e.id === 'readonly.records' && e.runKey === invokedProjection.runKey));
+  assert.ok(!(invoked.stdout + invoked.stderr).includes(token));
   const readCount = requests;
   await assert.rejects(() => ctx.command(['records', 'create', '--table', 'incident', '--data', '{}']), /refused/);
   assert.equal(requests, readCount);
@@ -305,14 +358,14 @@ function workflowGuard(w) {
   assert.match(protection.run, /APPROVED.*true/);
   assert.match(protection.run, /TARGET.*pdi/);
   assert.match(protection.run, /protected.*true/);
-  assert.equal(w.jobs.acceptance.steps.find(s => s.run === 'node cli/scripts/acceptance/ci.mjs').env.ACCEPTANCE_REVIEWERS_VERIFIED, '${{ steps.protection.outputs.verified }}');
+  assert.equal(w.jobs.acceptance.steps.find(s => s.run === 'node .github/scripts/acceptance/ci.mjs').env.ACCEPTANCE_REVIEWERS_VERIFIED, '${{ steps.protection.outputs.verified }}');
   assert.equal(w.jobs.acceptance.environment, '${{ inputs.target }}');
   assert.deepEqual(w.on.workflow_dispatch.inputs.target.options, ['both', 'pdi', 'vendor-1', 'vendor-2']);
   assert.ok(!JSON.stringify(w).includes('PROFILE_JSON'));
   assert.equal(w.jobs.acceptance['continue-on-error'], true);
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/checkout')).with['persist-credentials'], false);
   assert.ok(!JSON.stringify(w).includes('pull_request_target'));
-  assert.ok(w.jobs.acceptance.steps.some(s => s.run === 'node cli/scripts/acceptance/ci.mjs'));
+  assert.ok(w.jobs.acceptance.steps.some(s => s.run === 'node .github/scripts/acceptance/ci.mjs'));
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/upload-artifact')).with.path, 'acceptance-public.json');
 }
 test('actual mutation shell gate fails closed and restores approved reviewed PDI', t => {

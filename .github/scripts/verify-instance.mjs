@@ -29,7 +29,7 @@ export function verifyInstance(env = process.env, { allowLocal = false } = {}) {
   if ((url.protocol !== 'https:' && !(allowLocal && url.protocol === 'http:' && url.hostname === '127.0.0.1')) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return failure('invalid_url');
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'jsn-verify-'));
   try {
-    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/jsn.js', import.meta.url)), 'records', 'list', '--table', 'sys_db_object', '--query', 'name=incident', '--columns', 'name', '--limit', '1', '--no-count', '--json'], {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../cli/bin/jsn.js', import.meta.url)), 'records', 'list', '--table', 'sys_db_object', '--query', 'name=incident', '--columns', 'name', '--limit', '1', '--no-count', '--json'], {
       cwd: scratch, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024,
       env: { PATH: env.PATH || '', HOME: scratch, XDG_CONFIG_HOME: scratch, XDG_CACHE_HOME: scratch, TMPDIR: scratch,
         SERVICENOW_INSTANCE_URL: url.origin, SERVICENOW_OAUTH_TOKEN: env.SERVICENOW_OAUTH_TOKEN,

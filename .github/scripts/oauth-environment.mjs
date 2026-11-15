@@ -1,5 +1,5 @@
 // CI-only refresh: credentials never cross a step-output or diagnostic boundary.
-import { getOAuthClientID } from '../src/auth/oauth.js';
+import { getOAuthClientID } from '../../cli/src/auth/oauth.js';
 
 export function validatedOrigin(value, { allowLocal = false } = {}) {
   const url = new URL(value);

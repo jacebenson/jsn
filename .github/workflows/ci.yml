@@ -90,6 +90,24 @@ jobs:
       - name: Verify npm package contents
         run: npm pack --dry-run
 
+  workflows:
+    name: GitHub tooling tests
+    needs: changes
+    # The existing conservative classifier selects CLI for all non-prose
+    # .github changes, including helpers and these tests. No second CLI suite.
+    if: needs.changes.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Offline integration exercises the immutable historical producer.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+      - run: npm --prefix cli ci --ignore-scripts
+      - run: npm run test:workflows
+
   site:
     name: Website tests
     needs: changes
@@ -99,7 +117,7 @@ jobs:
   test:
     name: Tests
     if: always()
-    needs: [target, changes, cli, site, docs]
+    needs: [target, changes, cli, workflows, site, docs]
     runs-on: ubuntu-latest
     steps:
       - name: Require successful checks for affected applications
@@ -107,11 +125,13 @@ jobs:
           TARGET: ${{ needs.target.result }}
           CHANGES: ${{ needs.changes.result }}
           CLI: ${{ needs.cli.result }}
+          WORKFLOWS: ${{ needs.workflows.result }}
           SITE: ${{ needs.site.result }}
           DOCS: ${{ needs.docs.result }}
         run: |
           test "$TARGET" = success || test "$TARGET" = skipped
           test "$CHANGES" = success
           test "$CLI" = success || test "$CLI" = skipped
+          test "$WORKFLOWS" = success || test "$WORKFLOWS" = skipped
           test "$SITE" = success || test "$SITE" = skipped
           test "$DOCS" = success || test "$DOCS" = skipped

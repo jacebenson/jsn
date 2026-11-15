@@ -49,7 +49,7 @@ jobs:
           node-version: 'lts/*'
       - run: npm --prefix cli ci --ignore-scripts
       - name: Stage immutable existing producer
-        run: node cli/scripts/acceptance/prepare.mjs
+        run: node .github/scripts/acceptance/prepare.mjs
       - id: protection
         name: Reverify mutation approval and required reviewers
         env:
@@ -86,7 +86,7 @@ jobs:
           JSN_ACCEPTANCE_INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
           ACCEPTANCE_MODE: ${{ inputs.mode }}
           ACCEPTANCE_DISPOSABLE_APPROVED: ${{ inputs.approved }}
-        run: node cli/scripts/acceptance/ci.mjs
+        run: node .github/scripts/acceptance/ci.mjs
       - name: Preserve validated closed projection
         if: always()
         uses: actions/upload-artifact@v7
