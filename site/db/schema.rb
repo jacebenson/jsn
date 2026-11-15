@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_10_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_15_000000) do
   create_table "acceptance_checks", force: :cascade do |t|
     t.integer "acceptance_run_id", null: false
     t.string "check_id", null: false
@@ -49,6 +49,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_120000) do
     t.datetime "received_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "local_metadata"
     t.index ["run_key"], name: "index_acceptance_runs_on_run_key", unique: true
   end
 

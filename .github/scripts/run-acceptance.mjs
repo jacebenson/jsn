@@ -27,6 +27,22 @@ export function parseOptions(args) {
   if (!options.profile && !process.env.SERVICENOW_INSTANCE_URL) throw Error();
   return options;
 }
+export function selectedExitCode(summary) {
+  if (Object.keys(summary.counts).some(status => !['passed', 'failed', 'failed-timeout', 'blocked-prerequisite', 'blocked-access', 'blocked-capability', 'excluded-mode', 'not-run'].includes(status))) return 1;
+  if (summary.counts.failed || summary.counts['failed-timeout']) return 1;
+  return summary.total > 0 && summary.counts.passed === summary.total ? 0 : 2;
+}
+export function allowedCommand(args) {
+  // Exact command templates: no arbitrary tables, flags, queries or scripts.
+  if (!Array.isArray(args) || args.some(x => typeof x !== 'string')) return false;
+  const text = JSON.stringify(args);
+  const fixed = [ ['version', '--json'], ['version'], ['history', 'list', '--json', '--limit', '1'], ['records', 'list', '--json'],
+    ['records', 'list', '--table', 'sys_properties', '--query', 'nameSTARTSWITHglide.build', '--fields', 'name,value', '--limit', '10', '--no-count', '--json'] ];
+  if (fixed.some(a => JSON.stringify(a) === text)) return true;
+  const list = ['records', 'list', '--table', 'sys_db_object', '--query', 'name=sys_user', '--fields', 'sys_id,name', '--limit', '1', '--no-count'];
+  if ([['--json'], ['--format', 'markdown']].some(tail => JSON.stringify([...list, ...tail]) === text)) return true;
+  return args.length === 9 && args[0] === 'records' && args[1] === 'get' && args[2] === '--table' && args[3] === 'sys_db_object' && args[4] === '--sys-id' && /^[a-f0-9]{32}$/.test(args[5]) && JSON.stringify(args.slice(6)) === JSON.stringify(['--fields', 'sys_id,name', '--json']);
+}
 export async function acquireArtifact(version, temporary) {
   if (!version) {
     const root = path.join(ROOT, 'cli');
@@ -88,30 +104,41 @@ export async function runLocal(options) {
     const measurements = [];
     const command = async args => {
       // Deliberately narrow adapter, not the producer's same-source override.
-      const key = args.slice(0, 2).join(' ');
-      if (!(['version', 'completion'].includes(args[0]) || ['history list', 'records list', 'records get'].includes(key))) throw Error();
-      if (args.some(x => /^(--(?:profile|instance)|-[ip])(?:=|$)/.test(x) || /javascript:|sysparm_script/i.test(x))) throw Error();
+      if (!allowedCommand(args)) throw Error();
       const result = await support.runProcess(process.execPath, [executable, ...args, '--profile', 'acceptance'], { cwd: temporary, env, timeoutMs: 30000, maxBytes: 2 * 1024 * 1024 });
-      measurements.push({ format: args.includes('--json') ? 'machine' : 'human', durationMs: result.durationMs, outputBytes: Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) });
+      if (result.timedOut || result.overflow) throw Object.assign(Error(), { status: result.timedOut ? 'failed-timeout' : 'failed' });
+      measurements.push({ passed: result.exitCode === 0, format: args.includes('--json') ? 'machine' : 'human', durationMs: result.durationMs, outputBytes: Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) });
       return result;
     };
     const actual = await command(['version', '--json']);
     if (actual.exitCode !== 0 || actual.json?.data?.version !== artifact.identity.version) throw Error();
     const headers = creds.auth_method === 'oauth' ? { Authorization: `Bearer ${creds.access_token}` } : { Authorization: `Basic ${Buffer.from(`${creds.username}:${creds.password}`).toString('base64')}` };
     const ctx = { state: new Map(), command, read: async (table, { id, fields, limit }) => {
-      if (table !== 'sys_db_object' || !/^[a-f0-9]{32}$/.test(id)) throw Error();
+      if (table !== 'sys_db_object' || !/^[a-f0-9]{32}$/.test(id) || limit !== 1 || JSON.stringify(fields) !== JSON.stringify(['sys_id', 'name'])) throw Error();
       const url = new URL(`/api/now/table/${table}/${id}`, origin); url.search = new URLSearchParams({ sysparm_fields: fields.join(','), sysparm_limit: String(limit) }).toString();
       const response = await fetch(url, { headers, redirect: 'error', signal: AbortSignal.timeout(15000) }); if (!response.ok) throw Error(); return (await response.json()).result;
     } };
     const { scenarios } = await import(pathToFileURL(path.join(harness, 'cli/test/acceptance/read-only.mjs')));
     // local.version embeds checkout version equality; the actual artifact check
     // above replaces that assumption without modifying immutable producer bytes.
-    const selected = scenarios.filter(s => s.id !== 'local.version');
-    const results = [];
+    const selected = scenarios.filter(s => !['local.version', 'local.completion'].includes(s.id));
+    const versionStart = performance.now();
+    const humanVersion = await command(['version']);
+    const versionPassed = humanVersion.exitCode === 0 && /\d+\.\d+\.\d+/.test(humanVersion.stdout);
+    const results = [{ id: 'local.version', status: versionPassed ? 'passed' : 'failed', durationMs: actual.durationMs + performance.now() - versionStart }];
+    const allScenarios = [];
+    for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) allScenarios.push(...(await import(pathToFileURL(path.join(harness, `cli/test/acceptance/${name}.mjs`)))).scenarios);
+    const { bindScenarios, coverageDetails } = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/bindings.mjs')));
+    bindScenarios(allScenarios);
+    const selectedIds = ['local.version', ...selected.map(s => s.id)];
+    const inventory = JSON.parse(fs.readFileSync(path.join(harness, 'cli/test/acceptance/coverage.json')));
+    const coverage = coverageDetails(inventory, allScenarios, selectedIds, 'readonly');
+    const missing = coverage.gaps;
+    const omitted = allScenarios.filter(s => s.modes.includes('readonly') && !selectedIds.includes(s.id)).map(s => s.id);
     for (const scenario of selected) {
       if (scenario.mutates || !scenario.modes.includes('readonly')) throw Error();
       const start = performance.now(); let status = 'passed';
-      try { await scenario.run(ctx); } catch (error) { status = support.classify(error); }
+      try { const outcome = await scenario.run(ctx); if (outcome?.status && outcome.status !== 'passed') status = support.classify({ status: outcome.status, message: '' }); } catch (error) { status = support.classify(error); }
       results.push({ id: scenario.id, status, durationMs: performance.now() - start });
     }
     const release = { family: null, version: null, build: null, patch: null, hotfix: null, source: 'sys_properties.name,value via bounded records list', fields: {}, reason: 'metadata-unavailable-or-unrecognized' };
@@ -127,16 +154,17 @@ export async function runLocal(options) {
         }
         // Do not infer version/patch/hotfix from a build string: no verified
         // provider contract for those independent fields exists in this source.
-        release.reason = 'version-patch-hotfix-not-independently-exposed';
+        if (release.family !== null || release.build !== null) release.reason = 'version-patch-hotfix-not-independently-exposed';
       }
     } catch { /* Only the closed unavailable reason is retained. */ }
     const counts = {}; for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
-    const payload = { schemaVersion: 2, runKey: `acceptance_${randomUUID().replaceAll('-', '')}`, mode: 'readonly', provenance: { sourceSHA: artifact.identity.sourceSHA, version: artifact.identity.version, node: process.version, binarySHA256: sha(fs.readFileSync(executable)), sourceDirty: artifact.identity.sourceDirty }, platform: 'linux', environment: { domainSeparation: 'UNKNOWN' }, selection: { full: false, selected: selected.map(s => s.id) }, summary: { total: results.length, counts, complete: false, missingCount: 1 }, performance: null, results };
+    const payload = { schemaVersion: 2, runKey: `acceptance_${randomUUID().replaceAll('-', '')}`, mode: 'readonly', provenance: { sourceSHA: artifact.identity.sourceSHA, version: artifact.identity.version, node: process.version, binarySHA256: sha(fs.readFileSync(executable)), sourceDirty: artifact.identity.sourceDirty }, platform: 'linux', environment: { domainSeparation: 'UNKNOWN' }, selection: { full: false, selected: selectedIds }, summary: { total: results.length, counts, complete: missing.length === 0 && results.every(r => r.status === 'passed'), missingCount: missing.length }, performance: null, results };
     Object.assign(payload.provenance, { artifactKind: artifact.identity.kind, registryIntegrity: artifact.identity.integrity, harnessSHA: git(['rev-parse', 'HEAD']), producerSHA: HARNESS_SHA, target: options.target });
+    payload.environment.release = release;
     validateProjection(payload);
     fs.mkdirSync(output, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(output, 'public-summary.json'), JSON.stringify(payload, null, 2), { mode: 0o600 });
-    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: 'partial-readonly-first-slice', executableVersionVerified: true, release, measurements, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: { scope: 'partial-readonly-first-slice', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, omittedReadonly: omitted, obligations: coverage.counts, missing }, executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
     return { file: path.join(output, 'public-summary.json'), summary: payload.summary };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
@@ -145,6 +173,6 @@ export async function main(args = process.argv.slice(2)) {
   const result = options.result ? { file: path.resolve(options.result) } : await runLocal(options);
   if (result.summary) console.log(JSON.stringify(result.summary));
   if (options.publish) { const publication = await publishResults({ file: result.file, url: process.env.JSN_ACCEPTANCE_INGEST_URL, token: process.env.JSN_ACCEPTANCE_INGEST_TOKEN }); console.log(JSON.stringify(publication)); if (!publication.ok) return 1; }
-  return result.summary?.counts.failed || result.summary?.counts['failed-timeout'] ? 1 : 0;
+  return result.summary ? selectedExitCode(result.summary) : 0;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then(code => { process.exitCode = code; }).catch(() => { console.error('Local acceptance refused or failed; no provider diagnostics retained'); process.exitCode = 1; });

@@ -15,6 +15,14 @@
   </div>
 
   <dl class="result-meta">
+    <% if @local_metadata %>
+      <dt>Target label</dt><dd><%= @local_metadata.dig('provenance', 'target') %></dd>
+      <dt>Artifact / harness</dt><dd><%= @local_metadata.dig('provenance', 'artifactKind') %> / <code><%= @local_metadata.dig('provenance', 'harnessSHA') %></code></dd>
+      <% if (release = @local_metadata['release']) %>
+        <dt>Platform release</dt><dd><% %w[family version build patch hotfix].each do |field| %><%= field %>: <%= release[field] || 'unavailable' %> · <% end %></dd>
+        <dt>Metadata source</dt><dd><%= release['source'] %> · <%= release['reason'] %></dd>
+      <% end %>
+    <% end %>
     <dt>Received</dt><dd><%= @run.received_at.utc.strftime('%Y-%m-%d %H:%M UTC') %></dd>
     <dt>Selection</dt><dd><%= @run.selection_full ? 'full-product run' : 'explicit subset' %> · <%= @run.selected_count %> scenarios selected</dd>
     <dt>Completeness</dt><dd><%= @run.complete ? 'complete — every selected check passed' : "partial — #{@run.missing_count} unmet coverage obligations" %></dd>

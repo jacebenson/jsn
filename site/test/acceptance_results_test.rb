@@ -51,14 +51,24 @@ class AcceptanceResultsTest < Minitest::Test
   def test_local_v2_artifact_identity_is_closed_and_keeps_npm_source_separate
     payload = projection('schemaVersion' => 2)
     payload['provenance'].merge!('artifactKind' => 'npm', 'registryIntegrity' => 'sha512-' + 'A' * 86 + '==', 'harnessSHA' => 'd' * 40, 'producerSHA' => 'e' * 40, 'target' => 'vendor-1')
+    payload['environment']['release'] = { 'family' => 'Zurich', 'version' => nil, 'build' => 'glide-zurich-01', 'patch' => nil, 'hotfix' => nil, 'source' => 'sys_properties.name,value via bounded records list', 'fields' => { 'family' => 'glide.buildname', 'build' => 'glide.buildtag' }, 'reason' => 'version-patch-hotfix-not-independently-exposed' }
     post_projection(payload)
     assert_equal 201, last_response.status
+    assert_equal 2, AcceptanceRun.first.schema_version
+    get "/results/#{AcceptanceRun.first.run_key}"
+    assert_includes last_response.body, 'Zurich'
+    assert_includes last_response.body, 'patch: unavailable'
+    assert_includes last_response.body, 'vendor-1'
     assert_equal 'b' * 40, AcceptanceRun.first.source_sha
     payload['runKey'] = "acceptance_#{'f' * 32}"
     payload['provenance']['target'] = 'private.example.com'
     post_projection(payload)
     assert_equal 422, last_response.status
     payload['provenance']['target'] = 'vendor-1'
+    payload['environment']['release']['build'] = 'https://private-host.example'
+    post_projection(payload)
+    assert_equal 422, last_response.status
+    payload['environment']['release']['build'] = 'glide-zurich-01'
     payload['provenance']['registryIntegrity'] = 'invalid'
     post_projection(payload)
     assert_equal 422, last_response.status

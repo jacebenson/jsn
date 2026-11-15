@@ -128,7 +128,23 @@ class AcceptanceProjection
 
   def validate_environment!
     environment = payload['environment']
-    integral!(environment, %w[domainSeparation], 'environment')
+    extra = payload['schemaVersion'] == 2 && environment.key?('release') ? %w[release] : []
+    integral!(environment, %w[domainSeparation] + extra, 'environment')
+    unless extra.empty?
+      r = environment['release']
+      integral!(r, %w[family version build patch hotfix source fields reason], 'release')
+      invalid! unless r['source'] == 'sys_properties.name,value via bounded records list'
+      invalid! unless %w[metadata-unavailable-or-unrecognized version-patch-hotfix-not-independently-exposed].include?(r['reason'])
+      invalid! unless r['family'].nil? || /\A(?:australia|zurich|yokohama|xanadu|washingtondc|vancouver|utah|tokyo|sandiego|rome|quebec|paris|orlando|newyork|madrid|london|kingston|jakarta|istanbul|helsinki|geneva|fuji|eureka|dublin|calgary|berlin|aspen)\z/i.match?(r['family'].to_s)
+      invalid! unless r['build'].nil? || /\Aglide-[a-z0-9_-]{1,180}\z/i.match?(r['build'].to_s)
+      invalid! unless %w[version patch hotfix].all? { |k| r[k].nil? }
+      keys = []
+      keys << 'family' unless r['family'].nil?
+      keys << 'build' unless r['build'].nil?
+      integral!(r['fields'], keys, 'release fields')
+      invalid! if keys.include?('family') && r['fields']['family'] != 'glide.buildname'
+      invalid! if keys.include?('build') && r['fields']['build'] != 'glide.buildtag'
+    end
     invalid! unless %w[UNKNOWN KNOWN NOT-INSTALLED].include?(environment['domainSeparation'])
   end
 

@@ -112,7 +112,17 @@ export function validateProjection(payload) {
   if (!HEX64.test(payload.provenance.binarySHA256 || '')) fail('Invalid binary digest');
   if (typeof payload.provenance.sourceDirty !== 'boolean') fail('Invalid dirty flag');
   if (payload.platform !== 'linux') fail('Invalid platform');
-  exactKeys(payload.environment, ['domainSeparation'], 'environment');
+  exactKeys(payload.environment, ['domainSeparation', ...(payload.schemaVersion === 2 && 'release' in payload.environment ? ['release'] : [])], 'environment');
+  if ('release' in payload.environment) {
+    const r = payload.environment.release;
+    exactKeys(r, ['family', 'version', 'build', 'patch', 'hotfix', 'source', 'fields', 'reason'], 'release');
+    if (r.source !== 'sys_properties.name,value via bounded records list' || !['metadata-unavailable-or-unrecognized', 'version-patch-hotfix-not-independently-exposed'].includes(r.reason)) fail('Invalid release source');
+    if (r.family !== null && !/^(?:australia|zurich|yokohama|xanadu|washingtondc|vancouver|utah|tokyo|sandiego|rome|quebec|paris|orlando|newyork|madrid|london|kingston|jakarta|istanbul|helsinki|geneva|fuji|eureka|dublin|calgary|berlin|aspen)$/i.test(r.family)) fail('Invalid release family');
+    if (r.build !== null && !/^glide-[a-z0-9_-]{1,180}$/i.test(r.build)) fail('Invalid release build');
+    if ([r.version, r.patch, r.hotfix].some(v => v !== null)) fail('Unverified release field');
+    exactKeys(r.fields, [...(r.family === null ? [] : ['family']), ...(r.build === null ? [] : ['build'])], 'release fields');
+    if (r.fields.family !== undefined && r.fields.family !== 'glide.buildname' || r.fields.build !== undefined && r.fields.build !== 'glide.buildtag') fail('Invalid release field source');
+  }
   if (!['UNKNOWN', 'KNOWN', 'NOT-INSTALLED'].includes(payload.environment.domainSeparation)) fail('Invalid environment');
   exactKeys(payload.selection, ['full', 'selected'], 'selection');
   if (typeof payload.selection.full !== 'boolean' || !Array.isArray(payload.selection.selected) || payload.selection.selected.length > 5000) fail('Invalid selection');

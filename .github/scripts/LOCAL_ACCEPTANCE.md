@@ -6,7 +6,7 @@ From the repository root, with current Node LTS, npm and Git installed:
 npm --prefix cli ci --ignore-scripts
 # Required once if this is a shallow clone lacking the reviewed producer:
 git fetch --no-tags origin 65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba
-node .github/scripts/run-acceptance.mjs --version 5.5.5 --profile NAME --target vendor-1 --output "$HOME/private-acceptance/run-1"
+node --env-file=/home/jace/.hermes/.env .github/scripts/run-acceptance.mjs --version 5.5.5 --profile NAME --target vendor-1 --output "$HOME/private-acceptance/run-1"
 # Omit --version to test this checkout instead.
 ```
 
@@ -28,14 +28,14 @@ the executing Node runtime; it does not establish historical Node support.
 Published package install scripts are disabled. Native optional features needing
 install scripts are outside this slice.
 
-Four immutable producer scenarios run: completion, isolated empty history,
+Four selected checks run: artifact version (JSON and human), isolated empty history,
 parser rejection, and bounded metadata list/get with independent readback and
 human output. The artifact version check replaces the pinned producer's
 checkout-equality version assumption; no producer bytes or same-source artifact
 guard are modified. This is **partial readonly coverage**, never the full
 acceptance suite or a release gate. Unsupported old command surfaces fail
 honestly. Exit 0 means the selected checks passed, not complete product coverage.
-Exit 1 means refusal, failed selected checks or failed publication.
+Exit 1 means refusal, failed selected checks or failed publication; exit 2 means blocked/excluded/not-run selected checks. Completion is deliberately omitted pending #494. Full readonly obligations and omitted scenario IDs are derived from the immutable catalog and retained locally; missingCount counts genuine unfulfilled inventory obligations, not omitted scenarios.
 
 Only allowlisted summaries are retained (directory 0700, files 0600). Raw CLI
 stdout/stderr, URLs, usernames, profile data, credentials and source errors are
@@ -66,7 +66,7 @@ Publication preserves failures and partial coverage. It requires exact run-key
 and canonical-payload-digest GET readback after POST. An older deployed website
 without schema 2 support or readback markers will fail closed; local reports stay
 useful. Schema 1 remains supported. Schema 2 adds closed artifact/harness identity
-fields; no database migration is needed because the original JSON is retained.
+fields and optional closed release metadata. Run `bin/rails db:migrate` in the site before deployment: the local_metadata column retains this sanitized metadata (the original payload is not stored).
 Nothing here merges, deploys, publishes automatically or performs provider writes.
 
 Reproduce the real npm-package loopback fixture (no credentials):
