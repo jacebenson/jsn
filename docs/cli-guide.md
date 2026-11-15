@@ -591,8 +591,26 @@ jsn records list --table incident -q 'active=true' --select 'data.records[0].num
 
 Table API list reads omit reference links by default. Add
 `--include-reference-links` to request the provider's reference-link objects.
-Counted list responses include `data.pagination.hasMore`; when totals are
-unavailable or disabled with `--no-count`, that field is omitted.
+Counted list responses include `data.pagination.hasMore`; records lists omit
+that field when totals are unavailable or disabled with `--no-count`. Ticket
+lists can instead set it from page fullness, without a known total.
+
+CSV stdout contains only the header and record rows, including on a terminal.
+When a records envelope explicitly reports `pagination.hasMore: true`, one
+notice goes to stderr with the returned page count, total if known, and next
+offset when the envelope supplies a valid offset and limit. The next offset
+advances by the requested limit, not the number of returned rows. A notice
+with an unknown total does not establish how many records remain. Complete
+results emit no pagination notice; absent `hasMore` is not proof of completeness.
+
+```bash
+jsn records list --table incident --limit 2 --csv > incidents.csv 2> pagination.log
+```
+
+A CSV reader consuming only stdout will **not** see this notice. Capture and
+check stderr separately, and do not merge it into the CSV stream with `2>&1`.
+For automation that needs structured pagination metadata, use `--json` instead.
+CSV does not fetch subsequent pages automatically.
 
 ## Authentication
 
