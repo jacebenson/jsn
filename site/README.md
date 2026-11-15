@@ -11,7 +11,7 @@ From the repository root, prepare site assets/data (no npm install in `docs/`):
 
 ```sh
 npm --prefix cli ci
-node scripts/build-docs-site.mjs
+npm run docs
 cd site
 bin/bundle install
 bin/rails db:prepare

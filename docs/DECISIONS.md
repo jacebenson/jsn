@@ -2,6 +2,16 @@
 
 ## CI validation ownership
 
+Website asset preparation and preview belong to the private root npm commands,
+not the published `cli/package.json`. `site/**`, `docs/**` and
+`scripts/build-docs-site.mjs` select website checks without CLI checks. Keep the
+existing conservative `docs/**` policy for contributor records too; publication
+remains allowlisted separately. CLI commands/tests select CLI checks. Shared
+`cli/src/commands/docs/**`, CLI package/lockfile edits, root npm command wiring,
+workflows and the selector itself select both. Manifest changes, including script
+removal, are genuine CLI changes and must not be excluded. Deterministic temporary
+Git histories in `cli/test/changed-components.test.js` exercise this matrix.
+
 CI selects affected applications once. Its website job calls `docs-site.yml`,
 which builds the production Docker image once and runs all Rails tests through
 `site/bin/test` plus the shared sync and Markdown JavaScript tests. This includes
