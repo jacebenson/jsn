@@ -1,22 +1,22 @@
 {
   "commit": "393b91d + concise root help",
-  "note": "Updated for the concise root help page; --all-commands --help is the exhaustive reference. Regenerate when the command surface or help layout intentionally changes.",
+  "note": "Updated for approved CSV/TSV root help; regenerate when the command surface or help layout intentionally changes.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 1393,
+    "help": 1840,
     "json": 70856,
-    "quiet": 1393,
-    "csv": 1393,
-    "markdown": 1393,
-    "get": 1393
+    "quiet": 1840,
+    "csv": 1840,
+    "markdown": 1840,
+    "get": 1840
   },
   "sha256": {
-    "help": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
+    "help": "62b1f538e0c0a21636062d565ce0017c1b63d848d12a524a2877753caf9490fd",
     "json": "4e392bd5dad5b62707ac3f7d93f6bca1c365f4e7a9ca0e500ad40316826c6379",
-    "quiet": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
-    "csv": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
-    "markdown": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188",
-    "get": "dffd5670968e74788423d68b85aa8273b4dcffb75386bef55a25c17c6a3db188"
+    "quiet": "62b1f538e0c0a21636062d565ce0017c1b63d848d12a524a2877753caf9490fd",
+    "csv": "62b1f538e0c0a21636062d565ce0017c1b63d848d12a524a2877753caf9490fd",
+    "markdown": "62b1f538e0c0a21636062d565ce0017c1b63d848d12a524a2877753caf9490fd",
+    "get": "62b1f538e0c0a21636062d565ce0017c1b63d848d12a524a2877753caf9490fd"
   },
   "json_command_count": 87
 }

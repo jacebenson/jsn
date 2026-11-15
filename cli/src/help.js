@@ -14,11 +14,11 @@ const COMMON_COMMANDS = [
   'incidents', 'requests', 'tasks', 'changes', 'approvals', 'knowledge', 'records', 'setup', 'discover',
 ];
 
-const CONCISE_FLAGS = ['instance', 'profile', 'json'];
+const CONCISE_FLAGS = ['instance', 'profile', 'json', 'csv', 'tsv'];
 
 const CONCISE_EXAMPLES = [
   'jsn incidents list --query "active=true" --limit 5',
-  'jsn records list --table incident --limit 5 --json',
+  'jsn records list --table incident --columns sys_id,number,state --limit 5 --csv',
   'jsn discover catalog',
 ];
 
@@ -242,6 +242,8 @@ function renderFlags(options, { full = false, width = helpWidth() } = {}) {
  * examples, and pointers to the exhaustive reference and local discovery.
  */
 function renderConciseHelp(config, registry, width) {
+  // Keep the short page consistent between ordinary 80-column terminals and pipes.
+  width = Math.min(width, 80);
   const commands = Array.isArray(registry?.commands) ? registry.commands : [];
   const byName = new Map(commands.map((command) => [command.name, command]));
   const common = COMMON_COMMANDS
@@ -259,8 +261,15 @@ function renderConciseHelp(config, registry, width) {
     renderGroup('COMMON COMMANDS', common, width),
     '',
     'EXAMPLES',
-    ...CONCISE_EXAMPLES.map((example) => `  ${example}`),
+    ...CONCISE_EXAMPLES.map((example) => wrapText(example, { width: width - 2, firstIndent: 2 }).join(' \\\n')),
     renderFlags(Array.isArray(registry?.options) ? registry.options : [], { width }),
+    '',
+    'OUTPUT',
+    ...[
+      'For smaller list responses, select fields with --columns and bound rows with --limit.',
+      'CSV and TSV avoid repeated field names; JSON preserves metadata and nested structure.',
+      'Use JSON for pagination metadata or both reference IDs and display labels.',
+    ].flatMap(text => wrapText(text, { width, firstIndent: 2 })),
     '',
     'MORE',
     renderRows(CONCISE_MORE, { width, indent: 2 }),

@@ -214,7 +214,7 @@ describe('#3 parent commands are machine-readable and never silently succeed', (
       assert.ok(help.includes(flag), `root help is missing ${flag}`);
     }
     assert.match(help, /--format\s+Output format/);
-    assert.match(help, /\[string: auto, json, markdown, styled, quiet, csv\]/);
+    assert.match(help, /\[string: auto, json, markdown, styled, quiet, csv, tsv\]/);
   });
 
   it('explicit --help stays human readable (no JSON envelope)', () => {

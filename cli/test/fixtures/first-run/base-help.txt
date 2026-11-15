@@ -16,14 +16,24 @@ COMMON COMMANDS
 
 EXAMPLES
   jsn incidents list --query "active=true" --limit 5
-  jsn records list --table incident --limit 5 --json
+  jsn records list --table incident --columns sys_id,number,state --limit 5 \
+  --csv
   jsn discover catalog
 
 FLAGS
   -i, --instance  ServiceNow instance URL [string]
   -p, --profile   Configuration profile to use [string]
   --json          Output in JSON format (shortcut for --format=json) [boolean]
+  --csv           CSV output for compact, flat record lists [boolean]
+  --tsv           TSV output for compact, tab-separated record lists [boolean]
   --help          Show help [boolean]
+
+OUTPUT
+  For smaller list responses, select fields with --columns and bound rows with
+  --limit.
+  CSV and TSV avoid repeated field names; JSON preserves metadata and nested
+  structure.
+  Use JSON for pagination metadata or both reference IDs and display labels.
 
 MORE
   jsn <command> <action> --help  Options for one command or action

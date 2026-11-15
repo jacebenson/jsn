@@ -9,6 +9,7 @@ export const FormatMarkdown = 'markdown';
 export const FormatStyled = 'styled';
 export const FormatQuiet = 'quiet';
 export const FormatCSV = 'csv';
+export const FormatTSV = 'tsv';
 
 /**
  * Resolve a dotpath (`.data[0].number`, `data.records.0.sys_id`) against an
@@ -154,6 +155,8 @@ export class OutputWriter {
         return this.writeQuiet(data);
       case FormatCSV:
         return this.writeCSV(data, opts);
+      case FormatTSV:
+        return this.writeDelimited(data, '\t', tsvEscape, 'TSV');
       case FormatStyled:
         return this.writeStyled(data, opts);
       default:
@@ -291,12 +294,16 @@ export class OutputWriter {
   }
 
   writeCSV(data, _opts) {
-    // CSV stdout contains only the table, even on a terminal. Pagination is
+    return this.writeDelimited(data, ',', csvEscape, 'CSV');
+  }
+
+  writeDelimited(data, delimiter, escape, label) {
+    // Delimited stdout contains only the table, even on a terminal. Pagination is
     // diagnostic output, not an extra row that spreadsheet readers must skip.
     if (Array.isArray(data)) {
-      this.writeCSVTable(data);
+      this.writeDelimitedTable(data, delimiter, escape);
     } else if (data && typeof data === 'object' && Array.isArray(data.records)) {
-      this.writeCSVTable(data.records);
+      this.writeDelimitedTable(data.records, delimiter, escape);
       const page = data.pagination;
       if (page?.hasMore === true) {
         const count = data.records.length;
@@ -309,32 +316,36 @@ export class OutputWriter {
           && Number.isSafeInteger(page.limit) && page.limit > 0
           && Number.isSafeInteger(page.offset + page.limit)
           ? `; next offset ${page.offset + page.limit}` : '';
-        this.errorWriter.write(`CSV pagination: returned ${count}${total} records${unknown}; more available${nextOffset}.\n`);
+        this.errorWriter.write(`${label} pagination: returned ${count}${total} records${unknown}; more available${nextOffset}.\n`);
       }
     } else {
-      this.writeCSVTable([data]);
+      this.writeDelimitedTable([data], delimiter, escape);
     }
   }
 
   writeCSVTable(rows) {
+    return this.writeDelimitedTable(rows, ',', csvEscape);
+  }
+
+  writeDelimitedTable(rows, delimiter, escape) {
     if (!Array.isArray(rows) || rows.length === 0) {
       this.writer.write('');
       return;
     }
     const columns = Object.keys(rows[0]);
-    this.writer.write(columns.map(csvEscape).join(',') + '\n');
+    this.writer.write(columns.map(escape).join(delimiter) + '\n');
     for (const row of rows) {
       const cells = columns.map((col) => {
         const val = row[col];
         if (val == null) return '';
         if (typeof val === 'object') {
-          if (val.display_value != null) return csvEscape(val.display_value);
-          if (val.value != null) return csvEscape(val.value);
-          return csvEscape(JSON.stringify(val));
+          if (val.display_value != null) return escape(val.display_value);
+          if (val.value != null) return escape(val.value);
+          return escape(JSON.stringify(val));
         }
-        return csvEscape(val);
+        return escape(val);
       });
-      this.writer.write(cells.join(',') + '\n');
+      this.writer.write(cells.join(delimiter) + '\n');
     }
   }
 
@@ -698,6 +709,11 @@ export function getDisplayValue(val) {
     return JSON.stringify(val);
   }
   return String(val);
+}
+
+// Backslash escapes keep each TSV record on one physical line, including headers.
+export function tsvEscape(val) {
+  return String(val ?? '').replace(/[\\\t\n\r]/g, ch => ({ '\\': '\\\\', '\t': '\\t', '\n': '\\n', '\r': '\\r' })[ch]);
 }
 
 /** Escape a single CSV field: quote when it contains a delimiter, quote, or newline. */

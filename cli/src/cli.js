@@ -100,10 +100,11 @@ import { graphqlCmd } from './commands/graphql.js';
  *
  * Precedence is the middleware's, unchanged: the shortcut flags beat `--format`,
  * and among the shortcuts the one applied last wins
- * (csv > markdown > styled > quiet > json).
+ * (tsv > csv > markdown > styled > quiet > json).
  */
 export function resolveRequestedFormat(argv) {
   if (!argv) return '';
+  if (argv.tsv) return 'tsv';
   if (argv.csv) return 'csv';
   if (argv.markdown) return 'markdown';
   if (argv.styled) return 'styled';
@@ -175,8 +176,8 @@ export function buildCLI() {
       },
       format: {
         type: 'string',
-        description: 'Output format: auto, json, markdown, styled, quiet, csv',
-        choices: ['auto', 'json', 'markdown', 'styled', 'quiet', 'csv'],
+        description: 'Output format: auto, json, markdown, styled, quiet, csv, tsv',
+        choices: ['auto', 'json', 'markdown', 'styled', 'quiet', 'csv', 'tsv'],
       },
       json: {
         type: 'boolean',
@@ -184,7 +185,11 @@ export function buildCLI() {
       },
       csv: {
         type: 'boolean',
-        description: 'Output in CSV format (shortcut for --format=csv)',
+        description: 'CSV output for compact, flat record lists',
+      },
+      tsv: {
+        type: 'boolean',
+        description: 'TSV output for compact, tab-separated record lists',
       },
       get: {
         alias: 'select',
