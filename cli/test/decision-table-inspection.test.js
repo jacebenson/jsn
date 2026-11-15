@@ -116,7 +116,7 @@ describe('decision table inspection', () => {
       if (table === 'sys_decision_input') return [{ name: 'priority', label: 'Priority', source_table: 'task' }];
       if (table === 'sys_decision_question') return [{ condition: 'priority=1', answer: 'yes' }];
       return [];
-    } }, getEffectiveInstance: () => 'https://dev265639.service-now.com' };
+    } }, getEffectiveInstance: () => 'https://example.service-now.com' };
     const detail = await inspectDecisionTable(app, {
       sys_id: { value: 'dt1', display_value: 'Approval' },
       name: { value: 'Approval', display_value: 'Approval' },
@@ -124,7 +124,7 @@ describe('decision table inspection', () => {
     assert.equal(queries[0][1], 'model=dt1^ORDERBYorder');
     assert.equal(queries[1][1], 'decision_table=dt1^ORDERBYorder');
     assert.match(detail._formatted, /^Decision table: Approval\n/);
-    assert.match(detail._formatted, /https:\/\/dev265639\.service-now\.com\/now\/workflow-studio\/builder\?table=sys_decision&sysId=dt1/);
+    assert.match(detail._formatted, /https:\/\/example\.service-now\.com\/now\/workflow-studio\/builder\?table=sys_decision&sysId=dt1/);
     assert.doesNotMatch(detail._formatted, /\[object Object\]/);
   });
 

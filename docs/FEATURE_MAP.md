@@ -1,6 +1,6 @@
 # JSN feature map
 
-This is the product map for JSN. The verification kitchen under `.agents/skills/verify/` describes how to prove selected surfaces work. It is not a second product map.
+This is the product map for JSN. The verification guide under `docs/verification/` describes how to prove selected surfaces work. It is not a second product map.
 
 | Surface | User entry point | Implementation | Proof |
 | --- | --- | --- | --- |
@@ -15,4 +15,4 @@ This is the product map for JSN. The verification kitchen under `.agents/skills/
 | Performance and diagnostics | `perf`, logs, transactions, snippets, and inspect commands | `src/commands/perf.js`, related command modules | Read-only command checks and focused tests |
 | GraphQL | `graphql` with positional, `--query`, `--query-file`, or `--stdin` documents | `src/commands/graphql.js`, `src/sdk.js` | Bounded authenticated query plus command/transport tests |
 
-For proof details, start with `.agents/skills/verify/SKILL.md` and `.agents/skills/verify/features/README.md`. Add a feature here only when the command exists in the source and its user-visible behavior is understood.
+For proof details, start with `docs/verification/README.md` and `docs/verification/features/README.md`. Add a feature here only when the command exists in the source and its user-visible behavior is understood.

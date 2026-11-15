@@ -4,7 +4,7 @@
 
 - The repository is a Node.js ESM CLI with no build step.
 - `bin/jsn.js` is the executable entry point and `src/cli.js` registers the command surface.
-- The project-local verification kitchen lives under `.agents/skills/verify/`.
+- The project-local verification guide lives under `docs/verification/`.
 - Verification evidence belongs under `.verification/evidence/` and must not contain credentials or raw environment dumps.
 - The local documentation fixture provides the safe, instance-free drive for documentation status and search.
 

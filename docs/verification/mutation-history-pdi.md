@@ -5,7 +5,7 @@ Executed 2026-10-29 from the PR checkout after merging current main
 credentials and private records are omitted.
 
 ```text
-$ node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi
+$ node cli/scripts/verify-jsn.mjs doctor --profile pdi
 ok: true
 profile.name: pdi
 authenticated: true

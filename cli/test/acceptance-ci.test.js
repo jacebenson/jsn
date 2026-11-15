@@ -7,9 +7,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { load } from 'js-yaml';
-import { validateProjection, publishResults } from '../../scripts/acceptance/publish.mjs';
-import { runAndPublish } from '../../scripts/acceptance/ci.mjs';
-import { prepare, HARNESS_SHA } from '../../scripts/acceptance/prepare.mjs';
+import { validateProjection, publishResults } from '../scripts/acceptance/publish.mjs';
+import { runAndPublish } from '../scripts/acceptance/ci.mjs';
+import { prepare, HARNESS_SHA } from '../scripts/acceptance/prepare.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const sha = 'a'.repeat(40), token = 'private-mock-token-'.repeat(3);
@@ -35,10 +35,10 @@ function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'appl
 test('scenario allowlist accepts LF and Windows CRLF without weakening unknown-ID rejection', async t => {
   for (const newline of ['\n', '\r\n']) {
     const dir = temporary(t);
-    fs.mkdirSync(path.join(dir, 'scripts/acceptance'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'cli/scripts/acceptance'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'site/config'), { recursive: true });
-    const modulePath = path.join(dir, 'scripts/acceptance/publish.mjs');
-    fs.copyFileSync(path.join(root, 'scripts/acceptance/publish.mjs'), modulePath);
+    const modulePath = path.join(dir, 'cli/scripts/acceptance/publish.mjs');
+    fs.copyFileSync(path.join(root, 'cli/scripts/acceptance/publish.mjs'), modulePath);
     fs.writeFileSync(path.join(dir, 'site/config/acceptance_scenario_ids.txt'), `readonly.records${newline}`);
     const { validateProjection: validate } = await import(pathToFileURL(modulePath).href);
     validate(fixture());
@@ -181,7 +181,7 @@ function workflowGuard(w) {
   assert.match(w.jobs.configuration.steps[0].run, /ready=false/);
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/checkout')).with['persist-credentials'], false);
   assert.ok(!JSON.stringify(w).includes('pull_request_target'));
-  assert.ok(w.jobs.acceptance.steps.some(s => s.run === 'node scripts/acceptance/ci.mjs'));
+  assert.ok(w.jobs.acceptance.steps.some(s => s.run === 'node cli/scripts/acceptance/ci.mjs'));
   assert.equal(w.jobs.acceptance.steps.find(s => s.uses?.startsWith('actions/upload-artifact')).with.path, 'acceptance-public.json');
 }
 test('trusted workflow rejects unsafe trigger/regression and restores pass', () => {

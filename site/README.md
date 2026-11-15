@@ -214,7 +214,7 @@ MP4/WebM links become a native player, while watch-page links open the recording
 Keep the Docker build context at repository root and Dockerfile at `site/Dockerfile`.
 For Coolify automatic deployments, watch `site/**`, `docs/**`,
 `cli/src/commands/docs/**`, `cli/package.json`, `cli/package-lock.json`, and
-`scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
+`site/scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
 Coolify watch paths are application settings and must be set when this branch is deployed.
 
 The Rails documentation adapter invokes `cli/src/commands/docs/index-worker.js`;

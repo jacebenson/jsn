@@ -602,7 +602,7 @@ export async function loginProfile(argv, app, { concise = false } = {}) {
 Examples:
   jsn auth login https://dev12345.service-now.com
   jsn auth login dev373698
-  jsn auth login --basic https://dev328604.service-now.com
+  jsn auth login --basic https://example.service-now.com
 
 Find your instance URL in your browser's address bar when logged into ServiceNow.`);
     }

@@ -2,11 +2,11 @@
   "state": "ready",
   "downloaded": {
     "ok": true,
-    "path": "/home/jace/.cache/servicenow-cli/docs/source"
+    "path": "/home/example/.cache/servicenow-cli/docs/source"
   },
   "db": {
     "ok": true,
-    "path": "/home/jace/.cache/servicenow-cli/docs/docs.db"
+    "path": "/home/example/.cache/servicenow-cli/docs/docs.db"
   },
   "embedded": {
     "ok": true

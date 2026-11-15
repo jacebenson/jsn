@@ -35,7 +35,7 @@ produces its feature list, robots and sitemap without npm dependencies.
 ## Build consumers audited
 
 `site/Dockerfile`, root and CLI npm scripts, `site/README.md`, `site/WEBMCP.md`,
-`scripts/changed-components.mjs`, CLI changed-component/workflow contract tests,
+`.github/scripts/changed-components.mjs`, CLI changed-component/workflow contract tests,
 and `.github/workflows/docs-site.yml`. The latter still builds the actual image,
 runs the full Rails and Node suites, and extracts `tmp/preserved-urls.json`.
 No CI workflow files were modified, avoiding the parallel CI acceptance work.

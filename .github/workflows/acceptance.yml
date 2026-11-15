@@ -83,7 +83,7 @@ jobs:
           cache-dependency-path: cli/package-lock.json
       - run: npm --prefix cli ci
       - name: Stage immutable existing producer alongside exact candidate CLI
-        run: node scripts/acceptance/prepare.mjs
+        run: node cli/scripts/acceptance/prepare.mjs
       - name: Execute suite and publish even when the suite fails
         env:
           JSN_ACCEPTANCE_PROFILE_JSON: ${{ secrets.JSN_ACCEPTANCE_PROFILE_JSON }}
@@ -91,7 +91,7 @@ jobs:
           JSN_ACCEPTANCE_INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
           ACCEPTANCE_MODE: ${{ github.event.inputs.mode || 'readonly' }}
           ACCEPTANCE_DISPOSABLE_APPROVED: ${{ github.event.inputs.disposable_approved || 'false' }}
-        run: node scripts/acceptance/ci.mjs
+        run: node cli/scripts/acceptance/ci.mjs
       - name: Preserve only the validated closed public projection
         if: always()
         uses: actions/upload-artifact@v7

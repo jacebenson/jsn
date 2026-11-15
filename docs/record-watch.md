@@ -114,7 +114,7 @@ UI session for a basic/OAuth profile.
   access behavior is validated on a live instance.
 ## Verification status
 
-Live-verified on `dev366743.service-now.com` on 2026-11-04 with an admin OAuth
+Live-verified on `example.service-now.com` on 2026-11-04 with an admin OAuth
 profile, watching one incident:
 
 - `/amb/handshake` returned `200` with a `clientId` and

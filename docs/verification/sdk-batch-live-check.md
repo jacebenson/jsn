@@ -9,7 +9,7 @@ support; live unsupported-endpoint fallback was not observed.
 Exact command, executed from the PR checkout:
 
 ```sh
-node .agents/skills/verify/scripts/verify-jsn.mjs doctor --profile pdi
+node cli/scripts/verify-jsn.mjs doctor --profile pdi
 ```
 
 Sanitized terminal result (instance hostname and local evidence path omitted):

@@ -4,13 +4,24 @@
 
 Website asset preparation and preview belong to the private root npm commands,
 not the published `cli/package.json`. `site/**`, `docs/**` and
-`scripts/build-docs-site.mjs` select website checks without CLI checks. Keep the
+`site/scripts/build-docs-site.mjs` select website checks without CLI checks. Keep the
 existing conservative `docs/**` policy for contributor records too; publication
 remains allowlisted separately. CLI commands/tests select CLI checks. Shared
 `cli/src/commands/docs/**`, CLI package/lockfile edits, root npm command wiring,
 workflows and the selector itself select both. Manifest changes, including script
 removal, are genuine CLI changes and must not be excluded. Deterministic temporary
 Git histories in `cli/test/changed-components.test.js` exercise this matrix.
+
+Documentation prose no application reads is validated by a third, lightweight
+`docs` selection. Root README, `AGENTS.md`, `cli/README.md` and
+`cli/examples/README.md` select it alone, so a README-only PR no longer pays for
+the Linux/Windows CLI matrix. Markdown is never excluded by extension: everything
+else under `cli/`, including `cli/skills/**` shipped in the package and Markdown
+fixtures tests read, keeps CLI selection. `.github/scripts/check-docs.mjs` runs on Node
+builtins without installation, build or network, validates relative link and path
+targets in changed Markdown, and requires the packaged README and advertised
+`files` entries to exist. Remote links are counted but not fetched. The `Tests`
+aggregator fails when this job fails and passes when it is skipped.
 
 CI selects affected applications once. Its website job calls `docs-site.yml`,
 which builds the production Docker image once and runs all Rails tests through
@@ -182,7 +193,8 @@ Mutation commands require the instance, respect read-only profile boundaries, an
 
 ## Verification is project-owned
 
-The pstack-shaped launch, drive, proof, evidence, and cleanup instructions live in `.agents/skills/verify/`. General product knowledge lives in `docs/`, so verification procedures and product description do not drift into one document.
+Contributor verification instructions live in `docs/verification/`, with executable helpers in `cli/scripts/`. General product knowledge lives in `docs/`, so verification
+procedures and product description do not drift into one document.
 
 ## Skipped batches require preview-bound consent
 
@@ -667,3 +679,18 @@ bootstrap it reads — including binary attachment uploads, which upload with th
 session cookie and user token. An instance that needs a session for table reads
 sets `JSN_ALWAYS_WARM_SESSION=1`, which restores the previous path for the whole
 process; the CLI does not silently retry a refused read behind a caller's back.
+
+## One directory per owner at the repository root
+
+The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under
+`.github/`, plus the files npm and Git require. Everything else lives with the
+thing that owns it: website assets and preview helpers under `site/scripts/`,
+CLI acceptance and docs-publishing helpers under `cli/scripts/`, contributor
+research under `docs/research/`, repo-only CI tooling under `.github/scripts/`,
+and contributor verification guides under `docs/verification/`.
+
+Verification uses neutral contributor documentation rather than personal agent orchestration or skill autodiscovery. Run `node cli/scripts/verify-jsn.mjs` from the repository root. The manual instance lane uses independently configured GitHub environments, not local profile state.
+
+Recorded verification evidence under `docs/verification/` keeps the command paths
+it captured. Those files describe runs that happened at the time, so later layout
+changes do not rewrite them.

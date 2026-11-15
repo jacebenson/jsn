@@ -36,10 +36,6 @@ Thumbs.db
 .opencode
 opencode.json
 .agents/
-!.agents/
-!.agents/skills/
-!.agents/skills/verify/
-!.agents/skills/verify/**
 .verification/
 skills-lock.json
 test_modes.sh

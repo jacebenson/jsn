@@ -1,6 +1,6 @@
 // Disposable in-memory provider for real terminal prompts. Never contacts an instance.
 //
-// The flow side mirrors the LIVE contract established against dev354702:
+// The flow side mirrors the LIVE contract established against example:
 //   * POST /api/now/processflow/flow returns a flow whose triggerInstances is
 //     EMPTY — there is no default trigger to patch,
 //   * the trigger is INSERTED by the same snFlowDesigner flowPatch as the actions,

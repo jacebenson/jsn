@@ -43,7 +43,7 @@ Current API reference (reviewed for this change):
 https://developer.chrome.com/docs/ai/webmcp/imperative-api (updated 2026-10-16).
 It documents `document.modelContext.registerTool`, `getTools`, and `executeTool`.
 
-After `node scripts/build-docs-site.mjs`, run:
+After `node site/scripts/build-docs-site.mjs`, run:
 
 ```sh
 node --check site/static/assets/webmcp.js

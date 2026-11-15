@@ -9,8 +9,8 @@ describe('sanitizeKeyPart', () => {
     // The exact encoding the Go version uses — must NOT change, or stored
     // credentials become unreachable.
     assert.strictEqual(
-      sanitizeKeyPart('https://dev437538.service-now.com'),
-      'https_dev437538.service-now.com'
+      sanitizeKeyPart('https://example.service-now.com'),
+      'https_example.service-now.com'
     );
   });
 
@@ -33,8 +33,8 @@ describe('sanitizeKeyPart', () => {
   it('keeps dots and dashes for real instance hosts', async () => {
     ({ sanitizeKeyPart } = await import('../src/auth.js'));
     assert.strictEqual(
-      sanitizeKeyPart('https://dev-437538.service-now.com'),
-      'https_dev-437538.service-now.com'
+      sanitizeKeyPart('https://example-host.service-now.com'),
+      'https_example-host.service-now.com'
     );
   });
 });

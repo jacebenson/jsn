@@ -1,5 +1,7 @@
 #!/bin/bash
 # pre-commit-check.sh - Run this before committing to check architecture compliance
+# Legacy: this check targets the retired Go implementation (internal/sdk, internal/commands).
+# It has no caller in the Node CLI repository; retained for history, not run by CI or hooks.
 
 echo "🔍 Checking architecture patterns..."
 
