@@ -93,6 +93,7 @@ export class OutputWriter {
   constructor(opts = {}) {
     this.format = opts.format || FormatAuto;
     this.writer = opts.writer || process.stdout;
+    this.errorWriter = opts.errorWriter || process.stderr;
     this.jqFilter = opts.jqFilter || '';
     this.verbose = opts.verbose === true;
     this.raw = opts.raw === true;
@@ -289,14 +290,27 @@ export class OutputWriter {
     }
   }
 
-  writeCSV(data, opts) {
-    if (opts.summary && isTTY(this.writer)) {
-      this.writer.write(opts.summary + '\n\n');
-    }
+  writeCSV(data, _opts) {
+    // CSV stdout contains only the table, even on a terminal. Pagination is
+    // diagnostic output, not an extra row that spreadsheet readers must skip.
     if (Array.isArray(data)) {
       this.writeCSVTable(data);
     } else if (data && typeof data === 'object' && Array.isArray(data.records)) {
       this.writeCSVTable(data.records);
+      const page = data.pagination;
+      if (page?.hasMore === true) {
+        const count = data.records.length;
+        const total = Number.isSafeInteger(page.total) && page.total >= 0
+          ? ` of ${page.total}` : '';
+        const unknown = total ? '' : '; total unknown';
+        // List commands advance the requested window, including short pages.
+        // Do not guess an offset when the envelope lacks that context.
+        const nextOffset = Number.isSafeInteger(page.offset) && page.offset >= 0
+          && Number.isSafeInteger(page.limit) && page.limit > 0
+          && Number.isSafeInteger(page.offset + page.limit)
+          ? `; next offset ${page.offset + page.limit}` : '';
+        this.errorWriter.write(`CSV pagination: returned ${count}${total} records${unknown}; more available${nextOffset}.\n`);
+      }
     } else {
       this.writeCSVTable([data]);
     }
