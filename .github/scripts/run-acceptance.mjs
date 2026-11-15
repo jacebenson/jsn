@@ -155,6 +155,9 @@ export async function runLocal(options) {
     const contextOptions = { mode, allowWrites: mode === 'pdi', profile: 'acceptance', expectedHost: origin, outputDir: privateRun };
     support.preflight(contextOptions, JSON.parse(fs.readFileSync(path.join(config, 'servicenow/config.json'))), {});
     const ctx = support.createContext(contextOptions, { target: origin }, { execute });
+    // The pinned context enforces this option internally but does not expose it.
+    // The versioned context adapter also checks the same preflighted approval.
+    ctx.allowWrites = contextOptions.allowWrites;
     if (mode === 'pdi') {
       guardFullContext(ctx, { inventory, receiptFile: path.join(output, 'cleanup-receipt.json'), target: options.target });
       ctx.state.set('workflows.allowRetainedFlows', true);
