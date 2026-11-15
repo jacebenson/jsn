@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -8,7 +9,7 @@ import { stageHarness, runLocal } from '../scripts/run-acceptance.mjs';
 import { guardFullContext, fullPlan } from '../scripts/acceptance/full-safety.mjs';
 
 test('full immutable catalog plan makes no provider calls and exposes every prerequisite', async () => {
- const root = fs.mkdtempSync(path.join(process.env.TMPDIR, 'full-plan-test-'));
+ const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'full-plan-test-'));
  try {
   const result = await runLocal({ plan:true, target:'vendor-1', output:path.join(root,'plan') });
   const plan = JSON.parse(fs.readFileSync(result.file));
@@ -20,7 +21,7 @@ test('full immutable catalog plan makes no provider calls and exposes every prer
 });
 
 test('guarded immutable context sends POST PATCH DELETE, finally cleans on failure and refuses unowned writes', async () => {
- const root = fs.mkdtempSync(path.join(process.env.TMPDIR,'full-http-test-'));
+ const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(),'full-http-test-'));
  const id='a'.repeat(32), other='b'.repeat(32), requests=[]; let row;
  const server=http.createServer(async(req,res)=>{
   requests.push(req.method); let text=''; for await (const chunk of req) text+=chunk;

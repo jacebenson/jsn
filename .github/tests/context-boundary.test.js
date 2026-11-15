@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stageHarness } from '../scripts/run-acceptance.mjs';
@@ -8,7 +9,7 @@ import { contextAdapterV1, restoreOriginalContext } from '../scripts/acceptance/
 import { guardFullContext, runContextScenario } from '../scripts/acceptance/full-safety.mjs';
 
 test('immutable context permits global run-owned create and exact restoration; rejects other context', async () => {
- const root=fs.mkdtempSync(path.join(process.env.TMPDIR,'context-boundary-'));
+ const root=fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(),'context-boundary-'));
  try {
   const harness=stageHarness(root,'5.5.5');
   const {scenarios}=await import(pathToFileURL(path.join(harness,'cli/test/acceptance/workflows.mjs')));
