@@ -74,7 +74,7 @@ class AcceptanceProjection
   def not_run = counts.fetch('not-run', 0)
 
   def canonical_digest
-    Digest::SHA256.hexdigest(JSON.generate(canonical(payload)))
+    Digest::SHA256.hexdigest(canonical_json(payload))
   end
 
   private
@@ -200,11 +200,14 @@ class AcceptanceProjection
     invalid! unless summary['complete'] == complete
   end
 
-  def canonical(value)
+  # JSON gem 3 changed small-float notation. Keep the digest wire format
+  # independent of the installed JSON gem, matching the acceptance publisher.
+  def canonical_json(value)
     case value
-    when Hash then value.keys.sort.to_h { |key| [key, canonical(value[key])] }
-    when Array then value.map { |entry| canonical(entry) }
-    else value
+    when Hash then '{' + value.keys.sort.map { |key| JSON.generate(key) + ':' + canonical_json(value[key]) }.join(',') + '}'
+    when Array then '[' + value.map { |entry| canonical_json(entry) }.join(',') + ']'
+    when Float then value.to_s
+    else JSON.generate(value)
     end
   end
 end

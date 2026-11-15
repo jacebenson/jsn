@@ -1,7 +1,8 @@
-<section class="shell results">
+<section class="shell results" data-payload-digest="<%= @run.payload_digest %>" data-run-key="<%= @run.run_key %>">
   <p><a href="/results" class="back">← All acceptance runs</a></p>
   <p class="eyebrow"><%= @run.mode == 'readonly' ? 'READ-ONLY RUN' : 'PDI ISOLATED TEST RUN' %></p>
   <h1>Acceptance run</h1>
+  <p>Published scenario test results. Publication and workflow delivery are separate from the test verdicts below. A successful delivery does not mean passing tests.</p>
   <p class="results-lead">Sanitized projection only. Revision <code><%= @run.source_sha %></code><%= ' · source tree was dirty' if @run.source_dirty %> · CLI <%= @run.cli_version %> · Node <%= @run.node_version %> · <%= @run.platform %></p>
 
   <div class="result-stats">

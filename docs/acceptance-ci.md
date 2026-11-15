@@ -1,144 +1,121 @@
 # Live acceptance CI and public results
 
-## What runs
+## Execution and target selection
 
-`acceptance.yml` is a separate, observational workflow for trusted main pushes,
-published releases and manual dispatch. It never runs with PR or fork secrets.
-The production release workflow explicitly dispatches it at the exact release
-tag because events created with `GITHUB_TOKEN` do not start other workflows.
-Release dispatch is best effort and is not a new release gate. Publication and
-suite errors remain failures in the acceptance workflow itself.
+Trusted main pushes and published releases independently attempt **both vendor-1
+and vendor-2**, in separate bounded jobs. Neither waits for nor cancels its peer.
+Manual dispatch defaults to `both`, with `pdi`, `vendor-1`, or `vendor-2` available
+as explicit single-target choices. PDI is never automatic. The retired repository
+variable `JSN_ACCEPTANCE_TARGET` is ignored. The release workflow dispatches the
+exact release tag because events created with `GITHUB_TOKEN` do not start other
+workflows. Release dispatch is best effort, not a release gate.
 
-The genuine producer already exists on the acceptance feature branch, not main.
-`prepare.mjs` fetches immutable commit
-`65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba` from the canonical GitHub repository
-and stages only its acceptance scripts, scenarios and coverage inventory into
-the ephemeral candidate checkout. It does not replace CLI source, package files
-or the entrypoint. This avoids merging the unrelated feature branch or checking
-out a moving runner branch with secrets. The pin is the schema-compatible
-producer before `local.output-contract` was added without a matching public
-scenario allowlist entry. Tests compare every pinned scenario against the current
-site allowlist; this integration does not remove a scenario from that producer
-to manufacture a publishable result. Existing producer paths cause refusal
-so future adoption of the runner requires explicit reconciliation.
+Ordinary PR CI receives no instance or publication secrets. Selection verifies
+that the exact candidate SHA is an ancestor of the trusted default branch before
+secret-bearing jobs. Manual feature refs are refused. Candidate checkouts disable
+persisted Git credentials. Dependencies install without lifecycle scripts or caches
+before credential injection. No target host or credentials appear in artifacts.
 
-The staged producer imports the candidate CLI source and executes its actual
-`cli/bin/jsn.js`. Its existing provenance records checkout SHA, package version,
-Node version, tracked-tree dirty flag and SHA-256 of that entrypoint. The digest
-is an entrypoint digest, not a hash of the entire package. CI logs additionally
-identify the immutable producer SHA. Publication refuses a dirty tree or source
-SHA different from the event's exact checkout. This is checkout acceptance, not
-a claim that the corresponding npm tarball was tested.
+`prepare.mjs` stages the existing producer at immutable commit
+`65c4f3c8a66ea37b3bd3ecca87957bec30eb3fba`, without replacing candidate CLI source.
+Existing producer files cause refusal rather than silent replacement. Readonly
+runs select every declared readonly scenario across read-only, read-only-catalog,
+resources, workflows and auth. This is an explicit subset, not full-product
+acceptance. The CLI's independent `read_only` profile and original producer guards
+remain active. This tests a checkout, not an npm tarball. Provenance preserves
+candidate SHA, dirty flag, package/Node versions and entrypoint SHA-256.
 
-Automatic execution selects **every scenario declared readonly by that producer**
-as an explicit subset. The existing readonly command and transport guards remain
-active, and the dedicated profile must also set `read_only: true`. Normal local
-auth/session refresh may write ephemeral local credentials. No instance-record
-mutations are authorized in this lane. The public page shows `explicit subset`,
-not `full-product run`. PDI workflows, mutations, interactive coverage, Basic and
-cookie actor matrices and commands added since the pinned inventory are not
-established by this readonly run. The pinned capability ledger is not a current
-complete CLI inventory. A future producer update needs separate review.
+## Configuration
 
-Manual `mode=pdi` is accepted only from main and requires
-`disposable_approved=true` plus an `acceptance-pdi` environment with required
-reviewers. The configuration job verifies reviewer protection through GitHub's
-API and fails closed if it cannot verify it. Reviewers must independently verify
-the exact target is disposable. A profile name or checkbox does not establish
-that. This lane runs the existing full producer catalog with `--allow-writes`,
-including its cleanup and unresolved-write guards. It does not invent actor
-credentials, fixture recipes or missing capabilities. Missing prerequisites,
-coverage gaps and cleanup failures remain nonpassing. No PDI run was performed
-while implementing this integration.
+Use the existing environments. Configure both vendors independently:
 
-## Activation, without changing release requirements
+| Scope | Kind | Name | Value |
+| --- | --- | --- | --- |
+| Each selected environment | Variable | `JSN_INSTANCE_URL` | HTTPS origin without path, query, credentials or port |
+| Each selected environment | Variable | `JSN_VERIFY_ENABLED` | `true` after authorization review |
+| Each selected environment | Secret | `JSN_OAUTH_TOKEN` | OAuth access token authorized for readonly checks |
+| Repository | Variable | `JSN_ACCEPTANCE_INGEST_URL` | HTTPS ingest URL ending `/api/acceptance/runs` |
+| Repository | Secret | `JSN_ACCEPTANCE_INGEST_TOKEN` | Matching server `ACCEPTANCE_INGEST_TOKEN`, at least 32 characters |
 
-At implementation time, repository secret names returned only `NPM_TOKEN`.
-Existing `DEV` and `prod` environments returned no secret or variable names and
-no protection rules. There is no configured acceptance environment or authorized
-CI profile/ingest credential to prove live execution. No secrets, environments,
-production configuration or instance records were changed for this PR.
+Do not shadow repository publication settings in instance environments. No profile
+JSON secret is required. The producer strips credential environment variables from
+CLI children, so the adapter seeds one OAuth file-store profile in a private
+ ephemeral home with keyring access disabled. Children receive an allowlisted
+environment without GitHub, ingest, proxy or Node-injection credentials. Private
+files are deleted on exit and never uploaded. Access-token-only configuration has
+no renewal metadata. Auth rejection does not establish that a token expired.
 
-An authorized operator can activate the readonly lane through the existing
-approved secret/configuration tooling. Create a dedicated `acceptance-readonly`
-environment restricted to main and intended release tags. Configure:
+Manual `mode=pdi` requires single target `pdi`, default-branch dispatch,
+`disposable_approved=true`, and an existing environment with required reviewers.
+Environment review must approve the job; protection is rechecked through GitHub's
+API immediately before execution. The adapter independently enforces approval and
+verified reviewers. Reviewers must confirm the target is disposable. Full PDI runs
+retain cleanup and unresolved-write guards. No automatic lane enables writes.
 
-| Kind | Name | Meaning |
-| --- | --- | --- |
-| Variable | `JSN_ACCEPTANCE_ENABLED` | `true` after target and authorization review |
-| Variable | `JSN_ACCEPTANCE_INGEST_URL` | Full HTTPS ingest URL, including `/api/acceptance/runs` |
-| Secret | `JSN_ACCEPTANCE_INGEST_TOKEN` | Existing server `ACCEPTANCE_INGEST_TOKEN`, at least 32 characters |
-| Secret | `JSN_ACCEPTANCE_PROFILE_JSON` | One dedicated test profile and its existing JSN credential object |
+## Delivery is separate from test outcome
 
-The profile bundle is JSON with exactly `expectedHost`, `profile`, and
-`credentials`. `expectedHost` is the approved HTTPS origin. `profile` is the
-existing JSN profile object with matching `instance_url`, `username`,
-`auth_method` as appropriate, and `read_only: true`. `credentials` is the existing
-JSN credential-store object for that identity, including its `auth_method` and
-required credential/refresh fields. Do not paste credentials in chat or PRs.
-The adapter writes one `acceptance-ci` profile and the correctly keyed credential
-file under a private ephemeral XDG home, then removes it. It does not scrape a
-personal keyring or choose a personal/production profile automatically.
+The final **Acceptance delivery gate, not scenario pass gate** runs with `always()`
+and explicitly examines every target's outputs, not unreliable matrix outputs.
+It succeeds if at least one target delivers genuine execution and verified public
+results. A peer that is unavailable, unconfigured or fails publication does not
+invalidate a delivered run. If no target delivers, the gate fails. Target jobs are
+allowed to fail so a failed peer cannot override that final delivery decision.
 
-For approved mutations, configure a separate `acceptance-pdi` environment with
-required reviewers, branch restriction to main, independently verified disposable
-target, and separate credentials. Use the same four setting names there. Any
-extra auth actor or catalog recipe options in the producer are not automatically
-configured by this adapter; their absence must remain blocked/not-run.
+A qualifying run requires at least **one distinct scenario with status `passed`,
+`failed`, or `failed-timeout` and authenticated provider-operation evidence from
+inside that scenario**. `execute.mjs` observes the pinned scenarios without
+changing their results. A successful selected-profile `ctx.read`, or successful
+provider-backed CLI JSON command, records private run-key/scenario evidence. Local
+version/completion/history, help, auth-status, blocked/excluded/not-run scenarios,
+runner initialization, failed authentication, and setup/preflight alone cannot
+qualify. Evidence is matched against the actual projection's run key and result
+IDs. A failing assertion after an authenticated provider operation counts even
+when zero scenarios pass. This intentionally conservative threshold does not count
+an auth-only failure as execution. A partial run qualifies with honest missing
+counts if it satisfies that threshold and publishes successfully.
 
-When configuration is missing, the readiness job emits `NOT CONFIGURED`, and the
-actual acceptance job is **skipped**, not a green acceptance check. No synthetic
-public run is created. Do not add this observational workflow as a required
-release or merge check without an explicit gating/outage policy. After activation,
-run the readonly workflow on main, confirm its exact source revision and scope,
-and inspect the exact `/results/:run_key` page before marking this PR ready.
-Live proof and a public run on this integration remain pending.
+The original producer's scenario statuses, `complete`, counts and `missingCount`
+are preserved exactly. Nonzero suite exit is recorded as the **suite verdict**,
+not reused as the delivery exit code. Target job summaries show authenticated
+executed count, suite exit, scenario counts, completeness, missing count,
+publication status and exact public run key. Public `/results/:run_key` pages
+retain actual test verdicts. A green delivery gate does **not** mean passing tests.
 
-## Publication and failure semantics
+## Publication and exact readback
 
-The runner saves partial evidence after scenarios and during its cleanup path.
-The adapter attempts upload even when the suite returns nonzero or throws after
-saving results. It preserves the suite's nonzero exit, and an upload or readback
-failure also makes the workflow nonpassing. Exit 2 means partial/incomplete,
-not a passing acceptance check. A refused preflight or empty run is not replaced
-with fabricated scenarios. Forced runner termination, infrastructure failure or
-a job timeout can prevent upload; do not infer a run happened from an absent row.
+After a failed or interrupted suite, saved valid evidence is still published.
+Missing, empty, dirty, wrong-revision or invalid closed projections are refused,
+never synthesized. Only validated schema-v1 public fields are uploaded, not
+private receipts, raw errors, hosts, users, record data or credentials.
 
-The publisher reuses the existing closed schema-v1 validator, tightened to require
-the candidate site's scenario allowlist. Only the validated public projection is
-eligible for artifact upload. Private reports, logs, profile/host/record data,
-script bodies and credentials are never uploaded. No arbitrary summary fields
-or renderer/schema changes are introduced.
+POST uses bounded timeouts, no redirects, and up to three identical-body retries
+for transport/5xx errors. Accepted/duplicate responses must echo the exact run key.
+A credential-free GET of that run's public results page must match its stored
+canonical payload digest, run key, SHA and version. The page exposes its existing
+server canonical digest, covering the full accepted projection rather than only
+provenance. The updated site renderer must be deployed before live delivery can
+pass this stronger readback. A stale renderer fails closed.
 
-HTTP upload uses a runtime URL, no credential-bearing URL/query/fragment, HTTPS
-outside loopback tests, no redirects, and a bounded request timeout. Transport
-errors and 5xx responses retry at most three times using identical serialized
-bytes and the exact producer run key. Re-running a suite is a new run; retrying
-publication of its saved projection is not. 401/422/409 and other rejections are
-visible and are not treated as acceptance. Server 201 accepted or 200 duplicate
-must echo the exact run key. Then a credential-free GET of that run's public URL
-must render the expected full source SHA and CLI version. This verifies page
-availability/provenance, not every persisted field. The server's authenticated
-closed projection and canonical digest remain authoritative for stored content.
+Each producer context generates a random UUID run key, independent of target,
+commit or anonymized profile. Artifacts include the closed target label in their
+name. The aggregate gate rejects duplicate run keys across targets. No hostname
+is needed to distinguish the jobs or their public links. Re-running creates a new
+run; retries of a publication retain the original key.
 
-## Offline verification
-
-From the repository root:
+## Verification
 
 ```sh
 npm --prefix cli ci
-(cd cli && node --test test/acceptance-ci.test.js test/workflow-contracts.test.js)
+node --test cli/test/acceptance-ci.test.js cli/test/workflow-contracts.test.js
 npm test
 npm run lint
+node .github/scripts/check-docs.mjs origin/main
 ```
 
-Tests use real loopback HTTP for authentication, response loss after persistence,
-exact-body duplicate retry, changed-payload conflict, rejection, redirect refusal,
-readback, and upload after a failed suite. They inject a deliberate failing
-scenario into the **existing producer's** `executeScenarios`, then restore it to
-passing. These are offline integration tests, never live acceptance or public
-results. The historical-producer test runs when that immutable Git object is
-available, otherwise explicitly skips in shallow CI clones without a network
-fetch. A Ruby-available test also parses the payload with the actual site-owned
-`AcceptanceProjection`; the normal Docker website job still owns full Rails
-auth/ingestion tests. Workflow guards reject unsafe trigger and gating regressions.
+Offline tests exercise the actual pinned producer against loopback, deliberate
+assertion failures and restored success, file-store OAuth, independent readonly
+refusal, honest failed/partial publication, exact readback, and delivery gates.
+No mock output is uploaded or described as live acceptance. Historical producer
+integration explicitly skips in shallow clones without the pin; local full-history
+verification must run it. Ruby-available tests compare the Rails canonical digest.
+Live runs and publication remain explicit post-merge operator verification.
