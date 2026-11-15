@@ -1,0 +1,138 @@
+{
+  "rationale": "Exact maximum observed stdout/stderr bytes for pinned fixture, three or more fresh runs. No padding or universal limit. Deliberate fixture/envelope changes require review and explicit re-recording. A stable fixture.example.test CLI identity is routed to random loopback HTTP ports by the test transport; measured stdout bytes are unmodified.",
+  "fixture_sha256": "8239922de2ff8a24a90d4e4dc4bb4eb2e6f54a25832bf2775c1278ef01b25702",
+  "cases": {
+    "sys_properties/no-count/json": {
+      "stdout_bytes": 489,
+      "stderr_bytes": 0
+    },
+    "sys_properties/no-count/csv": {
+      "stdout_bytes": 216,
+      "stderr_bytes": 0
+    },
+    "sys_properties/no-count/tsv": {
+      "stdout_bytes": 215,
+      "stderr_bytes": 0
+    },
+    "sys_properties/count/json": {
+      "stdout_bytes": 514,
+      "stderr_bytes": 0
+    },
+    "sys_properties/count/csv": {
+      "stdout_bytes": 216,
+      "stderr_bytes": 72
+    },
+    "sys_properties/count/tsv": {
+      "stdout_bytes": 215,
+      "stderr_bytes": 72
+    },
+    "sys_script_include/no-count/json": {
+      "stdout_bytes": 496,
+      "stderr_bytes": 0
+    },
+    "sys_script_include/no-count/csv": {
+      "stdout_bytes": 215,
+      "stderr_bytes": 0
+    },
+    "sys_script_include/no-count/tsv": {
+      "stdout_bytes": 214,
+      "stderr_bytes": 0
+    },
+    "sys_script_include/count/json": {
+      "stdout_bytes": 521,
+      "stderr_bytes": 0
+    },
+    "sys_script_include/count/csv": {
+      "stdout_bytes": 215,
+      "stderr_bytes": 72
+    },
+    "sys_script_include/count/tsv": {
+      "stdout_bytes": 214,
+      "stderr_bytes": 72
+    },
+    "sys_security_acl/no-count/json": {
+      "stdout_bytes": 541,
+      "stderr_bytes": 0
+    },
+    "sys_security_acl/no-count/csv": {
+      "stdout_bytes": 236,
+      "stderr_bytes": 0
+    },
+    "sys_security_acl/no-count/tsv": {
+      "stdout_bytes": 235,
+      "stderr_bytes": 0
+    },
+    "sys_security_acl/count/json": {
+      "stdout_bytes": 566,
+      "stderr_bytes": 0
+    },
+    "sys_security_acl/count/csv": {
+      "stdout_bytes": 236,
+      "stderr_bytes": 72
+    },
+    "sys_security_acl/count/tsv": {
+      "stdout_bytes": 235,
+      "stderr_bytes": 72
+    },
+    "sys_scope_privilege/no-count/json": {
+      "stdout_bytes": 671,
+      "stderr_bytes": 0
+    },
+    "sys_scope_privilege/no-count/csv": {
+      "stdout_bytes": 304,
+      "stderr_bytes": 0
+    },
+    "sys_scope_privilege/no-count/tsv": {
+      "stdout_bytes": 304,
+      "stderr_bytes": 0
+    },
+    "sys_scope_privilege/count/json": {
+      "stdout_bytes": 696,
+      "stderr_bytes": 0
+    },
+    "sys_scope_privilege/count/csv": {
+      "stdout_bytes": 304,
+      "stderr_bytes": 72
+    },
+    "sys_scope_privilege/count/tsv": {
+      "stdout_bytes": 304,
+      "stderr_bytes": 72
+    },
+    "sys_flow_context/no-count/json": {
+      "stdout_bytes": 487,
+      "stderr_bytes": 0
+    },
+    "sys_flow_context/no-count/csv": {
+      "stdout_bytes": 200,
+      "stderr_bytes": 0
+    },
+    "sys_flow_context/no-count/tsv": {
+      "stdout_bytes": 199,
+      "stderr_bytes": 0
+    },
+    "sys_flow_context/count/json": {
+      "stdout_bytes": 512,
+      "stderr_bytes": 0
+    },
+    "sys_flow_context/count/csv": {
+      "stdout_bytes": 200,
+      "stderr_bytes": 72
+    },
+    "sys_flow_context/count/tsv": {
+      "stdout_bytes": 199,
+      "stderr_bytes": 72
+    },
+    "docs/full": {
+      "stdout_bytes": 4444,
+      "stderr_bytes": 0
+    },
+    "docs/outline": {
+      "stdout_bytes": 1216,
+      "stderr_bytes": 0
+    },
+    "docs/section": {
+      "stdout_bytes": 1220,
+      "stderr_bytes": 0
+    }
+  }
+}
