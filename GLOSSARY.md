@@ -373,7 +373,7 @@ set. A flow's explicit transaction scope does not select its capture update set.
 ## Output envelope
 
 Everything a command emits goes through `app.output` (`src/output.js`).
-Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, plus `--get`
+Formats: `auto`, `json`, `markdown`, `styled`, `quiet`, `csv`, `tsv`, plus `--get`
 (or `--select`) for JSON path extraction into the envelope.
 
 Machine JSON is compact and omits top-level `summary` and `breadcrumbs`.
@@ -391,6 +391,11 @@ parameters. `--include-reference-links` omits that default; explicit provider
 parameters from metadata and inspection callers still take precedence. Write
 requests are unchanged. Counted list pagination adds boolean `hasMore`, derived
 from offset, limit and total without another request. Unknown totals omit it.
+CSV and TSV share flat-row projection and stderr-only pagination notices when
+`hasMore` is explicitly true. TSV uses real tab separators and LF record endings;
+backslash, tab, LF and CR inside headers/cells are backslash-escaped in one pass.
+These scalar formats prefer display labels over IDs and collapse null/missing
+cells to empty strings; use JSON for retained structure and metadata.
 
 - **Typed shapes / side-channel keys** — the declared way a command tells the
   styled writer what it's emitting: `records`/`columns`/`table`, `relationships`,
@@ -410,8 +415,8 @@ from offset, limit and total without another request. Unknown totals omit it.
   the failure renderer calls the same function on argv from
   `LocalCLI.parseGlobalOptions` (the adapter's own parse, in tolerant mode) —
   never a re-scan of raw tokens. Precedence: the shortcut flags
-  (`--json`/`--quiet`/`--styled`/`--markdown`/`--csv`) beat `--format`, and the
-  last shortcut applied wins (`csv` > `markdown` > `styled` > `quiet` > `json`).
+  (`--json`/`--quiet`/`--styled`/`--markdown`/`--csv`/`--tsv`) beat `--format`, and the
+  last shortcut applied wins (`tsv` > `csv` > `markdown` > `styled` > `quiet` > `json`).
 
 ## Catalog ordering
 

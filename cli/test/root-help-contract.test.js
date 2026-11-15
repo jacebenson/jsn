@@ -118,7 +118,7 @@ describe('--all-commands --help remains the exhaustive reference', () => {
         `--${option.name} is missing from full help`);
     }
     assert.match(help, /--format\s+Output format/);
-    assert.match(help, /\[string: auto, json, markdown, styled, quiet, csv\]/);
+    assert.match(help, /\[string: auto, json, markdown, styled, quiet, csv, tsv\]/);
   });
 
   it('the CLI flag reaches the full page and keeps tips/picker detail', () => {

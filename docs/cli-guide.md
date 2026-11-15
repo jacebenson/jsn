@@ -572,6 +572,7 @@ jsn auth modify work --read-only --no-include-counts --confirm-deletes --json
 | `--markdown` | Documentation |
 | `--quiet` / `-S` | Data only, no envelope |
 | `--csv` | Spreadsheets (opens straight into Excel) |
+| `--tsv` / `--format=tsv` | Compact flat lists separated by real tabs |
 | `--get <path>` / `--select <path>` | Extract a value, e.g. `--select 'data.records[0].number'` |
 | `--raw` | Print selected strings without JSON quotes |
 | `--verbose` | Restore JSON summaries, breadcrumbs and two-space indentation |
@@ -611,6 +612,36 @@ A CSV reader consuming only stdout will **not** see this notice. Capture and
 check stderr separately, and do not merge it into the CSV stream with `2>&1`.
 For automation that needs structured pagination metadata, use `--json` instead.
 CSV does not fetch subsequent pages automatically.
+
+### TSV cells and terminal spacing
+
+```bash
+jsn records list --table incident --columns sys_id,number,state --limit 5 --tsv
+```
+
+`--tsv` and `--format=tsv` are equivalent. TSV shares CSV's row selection:
+headers come from the first record's keys, reference objects prefer
+`display_value`, then `value`, and other objects/arrays become JSON cell strings.
+Null and missing cells become empty strings (indistinguishable from an empty
+string); empty results emit no bytes, not a header. CSV/TSV do not preserve both
+reference IDs and labels. JSON preserves reference objects only when the command
+has retained them; an earlier scalar projection cannot recover discarded IDs.
+
+Fields and headers escape backslash as `\\`, tab as `\t`, newline as `\n`,
+and carriage return as `\r`. Each record occupies one physical line, with real
+tabs between cells and LF between records. Quotes have no special meaning.
+To parse, split lines and tabs **before** decoding those four backslash escapes
+in one pass; decode JSON-valued cells separately afterward if needed.
+
+Tabs use the viewer's tab stops, not padded column widths. Long values can cross
+a tab stop, so TSV does not guarantee visually aligned columns. Use the default
+styled terminal view for padded tables.
+
+Like CSV, TSV keeps summaries and pagination footers off stdout and sends a
+`TSV pagination:` notice to stderr only when `hasMore` is explicitly true.
+Silence (including `--no-count`) does not prove completeness. Capture stderr
+separately; use JSON when automation needs pagination metadata. Neither format
+fetches additional pages. `--get`/`--select` extraction still takes precedence.
 
 ## Authentication
 
