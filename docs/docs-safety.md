@@ -13,13 +13,19 @@ permalink: /docs/safety/
 
 ## Safe by default
 
-Use a read-only profile while exploring. Deletes require an explicit force flag, and mutation commands show what they are going to change.
+Use a read-only profile while exploring. Setup's default preset allows writes;
+read-only mode is an explicit profile setting. ServiceNow roles and ACLs still
+control access. A compact help menu is not an access boundary.
 
 ```bash
-jsn auth modify <profile>
-jsn records list --table incident --query "active=true"
-jsn records delete --table incident --sys-id <id> --force
+jsn auth modify <profile> --read-only
+jsn records list --table incident --query "active=true" --limit 5 --json
 ```
+
+Writes do not all offer the same confirmation or preview behavior. Read each
+command's help before enabling writes. Deletion normally asks for confirmation;
+`--force` or an explicitly configured skip-confirmations policy can bypass that
+prompt. A read-only profile still blocks instance mutations.
 
 Treat `--force` as a deliberate boundary, not a convenience flag. Test against the correct profile, scope, and update set before changing an instance.
 
