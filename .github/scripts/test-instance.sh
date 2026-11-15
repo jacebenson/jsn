@@ -28,12 +28,14 @@ import { pathToFileURL } from 'node:url';
 const [root, ...args] = process.argv.slice(2);
 try {
   if (args.includes('--help')) {
-    console.log('Usage: ./.github/scripts/test-instance.sh --profile NAME [--version EXACT] [--dry-run] [--env-file FILE]');
-    console.log('Default: run all readonly checks and publish. --dry-run: run the same provider checks, save locally, never publish (not a no-network preview).');
+    console.log('Usage: ./.github/scripts/test-instance.sh --profile NAME [--version EXACT] [--dry-run] [--readonly] [--plan] [--env-file FILE]');
+    console.log('Default: full READWRITE suite and publish. --readonly selects GET-only checks. --dry-run skips publication ONLY, NOT provider writes. --plan exports scope without provider calls.');
     process.exit(0);
   }
-  const forwarded = []; let dry = false; let profile;
+  const forwarded = []; let dry = false; let profile; let readonly = false; let plan = false;
   for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--readonly' && !readonly) { readonly = true; continue; }
+    if (args[i] === '--plan' && !plan) { plan = true; continue; }
     if (args[i] === '--dry-run' && !dry) { dry = true; continue; }
     if (!['--profile', '--version'].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith('--')) throw Error('options: use --profile NAME [--version EXACT] [--dry-run]');
     const key = args[i], value = args[++i];
@@ -54,17 +56,19 @@ try {
     throw Error(`profile: selected name is not a configured local profile; use --profile with an existing name${names.length ? ` (${names.join(', ')})` : ''}, or set ${aliasKey} to that local profile in the env file`);
   }
   forwarded[forwarded.indexOf('--profile') + 1] = resolved;
-  forwarded.push('--target', profile, '--mode', 'readonly');
-  if (!dry) forwarded.push('--publish');
+  forwarded.push('--target', profile, '--mode', readonly ? 'readonly' : 'full');
+  if (plan) forwarded.push('--plan');
+  if (!dry && !plan) forwarded.push('--publish');
   parseOptions(forwarded); // Exact version and target validation before provider calls.
-  if (!dry) {
+  if (!dry && !plan) {
     if (!process.env.JSN_ACCEPTANCE_INGEST_TOKEN || !process.env.JSN_ACCEPTANCE_INGEST_URL) throw Error('publication: set JSN_ACCEPTANCE_INGEST_URL and JSN_ACCEPTANCE_INGEST_TOKEN, or opt into --dry-run');
     let url; try { url = new URL(process.env.JSN_ACCEPTANCE_INGEST_URL); } catch { throw Error('publication: invalid ingest URL'); }
     const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
     if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) || url.username || url.password || url.search || url.hash || url.pathname !== '/api/acceptance/runs') throw Error('publication: use an HTTPS /api/acceptance/runs endpoint (HTTP allowed only on loopback), without credentials, query or fragment');
     if (process.env.JSN_ACCEPTANCE_INGEST_TOKEN.length < 32) throw Error('publication: ingest token must contain at least 32 characters');
   }
-  console.log(dry ? 'Mode: local-only (--dry-run); full readonly provider checks, no publication POST.' : 'Mode: run + publish; full readonly provider checks followed by publication.');
+  console.log(plan ? 'PLAN ONLY: no provider calls or publication.' : readonly ? 'READONLY: GET-only provider checks.' : 'WARNING: FULL READWRITE selected target; creates run-owned fixtures, restores session context, retains unsupported capture/flow graphs.');
+  console.log(dry ? '--dry-run skips publication ONLY; selected provider tests still execute (including full-mode writes).' : plan ? 'Publication skipped.' : 'Publication enabled.');
   process.exitCode = await main(forwarded);
 } catch (error) {
   console.error(/^(options|profile|publication|mode|output|auth|npm artifact|profile\/auth|harness preparation|candidate version|readonly suite|report schema|output permission):/.test(error.message) ? error.message : 'options: invalid arguments or acceptance runner unavailable; use --help');

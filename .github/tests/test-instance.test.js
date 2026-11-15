@@ -23,9 +23,11 @@ test('shell entrypoint: cwd, dotenv, aliases, opt-in dry-run and status forwardi
     const env = { PATH: process.env.PATH, HOME: root, TMPDIR: process.env.TMPDIR, HERMES_HOME: root };
     const run = (args, extra = {}) => spawnSync(script, args, { cwd: path.dirname(root), env: { ...env, ...extra }, encoding: 'utf8' });
     let r = run(['--env-file', envFile, '--profile', 'vendor-1', '--dry-run']);
-    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /local-only/); assert.doesNotMatch(r.stdout, /--publish|canary-never-log/); assert.match(r.stdout, /"--profile","local"/);
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /skips publication ONLY/); assert.doesNotMatch(r.stdout, /--publish|canary-never-log/); assert.match(r.stdout, /"--profile","local"/); assert.match(r.stdout, /"--mode","full"/);
+    const ro = run(['--env-file', envFile, '--profile', 'vendor-1', '--dry-run', '--readonly']); assert.equal(ro.status, 0); assert.match(ro.stdout, /"--mode","readonly"/);
+    const plan = run(['--profile','local','--plan']); assert.equal(plan.status,0); assert.match(plan.stdout,/PLAN ONLY/); assert.doesNotMatch(plan.stdout,/--publish/);
     r = run(['--env-file', envFile, '--profile', 'vendor-1', '--version', '5.5.5']);
-    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /run \+ publish/); assert.match(r.stdout, /--publish/); assert.match(r.stdout, /Tested version: 5.5.5/);
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /Publication enabled/); assert.match(r.stdout, /--publish/); assert.match(r.stdout, /Tested version: 5.5.5/);
     r = run(['--env-file', envFile, '--profile', 'vendor-1', '--dry-run'], { DIRECT: '1', TEST_STATUS: '2' });
     assert.equal(r.status, 2); assert.match(r.stdout, /"--profile","vendor-1"/);
     r = run(['--profile', 'vendor-1', '--dry-run']); assert.equal(r.status, 1); assert.match(r.stderr, /JSN_TEST_PROFILE_VENDOR_1.*local profile/);

@@ -1,10 +1,11 @@
-// Local readonly adapter: immutable scenario bytes, separately verified executable.
+// Local isolated full/read-only adapter: immutable scenario bytes, separately verified executable.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fullPlan, guardFullContext, scenarioPolicy } from './acceptance/full-safety.mjs';
 import { HARNESS_SHA, FILES } from './acceptance/prepare.mjs';
 import { publishResults, validateProjection } from './acceptance/publish.mjs';
 import { loadConfig } from '../../cli/src/config.js';
@@ -19,12 +20,14 @@ export function parseOptions(args) {
   const options = {};
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
+    if (key === '--plan') { options.plan = true; continue; }
     if (key === '--publish') { if (options.publish) throw Error(); options.publish = true; continue; }
     if (!['--version', '--profile', '--target', '--output', '--result', '--mode'].includes(key) || options[key.slice(2)] !== undefined || !args[i + 1] || args[i + 1].startsWith('--')) throw Error();
     options[key.slice(2)] = args[++i];
   }
   if (options.result) { if (!options.publish || Object.keys(options).some(k => !['result', 'publish'].includes(k))) throw Error(); return options; }
-  if (options.mode && options.mode !== 'readonly') throw Error('mode: full mutations refused; disposable-table and retained-flow safety are not configured');
+  if (options.mode && !['readonly', 'full'].includes(options.mode)) throw Error('mode: use full or readonly');
+  options.mode ||= 'full';
   if (!options.target || !/^[a-z][a-z0-9-]{0,30}$/.test(options.target) || (options.version !== undefined && !exactVersion.test(options.version))) throw Error();
   if (!options.profile && !process.env.SERVICENOW_INSTANCE_URL) throw Error();
   options.output ||= path.join(os.homedir(), 'private-acceptance', `${options.target}-${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`);
@@ -90,7 +93,7 @@ export function stageHarness(temporary, version) {
   return harness;
 }
 export async function runLocal(options) {
-  if (options.mode && options.mode !== 'readonly') throw Error('mode: full mutations refused; no proven disposable-table configuration');
+  const mode = options.mode === 'readonly' ? 'readonly' : 'pdi';
   const output = path.resolve(options.output || path.join(os.homedir(), 'private-acceptance', `${options.target}-${new Date().toISOString().replaceAll(':', '-')}-${randomUUID()}`));
   if (output === ROOT || output.startsWith(`${ROOT}${path.sep}`)) throw Error('output: choose a directory outside the repository');
   if (fs.existsSync(output)) throw Error('output: directory already exists; omit --output for a unique run directory');
@@ -102,11 +105,11 @@ export async function runLocal(options) {
     const artifact = await acquireArtifact(options.version, temporary);
     console.log(`Tested version: ${artifact.identity.version} (${artifact.identity.kind})`);
     stage = 'profile/auth';
-    const { origin, creds } = await credentials(options);
+    const { origin, creds } = options.plan ? { origin: 'https://plan.invalid', creds: {} } : await credentials(options);
     stage = 'harness preparation';
     const home = path.join(temporary, 'home'), config = path.join(home, 'config');
     fs.mkdirSync(path.join(config, 'servicenow'), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(config, 'servicenow/config.json'), JSON.stringify({ default_profile: 'acceptance', profiles: { acceptance: { instance_url: origin, auth_method: creds.auth_method, read_only: true, ephemeral: true } } }), { mode: 0o600 });
+    fs.writeFileSync(path.join(config, 'servicenow/config.json'), JSON.stringify({ default_profile: 'acceptance', profiles: { acceptance: { instance_url: origin, auth_method: creds.auth_method, read_only: mode === 'readonly', ephemeral: true } } }), { mode: 0o600 });
     const env = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(home, 'cache'), JSN_DATA_HOME: path.join(home, 'data'), DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_DOCS_CHECK: '1', ...(creds.auth_method === 'oauth' ? { SERVICENOW_OAUTH_TOKEN: creds.access_token } : { SN_USERNAME: creds.username, SN_PASSWORD: creds.password }) };
     const harness = stageHarness(temporary, artifact.identity.version);
     const support = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/support.mjs')));
@@ -120,7 +123,8 @@ export async function runLocal(options) {
       // checks. Only its canonical CLI launch is routed to the verified package.
       // Independent SDK readbacks continue to use the trusted harness SDK.
       const candidate = args[0] === ownExecutable;
-      const childEnv = { ...opts.env, ...env };
+      const fixture = opts.env.XDG_CONFIG_HOME?.startsWith(path.join(temporary, 'private-run') + path.sep);
+      const childEnv = fixture ? { ...env, ...opts.env } : { ...opts.env, ...env };
       for (const key of ['JSN_DATA_HOME', 'XDG_CACHE_HOME']) if (opts.env[key]) childEnv[key] = opts.env[key];
       const result = await support.runProcess(node, candidate ? [executable, ...args.slice(1)] : args, { ...opts, env: childEnv });
       measurements.push({ passed: result.exitCode === 0, format: args.includes('--json') ? 'machine' : 'human', durationMs: result.durationMs, outputBytes: Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) });
@@ -133,24 +137,56 @@ export async function runLocal(options) {
     for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) allScenarios.push(...(await import(pathToFileURL(path.join(harness, `cli/test/acceptance/${name}.mjs`)))).scenarios);
     const { bindScenarios, coverageDetails } = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/bindings.mjs')));
     bindScenarios(allScenarios);
-    const selection = support.selectScenarios(allScenarios, { full: true, mode: 'readonly' });
-    const selected = allScenarios.filter(s => s.modes.includes('readonly'));
-    if (selected.some(s => s.mutates)) throw Error('harness: mutating scenario declared readonly');
+    if (options.plan) {
+      fs.writeFileSync(path.join(output, 'run-plan.json'), JSON.stringify(fullPlan(allScenarios, mode), null, 2), { mode: 0o600 });
+      return { file: path.join(output, 'run-plan.json'), planned: true };
+    }
+    const selection = support.selectScenarios(allScenarios, { full: true, mode });
+    const selected = mode === 'pdi' ? allScenarios : allScenarios.filter(s => s.modes.includes('readonly'));
+    if (mode === 'readonly' && selected.some(s => s.mutates)) throw Error('harness: mutating scenario declared readonly');
     const selectedIds = selection.ids.filter(id => selected.some(s => s.id === id));
     const inventory = JSON.parse(fs.readFileSync(path.join(harness, 'cli/test/acceptance/coverage.json')));
-    const coverage = coverageDetails(inventory, allScenarios, selectedIds, 'readonly');
+    const coverage = coverageDetails(inventory, allScenarios, selectedIds, mode);
     const missing = coverage.gaps;
     const omitted = allScenarios.filter(s => s.modes.includes('readonly') && !selectedIds.includes(s.id)).map(s => s.id);
     stage = 'readonly suite';
-    const ctx = support.createContext({ mode: 'readonly', profile: 'acceptance', outputDir: path.join(temporary, 'private-run') }, { target: origin }, { execute });
+    const privateRun = path.join(temporary, 'private-run');
+    const contextOptions = { mode, allowWrites: mode === 'pdi', profile: 'acceptance', expectedHost: origin, outputDir: privateRun };
+    support.preflight(contextOptions, JSON.parse(fs.readFileSync(path.join(config, 'servicenow/config.json'))), {});
+    const ctx = support.createContext(contextOptions, { target: origin }, { execute });
+    if (mode === 'pdi') {
+      guardFullContext(ctx, { inventory, receiptFile: path.join(output, 'cleanup-receipt.json'), target: options.target });
+      ctx.state.set('workflows.allowRetainedFlows', true);
+    }
     const command = ctx.command;
     // Wrappers add progress only; immutable scenario callbacks and dependency
     // handling remain owned by executeScenarios, including finally hooks.
     const progressing = selected.map(s => ({ ...s, async run(context) {
       console.log(`[${selectedIds.indexOf(s.id) + 1}/${selected.length}] ${s.id} running`);
+      const reason = mode === 'pdi' && scenarioPolicy(s);
+      if (reason) throw new support.ScenarioError('blocked-prerequisite', reason);
+      if (s.id === 'workflows.context') {
+        // Preserve the exact original update-set name for restoration only.
+        const read = context.read;
+        context.read = async (table, query) => {
+          const result = await read(table, query);
+          if (table === 'sys_update_set' && query.id && query.fields?.includes('name') && !context.state.has('workflows.originalContext')) {
+            const row = Array.isArray(result) ? result[0] : result;
+            context.state.set('safety.restoreName', row?.name?.value ?? row?.name);
+          }
+          return result;
+        };
+        try { return await s.run(context); } finally { context.read = read; }
+      }
       return s.run(context);
     } }));
     const report = await executeScenarios(progressing, ctx, { missing: [...missing], selection: { ...selection, ids: selectedIds }, provenance: artifact.identity, suiteHooks: hooks });
+    if (mode === 'pdi') {
+      const receiptFile = path.join(output, 'cleanup-receipt.json');
+      const receipt = fs.existsSync(receiptFile) ? JSON.parse(fs.readFileSync(receiptFile)) : { runKey:ctx.runKey, target:options.target, status:'unresolved-write-intent', countsUnavailable:true };
+      receipt.sessionRestoration = ctx.state.has('workflows.originalContext') ? (ctx.state.has('workflows.context') ? 'unresolved' : 'verified-by-provider-readback') : 'not-changed';
+      fs.writeFileSync(receiptFile, JSON.stringify(receipt,null,2), {mode:0o600});
+    }
     for (const [index, result] of report.results.entries()) console.log(`[${index + 1}/${selected.length}] ${result.id} ${result.status} ${Math.round(result.durationMs)}ms`);
     const results = report.results.map(({ id, status, durationMs }) => ({ id, status, durationMs }));
     const release = { family: null, version: null, build: null, patch: null, hotfix: null, source: 'sys_properties.name,value via bounded records list', fields: {}, reason: 'metadata-unavailable-or-unrecognized' };
@@ -170,7 +206,7 @@ export async function runLocal(options) {
       }
     } catch { /* Only the closed unavailable reason is retained. */ }
     const counts = {}; for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
-    const payload = { schemaVersion: 2, runKey: `acceptance_${randomUUID().replaceAll('-', '')}`, mode: 'readonly', provenance: { sourceSHA: artifact.identity.sourceSHA, version: artifact.identity.version, node: process.version, binarySHA256: sha(fs.readFileSync(executable)), sourceDirty: artifact.identity.sourceDirty }, platform: 'linux', environment: { domainSeparation: 'UNKNOWN' }, selection: { full: true, selected: selectedIds }, summary: { total: results.length, counts, complete: report.summary.missing.length === 0 && results.every(r => r.status === 'passed'), missingCount: report.summary.missing.length }, performance: ctx.state.has('performance.suite') ? hooks.publicPerformance(ctx.state.get('performance.suite')) : null, results };
+    const payload = { schemaVersion: 2, runKey: `acceptance_${randomUUID().replaceAll('-', '')}`, mode, provenance: { sourceSHA: artifact.identity.sourceSHA, version: artifact.identity.version, node: process.version, binarySHA256: sha(fs.readFileSync(executable)), sourceDirty: artifact.identity.sourceDirty }, platform: 'linux', environment: { domainSeparation: 'UNKNOWN' }, selection: { full: true, selected: selectedIds }, summary: { total: results.length, counts, complete: report.summary.missing.length === 0 && results.every(r => r.status === 'passed'), missingCount: report.summary.missing.length }, performance: ctx.state.has('performance.suite') ? hooks.publicPerformance(ctx.state.get('performance.suite')) : null, results };
     Object.assign(payload.provenance, { artifactKind: artifact.identity.kind, registryIntegrity: artifact.identity.integrity, harnessSHA: git(['rev-parse', 'HEAD']), producerSHA: HARNESS_SHA, target: options.target });
     payload.environment.release = release;
     stage = 'report schema';
@@ -178,7 +214,7 @@ export async function runLocal(options) {
     stage = 'output permission';
     fs.mkdirSync(output, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(output, 'public-summary.json'), JSON.stringify(payload, null, 2), { mode: 0o600 });
-    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: { scope: 'full-readonly-catalog', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, applicableReadonly: selected.length, excludedMutationScenarios: allScenarios.filter(s => !s.modes.includes('readonly')).map(s => s.id), omittedReadonly: omitted, obligations: { ...coverage.counts, interpretation: 'static inventory requirement and option-assertion gaps; not a scenario or test count' }, missing: report.summary.missing }, executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: { scope: mode === 'pdi' ? 'full-catalog' : 'full-readonly-catalog', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, applicableSelectedMode: selected.filter(s => s.modes.includes(mode)).length, excludedMutationScenarios: mode === 'readonly' ? allScenarios.filter(s => !s.modes.includes('readonly')).map(s => s.id) : [], omittedReadonly: omitted, obligations: { ...coverage.counts, interpretation: 'static inventory requirement and option-assertion gaps; not a scenario or test count' }, missing: report.summary.missing }, scenarioOutcomes: report.results.map(r => ({ id:r.id, status:r.status, reason: r.status.startsWith('blocked') ? scenarioPolicy({id:r.id}) || (r.id.startsWith('auth.') ? 'Requires verified OAuth bootstrap, observed domain and provider-supported isolated Basic/cookie session prerequisites; dependencies may be blocked' : 'Required provider capability, dictionary or prerequisite scenario unavailable; never inferred passed') : null })), executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
     return { file: path.join(output, 'public-summary.json'), summary: payload.summary };
   } catch (error) {
     if (error instanceof LocalFailure) throw error;
@@ -197,13 +233,14 @@ export async function runLocal(options) {
 export async function main(args = process.argv.slice(2)) {
   const options = parseOptions(args);
   const result = options.result ? { file: path.resolve(options.result) } : await runLocal(options);
+  if (result.planned) console.log(`Plan saved: ${result.file}`);
   if (result.summary) {
     console.log(JSON.stringify(result.summary));
     const directory = path.dirname(result.file), name = path.basename(directory);
     const location = !args.includes('--output') && path.dirname(directory) === path.join(os.homedir(), 'private-acceptance') && /^[a-z0-9.TZ-]+$/.test(name) ? `$HOME/private-acceptance/${name}` : 'the explicit output directory';
     console.log(`Saved public-summary.json and local-summary.json in ${location}`);
   }
-  if (options.publish) { const publication = await publishResults({ file: result.file, url: process.env.JSN_ACCEPTANCE_INGEST_URL, token: process.env.JSN_ACCEPTANCE_INGEST_TOKEN }); console.log(JSON.stringify(publication)); if (!publication.ok) return 1; }
+  if (options.publish && !result.planned) { const publication = await publishResults({ file: result.file, url: process.env.JSN_ACCEPTANCE_INGEST_URL, token: process.env.JSN_ACCEPTANCE_INGEST_TOKEN }); console.log(JSON.stringify(publication)); if (!publication.ok) return 1; }
   return result.summary ? selectedExitCode(result.summary) : 0;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then(code => { process.exitCode = code; }).catch(error => { console.error(/^(mode|output|profile|auth|npm artifact|profile\/auth|harness preparation|candidate version|readonly suite|report schema|output permission):/.test(error.message) ? error.message : 'options: use --version EXACT --profile NAME --target LABEL; output defaults to a unique private directory'); process.exitCode = 1; });

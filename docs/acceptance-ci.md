@@ -9,12 +9,43 @@
 ```
 
 The executable wrapper works from any working directory when invoked by its
-path. Default behavior is **run + publish**. `--dry-run` is opt-in: it still
-executes all 71 readonly provider scenarios and saves the same private summaries,
-but never sends the publication POST. It is **not** a no-network preview.
-Neither mode enables business-data writes. Failed or blocked checks retain the
-runner's nonzero exit status. Omitting `--version` tests the current checkout;
-`--version` requires an exact npm version. The tested version is printed.
+path. Default behavior is **full READWRITE + publish**, using a private ephemeral
+profile with `read_only: false` and an exact target. Existing profiles are never
+modified. This deliberately maps local `full` to the immutable producer's older
+`pdi` mode; it does not imply that a vendor target is a disposable instance.
+`--dry-run` skips **publication only**: the same provider writes still execute.
+Use `--readonly` explicitly for the 71-scenario GET-only subset. Use `--plan` to
+export all 92 immutable scenarios, command paths, prerequisites, mutation tables
+and blocked surfaces without provider calls. Full selection is not a claim of
+complete product coverage; blocked prerequisites and inventory gaps remain visible.
+Failed or blocked checks retain the runner's nonzero exit status. Omitting
+`--version` tests the current checkout; exact npm versions verify registry integrity
+and candidate identity separately from the pinned producer provenance.
+
+```sh
+./.github/scripts/test-instance.sh --profile vendor-1 --plan
+./.github/scripts/test-instance.sh --profile vendor-1 --readonly --dry-run
+```
+
+Full mode creates uniquely named run-owned inactive resource fixtures, a dedicated
+capture set and an inspected Log-only property-triggered flow. Update/delete,
+publish/unlock and flow test commands require acknowledged current-run IDs; flow
+tests also require a current-run property. No existing business record is updated.
+The original effective application/update-set is snapshotted and independently
+read back after restoration. Unresolved writes prevent unsafe follow-up dispatch.
+Native update-set import/commit (global-setting/history effects) and catalog order
+(no reviewed provider fulfillment recipe) remain explicitly blocked, not passed.
+Auth and interactive scenarios retain upstream prerequisite checks; no Basic,
+TOTP, domain, catalog recipe or external session evidence is invented.
+
+`cleanup-receipt.json` is private (0600), contains only target label, run ownership,
+table/type/owned IDs and created/deleted/retained counts, plus restoration status.
+Supported exact-ID cleanup is attempted in finally, including failed scenarios.
+Capture history and unsupported flow graphs are deliberately retained; no force
+schema deletion or guessed graph cascade is attempted. Their retention is not a
+reason to suppress all other writes. Public reports never contain these IDs,
+provider URLs, credentials or usernames. `local-summary.json` distinguishes full
+selection, applicability, blocked prerequisites and static inventory gaps.
 
 Node loads `${HERMES_HOME:-$HOME/.hermes}/.env` if present; use `--env-file FILE`
 to override it. This file is parsed as dotenv, never executed as shell code.

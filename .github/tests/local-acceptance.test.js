@@ -26,7 +26,8 @@ test('adapter rejects nonpassing selected outcomes and unverified artifacts', as
 test('local options require exact versions, target labels and explicit publication', () => {
   for (const version of ['latest', '^5.5.5', '5', '5.5.5 --eval']) assert.throws(() => parseOptions(['--version', version, '--target', 'vendor-1', '--output', 'out']));
   assert.throws(() => parseOptions(['--result', 'out']));
-  assert.throws(() => parseOptions(['--mode', 'full', '--profile', 'vendor', '--target', 'vendor1']), /mutations refused/);
+  assert.equal(parseOptions(['--mode', 'full', '--profile', 'vendor', '--target', 'vendor1']).mode, 'full');
+  assert.equal(parseOptions(['--profile', 'vendor', '--target', 'vendor1']).mode, 'full');
   const first = parseOptions(['--version', '5.5.5', '--profile', 'vendor', '--target', 'vendor1']);
   const second = parseOptions(['--version', '5.5.5', '--profile', 'vendor', '--target', 'vendor1']);
   assert.notEqual(first.output, second.output);
@@ -79,7 +80,7 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
   try {
     for (const version of [undefined, '5.5.5']) {
       const output = path.join(root, version || 'checkout');
-      const result = await runLocal({ version, target: 'vendor-1', output });
+      const result = await runLocal({ mode: 'readonly', version, target: 'vendor-1', output });
       const payload = JSON.parse(fs.readFileSync(result.file));
       assert.equal(payload.provenance.version, '5.5.5');
       assert.equal(payload.results.find(r => r.id === 'readonly.records').status, 'passed');
@@ -96,7 +97,7 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       const local = JSON.parse(fs.readFileSync(path.join(output, 'local-summary.json')));
       assert.equal(local.coverage.missing.length, payload.summary.missingCount);
       assert.ok(local.humanMeasurementsPassed >= 2);
-      assert.equal(local.coverage.applicableReadonly, 71);
+      assert.equal(local.coverage.applicableSelectedMode, 71);
       assert.deepEqual(local.coverage.omittedReadonly, []);
       assert.equal(new Set(payload.selection.selected).size, 71);
       assert.deepEqual(payload.results.map(r => r.id), payload.selection.selected);
@@ -112,7 +113,7 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       assert.equal((await publishResults({ file: result.file, url: `${origin}/api/acceptance/runs`, token })).result, 'readback-failed'); marker = true;
     }
     mode = 401;
-    const failed = await runLocal({ target: 'vendor-2', output: path.join(root, 'rejected') });
+    const failed = await runLocal({ mode: 'readonly', target: 'vendor-2', output: path.join(root, 'rejected') });
     const rejectedText = fs.readdirSync(path.dirname(failed.file)).map(name => fs.readFileSync(path.join(path.dirname(failed.file), name), 'utf8')).join('');
     for (const secret of [token, origin, 'private-host-canary', 'private-user-canary']) assert.equal(rejectedText.includes(secret), false);
     assert.notEqual(failed.summary.counts.passed, failed.summary.total);
@@ -120,11 +121,11 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
     assert.equal((await publishResults({ file: failed.file, url: `${origin}/api/acceptance/runs`, token })).ok, true);
     assert.equal(stored.summary.complete, false);
     mode = 200;
-    const restored = await runLocal({ target: 'vendor-2', output: path.join(root, 'restored') });
+    const restored = await runLocal({ mode: 'readonly', target: 'vendor-2', output: path.join(root, 'restored') });
     assert.equal(JSON.parse(fs.readFileSync(restored.file)).results.find(r => r.id === 'readonly.records').status, 'passed');
     assert.equal(restored.summary.total, 71);
     assert.equal(requests.filter(r => !r.path.startsWith('/api/acceptance/') && !r.path.startsWith('/results/')).every(r => r.method === 'GET'), true);
-    await assert.rejects(runLocal({ target: 'vendor-1', output: path.join(root, 'checkout') }));
+    await assert.rejects(runLocal({ mode: 'readonly', target: 'vendor-1', output: path.join(root, 'checkout') }));
     // Keep sanitized evidence only when explicitly requested by the developer.
     if (process.env.JSN_LOCAL_FIXTURE_EVIDENCE) fs.cpSync(root, process.env.JSN_LOCAL_FIXTURE_EVIDENCE, { recursive: true });
   } finally {
