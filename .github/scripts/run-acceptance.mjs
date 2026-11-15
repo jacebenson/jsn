@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fullPlan, guardFullContext, runContextScenario, scenarioPolicy } from './acceptance/full-safety.mjs';
+import { contextAdapterV1 } from './acceptance/context-v1.mjs';
 import { HARNESS_SHA, FILES } from './acceptance/prepare.mjs';
 import { publishResults, validateProjection } from './acceptance/publish.mjs';
 import { loadConfig } from '../../cli/src/config.js';
@@ -159,9 +160,19 @@ export async function runLocal(options) {
       ctx.state.set('workflows.allowRetainedFlows', true);
     }
     const command = ctx.command;
-    // Wrappers add progress only; immutable scenario callbacks and dependency
-    // handling remain owned by executeScenarios, including finally hooks.
-    const progressing = selected.map(s => ({ ...s, async run(context) {
+    // Immutable catalog bytes remain staged unchanged. Context v1 is an
+    // explicit harness scenario replacement; candidate create still executes
+    // through the normal command guard and dependency/finally executor.
+    const restoreContext = async snapshot => {
+      const original = ctx.state.get('workflows.originalContext');
+      if (!original || snapshot.application !== original.application || snapshot.updateset !== original.updateset || !/^[a-f0-9]{32}$/.test(snapshot.updateset)) throw Error('Only exact snapshotted session restoration is permitted');
+      const moduleURL = file => JSON.stringify(pathToFileURL(path.join(harness, 'cli/src', file)).href);
+      const script = `import {App} from ${moduleURL('app.js')}; import {loadConfig} from ${moduleURL('config.js')}; import {restoreOriginalContext} from ${JSON.stringify(new URL('./acceptance/context-v1.mjs', import.meta.url).href)}; const a=new App(loadConfig({profile:'acceptance'})); if(a.getEffectiveInstance()!==${JSON.stringify(origin)}) throw Error('Target drift'); await restoreOriginalContext(a.sdk,${JSON.stringify(snapshot)}); console.log(JSON.stringify({ok:true}));`;
+      const response = await support.runProcess(process.execPath, ['--input-type=module', '-e', script], { cwd: temporary, env, timeoutMs: 30000 });
+      if (response.exitCode !== 0 || response.json?.ok !== true) throw Error('Exact context restoration failed');
+    };
+    const adapted = selected.map(s => s.id === 'workflows.context' ? contextAdapterV1(s, restoreContext) : s);
+    const progressing = adapted.map(s => ({ ...s, async run(context) {
       console.log(`[${selectedIds.indexOf(s.id) + 1}/${selected.length}] ${s.id} running`);
       const reason = mode === 'pdi' && scenarioPolicy(s);
       if (reason) throw new support.ScenarioError('blocked-prerequisite', reason);
@@ -202,7 +213,7 @@ export async function runLocal(options) {
     stage = 'output permission';
     fs.mkdirSync(output, { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(output, 'public-summary.json'), JSON.stringify(payload, null, 2), { mode: 0o600 });
-    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']) }, testedArtifact: artifact.identity, coverage: { scope: mode === 'pdi' ? 'full-catalog' : 'full-readonly-catalog', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, applicableSelectedMode: selected.filter(s => s.modes.includes(mode)).length, excludedMutationScenarios: mode === 'readonly' ? allScenarios.filter(s => !s.modes.includes('readonly')).map(s => s.id) : [], omittedReadonly: omitted, obligations: { ...coverage.counts, interpretation: 'static inventory requirement and option-assertion gaps; not a scenario or test count' }, missing: report.summary.missing }, scenarioOutcomes: report.results.map(r => ({ id:r.id, status:r.status, diagnostic: r.id === 'workflows.context' ? ctx.state.get('safety.contextDiagnostic') ?? null : null, reason: r.status.startsWith('blocked') ? scenarioPolicy({id:r.id}) || (r.id.startsWith('auth.') ? 'Requires verified OAuth bootstrap, observed domain and provider-supported isolated Basic/cookie session prerequisites; dependencies may be blocked' : 'Required provider capability, dictionary or prerequisite scenario unavailable; never inferred passed') : null })), executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(path.join(output, 'local-summary.json'), JSON.stringify({ runKey: payload.runKey, target: options.target, harness: { producerSHA: HARNESS_SHA, adapterSHA: git(['rev-parse', 'HEAD']), contextAdapter: mode === 'pdi' ? { version: 1, candidateOperation: 'updatesets create --scope global', restoration: 'trusted-sdk-official-picker-exact-snapshot-id', notCandidateEvidence: ['updatesets set', 'scopes set'], producerBytesUnchanged: true } : null }, testedArtifact: artifact.identity, coverage: { scope: mode === 'pdi' ? 'full-catalog' : 'full-readonly-catalog', selectedPassed: selectedExitCode(payload.summary) === 0, catalogScenarios: allScenarios.length, applicableSelectedMode: selected.filter(s => s.modes.includes(mode)).length, excludedMutationScenarios: mode === 'readonly' ? allScenarios.filter(s => !s.modes.includes('readonly')).map(s => s.id) : [], omittedReadonly: omitted, obligations: { ...coverage.counts, interpretation: 'static inventory requirement and option-assertion gaps; not a scenario or test count' }, missing: report.summary.missing }, scenarioOutcomes: report.results.map(r => ({ id:r.id, status:r.status, diagnostic: r.id === 'workflows.context' ? ctx.state.get('safety.contextDiagnostic') ?? null : null, reason: r.status.startsWith('blocked') ? scenarioPolicy({id:r.id}) || (r.id.startsWith('auth.') ? 'Requires verified OAuth bootstrap, observed domain and provider-supported isolated Basic/cookie session prerequisites; dependencies may be blocked' : 'Required provider capability, dictionary or prerequisite scenario unavailable; never inferred passed') : null })), executableVersionVerified: true, release, measurements, humanMeasurementsPassed: measurements.filter(m => m.format === 'human' && m.passed).length, tokens: { status: 'unavailable', tokenizer: null } }, null, 2), { mode: 0o600 });
     return { file: path.join(output, 'public-summary.json'), summary: payload.summary };
   } catch (error) {
     if (error instanceof LocalFailure) throw error;

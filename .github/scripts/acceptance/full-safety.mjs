@@ -69,7 +69,7 @@ export function guardFullContext(ctx, { inventory, receiptFile, target }) {
     if (mutation) {
       if (['scopes','updatesets'].includes(args[0]) && action === 'set') {
         const snapshot = ctx.state.get('workflows.originalContext');
-        if (!snapshot || (args[0] === 'scopes' ? id !== snapshot.application : id !== ctx.state.get('safety.restoreName'))) block('Only exact snapshotted session restoration is permitted');
+        if (!snapshot || (args[0] === 'scopes' ? id !== snapshot.application : id !== snapshot.updateset)) block('Only exact snapshotted session restoration is permitted');
       } else if (action === 'create') {
         if (args[0] === 'flows') {
           const data = JSON.parse(option(args, '--data') || '{}');
