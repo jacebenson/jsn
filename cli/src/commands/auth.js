@@ -38,8 +38,8 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
       methods[diagnostics.auth_method] || 'Not configured',
       states[diagnostics.state] || (profile.authenticated ? 'Available' : 'Missing'),
       connection,
-      profile.read_only ? 'Read-only' : 'Read/write',
-      profile.skip_confirmations ? 'No prompt' : 'Confirm',
+      profile.read_only === true ? 'Read-only' : 'Read/write',
+      profile.skip_confirmations === true ? 'No prompt' : 'Confirm',
       profile.include_counts === false ? 'Off' : 'On',
     ];
     if (details) {
@@ -60,6 +60,13 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
   const formatRow = row => row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd();
   const lines = [summary || `${profiles.length} profiles`, '', formatRow(headings), ...rows.map(formatRow)];
   if (profiles.some(profile => profile.active)) lines.push('', '* selected profile');
+  lines.push('', 'Profile protections (ACCESS / DELETES):');
+  if (profiles.some(profile => profile.read_only === true)) lines.push('  Read-only: blocks mutation commands, including writes, deletes and raw REST even with GET.');
+  if (profiles.some(profile => profile.read_only !== true)) lines.push('  Read/write: permits profile operations, subject to each command\'s guards.');
+  if (profiles.some(profile => profile.skip_confirmations !== true)) lines.push('  Confirm: guarded deletes require confirmation; --force bypasses this prompt, not read-only.');
+  if (profiles.some(profile => profile.skip_confirmations === true)) lines.push('  No prompt: profile skips standard delete confirmation; command-specific safeguards still apply.');
+  lines.push('ACCESS is a JSN profile setting, not ServiceNow ACL authorization.',
+    'CREDENTIALS describes local availability; only CONNECTION Verified confirms the status probe succeeded.');
   if (profiles.some(profile => profile.diagnostics?.probe?.code === 'not_requested')) lines.push('', 'Connection not checked (--local).');
   if (notes.length) lines.push('', ...notes);
   if (!details) lines.push('', 'Show users and instance URLs: jsn auth status --details');

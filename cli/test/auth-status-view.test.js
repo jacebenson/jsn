@@ -65,6 +65,19 @@ it('status identifies a different account in the session instead of marking the 
   assert.match(output[0]._formatted, /jsn auth login --profile sandbox/);
 });
 
+it('protection explanations use guard boolean semantics and stay bounded across many profiles', () => {
+  const profiles = Array.from({ length: 40 }, (_, index) => ({
+    name: `fixture-${index}`, read_only: index % 2 === 0, skip_confirmations: index % 2 === 1,
+  }));
+  const text = renderAuthStatus({ profiles });
+  for (const label of ['Read-only:', 'Read/write:', 'Confirm:', 'No prompt:']) {
+    assert.equal(text.split(label).length, 2, label);
+  }
+  const nonBoolean = renderAuthStatus({ profiles: [{ name: 'fixture', read_only: 'true', skip_confirmations: 'true' }] });
+  assert.match(nonBoolean, /Read\/write\s+Confirm/);
+  assert.doesNotMatch(nonBoolean, / {2}Read-only:| {2}No prompt:/);
+});
+
 it('empty status gives a concrete login entry point', () => {
   assert.equal(renderAuthStatus({ profiles: [] }), 'No profiles configured.\nRun: jsn auth login <instance> --browser\n');
 });
