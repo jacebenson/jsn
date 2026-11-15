@@ -9,7 +9,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 // checkout, enforce it locally too; the server remains authoritative.
 const SCENARIO_IDS = (() => {
   try {
-    return new Set(fs.readFileSync(path.join(ROOT, 'site/config/acceptance_scenario_ids.txt'), 'utf8').split('\n').filter(Boolean));
+    return new Set(fs.readFileSync(path.join(ROOT, 'site/config/acceptance_scenario_ids.txt'), 'utf8').split(/\r?\n/).filter(Boolean));
   } catch {
     throw new Error('Authoritative scenario allowlist unavailable');
   }

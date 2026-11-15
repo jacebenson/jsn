@@ -32,6 +32,21 @@ async function server(t, handler) {
 }
 function json(res, status, body) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); }
 
+test('scenario allowlist accepts LF and Windows CRLF without weakening unknown-ID rejection', async t => {
+  for (const newline of ['\n', '\r\n']) {
+    const dir = temporary(t);
+    fs.mkdirSync(path.join(dir, 'scripts/acceptance'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'site/config'), { recursive: true });
+    const modulePath = path.join(dir, 'scripts/acceptance/publish.mjs');
+    fs.copyFileSync(path.join(root, 'scripts/acceptance/publish.mjs'), modulePath);
+    fs.writeFileSync(path.join(dir, 'site/config/acceptance_scenario_ids.txt'), `readonly.records${newline}`);
+    const { validateProjection: validate } = await import(pathToFileURL(modulePath).href);
+    validate(fixture());
+    const unknown = fixture(); unknown.selection.selected = ['readonly.unknown'];
+    assert.throws(() => validate(unknown), /Invalid selected scenario/);
+  }
+});
+
 test('closed projection rejects raw provider data and dishonest status/counts', () => {
   validateProjection(fixture());
   for (const change of [p => { p.hostname = 'private'; }, p => { p.results[0].script = 'private'; }, p => { p.summary.complete = false; }, p => { p.results[0].id = 'readonly.unknown'; }, p => { p.provenance.version = 'private.service-now.com'; }]) {
