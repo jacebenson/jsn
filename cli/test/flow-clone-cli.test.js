@@ -14,7 +14,7 @@ const args = (alias = 'clone') => ['flows', alias, sourceId, '--name', 'New flow
 async function fixture(scenario, operation) {
   const dir = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-clone-'));
   const requests = [];
-  let allocated = false, captures = 0;
+  let allocated = false, captures = 0, released = false, versionCreated = false;
   const server = http.createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk;
     const url = new URL(req.url, 'http://localhost'), query = url.searchParams.get('sysparm_query');
@@ -36,19 +36,29 @@ async function fixture(scenario, operation) {
       if (scenario.disconnect) { req.socket.destroy(); return; }
       result = { result: { data: scenario.badEnvelope ? { id: cloneId } : cloneId } };
     }
+    if (url.pathname.endsWith('/table/sys_hub_flow_safe_edit')) result.result = released ? [] : [{sys_id: 'd'.repeat(32), flow: cloneId, user: scenario.foreignLease ? 'f'.repeat(32) : 'e'.repeat(32)}];
+    if (url.pathname === '/api/now/graphql') {
+      const release = JSON.parse(body).query.startsWith('mutation');
+      if (release) released = true;
+      result = {data:{global:{snFlowDesigner:{safeEdit: release ? {deleteResult:{deleteSuccess:true,id:cloneId}} : {status:{canUserEdit:!released,currentEditor:null}}}}}};
+    }
+    if (url.pathname === '/api/now/processflow/flow' && scenario.saveFailure) result = {error:{message:'native save rejected'}};
+    if (url.pathname.endsWith('/versioning/create_version')) {versionCreated = true;result = {result:{sys_id:'6'.repeat(32)}};}
     if (url.pathname === `/api/now/processflow/flow/${cloneId}`) {
       const copy = clonedFlow();
+      if (versionCreated) copy.versionRecordId = '6'.repeat(32);
       if (scenario.active) copy.active = true;
       if (scenario.badPill) copy.actionInstances[0].inputs[0].value = '{{33333333333333333333333333333333.current}}';
       result = { result: { data: copy } };
     }
     if (url.pathname.endsWith('/table/sys_hub_flow_version')) {
       const flow = query.includes(`flow=${sourceId}`) ? sourceFlow() : clonedFlow();
-      result.result = allocated && scenario.noVersion ? [] : [{ sys_id: flow.versionRecordId, flow: flow.id, payload: JSON.stringify(flow) }];
+      if (versionCreated && flow.id === cloneId) flow.versionRecordId = '6'.repeat(32);
+      result.result = allocated && scenario.noVersion ? [] : [{ sys_id: flow.versionRecordId, flow: flow.id, type: versionCreated ? 'Save' : 'update', payload: JSON.stringify(flow) }];
     }
     if (url.pathname.endsWith('/table/sys_update_xml')) {
       captures++;
-      result.result = scenario.delayedCapture && captures < 3 ? [] : [{ sys_id: '9'.repeat(32), name: `sys_hub_flow_${cloneId}`, action: 'INSERT_OR_UPDATE', update_set: setId, payload: `<record_update><sys_hub_flow><sys_id>${cloneId}</sys_id><version_record>${'5'.repeat(32)}</version_record></sys_hub_flow></record_update>` }];
+      result.result = scenario.delayedCapture && captures < 3 ? [] : [{ sys_id: '9'.repeat(32), name: `sys_hub_flow_${cloneId}`, action: 'INSERT_OR_UPDATE', update_set: setId, payload: `<record_update><sys_hub_flow><sys_id>${cloneId}</sys_id><version_record>${'6'.repeat(32)}</version_record></sys_hub_flow></record_update>` }];
     }
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(result));
   });
@@ -71,7 +81,12 @@ for (const alias of ['clone', 'copy']) {
     const data = JSON.parse(result.stdout).data;
     assert.equal(data.flow.id, cloneId); assert.equal(data.source.before_digest, data.source.after_digest);
     assert.equal(data.context_unchanged, true);
-    assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do'), [{ method: 'POST', path: `/api/now/processflow/flow/${sourceId}/copy`, query: null, scope: 'global', body: { name: 'New flow', scope: 'global' } }]);
+    assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do' && r.path !== '/api/now/graphql').map(r => [r.method,r.path]), [
+      ['POST', `/api/now/processflow/flow/${sourceId}/copy`], ['PUT','/api/now/processflow/flow'], ['POST','/api/now/processflow/versioning/create_version'],
+    ]);
+    const mutation = requests.filter(r => r.path === '/api/now/graphql' && r.body.query.startsWith('mutation'));
+    assert.equal(mutation.length,1);assert.match(mutation[0].body.query,new RegExp(`delete:"${cloneId}"`));
+    assert.deepEqual(requests.find(r => r.path.endsWith('/create_version')).body,{item_sys_id:cloneId,type:'Save',annotation:'',favorite:false});
   }));
   test(`${alias} standard read-only guard emits JSON and performs no writes`, () => fixture({ readOnly: true }, async (run, requests) => {
     const result = await run(args(alias)); assert.notEqual(result.code, 0);
@@ -100,6 +115,17 @@ for (const scenario of [{ active: true }, { badPill: true }, { sourceChanged: tr
     assert.equal(requests.filter(r => r.path.endsWith('/copy')).length, 1);
   }));
 }
+test('native save failure releases only positively owned lease and retains allocated ID', () => fixture({saveFailure:true},async(run,requests)=>{
+  const result=await run(args());assert.equal(result.code,1);assert.match(JSON.parse(result.stdout).error,new RegExp(cloneId));
+  assert.equal(requests.filter(r=>r.path.endsWith('/copy')).length,1);
+  assert.equal(requests.filter(r=>r.path.endsWith('/create_version')).length,0);
+  assert.equal(requests.filter(r=>r.path==='/api/now/graphql'&&r.body.query.startsWith('mutation')).length,1);
+  assert.equal(requests.at(-1).path,'/api/now/table/sys_hub_flow_safe_edit');
+}));
+test('foreign lease refuses save and release without takeover',()=>fixture({foreignLease:true},async(run,requests)=>{
+  const result=await run(args());assert.equal(result.code,1);assert.match(JSON.parse(result.stdout).error,/ownership is unconfirmed/);
+  assert.equal(requests.filter(r=>r.method==='PUT'||r.path.endsWith('/create_version')||(r.path==='/api/now/graphql'&&r.body.query.startsWith('mutation'))).length,0);
+}));
 test('delayed capture only polls GETs and --get extracts native clone identity', () => fixture({ delayedCapture: true }, async (run, requests) => {
   const result = await run([...args().filter(arg => arg !== '--json'), '--get', 'data.flow.id']);
   assert.equal(result.code, 0, result.stdout + result.stderr); assert.match(result.stdout, new RegExp(cloneId));
