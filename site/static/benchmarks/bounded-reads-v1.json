@@ -1,0 +1,38 @@
+{
+  "version": "bounded-reads-v1",
+  "scope": "Offline fixture only; not the 71-scenario acceptance suite or live ACL accessibility.",
+  "fixture": "cli/test/fixtures/bounded-baseline/fixture.json",
+  "tasks": [
+    {
+      "id": "sys_properties/no-count/json",
+      "desiredOutcome": "Return exactly the two fixture rows and selected fields preserving raw IDs, with one GET and no stats request.",
+      "output": "machine-json"
+    },
+    {
+      "id": "sys_script_include/no-count/json",
+      "desiredOutcome": "Return exactly the two fixture rows and selected fields preserving raw IDs, with one GET and no stats request.",
+      "output": "machine-json"
+    },
+    {
+      "id": "sys_security_acl/no-count/json",
+      "desiredOutcome": "Return exactly the two fixture rows and selected fields preserving raw IDs, with one GET and no stats request.",
+      "output": "machine-json"
+    },
+    {
+      "id": "sys_scope_privilege/no-count/json",
+      "desiredOutcome": "Return exactly the two fixture rows and selected fields preserving raw IDs, with one GET and no stats request.",
+      "output": "machine-json"
+    },
+    {
+      "id": "sys_flow_context/no-count/json",
+      "desiredOutcome": "Return exactly the two fixture rows and selected fields preserving raw IDs, with one GET and no stats request.",
+      "output": "machine-json"
+    },
+    {
+      "id": "docs/section",
+      "desiredOutcome": "Retrieve exact pinned subtree and ancestor introduction, no full document transfer, explicit unknown semantic completeness.",
+      "output": "machine-json"
+    }
+  ],
+  "verifier": "cli/test/support/bounded-baseline.js: independent exact decoded rows, fields, pagination, stderr, section body and instrumented request assertions"
+}

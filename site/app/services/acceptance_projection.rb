@@ -43,7 +43,9 @@ class AcceptanceProjection
   end
 
   def validate!
-    integral!(payload, %w[schemaVersion runKey mode provenance platform environment selection summary performance results], 'projection')
+    extra = payload.is_a?(Hash) && payload.key?('measurementContext') ? %w[measurementContext] : []
+    integral!(payload, %w[schemaVersion runKey mode provenance platform environment selection summary performance results] + extra, 'projection')
+    validate_measurement_context! unless extra.empty?
     invalid! unless [1, 2].include?(payload['schemaVersion'])
     invalid! unless RUN_KEY.match?(payload['runKey'].to_s)
     invalid! unless %w[readonly pdi].include?(payload['mode'])
@@ -103,6 +105,15 @@ class AcceptanceProjection
     segments = value.split('.')
     return false if segments.any? { |segment| FORBIDDEN_SEGMENTS.include?(segment) || segment.match?(/\A[a-f0-9]{32}\z/i) || segment.match?(/\A[a-f0-9]{64}\z/i) }
     true
+  end
+
+  def validate_measurement_context!
+    context = payload['measurementContext']
+    integral!(context, %w[tasksetVersion suiteSHA256 environmentLabel environmentSHA256 cleanupState], 'measurement context')
+    invalid! unless %w[acceptance-v1 bounded-reads-v1].include?(context['tasksetVersion'])
+    invalid! unless SHA64.match?(context['suiteSHA256'].to_s) && SHA64.match?(context['environmentSHA256'].to_s)
+    invalid! unless %w[offline-fixture linux-ci linux-local].include?(context['environmentLabel'])
+    invalid! unless %w[unknown passed failed not-required].include?(context['cleanupState'])
   end
 
   def validate_provenance!

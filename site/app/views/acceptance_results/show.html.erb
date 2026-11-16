@@ -25,7 +25,13 @@
     <% end %>
     <dt>Received</dt><dd><%= @run.received_at.utc.strftime('%Y-%m-%d %H:%M UTC') %></dd>
     <dt>Selection</dt><dd><%= @run.selection_full ? 'full-product run' : 'explicit subset' %> · <%= @run.selected_count %> scenarios selected</dd>
-    <dt>Completeness</dt><dd><%= @run.complete ? 'complete — every selected check passed' : "partial — #{@run.missing_count} unmet coverage obligations" %></dd>
+    <dt>Selected-task verdict</dt><dd><%= @run.selected_verdict %></dd>
+    <dt>Cleanup</dt><dd><%= @run.cleanup_state %></dd>
+    <dt>Publication</dt><dd>Stored by this server; runner readback verification unknown. Receipt is not a CI roundtrip acknowledgement.</dd>
+    <dt>Taskset version</dt><dd><%= @run.taskset_version %></dd>
+    <dt>Measurements</dt><dd>Durations are sums of check timings, not runner end-to-end time. Stdout/stderr bytes, actual output tokens and provider request counts: unavailable for this acceptance record. Agent tokens and cost: not collected.</dd>
+    <dt>Timing comparison</dt><dd><%= @run.comparison_key ? 'Eligible for exact-cohort comparison only' : 'Not comparable: missing metadata, unsuccessful or zero execution' %></dd>
+    <dt>Developer detail</dt><dd><details><summary>Static product coverage (not selected-task verdict)</summary>partial/full coverage flag: <%= @run.complete %> · <%= @run.missing_count %> unmet static obligations</details></dd>
     <% if @performance %>
       <dt>Performance capture</dt>
       <dd>before <%= @performance.dig('coverage', 'before') %> · after <%= @performance.dig('coverage', 'after') %> · compare <%= @performance.dig('coverage', 'compare') %> · list <%= @performance.dig('coverage', 'list') %> (observational, not a release gate)</dd>
