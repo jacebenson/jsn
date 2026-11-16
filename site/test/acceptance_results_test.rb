@@ -403,7 +403,18 @@ class AcceptanceResultsTest < Minitest::Test
     get "/results/#{AcceptanceRun.first.run_key}"
     assert_equal 200, last_response.status
     document = Nokogiri::HTML(last_response.body)
+    headings = document.css('.results-checks th')
+    assert_equal %w[Check Status Duration], headings.map { |heading| heading.at_css('button').children.first.text }
+    assert headings.all? { |heading| heading['scope'] == 'col' && heading['aria-sort'] == 'none' }
+    assert_equal %w[checkName status duration], headings.map { |heading| heading.at_css('button')['data-sort-key'] }
+    assert headings.all? { |heading| heading.at_css('button')['type'] == 'button' }
+    assert document.at_css('script[src^="/assets/acceptance-results.js"]')['defer']
     rows = document.css('.results-table tbody tr')
+    rows.each do |row|
+      assert_equal row.at_css('strong').text, row['data-check-name']
+      assert_equal 1.0, Float(row['data-duration'])
+      assert_includes explanations.keys, row['data-status']
+    end
     assert_equal results.size, rows.size
     rows.zip(results.sort_by { |result| result['id'] }).each do |row, result|
       assert_equal AcceptanceResultsHelper::SCENARIO_NAMES.fetch(result['id']), row.at_css('td > strong').text
