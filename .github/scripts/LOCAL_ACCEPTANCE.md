@@ -105,3 +105,13 @@ GET-only provider calls, rejection/privacy, and mocked website POST/digest
 readback. The deliberately partial HTTP provider fixture proves critical metadata
 checks pass and other unsupported fixture surfaces fail/block; it does not claim
 71 passing provider scenarios. It is not evidence of a live ServiceNow or production-site run.
+
+## Catalog adapter v2: retired shell completion
+
+Pinned producer bytes remain unchanged (92 total / 71 readonly scenarios). The
+current checkout and npm versions newer than 5.5.5 replace local.completion with
+local.discovery-help: real version and record-list help must succeed, expose query
+options and omit completion. The adapter removes only the retired completion
+static obligation, without crediting it as passed. Published versions through
+5.5.5 retain the original completion scenario and obligation. Historical result
+IDs remain accepted by the site. Discovery help does not claim record success.

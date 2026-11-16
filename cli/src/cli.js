@@ -143,9 +143,6 @@ function wrap(handler) {
 export function buildCLI() {
   const cfg = loadConfig();
   const app = new App(cfg);
-  // Root command names for the completion filter — captured from the yargs
-  // registry after the chain below finishes registering all commands.
-  let rootCommands = [];
 
   const cliInstance = yargs(hideBin(process.argv))
     .scriptName('jsn')
@@ -465,64 +462,6 @@ export function buildCLI() {
     .command(upgradeCmd(wrap))
     .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry(), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
-    // Completion plumbing under a hidden command name, so the explicit
-    // 'completion' command below owns the UX. (#176)
-    // The custom filter fixes two yargs behaviors:
-    // 1. Under strictCommands(), yargs' default completion handler aborts
-    //    when the current word isn't an exact command match. Delegating to
-    //    completionFilter (the default generator) sidesteps that.
-    // 2. When the current word is an exact ALIAS (e.g. "inc" for incidents),
-    //    yargs descends into that command's subcommands, so a still-being-
-    //    typed "jsn inc<TAB>" offers subcommands that can't match the prefix.
-    //    When completing the FIRST word, merge in the root command list — the
-    //    shell's compgen prefix-filters the final list anyway.
-    .completion('__completion', false, (current, argv, completionFilter, done) => {
-      completionFilter((err, completions) => {
-        let out = completions || [];
-        const depth = (argv._ || []).length;
-        if (current && !current.startsWith('-') && depth === 0) {
-          out = [...new Set([...out, ...rootCommands])];
-        }
-        const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
-        const visible = visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(options), options);
-        if (!depth) {
-          const names = new Set(visible.commands.flatMap(command => [command.name, ...command.aliases]));
-          out = out.filter(value => value.startsWith('-') || names.has(value));
-        }
-        done([...new Set(out)]);
-      });
-    })
-    // User-facing completion command with a real help page (install docs).
-    // yargs' built-in completion command prints the script even for --help,
-    // which is why the plumbing above uses the hidden '__completion' name.
-    .command({
-      command: 'completion',
-      describe: 'Generate shell completion script',
-      builder: (y) => y
-        .usage('Usage: jsn completion > <file for your shell>')
-        .epilogue([
-          'Install for your shell:',
-          '',
-          '  # bash (auto-loaded if the bash-completion package is installed)',
-          '  jsn completion > ~/.local/share/bash-completion/jsn',
-          '',
-          '  # bash (simple)',
-          '  jsn completion >> ~/.bashrc',
-          '',
-          '  # fish',
-          '  jsn completion > ~/.config/fish/completions/jsn.fish',
-          '',
-          '  # zsh — the generated script is bash-style, load via bashcompinit.',
-          '  # Add to ~/.zshrc:',
-          '  autoload -U +X bashcompinit && bashcompinit',
-          '  source <(jsn completion)',
-          '',
-          'Restart your shell (or source the file) after installing.',
-        ].join('\n')),
-      handler: () => {
-        cliInstance.showCompletionScript();
-      },
-    })
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of
       // its own (attachments, docs community, and any future parent) —
@@ -641,10 +580,6 @@ export function buildCLI() {
       cliInstance.commandRegistry({ summaries: true }), config, options);
     return renderHelp(config, registry, { full: options?.allCommands === true });
   };
-
-  // Snapshot the root command names (plus aliases) for the completion
-  // filter. Done before any parse — command builders mutate the registry.
-  rootCommands = cliInstance.getInternalMethods().getCommandInstance().getCommands();
 
   // The capability registry is fully populated now that every command
   // factory has run — generate the mutation guard's path list.

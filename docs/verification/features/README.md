@@ -6,7 +6,7 @@ This map names user-facing JSN surfaces and the proof that matters. Read the sou
 | --- | --- | --- |
 | Records | `records list`, `records get` | JSON envelope, selected table, and returned record fields against a disposable read-only profile |
 | Profiles and auth status | `auth status`, `auth switch` | Selected profile, host, auth method, and auth state without credential contents |
-| Command discovery | `--help`, `<command> --help`, `completion` | Stable command names and documented options match the installed binary |
+| Command discovery | `--help`, `<command> --help`, `discover` | Stable command names and documented options match the installed binary |
 | Raw REST | `rest` | GET-only request against a disposable read-only profile, with JSON or raw text shape checked |
 | Hosted docs service | `docs "query"`, `docs --path` | Search succeeds in JSON and Markdown against the local Rails service without an instance |
 

@@ -7,6 +7,7 @@ auth.cookie-invalid
 auth.cookie-valid-permissions
 auth.fixtures
 local.completion
+local.discovery-help
 local.history-empty
 local.parser-rejection
 local.version

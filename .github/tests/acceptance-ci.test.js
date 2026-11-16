@@ -274,12 +274,14 @@ test('immutable real producer executes failing scenarios and restored passing sc
   const wrapper = path.join(dir, '.github/scripts/acceptance/execute.mjs');
   fs.mkdirSync(path.dirname(wrapper), { recursive: true });
   fs.copyFileSync(path.join(root, '.github/scripts/acceptance/execute.mjs'), wrapper);
+  fs.copyFileSync(path.join(root, '.github/scripts/acceptance/catalog-v2.mjs'), path.join(path.dirname(wrapper), 'catalog-v2.mjs'));
   const invokedOutput = path.join(dir, 'invoked-producer-run');
   const invoked = await launchSeeded(process.execPath, [wrapper, '--profile', 'acceptance-ci', '--expected-host', origin,
-    '--mode', 'readonly', '--scenario', 'readonly.records', '--output-dir', invokedOutput], { cwd: privateRoot, env: isolated });
+    '--mode', 'readonly', '--scenario', 'readonly.records', '--scenario', 'local.discovery-help', '--output-dir', invokedOutput], { cwd: privateRoot, env: isolated });
   assert.ok([0, 1, 2].includes(invoked.exitCode), invoked.stderr);
   const invokedProjection = validateProjection(JSON.parse(fs.readFileSync(path.join(invokedOutput, 'public-summary.json'))));
   assert.ok(invokedProjection.results.some(r => r.id === 'readonly.records'));
+  assert.equal(invokedProjection.results.find(r => r.id === 'local.discovery-help').status, 'passed');
   const invokedEvidence = fs.readFileSync(path.join(invokedOutput, 'executed.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.ok(invokedEvidence.some(e => e.id === 'readonly.records' && e.runKey === invokedProjection.runKey));
   assert.ok(!(invoked.stdout + invoked.stderr).includes(token));

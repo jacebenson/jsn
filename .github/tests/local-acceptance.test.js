@@ -88,7 +88,7 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       assert.equal(payload.results.length, 71);
       assert.equal(payload.selection.full, true);
       assert.equal(payload.results.find(r => r.id === 'local.version').status, 'passed');
-      assert.equal(payload.results.find(r => r.id === 'local.completion').status, 'passed');
+      assert.equal(payload.results.find(r => r.id === (version ? 'local.completion' : 'local.discovery-help')).status, 'passed');
       assert.equal(payload.summary.missingCount > 1, true);
       assert.notEqual(selectedExitCode(payload.summary), 0); // Fixture covers metadata only, not fabricated full provider behavior.
       assert.equal(payload.environment.release.family, 'Zurich');

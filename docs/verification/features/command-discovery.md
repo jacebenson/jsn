@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-The top-level `--help` output exposes command families. A command's `--help` output exposes supported subcommands and flags. `completion` generates shell completion text.
+The top-level `--help` output exposes command families. A command's `--help` output exposes supported subcommands and flags.
 
 ## How to get to it (user POV)
 

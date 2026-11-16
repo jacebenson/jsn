@@ -1,5 +1,6 @@
 // Local isolated full/read-only adapter: immutable scenario bytes, separately verified executable.
 import fs from 'node:fs';
+import { adaptCatalog, adaptInventory } from './acceptance/catalog-v2.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -138,9 +139,10 @@ export async function runLocal(options) {
     stage = 'candidate version';
     const actual = await execute(process.execPath, [ownExecutable, 'version', '--json'], { cwd: temporary, env, timeoutMs: 30000 });
     if (actual.exitCode !== 0 || actual.json?.data?.version !== artifact.identity.version) throw Error();
-    const allScenarios = [];
+    let allScenarios = [];
     for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) allScenarios.push(...(await import(pathToFileURL(path.join(harness, `cli/test/acceptance/${name}.mjs`)))).scenarios);
     const { bindScenarios, coverageDetails } = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/bindings.mjs')));
+    allScenarios = adaptCatalog(allScenarios, artifact.identity);
     bindScenarios(allScenarios);
     const selected = selectExactScenario(mode === 'pdi' ? allScenarios : allScenarios.filter(s => s.modes.includes('readonly')), options.scenario);
     if (options.plan) {
@@ -150,7 +152,7 @@ export async function runLocal(options) {
     const selection = support.selectScenarios(allScenarios, { full: true, mode });
     if (mode === 'readonly' && selected.some(s => s.mutates)) throw Error('harness: mutating scenario declared readonly');
     const selectedIds = selection.ids.filter(id => selected.some(s => s.id === id));
-    const inventory = JSON.parse(fs.readFileSync(path.join(harness, 'cli/test/acceptance/coverage.json')));
+    const inventory = adaptInventory(JSON.parse(fs.readFileSync(path.join(harness, 'cli/test/acceptance/coverage.json'))), artifact.identity);
     const coverage = coverageDetails(inventory, allScenarios, selectedIds, mode);
     const missing = coverage.gaps;
     const omitted = allScenarios.filter(s => s.modes.includes('readonly') && !selectedIds.includes(s.id)).map(s => s.id);

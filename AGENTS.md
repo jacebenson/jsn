@@ -67,8 +67,7 @@ Tests: `node:test` runner + eslint.
   a hand-written string list. Factories (`buildDevCmd`, `buildTicketCommands`)
   declare automatically from flags like `readOnly`.
 - **Strict command handling is on.** The local CLI adapter owns command
-  parsing and completion — see the custom filter in `cli.js` and the comment
-  there before touching `.completion()`.
+  parsing; preserve strict command validation and normal help/discovery.
 - **Mutations are guarded.** `src/mutations.js` (`isMutationCommand`) drives
   the require-instance + read-only-profile + confirmation flow, with its path
   list derived from the capability registry. Declare a mutation via
@@ -92,7 +91,7 @@ JSN_INTEGRATION_TESTS=true npm test   # live-instance e2e (creates/deletes recor
 Test env vars: `JSN_NO_VERSION_CHECK=1`, `JSN_NO_SKILL_CHECK=1` (disable the
 daily checks — set these in tests), `JSN_HERMES_BASE_DIR` (skill tests).
 CLI-level tests spawn `bin/jsn.js` via `spawnSync` — see
-`test/completion.test.js` for the pattern.
+`test/command-retirement.test.js` for the pattern.
 
 ### Writing and reviewing tests
 

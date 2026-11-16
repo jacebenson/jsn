@@ -158,7 +158,6 @@ const CONFIG_COMMANDS = [
   { name: 'domains', desc: 'Domains (domain separation)' },
   { name: 'midservers', desc: 'MID Servers and MID-run commands' },
   { name: 'platform', desc: 'Platform health and node statistics (read-only)' },
-  { name: 'completion', desc: 'Shell completion script' },
 ];
 
 const DEVELOPER_COMMANDS = [

@@ -53,7 +53,7 @@ export function declareCapabilities(name, caps) {
 /**
  * The collected capability registry: root command name → capabilities.
  * Includes the implicit declarations for yargs built-ins ('help') and the
- * shell plumbing ('completion') which have no factory to declare from.
+ * local commands which have no factory to declare from.
  *
  * @returns {Map<string, object>}
  */
@@ -61,14 +61,13 @@ export function collectCapabilities() {
   const caps = new Map(REGISTRY);
   if (!caps.has('help')) caps.set('help', { noInstance: true, skipDailyChecks: true });
   if (!caps.has('version')) caps.set('version', { noInstance: true, skipDailyChecks: true });
-  if (!caps.has('completion')) caps.set('completion', { noInstance: true, skipDailyChecks: true });
   return caps;
 }
 
 /**
  * Derive the set of root command names that run without an instance.
  * Preserves the legacy skip-list semantics exactly: help, version,
- * completion, setup, auth, skill, docs.
+ * setup, auth, skill, docs.
  *
  * @param {Map<string, object>} [caps] — from collectCapabilities()
  * @returns {Set<string>}
@@ -84,7 +83,7 @@ export function noInstanceCommands(caps = collectCapabilities()) {
 /**
  * Derive the set of root command names that skip the daily npm-version /
  * skill checks and the interactive context header. Legacy semantics:
- * help, version, completion, skill, docs (a subset of noInstanceCommands).
+ * help, version, skill, docs (a subset of noInstanceCommands).
  *
  * @param {Map<string, object>} [caps] — from collectCapabilities()
  * @returns {Set<string>}
