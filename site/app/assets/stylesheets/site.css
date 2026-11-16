@@ -1,3 +1,5 @@
+/* Sorting stays native-keyboard accessible and inherits the table heading style. */
+.results-checks .check-sort{border:0;background:transparent;color:inherit;font:inherit;font-weight:inherit;padding:6px 0;cursor:pointer;text-align:inherit;white-space:nowrap}
 /* Keep embedded players inside both existing video containers. */
 .video-panel iframe,.intro-video iframe{width:100%;height:auto;aspect-ratio:16/9;border:0;display:block}
 .video-panel:has(iframe){padding:0;overflow:hidden}
