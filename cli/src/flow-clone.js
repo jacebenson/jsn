@@ -85,7 +85,8 @@ export function validateCloneSource(source) {
 // input pills. User scripts, conditions, arbitrary keys and literal IDs stay exact.
 export function verifyClonedFlow(source, destination, name) {
   validateCloneSource(source);
-  validateCloneSource(destination);
+  try { validateCloneSource(destination); }
+  catch (cause) { throw new Error(`Destination definition invalid: ${cause.message.replace(/\. No clone allocated\.$/, '')}`); }
   if (destination.name !== name || destination.scope !== source.scope || destination.copiedFrom !== source.id) throw new Error('Clone identity/name/scope/provenance mismatch');
   const before = owned(source), after = owned(destination);
   if (before.length !== after.length) throw new Error('Clone owned component count changed');
