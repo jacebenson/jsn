@@ -35,7 +35,7 @@ class AcceptanceIngestController < ApplicationController
     AcceptanceRun.transaction do
       run = AcceptanceRun.create!(
         run_key: projection.run_key, schema_version: projection.payload['schemaVersion'],
-        local_metadata: projection.payload['schemaVersion'] == 2 ? JSON.generate({ provenance: projection.provenance, release: projection.payload.dig('environment', 'release') }) : nil,
+        local_metadata: JSON.generate({ provenance: projection.payload['schemaVersion'] == 2 ? projection.provenance : nil, release: projection.payload.dig('environment', 'release'), measurementContext: projection.payload['measurementContext'] }),
         mode: projection.mode, cli_version: projection.provenance['version'],
         source_sha: projection.provenance['sourceSHA'], source_dirty: projection.provenance['sourceDirty'],
         node_version: projection.provenance['node'], binary_sha256: projection.provenance['binarySHA256'],

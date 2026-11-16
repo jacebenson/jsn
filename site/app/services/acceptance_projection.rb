@@ -25,7 +25,12 @@ class AcceptanceProjection
   RUN_KEY = /\Aacceptance_[a-f0-9]{32}\z/
   SHA40 = /\A[a-f0-9]{40}\z/i
   SHA64 = /\A[a-f0-9]{64}\z/i
-  VERSION = /\A\d{1,5}\.\d{1,5}\.\d{1,5}(?:-[a-z0-9]{1,20})?\z/
+  # Bounded SemVer: core components <= 5 digits, identifiers <= 20 ASCII
+  # characters, and <= 8 identifiers per suffix. Never normalize provenance.
+  VERSION_CORE = '(?:0|[1-9][0-9]{0,4})'
+  VERSION_PRE = '(?:0|[1-9][0-9]{0,19}|(?=[0-9A-Za-z-]{0,19}[A-Za-z-])[0-9A-Za-z-]{1,20})'
+  VERSION_BUILD = '[0-9A-Za-z-]{1,20}'
+  VERSION = /\A#{VERSION_CORE}\.#{VERSION_CORE}\.#{VERSION_CORE}(?:-#{VERSION_PRE}(?:\.#{VERSION_PRE}){0,7})?(?:\+#{VERSION_BUILD}(?:\.#{VERSION_BUILD}){0,7})?\z/
   NODE = /\Av\d{1,5}\.\d{1,5}\.\d{1,5}\z/
   DOMAIN_SOURCE = 'bounded Table API domain read via selected profile'
 
@@ -43,7 +48,9 @@ class AcceptanceProjection
   end
 
   def validate!
-    integral!(payload, %w[schemaVersion runKey mode provenance platform environment selection summary performance results], 'projection')
+    extra = payload.is_a?(Hash) && payload.key?('measurementContext') ? %w[measurementContext] : []
+    integral!(payload, %w[schemaVersion runKey mode provenance platform environment selection summary performance results] + extra, 'projection')
+    validate_measurement_context! unless extra.empty?
     invalid! unless [1, 2].include?(payload['schemaVersion'])
     invalid! unless RUN_KEY.match?(payload['runKey'].to_s)
     invalid! unless %w[readonly pdi].include?(payload['mode'])
@@ -103,6 +110,15 @@ class AcceptanceProjection
     segments = value.split('.')
     return false if segments.any? { |segment| FORBIDDEN_SEGMENTS.include?(segment) || segment.match?(/\A[a-f0-9]{32}\z/i) || segment.match?(/\A[a-f0-9]{64}\z/i) }
     true
+  end
+
+  def validate_measurement_context!
+    context = payload['measurementContext']
+    integral!(context, %w[tasksetVersion suiteSHA256 environmentLabel environmentSHA256 cleanupState], 'measurement context')
+    invalid! unless %w[acceptance-v1 bounded-reads-v1].include?(context['tasksetVersion'])
+    invalid! unless SHA64.match?(context['suiteSHA256'].to_s) && SHA64.match?(context['environmentSHA256'].to_s)
+    invalid! unless %w[offline-fixture linux-ci linux-local].include?(context['environmentLabel'])
+    invalid! unless %w[unknown passed failed not-required].include?(context['cleanupState'])
   end
 
   def validate_provenance!
