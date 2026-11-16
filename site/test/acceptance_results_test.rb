@@ -74,6 +74,48 @@ class AcceptanceResultsTest < Minitest::Test
     assert_equal 422, last_response.status
   end
 
+  def test_semver_versions_survive_ingestion_storage_and_public_readback
+    [1, 2].each do |schema|
+      %w[5.4.0 5.5.5-dev.197.1 5.5.5-RC.1+build.197.sha-abc].each_with_index do |version, index|
+        payload = projection('schemaVersion' => schema, 'runKey' => "acceptance_#{schema}#{index}#{'a' * 30}")
+        payload['provenance']['version'] = version
+        if schema == 2
+          payload['provenance'].merge!('artifactKind' => 'checkout', 'registryIntegrity' => nil, 'harnessSHA' => 'd' * 40, 'producerSHA' => 'e' * 40, 'target' => 'vendor-1')
+        end
+        post_projection(payload)
+        assert_equal 201, last_response.status, "schema #{schema}: #{version}"
+        run = AcceptanceRun.find_by!(run_key: payload['runKey'])
+        assert_equal version, run.reload.cli_version
+        digest = AcceptanceProjection.parse(payload.to_json).canonical_digest
+        assert_equal digest, run.payload_digest
+        reordered = payload.to_a.reverse.to_h
+        assert_equal digest, AcceptanceProjection.parse(reordered.to_json).canonical_digest
+        post_projection(reordered)
+        assert_equal 200, last_response.status
+        assert_equal 'duplicate', JSON.parse(last_response.body)['status']
+        ['/results', "/results/#{run.run_key}"].each do |path|
+          get path
+          assert_equal 200, last_response.status
+          assert_includes last_response.body, version
+        end
+      end
+    end
+  end
+
+  def test_invalid_versions_are_rejected_without_writes
+    [nil, 555, '5.5', '05.5.5', '5.5.5-dev.01', '5.5.5-dev..1',
+     '5.5.5-', '5.5.5+', '5.5.5+build..1', '5.5.5 dev.197.1',
+     "5.5.5-dev.197.1\n", '5.5.5-<script>', '5.5.5;rm',
+     '5.5.5-' + 'a' * 21, '5.5.5-' + (['a'] * 9).join('.'),
+     '123456.5.5', '5.5.5+https://private.example'].each do |version|
+      payload = projection
+      payload['provenance']['version'] = version
+      post_projection(payload)
+      assert_equal 422, last_response.status, version.inspect
+      assert_equal 0, AcceptanceRun.count
+    end
+  end
+
   def test_selected_pass_is_not_static_completeness_or_cleanup_or_publication
     payload = projection
     payload['results'].each { |result| result['status'] = 'passed' }
@@ -233,7 +275,8 @@ class AcceptanceResultsTest < Minitest::Test
     post_projection(sys_id_like)
     assert_equal 422, last_response.status
 
-    post_projection(projection('provenance' => projection['provenance'].merge('version' => '5.4.0-pdi.example.test')))
+    # Dotted SemVer labels are valid; URL syntax is not version provenance.
+    post_projection(projection('provenance' => projection['provenance'].merge('version' => '5.4.0-https://pdi.example.test')))
     assert_equal 422, last_response.status
     post_projection(projection('provenance' => projection['provenance'].merge('version' => '5.4.12345678901234567890123456789012')))
     assert_equal 422, last_response.status
