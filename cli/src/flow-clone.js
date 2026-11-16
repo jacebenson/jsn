@@ -249,7 +249,7 @@ async function ownedCloneLease(sdk, instance, id) {
   const rows = await sdk.list('sys_hub_flow_safe_edit', new URLSearchParams({ sysparm_query: `flow=${id}`, sysparm_limit: '2', sysparm_fields: 'sys_id,flow,user' }));
   const status = await readFlowSafeEditStatus(sdk, instance, id);
   if (!isSysId(user?.sys_id) || !Array.isArray(rows) || rows.length !== 1 ||
-      raw(rows[0].flow) !== id || raw(rows[0].user) !== user.sys_id ||
+      !isSysId(raw(rows[0].sys_id)) || raw(rows[0].flow) !== id || raw(rows[0].user) !== user.sys_id ||
       status.canUserEdit !== true || status.currentEditor) throw new Error('Native clone lease ownership is unconfirmed; no save or release attempted');
   return raw(rows[0].sys_id);
 }
