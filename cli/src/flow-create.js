@@ -1404,7 +1404,21 @@ function assertStepReadback(definition, expectedSteps, kind, flowId) {
     if (expected.inputs) {
       for (const input of expected.inputs) {
         const found = inputList(actual).filter(i => i.name === input.name);
-        if (found.length !== 1 || !requestedContentMatches(found[0], input)) throw new Error(`Flow ${flowId} ${kind} ${expected.uiUniqueIdentifier} input ${input.name} did not match the requested value; preservation failed`);
+        // ProcessFlow reads unwrap GraphQL value envelopes and derive choice
+        // display labels (e.g. info -> Info). Compare the semantic value and
+        // requested metadata, not the transport envelope or rendered label.
+        const { value, displayValue: _displayValue, ...metadata } = input;
+        const savedInput = { ...found[0] };
+        if (metadata.parameter) {
+          // Read-side attributes are a map; GraphQL accepts their string form.
+          metadata.parameter = Object.fromEntries(Object.entries(flowDesignParameter(metadata.parameter)).filter(([, v]) => v !== null));
+          savedInput.parameter = flowDesignParameter(savedInput.parameter);
+        }
+        if (found.length !== 1
+          || !isDeepStrictEqual(inputRawValue(found[0]), inputRawValue(input))
+          || (found[0].value && typeof found[0].value === 'object' && Object.hasOwn(found[0].value, 'schemaless')
+            && !requestedContentMatches(found[0].value, value))
+          || !requestedContentMatches(savedInput, metadata)) throw new Error(`Flow ${flowId} ${kind} ${expected.uiUniqueIdentifier} input ${input.name} did not match the requested value; preservation failed`);
       }
     }
   }

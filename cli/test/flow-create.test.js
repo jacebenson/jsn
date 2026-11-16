@@ -73,7 +73,7 @@ function makeSdk(overrides = {}) {
         state.flowReads += 1;
         return { result: { data: overrides.readback || createdDefinition() } };
       }
-      if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: actionSchema } };
+      if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: overrides.actionSchema || actionSchema } };
       if (endpoint === 'https://example.service-now.com/api/now/graphql') {
         if (overrides.graphql) return overrides.graphql;
         return { data: { global: { snFlowDesigner: { flow: {
@@ -171,6 +171,28 @@ describe('flow creation preflight', () => {
       return true;
     });
     assert.deepEqual(sdk.calls.filter(c => c.kind === 'request' && c.options.method === 'POST'), []);
+  });
+});
+
+describe('flow creation provider-normalized input readback', () => {
+  it('accepts scalar saved values and provider choice display labels, then Autosaves', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const readback = createdDefinition();
+    for (const input of readback.actionInstances[0].inputs) {
+      input.value = input.value.value;
+      input.displayValue = input.name === 'log_level' ? 'Info' : input.displayValue.value;
+      input.parameter.attributes = { element_mapping_provider: 'provider.Mapper' };
+    }
+    const sdk = makeSdk({ readback, actionSchema: actionSchema.map(field => ({
+      ...field, attributes: 'element_mapping_provider=provider.Mapper', uiDisplayType: null,
+    })) });
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', manifest, {
+      ...options, idFactory: () => 'generated-1',
+    });
+    assert.equal(result.flow.id, FLOW_ID);
+    assert.equal(result.flow.active, false);
+    assert.equal(result.version.sys_id, 'version-1');
+    assert.equal(sdk.calls.filter(c => c.kind === 'request' && c.endpoint.includes('/versioning/create_version?')).length, 1);
   });
 });
 
