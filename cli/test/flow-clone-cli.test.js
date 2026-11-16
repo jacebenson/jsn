@@ -27,6 +27,7 @@ async function fixture(scenario, operation) {
     if (url.pathname.endsWith('/concoursepicker/updateset')) result = { result: { current: { sysId: scenario.misaligned || allocated && scenario.changedContext ? 'f'.repeat(32) : setId, name: 'Fixture' } } };
     if (url.pathname === `/api/now/processflow/flow/${sourceId}`) {
       const source = sourceFlow();
+      if (scenario.sourceMissingPointer) source.versionRecordId = '';
       if (scenario.unsupported) source.stages = { stage: { id: 'e'.repeat(32) } };
       if (allocated && scenario.sourceChanged) source.description = 'changed';
       result = { result: { data: source } };
@@ -46,6 +47,7 @@ async function fixture(scenario, operation) {
     if (url.pathname.endsWith('/versioning/create_version')) {versionCreated = true;result = {result:{sys_id:'6'.repeat(32)}};}
     if (url.pathname === `/api/now/processflow/flow/${cloneId}`) {
       const copy = clonedFlow();
+      if (scenario.provisionalPointer && !versionCreated) copy.versionRecordId = '';
       if (versionCreated) copy.versionRecordId = '6'.repeat(32);
       if (scenario.active) copy.active = true;
       if (scenario.badPill) copy.actionInstances[0].inputs[0].value = '{{33333333333333333333333333333333.current}}';
@@ -58,7 +60,7 @@ async function fixture(scenario, operation) {
     }
     if (url.pathname.endsWith('/table/sys_update_xml')) {
       captures++;
-      result.result = scenario.delayedCapture && captures < 3 ? [] : [{ sys_id: '9'.repeat(32), name: `sys_hub_flow_${cloneId}`, action: 'INSERT_OR_UPDATE', update_set: setId, payload: `<record_update><sys_hub_flow><sys_id>${cloneId}</sys_id><version_record>${'6'.repeat(32)}</version_record></sys_hub_flow></record_update>` }];
+      result.result = scenario.delayedCapture && captures < 3 ? [] : [{ sys_id: '9'.repeat(32), name: `sys_hub_flow_${cloneId}`, action: 'INSERT_OR_UPDATE', update_set: setId, payload: `<record_update><sys_hub_flow><sys_id>${cloneId}</sys_id><version_record>${scenario.nullCapture ? '' : '6'.repeat(32)}</version_record></sys_hub_flow></record_update>` }];
     }
     res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(result));
   });
@@ -75,6 +77,21 @@ async function fixture(scenario, operation) {
     await operation(run, requests);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await fs.rm(dir, { recursive: true, force: true }); }
 }
+test('provisional native graph reaches save then version creation before strict readback', () => fixture({provisionalPointer:true}, async(run,requests)=>{
+  const result=await run(args()); assert.equal(result.code,0,result.stdout+result.stderr);
+  const timeline=requests.filter(r=>r.path.endsWith('/copy')||r.path===`/api/now/processflow/flow/${cloneId}`||r.path==='/api/now/processflow/flow'||r.path.endsWith('/create_version')).map(r=>[r.method,r.path]);
+  assert.deepEqual(timeline,[['POST',`/api/now/processflow/flow/${sourceId}/copy`],['GET',`/api/now/processflow/flow/${cloneId}`],['PUT','/api/now/processflow/flow'],['GET',`/api/now/processflow/flow/${cloneId}`],['POST','/api/now/processflow/versioning/create_version'],['GET',`/api/now/processflow/flow/${cloneId}`],['PUT','/api/now/processflow/flow'],['GET',`/api/now/processflow/flow/${cloneId}`]]);
+  assert.equal(requests.find(r=>r.method==='PUT').body.versionRecordId,'');
+}));
+test('source missing saved pointer refuses before any allocation',()=>fixture({sourceMissingPointer:true},async(run,requests)=>{
+  const result=await run(args());assert.notEqual(result.code,0);assert.match(JSON.parse(result.stdout).error,/saved version pointer/);
+  assert.equal(requests.filter(r=>r.path.endsWith('/copy')||r.method==='PUT').length,0);
+}));
+test('post-completion null XML version fails strictly retaining allocated identity',()=>fixture({provisionalPointer:true,nullCapture:true},async(run,requests)=>{
+  const result=await run(args());assert.equal(result.code,1);assert.match(JSON.parse(result.stdout).error,new RegExp(cloneId));assert.match(JSON.parse(result.stdout).error,/XML capture/);
+  assert.equal(requests.filter(r=>r.path.endsWith('/copy')).length,1);assert.equal(requests.filter(r=>r.path.endsWith('/create_version')).length,1);
+  assert.equal(requests.filter(r=>r.path==='/api/now/graphql'&&r.body.query.startsWith('mutation')).length,1);
+}));
 for (const alias of ['clone', 'copy']) {
   test(`${alias} actual CLI native allocation and persisted graph/capture readback`, () => fixture({}, async (run, requests) => {
     const result = await run(args(alias)); assert.equal(result.code, 0, result.stdout + result.stderr);
@@ -83,6 +100,7 @@ for (const alias of ['clone', 'copy']) {
     assert.equal(data.context_unchanged, true);
     assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do' && r.path !== '/api/now/graphql').map(r => [r.method,r.path]), [
       ['POST', `/api/now/processflow/flow/${sourceId}/copy`], ['PUT','/api/now/processflow/flow'], ['POST','/api/now/processflow/versioning/create_version'],
+      ['PUT','/api/now/processflow/flow'],
     ]);
     const mutation = requests.filter(r => r.path === '/api/now/graphql' && r.body.query.startsWith('mutation'));
     assert.equal(mutation.length,1);assert.match(mutation[0].body.query,new RegExp(`delete:"${cloneId}"`));

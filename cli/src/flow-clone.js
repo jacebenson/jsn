@@ -44,7 +44,9 @@ function validateValues(value, path = 'definition') {
   }
   for (const [key, child] of Object.entries(value)) validateValues(child, `${path}.${key}`);
 }
-export function validateCloneSource(source) {
+export function validateCloneSource(source) { return validateCloneDefinition(source, true); }
+
+function validateCloneDefinition(source, requireSavedVersion) {
   if (!source || source.type !== 'flow' || !isSysId(source.id)) refuse('A readable Flow definition is required');
   if (source.active !== false || source.status !== 'draft' || source.deleted !== false) refuse('Only inactive, nondeleted Draft sources are supported');
   if (source.security?.can_read !== true || source.security?.can_write !== true) refuse('Source must explicitly permit read and write');
@@ -70,7 +72,7 @@ export function validateCloneSource(source) {
   for (const item of [...source.triggerInstances, ...source.actionInstances]) {
     if (!isSysId(item.id) || item.flowSysId !== source.id) refuse('Component identity/ownership is incomplete');
   }
-  if (!isSysId(source.versionRecordId)) refuse('Source has no readable saved version pointer');
+  if (!isSysId(source.versionRecordId) && (requireSavedVersion || ![undefined, null, ''].includes(source.versionRecordId))) refuse('Source has no readable saved version pointer');
   const identities = new Set([source.id]);
   for (const item of owned(source)) {
     if (!item.id) continue; // nested anonymous schema children have no identity
@@ -87,8 +89,28 @@ export function validateCloneSource(source) {
   return { collections, unsupported, preserved, contextual };
 }
 
+// The editor save re-materializes a provider label on mapping-provider variables
+// that lacked one. Accept only the exact type label the provider would derive;
+// a different, missing or foreign value still fails structural comparison.
+function normalizeProviderLabels(source, destination) {
+  const pairs = (a = [], b = [], visit) => a.forEach((item, index) => b[index] && visit(item, b[index]));
+  const variables = (a, b) => pairs(a, b, (from, to) => {
+    // Definition GETs use type_label; the save serializer uses typeLabel.
+    if (from.attributes && !Object.hasOwn(from.attributes, 'uiTypeLabel') && to.attributes &&
+        Object.hasOwn(to.attributes, 'uiTypeLabel') && to.attributes.uiTypeLabel === (to.type_label ?? to.typeLabel)) {
+      delete to.attributes.uiTypeLabel;
+    }
+    variables(from.children, to.children);
+  });
+  variables(source.inputs, destination.inputs);
+  variables(source.outputs, destination.outputs);
+  pairs(source.triggerInstances, destination.triggerInstances, (from, to) => { variables(from.inputs, to.inputs); variables(from.outputs, to.outputs); });
+  pairs(source.actionInstances, destination.actionInstances, (from, to) => { variables(from.inputs, to.inputs); variables(from.outputs, to.outputs); });
+  return destination;
+}
+
 function nativeCloneComparable(source, destination) {
-  const result = structuredClone(destination);
+  const result = normalizeProviderLabels(source, structuredClone(destination));
   for (const [index, action] of result.actionInstances.entries()) {
     const original = source.actionInstances[index];
     const definitionId = a => a.actionType?.id ?? a.actionType?.fId;
@@ -108,12 +130,18 @@ function nativeCloneComparable(source, destination) {
 // Identity maps apply only to owned identity/ownership paths and complete typed
 // input pills. User scripts, conditions, arbitrary keys and literal IDs stay exact.
 export function verifyClonedFlow(source, destination, name) {
+  return verifyCloneGraph(source, destination, name, true);
+}
+
+// Private provisional contract: only the destination pointer may be absent, and
+// only while native save/version creation is still pending. Source stays strict.
+function verifyCloneGraph(source, destination, name, requireSavedVersion) {
   validateCloneSource(source);
   // The native editor preserves flow-local UI identifiers and, for a flat
   // published reusable action, materializes compiledSnapshot as that definition
   // identity. This is destination-only: runtime-bearing sources still refuse.
   const comparable = nativeCloneComparable(source, destination);
-  try { validateCloneSource(comparable); }
+  try { validateCloneDefinition(comparable, requireSavedVersion); }
   catch (cause) { throw new Error(`Destination definition invalid: ${cause.message.replace(/\. No clone allocated\.$/, '')}`, { cause }); }
   if (destination.name !== name || destination.scope !== source.scope || destination.copiedFrom !== source.id) throw new Error('Clone identity/name/scope/provenance mismatch');
   const before = owned(source), after = owned(destination);
@@ -178,6 +206,13 @@ async function readSavedCloneVersion(sdk, flow) {
 
 export function verifyClonedVersions(source, destination) {
   destination = nativeCloneComparable(source, destination);
+  // Version serialization records the compiler engine version. A freshly saved
+  // draft is uncompiled (0); requiring the source's compiled value would demand
+  // a compilation this workflow never performs. Only that exact draft state is
+  // accepted - any other engine version still fails the structural comparison.
+  if (destination.engineVersion === 0 && Number.isInteger(source.engineVersion) && source.engineVersion > 0) {
+    destination.engineVersion = source.engineVersion;
+  }
   const ownedIds = new Set([source.id, source.flowCatalogVariableModelId, ...collections.flatMap(key => source[key].map(item => item.id)).filter(Boolean)]);
   for (const key of collections) for (const item of destination[key]) {
     if (item.id && ownedIds.has(item.id)) throw new Error('Saved version reused an owned database identity');
@@ -223,7 +258,18 @@ export function verifyClonedVersions(source, destination) {
     }
     return result;
   };
-  if (!isDeepStrictEqual(stable(expected), stable(destination))) throw new Error('Saved version content/schema was not preserved under the explicit identity map');
+  // The save serializer omits empty choice lists on parameters whose source
+  // version row carried them as []. Empty and absent mean the same thing here;
+  // any non-empty choice content is still compared exactly.
+  const trim = value => {
+    if (Array.isArray(value)) return value.map(trim);
+    if (!value || typeof value !== 'object') return value;
+    const result = Object.fromEntries(Object.entries(value).filter(([key, child]) =>
+      !((key === 'choices' || key === 'defaultChoices') && Array.isArray(child) && child.length === 0)));
+    for (const [key, child] of Object.entries(result)) result[key] = trim(child);
+    return result;
+  };
+  if (!isDeepStrictEqual(trim(stable(expected)), trim(stable(destination)))) throw new Error('Saved version content/schema was not preserved under the explicit identity map');
   return true;
 }
 
@@ -257,7 +303,7 @@ async function ownedCloneLease(sdk, instance, id) {
 // Call only for a positively acknowledged allocation owned by this invocation,
 // or an explicitly approved recovery of that exact retained allocation.
 export async function completeNativeClone(sdk, instance, source, flow, name) {
-  verifyClonedFlow(source, flow, name);
+  verifyCloneGraph(source, flow, name, false);
   const leaseId = await ownedCloneLease(sdk, instance, flow.id);
   let failure, completed;
   try {
@@ -266,8 +312,18 @@ export async function completeNativeClone(sdk, instance, source, flow, name) {
     });
     if (response?.error || response?.result?.error || response?.result?.errors?.length) throw new Error('Native save returned flow errors');
     completed = await readProcessFlow(sdk, instance, flow.id, flow.scope);
-    verifyClonedFlow(source, completed, name);
+    verifyCloneGraph(source, completed, name, false);
     await createVerifiedFlowVersion(sdk, { instance, flowId: flow.id, scope: flow.scope, type: 'Save', annotation: '' });
+    completed = await readProcessFlow(sdk, instance, flow.id, flow.scope);
+    verifyClonedFlow(source, completed, name);
+    // The update-set XML for this record is generated from the parent write, so it
+    // still carries the pre-version record pointer. Re-saving the identical owned
+    // graph once after version creation makes the exact parent capture reference
+    // the current saved version; it creates no new version and changes no content.
+    const refresh = await sdk.request(`${instance}/api/now/processflow/flow?sysparm_transaction_scope=${encodeURIComponent(flow.scope)}`, {
+      method: 'PUT', body: JSON.stringify(serializeNativeClone(completed)),
+    });
+    if (refresh?.error || refresh?.result?.error || refresh?.result?.errors?.length) throw new Error('Native capture-refresh save returned flow errors');
     completed = await readProcessFlow(sdk, instance, flow.id, flow.scope);
     verifyClonedFlow(source, completed, name);
   } catch (error) { failure = error; }
@@ -334,7 +390,7 @@ export async function cloneFlow(sdk, instance, plan, { capturePolls = 21, pollDe
     id = allocated;
     stage = 'definition_readback';
     let flow = await readProcessFlow(sdk, instance, id, plan.scope);
-    const graph = verifyClonedFlow(plan.source, flow, plan.name);
+    const graph = verifyCloneGraph(plan.source, flow, plan.name, false);
     stage = 'native_save_version_release';
     flow = await completeNativeClone(sdk, instance, plan.source, flow, plan.name);
     stage = 'saved_version';

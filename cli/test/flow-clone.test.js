@@ -49,6 +49,36 @@ test('serialized versions preserve full schema and unknown serialized content wi
   assert.throws(() => verifyClonedVersions(sourceFlow(), changed), /content\/schema/);
   const other = clonedFlow(); other.unexpectedSavedGraph = {};
   assert.throws(() => verifyClonedVersions(sourceFlow(), other), /content\/schema/);
+  // A fresh draft save is uncompiled; any other engine version is not accepted.
+  const compiled = sourceFlow(), draft = clonedFlow();
+  compiled.engineVersion = 2; draft.engineVersion = 0;
+  assert.equal(verifyClonedVersions(compiled, draft), true);
+  draft.engineVersion = 1;
+  assert.throws(() => verifyClonedVersions(compiled, draft), /content\/schema/);
+  // Empty choice lists are serialization-equivalent; real choices are not.
+  const emptyChoiceSource = structuredClone(sourceFlow()), emptyChoiceSave = structuredClone(clonedFlow());
+  for (const flow of [emptyChoiceSource, emptyChoiceSave]) for (const input of flow.actionInstances[0].inputs) input.parameter.choices = [];
+  for (const input of emptyChoiceSave.actionInstances[0].inputs) delete input.parameter.choices;
+  assert.equal(verifyClonedVersions(emptyChoiceSource, emptyChoiceSave), true);
+  const otherChoices = structuredClone(emptyChoiceSave);
+  otherChoices.actionInstances[0].inputs[0].parameter.choices = [{ label: 'B', value: 'b' }];
+  assert.throws(() => verifyClonedVersions(emptyChoiceSource, otherChoices), /content\/schema/);
+});
+
+test('editor-added provider type label is accepted only at its exact derived value', () => {
+  // Live-measured: the native save re-materializes attributes.uiTypeLabel on
+  // FlowDesignVariableMapper variables whose source omitted it. Any other value
+  // must still fail, and pre-existing authored labels are still compared exactly.
+  const variable = (id, type_label) => ({ id, name: 'current', type: 'document_id', type_label, children: [],
+    attributes: { element_mapping_provider: 'com.glide.flow_design.action.data.FlowDesignVariableMapper', uiType: 'document_id' } });
+  const source = sourceFlow(), destination = clonedFlow();
+  source.inputs.push(variable('0a'.repeat(16), 'Document ID'));
+  destination.inputs.push(variable('0b'.repeat(16), 'Document ID'));
+  assert.equal(verifyClonedFlow(source, destination, 'New flow').verified, true);
+  destination.inputs[0].attributes.uiTypeLabel = 'Document ID';
+  assert.equal(verifyClonedFlow(source, destination, 'New flow').verified, true);
+  destination.inputs[0].attributes.uiTypeLabel = 'Unrelated Label';
+  assert.throws(() => verifyClonedFlow(source, destination, 'New flow'), /miswired inputs/);
 });
 
 test('capture validates actual XML parent and version, not unrelated string matches', () => {
