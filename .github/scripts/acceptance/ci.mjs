@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateProjection, publishResults } from './publish.mjs';
 import { HARNESS_SHA } from './prepare.mjs';
+import { checkoutIdentity } from './tested-version.mjs';
 import { instanceConfiguration, producerEnvironment } from './config.mjs';
 
 export async function runAndPublish({ run, file, publicFile, url, token, publish = publishResults, expectedSHA, evidenceFile }) {
@@ -31,7 +32,7 @@ export async function runAndPublish({ run, file, publicFile, url, token, publish
   console.log(JSON.stringify({ suiteExit: code, publication: outcome.result, httpStatus: outcome.httpStatus ?? 0, complete: payload.summary.complete, missingCount: payload.summary.missingCount, harnessSHA: HARNESS_SHA }));
   const delivered = executedCount > 0 && outcome.ok === true;
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `delivered=${delivered}\nrun_key=${payload.runKey}\n`);
-  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ${process.env.ACCEPTANCE_TARGET} delivery: ${delivered ? 'verified' : 'FAILED'}\nAuthenticated executed scenarios: ${executedCount}. Suite exit: ${code}. Complete: ${payload.summary.complete}. Missing: ${payload.summary.missingCount}. Counts: ${JSON.stringify(payload.summary.counts)}. Publication: ${outcome.result}.\nRun: /results/${payload.runKey}\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ${process.env.ACCEPTANCE_TARGET} delivery: ${delivered ? 'verified' : 'FAILED'}\nAuthenticated executed scenarios: ${executedCount}. Suite exit: ${code}. Complete: ${payload.summary.complete}. Missing: ${payload.summary.missingCount}. Counts: ${JSON.stringify(payload.summary.counts)}. Publication: ${outcome.result}.\n${checkoutIdentity(payload.provenance, HARNESS_SHA)}\nRun: /results/${payload.runKey}\n`);
   return delivered ? 0 : 1;
 }
 

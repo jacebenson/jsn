@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { testedVersion } from './tested-version.mjs';
 
 export function observeScenario(scenario) {
   const original = scenario.run;
@@ -45,8 +46,10 @@ export async function main(args = process.argv.slice(2)) {
   const inventory = adaptInventory(JSON.parse(fs.readFileSync(path.join(support.cliRoot, 'test/acceptance/coverage.json'))));
   const selection = support.selectScenarios(catalog, options);
   const coverage = coverageDetails(inventory, catalog, selection.ids, options.mode, !selection.full);
+  // Retain checkout source identity independently of the executed CLI version.
+  const provenance = { ...support.provenance(ctx.cliPath), version: testedVersion(ctx.cliPath) };
   const report = await executeScenarios(catalog.filter(s => s.modes.includes(options.mode)).map(observeScenario), ctx, {
-    missing: coverage.gaps, selection, provenance: support.provenance(ctx.cliPath), suiteHooks: hooks,
+    missing: coverage.gaps, selection, provenance, suiteHooks: hooks,
   });
   return report.summary.complete ? 0 : report.results.some(r => r.status.startsWith('failed')) ? 1 : 2;
 }
