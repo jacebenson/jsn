@@ -274,6 +274,7 @@ test('immutable real producer executes failing scenarios and restored passing sc
   const wrapper = path.join(dir, '.github/scripts/acceptance/execute.mjs');
   fs.mkdirSync(path.dirname(wrapper), { recursive: true });
   fs.copyFileSync(path.join(root, '.github/scripts/acceptance/execute.mjs'), wrapper);
+  fs.copyFileSync(path.join(root, '.github/scripts/acceptance/tested-version.mjs'), path.join(path.dirname(wrapper), 'tested-version.mjs'));
   fs.copyFileSync(path.join(root, '.github/scripts/acceptance/catalog-v2.mjs'), path.join(path.dirname(wrapper), 'catalog-v2.mjs'));
   const invokedOutput = path.join(dir, 'invoked-producer-run');
   const invoked = await launchSeeded(process.execPath, [wrapper, '--profile', 'acceptance-ci', '--expected-host', origin,
