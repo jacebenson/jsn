@@ -2,6 +2,8 @@
 
 For the partial draft-edit contract, preview, versioning, published-flow refusal
 and instance evidence limits, see [Safe edits to existing flows](safe-flow-edit.md).
+For native inactive-Draft duplication, supported graph boundaries and pending live
+acceptance, see [Clone a flow](flow-clone.md).
 
 ## Terminal contract
 

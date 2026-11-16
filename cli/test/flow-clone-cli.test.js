@@ -1,0 +1,108 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { sourceFlow, clonedFlow, sourceId, cloneId, setId } from './fixtures/flow-clone.js';
+const exec = promisify(execFile);
+const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
+const args = (alias = 'clone') => ['flows', alias, sourceId, '--name', 'New flow', '--force', '--json'];
+async function fixture(scenario, operation) {
+  const dir = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-clone-'));
+  const requests = [];
+  let allocated = false, captures = 0;
+  const server = http.createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    const url = new URL(req.url, 'http://localhost'), query = url.searchParams.get('sysparm_query');
+    requests.push({ method: req.method, path: url.pathname, query, scope: url.searchParams.get('sysparm_transaction_scope'), body: body.startsWith('{') ? JSON.parse(body) : body });
+    let result = { result: [] };
+    if (url.pathname.endsWith('/table/sys_hub_flow')) result.result = query?.startsWith('name=New flow') ? scenario.collision ? [{ sys_id: cloneId }] : [] : [{ sys_id: sourceId, sys_scope: 'global', name: 'Source' }];
+    if (url.pathname.endsWith('/table/sys_user')) result.result = [{ sys_id: 'e'.repeat(32) }];
+    if (url.pathname.endsWith('/table/sys_user_preference')) result.result = [{ value: setId }];
+    if (url.pathname.endsWith('/table/sys_update_set')) result.result = [{ sys_id: setId, name: scenario.defaultSet ? 'Default' : 'Fixture', state: 'in progress' }];
+    if (url.pathname.endsWith('/concoursepicker/updateset')) result = { result: { current: { sysId: scenario.misaligned || allocated && scenario.changedContext ? 'f'.repeat(32) : setId, name: 'Fixture' } } };
+    if (url.pathname === `/api/now/processflow/flow/${sourceId}`) {
+      const source = sourceFlow();
+      if (scenario.unsupported) source.stages = { stage: { id: 'e'.repeat(32) } };
+      if (allocated && scenario.sourceChanged) source.description = 'changed';
+      result = { result: { data: source } };
+    }
+    if (url.pathname.endsWith('/copy')) {
+      allocated = true;
+      if (scenario.disconnect) { req.socket.destroy(); return; }
+      result = { result: { data: scenario.badEnvelope ? { id: cloneId } : cloneId } };
+    }
+    if (url.pathname === `/api/now/processflow/flow/${cloneId}`) {
+      const copy = clonedFlow();
+      if (scenario.active) copy.active = true;
+      if (scenario.badPill) copy.actionInstances[0].inputs[0].value = '{{33333333333333333333333333333333.current}}';
+      result = { result: { data: copy } };
+    }
+    if (url.pathname.endsWith('/table/sys_hub_flow_version')) {
+      const flow = query.includes(`flow=${sourceId}`) ? sourceFlow() : clonedFlow();
+      result.result = allocated && scenario.noVersion ? [] : [{ sys_id: flow.versionRecordId, flow: flow.id, payload: JSON.stringify(flow) }];
+    }
+    if (url.pathname.endsWith('/table/sys_update_xml')) {
+      captures++;
+      result.result = scenario.delayedCapture && captures < 3 ? [] : [{ sys_id: '9'.repeat(32), name: `sys_hub_flow_${cloneId}`, action: 'INSERT_OR_UPDATE', update_set: setId, payload: `<record_update><sys_hub_flow><sys_id>${cloneId}</sys_id><version_record>${'5'.repeat(32)}</version_record></sys_hub_flow></record_update>` }];
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(result));
+  });
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const configDir = path.join(dir, 'config'); await fs.mkdir(path.join(configDir, 'servicenow'), { recursive: true });
+    await fs.writeFile(path.join(configDir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: !!scenario.readOnly } } }));
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
+    Object.assign(env, { HOME: dir, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: configDir, JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
+    const run = async argv => {
+      try { return { code: 0, ...await exec(process.execPath, [cli, ...argv], { env, timeout: 20000 }) }; }
+      catch (error) { return { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' }; }
+    };
+    await operation(run, requests);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await fs.rm(dir, { recursive: true, force: true }); }
+}
+for (const alias of ['clone', 'copy']) {
+  test(`${alias} actual CLI native allocation and persisted graph/capture readback`, () => fixture({}, async (run, requests) => {
+    const result = await run(args(alias)); assert.equal(result.code, 0, result.stdout + result.stderr);
+    const data = JSON.parse(result.stdout).data;
+    assert.equal(data.flow.id, cloneId); assert.equal(data.source.before_digest, data.source.after_digest);
+    assert.equal(data.context_unchanged, true);
+    assert.deepEqual(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do'), [{ method: 'POST', path: `/api/now/processflow/flow/${sourceId}/copy`, query: null, scope: 'global', body: { name: 'New flow', scope: 'global' } }]);
+  }));
+  test(`${alias} standard read-only guard emits JSON and performs no writes`, () => fixture({ readOnly: true }, async (run, requests) => {
+    const result = await run(args(alias)); assert.notEqual(result.code, 0);
+    assert.equal(JSON.parse(result.stdout).ok, false); assert.equal(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do').length, 0);
+  }));
+  test(`${alias} confirmation required in automation before writes`, () => fixture({}, async (run, requests) => {
+    const result = await run(args(alias).filter(arg => arg !== '--force'));
+    assert.equal(JSON.parse(result.stdout).code, 'confirmation_required'); assert.equal(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do').length, 0);
+  }));
+}
+for (const [name, scenario, argv] of [
+  ['name required', {}, ['flows', 'clone', sourceId, '--force', '--json']],
+  ['source required', {}, ['flows', 'clone', '--name', 'New flow', '--force', '--json']],
+  ['collision', { collision: true }, args()], ['unsupported graph', { unsupported: true }, args()],
+  ['Default set', { defaultSet: true }, args()], ['unaligned context', { misaligned: true }, args()],
+]) test(`clone preflight ${name}: JSON error with zero writes`, () => fixture(scenario, async (run, requests) => {
+  const result = await run(argv); assert.notEqual(result.code, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).ok, false); assert.equal(requests.filter(r => r.method !== 'GET' && r.path !== '/angular.do').length, 0);
+}));
+for (const scenario of [{ active: true }, { badPill: true }, { sourceChanged: true }, { changedContext: true }, { noVersion: true }, { badEnvelope: true }, { disconnect: true }]) {
+  test(`clone partial failure preserves recovery receipt and never retries: ${JSON.stringify(scenario)}`, () => fixture(scenario, async (run, requests) => {
+    const result = await run(args()); assert.equal(result.code, 1, result.stdout + result.stderr);
+    const envelope = JSON.parse(result.stdout); assert.equal(envelope.ok, false);
+    assert.match(envelope.error, scenario.badEnvelope || scenario.disconnect ? /allocation outcome uncertain/ : new RegExp(cloneId));
+    assert.match(envelope.hint, /No automatic retry/);
+    assert.equal(requests.filter(r => r.path.endsWith('/copy')).length, 1);
+  }));
+}
+test('delayed capture only polls GETs and --get extracts native clone identity', () => fixture({ delayedCapture: true }, async (run, requests) => {
+  const result = await run([...args().filter(arg => arg !== '--json'), '--get', 'data.flow.id']);
+  assert.equal(result.code, 0, result.stdout + result.stderr); assert.match(result.stdout, new RegExp(cloneId));
+  assert.equal(requests.filter(r => r.path.endsWith('/sys_update_xml')).length, 3);
+  assert.equal(requests.filter(r => r.path.endsWith('/copy')).length, 1);
+}));

@@ -1,5 +1,7 @@
 import { searchFlows, formatFlowSearch } from '../flow-search.js';
 import fs from 'node:fs';
+import { prepareFlowClone, cloneFlow } from '../flow-clone.js';
+import { canUsePicker } from '../helpers.js';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -44,6 +46,7 @@ const FLOW_COMMANDS = [
   { name: 'status [identifier]', description: 'Check whether a flow is actually able to run' },
   { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
   { name: 'test [identifier]', description: 'Execute a record-triggered flow against one record' },
+  { name: 'clone [identifier]', description: 'Duplicate an inactive Draft flow using native Designer copy (alias: copy)' },
   { name: 'create', description: 'Create a draft flow: guided in a terminal, JSON manifest in scripts' },
   { name: 'update [identifier]', description: 'Update a draft, or a published flow whose definition reports write access (alias: edit)' },
   { name: 'doctor', description: 'Check whether this instance can publish flows at all' },
@@ -70,7 +73,7 @@ function triggerGuidance(trigger) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+declareCapabilities('flows', { mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -384,6 +387,29 @@ export function flowsCmd(wrap) {
             return app.ok(report, {
               summary: `${report.ok ? '✅' : '❌'} Flow publishing\n${renderChecks(report.checks)}${hint}`,
             });
+          }),
+        })
+        .command({
+          command: 'clone [identifier]',
+          aliases: ['copy'],
+          describe: 'Duplicate a supported inactive Draft through native Designer copy',
+          builder: y => y
+            .option('name', { type: 'string', describe: 'New unique name; required in automation, defaults to source name + copy interactively' })
+            .option('force', { type: 'boolean', default: false, describe: 'Approve this clone without confirmation' })
+            .epilogue('Same source scope and security/domain policy. Never publishes, activates or executes.\n'
+              + 'Select an aligned named in-progress update set first. Unsupported graph categories fail before allocation.\n'
+              + 'Live acceptance is pending. Partial failures retain the new identity; reconcile before retrying.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const plan = await prepareFlowClone(app.sdk, app.getEffectiveInstance(), identifier, { ...argv, interactive: canUsePicker(app, argv) });
+            await confirmDesignerMutation(argv, app,
+              `Clone ${plan.source.name} (${plan.source.id}) as ${JSON.stringify(plan.name)} in ${plan.scope}; inactive Draft, source unchanged`,
+              ['flows', 'clone', plan.source.id, '--name', plan.name]);
+            const result = await cloneFlow(app.sdk, app.getEffectiveInstance(), plan);
+            return app.ok(result, { summary: `Cloned inactive Draft ${result.flow.name} (${result.flow.id}); source unchanged; capture verified`,
+              breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the cloned Draft' }] });
           }),
         })
         .command({
