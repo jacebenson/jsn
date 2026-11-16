@@ -258,18 +258,24 @@ export function verifyClonedVersions(source, destination) {
     }
     return result;
   };
-  // The save serializer omits empty choice lists on parameters whose source
-  // version row carried them as []. Empty and absent mean the same thing here;
-  // any non-empty choice content is still compared exactly.
-  const trim = value => {
-    if (Array.isArray(value)) return value.map(trim);
-    if (!value || typeof value !== 'object') return value;
-    const result = Object.fromEntries(Object.entries(value).filter(([key, child]) =>
-      !((key === 'choices' || key === 'defaultChoices') && Array.isArray(child) && child.length === 0)));
-    for (const [key, child] of Object.entries(result)) result[key] = trim(child);
-    return result;
-  };
-  if (!isDeepStrictEqual(trim(stable(expected)), trim(stable(destination)))) throw new Error('Saved version content/schema was not preserved under the explicit identity map');
+  const before = stable(expected), after = stable(destination);
+  // Measured native save omission: triggerInstances[].inputs[].parameter's
+  // own empty choice lists only. Validate both parameter shapes and their input
+  // names; never walk defaults, values, children, or unknown provider payloads.
+  for (const [index, trigger] of before.triggerInstances.entries()) {
+    for (const [inputIndex, input] of trigger.inputs.entries()) {
+      const saved = after.triggerInstances?.[index]?.inputs?.[inputIndex];
+      const parameter = input.parameter, savedParameter = saved?.parameter;
+      if (!parameter || !savedParameter || typeof input.name !== 'string' ||
+          input.name !== saved.name || parameter.name !== input.name || savedParameter.name !== input.name ||
+          typeof parameter.type !== 'string' || parameter.type !== savedParameter.type ||
+          !Array.isArray(parameter.children) || !Array.isArray(savedParameter.children)) continue;
+      for (const field of ['choices', 'defaultChoices']) {
+        if (Array.isArray(parameter[field]) && parameter[field].length === 0 && !Object.hasOwn(savedParameter, field)) delete parameter[field];
+      }
+    }
+  }
+  if (!isDeepStrictEqual(before, after)) throw new Error('Saved version content/schema was not preserved under the explicit identity map');
   return true;
 }
 

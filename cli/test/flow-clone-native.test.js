@@ -26,6 +26,37 @@ test('sanitized retained native allocation preserves full authored graph and ser
   assert.throws(()=>verifyClonedVersions(capture.sourceVersion,bad),/content\/schema/);
 });
 
+test('choice omission is limited to native trigger input parameter lists, never authored payloads', () => {
+  const source = structuredClone(capture.sourceVersion), destination = structuredClone(capture.destinationVersion);
+  for (const input of destination.triggerInstances[0].inputs) {
+    delete input.parameter.choices;
+    delete input.parameter.defaultChoices;
+  }
+  assert.equal(verifyClonedVersions(source, destination), true);
+  for (const field of ['choices', 'defaultChoices']) for (const locate of [
+    flow => flow.actionInstances[0].inputs[0].parameter,
+    flow => flow.triggerInstances[0].inputs[0].parameter,
+    flow => flow.actionInstances[0],
+  ]) {
+    const a = structuredClone(source), b = structuredClone(destination);
+    locate(a).defaultValue = { [field]: [], keep: 'authored schema default' };
+    locate(b).defaultValue = { [field]: [], keep: 'authored schema default' };
+    assert.equal(verifyClonedVersions(a, b), true);
+    delete locate(b).defaultValue[field];
+    assert.throws(() => verifyClonedVersions(a, b), /content\/schema/);
+  }
+  for (const field of ['choices', 'defaultChoices']) {
+    const a = structuredClone(source), b = structuredClone(destination);
+    a.unknownPayload = { parameter: { name: 'fake', type: 'choice', [field]: [] } };
+    b.unknownPayload = { parameter: { name: 'fake', type: 'choice' } };
+    assert.throws(() => verifyClonedVersions(a, b), /content\/schema/);
+    b.triggerInstances[0].inputs[0].parameter.name = 'not-the-input';
+    delete a.unknownPayload;
+    delete b.unknownPayload;
+    assert.throws(() => verifyClonedVersions(a, b), /content\/schema/);
+  }
+});
+
 // Structural shape observed in native copy followed by a real Designer Save.
 // No provider payload, instance identity or user content is retained here.
 function nativePair() {

@@ -57,8 +57,10 @@ test('serialized versions preserve full schema and unknown serialized content wi
   assert.throws(() => verifyClonedVersions(compiled, draft), /content\/schema/);
   // Empty choice lists are serialization-equivalent; real choices are not.
   const emptyChoiceSource = structuredClone(sourceFlow()), emptyChoiceSave = structuredClone(clonedFlow());
-  for (const flow of [emptyChoiceSource, emptyChoiceSave]) for (const input of flow.actionInstances[0].inputs) input.parameter.choices = [];
-  for (const input of emptyChoiceSave.actionInstances[0].inputs) delete input.parameter.choices;
+  for (const flow of [emptyChoiceSource, emptyChoiceSave]) for (const input of flow.triggerInstances[0].inputs) {
+    input.parameter = { ...input.parameter, name: input.name, choices: [] };
+  }
+  for (const input of emptyChoiceSave.triggerInstances[0].inputs) delete input.parameter.choices;
   assert.equal(verifyClonedVersions(emptyChoiceSource, emptyChoiceSave), true);
   const otherChoices = structuredClone(emptyChoiceSave);
   otherChoices.actionInstances[0].inputs[0].parameter.choices = [{ label: 'B', value: 'b' }];
