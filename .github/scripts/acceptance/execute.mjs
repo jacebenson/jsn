@@ -23,11 +23,33 @@ export function observeScenario(scenario) {
   return scenario;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+export async function main(args = process.argv.slice(2)) {
+  const support = await import('../../../cli/scripts/acceptance/support.mjs');
+  const { executeScenarios } = await import('../../../cli/scripts/acceptance/run.mjs');
+  const { bindScenarios, coverageDetails } = await import('../../../cli/scripts/acceptance/bindings.mjs');
+  const hooks = await import('../../../cli/test/acceptance/performance.mjs');
+  const { loadConfig } = await import('../../../cli/src/config.js');
+  const { adaptCatalog, adaptInventory } = await import('./catalog-v2.mjs');
+  const options = support.parseArgs(args);
+  const ctx = support.createContext(options, support.preflight(options, loadConfig()));
+  if (options.mode === 'pdi' && options.allowWrites) {
+    const { createProviderSessionAdapter } = await import('../../../cli/scripts/acceptance/session-adapter.mjs');
+    ctx.state.set('auth.browserAdapter', createProviderSessionAdapter());
+  }
+  const catalog = [];
   for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) {
     const { scenarios } = await import(`../../../cli/test/acceptance/${name}.mjs`);
-    scenarios.forEach(observeScenario);
+    catalog.push(...adaptCatalog(scenarios));
   }
-  const { main } = await import('../../../cli/scripts/acceptance/run.mjs');
+  bindScenarios(catalog);
+  const inventory = adaptInventory(JSON.parse(fs.readFileSync(path.join(support.cliRoot, 'test/acceptance/coverage.json'))));
+  const selection = support.selectScenarios(catalog, options);
+  const coverage = coverageDetails(inventory, catalog, selection.ids, options.mode, !selection.full);
+  const report = await executeScenarios(catalog.filter(s => s.modes.includes(options.mode)).map(observeScenario), ctx, {
+    missing: coverage.gaps, selection, provenance: support.provenance(ctx.cliPath), suiteHooks: hooks,
+  });
+  return report.summary.complete ? 0 : report.results.some(r => r.status.startsWith('failed')) ? 1 : 2;
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().then(code => { process.exitCode = code; }).catch(() => { console.error('Acceptance execution refused'); process.exitCode = 1; });
 }

@@ -33,7 +33,6 @@ describe('capabilities registry', () => {
     assert.deepStrictEqual(caps.get('docs'), { noInstance: true, skipDailyChecks: true });
     // Built-ins
     assert.deepStrictEqual(caps.get('help'), { noInstance: true, skipDailyChecks: true });
-    assert.deepStrictEqual(caps.get('completion'), { noInstance: true, skipDailyChecks: true });
   });
 
   it('marks the real catalogitems create as a mutation (regression: mutations.js registered catalog create-item)', () => {
@@ -66,7 +65,7 @@ describe('capabilities registry', () => {
 
   it('derives noInstanceCommands with the exact legacy skip-list semantics', () => {
     const skip = noInstanceCommands();
-    for (const cmd of ['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs']) {
+    for (const cmd of ['help', 'version', 'setup', 'auth', 'skill', 'docs']) {
       assert.ok(skip.has(cmd), `expected ${cmd} in noInstance skip set`);
     }
     // And nothing instance-bound leaks in
@@ -82,7 +81,7 @@ describe('capabilities registry', () => {
 
   it('derives dailyCheckSkipCommands including offline customization reports', () => {
     const skip = dailyCheckSkipCommands();
-    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'discover', 'docs', 'help', 'history', 'skill', 'update', 'upgrade', 'version']);
+    assert.deepStrictEqual([...skip].sort(), ['customizations', 'discover', 'docs', 'help', 'history', 'skill', 'update', 'upgrade', 'version']);
   });
 
   it('derives mutation paths for root CRUD commands', () => {

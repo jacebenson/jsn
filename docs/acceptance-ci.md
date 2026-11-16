@@ -191,7 +191,7 @@ A qualifying run requires at least **one distinct scenario with status `passed`,
 inside that scenario**. `execute.mjs` observes the pinned scenarios without
 changing their results. A successful selected-profile `ctx.read`, or successful
 provider-backed CLI JSON command, records private run-key/scenario evidence. Local
-version/completion/history, help, auth-status, blocked/excluded/not-run scenarios,
+version/discovery-help/history, help, auth-status, blocked/excluded/not-run scenarios,
 runner initialization, failed authentication, and setup/preflight alone cannot
 qualify. Evidence is matched against the actual projection's run key and result
 IDs. A failing assertion after an authenticated provider operation counts even

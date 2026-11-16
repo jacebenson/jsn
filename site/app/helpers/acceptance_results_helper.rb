@@ -14,6 +14,7 @@ module AcceptanceResultsHelper
     'auth.cookie-invalid' => 'Reject invalid browser-session credentials',
     'auth.cookie-valid-permissions' => 'Verify browser-session login, identity and permissions',
     'auth.fixtures' => 'Create isolated, limited-permission test accounts',
+    'local.discovery-help' => 'Discover command families and record options through help',
     'local.completion' => 'Generate shell tab-completion script',
     'local.history-empty' => 'Read an empty, isolated change history',
     'local.parser-rejection' => 'Reject a records command with no table specified',

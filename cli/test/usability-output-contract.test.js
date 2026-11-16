@@ -315,13 +315,13 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
     const paths = [];
     const walk = (node, prefix) => {
       node.build();
-      for (const child of node.children.filter((c) => c.name !== '__completion')) {
+      for (const child of node.children) {
         const full = `${prefix}${child.name}`;
         paths.push(full);
         walk(child, `${full} `);
       }
     };
-    for (const root of cli.root.children.filter((c) => c.name !== '__completion')) {
+    for (const root of cli.root.children) {
       paths.push(root.name);
       walk(root, `${root.name} `);
     }
@@ -565,7 +565,7 @@ describe('#264 follow-up: a command token has exactly one owner', () => {
     const tokens = [];
     const walk = (node, prefix) => {
       node.build();
-      for (const child of node.children.filter((c) => c.name !== '__completion')) {
+      for (const child of node.children) {
         tokens.push(prefix + child.name);
         for (const alias of child.aliases) tokens.push(prefix + alias);
         walk(child, `${prefix}${child.name} `);

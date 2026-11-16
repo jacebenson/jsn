@@ -49,7 +49,7 @@ class CommandNode {
    * subcommand to layer a specialized handler over the base one (see
    * `requests show`). Appending instead of replacing left the base registration
    * first in the list and reachable by dispatch/help while the duplicate was
-   * invisible to the registry (child counts, inventory, completion).
+   * invisible to the registry (child counts, inventory).
    *
    * Registration order is preserved (the slot is replaced in place) and the
    * replaced node's aliases are carried over so layered commands keep resolving
@@ -116,7 +116,6 @@ export class LocalCLI {
     this.middlewares = [];
     this.failHandler = null;
     this.script = 'jsn';
-    this.completionCommand = '__completion';
   }
 
   scriptName(value) { this.script = value; return this; }
@@ -137,7 +136,6 @@ export class LocalCLI {
    */
   onParentDiscovery(fn) { this.parentDiscovery = fn; return this; }
   demandCommand(count, message) { this.root.demand = { count, message }; return this; }
-  completion(name, _description, handler) { this.completionCommand = name; this.completionHandler = handler; return this; }
   help() { this.helpEnabled = true; return this; }
   version() { return this; }
   strictCommands() { this.strictCmd = true; return this; }
@@ -150,10 +148,6 @@ export class LocalCLI {
       getCommandHandlers: () => Object.fromEntries(all.map((n) => [n.name, n.definition.handler])),
     }) };
   }
-  showCompletionScript() {
-    process.stdout.write(`###-begin-jsn-completions-###\n_jsn_yargs_completions() {\n  local completions=$(jsn --get-yargs-completions "$@")\n  COMPREPLY=( $(compgen -W "$completions" -- "\${COMP_WORDS[COMP_CWORD]}") )\n}\ncomplete -F _jsn_yargs_completions jsn\n###-end-jsn-completions-###\n`);
-  }
-
   _lookup(list, value) { return list.find((n) => n.name === value || n.aliases.includes(value)); }
   _knownOptions(nodes) {
     const map = new Map();
@@ -299,7 +293,7 @@ export class LocalCLI {
    * stay unchanged.
    */
   commandRegistry({ summaries = false } = {}) {
-    const visible = (node) => node.name !== this.completionCommand && !node.definition.hidden;
+    const visible = (node) => !node.definition.hidden;
     const serialize = (node) => {
       node.build();
       const entry = {
@@ -334,7 +328,7 @@ export class LocalCLI {
   /** Structured child signatures for a parent node, built on demand. */
   subcommandsOf(node) {
     return node.children
-      .filter((child) => child.name !== this.completionCommand && !child.definition.hidden)
+      .filter((child) => !child.definition.hidden)
       .map((child) => {
         child.build();
         return {
@@ -362,7 +356,7 @@ export class LocalCLI {
 
   _commandRows(node) {
     return node.children
-      .filter((child) => child.name !== this.completionCommand && !child.definition.hidden)
+      .filter((child) => !child.definition.hidden)
       .map((child) => ({
         label: child.definition.command || child.name,
         description: child.definition.describe || '',
@@ -408,28 +402,10 @@ export class LocalCLI {
     }));
   }
   async parse() {
-    if (this.args.includes('--get-yargs-completions')) {
-      const prefix = this.args.at(-1) || '';
-      let completionArgs = this.args.slice(this.args.indexOf('--get-yargs-completions') + 1, -1);
-      if (completionArgs[0] === this.script) completionArgs = completionArgs.slice(1);
-      const { path } = this._findPath(completionArgs);
-      const node = path.at(-1) || this.root;
-      node.build();
-      const argv = { _: path.map((n) => n.name) };
-      const completionFilter = (callback) => {
-        const values = [...node.children].filter((n) => n.name !== this.completionCommand && !n.definition.hidden)
-          .flatMap((n) => path.length ? [n.name] : [n.name, ...n.aliases]);
-        const opts = [...this._optionConfig(path)].map(([name]) => `--${name}`);
-        callback(null, [...new Set([...values, ...opts])]);
-      };
-      const finish = (values) => process.stdout.write([...new Set(values || [])]
-        .filter((x) => x.startsWith(prefix) || prefix.startsWith('-') && x.startsWith(prefix)).join('\n') + '\n');
-      if (this.completionHandler) {
-        this.completionHandler(prefix, argv, completionFilter, finish);
-      } else {
-        completionFilter((err, values) => finish(values));
-      }
-      return;
+    // Reject stale installed shell snippets instead of dispatching their words
+    // as ordinary commands (for example the `r` alias).
+    if (this.args.some(arg => arg.split('=')[0] === '--get-yargs-completions')) {
+      return this._fail('Unknown option: --get-yargs-completions');
     }
     if (this.args[0] === 'help') {
       const target = this._findPath(this.args.slice(1));

@@ -191,7 +191,7 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
   incidents/changes/requests/tasks. One line of config → a full command family
   (list/show/create/update/delete, aliases, scope validation, pickers).
 - **No-instance command** — a Command that runs without a configured
-  ServiceNow instance (`help`, `version`, `completion`, `setup`, `auth`,
+  ServiceNow instance (`help`, `version`, `setup`, `auth`,
   `skill`, `docs`). Declared via `noInstance: true` capability.
 - **Mutation subcommand** — a subcommand that writes to the instance
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
@@ -222,7 +222,7 @@ surface. Other authenticated accounts see a compact task and connection surface;
 an unavailable role check also uses that compact presentation and records the
 uncertainty. Existing profiles without a cached audience retain the full surface
 until authentication is renewed. Root help, root JSON, `discover`, and root shell
-completion share this policy. `--all-commands` restores the full surface.
+discovery share this policy. `--all-commands` restores the full surface.
 Explicit command paths are always registered; this is presentation, never an
 ACL or an authorization claim. Role changes are picked up on authentication.
 
@@ -769,7 +769,7 @@ would overwrite it.
   exactly one command answering to any name or alias: a re-registration replaces
   the slot, a shared alias goes to the later registration, a canonical name that
   was another command's alias replaces it, and a self-alias is dropped at the
-  node. Anything else makes dispatch order, help, completion and the registry
+  node. Anything else makes dispatch order, help, discovery and the registry
   disagree about which command a token runs.
 - **Every handler and the parent-discovery callback go through `wrap()`.** The
   discovery fallback runs outside any command, but its `app.ok` can still throw

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { adaptCatalog } from './catalog-v2.mjs';
 import { environmentOAuth } from '../oauth-environment.mjs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -64,7 +65,7 @@ export async function main() {
       // Select every existing readonly scenario, not a hand-picked passing set.
       for (const name of ['read-only', 'read-only-catalog', 'resources', 'workflows', 'auth']) {
         const module = await import(pathToFileURL(path.join(root, `cli/test/acceptance/${name}.mjs`)).href);
-        for (const scenario of module.scenarios) if (scenario.modes.includes('readonly')) args.push('--scenario', scenario.id);
+        for (const scenario of adaptCatalog(module.scenarios)) if (scenario.modes.includes('readonly')) args.push('--scenario', scenario.id);
       }
     }
     return await runAndPublish({
