@@ -82,6 +82,8 @@ test('non-loopback HTTP is rejected before credential lookup or network', async 
   await assert.rejects(() => sdk.list('sys_user'), /HTTPS/);
   assert.equal(reads, 0);
   const auth = new AuthManager({ getEffectiveInstance: () => 'http://example.invalid' }, { credentialStore: store });
+  await assert.rejects(() => auth.login('http://example.invalid'), /HTTPS/);
+  await assert.rejects(() => auth.loginWithBrowser('http://example.invalid', { launch: true }), /HTTPS/);
   await assert.rejects(() => auth.exchangeCode('http://example.invalid', 'client', 'code', { code_verifier: 'verifier' }), /HTTPS/);
   await assert.rejects(() => auth.refreshToken('http://example.invalid', { auth_method: 'oauth', refresh_token: 'synthetic' }), /HTTPS/);
 });

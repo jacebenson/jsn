@@ -364,6 +364,7 @@ export class AuthManager {
 
   async login(instanceURL, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
+    assertCredentialTransport(instanceURL);
     const clientID = getOAuthClientID();
     const pkce = generatePKCE();
     const authURL = buildAuthURL(instanceURL, clientID, pkce);
@@ -473,6 +474,7 @@ export class AuthManager {
   }
 
   async loginWithBrowser(instanceURL, options = {}, username = this._activeUsername()) {
+    assertCredentialTransport(normalizeInstanceURL(instanceURL));
     if (options.launch) {
       const { launchBrowserSession } = await import('./browser-launch.js');
       const credentials = await launchBrowserSession(instanceURL, {

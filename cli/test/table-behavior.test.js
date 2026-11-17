@@ -132,7 +132,7 @@ function fixtureFetch({ hierarchy = HIERARCHY, dictionaries = {}, rows = {}, fai
 }
 
 function sdk() {
-  return new SDKClient('http://fixture.invalid', {
+  return new SDKClient('https://fixture.invalid', {
     getCredentials: () => ({ auth_method: 'gck', access_token: 'fixture-token' }),
   });
 }

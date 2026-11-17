@@ -35,7 +35,8 @@ redirect rejection.
 Transport inventory: OAuth grants and browser-session verification live in
 `auth.js`; API/processor/raw-response/attachment requests, recovery verification,
 UI bootstrap, MFA exchanges and AMB session acquisition live in `sdk.js`.
-`amb.js` separately transmits AMB cookies/tokens, and
+`amb.js` separately transmits AMB cookies/tokens and pins its destination to the
+original instance origin, including when callers change its public baseUrl/path.
+AMB paths must be local routes, not absolute URLs or protocol-relative references.
 `midserver-install.js` validates explicit MID Basic credentials through a separate
-sender. Both need equivalent transport protection; this patch does not claim to
-secure those senders.
+sender. Both senders use the shared origin/HTTPS policy and reject redirects.

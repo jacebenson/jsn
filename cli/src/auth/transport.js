@@ -13,3 +13,10 @@ export function assertCredentialTransport(destination) {
   }
   return url;
 }
+
+export function assertCredentialDestination(destination, instance) {
+  const url = assertCredentialTransport(destination);
+  const origin = assertCredentialTransport(instance).origin;
+  if (url.origin !== origin) throw errAuth('Refusing to send credentials outside the configured instance origin');
+  return url;
+}

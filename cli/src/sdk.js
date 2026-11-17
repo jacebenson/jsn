@@ -4,7 +4,7 @@ import { batchRead } from './sdk-batch.js';
 import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
 import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
-import { assertCredentialTransport } from './auth/transport.js';
+import { assertCredentialTransport, assertCredentialDestination } from './auth/transport.js';
 import { canPrompt, getStringField } from './helpers.js';
 import { errMfaRequired, errMfaRejected, isTerminalAuthError } from './errors.js';
 import { buildMfaVerificationBody, extractMfaFormTokens, normalizeTotpCode, parseLoginStatus } from './auth/mfa.js';
@@ -207,8 +207,7 @@ export class SDKClient {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
     allowMutationReplay = false, stateful = false,
   }, consume = (response) => response) {
-    const destination = assertCredentialTransport(endpoint);
-    if (destination.origin !== new URL(this.baseURL).origin) throw errAuth('Refusing to send credentials outside the configured instance origin');
+    assertCredentialDestination(endpoint, this.baseURL);
     const method = String(opts.method || 'GET').toUpperCase();
     for (let attempt = 0; attempt <= MAX_SESSION_REPLAYS; attempt++) {
       // Headers for this attempt belong to the session as it is right now.
