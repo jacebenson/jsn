@@ -130,6 +130,9 @@ test('explicit login approves only the authored profile, never unrelated project
     const sdk = { getCurrentUser: async () => ({ user_name: 'synthetic-user' }), get: async () => ({ result: [] }) };
     const app = { config: cfg, sdk, getSDKForProfile: () => sdk, auth: { loginWithPassword: async () => ({ username: 'synthetic-user' }) }, ok: () => {} };
     await assert.rejects(loginProfile({ profile: 'primary', basic: true }, app), /not globally trusted/);
+    // --profile is authoritative: an ignored literal argument cannot approve
+    // that profile's project-shadowed destination.
+    await assert.rejects(loginProfile({ profile: 'primary', instance: 'https://trusted.invalid', basic: true }, app), /not globally trusted/);
     assert.deepEqual(f.read(), f.global);
     await loginProfile({ instance: 'https://approved.invalid', basic: true, makeDefault: true, 'include-counts': true }, app);
     const saved = f.read();

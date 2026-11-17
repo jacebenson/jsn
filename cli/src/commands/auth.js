@@ -611,7 +611,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   // A profile name selects an account; it does not approve a project-supplied
   // replacement origin. Only a literal destination (also supplied by setup's
   // destination prompt) may authorize a new global trust binding.
-  const literalDestination = argv.instance && !app.config.profiles?.[argv.instance];
+  const literalDestination = !argv.profile && argv.instance && !app.config.profiles?.[argv.instance];
   const trustedProfiles = app.config.credentialTrust?.profiles;
   if (trustedProfiles && !literalDestination) {
     const trustedOrigin = selectedProfileName ? trustedProfiles[selectedProfileName]?.instance_url : app.config.credentialTrust.origin;
