@@ -35,7 +35,16 @@ export default class Database {
     const statement = this.connection.prepare(sql);
     // better-sqlite3 accepted unused keys in named parameter objects.
     statement.setAllowUnknownNamedParameters(true);
-    const args = values => values.length === 1 && Array.isArray(values[0]) ? values[0] : values;
+    const args = values => {
+      const bindings = values.length === 1 && Array.isArray(values[0]) ? values[0] : values;
+      // Node 26 accepts undefined as NULL, whereas Node 24 and better-sqlite3
+      // reject it. Keep accidental missing values from silently becoming NULL.
+      for (const value of bindings) {
+        const entries = value && typeof value === 'object' && !ArrayBuffer.isView(value) ? Object.values(value) : [value];
+        if (entries.includes(undefined)) throw new TypeError('SQLite bindings must not be undefined; use null explicitly');
+      }
+      return bindings;
+    };
     return {
       run: (...values) => statement.run(...args(values)),
       get: (...values) => row(statement.get(...args(values))),

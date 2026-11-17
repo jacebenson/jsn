@@ -14,6 +14,9 @@ test('SQLite preserves binding, rows, blobs, pragmas and nested rollback', () =>
     const insert = db.prepare('INSERT INTO data(value, bytes) VALUES (@value, @bytes)');
     assert.equal(insert.run({ value: 'kept', bytes: Buffer.from([1, 255]) }).lastInsertRowid, 1);
     assert.deepEqual(db.prepare('SELECT value, bytes FROM data').get(), { value: 'kept', bytes: Buffer.from([1, 255]) });
+    assert.throws(() => insert.run({ value: undefined, bytes: null }), /undefined|type/i);
+    assert.throws(() => db.prepare('INSERT INTO data(value) VALUES (?)').run([undefined]), /undefined|type/i);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM data').get().n, 1);
     const inner = db.transaction(() => { insert.run({ value: 'rolled back', bytes: null }); throw new Error('inner'); });
     db.transaction(() => { assert.equal(db.inTransaction, true); assert.throws(inner, /inner/); insert.run({ value: 'outer', bytes: null }); })();
     assert.throws(db.transaction(() => { db.exec('DELETE FROM data'); throw new Error('outer'); }), /outer/);
