@@ -14,8 +14,10 @@ import { configureGlobalDefaults } from '../src/setup-preferences.js';
 const exec = promisify(execFile);
 const entry = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 const trusted = { instance_url: 'https://trusted.invalid', auth_method: 'oauth' };
+// Capture before isolated() changes TMPDIR; fixture roots must remain siblings.
+const temporaryBase = process.env.TMPDIR || os.tmpdir();
 function fixture(local = {}) {
-  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-trust-save-'));
+  const root = fs.mkdtempSync(path.join(temporaryBase, 'jsn-trust-save-'));
   const globalPath = path.join(root, 'xdg/servicenow/config.json');
   const localPath = path.join(root, '.servicenow/config.json');
   const global = { default_profile: 'primary', profiles: { primary: trusted, other: { instance_url: 'https://other.invalid' } }, format: 'json' };
@@ -82,7 +84,15 @@ async function isolated(local, callback) {
     Object.assign(process.env, f.env);
     process.chdir(f.root);
     await callback(f);
-  } finally { process.chdir(cwd); process.env = env; f.cleanup(); }
+  } finally {
+    process.chdir(cwd);
+    // node:test tracks environment assignments; replacing process.env does not
+    // reliably remove keys introduced by the fixture when absent on entry.
+    for (const key of Object.keys(process.env)) if (!Object.hasOwn(env, key)) delete process.env[key];
+    Object.assign(process.env, env);
+    assert.deepEqual({ ...process.env }, env);
+    f.cleanup();
+  }
 }
 
 test('unrelated repeated saves preserve global roots, project fields and env/flag overlays', async () => {
