@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
@@ -49,7 +49,7 @@ try {
   console.log(JSON.stringify({ code: error.code, message: error.message }));
   process.exitCode = 1;
 }`] : [cli, 'auth', 'login', '--profile', 'fixture', '--print-url', '--json', ...(wait ? ['--wait-file', path.join(home, 'code')] : [])];
-    const result = spawnSync(process.execPath, ['--import', guard, ...args], { env, cwd: home, encoding: 'utf8', timeout: 10000 });
+    const result = spawnSync(process.execPath, ['--import', pathToFileURL(guard).href, ...args], { env, cwd: home, encoding: 'utf8', timeout: 10000 });
     const pkce = path.join(config, 'servicenow/pkce');
     return { ...result, requests: existsSync(requests), pkce: existsSync(pkce) ? readdirSync(pkce) : [] };
   } finally {
@@ -64,6 +64,7 @@ for (const direct of [true, false]) {
       const result = runFixture({ instance: 'http://oauth-fixture.example', direct, wait, projectOverride: true });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 1, result.stderr);
+      assert.notEqual(result.stdout.trim(), '', `Expected JSON rejection output; stderr: ${result.stderr}`);
       const output = JSON.parse(result.stdout);
       assert.match(JSON.stringify(output), /HTTPS is required/);
       assert.doesNotMatch(result.stdout + result.stderr, /oauth_auth\.do|code_challenge|code_verifier|authorization_url|synthetic-user/);
