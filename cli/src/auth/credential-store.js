@@ -73,8 +73,10 @@ function privateStatePath(kind, key, create = false) {
   if (!['credentials', 'pkce'].includes(kind) || !/^[a-zA-Z0-9._@-]+$/.test(key) || key === '.' || key === '..') {
     throw storageError('Invalid credential/PKCE storage key.');
   }
-  const dir = path.join(globalConfigDir(), kind);
-  const parts = path.resolve(dir).split(path.sep).filter(Boolean);
+  // Resolve once so traversal, leaf comparison and IO share the same path,
+  // including when the configured XDG directory is relative.
+  const dir = path.resolve(globalConfigDir(), kind);
+  const parts = dir.split(path.sep).filter(Boolean);
   let current = path.parse(dir).root;
   for (const part of parts) {
     current = path.join(current, part);
