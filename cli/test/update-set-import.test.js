@@ -64,8 +64,7 @@ test('dry-run works with no configured profile and does not contact an invalid i
 
 function sdkFixture({ existing = false, mismatch = false, postError = false } = {}) {
   const sdk = new SDKClient('https://example.service-now.com', null);
-  const calls = [], history = []; let posted = false;
-  sdk.onMutation = event => history.push(event);
+  const calls = []; let posted = false;
   sdk._warmSession = async () => 'session=test';
   sdk.list = async table => {
     calls.push({ table });
@@ -80,11 +79,11 @@ function sdkFixture({ existing = false, mismatch = false, postError = false } = 
     if (postError) throw new Error('connection lost');
     return '<html>Uploaded</html>';
   };
-  return { sdk, calls, history };
+  return { sdk, calls };
 }
 
 test('native import uploads multipart XML and verifies every member without committing or selecting', async () => {
-  const { sdk, calls, history } = sdkFixture();
+  const { sdk, calls } = sdkFixture();
   const result = await sdk.importUpdateSet(xml, inspectUpdateSetXML(xml));
   assert.equal(result.count, 1); assert.equal(result.state, 'loaded');
   const posts = calls.filter(call => call.opts?.method === 'POST');
@@ -92,7 +91,6 @@ test('native import uploads multipart XML and verifies every member without comm
   assert.match(posts[0].endpoint, /\/sys_upload.do$/);
   assert.equal(posts[0].opts.body.get('sysparm_target'), 'sys_remote_update_set');
   assert.equal(await posts[0].opts.body.get('attachFile').text(), xml);
-  assert.equal(history[0].outcome, 'succeeded');
 });
 
 test('existing retrieved sets are refused without uploading or overwriting', async () => {
@@ -101,10 +99,9 @@ test('existing retrieved sets are refused without uploading or overwriting', asy
   assert.equal(calls.some(call => call.endpoint), false);
 });
 for (const options of [{ mismatch: true }, { postError: true }]) test(`uncertain native import never retries (${JSON.stringify(options)})`, async () => {
-  const { sdk, calls, history } = sdkFixture(options);
+  const { sdk, calls } = sdkFixture(options);
   await assert.rejects(sdk.importUpdateSet(xml, inspectUpdateSetXML(xml)), /partially loaded/);
   assert.equal(calls.filter(call => call.opts?.method === 'POST').length, 1);
-  assert.equal(history[0].outcome, 'unknown');
 });
 
 test('member collisions refuse before opening the upload form', async () => {

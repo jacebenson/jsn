@@ -83,7 +83,6 @@ export class SDKClient {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.authProvider = authProvider;
     this.recovery = opts.recovery;
-    this.onMutation = opts.onMutation;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
     this.includeReferenceLinks = opts.includeReferenceLinks === true;
@@ -164,43 +163,7 @@ export class SDKClient {
   // Keep the timeout alive through body consumption for text/JSON requests.
   // Raw-response callers retain their existing timeout boundary at headers.
   async _withAuthenticatedRequest(endpoint, opts, settings, consume = (response) => response) {
-    const url = new URL(endpoint);
-    const match = url.pathname.match(/^\/api\/now\/table\/([^/]+)(?:\/([^/]+))?\/?$/);
-    const operation = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }[(opts.method || 'GET').toUpperCase()];
-    const event = match && operation && this.onMutation ? {
-      table: decodeURIComponent(match[1]), sys_id: match[2] ? decodeURIComponent(match[2]) : null, operation,
-    } : null;
-    let result;
-    try {
-      result = await this._performAuthenticatedRequest(endpoint, opts, settings, async response => {
-        if (event) event.http_status = response.status;
-        const value = await consume(response);
-        if (event && value instanceof Response && response.ok && operation === 'create') {
-          try { event.sys_id = (await response.clone().json())?.result?.sys_id || null; } catch { /* ID remains unknown. */ }
-        }
-        return value;
-      });
-    } catch (error) {
-      if (event && !error?.notSent && error?.name !== 'PromptCancelled') await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
-        ? 'failed' : 'unknown', http_status: error.status || null });
-      throw error;
-    }
-    if (event) {
-      let body = result;
-      if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = null; } }
-      const id = body?.result?.sys_id;
-      if (typeof id === 'string') event.sys_id = id;
-      else if (typeof id?.value === 'string') event.sys_id = id.value;
-      await this._reportMutation({ ...event, outcome: event.http_status >= 400
-        ? (event.http_status < 500 && event.http_status !== 408 ? 'failed' : 'unknown')
-        : (event.sys_id ? 'succeeded' : 'unknown') });
-    }
-    return result;
-  }
-
-  async _reportMutation(event) {
-    // History failures must never change the outcome of a completed remote write.
-    try { await this.onMutation(event); } catch { /* App callback reports local storage failures. */ }
+    return this._performAuthenticatedRequest(endpoint, opts, settings, consume);
   }
 
   async _performAuthenticatedRequest(endpoint, opts, {
@@ -975,7 +938,6 @@ export class SDKClient {
     form.set('sysparm_upload_prefix', '');
     form.set('sysparm_referring_url', 'sys_remote_update_set_list.do');
     form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
-    let outcome = 'unknown';
     try {
       await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form,
         headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
@@ -1001,12 +963,9 @@ export class SDKClient {
         const member = actual.get(expected.sys_id);
         return !member || getStringField(member, 'name') !== expected.name || getStringField(member, 'action') !== expected.action;
       })) throw new Error('Uploaded update set members did not match the XML export');
-      outcome = 'succeeded';
       return { sys_id: importedID, state, count: members.length, link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${importedID}` };
     } catch (error) {
       throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying. No automatic retry was attempted.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
-    } finally {
-      if (this.onMutation) await this._reportMutation({ table: 'sys_remote_update_set', sys_id: id, operation: 'create', outcome });
     }
   }
 
