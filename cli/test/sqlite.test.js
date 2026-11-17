@@ -25,6 +25,24 @@ test('SQLite preserves binding, rows, blobs, pragmas and nested rollback', () =>
   } finally { db.close(); }
 });
 
+test('SQLite rejects async callbacks before invocation or post-await writes', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec('CREATE TABLE data(value)');
+    let invoked = false;
+    assert.throws(() => db.transaction(async () => {
+      invoked = true;
+      db.exec('INSERT INTO data VALUES (1)');
+      await Promise.resolve();
+      db.exec('INSERT INTO data VALUES (2)');
+    })(), /synchronous/);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(invoked, false);
+    assert.deepEqual(db.prepare('SELECT * FROM data').all(), []);
+    assert.equal(db.inTransaction, false);
+  } finally { db.close(); }
+});
+
 test('SQLite refuses missing files and read-only writes; backups remain readable', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-sqlite-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

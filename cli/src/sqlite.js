@@ -2,6 +2,7 @@
 // Do not load node:sqlite until a local database is actually opened.
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import { types } from 'node:util';
 const require = createRequire(import.meta.url);
 let sqlite;
 function runtime() {
@@ -47,6 +48,9 @@ export default class Database {
   }
   backup(filename) { return runtime().backup(this.connection, filename); }
   transaction(operation) {
+    // Reject declared async callbacks before invoking them: rolling back their
+    // first writes cannot stop their continuation writing after an await.
+    if (types.isAsyncFunction(operation)) throw new TypeError('SQLite transactions must be synchronous');
     const db = this;
     return function (...args) {
       const nested = db.inTransaction;
