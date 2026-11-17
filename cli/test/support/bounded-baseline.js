@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
-import Database from 'better-sqlite3';
+import Database from '../../src/sqlite.js';
 import { startDocumentationServer } from '../../src/commands/docs/server.js';
 
 const exec = promisify(execFile);

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
-import Database from 'better-sqlite3';
+import Database from '../../sqlite.js';
 import { validateDatabase, validateManifest } from './snapshot.js';
 
 export async function publishServiceSnapshot(storage, { dbPath = path.join(storage, 'docs.sqlite3'), release } = {}) {

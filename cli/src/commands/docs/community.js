@@ -9,7 +9,7 @@ import path from 'node:path';
 import process from 'node:process';
 import TurndownService from 'turndown';
 import { parseFrontmatter, stringifyFrontmatter } from '../../frontmatter.js';
-import Database from 'better-sqlite3';
+import Database from '../../sqlite.js';
 import { getDocsCommunityDir, resolveDocsDbPath, docsDbExists } from './db.js';
 import { refreshDocs } from './refresh.js';
 import { ingestDocs } from './ingest.js';

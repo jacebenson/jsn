@@ -6,7 +6,7 @@ import os from 'node:os';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import Database from 'better-sqlite3';
+import Database from '../src/sqlite.js';
 import { startDocumentationServer } from '../src/commands/docs/server.js';
 import { getHostedDoc } from '../src/commands/docs/client.js';
 

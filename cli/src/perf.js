@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import Database from 'better-sqlite3';
+import Database from './sqlite.js';
 import { getVersion } from './commands/version.js';
 import { capturePerformance } from './perf-capture.js';
 

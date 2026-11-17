@@ -8,13 +8,11 @@ RUN node site/scripts/build-docs-site.mjs
 
 FROM node:lts-bookworm-slim AS indexer
 WORKDIR /app
-RUN apt-get update && apt-get install --no-install-recommends -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/cli
 COPY cli/package.json cli/package-lock.json ./
-RUN node --input-type=commonjs -e "const fs = require('node:fs'); const p = JSON.parse(fs.readFileSync('package.json')); p.allowScripts = {'better-sqlite3@13.0.3': true}; fs.writeFileSync('package.json', JSON.stringify(p));" \
-    && npm ci --omit=dev \
-    && node --input-type=module -e "import Database from 'better-sqlite3'; const db = new Database(':memory:'); db.close();"
+RUN npm ci --omit=dev --ignore-scripts
 COPY cli/src/ src/
+RUN node --input-type=module -e "import Database, { requireFts5 } from './src/sqlite.js'; const db = new Database(':memory:'); requireFts5(db); db.close();"
 
 FROM ruby:3.4-slim AS service
 WORKDIR /app/site

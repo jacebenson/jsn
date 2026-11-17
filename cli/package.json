@@ -25,7 +25,6 @@
   "dependencies": {
     "@inquirer/core": "^10.3.2",
     "@inquirer/prompts": "^7.10.1",
-    "better-sqlite3": "^13.2.0",
     "commonmark": "^0.31.2",
     "js-yaml": "^5.5.0",
     "saxes": "^6.0.0",
@@ -42,5 +41,8 @@
     "skills/",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
 }

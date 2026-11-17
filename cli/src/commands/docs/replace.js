@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import Database from 'better-sqlite3';
+import Database from '../../sqlite.js';
 import { docsInstallLease, docsHaveReaders } from './locks.js';
 import { errUsageHint } from '../../errors.js';
 
