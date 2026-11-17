@@ -443,7 +443,11 @@ export class AuthManager {
    */
   async loginWithPassword(instanceURL, username = this._activeUsername(), suppliedCredentials) {
     instanceURL = normalizeInstanceURL(instanceURL);
+    assertCredentialTransport(instanceURL);
     const envCreds = getBasicAuthFromEnv(instanceURL);
+    if (!suppliedCredentials && envCreds && this.identity.isTrustedCredentialDestination?.(instanceURL) === false) {
+      throw errAuth('Project configuration cannot authorize an ambient credential destination. Select --instance explicitly or save the origin in global configuration.');
+    }
     const storedCreds = this.loadCredentials(instanceURL, username);
     const creds = suppliedCredentials
       ? { auth_method: 'basic', ...suppliedCredentials }

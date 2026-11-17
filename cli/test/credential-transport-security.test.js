@@ -84,6 +84,29 @@ test('project cannot bind ambient OAuth or Basic secrets, explicit/global origin
   assert.equal(seen.at(-1).authorization, 'Bearer synthetic-default');
 });
 
+test('Basic login cannot persist ambient credentials for an untrusted destination', async t => {
+  const previous = process.env.SERVICENOW_USERNAME;
+  const password = process.env.SERVICENOW_PASSWORD;
+  t.after(() => {
+    if (previous === undefined) delete process.env.SERVICENOW_USERNAME; else process.env.SERVICENOW_USERNAME = previous;
+    if (password === undefined) delete process.env.SERVICENOW_PASSWORD; else process.env.SERVICENOW_PASSWORD = password;
+  });
+  process.env.SERVICENOW_USERNAME = 'synthetic-user';
+  process.env.SERVICENOW_PASSWORD = 'synthetic-password';
+  let reads = 0;
+  let saves = 0;
+  const auth = new AuthManager({ getEffectiveInstance: () => 'https://untrusted.invalid', isTrustedCredentialDestination: () => false }, {
+    credentialStore: { load: () => { reads++; return null; }, save: () => { saves++; }, delete: () => {} },
+  });
+  await assert.rejects(() => auth.loginWithPassword('https://untrusted.invalid'), /ambient credential destination/);
+  assert.equal(reads, 0);
+  assert.equal(saves, 0, 'rejected login must not turn ambient secrets into stored credentials');
+  await assert.rejects(() => auth.loginWithPassword('http://legacy.invalid', null, { username: 'synthetic', password: 'synthetic' }), /HTTPS/);
+  assert.equal(saves, 0);
+  await auth.loginWithPassword('https://untrusted.invalid', null, { username: 'synthetic', password: 'synthetic' });
+  assert.equal(saves, 1, 'explicitly supplied credentials remain a caller trust decision');
+});
+
 test('SDK and OAuth grants reject redirects without sending secrets to sink', async t => {
   const seen = [];
   const sink = await server(t, (req, res) => { seen.push(req.headers); res.end('{"result":[],"access_token":"synthetic"}'); });
