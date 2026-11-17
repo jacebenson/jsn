@@ -7,7 +7,7 @@ import { docsReaderLease } from './locks.js';
 import { errUsageHint } from '../../errors.js';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { withDocsDb, resolveDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
+import { withDocsDb, resolveDocsDbPath, resolveDocsRoot, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function refreshDocs(opts = {}) {
@@ -20,6 +20,7 @@ function refreshDocsLocked(opts = {}) {
   const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const roots = opts.roots || defaultDocsRoots(opts);
 
+  for (const root of roots) resolveDocsRoot(root.dir);
   if (roots.some(root => (!root.prefix || opts.roots) && (!fs.existsSync(root.dir) || !fs.statSync(root.dir).isDirectory()))) {
     throw errUsageHint('Raw documentation source is missing; existing index retained.', 'Use jsn docs install --source snapshot to update a prebuilt index, or --source github to install raw source before refreshing.');
   }

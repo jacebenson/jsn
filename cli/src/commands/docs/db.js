@@ -118,20 +118,52 @@ export function ensureDocsCacheDir() {
  * { dir, prefix } so community content can live under a `community/` prefix
  * without colliding with the ServiceNowDocs markdown tree.
  */
+// The caller-selected lexical root is the authorization boundary, not whatever
+// realpath happens to point at. Reject aliases in *every* component (including
+// junctions on Windows), before using realpath to pin that boundary. Missing
+// optional roots remain optional; dangling links are not missing directories.
+export function resolveDocsRoot(dir) {
+  const absolute = path.resolve(dir);
+  const anchor = path.parse(absolute).root;
+  let current = anchor;
+  for (const component of absolute.slice(anchor.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    let stat;
+    try { stat = fs.lstatSync(current); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    if (stat.isSymbolicLink()) throw new Error(`Documentation source contains a symbolic link or junction alias: ${current}`);
+    if (!stat.isDirectory()) throw new Error(`Documentation source is not a directory: ${current}`);
+  }
+  const canonical = fs.realpathSync(absolute);
+  if (path.relative(absolute, canonical) !== '') throw new Error(`Documentation source resolves through an alias: ${absolute}`);
+  return canonical;
+}
+
+function containedDocsPath(root, file) {
+  const relative = path.relative(root, fs.realpathSync(file));
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Documentation source escapes its root: ${file}`);
+  }
+}
+
 export function* walkDocs(roots) {
   function* walk(dir, root, prefix) {
+    containedDocsPath(root, dir);
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         yield* walk(full, root, prefix);
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        containedDocsPath(root, full);
         const rel = prefix + path.relative(root, full).split(path.sep).join('/');
         yield { file: full, rel };
       }
     }
   }
-  for (const root of roots) {
-    if (!fs.existsSync(root.dir)) continue;
+  // Validate every root before yielding any document from any root.
+  const validated = roots.map(root => ({ ...root, dir: resolveDocsRoot(root.dir) }));
+  for (const root of validated) {
+    if (!root.dir) continue;
     yield* walk(root.dir, root.dir, root.prefix || '');
   }
 }

@@ -10,7 +10,7 @@ import { ingestDocs } from './ingest.js';
 import { refreshDocs } from './refresh.js';
 import { installSnapshot } from './snapshot.js';
 import { publishServiceSnapshot } from './service-snapshot.js';
-import { DEFAULT_DOCS_RELEASE, resolveDocsDbPath, resolveDocsRelease } from './db.js';
+import { DEFAULT_DOCS_RELEASE, resolveDocsDbPath, resolveDocsRelease, resolveDocsRoot } from './db.js';
 
 const defaultStorage = path.join(process.env.JSN_DATA_HOME || path.join(os.homedir(), '.jsn'), 'docs-service');
 function git(args) {
@@ -30,6 +30,8 @@ async function performSync(options = {}) {
   const branch = family ? resolveDocsRelease(family) : options.branch || process.env.DOCS_SOURCE_BRANCH || DEFAULT_DOCS_RELEASE;
   fs.mkdirSync(storage, { recursive: true });
   const repo = path.join(storage, 'source');
+  resolveDocsRoot(repo);
+  resolveDocsRoot(path.join(repo, 'markdown'));
   const live = family ? resolveDocsDbPath(family) : path.join(storage, 'docs.sqlite3');
   const staging = path.join(storage, `build-${randomUUID()}.sqlite3`);
   let previous = {};
@@ -89,7 +91,7 @@ async function performSync(options = {}) {
     }
     const revision = git(['-C', repo, 'rev-parse', 'HEAD']);
     const markdown = path.join(repo, 'markdown');
-    if (!fs.statSync(markdown).isDirectory()) throw new Error('Source has no markdown directory');
+    if (!resolveDocsRoot(markdown)) throw new Error('Source has no markdown directory');
     let oldRevision;
     if (fs.existsSync(live)) {
       const db = new Database(live, { readonly: true });
