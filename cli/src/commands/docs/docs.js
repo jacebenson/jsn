@@ -1,7 +1,7 @@
 // Documentation search always uses the same API, hosted or self-hosted.
 import { searchHostedDocs, getHostedDoc, getHostedDocsStatus, configuredDocsService } from './client.js';
 import { documentationService } from './local.js';
-import { startDocumentationServer } from './server.js';
+
 import { declareCapabilities } from '../../capabilities.js';
 import { AppError } from '../../errors.js';
 import { resolveDocsRelease } from './db.js';
@@ -47,7 +47,15 @@ async function read(argv, app) {
   app.ok(presented(row, `Doc ${row.id}: ${title} in ${row.release}\n${provenance}${context}\n${content}\n`), { summary: `Doc ${row.id}: ${title} in ${row.release}` });
 }
 
-export function docsCmd(wrap) {
+export function docsCmd(wrapHandler) {
+  // The adapter tolerates unknown options; retired server flags must fail closed
+  // on every docs spelling rather than becoming an accidental search request.
+  const wrap = handler => wrapHandler(async (argv, app) => {
+    for (const name of ['serve', 'no-serve', 'host', 'no-host', 'port', 'no-port']) {
+      if (Object.hasOwn(argv, name)) throw new AppError('usage_error', `Unknown option --${name}: the CLI documentation server flags have been removed. Use terminal search or configure a documentation service in jsn setup.`);
+    }
+    return handler(argv, app);
+  });
   return {
     command: 'docs [query..]',
     defaultPositionals: true,
@@ -56,9 +64,7 @@ export function docsCmd(wrap) {
       .usage('Usage: jsn docs "search terms" [options]')
       .positional('query', { type: 'string', describe: 'Search words (up to 200 characters)' })
       .option('release', { type: 'string', describe: 'Documentation family (docs.release config, otherwise australia)' })
-      .option('serve', { type: 'boolean', describe: 'Run the shared documentation server (downloads its index automatically)' })
-      .option('host', { type: 'string', default: '127.0.0.1', describe: 'Server bind address with --serve' })
-      .option('port', { type: 'number', default: 3000, describe: 'Server port with --serve' })
+
       .option('limit', { type: 'number', default: 20, describe: 'Results per page (1–50)' })
       .option('offset', { type: 'number', default: 0, describe: 'Result offset (0–10000)' })
       .option('bundle', { type: 'string', describe: 'Filter by documentation bundle' })
@@ -95,14 +101,7 @@ export function docsCmd(wrap) {
         app.ok(data, { summary: `Documentation service: ${data.state} in ${data.release}` });
       }) }),
     handler: wrap(async (argv, app) => {
-      if (argv.serve) {
-        if (!Number.isInteger(argv.port) || argv.port < 0 || argv.port > 65535) throw new AppError('usage_error', 'Use a port between 0 and 65535.');
-        const release = resolveDocsRelease(argv.release, app.config);
-        const { server, url } = await startDocumentationServer({ host: argv.host, port: argv.port, release });
-        app.ok({ url, release, state: 'listening' }, { summary: `Documentation server started for ${release}; the index updates automatically.` });
-        for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close());
-        return;
-      }
+
       if ((argv.outline || argv.section !== undefined) && !argv.path) throw new AppError('usage_error', 'Use --path with --outline or --section.');
       if (argv.path) return read(argv, app);
       if (argv.query?.length) return search(argv, app);
