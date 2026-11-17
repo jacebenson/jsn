@@ -15,9 +15,9 @@ below ran afterward on the exact runtime/test checkout.
 
 | Requirement | Executable regression evidence |
 | --- | --- |
-| Shared CRUD, custom tables, exact/legacy/partial identifiers, zero/ambiguous errors | `test/records-engine.test.js` drives the real CLI and loopback Table API; `test/records.test.js` and `test/mutation-history.test.js` cover create/writeback and mutation events |
+| Shared CRUD, custom tables, exact/legacy/partial identifiers, zero/ambiguous errors | `test/records-engine.test.js` drives the real CLI and loopback Table API; `test/records.test.js` and `test/mutation-history-retirement.test.js` cover create/writeback and absence of local mutation logging |
 | Profiles, aliases, defaults and extensibility | `test/record-profiles.test.js` checks the actual keyed registry and factories; `test/command-discovery.test.js` checks generated discovery |
-| Read-only, confirmation and capture safeguards | `test/records-engine.test.js` proves blocked writes and zero requests for read-only mutations; `test/mutation-context.test.js` and `test/mutation-history.test.js` cover capture approval/history |
+| Read-only, confirmation and capture safeguards | `test/records-engine.test.js` proves blocked writes and zero requests for read-only mutations; `test/mutation-context.test.js` and `test/mutation-history-retirement.test.js` cover capture approval and history retirement |
 | JSON, extraction, human views and reference representations | `test/records-engine.test.js`, `test/essential-records.test.js`, `test/specialized-related.test.js` and `test/forms-metadata-cli.test.js` |
 | SDK batch validation, correlation, partial errors and safe fallback | `test/sdk-batch.test.js`, `test/related-lists-http.test.js` and `test/auth-recovery.test.js` |
 | Metadata bulk reads/cache/bounds and coverage | `test/record-metadata.test.js`: inherited/custom layouts, concurrent cache reuse, 105 sections in two bulk element reads, no scripts, malformed/ACL/truncation gaps |

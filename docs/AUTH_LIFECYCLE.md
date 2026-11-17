@@ -153,10 +153,10 @@ invocation with sanitized `mfa_code_rejected`, or preserve `PromptCancelled` /
 prompt and never downgraded to a Basic Authorization header. Interactive records
 preserves these outcomes before aggregate-count fallback, list-probe wrapping
 and source error handling. Escape retains `Cancelled.` with exit 0. No pending
-operation or mutation-history outcome is emitted on these pre-dispatch failures.
+operation is dispatched on these failures.
 
-Codes, passwords, cookies and CSRF/nonce values are not logged or added to errors
-or mutation history. No TOTP seed is accepted or stored, and no code is generated
+Codes, passwords, cookies and CSRF/nonce values are not logged or added to errors.
+No TOTP seed is accepted or stored, and no code is generated
 locally. Use an explicitly configured OAuth or browser-session profile when an
 unattended workload cannot complete TOTP.
 

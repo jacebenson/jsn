@@ -858,19 +858,12 @@ explicitly unsupported outer endpoint permits sequential read fallback. Normal
 SDK methods stay unbatched, writes are rejected before dispatch, and authentication
 or ACL errors never silently trigger fallback. See `docs/sdk-batch.md`.
 
-## Local mutation history
+## Mutation safeguards
 
-Table API creates, updates and deletes invoked by the CLI record one final local
-history event after authentication retries finish. The seven-day SQLite store is
-independent of documentation indexes. Events contain instance origin, profile,
-table, resolved record ID, operation, outcome and an optional non-sensitive
-reason; request/response bodies and credentials are never serialized. A definitive
-HTTP rejection is failed; an uncertain transport outcome is unknown. Local storage
-failure warns without changing the remote operation's result. This convenience
-history is not a durable ServiceNow audit log. Human output uses local time and
-a compact table; `--details` expands identifiers and reasons. Structured output
-retains full IDs, instance origins and ISO timestamps. Fixture test runs use a
-disposable history store instead of the developer's store.
+The CLI does not keep a local mutation-history database. The retired `history`
+command and logging-only global `--reason` flag are not supported. Existing user
+history files are left untouched. Provider audit/history and command-specific
+reason metadata remain independent of this retirement.
 
 ### Mutation capture-context approval
 
@@ -898,7 +891,7 @@ identifies format/schema compatibility, source revision, sizes, checksum and an
 artifact-storage URL. A lightweight Rails service records build/publication state
 and exposes the last good manifest; the CLI downloads artifact bytes directly
 from storage. Documentation remains optional, independently installed from local
-mutation-history storage. Snapshot installation uses cooperative local reader and
+other local storage. Snapshot installation uses cooperative local reader and
 installer leases and validates the staged database before replacing the index.
 Local search remains available offline; freshness work cannot delay it.
 

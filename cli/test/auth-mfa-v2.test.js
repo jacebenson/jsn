@@ -25,7 +25,7 @@ const credentials = { auth_method: 'basic', username: 'fixture-user', password: 
 const form = '<input name="sysparm_ck" value="fixture-csrf"><input name="sysparm_process_nonce" value="fixture-nonce">';
 const reply = (body, status = 200, headers = {}) => new Response(body, { status, headers });
 function harness(t, { failure = '', canInteract = true, prompt, timeout = 100, invalid = false } = {}) {
-  const requests = [], mutations = [];
+  const requests = [];
   let prompts = 0;
   t.mock.method(globalThis, 'fetch', async request => {
     requests.push(request);
@@ -78,9 +78,8 @@ function harness(t, { failure = '', canInteract = true, prompt, timeout = 100, i
   const client = new SDKClient('https://fixture.invalid', { getCredentials: async () => credentials }, {
     timeout, canInteract: () => canInteract,
     promptMfaCode: async () => { prompts++; return prompt ? prompt() : '123456'; },
-    onMutation: event => mutations.push(event),
   });
-  return { client, requests, mutations, prompts: () => prompts };
+  return { client, requests, prompts: () => prompts };
 }
 
 test('public raw response waits for verified MFA and leaves its body unread', async t => {
@@ -95,7 +94,7 @@ test('Basic REST operations complete MFA, rotate cookies, verify identity and th
   const h = harness(t);
   assert.equal((await h.client.create('incident', { short_description: 'fixture' })).sys_id, 'fixture-created');
   assert.equal(h.prompts(), 1);
-  assert.equal(h.mutations.length, 1);
+  assert.equal(h.requests.filter(r => new URL(r.url).pathname === '/api/now/table/incident').length, 1);
 });
 for (const failure of ['transport', 'form', 'login', 'guest', 'identity', 'timeout', 'body-timeout', 'verify-timeout', 'user-timeout', 'identity-timeout']) {
   test(`recognized MFA ${failure} is terminal before dispatch and stays terminal`, async t => {
@@ -104,7 +103,7 @@ for (const failure of ['transport', 'form', 'login', 'guest', 'identity', 'timeo
     const before = h.requests.length;
     await assert.rejects(h.client.create('incident', {}), { code: 'mfa_code_rejected' });
     assert.equal(h.requests.length, before);
-    assert.equal(h.mutations.length, 0);
+    assert.ok(!h.requests.some(r => new URL(r.url).pathname === '/api/now/table/incident'));
     assert.ok(!h.requests.some(r => new URL(r.url).pathname === '/api/now/table/incident'));
     if (failure.includes('timeout')) assert.ok(h.requests.some(r => r.signal.aborted));
   });
@@ -113,18 +112,18 @@ test('noninteractive MFA is actionable, stable and never dispatches', async t =>
   const h = harness(t, { canInteract: false });
   await assert.rejects(h.client.create('incident', {}), e => e.code === 'mfa_required' && /--json\/--get/.test(e.hint));
   assert.equal(h.prompts(), 0);
-  assert.equal(h.mutations.length, 0);
+  assert.ok(!h.requests.some(r => new URL(r.url).pathname === '/api/now/table/incident'));
 });
-test('rejected codes stop at three attempts without recording a mutation', async t => {
+test('rejected codes stop at three attempts without dispatching a mutation', async t => {
   const h = harness(t, { invalid: true });
   await assert.rejects(h.client.create('incident', {}), { code: 'mfa_code_rejected' });
   assert.equal(h.prompts(), 3);
-  assert.equal(h.mutations.length, 0);
+  assert.ok(!h.requests.some(r => new URL(r.url).pathname === '/api/now/table/incident'));
 });
 test('human typing does not consume the pending operation deadline', async t => {
   const h = harness(t, { timeout: 25, prompt: async () => { await new Promise(r => setTimeout(r, 70)); return '123456'; } });
   await h.client.create('incident', {});
-  assert.equal(h.mutations.length, 1);
+  assert.equal(h.requests.filter(r => new URL(r.url).pathname === '/api/now/table/incident').length, 1);
 });
 test('Escape through interactive records count path keeps Cancelled without fallback', async t => {
   const cancelled = Object.assign(new Error('Cancelled.'), { name: 'PromptCancelled' });
@@ -165,7 +164,7 @@ test('actual records list handler preserves Escape from the masked code prompt',
     return true;
   });
   assert.equal(h.requests.length, 1);
-  assert.equal(h.mutations.length, 0);
+  assert.ok(!h.requests.some(r => new URL(r.url).pathname === '/api/now/table/incident'));
   assert.equal(input.listenerCount('keypress'), 0);
   assert.doesNotMatch(visible, /fixture-password|123456/);
 });

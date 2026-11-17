@@ -1,5 +1,8 @@
 # PR #337 terminal validation
 
+> Historical verification of a retired feature. Current JSN no longer keeps a local
+> mutation-history database or registers `jsn history`; existing user files remain untouched.
+
 Executed 2026-10-29 from the PR checkout after merging current main
 (`00be2b7`). This is real terminal output against the selected `pdi` profile;
 credentials and private records are omitted.
