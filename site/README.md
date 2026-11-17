@@ -219,7 +219,10 @@ Coolify watch paths are application settings and must be set when this branch is
 
 The Rails documentation adapter invokes `cli/src/commands/docs/index-worker.js`;
 search SQL and summaries belong to that shared Node engine. The CLI can also
-run its HTTP adapter directly with `jsn docs --serve`, using the same sync worker.
+run its JSON-only HTTP adapter directly with `node cli/src/commands/docs/server.js`
+from the repository root, using the same sync worker. Set `JSN_DOCS_HOST`,
+`JSN_DOCS_PORT`, and optionally `JSN_DOCS_RELEASE` to configure it. The CLI browser
+UI and `jsn docs --serve` have been removed; the Rails website remains independent.
 
 ## Container database bootstrap
 

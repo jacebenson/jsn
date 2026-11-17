@@ -37,10 +37,12 @@ starts a loopback HTTP service and prepares its own index under
 is ready, the local service can search it without reaching the hosted service;
 background refresh still checks for updates.
 
-To run the shared server explicitly:
+The optional CLI browser UI and `--serve`, `--host`, and `--port` flags have been
+removed. Terminal search and the hosted website remain available. For self-hosting
+from a source checkout, run the shared JSON-only adapter explicitly:
 
 ```sh
-jsn docs --serve --host 127.0.0.1 --port 3000
+JSN_DOCS_HOST=127.0.0.1 JSN_DOCS_PORT=3000 node cli/src/commands/docs/server.js
 ```
 
 Point a separate CLI process at it with `JSN_DOCS_URL=http://127.0.0.1:3000`.
@@ -77,8 +79,9 @@ such an index. Family snapshots use `/docs-index/releases/NAME/manifest.json`
 and verify the declared release. Only the default family can fall back to the
 legacy `/docs-index/manifest.json` on HTTP 404; that manifest may omit `release`.
 
-`jsn docs --serve --release brazil` serves only that family and rejects requests
-for another. Binding to `0.0.0.0` exposes the service beyond loopback; use your
+Set `JSN_DOCS_RELEASE=brazil` on the JSON adapter to serve only that family and
+reject requests for another. It serves no HTML or browser assets. Binding to
+`0.0.0.0` exposes the service beyond loopback; use your
 normal HTTPS proxy and access controls. `JSN_DOCS_URL` temporarily overrides the
 saved service choice without starting a local server. Global preferences live
 at `$XDG_CONFIG_HOME/servicenow/config.json`, normally

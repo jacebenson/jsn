@@ -137,19 +137,24 @@ test('CLI refuses mismatched and unlabelled family snapshots without replacing t
   assert.notEqual(f.run(['install', '--source', 'snapshot', '--release', 'yokohama']).status, 0);
   assert.ok(f.requests().every(url => url.pathname !== '/docs-index/manifest.json'));
 });
-test('CLI --serve reports and serves the selected family index', async t => {
+test('standalone JSON adapter serves the selected family index without a browser UI', async t => {
   const f = fixture(t), artifact = snapshot(f);
   f.scenario({ ...artifact, manifest: { ...artifact.manifest, release: 'brazil' } });
   success(f.run(['install', '--source', 'snapshot', '--release', 'brazil']));
-  const child = spawn(process.execPath, [binary, 'docs', '--serve', '--release', 'brazil', '--port', '0', '--json'], { env: f.env, cwd: f.home });
+  const adapter = fileURLToPath(new URL('../src/commands/docs/server.js', import.meta.url));
+  const child = spawn(process.execPath, [adapter], { env: { ...f.env, JSN_DOCS_RELEASE: 'brazil', JSN_DOCS_PORT: '0' }, cwd: f.home });
   f.stop(() => stopChild(child));
   let output = '';
   const data = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Server did not start: ' + output)), 10000);
-    child.stdout.on('data', chunk => { output += chunk; try { const value = JSON.parse(output); clearTimeout(timer); resolve(value.data); } catch { /* wait for full JSON */ } });
+    child.stdout.on('data', chunk => { output += chunk; const match = output.match(/listening at (http:\/\/\S+)/); if (match) { clearTimeout(timer); resolve({ url: match[1] }); } });
     child.once('error', reject);
   });
-  assert.equal(data.release, 'brazil');
+  for (const route of ['', 'index.html', 'vendor/marked.min.js', 'vendor/purify.min.js']) {
+    const response = await fetch(new URL(route, data.url));
+    assert.equal(response.status, 404);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+  }
   const response = await fetch(new URL('api/docs/search?q=Record&release=brazil', data.url));
   const result = await response.json();
   assert.equal(response.status, 200); assert.equal(result.release, 'brazil'); assert.equal(result.count, 1);

@@ -340,7 +340,11 @@ with exclusive publication, staged validation and atomic index replacement.
 Setup offers hosted documentation with a default-yes question. Declining offers
 a managed local service, also default-yes; only declining both asks for a base URL.
 The managed service listens on loopback, starts on demand and refreshes daily;
-self-hosting uses `jsn docs --serve`. No separate package, Docker or LLM setup is required.
+self-hosting uses the JSON-only `cli/src/commands/docs/server.js` adapter. No separate
+package, Docker or LLM setup is required. The optional CLI browser UI, its legacy
+server and vendored assets, and the `jsn docs --serve` flag have been removed.
+The managed local service and Rails-hosted search are retained; the JSON adapter
+does not render documentation metadata as HTML.
 Global connection preferences apply to future connections, never retroactively.
 ## Escape cancels any interactive prompt
 
