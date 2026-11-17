@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
+import { assertCredentialDestination } from './auth/transport.js';
 
 const INSTALL_HOST = 'install.service-now.com';
 
@@ -41,9 +42,11 @@ export function buildMidRecipeUrl(releaseName) {
 export async function validateMidCredentials(instanceURL, username, password, fetchImpl = fetch) {
   if (!username || !password) throw new Error('MID Server username and password are required');
   const endpoint = `${String(instanceURL).replace(/\/$/, '')}/api/now/table/sys_properties?sysparm_query=name=mid.version&sysparm_fields=value&sysparm_limit=1`;
+  assertCredentialDestination(endpoint, instanceURL);
   let response;
   try {
     response = await fetchImpl(endpoint, {
+      redirect: 'error',
       headers: {
         Accept: 'application/json',
         Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,

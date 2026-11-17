@@ -12,7 +12,7 @@ import { AuthManager } from './auth.js';
 import { createAuthRecovery } from './auth-recovery.js';
 import { SDKClient } from './sdk.js';
 import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled, hyperlink } from './output.js';
-import { saveConfig } from './config.js';
+import { saveConfig, isTrustedCredentialDestination } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
@@ -43,6 +43,9 @@ export class App {
       getUsername: () => this.session?.username || null,
       getEffectiveInstance: () => this.session?.instance || '',
       getAuthMethod: () => this.session?.profile?.auth_method || null,
+      isTrustedCredentialDestination: instance => isTrustedCredentialDestination(this.config, instance,
+        this._authArgv?.instance || this._sessionArgv?.instance || (this.session?.profileExplicit ? '' : this.session?.override),
+        this.session?.profileExplicit ? this.session.profileName : ''),
     });
 
     if (this.session.instance) {

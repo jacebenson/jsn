@@ -20,6 +20,7 @@
 // src/record-watch.js.
 
 import { AppError, CodeAPI, CodeAuth, CodeNetwork, CodeUsage } from './errors.js';
+import { assertCredentialTransport, assertCredentialDestination } from './auth/transport.js';
 
 const BAYEUX_VERSION = '1.0';
 const DEFAULT_CONNECT_TIMEOUT = 60000;
@@ -164,8 +165,10 @@ export class AmbClient {
     if (!baseUrl) throw new AmbError(CodeUsage, 'AMB needs an instance URL.');
     if (typeof session !== 'function') throw new AmbError(CodeUsage, 'AMB needs a session provider.');
     this.baseUrl = String(baseUrl).replace(/\/$/, '');
+    this.instanceOrigin = assertCredentialTransport(this.baseUrl).origin;
     this.session = session;
     this.fetchImpl = fetchImpl;
+    if (/^[a-z][a-z\d+.-]*:/i.test(path)) throw ambAuthError('AMB path must be an instance-local route');
     this.path = path.startsWith('/') ? path : `/${path}`;
     this.connectTimeoutMs = connectTimeoutMs;
     this.requestTimeoutMs = requestTimeoutMs;
@@ -180,6 +183,7 @@ export class AmbClient {
   async _send(messages, { op, timeoutMs, signal }) {
     const endpoint = op === 'handshake' ? 'handshake' : 'connect';
     const url = `${this.baseUrl}${this.path}/${endpoint}`;
+    this._validateDestination(url);
     const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
     const cookies = serializeCookies(this.cookieJar);
     if (cookies) headers.Cookie = cookies;
@@ -195,6 +199,7 @@ export class AmbClient {
     }
     try {
       const response = await this.fetchImpl(url, {
+        redirect: 'error',
         method: 'POST',
         headers,
         body: JSON.stringify(messages),
@@ -282,6 +287,7 @@ export class AmbClient {
    * delivery, and the gap is reported by the caller.
    */
   async start(channels = []) {
+    this._validateDestination(`${this.baseUrl}${this.path}/handshake`);
     const session = await this.session();
     if (!session?.cookies) {
       throw ambAuthError('AMB needs a browser session and the active profile has none.',
@@ -316,6 +322,15 @@ export class AmbClient {
       }
     }
     return { clientId: this.clientId, sessionStatus: this.sessionStatus, channels: [...channels] };
+  }
+
+  _validateDestination(url) {
+    // AMB paths are local routes, never URL references. Reject ambiguous
+    // authority/backslash/query forms before asking the session for secrets.
+    if (!this.path.startsWith('/') || this.path.startsWith('//') || /[\\?#]/.test(this.path)) {
+      throw ambAuthError('AMB path must be an instance-local route');
+    }
+    assertCredentialDestination(url, this.instanceOrigin);
   }
 
   /**

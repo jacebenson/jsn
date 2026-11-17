@@ -4,6 +4,7 @@ import { batchRead } from './sdk-batch.js';
 import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
 import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
+import { assertCredentialTransport, assertCredentialDestination } from './auth/transport.js';
 import { canPrompt, getStringField } from './helpers.js';
 import { errMfaRequired, errMfaRejected, isTerminalAuthError } from './errors.js';
 import { buildMfaVerificationBody, extractMfaFormTokens, normalizeTotpCode, parseLoginStatus } from './auth/mfa.js';
@@ -206,6 +207,7 @@ export class SDKClient {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
     allowMutationReplay = false, stateful = false,
   }, consume = (response) => response) {
+    assertCredentialDestination(endpoint, this.baseURL);
     const method = String(opts.method || 'GET').toUpperCase();
     for (let attempt = 0; attempt <= MAX_SESSION_REPLAYS; attempt++) {
       // Headers for this attempt belong to the session as it is right now.
@@ -214,7 +216,7 @@ export class SDKClient {
       let timer;
       let rejection;
       try {
-        const req = new Request(endpoint, { ...opts, signal: controller.signal });
+        const req = new Request(endpoint, { ...opts, redirect: 'error', signal: controller.signal });
         if (prepare) prepare(req);
         // Header-authenticated REST skips UI warming for OAuth/token/GCK.
         // Basic must still check for TOTP before dispatch; internal bootstrap
@@ -297,6 +299,7 @@ export class SDKClient {
    * that they still belong to the selected identity.
    */
   async _verifyRecoveredSession() {
+    assertCredentialTransport(this.baseURL);
     const params = new URLSearchParams({
       sysparm_query: 'user_name=javascript:gs.getUserName()',
       sysparm_fields: 'user_name', sysparm_limit: '1', sysparm_display_value: 'false',
@@ -1183,6 +1186,7 @@ export class SDKClient {
    * is an actionable error, never a silent fallback.
    */
   async ambSession() {
+    assertCredentialTransport(this.baseURL);
     if (!this.authProvider) throw errAuth('No authentication configured');
     const creds = await this.authProvider.getCredentials();
     if (!creds) throw errAuth('No valid credentials');
@@ -1222,19 +1226,21 @@ export class SDKClient {
   }
 
   async _initializeSession() {
+    assertCredentialTransport(this.baseURL);
     let challenged = false;
     try {
       const creds = await this.authProvider.getCredentials();
       if (creds.auth_method === 'oauth') {
         const cookieJar = new Map();
         const login = `${this.baseURL}/angular.do?sysparm_type=get_user`;
-        collectSetCookies(cookieJar, await fetch(new Request(login, { method: 'POST' })));
+        collectSetCookies(cookieJar, await fetch(new Request(login, { method: 'POST', redirect: 'error' })));
         const scopeEndpoint = `${this.baseURL}/api/now/table/sys_scope?sysparm_fields=sys_id%2Csys_class_name&sysparm_limit=1`;
         collectSetCookies(cookieJar, await this._fetchWithAuth(scopeEndpoint, {
           method: 'GET',
           headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
         const finalLogin = await fetch(new Request(login, {
+          redirect: 'error',
           method: 'POST',
           headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
@@ -1284,6 +1290,7 @@ export class SDKClient {
   // Each network exchange, including its body, has a deadline independent of
   // human code entry. The race also bounds streams that do not honor abort.
   async _mfaExchange(path, options, cookieJar, consume = response => response) {
+    assertCredentialTransport(this.baseURL);
     const controller = new AbortController();
     let timer;
     const deadline = new Promise((resolve, reject) => {
