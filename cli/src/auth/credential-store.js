@@ -59,15 +59,30 @@ function refusal() {
 // be private. Root-owned sticky temporary ancestors are permitted, not leaves.
 function checkPath(target, directory, privateMode = false) {
   const stat = fs.lstatSync(target);
-  const uid = process.getuid?.();
+  // Windows stat mode/uid fields do not describe DACL access. Retain type,
+  // symlink/junction and hardlink checks there; do not claim POSIX privacy.
+  // Windows files inherit their parent's ACL; see the documented storage policy.
+  const posix = process.platform !== 'win32';
+  const uid = posix ? process.getuid?.() : undefined;
   if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()) ||
       (uid !== undefined && stat.uid !== uid && !(directory && !privateMode && stat.uid === 0)) ||
       (!directory && stat.nlink !== 1) ||
-      (privateMode ? (stat.mode & 0o7777) !== (directory ? 0o700 : 0o600) :
-        ((stat.mode & 0o022) !== 0 && !(directory && stat.uid === 0 && (stat.mode & 0o1000))))) {
-    throw storageError('Unsafe credential/PKCE path: require owned regular 0600 files and private 0700 secret directories; reject symlinks, links and writable ancestors. Repair or move the path manually, then retry.');
+      (posix && (privateMode ? (stat.mode & 0o7777) !== (directory ? 0o700 : 0o600) :
+        ((stat.mode & 0o022) !== 0 && !(directory && stat.uid === 0 && (stat.mode & 0o1000)))))) {
+    throw storageError(posix
+      ? 'Unsafe credential/PKCE path: require owned regular 0600 files and private 0700 secret directories; reject symlinks, links and writable ancestors. Repair or move the path manually, then retry.'
+      : 'Unsafe credential/PKCE path: require regular files/directories without symlinks, junctions or hard links. Windows ACL privacy must be managed separately.');
   }
   return stat;
+}
+// Enumerate below the parsed root: a drive/UNC prefix is not a component.
+export function privateStateDirectories(dir, pathAPI = path) {
+  const root = pathAPI.parse(dir).root;
+  let current = root;
+  return dir.slice(root.length).split(pathAPI.sep).filter(Boolean).map(part => {
+    current = pathAPI.join(current, part);
+    return current;
+  });
 }
 function privateStatePath(kind, key, create = false) {
   if (!['credentials', 'pkce'].includes(kind) || !/^[a-zA-Z0-9._@-]+$/.test(key) || key === '.' || key === '..') {
@@ -76,10 +91,7 @@ function privateStatePath(kind, key, create = false) {
   // Resolve once so traversal, leaf comparison and IO share the same path,
   // including when the configured XDG directory is relative.
   const dir = path.resolve(globalConfigDir(), kind);
-  const parts = dir.split(path.sep).filter(Boolean);
-  let current = path.parse(dir).root;
-  for (const part of parts) {
-    current = path.join(current, part);
+  for (const current of privateStateDirectories(dir)) {
     try { checkPath(current, true, current === dir); }
     catch (error) {
       if (error.code !== 'ENOENT') throw error;

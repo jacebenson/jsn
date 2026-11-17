@@ -6,9 +6,11 @@ export function fakeKeyringEnv(directory) {
   const bin = path.join(directory, 'fake-keyring-bin');
   const store = path.join(directory, 'fake-keyring.json');
   fs.mkdirSync(bin, { mode: 0o700 });
+  // The fixture may live inside a clone whose root declares type: module.
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}', { mode: 0o600 });
   fs.writeFileSync(path.join(bin, 'secret-tool'), `#!${process.execPath}
 const fs = require('node:fs');
-const file = process.env.JSN_TEST_KEYRING_FILE;
+const file = ${JSON.stringify(store)};
 const command = process.argv[2];
 const key = process.argv.at(-1);
 const entries = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};

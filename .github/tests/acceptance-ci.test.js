@@ -10,6 +10,8 @@ import { createRequire } from 'node:module';
 const { load } = createRequire(new URL('../../cli/package.json', import.meta.url))('js-yaml');
 import { validateProjection, publishResults, projectionDigest } from '../scripts/acceptance/publish.mjs';
 import { environmentOAuth } from '../scripts/oauth-environment.mjs';
+import { fakeKeyringEnv } from '../../cli/test/helpers/fake-keyring.js';
+import { credKey } from '../../cli/src/auth/credential-store.js';
 import { runAndPublish, seedProfile } from '../scripts/acceptance/ci.mjs';
 import { selectTargets, selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
 import { prepare, HARNESS_SHA, FILES } from '../scripts/acceptance/prepare.mjs';
@@ -206,7 +208,15 @@ test('immutable real producer executes failing scenarios and restored passing sc
   const privateRoot = path.join(dir, 'private'); fs.mkdirSync(privateRoot);
   const refreshed = await environmentOAuth({ SERVICENOW_INSTANCE_URL: origin, SERVICENOW_OAUTH_REFRESH_TOKEN: 'fake-refresh' }, { allowLocal: true });
   const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: refreshed.accessToken } });
-  const isolated = producerEnvironment(process.env, privateRoot, configHome);
+  // The immutable producer deliberately filters out plaintext opt-in. Seed a
+  // task-owned synthetic keyring reachable via its retained PATH instead; do
+  // not modify the pinned filter or replace authenticated evidence assertions.
+  const keyring = fakeKeyringEnv(privateRoot);
+  fs.writeFileSync(keyring.JSN_TEST_KEYRING_FILE, JSON.stringify({
+    [credKey(origin)]: { auth_method: 'oauth', access_token: refreshed.accessToken },
+  }), { mode: 0o600 });
+  const isolated = { ...producerEnvironment(process.env, privateRoot, configHome), PATH: `${keyring.PATH}${path.delimiter}${process.env.PATH || ''}` };
+  assert.equal(isolated.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE, undefined);
   // Spawn the producer boundary itself: merging isolated paths back into each
   // CLI child below would hide a regression in the pinned environment filter.
   // A rejected token must not emit authenticated scenario evidence; recovery
@@ -235,7 +245,7 @@ test('immutable real producer executes failing scenarios and restored passing sc
     const before = requests;
     const result = await launchProducer(process.execPath, ['--input-type=module', '-e', script], { env: isolated });
     assert.equal(result.exitCode, 0, 'isolated producer must complete without private diagnostics');
-    assert.deepEqual(result.json, { ok: accepts, evidence: accepts });
+    assert.deepEqual(result.json, { ok: accepts, evidence: accepts }, result.stderr.replaceAll(token, '[redacted]'));
     assert.ok(requests > before, 'actual producer children must reach the mock provider');
     assert.ok(!result.stdout.includes(token));
     assert.ok(!result.stderr.includes(token));
@@ -280,6 +290,7 @@ test('immutable real producer executes failing scenarios and restored passing sc
   const invoked = await launchSeeded(process.execPath, [wrapper, '--profile', 'acceptance-ci', '--expected-host', origin,
     '--mode', 'readonly', '--scenario', 'readonly.records', '--scenario', 'local.discovery-help', '--output-dir', invokedOutput], { cwd: privateRoot, env: isolated });
   assert.ok([0, 1, 2].includes(invoked.exitCode), invoked.stderr);
+  assert.ok(fs.existsSync(path.join(invokedOutput, 'public-summary.json')), invoked.stderr.replaceAll(token, '[redacted]'));
   const invokedProjection = validateProjection(JSON.parse(fs.readFileSync(path.join(invokedOutput, 'public-summary.json'))));
   assert.ok(invokedProjection.results.some(r => r.id === 'readonly.records'));
   assert.equal(invokedProjection.results.find(r => r.id === 'local.discovery-help').status, 'passed');

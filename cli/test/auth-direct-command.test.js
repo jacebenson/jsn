@@ -104,8 +104,8 @@ test('records commands authenticate directly across methods and output modes wit
   await t.test('default policy refuses an existing plaintext fixture without credential dispatch', async () => {
     await seed('oauth', credentials('oauth'));
     const original = await fs.readFile(selectedFile);
-    assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
-    assert.equal((await fs.stat(selectedFile)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(selectedFile)).mode & 0o777, 0o600);
     env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '0';
     try {
       const result = await run(command('--json'), 1);

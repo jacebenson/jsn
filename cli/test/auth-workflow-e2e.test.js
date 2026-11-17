@@ -68,9 +68,9 @@ it('Basic and OAuth CLI workflows preserve credentials, settings, defaults, PKCE
     const basic = await run(['auth', 'login', instance, '--name', 'basic', '--basic', '--read-only', '--no-include-counts', '--confirm-deletes', '--make-default', '--json']);
     assert.equal(basic.data.username, 'basic-user');
     const credentialDir = path.join(directory, 'servicenow/credentials');
-    assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
     for (const entry of await fs.readdir(credentialDir)) {
-      assert.equal((await fs.stat(path.join(credentialDir, entry))).mode & 0o777, 0o600);
+      if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(credentialDir, entry))).mode & 0o777, 0o600);
     }
     let config = await readConfig();
     assert.equal(config.default_profile, 'basic');

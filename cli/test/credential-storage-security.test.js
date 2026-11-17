@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { mock } from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { AuthManager } from '../src/auth.js';
 import { credKey, saveCredentials, loadCredentials, deleteCredentials } from '../src/auth/credential-store.js';
 import { savePKCEState, loadPKCEState, removePKCEState } from '../src/auth/oauth.js';
@@ -30,26 +32,28 @@ beforeEach(() => {
   process.env.FAKE_KEYRING_MODE = 'fail';
   delete process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE;
   fs.mkdirSync(process.env.PATH, { mode: 0o700 });
-  // Only this task-owned synthetic backend is executable. Never the host keyring.
-  fs.writeFileSync(path.join(process.env.PATH, 'secret-tool'), `#!${process.execPath}
-const fs = require('node:fs');
-const mode = process.env.FAKE_KEYRING_MODE;
-if (mode === 'fail') { process.stderr.write('synthetic-backend-secret'); process.exit(1); }
-const command = process.argv[2];
-const file = process.env.FAKE_KEYRING;
-if (command === 'store') fs.writeFileSync(file, fs.readFileSync(0));
-if (command === 'lookup') {
-  if (!fs.existsSync(file)) process.exit(1);
-  if (mode === 'mismatch') process.stdout.write('{}');
-  else process.stdout.write(fs.readFileSync(file));
-}
-if (command === 'clear' && fs.existsSync(file)) fs.unlinkSync(file);
-`, { mode: 0o700 });
+  // Inject the process boundary, not a Unix executable: works on Windows too
+  // and cannot reach the real keyring, even if a test changes PATH.
+  mock.method(childProcess, 'execFileSync', (command, args, options) => {
+    assert.equal(command, 'secret-tool');
+    const mode = process.env.FAKE_KEYRING_MODE;
+    if (mode === 'fail') throw new Error('synthetic-backend-secret');
+    const file = process.env.FAKE_KEYRING;
+    if (args[0] === 'store') fs.writeFileSync(file, options.input);
+    if (args[0] === 'lookup') {
+      if (!fs.existsSync(file)) throw new Error('missing synthetic entry');
+      return mode === 'mismatch' ? '{}' : fs.readFileSync(file, 'utf8');
+    }
+    if (args[0] === 'clear' && fs.existsSync(file)) fs.unlinkSync(file);
+    return '';
+  });
+  syncBuiltinESMExports();
   warnings = [];
   mock.method(process.stderr, 'write', text => { warnings.push(String(text)); return true; });
 });
 afterEach(() => {
   mock.restoreAll();
+  syncBuiltinESMExports();
   for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
   Object.assign(process.env, savedEnv);
   fs.rmSync(root, { recursive: true, force: true });
@@ -67,8 +71,8 @@ it('only exact process-local opt-in permits portable plaintext, warns, and repor
   assert.throws(save, /Secure credential storage unavailable/);
   process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '1';
   save();
-  assert.equal(fs.statSync(file()).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.dirname(file())).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file()).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(file())).mode & 0o777, 0o700);
   const copied = path.join(root, 'copied');
   fs.cpSync(process.env.XDG_CONFIG_HOME, copied, { recursive: true });
   process.env.XDG_CONFIG_HOME = copied;
@@ -130,21 +134,21 @@ it('save readback failure refuses and preserves a stale original', () => {
   assert.deepEqual(fs.readFileSync(file()), original);
 });
 it('PKCE atomic replacement remains 0600 under permissive umask and removes only its slot', () => {
-  const old = process.umask(0);
+  const old = process.platform === 'win32' ? undefined : process.umask(0);
   try {
     savePKCEState(instance, { code_verifier: 'synthetic-one' }, 'fixture');
     const ino = fs.statSync(file('pkce')).ino;
     savePKCEState(instance, { code_verifier: 'synthetic-two' }, 'fixture');
     assert.notEqual(fs.statSync(file('pkce')).ino, ino);
-    assert.equal(fs.statSync(file('pkce')).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.dirname(file('pkce'))).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file('pkce')).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.dirname(file('pkce'))).mode & 0o777, 0o700);
     assert.equal(loadPKCEState(instance, 'fixture').code_verifier, 'synthetic-two');
     removePKCEState(instance, 'fixture');
     assert.equal(loadPKCEState(instance, 'fixture'), null);
-  } finally { process.umask(old); }
+  } finally { if (old !== undefined) process.umask(old); }
 });
 for (const kind of ['credentials', 'pkce']) {
-  it(`${kind} refuses weak existing files/directories without modifying them`, () => {
+  it(`${kind} refuses weak POSIX files/directories without modifying them`, { skip: process.platform === 'win32' ? 'POSIX modes are not Windows ACLs' : false }, () => {
     process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '1';
     const write = kind === 'credentials' ? save : () => savePKCEState(instance, { state: 'synthetic' }, 'fixture');
     write(); const target = file(kind); const original = fs.readFileSync(target);
@@ -166,25 +170,29 @@ for (const kind of ['credentials', 'pkce']) {
     assert.throws(write, /Unsafe credential\/PKCE path/);
     assert.equal(fs.readFileSync(outside, 'utf8'), 'synthetic-untouched');
     fs.unlinkSync(target); fs.rmdirSync(path.dirname(target));
-    fs.symlinkSync(root, path.dirname(target));
+    fs.symlinkSync(root, path.dirname(target), process.platform === 'win32' ? 'junction' : 'dir');
     assert.throws(write, /Unsafe credential\/PKCE path/);
   });
 }
 it('rejects unexpected ownership, hard links and writable ancestors', () => {
   legacy();
-  const lstat = fs.lstatSync;
-  mock.method(fs, 'lstatSync', target => {
-    const stat = lstat(target);
-    if (target === file()) Object.defineProperty(stat, 'uid', { value: (process.getuid?.() ?? 0) + 1 });
-    return stat;
-  });
-  assert.throws(load, /Unsafe credential\/PKCE path/);
-  fs.lstatSync.mock.restore();
+  if (process.platform !== 'win32') {
+    const lstat = fs.lstatSync;
+    mock.method(fs, 'lstatSync', target => {
+      const stat = lstat(target);
+      if (target === file()) Object.defineProperty(stat, 'uid', { value: (process.getuid?.() ?? 0) + 1 });
+      return stat;
+    });
+    assert.throws(load, /Unsafe credential\/PKCE path/);
+    fs.lstatSync.mock.restore();
+  }
   fs.linkSync(file(), path.join(root, 'hardlink'));
   assert.throws(load, /Unsafe credential\/PKCE path/);
   fs.unlinkSync(path.join(root, 'hardlink'));
-  fs.chmodSync(process.env.XDG_CONFIG_HOME, 0o777);
-  assert.throws(load, /Unsafe credential\/PKCE path/);
+  if (process.platform !== 'win32') {
+    fs.chmodSync(process.env.XDG_CONFIG_HOME, 0o777);
+    assert.throws(load, /Unsafe credential\/PKCE path/);
+  }
 });
 it('explicit deletion removes only selected synthetic credentials', () => {
   legacy(); const other = legacy('other');

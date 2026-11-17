@@ -697,14 +697,26 @@ backups, snapshots, copied files, or filesystem remnants. If credentials were
 copied unintentionally, revoke/rotate them at the provider and remove exposed
 copies; deleting a local file does not revoke a token.
 
-Credential and pending PKCE files use atomic 0600 replacement in private 0700
-leaf directories. Unsafe existing modes, unexpected ownership, hard-linked
+Credential and pending PKCE files use atomic same-directory replacement. On
+POSIX, files require 0600 modes and leaf directories require 0700 modes.
+Unsafe existing modes, unexpected ownership, hard-linked
 files, symlinks, and writable ancestors are refused rather than automatically
 chmodded or followed. Inspect and manually repair or move the exact owned path
 before retrying (never apply recursive chmod to your home/config tree). JSN does
 not change permissions on broad parent directories. PKCE state is necessarily a
 local plaintext login secret; it receives the same path protections, independent
 of the credential-storage override.
+
+On Windows, POSIX mode/UID checks are not applied: Node's mode bits do not
+validate Windows DACLs. Files and directories inherit their parent's ACL; JSN
+does not set or verify those ACLs. Use a private per-user config directory and
+verify its ACL separately; do not use shared or broadly writable locations.
+Regular-file/directory, hard-link and lstat-detectable symlink/junction rejection
+still apply, but Node cannot identify every reparse-point type or eliminate
+same-user path races. PKCE remains a local plaintext login secret on Windows.
+Persisted credentials still require verified keyring storage by default; using
+portable plaintext on Windows requires the same explicit process-only opt-in
+and warning. No Windows ACL protection or secure-erasure guarantee is implied.
 
 ```bash
 jsn auth login https://dev12345.service-now.com

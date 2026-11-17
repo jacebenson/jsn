@@ -15,9 +15,14 @@ test('relative config paths enforce the same private PKCE directory contract', (
     process.env.XDG_CONFIG_HOME = 'relative-config';
     savePKCEState('https://synthetic.invalid', { state: 'synthetic-private-state' }, 'fixture');
     const directory = path.join(root, 'relative-config/servicenow/pkce');
-    assert.equal(fs.statSync(directory).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(directory).mode & 0o777, 0o700);
     const filename = path.join(directory, fs.readdirSync(directory)[0]);
     const original = fs.readFileSync(filename);
+    // Windows mode bits do not express DACL permissions.
+    if (process.platform === 'win32') {
+      assert.equal(loadPKCEState('https://synthetic.invalid', 'fixture').state, 'synthetic-private-state');
+      return;
+    }
     fs.chmodSync(directory, 0o755);
     assert.throws(() => loadPKCEState('https://synthetic.invalid', 'fixture'), /Unsafe credential\/PKCE path/);
     assert.throws(() => savePKCEState('https://synthetic.invalid', { state: 'replacement' }, 'fixture'), /Unsafe credential\/PKCE path/);
