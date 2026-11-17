@@ -41,7 +41,7 @@ test('project cannot bind ambient OAuth or Basic secrets, explicit/global origin
   };
   for (const project of [{ instance_url: sink }, { default_profile: 'bait', profiles: { bait: { instance_url: sink } } }]) {
     fs.writeFileSync(local, JSON.stringify(project));
-    for (const secrets of [{ SERVICENOW_OAUTH_TOKEN: 'synthetic-ambient' }, { SERVICENOW_USERNAME: 'synthetic-user', SERVICENOW_PASSWORD: 'synthetic-password' }]) {
+    for (const secrets of [{ SERVICENOW_OAUTH_TOKEN: 'synthetic-ambient' }, { SN_USERNAME: 'synthetic-user', SN_PASSWORD: 'synthetic-password' }]) {
       const before = seen.length;
       const result = await run([], secrets);
       assert.notEqual(result.code, 0, `project-selected ambient auth must fail; sink received ${seen.length - before} request(s)`);
@@ -51,6 +51,8 @@ test('project cannot bind ambient OAuth or Basic secrets, explicit/global origin
   fs.writeFileSync(local, JSON.stringify({ instance_url: sink }));
   assert.equal((await run(['--instance', sink], { SERVICENOW_OAUTH_TOKEN: 'synthetic-explicit' })).code, 0);
   assert.equal(seen.at(-1).authorization, 'Bearer synthetic-explicit');
+  assert.equal((await run(['--instance', sink], { SN_USERNAME: 'synthetic-explicit-user', SN_PASSWORD: 'synthetic-explicit-password' })).code, 0);
+  assert.equal(seen.at(-1).authorization, `Basic ${Buffer.from('synthetic-explicit-user:synthetic-explicit-password').toString('base64')}`);
   assert.equal((await run([], { SERVICENOW_INSTANCE_URL: sink, SERVICENOW_OAUTH_TOKEN: 'synthetic-env-bound' })).code, 0);
   // A saved but inactive origin does not bind the ambient token for this run.
   // Project selection must not switch a token intended for the global default.
@@ -63,7 +65,7 @@ test('project cannot bind ambient OAuth or Basic secrets, explicit/global origin
     { profiles: { primary: { instance_url: sink } }, credentialTrust: { origins: [sink] } },
   ]) {
     fs.writeFileSync(local, JSON.stringify(project));
-    for (const secrets of [{ SERVICENOW_OAUTH_TOKEN: 'synthetic-primary' }, { SERVICENOW_USERNAME: 'synthetic-primary-user', SERVICENOW_PASSWORD: 'synthetic-primary-password' }]) {
+    for (const secrets of [{ SERVICENOW_OAUTH_TOKEN: 'synthetic-primary' }, { SN_USERNAME: 'synthetic-primary-user', SN_PASSWORD: 'synthetic-primary-password' }]) {
       const before = seen.length;
       assert.notEqual((await run([], secrets)).code, 0, 'inactive global origins cannot receive ambient credentials through project selection');
       assert.equal(seen.length, before, 'inactive origin receives zero requests');
@@ -85,14 +87,14 @@ test('project cannot bind ambient OAuth or Basic secrets, explicit/global origin
 });
 
 test('Basic login cannot persist ambient credentials for an untrusted destination', async t => {
-  const previous = process.env.SERVICENOW_USERNAME;
-  const password = process.env.SERVICENOW_PASSWORD;
+  const previous = process.env.SN_USERNAME;
+  const password = process.env.SN_PASSWORD;
   t.after(() => {
-    if (previous === undefined) delete process.env.SERVICENOW_USERNAME; else process.env.SERVICENOW_USERNAME = previous;
-    if (password === undefined) delete process.env.SERVICENOW_PASSWORD; else process.env.SERVICENOW_PASSWORD = password;
+    if (previous === undefined) delete process.env.SN_USERNAME; else process.env.SN_USERNAME = previous;
+    if (password === undefined) delete process.env.SN_PASSWORD; else process.env.SN_PASSWORD = password;
   });
-  process.env.SERVICENOW_USERNAME = 'synthetic-user';
-  process.env.SERVICENOW_PASSWORD = 'synthetic-password';
+  process.env.SN_USERNAME = 'synthetic-user';
+  process.env.SN_PASSWORD = 'synthetic-password';
   let reads = 0;
   let saves = 0;
   const auth = new AuthManager({ getEffectiveInstance: () => 'https://untrusted.invalid', isTrustedCredentialDestination: () => false }, {
