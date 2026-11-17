@@ -223,6 +223,9 @@ run its JSON-only HTTP adapter directly with `node cli/src/commands/docs/server.
 from the repository root, using the same sync worker. Set `JSN_DOCS_HOST`,
 `JSN_DOCS_PORT`, and optionally `JSN_DOCS_RELEASE` to configure it. The CLI browser
 UI and `jsn docs --serve` have been removed; the Rails website remains independent.
+The website owns its Marked and DOMPurify copies under
+`site/app/assets/javascripts/vendor/`; its reader and guide renderer do not depend
+on the removed CLI public directory.
 
 ## Container database bootstrap
 

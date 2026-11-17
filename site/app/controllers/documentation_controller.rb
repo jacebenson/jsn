@@ -6,8 +6,8 @@ class DocumentationController < BrowserController
 
   def asset
     files = {
-      'marked' => Rails.root.join('../cli/src/commands/docs/public/vendor/marked.min.js'),
-      'purify' => Rails.root.join('../cli/src/commands/docs/public/vendor/purify.min.js'),
+      'marked' => Rails.root.join('app/assets/javascripts/vendor/marked.min.js'),
+      'purify' => Rails.root.join('app/assets/javascripts/vendor/purify.min.js'),
       'markdown' => Rails.root.join('app/assets/javascripts/markdown.js'),
       'reader' => Rails.root.join('app/assets/javascripts/documentation.js')
     }

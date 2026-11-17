@@ -29,7 +29,10 @@ test('removed browser flags fail before contacting the documentation service', a
   f.env.JSN_DOCS_URL = `http://127.0.0.1:${server.address().port}`;
   const help = await f.cli('docs', '--help');
   assert.doesNotMatch(help.stdout, /--serve|--host|--port/);
-  for (const args of [['--serve'], ['--serve=false'], ['--no-serve'], ['--host', '127.0.0.1'], ['--port', '0'], ['search', 'security', '--serve']]) {
+  const retiredOptions = [['--serve'], ['--serve=false'], ['--no-serve'], ['--no-serve=false'],
+    ['--host', '127.0.0.1'], ['--host=127.0.0.1'], ['--no-host'], ['--port', '0'], ['--port=0'], ['--no-port']];
+  const commands = [[], ['security'], ['search', 'security'], ['show', 'security.md'], ['status'], ['releases'], ['sync'], ['install', '--source', 'skip']];
+  for (const args of commands.flatMap(command => retiredOptions.map(option => [...command, ...option]))) {
     await assert.rejects(f.cli('docs', ...args, '--json'), error => {
       assert.notEqual(error.code, 0);
       assert.match(error.stdout + error.stderr, /Unknown argument|Unknown option/i);

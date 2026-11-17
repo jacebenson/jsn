@@ -51,7 +51,7 @@ export function docsCmd(wrapHandler) {
   // The adapter tolerates unknown options; retired server flags must fail closed
   // on every docs spelling rather than becoming an accidental search request.
   const wrap = handler => wrapHandler(async (argv, app) => {
-    for (const name of ['serve', 'no-serve', 'host', 'port']) {
+    for (const name of ['serve', 'no-serve', 'host', 'no-host', 'port', 'no-port']) {
       if (Object.hasOwn(argv, name)) throw new AppError('usage_error', `Unknown option --${name}: the CLI documentation server flags have been removed. Use terminal search or configure a documentation service in jsn setup.`);
     }
     return handler(argv, app);
