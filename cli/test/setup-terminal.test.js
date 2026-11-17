@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
+import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import http from 'node:http';
 import { once } from 'node:events';
@@ -14,7 +15,7 @@ const skip = ptySkipReason();
 test('fresh terminal welcome is a short local-only front door; explicit help stays complete', { skip }, t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-front-door-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const env = { JSN_DATA_HOME: directory, NODE_OPTIONS: `--import=${path.resolve('test/support/welcome-no-operations.js')}` };
+  const env = { JSN_DATA_HOME: directory, NODE_OPTIONS: `--import=${pathToFileURL(path.resolve('test/support/welcome-no-operations.js')).href}` };
   const welcome = runPty(directory, [], { env, unset: ['JSN_NO_VERSION_CHECK', 'JSN_NO_SKILL_CHECK'] });
   assert.equal(welcome.status, 0, welcome.output);
   assert.match(welcome.output, /jsn setup\s+connect to ServiceNow/);
@@ -70,7 +71,7 @@ for (const method of ['basic', 'browser']) test(`real ${method} setup terminal s
   t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true }); });
   const instance = `http://127.0.0.1:${server.address().port}`;
   const spec = { command: [process.execPath, CLI, 'setup'], cwd: directory,
-    env: { ...BASE_ENV, ...fakeKeyringEnv(directory), XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory, XDG_CACHE_HOME: directory, TERM: 'xterm-256color', ...(method === 'browser' ? { NODE_OPTIONS: `--import=${path.resolve('test/support/setup-browser-fixture.js')}` } : {}) },
+    env: { ...BASE_ENV, ...fakeKeyringEnv(directory), XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory, XDG_CACHE_HOME: directory, TERM: 'xterm-256color', ...(method === 'browser' ? { NODE_OPTIONS: `--import=${pathToFileURL(path.resolve('test/support/setup-browser-fixture.js')).href}` } : {}) },
     columns: 120, timeout: 20,
     steps: [
       { wait: 'ServiceNow instance name or URL:', send: instance + '\r' },
