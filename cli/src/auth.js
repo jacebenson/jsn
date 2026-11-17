@@ -403,6 +403,7 @@ export class AuthManager {
    */
   buildAuthURL(instanceURL, waitFile, username = this._activeUsername()) {
     instanceURL = normalizeInstanceURL(instanceURL);
+    assertCredentialTransport(instanceURL);
     const clientID = getOAuthClientID();
     const pkce = generatePKCE();
     savePKCEState(instanceURL, pkce, username);
