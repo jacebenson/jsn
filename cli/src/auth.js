@@ -6,7 +6,8 @@
 
 import fs from 'node:fs';
 import { password as passwordPrompt } from './prompts.js';
-import { normalizeInstanceURL } from './config.js';
+import { normalizeInstanceURL, isTrustedCredentialDestination } from './config.js';
+import { assertCredentialTransport } from './auth/transport.js';
 import { errAuth } from './errors.js';
 import { pendingBrowserLogin } from './browser-auth.js';
 import { defaultCredentialStore } from './auth/credential-store.js';
@@ -86,6 +87,7 @@ export class AuthManager {
           return (name && cfg.profiles?.[name]?.username) || null;
         },
         getEffectiveInstance: () => provider.getEffectiveInstance(),
+        isTrustedCredentialDestination: instance => isTrustedCredentialDestination(provider.config, instance),
         getAuthMethod: () => {
           const cfg = provider.config;
           const name = cfg.activeProfile || cfg.defaultProfile;
@@ -323,15 +325,22 @@ export class AuthManager {
   }
 
   getCredentialsFor(instance, username, options = {}) {
+    assertCredentialTransport(instance);
     const method = this._selectedMethod(options);
+    const assertAmbientTrust = () => {
+      if (this.identity.isTrustedCredentialDestination?.(instance) === false) {
+        throw errAuth('Project configuration cannot authorize an ambient credential destination. Select --instance explicitly or save the origin in global configuration.');
+      }
+    };
     // With no configured method, preserve the legacy environment precedence:
     // OAuth token first, then Basic credentials, then stored credentials.
     if ((method === 'unconfigured' || method === 'oauth') && process.env.SERVICENOW_OAUTH_TOKEN) {
+      assertAmbientTrust();
       return { auth_method: 'oauth', access_token: process.env.SERVICENOW_OAUTH_TOKEN, auth_source: 'env_token' };
     }
     if (method === 'unconfigured' || method === 'basic') {
       const basicCreds = getBasicAuthFromEnv(instance);
-      if (basicCreds) return basicCreds;
+      if (basicCreds) { assertAmbientTrust(); return basicCreds; }
     }
     const credentialUsername = Object.hasOwn(options, 'username') ? options.username : (username ?? this._activeUsername());
     const creds = this.credentialStore.load(instance, credentialUsername);
@@ -486,6 +495,7 @@ export class AuthManager {
 
   async _verifyBrowserSession(instanceURL, creds, username, { requireIdentity = false, signal, timeout = this.httpClient.timeout } = {}) {
     instanceURL = normalizeInstanceURL(instanceURL);
+    assertCredentialTransport(instanceURL);
     const query = new URLSearchParams({
       sysparm_limit: '1',
       sysparm_fields: 'user_name',
@@ -547,6 +557,7 @@ export class AuthManager {
   }
 
   async exchangeCode(instanceURL, clientID, code, pkce) {
+    assertCredentialTransport(instanceURL);
     const tokenURL = `${instanceURL.replace(/\/$/, '')}/oauth_token.do`;
     const body = new URLSearchParams();
     body.set('grant_type', 'authorization_code');
@@ -556,6 +567,7 @@ export class AuthManager {
     body.set('code_verifier', pkce.code_verifier);
 
     const resp = await fetch(tokenURL, {
+      redirect: 'error',
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
@@ -580,6 +592,7 @@ export class AuthManager {
   }
 
   async refreshToken(instance, creds, targetUsername = undefined) {
+    assertCredentialTransport(instance);
     if (creds.auth_method !== 'oauth') {
       throw errAuth(`Cannot refresh ${creds.auth_method || 'unconfigured'} credentials; only OAuth credentials support refresh`);
     }
@@ -591,6 +604,7 @@ export class AuthManager {
     body.set('refresh_token', creds.refresh_token);
 
     const resp = await fetch(tokenURL, {
+      redirect: 'error',
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),

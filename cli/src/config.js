@@ -101,6 +101,13 @@ export function loadConfig(overrides = {}) {
   const cfg = createConfig();
 
   loadFromFile(cfg, globalConfigPath(), 'global');
+  // Preserve provenance outside the serializable/user-controlled config shape.
+  // A project can select an origin, but cannot authorize ambient secrets for it.
+  Object.defineProperty(cfg, 'credentialTrust', { value: {
+    profiles: structuredClone(cfg.profiles),
+    origins: [cfg.instanceURL, ...Object.values(cfg.profiles).map(p => p.instance_url)]
+      .filter(Boolean).map(normalizeInstanceURL),
+  } });
   loadFromFile(cfg, localConfigPath(), 'local');
   loadFromEnv(cfg);
 
@@ -121,6 +128,14 @@ export function loadConfig(overrides = {}) {
   }
 
   return cfg;
+}
+
+export function isTrustedCredentialDestination(cfg, instance, explicitInstance = '') {
+  const origin = normalizeInstanceURL(instance);
+  // Hand-built configs are a programmatic API, not project-file input.
+  if (!cfg?.credentialTrust) return true;
+  return [explicitInstance, process.env.SERVICENOW_INSTANCE_URL, ...cfg.credentialTrust.origins]
+    .filter(Boolean).some(value => normalizeInstanceURL(value) === origin);
 }
 
 export function saveConfig(cfg) {
