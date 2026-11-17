@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import Database from 'better-sqlite3';
+import Database, { requireFts5 } from '../../sqlite.js';
 import { docsReaderLease } from './locks.js';
 import { AppError } from '../../errors.js';
 
@@ -151,7 +151,8 @@ export function openDocsDb(opts = {}) {
   let db;
   try {
     db = new Database(dbPath);
-  } catch (error) { release(); throw error; }
+    requireFts5(db);
+  } catch (error) { if (db) db.close(); release(); throw error; }
   const close = db.close.bind(db);
   db.close = () => { try { return close(); } finally { release(); } };
   try {
@@ -190,6 +191,7 @@ export function setSchemaVersion(db, version) {
 }
 
 export function initDocsSchema(db) {
+  requireFts5(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS docs (
       id          INTEGER PRIMARY KEY,

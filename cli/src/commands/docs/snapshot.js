@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import Database from 'better-sqlite3';
+import Database, { requireFts5 } from '../../sqlite.js';
 import { resolveDocsDbPath, resolveDocsRelease, DEFAULT_DOCS_RELEASE } from './db.js';
 import { docsServiceUrl } from './client.js';
 import { docsReaderLease } from './locks.js';
@@ -29,6 +29,7 @@ export function validateManifest(manifest) {
 export function validateDatabase(filename) {
   const db = new Database(filename, { readonly: true, fileMustExist: true });
   try {
+    requireFts5(db);
     if (db.pragma('integrity_check', { simple: true }) !== 'ok') throw new Error('Snapshot SQLite integrity check failed');
     if (db.prepare("SELECT value FROM meta WHERE key='schema_version'").get()?.value !== String(SNAPSHOT_SCHEMA)) throw new Error('Incompatible snapshot database schema');
     const count = db.prepare('SELECT count(*) AS n FROM docs').get().n;

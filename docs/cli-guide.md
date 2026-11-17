@@ -40,7 +40,7 @@ Go back to the released version with:
 npm install -g @jacebenson/jsn
 ```
 
-**Note:** git installs build `better-sqlite3` from source, so the machine needs build tools (Python, make, a C++ compiler).
+Requires Node.js 24 or newer. SQLite is built into Node.js, so npm and git installs do not need Python, make, or a C++ compiler. Local docs indexing/search requires FTS5 in the installed Node build and checks this at runtime. Use a current official Node.js 24 LTS or newer build if FTS5 is unavailable. Hosted docs search does not load SQLite.
 
 ## Direct MID installation
 

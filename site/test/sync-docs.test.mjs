@@ -4,8 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createRequire } from 'node:module';
-const Database = createRequire(new URL('../../cli/package.json', import.meta.url))('better-sqlite3');
+import Database from '../../cli/src/sqlite.js';
 import { syncDocumentation, syncFamily } from '../script/sync-docs.mjs';
 
 test('Git sync publishes additions, edits and deletions atomically and skips unchanged revisions', async () => {

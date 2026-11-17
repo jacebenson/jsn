@@ -6,7 +6,7 @@ source in `skills/`) or README.md.
 
 ## Stack
 
-Current Node.js LTS (CI follows `lts/*`; no fixed minimum-version promise), ESM (`"type": "module"`),
+Node.js 24 or newer (CI follows `lts/*`), ESM (`"type": "module"`),
 no build step, no TypeScript. The npm package lives in `cli/`. Paths in the CLI layout below are relative to `cli/`.
 Entry: `cli/bin/jsn.js` → `cli/src/cli.js`.
 
@@ -16,7 +16,7 @@ Runtime deps — keep this list short, every addition needs a reason:
 |---------|---------------|
 | `src/cli-adapter.js` | Local yargs-compatible command API backed by Node's `node:util` argument parser |
 | `@inquirer/prompts` + `@inquirer/core` | Interactive pickers (TTY list views, setup wizard) |
-| `better-sqlite3` | `jsn docs` search index — native module, needs build tools on git installs (node:sqlite lacks FTS5 on some platforms) |
+| `node:sqlite` | Built-in, lazily loaded local docs and perf storage. Local docs checks FTS5 support at runtime. No native npm dependency or compiler needed. |
 | `js-yaml` | YAML frontmatter parsing and serialization for docs markdown |
 | `saxes` | Strict, entity-safe XML inspection before native update-set upload |
 | `turndown` | HTML → markdown for docs ingestion |

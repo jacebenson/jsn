@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { selectDocument } from './sections.js';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database, { requireFts5 } from '../../sqlite.js';
 import { resolveDocsDbPath } from './db.js';
 
 export class DocumentationError extends Error {
@@ -56,6 +56,7 @@ export class DocumentationIndex {
   close() { this.db.close(); }
   revision() { return this.db.prepare("SELECT value FROM meta WHERE key = 'source_revision'").get()?.value || this.db.prepare("SELECT value FROM meta WHERE key = 'snapshot_revision'").get()?.value || ''; }
   search({ query, limit = 20, offset = 0, bundle } = {}) {
+    requireFts5(this.db);
     const text = String(query || '').trim();
     if (!text || text.length > 200) throw new DocumentationError('Enter a search of 1 to 200 characters.', 400);
     const tokens = text.match(/[\p{L}\p{N}_]+/gu)?.slice(0, 20);

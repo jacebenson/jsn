@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import Database from 'better-sqlite3';
+import Database from '../../sqlite.js';
 import { ingestDocs } from './ingest.js';
 import { refreshDocs } from './refresh.js';
 import { installSnapshot } from './snapshot.js';

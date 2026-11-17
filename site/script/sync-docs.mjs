@@ -3,13 +3,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import { syncDocumentation } from '../../cli/src/commands/docs/sync-service.js';
 import { publishServiceSnapshot } from '../../cli/src/commands/docs/service-snapshot.js';
 
 export { syncDocumentation };
 
-const Database = createRequire(new URL('../../cli/package.json', import.meta.url))('better-sqlite3');
+import Database from '../../cli/src/sqlite.js';
 
 function validateFamily(storage, family) {
   const matches = value => value === family || (value == null && family === 'australia');

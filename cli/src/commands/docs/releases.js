@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../../sqlite.js';
 import { DEFAULT_DOCS_RELEASE, resolveDocsDbPath, getMeta } from './db.js';
 import { docsReaderLease } from './locks.js';
 
