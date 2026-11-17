@@ -220,11 +220,11 @@ test('real CLI authenticates a read-only profile and preserves every output form
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const instance = `http://127.0.0.1:${server.address().port}`;
   const configDir = path.join(dir, 'servicenow');
-  await fs.mkdir(path.join(configDir, 'credentials'), { recursive: true });
+  await fs.mkdir(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
   const config = JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: instance, username: 'fixture', auth_method: 'basic', read_only: true } } });
   await fs.writeFile(path.join(configDir, 'config.json'), config);
-  await fs.writeFile(path.join(configDir, 'credentials', `${credKey(instance, 'fixture')}.json`), JSON.stringify({ auth_method: 'basic', username: 'fixture', password: 'offline-fixture' }));
-  const environment = { ...env, PATH: '', XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: dir, JSN_NO_HEADER: '1' };
+  await fs.writeFile(path.join(configDir, 'credentials', `${credKey(instance, 'fixture')}.json`), JSON.stringify({ auth_method: 'basic', username: 'fixture', password: 'offline-fixture' }), { mode: 0o600 });
+  const environment = { ...env, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: dir, JSN_NO_HEADER: '1' };
   for (const key of Object.keys(environment)) if (/^(SN_|SERVICENOW_)/i.test(key)) delete environment[key];
   const execute = promisify(execFile);
   const run = (args) => execute(process.execPath, [CLI, 'codesearch', 'search', 'needle', '--table', 'sys_script_include', ...args], { env: environment, timeout: 20000 });

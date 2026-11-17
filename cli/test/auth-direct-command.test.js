@@ -1,3 +1,4 @@
+import { PLAINTEXT_WARNING } from './helpers/fake-keyring.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -62,15 +63,15 @@ test('records commands authenticate directly across methods and output modes wit
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const instance = `http://127.0.0.1:${server.address().port}`;
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
-  Object.assign(env, { XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, JSN_DATA_HOME: path.join(directory, 'data'),
-    PATH: '', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
+  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, JSN_DATA_HOME: path.join(directory, 'data'),
+    PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
   const configDir = path.join(directory, 'servicenow');
   const credentialDir = path.join(configDir, 'credentials');
-  await fs.mkdir(credentialDir, { recursive: true });
+  await fs.mkdir(credentialDir, { recursive: true, mode: 0o700 });
   const selectedFile = path.join(credentialDir, `${credKey(instance, 'selected-user')}.json`);
   const siblingFile = path.join(credentialDir, `${credKey(instance, 'other-user')}.json`);
   const sibling = JSON.stringify({ auth_method: 'oauth', access_token: 'other-access', refresh_token: 'other-refresh' });
-  await fs.writeFile(siblingFile, sibling);
+  await fs.writeFile(siblingFile, sibling, { mode: 0o600 });
   const credentials = method => ({ auth_method: method, username: 'selected-user',
     ...(method === 'basic' ? { password: secrets[0] } : { access_token: method === 'gck' ? secrets[3] : secrets[1] }),
     ...(method === 'oauth' ? { refresh_token: secrets[2] } : {}),
@@ -81,7 +82,7 @@ test('records commands authenticate directly across methods and output modes wit
       selected: { instance_url: instance, username: 'selected-user', auth_method: method, reauth: 'auto' },
       other: { instance_url: instance, username: 'other-user', auth_method: 'oauth' },
     } }));
-    if (creds) await fs.writeFile(selectedFile, JSON.stringify(creds));
+    if (creds) await fs.writeFile(selectedFile, JSON.stringify(creds), { mode: 0o600 });
     else await fs.rm(selectedFile, { force: true });
   }
   async function run(args, expected = 0, { allowVerification = false } = {}) {
@@ -100,12 +101,27 @@ test('records commands authenticate directly across methods and output modes wit
   const recordCalls = () => requests.filter(request => request.path.endsWith('/incident')).length;
   const refreshCalls = () => requests.filter(request => request.path === '/oauth_token.do').length;
   const command = format => ['records', 'get', '--profile', 'selected', '--table', 'incident', '--sys-id', 'record-1', format];
+  await t.test('default policy refuses an existing plaintext fixture without credential dispatch', async () => {
+    await seed('oauth', credentials('oauth'));
+    const original = await fs.readFile(selectedFile);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(selectedFile)).mode & 0o777, 0o600);
+    env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '0';
+    try {
+      const result = await run(command('--json'), 1);
+      assert.match(result.stderr, /Existing plaintext credentials are preserved/);
+      assert.doesNotMatch(result.stderr, /Warning: plaintext/);
+      assert.equal(requests.length, 0);
+      assert.deepEqual(await fs.readFile(selectedFile), original);
+    } finally { env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '1'; }
+  });
   for (const format of ['--json', '--styled']) {
     for (const method of ['basic', 'oauth', 'gck']) {
       await t.test(`${method} valid / ${format}`, async () => {
         await seed(method, credentials(method));
         const result = await run(command(format));
         assert.match(result.stdout, /INC001/);
+        assert.equal(result.stderr, PLAINTEXT_WARNING);
         assert.equal(recordCalls(), 1); assert.equal(refreshCalls(), 0);
       });
       await t.test(`${method} missing / ${format}`, async () => {

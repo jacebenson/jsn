@@ -121,11 +121,11 @@ test('real CLI uses independent profiles, read-only evidence, JSON/get/human and
   t.after(() => new Promise(resolve => server.close(resolve)));
   const instance = `http://127.0.0.1:${server.address().port}`;
   const configDir = path.join(dir, 'servicenow');
-  await fs.mkdir(path.join(configDir, 'credentials'), { recursive: true });
+  await fs.mkdir(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
   const config = JSON.stringify({ default_profile: 'dev', profiles: Object.fromEntries(['dev', 'test'].map(name => [name, { instance_url: instance, username: name, auth_method: 'basic' }])) });
   await fs.writeFile(path.join(configDir, 'config.json'), config);
-  for (const name of ['dev', 'test']) await fs.writeFile(path.join(configDir, 'credentials', `${credKey(instance, name)}.json`), JSON.stringify({ auth_method: 'basic', username: name, password: 'fixture' }));
-  const env = { ...process.env, PATH: '', XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: dir, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' };
+  for (const name of ['dev', 'test']) await fs.writeFile(path.join(configDir, 'credentials', `${credKey(instance, name)}.json`), JSON.stringify({ auth_method: 'basic', username: name, password: 'fixture' }), { mode: 0o600 });
+  const env = { ...process.env, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: dir, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' };
   for (const key of Object.keys(env)) if (/^(SN_|SERVICENOW_)/i.test(key)) delete env[key];
   const run = args => execute(process.execPath, [fileURLToPath(new URL('../bin/jsn.js', import.meta.url)), 'updatesets', 'diff', '--source', 'dev', '--target', 'test', ...args], { env, timeout: 20000 });
   const json = JSON.parse((await run(['--json', '--from', '2026-10-01'])).stdout);

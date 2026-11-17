@@ -33,7 +33,7 @@ test('setup advertises every management action and browser-session files/stdin s
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const instance = `http://127.0.0.1:${server.address().port}`;
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
-  Object.assign(env, { XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '',
+  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1',
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1' });
   async function run(args, { input = '', expected = 0 } = {}) {
     const result = await new Promise(resolve => {

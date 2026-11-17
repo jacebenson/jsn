@@ -1,3 +1,4 @@
+import { PLAINTEXT_WARNING } from './helpers/fake-keyring.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -970,14 +971,14 @@ describe('tables behavior CLI', () => {
     try {
       const instance = `http://127.0.0.1:${server.address().port}`;
       const configDir = path.join(directory, 'servicenow');
-      fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true });
+      fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
       fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ default_profile: 'selected', profiles: {
         selected: { instance_url: instance, username: 'fixture-user', auth_method: 'basic', read_only: true },
       } }));
-      fs.writeFileSync(path.join(configDir, 'credentials', `${credKey(instance, 'fixture-user')}.json`), JSON.stringify({ auth_method: 'basic', username: 'fixture-user', password: 'fixture-password' }));
+      fs.writeFileSync(path.join(configDir, 'credentials', `${credKey(instance, 'fixture-user')}.json`), JSON.stringify({ auth_method: 'basic', username: 'fixture-user', password: 'fixture-password' }), { mode: 0o600 });
       const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
       Object.assign(env, {
-        XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '',
+        HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1',
         JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1',
       });
       const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
@@ -986,7 +987,7 @@ describe('tables behavior CLI', () => {
         const result = await execute(process.execPath, [cli, 'tables', 'behavior', ...args, '--profile', 'selected'], {
           env, cwd: directory, encoding: 'utf8', timeout: 20000,
         });
-        assert.equal(result.stderr, '');
+        assert.equal(result.stderr, PLAINTEXT_WARNING);
         assert.ok(!result.stdout.includes('fixture-password'));
         return result.stdout;
       };
