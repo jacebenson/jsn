@@ -49,6 +49,7 @@ mock.module('@inquirer/prompts', { namedExports: {
 const { loginWizard, loginProfile, modifyProfile, pickProfile, refreshProfile, switchProfile } = await import('../src/commands/auth.js');
 const { dispatchSetupAction } = await import('../src/commands/setup.js');
 const { AuthManager } = await import('../src/auth.js');
+const { loadConfig } = await import('../src/config.js');
 let directory, previousXdg, previousCwd;
 before(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-shared-auth-'));
@@ -81,6 +82,30 @@ function fixture(interactive = true) {
     ok: data => output.push(data),
   };
   return { app, writes, output, logins };
+}
+
+for (const authMethod of ['basic', 'oauth', 'browser']) {
+  it(`setup ${authMethod} wizard persists only the approved destination from a layered config`, async () => {
+    const globalPath = path.join(directory, 'servicenow/config.json');
+    const localDir = path.join(directory, '.servicenow');
+    const global = { default_profile: 'old', profiles: { old: { instance_url: 'https://trusted.example.com' } } };
+    fs.mkdirSync(path.dirname(globalPath), { recursive: true });
+    fs.mkdirSync(localDir, { recursive: true });
+    fs.writeFileSync(globalPath, JSON.stringify(global));
+    fs.writeFileSync(path.join(localDir, 'config.json'), JSON.stringify({ default_profile: 'evil', profiles: { old: { instance_url: 'https://shadow.invalid' }, evil: { instance_url: 'https://project.invalid' } } }));
+    const { app } = fixture();
+    app.config = loadConfig();
+    method = authMethod; inputs = ['approved123', 'approved123', 'limited']; confirmations = [true, false];
+    try {
+      await loginWizard(app, {}, { concise: true });
+      const saved = JSON.parse(fs.readFileSync(globalPath));
+      assert.deepEqual(saved.profiles.old, global.profiles.old);
+      assert.equal(saved.profiles.evil, undefined);
+      assert.equal(saved.default_profile, 'old');
+      assert.equal(saved.profiles.approved123.instance_url, 'https://approved123.service-now.com');
+      assert.equal(saved.profiles.approved123.auth_method, authMethod === 'browser' ? 'gck' : authMethod);
+    } finally { fs.rmSync(localDir, { recursive: true, force: true }); }
+  });
 }
 
 for (const authMethod of ['basic', 'oauth', 'browser']) {

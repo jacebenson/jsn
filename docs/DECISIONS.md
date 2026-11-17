@@ -1,5 +1,31 @@
 # JSN decisions
 
+## Global configuration is not the effective project view
+
+`loadConfig()` retains private global and effective snapshots. `saveConfig()`
+starts from the global snapshot and persists only changes made since loading (or
+its last save), never unchanged project, environment, or flag overlays. Provenance
+is per profile, not the coarse `sources.profiles` marker. A modified profile that
+was supplied or shadowed by a project is refused before either file is written;
+edit it outside the project or use an explicit login destination. Unrelated
+trusted profiles and global preferences remain editable inside a project.
+
+Switching selects an existing trusted profile; it does not approve a project
+replacement origin. Login with a literal destination (including the setup
+wizard's destination input) may establish that destination. Login by profile name
+must still match its globally trusted origin. Login persists one reconstructed
+profile based on its trusted predecessor and authored login values, not the
+project object; making it default requires the existing explicit choice. The
+internal `approvedProfile` / `approveDefault` save options express this narrow
+login contract and are not sourced from configuration JSON.
+
+Project synchronization applies only authored changes and deletions, preserving
+unrelated local profiles/fields. `saveLocalConfig()` remains deliberately
+local-only. Hand-built programmatic configs remain an explicit trusted write API;
+production writers retain the exact object returned by `loadConfig()`.
+`cli/test/config-trust-persistence.test.js` covers this boundary through real CLI
+subprocesses, synthetic Basic/OAuth credentials, and loopback sinks.
+
 ## CI validation ownership
 
 Website asset preparation and preview belong to the private root npm commands,

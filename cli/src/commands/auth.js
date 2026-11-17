@@ -608,6 +608,18 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
     }
   }
 
+  // A profile name selects an account; it does not approve a project-supplied
+  // replacement origin. Only a literal destination (also supplied by setup's
+  // destination prompt) may authorize a new global trust binding.
+  const literalDestination = argv.instance && !app.config.profiles?.[argv.instance];
+  const trustedProfiles = app.config.credentialTrust?.profiles;
+  if (trustedProfiles && !literalDestination) {
+    const trustedOrigin = selectedProfileName ? trustedProfiles[selectedProfileName]?.instance_url : app.config.credentialTrust.origin;
+    if (!trustedOrigin || normalizeInstanceURL(trustedOrigin) !== normalizeInstanceURL(instanceURL)) {
+      throw errUsage('Project login destination is not globally trusted. Approve it explicitly with auth login <URL>.');
+    }
+  }
+
   const matchingProfiles = Object.entries(app.config.profiles || {})
     .filter(([, profile]) => normalizeInstanceURL(profile.instance_url) === instanceURL);
   if (!selectedProfileName && !argv.name && matchingProfiles.length > 1) {
@@ -615,10 +627,13 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
   const target = argv.name ? { name: argv.name, profile: null }
     : resolveTargetProfile({ ...argv, profile: selectedProfileName }, app.config, instanceURL);
-  const targetProfile = target.profile;
+  const savedTarget = trustedProfiles?.[target.name];
+  const targetProfile = trustedProfiles
+    ? savedTarget && normalizeInstanceURL(savedTarget.instance_url) === normalizeInstanceURL(instanceURL) ? savedTarget : null
+    : target.profile;
   validateLoginSelectors(argv, targetProfile);
   let targetUsername = targetProfile?.username || '';
-  const methodConfig = argv.name ? { profiles: {} } : app.config;
+  const methodConfig = { profiles: argv.name ? {} : trustedProfiles || app.config.profiles };
   const useBasic = shouldUseBasicAuth(argv, methodConfig, instanceURL, targetProfile);
   const useGck = shouldUseGckAuth(argv, methodConfig, instanceURL, targetProfile);
   const interactive = canUsePicker(app, argv);
@@ -631,9 +646,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
   const preliminary = argv.printUrl && !argv.waitFile;
   const explicitPreferences = ['read-only', 'skip-confirmations', 'include-counts'].every(flag => typeof argv[flag] === 'boolean');
+  const preferenceProfile = trustedProfiles ? trustedProfiles[target.name] || {} : targetProfile || {};
   const preferences = !targetProfile && interactive && !preliminary && !explicitPreferences
     ? await chooseConnectionPreferences(app.config, argv, { confirm: (await import('../prompts.js')).confirm })
-    : await configureProfileOptions({ ...targetProfile, ...connectionPreferences(app.config, targetProfile || {}, argv) }, argv);
+    : await configureProfileOptions({ ...preferenceProfile, ...connectionPreferences(app.config, preferenceProfile, argv) }, argv);
   let setDefault = argv.makeDefault === true;
   if (!targetProfile && argv.makeDefault === undefined && interactive && !preliminary) {
     const { confirm } = await import('../prompts.js');
@@ -747,7 +763,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
 
   app.config.profiles[profileName] = {
-    ...(app.config.profiles[profileName] || {}),
+    ...(trustedProfiles ? trustedProfiles[profileName] || {} : app.config.profiles[profileName] || {}),
     instance_url: instanceURL,
     auth_method: useGck ? 'gck' : useBasic ? 'basic' : 'oauth',
     username: username || undefined,
@@ -789,7 +805,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
 
   const { saveConfig } = await import('../config.js');
-  saveConfig(app.config);
+  saveConfig(app.config, { approvedProfile: profileName, approveDefault: setDefault });
   syncSession(app);
 
   const result = {
