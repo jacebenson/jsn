@@ -1,3 +1,4 @@
+import { fakeKeyringEnv } from './helpers/fake-keyring.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -69,7 +70,7 @@ for (const method of ['basic', 'browser']) test(`real ${method} setup terminal s
   t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true }); });
   const instance = `http://127.0.0.1:${server.address().port}`;
   const spec = { command: [process.execPath, CLI, 'setup'], cwd: directory,
-    env: { ...BASE_ENV, XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory, XDG_CACHE_HOME: directory, TERM: 'xterm-256color', ...(method === 'browser' ? { NODE_OPTIONS: `--import=${path.resolve('test/support/setup-browser-fixture.js')}` } : {}) },
+    env: { ...BASE_ENV, ...fakeKeyringEnv(directory), XDG_CONFIG_HOME: directory, JSN_DATA_HOME: directory, XDG_CACHE_HOME: directory, TERM: 'xterm-256color', ...(method === 'browser' ? { NODE_OPTIONS: `--import=${path.resolve('test/support/setup-browser-fixture.js')}` } : {}) },
     columns: 120, timeout: 20,
     steps: [
       { wait: 'ServiceNow instance name or URL:', send: instance + '\r' },
@@ -87,6 +88,9 @@ for (const method of ['basic', 'browser']) test(`real ${method} setup terminal s
     fs.writeFileSync(`${process.env.JSN_ONBOARDING_PROOF}-${method}-setup.txt`, output);
   }
   assert.equal(result.status, 0, output);
+  assert.doesNotMatch(output, /plaintext credential storage/);
+  assert.equal(fs.existsSync(path.join(directory, 'servicenow/credentials')), false);
+  assert.equal(Object.keys(JSON.parse(fs.readFileSync(spec.env.JSN_TEST_KEYRING_FILE, 'utf8'))).length, 1);
   const completed = output.match(/✔[^\n]*/g) || [];
   assert.equal(completed.length, method === 'basic' ? 6 : 4, completed.join('\n'));
   assert.match(completed[0], /ServiceNow instance/);
