@@ -668,7 +668,43 @@ on the same instance, and `--profile <existing-name>` to reconnect. Setup asks
 whether to use a connection by default. Scripts must pass `--make-default` or
 run `auth switch`; even a first login does not silently set a default.
 
-JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth. Credentials are stored in the operating system's credential store, with a file fallback under `~/.config/servicenow/credentials/` when the keyring is unavailable.
+JSN supports OAuth 2.0 with PKCE, Basic Auth, and browser-session auth.
+Persisted credentials require the OS keyring (`secret-tool`/libsecret). If a save
+or its exact readback fails, JSN refuses rather than silently writing plaintext.
+Environment-only authentication does not require credential persistence.
+
+For an explicitly accepted headless plaintext fallback, set
+`JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE=1` on the individual JSN process (for
+example, prefix your `jsn auth login` command). Only the exact value `1` enables
+it; project/profile configuration cannot enable it. Do not put this override in
+a project, shell startup file, or shared environment. A fallback read or write
+warns on stderr, and loaded credentials report `auth_source: file`. The override
+still prefers the keyring; it is not an encryption mode. Credential JSON under
+`${XDG_CONFIG_HOME:-~/.config}/servicenow/credentials/` contains reusable secrets.
+A directory copy or backup can transfer access, subject to provider token policy.
+Exclude these files from sync, source control, shared volumes, and backups.
+
+Existing fallback files do **not** implicitly enable insecure storage. Reads,
+including local status, never migrate or persist credentials. With no keyring
+entry, JSN refuses a fallback read unless the process explicitly opts in. To
+migrate an existing credential, unlock/install the keyring, opt in for one
+process, then save through login or an ordinary token refresh. Alternatively,
+reauthenticate with the working keyring without opting in. Every secure save
+verifies exact readback before unlinking that identity's old plaintext file;
+failed verification preserves the original. Other users' entries are untouched.
+Unlinking is **not secure erasure** and cannot remove
+backups, snapshots, copied files, or filesystem remnants. If credentials were
+copied unintentionally, revoke/rotate them at the provider and remove exposed
+copies; deleting a local file does not revoke a token.
+
+Credential and pending PKCE files use atomic 0600 replacement in private 0700
+leaf directories. Unsafe existing modes, unexpected ownership, hard-linked
+files, symlinks, and writable ancestors are refused rather than automatically
+chmodded or followed. Inspect and manually repair or move the exact owned path
+before retrying (never apply recursive chmod to your home/config tree). JSN does
+not change permissions on broad parent directories. PKCE state is necessarily a
+local plaintext login secret; it receives the same path protections, independent
+of the credential-storage override.
 
 ```bash
 jsn auth login https://dev12345.service-now.com
