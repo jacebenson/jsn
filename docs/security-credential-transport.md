@@ -3,8 +3,11 @@
 Project `.servicenow/config.json` files can select connection settings, but cannot
 approve a destination for ambient `SERVICENOW_OAUTH_TOKEN` or Basic environment
 credentials. Approve the exact origin outside the project: use `--instance URL`,
-set `SERVICENOW_INSTANCE_URL` in the process environment, or save that origin in
-your user-global configuration. A project cannot approve an origin merely by
+set `SERVICENOW_INSTANCE_URL` in the process environment, or configure that origin
+as your user-global default. Merely saving another profile does not authorize a
+project to redirect ambient credentials to its origin. Binding precedence is an
+explicit instance, an explicitly selected global profile, the process instance,
+then the global default. A project cannot approve an origin merely by
 naming a profile. Explicitly selecting a globally saved profile uses its global
 entry, not a same-named project shadow.
 

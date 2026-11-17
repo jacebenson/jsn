@@ -44,7 +44,8 @@ export class App {
       getEffectiveInstance: () => this.session?.instance || '',
       getAuthMethod: () => this.session?.profile?.auth_method || null,
       isTrustedCredentialDestination: instance => isTrustedCredentialDestination(this.config, instance,
-        this._authArgv?.instance || this._sessionArgv?.instance || (this.session?.profileExplicit ? '' : this.session?.override)),
+        this._authArgv?.instance || this._sessionArgv?.instance || (this.session?.profileExplicit ? '' : this.session?.override),
+        this.session?.profileExplicit ? this.session.profileName : ''),
     });
 
     if (this.session.instance) {

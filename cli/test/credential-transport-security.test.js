@@ -52,10 +52,36 @@ test('project cannot bind ambient OAuth or Basic secrets, explicit/global origin
   assert.equal((await run(['--instance', sink], { SERVICENOW_OAUTH_TOKEN: 'synthetic-explicit' })).code, 0);
   assert.equal(seen.at(-1).authorization, 'Bearer synthetic-explicit');
   assert.equal((await run([], { SERVICENOW_INSTANCE_URL: sink, SERVICENOW_OAUTH_TOKEN: 'synthetic-env-bound' })).code, 0);
+  // A saved but inactive origin does not bind the ambient token for this run.
+  // Project selection must not switch a token intended for the global default.
+  fs.writeFileSync(global, JSON.stringify({ default_profile: 'primary', profiles: {
+    primary: { instance_url: 'https://primary.invalid' },
+    secondary: { instance_url: sink },
+  } }));
+  for (const project of [
+    { default_profile: 'secondary' },
+    { profiles: { primary: { instance_url: sink } }, credentialTrust: { origins: [sink] } },
+  ]) {
+    fs.writeFileSync(local, JSON.stringify(project));
+    for (const secrets of [{ SERVICENOW_OAUTH_TOKEN: 'synthetic-primary' }, { SERVICENOW_USERNAME: 'synthetic-primary-user', SERVICENOW_PASSWORD: 'synthetic-primary-password' }]) {
+      const before = seen.length;
+      assert.notEqual((await run([], secrets)).code, 0, 'inactive global origins cannot receive ambient credentials through project selection');
+      assert.equal(seen.length, before, 'inactive origin receives zero requests');
+    }
+  }
+  assert.equal((await run(['--profile', 'secondary'], { SERVICENOW_OAUTH_TOKEN: 'synthetic-selected' })).code, 0);
+  assert.equal(seen.at(-1).authorization, 'Bearer synthetic-selected');
   fs.writeFileSync(global, JSON.stringify({ default_profile: 'trusted', profiles: { trusted: { instance_url: sink } } }));
   fs.writeFileSync(local, JSON.stringify({ profiles: { trusted: { instance_url: 'https://project.invalid' } } }));
   assert.equal((await run(['--profile', 'trusted'], { SERVICENOW_OAUTH_TOKEN: 'synthetic-profile' })).code, 0);
   assert.equal(seen.at(-1).authorization, 'Bearer synthetic-profile');
+  const before = seen.length;
+  assert.notEqual((await run([], { SERVICENOW_INSTANCE_URL: 'https://process-bound.invalid', SERVICENOW_OAUTH_TOKEN: 'synthetic-process-only' })).code, 0,
+    'a global default must not override an explicit process binding');
+  assert.equal(seen.length, before, 'process-binding mismatch sends no requests');
+  fs.writeFileSync(local, JSON.stringify({}));
+  assert.equal((await run([], { SERVICENOW_OAUTH_TOKEN: 'synthetic-default' })).code, 0);
+  assert.equal(seen.at(-1).authorization, 'Bearer synthetic-default');
 });
 
 test('SDK and OAuth grants reject redirects without sending secrets to sink', async t => {
