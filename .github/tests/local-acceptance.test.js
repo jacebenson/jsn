@@ -82,7 +82,8 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       const output = path.join(root, version || 'checkout');
       const result = await runLocal({ mode: 'readonly', version, target: 'vendor-1', output });
       const payload = JSON.parse(fs.readFileSync(result.file));
-      assert.equal(payload.provenance.version, '5.5.5');
+      const expectedVersion = version || JSON.parse(fs.readFileSync(new URL('../../cli/package.json', import.meta.url))).version;
+      assert.equal(payload.provenance.version, expectedVersion);
       assert.equal(payload.results.find(r => r.id === 'readonly.records').status, 'passed');
       assert.equal(payload.summary.complete, false);
       assert.equal(payload.results.length, 71);
