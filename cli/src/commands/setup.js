@@ -42,39 +42,36 @@ const setupHelp = () => [
 ].join('\n');
 
 /** The setup hub prompt; q and Escape resolve with no selected action. */
-export const authHubPrompt = async (...args) => {
-  const { createPrompt, useKeypress, usePagination, useState, isDownKey, isEnterKey, isUpKey } = await import('@inquirer/core');
-  return createPrompt((config, done) => {
-    const [active, setActive] = useState(0);
-    const choices = config.choices;
-
-    useKeypress((key) => {
-      if (key.name === 'q' || key.name === 'escape') {
-        done(undefined);
+export const authHubPrompt = async (config = {}, context = {}) => {
+  const { runPrompt, escapeResult } = await import('../prompt-engine.js');
+  const choices = config.choices || [];
+  const state = { active: 0 };
+  return runPrompt(config, context, {
+    escapeValue: escapeResult(undefined),
+    init: () => state,
+    key(_state, key, api) {
+      if (key.name === 'q') return { done: undefined };
+      if (key.name === 'return' || key.name === 'enter') {
+        const choice = choices[state.active];
+        if (choice) return { done: choice.value };
         return;
       }
-      if (isEnterKey(key)) {
-        done(choices[active].value);
-        return;
-      }
-      if (isUpKey(key) && active > 0) setActive(active - 1);
-      if (isDownKey(key) && active < choices.length - 1) setActive(active + 1);
-    });
-
-    const page = usePagination({
-      items: choices,
-      active,
-      // Pagination budgets terminal lines, including the section headings.
-      pageSize: choices.length + new Set(choices.map(choice => choice.section)).size * 2 - 1,
-      loop: false,
-      renderItem: ({ item, isActive }) => {
-        const index = choices.indexOf(item);
-        const heading = choices[index - 1]?.section !== item.section ? `${index ? '\n' : ''}  ${item.section}\n` : '';
-        return `${heading}${isActive ? '❯' : ' '} ${item.name}`;
-      },
-    });
-    return `${config.message}\n${page}\n\n↑↓ navigate • ⏎ select • q/Esc exit`;
-  })(...args);
+      if (key.name === 'up' && state.active > 0) { state.active -= 1; api.redraw(); return; }
+      if (key.name === 'down' && state.active < choices.length - 1) { state.active += 1; api.redraw(); }
+    },
+    render() {
+      // Section headings are rendered inline; the pagination budget the
+      // Inquirer version needed no longer applies to a local renderer.
+      const lines = [config.message];
+      choices.forEach((choice, index) => {
+        const heading = choices[index - 1]?.section !== choice.section ? `${index ? '\n' : ''}  ${choice.section}` : null;
+        if (heading) lines.push(heading);
+        lines.push(`${index === state.active ? '❯' : ' '} ${choice.name}`);
+      });
+      lines.push('', '↑↓ navigate • ⏎ select • q/Esc exit');
+      return lines;
+    },
+  });
 };
 
 /** Interactive hub: what do you want to do? Returns an action or undefined on exit. */

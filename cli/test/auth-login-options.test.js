@@ -4,13 +4,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as helpers from '../src/helpers.js';
+import * as realPrompts from '../src/prompts.js';
 
 let questions = [];
 let answers = [];
 mock.module('../src/helpers.js', { namedExports: {
   ...helpers, canUsePicker: app => app.isInteractive(),
 } });
-mock.module('@inquirer/prompts', { namedExports: {
+mock.module('../src/prompts.js', { namedExports: {
+  ...realPrompts,
   confirm: async question => { questions.push(question); return answers.shift(); },
   search: async config => { assert.ok((await config.source('limited')).some(choice => choice.name.includes('limited'))); return 'second'; },
 } });

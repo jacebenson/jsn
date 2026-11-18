@@ -6,6 +6,7 @@ import { browserCandidates } from '../src/browser-launch.js';
 import os from 'node:os';
 import path from 'node:path';
 import * as helpers from '../src/helpers.js';
+import * as realPrompts from '../src/prompts.js';
 
 let inputs = [], confirmations = [], method = 'basic', prompted = [];
 let installedBrowsers = ['chrome'];
@@ -24,7 +25,8 @@ mock.method(fsPromises, 'stat', async (filename, ...args) => {
   return realStat(filename, ...args);
 });
 mock.module('../src/helpers.js', { namedExports: { ...helpers, canUsePicker: app => app.isInteractive() } });
-mock.module('@inquirer/prompts', { namedExports: {
+mock.module('../src/prompts.js', { namedExports: {
+  ...realPrompts,
   input: async question => { prompted.push(question.message.replace(' (Esc to cancel)', '')); return inputs.shift(); },
   select: async question => {
     const message = question.message.replace(' (Esc to cancel)', '');
