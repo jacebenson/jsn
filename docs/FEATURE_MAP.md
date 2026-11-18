@@ -15,4 +15,4 @@ This is the product map for JSN. The verification guide under `docs/verification
 | Performance and diagnostics | `perf`, logs, transactions, snippets, and inspect commands | `src/commands/perf.js`, related command modules | Read-only command checks and focused tests |
 | GraphQL | `graphql` with positional, `--query`, `--query-file`, or `--stdin` documents | `src/commands/graphql.js`, `src/sdk.js` | Bounded authenticated query plus command/transport tests |
 
-For proof details, start with `docs/verification/README.md` and `docs/verification/features/README.md`. Add a feature here only when the command exists in the source and its user-visible behavior is understood.
+For proof details, start with the [verification guide](verification/README.md). Add a feature here only when the command exists in the source and its user-visible behavior is understood.

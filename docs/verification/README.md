@@ -12,7 +12,16 @@ JSN_DOCS_URL=http://localhost:3000 node cli/scripts/verify-jsn.mjs drive --query
 node cli/scripts/verify-jsn.mjs cleanup
 ```
 
-For documentation-only checks, doctor accepts `--allow-unauthenticated`. Start the Rails documentation service with a published index before the docs drive. Local evidence under `.verification/evidence/` survives cleanup. Review it before sharing: the local doctor includes selected profile and hostname metadata. Never upload private profiles or credentials. See [feature checks](features/README.md).
+For documentation-only checks, doctor accepts `--allow-unauthenticated`. Start the Rails documentation service with a published index before the docs drive. Local evidence under `.verification/evidence/` survives cleanup. Review it before sharing: the local doctor includes selected profile and hostname metadata. Never upload private profiles or credentials. Use the [feature map](../FEATURE_MAP.md) to choose a surface, then read its installed command help and the [CLI guide](../cli-guide.md).
+
+## Historical captures
+
+The reports and capture files below this directory record their original revisions,
+commands and outcomes. They do not establish current authentication, supported
+commands or fresh test results. Some scripts predate the `cli/` layout; inspect
+paths and safeguards before reusing them. Legacy website redirects still target
+specific reports. Keep those reports and their referenced JSON, logs, HTML and
+screenshots together when removing unrelated receipts.
 
 ## GitHub read-only verification
 

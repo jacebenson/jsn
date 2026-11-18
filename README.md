@@ -57,7 +57,7 @@ npm run lint
 node cli/bin/jsn.js --help
 ```
 
-The published package, tests, and bundled skill live in [`cli/`](cli/README.md). The Rails website and public documentation API live in [`site/`](site/README.md); [`docs/`](docs/README.md) holds maintained Markdown guides and contributor evidence; Rails publishes only the guides allowlisted in `site/config/guides.json`. The CLI and website share the documentation search engine.
+The published package, tests, and bundled skill live in [`cli/`](cli/README.md). The Rails website and public documentation API live in [`site/`](site/README.md). Use the [documentation source index](docs/README.md) for maintained guides, contributor contracts and verification instructions. Rails publishes only the guides allowlisted in `site/config/guides.json`. The CLI and website share the documentation search engine.
 
 Run package commands, including `npm pack`, from `cli/`, not the private root package. For contribution rules and design context, read [AGENTS.md](AGENTS.md), [GLOSSARY.md](GLOSSARY.md), and [decisions](docs/DECISIONS.md). See [release maintenance](docs/releases.md) for the publishing workflow.
 
