@@ -21,54 +21,11 @@ class MarkdownGuide
     'images/updatesets-diff-compact.png' => '/images/updatesets-diff-compact.png',
     '../images/updatesets-diff-compact.png' => '/images/updatesets-diff-compact.png'
   }.freeze
-  # Old authored filenames resolve to the consolidated canonical destination.
-  # A fragment from the link wins; these defaults preserve topic anchors when a
-  # legacy guide was merged into a different titled section.
-  SOURCE_ALIASES = {
-    'docs-install.md' => %w[install],
-    'mid-direct-install.md' => %w[install direct-mid-server-zip-installation],
-    'docs-setup.md' => %w[setup],
-    'AUTH_LIFECYCLE.md' => %w[setup authentication-lifecycle-review],
-    'docs-safety.md' => %w[safety],
-    'security-credential-transport.md' => %w[safety credential-destination-policy],
-    'safe-flow-edit.md' => %w[safety safe-edits-to-existing-flows],
-    'skipped-updates.md' => %w[safety skipped-update-review],
-    'mutation-history.md' => %w[safety local-mutation-history-retired],
-    'docs-output.md' => %w[output],
-    'record-metadata.md' => %w[output dynamic-record-metadata],
-    'related-list-counts.md' => %w[output related-list-counts-and-lazy-navigation],
-    'docs-agents.md' => %w[agents],
-    'cli-guide.md' => %w[cli-guide jsn-cli-guide],
-    'flow-designer-interactive.md' => %w[flows flow-designer-interactive-commands],
-    'flow-search.md' => %w[flows flow-definition-search],
-    'flow-clone.md' => %w[flows clone-an-inactive-draft-flow],
-    'legacy-workflow-inspection.md' => %w[flows legacy-workflow-editor-inspection-read-only],
-    'record-watch.md' => %w[records watching-a-servicenow-record],
-    'records-engine-contract.md' => %w[records records-engine-compatibility-contract],
-    'sdk-batch.md' => %w[records optional-sdk-batch-reads],
-    'update-set-transfer.md' => %w[updatesets transfer-an-update-set],
-    'UPDATESETS_DIFF.md' => %w[updatesets cross-instance-update-set-diff],
-    'mid-remote-management.md' => %w[midservers remote-mid-management-over-ssh],
-    'store-applications.md' => %w[store servicenow-store-applications],
-    'CODESEARCH_GRAPHQL.md' => ['/features/servicenow-code-search-cli/', 'catalog-and-instance-configuration']
-  }.freeze
-  SOURCE_ONLY_FILES = {
-    'DECISIONS.md' => 'site/docs/maintainers/architecture.md',
-    'FEATURE_MAP.md' => 'site/docs/maintainers/architecture.md',
-    'STATE.md' => 'site/docs/maintainers/architecture.md',
-    'TARGETED_DOCS.md' => 'site/docs/maintainers/architecture.md',
-    'docs-distribution-architecture.md' => 'site/docs/maintainers/architecture.md',
-    'TEST_AUDIT.md' => 'site/docs/maintainers/testing.md',
-    'TEST_AUDIT_CLI_SDK.md' => 'site/docs/maintainers/testing.md',
-    'TEST_AUDIT_REMAINING.md' => 'site/docs/maintainers/testing.md',
-    'mutation-testing.md' => 'site/docs/maintainers/testing.md',
-    'setup-command-parity.md' => 'site/docs/maintainers/testing.md',
-    'command-audience-verification.md' => 'site/docs/maintainers/testing.md',
-    'command-discovery-parity.md' => 'site/docs/maintainers/testing.md',
-    'customization-evidence-parity.md' => 'site/docs/maintainers/testing.md',
-    'skill-cli-parity.md' => 'site/docs/maintainers/testing.md',
-    'releases.md' => 'site/docs/maintainers/releases.md'
-  }.freeze
+  # One authored destination registry. Old source filenames and the public
+  # legacy redirects both resolve through config/legacy-guide-urls.json, so a
+  # destination is written once. The underscore key names the old guide URLs
+  # that also serve a compatibility route; it holds URLs, not destinations.
+  LEGACY_GUIDE_URLS = JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json'))).freeze
 
   def self.all = SOURCES.keys.map { |slug| new(slug) }
   def self.find(slug)
@@ -139,6 +96,21 @@ class MarkdownGuide
     fragment.to_html.html_safe
   end
 
+  # Resolve an authored source filename through the single registry. Old guide
+  # filenames use their registry destination (including the default topic
+  # anchor); a still-published guide also accepts its docs-<slug>.md spelling.
+  def self.source_destination(basename)
+    name = basename.delete_suffix('.md')
+    return if name == basename
+    if (target = LEGACY_GUIDE_URLS["/#{name}/"])&.start_with?('/')
+      path, fragment = target.split('#', 2)
+      slug = path[%r{\A/docs/([a-z0-9-]+)/\z}, 1] || path
+      return [slug, fragment]
+    end
+    slug = name[/\Adocs-(.+)\z/, 1]
+    [slug, nil] if slug && SOURCES.key?(slug)
+  end
+
   def self.safe_link(href, slug)
     return if href.match?(/[\\\x00-\x20]/) || href.start_with?('//')
     uri = URI.parse(href)
@@ -148,14 +120,11 @@ class MarkdownGuide
     return "/#{href}" if href.match?(%r{\A(?:features(?:/[a-z0-9-]+)?|docs(?:/[a-z0-9-]+)?)/?\z})
 
     basename = File.basename(uri.path)
-    if (target = SOURCE_ALIASES[basename])
-      destination, default_fragment = target
+    if (destination = source_destination(basename))
+      slug, default_fragment = destination
       fragment = uri.fragment || default_fragment
-      return "#{destination}##{fragment}" if destination.start_with?('/')
-      return "/docs/#{destination}/#{fragment ? "##{fragment}" : ''}"
-    end
-    if (source_only = SOURCE_ONLY_FILES[basename])
-      return "https://github.com/jacebenson/jsn/blob/main/#{source_only}#{uri.fragment ? "##{uri.fragment}" : ''}"
+      return "#{slug}##{fragment}" if slug.start_with?('/')
+      return "/docs/#{slug}/#{fragment ? "##{fragment}" : ''}"
     end
     if (evidence = href.match(%r{\A(verification|research)/(.+)\z}))
       return "https://github.com/jacebenson/jsn/blob/main/site/docs/evidence/#{evidence[1]}/#{evidence[2]}"
@@ -164,9 +133,9 @@ class MarkdownGuide
     target = SOURCES.key(basename)
     target ||= SOURCES.keys.find { |key| basename == "#{key}.md" }
     return "/docs/#{target}/#{uri.fragment ? "##{uri.fragment}" : ''}" if target
-    # Contributor links remain links to source, never implicit publication.
-    legacy = JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json')))
-    source_url = legacy["/#{basename.delete_suffix('.md')}/"]
+    # Contributor links, including source-only documents, remain links to the
+    # repository source recorded in the registry; never implicit publication.
+    source_url = LEGACY_GUIDE_URLS["/#{basename.delete_suffix('.md')}/"]
     return "#{source_url}#{uri.fragment ? "##{uri.fragment}" : ''}" if source_url&.start_with?('https://github.com/jacebenson/jsn/blob/')
     path = uri.path
     return href if path.match?(%r{\A/docs/(#{SOURCES.keys.join('|')})/?\z}) || path == '/docs/'

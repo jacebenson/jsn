@@ -1,4 +1,23 @@
 {
+  "_docs_guide_aliases": [
+    "flow-designer-interactive",
+    "flow-search",
+    "flow-clone",
+    "legacy-workflow-inspection",
+    "mid-direct-install",
+    "mid-remote-management",
+    "mutation-history",
+    "record-metadata",
+    "record-watch",
+    "related-list-counts",
+    "safe-flow-edit",
+    "sdk-batch",
+    "skipped-updates",
+    "store-applications",
+    "update-set-transfer",
+    "UPDATESETS_DIFF",
+    "CODESEARCH_GRAPHQL"
+  ],
   "/AUTH_LIFECYCLE/": "/docs/setup/#authentication-lifecycle-review",
   "/CODESEARCH_GRAPHQL/": "/features/servicenow-code-search-cli/#catalog-and-instance-configuration",
   "/DECISIONS/": "https://github.com/jacebenson/jsn/blob/main/site/docs/maintainers/architecture.md",

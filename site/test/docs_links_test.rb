@@ -3,6 +3,7 @@ require_relative '../config/environment'
 require 'minitest/autorun'
 require 'rack/test'
 require 'json'
+require 'open3'
 
 # The CLI ships only cli/, so site/config/docs-links.json is the authored
 # registry and cli/src/docs-links.js is its checked projection. This test proves
@@ -52,12 +53,38 @@ class DocsLinksTest < Minitest::Test
     JSON.parse(File.read(Rails.root.join('config/docs-links.json')))
   end
 
+  # Compare the CLI module's actual exported data, not its formatting. The
+  # registry is authored here; cli/src/docs-links.js is the checked projection.
   def test_projection_matches_authored_registry_exactly
-    source = File.read(Rails.root.join('../cli/src/docs-links.js'))
-    assert_includes source, "export const SITE_ORIGIN = '#{registry.fetch('site')}';"
-    assert_includes source, "export const ROOT_DOC_LINK = '#{registry.fetch('root')}';"
-    projected = source.scan(/^\s{2}([a-z-]+): '([^']+)',$/).to_h
-    assert_equal registry.fetch('commands'), projected
+    module_url = "file://#{Rails.root.join('../cli/src/docs-links.js')}"
+    script = <<~JS
+      const module = await import(#{module_url.to_json});
+      process.stdout.write(JSON.stringify({
+        site: module.SITE_ORIGIN,
+        root: module.ROOT_DOC_LINK,
+        commands: module.DOC_LINKS,
+      }));
+    JS
+    output, error, status = Open3.capture3(
+      ENV.fetch('NODE_BIN', 'node'), '--input-type=module', '-e', script
+    )
+    assert status.success?, "importing the CLI documentation module failed: #{error}"
+    projected = JSON.parse(output)
+    assert_equal registry.fetch('site'), projected.fetch('site')
+    assert_equal registry.fetch('root'), projected.fetch('root')
+    assert_equal registry.fetch('commands'), projected.fetch('commands')
+  end
+
+  # GLOSSARY: one canonical map per domain concept. Filename rewriting and the
+  # public /docs/<old-slug>/ redirects must both derive from the authored URL
+  # registry, not from a second destination table.
+  def test_migration_destinations_have_one_authored_registry
+    refute File.exist?(Rails.root.join('config/docs-guide-aliases.json')),
+      'public guide aliases must derive from config/legacy-guide-urls.json'
+    refute MarkdownGuide.const_defined?(:SOURCE_ALIASES),
+      'filename rewriting must derive destinations from config/legacy-guide-urls.json'
+    refute MarkdownGuide.const_defined?(:SOURCE_ONLY_FILES),
+      'source-only links must resolve through config/legacy-guide-urls.json'
   end
 
   def test_every_command_link_is_a_real_site_route
@@ -126,7 +153,10 @@ class DocsLinksTest < Minitest::Test
 
   # A compatibility alias must never shadow a page the registry still publishes.
   def test_guide_aliases_do_not_shadow_registered_guides
-    aliases = JSON.parse(File.read(Rails.root.join('config/docs-guide-aliases.json')))
+    legacy = JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json')))
+    aliases = legacy.fetch('_docs_guide_aliases').to_h do |slug|
+      [slug, legacy.fetch("/#{slug}/")]
+    end
     assert_equal 17, aliases.length
     aliases.each_key do |slug|
       refute MarkdownGuide::SOURCES.key?(slug), "#{slug} is both a guide and an alias"
@@ -142,7 +172,7 @@ class DocsLinksTest < Minitest::Test
   # including its fragment.
   def test_legacy_targets_resolve_to_a_real_page_and_fragment
     legacy = JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json')))
-    internal = legacy.select { |_old, target| target.start_with?('/') }
+    internal = legacy.select { |old, target| old.start_with?('/') && target.start_with?('/') }
     refute_empty internal
     internal.each do |old, target|
       path, fragment = target.split('#', 2)
@@ -154,14 +184,36 @@ class DocsLinksTest < Minitest::Test
     end
   end
 
-  # R4: source aliases must point at headings that actually exist.
-  def test_source_aliases_name_real_fragments
-    MarkdownGuide::SOURCE_ALIASES.each do |source, (destination, fragment)|
-      next if destination.start_with?('/')
-      next unless fragment
-      ids = Nokogiri::HTML.fragment(MarkdownGuide.find(destination).html).css('[id]').map { |node| node['id'] }
-      assert_includes ids, fragment, "#{source} -> /docs/#{destination}/##{fragment} does not exist"
+  # R4: filenames rewrite through the one authored registry. A caller fragment
+  # wins over the registered default; if absent the default topic anchor applies.
+  def test_source_filenames_derive_from_the_authored_registry
+    legacy = JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json')))
+    legacy.each do |old_url, target|
+      next unless old_url.start_with?('/') && target.start_with?('/')
+      name = old_url[%r{\A/([^/]+)/\z}, 1]
+      next unless name
+      assert_equal target, MarkdownGuide.safe_link("#{name}.md", 'install'), name
+      next unless target.include?('#') && target.start_with?('/docs/')
+      path, fragment = target.split('#', 2)
+      slug = path.split('/')[2]
+      ids = Nokogiri::HTML.fragment(MarkdownGuide.find(slug).html).css('[id]').map { |node| node['id'] }
+      assert_includes ids, fragment, "#{name}.md -> #{target} does not exist"
     end
+  end
+
+  def test_source_link_fragment_precedence_and_source_only_boundary
+    assert_equal '/docs/flows/#flow-definition-search',
+      MarkdownGuide.safe_link('flow-search.md', 'install')
+    assert_equal '/docs/flows/#caller-fragment',
+      MarkdownGuide.safe_link('flow-search.md#caller-fragment', 'install')
+    assert_equal '/docs/setup/#connect',
+      MarkdownGuide.safe_link('./docs-setup.md#connect', 'install')
+    assert_equal '/docs/output/', MarkdownGuide.safe_link('docs-output.md', 'install')
+    assert_equal '/docs/agents/', MarkdownGuide.safe_link('docs-agents.md', 'install')
+    assert_equal 'https://github.com/jacebenson/jsn/blob/main/site/docs/maintainers/architecture.md#decision-log',
+      MarkdownGuide.safe_link('DECISIONS.md#decision-log', 'install')
+    assert_nil MarkdownGuide.safe_link('../docs-install.md', 'install')
+    assert_nil MarkdownGuide.safe_link('arbitrary-file.md', 'install')
   end
 
   # R4: same-repository source links must point at files this revision keeps.
