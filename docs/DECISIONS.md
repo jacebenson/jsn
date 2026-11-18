@@ -724,3 +724,19 @@ Verification uses neutral contributor documentation rather than personal agent o
 Recorded verification evidence under `docs/verification/` keeps the command paths
 it captured. Those files describe runs that happened at the time, so later layout
 changes do not rewrite them.
+
+## Documentation source roots are lexical authorization boundaries
+
+Ingestion, refresh and snapshot builds accept explicitly selected real directories,
+not filesystem aliases to other trees. Reject symlink/junction roots and any
+symlink/junction ancestor, even if the target is inside the source tree; use the
+real, canonical directory path when configuring a source. Caller-selected roots
+are authorized independently of the destination index/artifact path. Normalize
+relative paths and `..` before access, then pin the canonical root and check walked
+entries against it using path-component containment (not string prefixes).
+Nested file/directory links remain ignored. Missing optional roots remain optional,
+but dangling aliases are rejected. Service sync checks existing roots before Git
+and checks fetched Markdown before revision shortcuts or publication. Failure
+retains the installed index and published snapshot. This is a static-tree input
+boundary, not a race-proof sandbox against a process concurrently replacing files
+between validation and read, nor a prohibition on hard-linked files.
