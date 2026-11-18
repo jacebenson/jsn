@@ -22,17 +22,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Verify production tag belongs to main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      # Never execute a verifier supplied by the selected tag. This bootstrap
+      # loads policy from canonical main before examining candidate Git objects.
+      - name: Check out trusted release policy
+        uses: actions/checkout@v7
+        with:
+          repository: jacebenson/jsn
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify existing production tag and main ancestry
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node .github/scripts/verify-production-release.mjs
+
   publish:
     name: Publish production package
+    needs: verify
     runs-on: ubuntu-latest
     environment: prod
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: cli
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          repository: jacebenson/jsn
+          ref: ${{ needs.verify.outputs.sha }}
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v7
@@ -41,6 +72,20 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
           cache-dependency-path: cli/package-lock.json
+
+      # Check the pinned checkout before running any package/dependency scripts.
+      - name: Verify tag matches package version
+        env:
+          TAG_VERSION: ${{ needs.verify.outputs.tag }}
+          RELEASE_SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          package_version=$(node -p "require('./package.json').version")
+          tag_version="${TAG_VERSION#v}"
+          test "$tag_version" = "$package_version" || {
+            echo "Tag $TAG_VERSION does not match package.json version $package_version"
+            exit 1
+          }
 
       # npm trusted publishing needs npm 11.5.1 or newer for OIDC.
       - name: Update npm for trusted publishing
@@ -54,17 +99,6 @@ jobs:
 
       - name: Run lint
         run: npm run lint
-
-      - name: Verify tag matches package version
-        env:
-          TAG_VERSION: ${{ inputs.tag || github.ref_name }}
-        run: |
-          package_version=$(node -p "require('./package.json').version")
-          tag_version="${TAG_VERSION#v}"
-          test "$tag_version" = "$package_version" || {
-            echo "Tag $TAG_VERSION does not match package.json version $package_version"
-            exit 1
-          }
 
       - name: Publish production package
         run: npm publish --access public --provenance --tag latest
