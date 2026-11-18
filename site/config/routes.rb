@@ -1,5 +1,12 @@
 Rails.application.routes.draw do
   get '/docs', to: 'guides#index'
+  # The original public guide registry had 23 published routes. Consolidated
+  # topics keep an exact /docs/<old-slug>/ alias, registered before the
+  # catch-all so it wins; only these slugs are reachable, never arbitrary files.
+  JSON.parse(File.read(Rails.root.join('config/docs-guide-aliases.json'))).each do |slug, target|
+    get "/docs/#{slug}", to: redirect(target, status: 301)
+    get "/docs/#{slug}/", to: redirect(target, status: 301)
+  end
   get '/docs/*guide', to: 'guides#show', format: false
   JSON.parse(File.read(Rails.root.join('config/legacy-guide-urls.json'))).each do |old_url, target|
     get old_url, to: redirect(target, status: 301)

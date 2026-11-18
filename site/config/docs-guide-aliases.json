@@ -1,0 +1,19 @@
+{
+  "flow-designer-interactive": "/docs/flows/#flow-designer-interactive-commands",
+  "flow-search": "/docs/flows/#flow-definition-search",
+  "flow-clone": "/docs/flows/#clone-an-inactive-draft-flow",
+  "legacy-workflow-inspection": "/docs/flows/#legacy-workflow-editor-inspection-read-only",
+  "mid-direct-install": "/docs/install/#direct-mid-server-zip-installation",
+  "mid-remote-management": "/docs/midservers/#remote-mid-management-over-ssh",
+  "mutation-history": "/docs/safety/#local-mutation-history-retired",
+  "record-metadata": "/docs/output/#dynamic-record-metadata",
+  "record-watch": "/docs/records/#watching-a-servicenow-record",
+  "related-list-counts": "/docs/output/#related-list-counts-and-lazy-navigation",
+  "safe-flow-edit": "/docs/safety/#safe-edits-to-existing-flows",
+  "sdk-batch": "/docs/records/#optional-sdk-batch-reads",
+  "skipped-updates": "/docs/safety/#skipped-update-review",
+  "store-applications": "/docs/store/#servicenow-store-applications",
+  "update-set-transfer": "/docs/updatesets/#transfer-an-update-set",
+  "UPDATESETS_DIFF": "/docs/updatesets/#cross-instance-update-set-diff",
+  "CODESEARCH_GRAPHQL": "/features/servicenow-code-search-cli/#catalog-and-instance-configuration"
+}

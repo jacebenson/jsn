@@ -118,6 +118,7 @@
   },
   {
     "id": "read",
+    "docs": "guides/records.md",
     "title": "Read & query records",
     "tagline": "Any table, encoded queries, counts on every list.",
     "commands": [
@@ -568,6 +569,7 @@
   },
   {
     "id": "record-tools",
+    "docs": "guides/records.md",
     "title": "Record tools beyond CRUD",
     "tagline": "Work with attachments, aggregates, and table inspection alongside normal record queries.",
     "commands": [
@@ -638,6 +640,7 @@
   },
   {
     "id": "flow-operations",
+    "docs": "guides/flows.md",
     "title": "Flow operations and diagnostics",
     "tagline": "Inspect executions, check status, diagnose flows, and manage their lifecycle.",
     "commands": [
@@ -747,6 +750,7 @@
   },
   {
     "id": "metadata",
+    "docs": "guides/output.md",
     "title": "Schema and platform metadata",
     "tagline": "Inspect tables, columns, relationships, script includes, and instance properties.",
     "commands": [

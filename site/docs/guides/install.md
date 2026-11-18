@@ -64,7 +64,7 @@ include the selected release.
 
 Copy an exact path from search into `jsn docs --path <exact-path>`.
 Numeric IDs can be pinned with `--revision <search-revision>` to reject a changed
-index. See [targeted retrieval](https://github.com/jacebenson/jsn/blob/main/docs/TARGETED_DOCS.md) for outlines, complete section
+index. See [targeted retrieval](https://github.com/jacebenson/jsn/blob/main/site/docs/maintainers/architecture.md) for outlines, complete section
 subtrees, and the limits of section context. The compatible `docs search`,
 `docs show`, and `docs status` spellings remain callable.
 

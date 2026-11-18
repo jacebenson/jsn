@@ -38,7 +38,7 @@ class MarkdownGuide
     'record-metadata.md' => %w[output dynamic-record-metadata],
     'related-list-counts.md' => %w[output related-list-counts-and-lazy-navigation],
     'docs-agents.md' => %w[agents],
-    'cli-guide.md' => %w[cli-guide],
+    'cli-guide.md' => %w[cli-guide jsn-cli-guide],
     'flow-designer-interactive.md' => %w[flows flow-designer-interactive-commands],
     'flow-search.md' => %w[flows flow-definition-search],
     'flow-clone.md' => %w[flows clone-an-inactive-draft-flow],
@@ -49,7 +49,7 @@ class MarkdownGuide
     'update-set-transfer.md' => %w[updatesets transfer-an-update-set],
     'UPDATESETS_DIFF.md' => %w[updatesets cross-instance-update-set-diff],
     'mid-remote-management.md' => %w[midservers remote-mid-management-over-ssh],
-    'store-applications.md' => %w[store store-applications],
+    'store-applications.md' => %w[store servicenow-store-applications],
     'CODESEARCH_GRAPHQL.md' => ['/features/servicenow-code-search-cli/', 'catalog-and-instance-configuration']
   }.freeze
   SOURCE_ONLY_FILES = {

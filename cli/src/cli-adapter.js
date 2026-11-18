@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import process from 'node:process';
 import { renderSubcommandHelp } from './help.js';
+import { resolveDocLink } from './docs-links.js';
 
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const names = (x) => typeof x === 'string' ? [x] : (x || []);
@@ -398,8 +399,24 @@ export class LocalCLI {
       description: node.definition.describe,
       commands,
       options: this._optionRows(node),
-      epilogue: node.epilogueText,
+      epilogue: this._docsEpilogue(node, path),
     }));
+  }
+
+  /**
+   * Every help page names the maintained documentation for its command family.
+   * The family comes from the parser's canonical resolved path, so aliases
+   * (`jsn flow`) and nested commands (`jsn records list`) reach the same
+   * registered topic without a per-subcommand footer. A page whose authored
+   * epilogue already prints that URL keeps its own wording rather than repeating
+   * it, and a family with no migrated guide gains no invented URL.
+   */
+  _docsEpilogue(node, path) {
+    const base = node.epilogueText;
+    const link = path.length ? resolveDocLink(path[0]) : null;
+    if (!link || (base && base.includes(link))) return base;
+    const line = `Documentation: ${link}`;
+    return base ? `${base}\n${line}` : line;
   }
   async parse() {
     // Reject stale installed shell snippets instead of dispatching their words
