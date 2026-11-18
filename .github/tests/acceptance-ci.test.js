@@ -10,10 +10,9 @@ import { createRequire } from 'node:module';
 const { load } = createRequire(new URL('../../cli/package.json', import.meta.url))('js-yaml');
 import { validateProjection, publishResults, projectionDigest } from '../scripts/acceptance/publish.mjs';
 import { environmentOAuth } from '../scripts/oauth-environment.mjs';
-import { fakeKeyringEnv } from '../../cli/test/helpers/fake-keyring.js';
-import { credKey } from '../../cli/src/auth/credential-store.js';
 import { runAndPublish, seedProfile } from '../scripts/acceptance/ci.mjs';
 import { selectTargets, selectTarget, authorizeMode, instanceConfiguration, producerEnvironment } from '../scripts/acceptance/config.mjs';
+import { bridgedContext } from '../scripts/acceptance/execute.mjs';
 import { prepare, HARNESS_SHA, FILES } from '../scripts/acceptance/prepare.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -47,7 +46,8 @@ test('target defaults, independent missing configuration and explicit mutation a
   const env = { ACCEPTANCE_TARGET: 'vendor-1', JSN_VERIFY_ENABLED: 'true', SERVICENOW_INSTANCE_URL: 'https://mock.invalid', SERVICENOW_OAUTH_TOKEN: token };
   const config = instanceConfiguration(env);
   assert.equal(config.profile.read_only, true);
-  assert.deepEqual(config.credentials, { auth_method: 'oauth', access_token: token });
+  assert.equal(config.credentials, undefined, 'configuration must not return seedable credentials');
+  assert.equal(config.profile.instance_url, 'https://mock.invalid');
   for (const key of ['JSN_VERIFY_ENABLED', 'SERVICENOW_INSTANCE_URL', 'SERVICENOW_OAUTH_TOKEN']) {
     assert.throws(() => instanceConfiguration({ ...env, [key]: '' }), /NOT CONFIGURED/);
   }
@@ -64,6 +64,7 @@ test('target defaults, independent missing configuration and explicit mutation a
   assert.equal(instanceConfiguration(env).profile.read_only, true);
   const clean = producerEnvironment({ ...env, GH_TOKEN: token, JSN_ACCEPTANCE_INGEST_TOKEN: token, NODE_OPTIONS: token, HTTPS_PROXY: token }, '/private', '/private/config');
   assert.ok(!JSON.stringify(clean).includes(token));
+  assert.equal(clean.SERVICENOW_OAUTH_TOKEN, undefined, 'the ambient token is never forwarded by the allowlist');
   assert.equal(clean.HOME, '/private');
 });
 
@@ -173,6 +174,11 @@ test('nonzero or thrown suite still uploads partial, restores pass, refuses miss
 test('immutable real producer executes failing scenarios and restored passing scenarios', async t => {
   const dir = temporary(t);
   execFileSync('git', ['clone', '--quiet', '--shared', '--no-hardlinks', root, dir]);
+  // A shallow source only transfers ref-reachable objects, so expose the already
+  // fetched pinned producer through alternates instead of re-fetching it. Absent
+  // object still means this checkout cannot run the historical integration.
+  fs.mkdirSync(path.join(dir, '.git/objects/info'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git/objects/info/alternates'), `${path.join(root, '.git/objects')}\n`);
   // Ordinary PR tests must stay offline and work with CI's shallow checkout.
   try { execFileSync('git', ['-C', dir, 'cat-file', '-e', HARNESS_SHA], { stdio: 'ignore' }); }
   catch { t.skip('Pinned historical producer absent in shallow checkout; run full-history integration locally'); return; }
@@ -190,7 +196,8 @@ test('immutable real producer executes failing scenarios and restored passing sc
     catalog.push(...module.scenarios);
   }
   for (const scenario of catalog) assert.ok(allowed.has(scenario.id), `Producer scenario not accepted by current site: ${scenario.id}`);
-  const { selectScenarios, createContext, preflight } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  const support = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
+  const { selectScenarios, createContext, preflight } = support;
   // Exercise the pinned adapter's real CLI launch and SDK read with the exact
   // ephemeral file auth contract. Loopback only, no credential env inheritance.
   let requests = 0, acceptCredentials = true;
@@ -207,31 +214,35 @@ test('immutable real producer executes failing scenarios and restored passing sc
   })).origin;
   const privateRoot = path.join(dir, 'private'); fs.mkdirSync(privateRoot);
   const refreshed = await environmentOAuth({ SERVICENOW_INSTANCE_URL: origin, SERVICENOW_OAUTH_REFRESH_TOKEN: 'fake-refresh' }, { allowLocal: true });
-  const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true }, credentials: { auth_method: 'oauth', access_token: refreshed.accessToken } });
-  // The immutable producer deliberately filters out plaintext opt-in. Seed a
-  // task-owned synthetic keyring reachable via its retained PATH instead; do
-  // not modify the pinned filter or replace authenticated evidence assertions.
-  const keyring = fakeKeyringEnv(privateRoot);
-  fs.writeFileSync(keyring.JSN_TEST_KEYRING_FILE, JSON.stringify({
-    [credKey(origin)]: { auth_method: 'oauth', access_token: refreshed.accessToken },
-  }), { mode: 0o600 });
-  const isolated = { ...producerEnvironment(process.env, privateRoot, configHome), PATH: `${keyring.PATH}${path.delimiter}${process.env.PATH || ''}` };
+  const configHome = await seedProfile(privateRoot, { profile: { instance_url: origin, read_only: true } });
+  // Environment-only handoff: no credential file, no keyring, no plaintext opt-in.
+  // The refreshed token reaches the pinned producer as environment only and the
+  // adapter bridge adds it to coordinator children; fixture actors stay isolated.
+  assert.equal(fs.existsSync(path.join(configHome, 'servicenow/credentials')), false);
+  const isolated = { ...producerEnvironment(process.env, privateRoot, configHome), SERVICENOW_OAUTH_TOKEN: refreshed.accessToken };
   assert.equal(isolated.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE, undefined);
+  const supportURL = pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href;
+  const adapterURL = pathToFileURL(path.join(root, '.github/scripts/acceptance/execute.mjs')).href;
+  // In-process contexts still read the pinned environment filter's source env, so
+  // emulate the exact producer environment for this test and restore it after.
+  const ambient = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, SERVICENOW_OAUTH_TOKEN: process.env.SERVICENOW_OAUTH_TOKEN };
+  t.after(() => { for (const [key, value] of Object.entries(ambient)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  Object.assign(process.env, { HOME: isolated.HOME, XDG_CONFIG_HOME: isolated.XDG_CONFIG_HOME, SERVICENOW_OAUTH_TOKEN: isolated.SERVICENOW_OAUTH_TOKEN });
   // Spawn the producer boundary itself: merging isolated paths back into each
   // CLI child below would hide a regression in the pinned environment filter.
   // A rejected token must not emit authenticated scenario evidence; recovery
-  // must work with the same seeded file credentials and no session bootstrap.
+  // must work through the adapter bridge and no session bootstrap.
   const { runProcess: launchProducer } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
   for (const [index, accepts] of [true, false, true].entries()) {
     acceptCredentials = accepts;
     const outputDir = path.join(dir, `isolated-producer-${index}`);
     const script = `
       import fs from 'node:fs';
-      import { createContext, preflight } from ${JSON.stringify(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href)};
-      import { observeScenario } from ${JSON.stringify(pathToFileURL(path.join(root, '.github/scripts/acceptance/execute.mjs')).href)};
+      import * as support from ${JSON.stringify(supportURL)};
+      import { bridgedContext, observeScenario } from ${JSON.stringify(adapterURL)};
       const options = ${JSON.stringify({ profile: 'acceptance-ci', expectedHost: origin, mode: 'readonly', outputDir })};
       const config = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(configHome, 'servicenow/config.json'))}, 'utf8'));
-      const ctx = createContext(options, preflight(options, config));
+      const ctx = bridgedContext(support, options, support.preflight(options, config));
       const scenario = observeScenario({ id: 'readonly.records', run: async c => {
         const rows = await c.read('sys_db_object', { fields: ['sys_id', 'name'] });
         if (rows.length !== 1) throw Error('mock read mismatch');
@@ -255,24 +266,19 @@ test('immutable real producer executes failing scenarios and restored passing sc
   assert.deepEqual(Object.keys(configuration.profiles), ['acceptance-ci']);
   const options = { profile: 'acceptance-ci', expectedHost: origin, mode: 'readonly', outputDir: path.join(dir, 'adapter-run') };
   assert.throws(() => preflight({ ...options, allowWrites: true }, configuration, {}), /refuses/);
-  const ctx = createContext(options, preflight(options, configuration, {}), {
-    execute: async (exe, args, opts) => {
-      // Inject only the same isolated parent paths the production producer sees.
-      const { runProcess } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
-      return runProcess(exe, args, { ...opts, env: { ...opts.env, ...isolated } });
-    },
-  });
+  const ctx = bridgedContext(support, options, preflight(options, configuration, {}));
   assert.deepEqual(await ctx.read('sys_db_object', { fields: ['sys_id', 'name'] }), [{ sys_id: 'd'.repeat(32), name: 'incident' }]);
   // Start the pinned producer inside the seeded parent environment. Do not
-  // reinject paths into its children: exercise its real environment filter.
+  // reinject paths into its children: exercise its real environment filter and
+  // the adapter bridge, which is the production coordinator launch.
   const { runProcess: launchSeeded } = await import(pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href);
-  const supportURL = pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href;
   const seeded = await launchSeeded(process.execPath, ['--input-type=module', '-e', `
     import fs from 'node:fs';
-    import {createContext,preflight} from ${JSON.stringify(supportURL)};
+    import * as support from ${JSON.stringify(supportURL)};
+    import { bridgedContext } from ${JSON.stringify(adapterURL)};
     const options = ${JSON.stringify({ ...options, outputDir: path.join(dir, 'seeded-producer-run') })};
     const config = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME + '/servicenow/config.json'));
-    const ctx = createContext(options, preflight(options,config,{}));
+    const ctx = bridgedContext(support, options, support.preflight(options, config, {}));
     await ctx.read('sys_db_object',{fields:['sys_id','name']});
     const result = await ctx.command(['records','list','--table','sys_db_object','--limit','1','--no-count','--json']);
     if(result.exitCode !== 0 || result.json?.ok !== true) process.exitCode=1;
