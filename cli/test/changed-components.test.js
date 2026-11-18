@@ -70,8 +70,8 @@ test('affected application selection keeps prose docs light and runtime paths ch
     expect('cli/package-lock.json', true, true, false);
 
     // Public guides and the website keep the website suite.
-    expect('docs/docs-install.md', false, true, true);
-    expect('docs/DECISIONS.md', false, true, true);
+    expect('site/docs/guides/install.md', false, true, true);
+    expect('site/docs/maintainers/architecture.md', false, true, true);
     expect('site/README.md', false, true, true);
     expect('site/app/example.rb', false, true, false);
     expect('site/config/routes.rb', false, true, false);
@@ -92,16 +92,16 @@ test('affected application selection keeps prose docs light and runtime paths ch
     expect('.github/tests/acceptance-ci.test.js', true, true, false);
 
     // Deleted and renamed guide files are still website changes.
-    commit('docs/retired-guide.md');
+    commit('site/docs/guides/retired-guide.md');
     base = git('rev-parse', 'HEAD');
-    fs.rmSync(path.join(cwd, 'docs/retired-guide.md'));
+    fs.rmSync(path.join(cwd, 'site/docs/guides/retired-guide.md'));
     git('add', '-A');
     git('commit', '-m', 'delete guide');
     assert.equal(select(base), 'cli=false\nsite=true\ndocs=true\n');
 
-    commit('docs/docs-install.md', '# Install guide\n');
+    commit('site/docs/guides/install.md', '# Install guide\n');
     base = git('rev-parse', 'HEAD');
-    fs.renameSync(path.join(cwd, 'docs/docs-install.md'), path.join(cwd, 'docs/docs-installation.md'));
+    fs.renameSync(path.join(cwd, 'site/docs/guides/install.md'), path.join(cwd, 'site/docs/guides/installation.md'));
     git('add', '-A');
     git('commit', '-m', 'rename guide');
     assert.equal(select(base), 'cli=false\nsite=true\ndocs=true\n');

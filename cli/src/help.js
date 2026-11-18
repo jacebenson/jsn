@@ -23,6 +23,7 @@ const CONCISE_EXAMPLES = [
 ];
 
 const CONCISE_MORE = [
+  { label: 'https://jsn.jace.pro/docs/', description: 'Guides: install, setup, safety, output, agents and feature references' },
   { label: 'jsn <command> <action> --help', description: 'Options for one command or action' },
   { label: 'jsn discover <word>', description: 'Find commands by task words' },
   { label: 'jsn discover --table <table>', description: 'Find commands configured for a table' },
@@ -289,6 +290,7 @@ TIPS
   "jsn --json" prints the registered command surface as JSON for scripts and agents
 
 LEARN MORE
+  Documentation and feature references: https://jsn.jace.pro/docs/
   Some list commands offer a picker in an interactive terminal with automatic output.
   Arrow keys browse (10 visible items); type to search; scroll to load more; Enter selects; Esc cancels.
   Picker eligibility and search fields vary by command. Explicit output formats (including --json) skip pickers.

@@ -44,6 +44,7 @@ test_modes.sh
 *.tmp
 *.bak
 tmp/
+.task-evidence/
 
 # Immutable acceptance producer staged by .github/scripts/acceptance/prepare.mjs
 # Generated harness dependencies retain upstream relative imports; never shipped.

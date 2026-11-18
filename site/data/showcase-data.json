@@ -13,6 +13,7 @@
         "what": "Toggle read-only, skip confirmations, include counts, domain"
       }
     ],
+    "docs": "guides/setup.md",
     "screens": [
       {
         "cmd": "jsn setup",
@@ -58,6 +59,7 @@
         "what": "Install for Hermes, Claude, Codex, Cursor, OpenCode, Copilot and more"
       }
     ],
+    "docs": "guides/agents.md",
     "demo": "skill"
   },
   {
@@ -196,6 +198,7 @@
         "what": "Flow structure with subflow expansion"
       }
     ],
+    "docs": "guides/flows.md",
     "demo": "flows"
   },
   {
@@ -228,6 +231,7 @@
         "what": "Export to XML via the fluent endpoint"
       }
     ],
+    "docs": "guides/updatesets.md",
     "demo": "updatesets"
   },
   {
@@ -393,6 +397,7 @@
         "what": "Restrict a search to an application scope"
       }
     ],
+    "docs": "features/servicenow-code-search-cli.md",
     "screens": [
       {
         "cmd": "jsn codesearch search GlideAjax --limit 5 --json",

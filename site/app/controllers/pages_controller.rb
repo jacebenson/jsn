@@ -10,5 +10,6 @@ class PagesController < BrowserController
   def feature
     @feature = Feature.find(params[:slug])
     @video = FeatureVideo.find_by(slug: params[:slug])
+    @feature_docs_html = MarkdownGuide.render_file(@feature['docs']) if @feature['docs'].present?
   end
 end

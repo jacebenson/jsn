@@ -98,18 +98,18 @@ class GuidesTest < Minitest::Test
         end
       end
       next unless reason
-      "docs/#{MarkdownGuide::SOURCES.fetch(guide.slug)} (#{guide.url}): link #{link.text.inspect} -> #{href.inspect}, resolved target #{target.inspect}: #{reason}"
+      "site/docs/#{MarkdownGuide::SOURCES.fetch(guide.slug)} (#{guide.url}): link #{link.text.inspect} -> #{href.inspect}, resolved target #{target.inspect}: #{reason}"
     end
   end
 
   def test_link_diagnostics_preserve_original_targets_and_aggregate_failures
-    guide = MarkdownGuide.find('flow-designer-interactive')
+    guide = MarkdownGuide.find('flows')
     guide.define_singleton_method(:body) do
       '[Broken guide](unregistered-guide-fixture.md) [Broken fragment](docs-setup.md#missing-fragment-fixture)'
     end
     errors = guide_link_errors(guide)
     assert_equal 2, errors.length
-    assert_includes errors.first, 'docs/flow-designer-interactive.md (/docs/flow-designer-interactive/)'
+    assert_includes errors.first, 'site/docs/guides/flows.md (/docs/flows/)'
     assert_includes errors.first, 'link "Broken guide" -> "unregistered-guide-fixture.md"'
     assert_includes errors.first, 'resolved target nil'
     assert_includes errors.first, 'cannot resolve under the registered guide route and safe-link publication policy'

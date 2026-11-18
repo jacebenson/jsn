@@ -23,7 +23,7 @@ const isMarkdown = file => /\.mdx?$/i.test(file);
 const cliProseDoc = file => /^cli\/(?:README\.md|examples\/README\.md)$/i.test(file);
 const cliDocsEngine = file => file.startsWith('cli/src/commands/docs/');
 const cliSharedPackage = file => /^cli\/package(?:-lock)?\.json$/.test(file);
-const sitePath = file => file.startsWith('site/') || file.startsWith('docs/');
+const sitePath = file => file.startsWith('site/');
 
 function classify(file) {
   const docs = isMarkdown(file);

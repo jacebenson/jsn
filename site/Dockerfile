@@ -25,7 +25,8 @@ COPY --from=indexer /app/cli/node_modules /app/cli/node_modules
 COPY --from=indexer /app/cli/src /app/cli/src
 COPY site/ ./
 # Only allowlisted Markdown is reachable; contributor evidence is not a static tree.
-COPY docs/ /app/docs/
+# site/docs/guides and site/docs/features ship inside site/; maintainer and
+# evidence trees are excluded by .dockerignore.
 COPY --from=assets /app/site/public ./public
 COPY --from=assets /app/site/config/features.json ./config/features.json
 COPY --from=assets /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json

@@ -10,7 +10,9 @@ site/log/*
 !site/log/.keep
 site/tmp
 site/public
-docs/_site
+site/docs/evidence
+site/docs/maintainers
+site/docs/_site
 .env
 .env.*
 **/.env

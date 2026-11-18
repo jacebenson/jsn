@@ -15,7 +15,7 @@ jsn setup
 
 Setup connects a named profile to your instance. Its default preset allows writes, so enable read-only mode before exploring. See [setup and authentication](https://jsn.jace.pro/docs/setup/).
 
-For unreleased changes, use `npm install -g @jacebenson/jsn@dev`; see [channels and updates](docs/releases.md).
+For unreleased changes, use `npm install -g @jacebenson/jsn@dev`; see [channels and updates](site/docs/maintainers/releases.md).
 
 ## Read and discover
 
@@ -57,9 +57,9 @@ npm run lint
 node cli/bin/jsn.js --help
 ```
 
-The published package, tests, and bundled skill live in [`cli/`](cli/README.md). The Rails website and public documentation API live in [`site/`](site/README.md). Use the [documentation source index](docs/README.md) for maintained guides, contributor contracts and verification instructions. Rails publishes only the guides allowlisted in `site/config/guides.json`. The CLI and website share the documentation search engine.
+The published package, tests, and bundled skill live in [`cli/`](cli/README.md). The Rails website and public documentation API live in [`site/`](site/README.md). Use the [documentation source index](site/docs/README.md) for maintained guides, contributor contracts and verification instructions. Rails publishes only the guides allowlisted in `site/config/guides.json`. The CLI and website share the documentation search engine.
 
-Run package commands, including `npm pack`, from `cli/`, not the private root package. For contribution rules and design context, read [AGENTS.md](AGENTS.md), [GLOSSARY.md](GLOSSARY.md), and [decisions](docs/DECISIONS.md). See [release maintenance](docs/releases.md) for the publishing workflow.
+Run package commands, including `npm pack`, from `cli/`, not the private root package. For contribution rules and design context, read [AGENTS.md](AGENTS.md), [GLOSSARY.md](GLOSSARY.md), and [decisions](site/docs/maintainers/architecture.md). See [release maintenance](site/docs/maintainers/releases.md) for the publishing workflow.
 
 ## License
 

@@ -36,6 +36,8 @@ OUTPUT
   Use JSON for pagination metadata or both reference IDs and display labels.
 
 MORE
+  https://jsn.jace.pro/docs/     Guides: install, setup, safety, output, agents
+                                 and feature references
   jsn <command> <action> --help  Options for one command or action
   jsn discover <word>            Find commands by task words
   jsn discover --table <table>   Find commands configured for a table

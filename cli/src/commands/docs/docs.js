@@ -3,6 +3,7 @@ import { searchHostedDocs, getHostedDoc, getHostedDocsStatus, configuredDocsServ
 import { documentationService } from './local.js';
 
 import { declareCapabilities } from '../../capabilities.js';
+import { docLink } from '../../docs-links.js';
 import { AppError } from '../../errors.js';
 import { resolveDocsRelease } from './db.js';
 import { listDocsReleases } from './releases.js';
@@ -62,6 +63,7 @@ export function docsCmd(wrapHandler) {
     describe: 'Search ServiceNow documentation (hosted by default; configure your service in setup)',
     builder: y => y
       .usage('Usage: jsn docs "search terms" [options]')
+      .epilogue(`Documentation for this command: ${docLink('docs')}`)
       .positional('query', { type: 'string', describe: 'Search words (up to 200 characters)' })
       .option('release', { type: 'string', describe: 'Documentation family (docs.release config, otherwise australia)' })
 
