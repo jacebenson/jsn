@@ -39,10 +39,12 @@ export async function runAndPublish({ run, file, publicFile, url, token, publish
 export async function seedProfile(privateRoot, input) {
   const configHome = path.join(privateRoot, 'config');
   const configDir = path.join(configHome, 'servicenow');
-  fs.mkdirSync(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
+  // Non-secret isolated profile configuration only. The refreshed access token is
+  // never written to a credential file (the CLI refuses plaintext file-store
+  // credentials); it stays in process environment/memory and the adapter bridge
+  // (execute.mjs) hands it to the pinned producer's coordinator children.
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(configDir, 'config.json'), JSON.stringify({ auth_method: 'oauth', default_profile: 'acceptance-ci', profiles: { 'acceptance-ci': input.profile } }), { mode: 0o600 });
-  const { credKey } = await import('../../../cli/src/auth/credential-store.js');
-  fs.writeFileSync(path.join(configDir, 'credentials', `${credKey(input.profile.instance_url, input.profile.username)}.json`), JSON.stringify(input.credentials), { mode: 0o600 });
   return configHome;
 }
 
@@ -51,14 +53,15 @@ export async function main() {
   const input = instanceConfiguration(process.env);
   const { mode, host } = input;
   const auth = await environmentOAuth(process.env);
-  input.credentials.access_token = auth.accessToken;
   console.log(JSON.stringify({ authSource: auth.source }));
   const privateRoot = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || process.env.TMPDIR, 'jsn-acceptance-'));
   fs.chmodSync(privateRoot, 0o700);
   try {
     const configHome = await seedProfile(privateRoot, input);
     const output = path.join(privateRoot, 'run');
-    const env = producerEnvironment(process.env, privateRoot, configHome);
+    // Compose the allowlisted producer environment with the freshly refreshed
+    // token only; an ambient/stale SERVICENOW_OAUTH_TOKEN was never forwarded.
+    const env = { ...producerEnvironment(process.env, privateRoot, configHome), SERVICENOW_OAUTH_TOKEN: auth.accessToken };
     const args = [path.join(root, '.github/scripts/acceptance/execute.mjs'), '--profile', 'acceptance-ci', '--expected-host', host.origin, '--mode', mode, '--output-dir', output];
     if (mode === 'pdi') args.push('--full', '--allow-writes');
     else {

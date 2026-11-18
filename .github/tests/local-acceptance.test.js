@@ -83,13 +83,17 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       const result = await runLocal({ mode: 'readonly', version, target: 'vendor-1', output });
       const payload = JSON.parse(fs.readFileSync(result.file));
       const expectedVersion = version || JSON.parse(fs.readFileSync(new URL('../../cli/package.json', import.meta.url))).version;
+      // v5.5.7 removed `jsn history`; the checkout candidate retires its scenario
+      // while the published 5.5.5 artifact keeps the original obligation.
+      const expectedCount = version ? 71 : 70;
       assert.equal(payload.provenance.version, expectedVersion);
       assert.equal(payload.results.find(r => r.id === 'readonly.records').status, 'passed');
       assert.equal(payload.summary.complete, false);
-      assert.equal(payload.results.length, 71);
+      assert.equal(payload.results.length, expectedCount);
       assert.equal(payload.selection.full, true);
       assert.equal(payload.results.find(r => r.id === 'local.version').status, 'passed');
       assert.equal(payload.results.find(r => r.id === (version ? 'local.completion' : 'local.discovery-help')).status, 'passed');
+      assert.equal(payload.results.some(r => r.id === 'local.history-empty'), Boolean(version));
       assert.equal(payload.summary.missingCount > 1, true);
       assert.notEqual(selectedExitCode(payload.summary), 0); // Fixture covers metadata only, not fabricated full provider behavior.
       assert.equal(payload.environment.release.family, 'Zurich');
@@ -98,9 +102,9 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
       const local = JSON.parse(fs.readFileSync(path.join(output, 'local-summary.json')));
       assert.equal(local.coverage.missing.length, payload.summary.missingCount);
       assert.ok(local.humanMeasurementsPassed >= 2);
-      assert.equal(local.coverage.applicableSelectedMode, 71);
+      assert.equal(local.coverage.applicableSelectedMode, expectedCount);
       assert.deepEqual(local.coverage.omittedReadonly, []);
-      assert.equal(new Set(payload.selection.selected).size, 71);
+      assert.equal(new Set(payload.selection.selected).size, expectedCount);
       assert.deepEqual(payload.results.map(r => r.id), payload.selection.selected);
       assert.equal(local.release.family, 'Zurich');
       assert.equal(local.release.fields.family, 'glide.buildname');
@@ -124,7 +128,7 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
     mode = 200;
     const restored = await runLocal({ mode: 'readonly', target: 'vendor-2', output: path.join(root, 'restored') });
     assert.equal(JSON.parse(fs.readFileSync(restored.file)).results.find(r => r.id === 'readonly.records').status, 'passed');
-    assert.equal(restored.summary.total, 71);
+    assert.equal(restored.summary.total, 70);
     assert.equal(requests.filter(r => !r.path.startsWith('/api/acceptance/') && !r.path.startsWith('/results/')).every(r => r.method === 'GET'), true);
     await assert.rejects(runLocal({ mode: 'readonly', target: 'vendor-1', output: path.join(root, 'checkout') }));
     // Keep sanitized evidence only when explicitly requested by the developer.
