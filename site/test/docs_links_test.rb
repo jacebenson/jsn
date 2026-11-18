@@ -131,6 +131,11 @@ class DocsLinksTest < Minitest::Test
     aliases.each_key do |slug|
       refute MarkdownGuide::SOURCES.key?(slug), "#{slug} is both a guide and an alias"
     end
+    # An alias is a URL, not a filename: the .md spelling stays unpublished.
+    %w[/docs/flow-search.md /docs/record-watch.md].each do |url|
+      get url
+      assert_equal 404, last_response.status, url
+    end
   end
 
   # R4: a 200 is not enough. Every configured internal legacy target must exist,
