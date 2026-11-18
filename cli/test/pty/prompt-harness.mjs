@@ -139,16 +139,48 @@ async function run() {
       mark('picked', picked);
       break;
     }
+    case 'editor-wait':
+    case 'editor-escape':
     case 'editor': {
       // A controlled fake editor: writes fixed content, never opens a real one.
       const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-pty-editor-'));
       const fake = path.join(directory, 'fake-editor.sh');
-      fs.writeFileSync(fake, '#!/bin/sh\nprintf "fixed editor content" > "$1"\n', { mode: 0o755 });
-      process.env.EDITOR = fake;
+      const marker = path.join(directory, 'launched');
+      fs.writeFileSync(fake, `#!/bin/sh
+printf launched > "${marker}"
+printf "fixed editor content" > "$1"
+`, { mode: 0o755 });
+      process.env.VISUAL = fake;
       const { editor } = await import('../../src/prompts.js');
-      const content = await editor({ message: 'Notes', default: 'seed' });
-      mark('content', content);
-      fs.rmSync(directory, { recursive: true, force: true });
+      if (scenario !== 'editor') setTimeout(() => mark('notLaunchedYet', !fs.existsSync(marker)), 200);
+      try {
+        const content = await editor({ message: 'Notes, one bullet per line', default: 'seed', waitForUserInput: scenario === 'editor' ? false : undefined });
+        mark('content', content);
+      } catch (error) {
+        if (error.name !== 'PromptCancelled') throw error;
+        mark('cancelled', true);
+      } finally {
+        mark('editorLaunched', fs.existsSync(marker));
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+      break;
+    }
+    case 'stale-load-more': {
+      const { paginatedSearch } = await import('../../src/paginated-search.js');
+      const picked = await paginatedSearch({ message: 'Race', pageSize: 2, totalCount: 4, source(term, offset) {
+        if (term) return ['search-first', 'search-second', 'search-third'].map(value => ({ name: value, value }));
+        if (offset === 0) return [{ name: 'One', value: 1 }, { name: 'Two', value: 2 }];
+        return new Promise(resolve => setTimeout(() => resolve([{ name: 'obsolete', value: 'obsolete' }]), 400));
+      } });
+      mark('picked', picked.value);
+      break;
+    }
+    case 'confirm-edit': {
+      const { confirm } = await import('../../src/prompts.js');
+      let settled = false;
+      const answer = confirm({ message: 'Confirm guarded action', default: false }).then(value => { settled = true; return value; });
+      setTimeout(() => mark('pendingBeforeEnter', !settled), 800);
+      mark('confirmed', await answer);
       break;
     }
     case 'setup-hub': {

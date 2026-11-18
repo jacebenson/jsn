@@ -92,7 +92,10 @@ export const paginatedSearch = async (config = {}, context = {}) => {
           api?.redraw();
         } else if (!state.searchMode && state.loaded < totalCount) {
           const before = state.loaded;
-          void load('', state.loaded, { append: true }).then(() => {
+          const pending = load('', state.loaded, { append: true });
+          const token = state.token;
+          void pending.then(() => {
+            if (!isCurrent(token)) return;
             if (state.status === 'done' && state.loaded > before) state.active = before;
             api?.redraw();
           });

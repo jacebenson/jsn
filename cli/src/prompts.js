@@ -91,17 +91,16 @@ export async function confirm(config = {}, context = {}) {
     init: () => ({ value: '', error: '' }),
     key(state, key, api) {
       if (key.name === 'return' || key.name === 'enter') {
-        const answer = state.value ? state.value === 'y' : fallback;
+        const answer = /^y/i.test(state.value) ? true : /^n/i.test(state.value) ? false : fallback;
         return { done: answer };
       }
-      if (key.name === 'y' || key.name === 'Y') return { done: true };
-      if (key.name === 'n' || key.name === 'N') return { done: false };
-      if (key.name === 'backspace') { state.value = ''; api.redraw(); return; }
-      if (key.name === 'space') { state.value = ''; api.redraw(); }
+      if (key.name === 'backspace') state.value = state.value.slice(0, -1);
+      else if (key.text) state.value += key.text;
+      api.redraw();
     },
-    render() {
+    render(state) {
       const hint = fallback ? '[Y/n]' : '[y/N]';
-      return `${withHint(config)} ${hint}`;
+      return `${withHint(config)} ${hint} ${state.value}`;
     },
   });
 }
@@ -250,10 +249,21 @@ function move(choices, active, delta) {
 }
 
 /**
- * The editor prompt hands the keyboard to $EDITOR. Escape belongs to that
- * editor, so cancellation is Ctrl+C there, as before.
+ * Enter launches $EDITOR by default. Escape cancels before launch; once the
+ * editor owns the keyboard, its own controls apply.
  */
 export async function editor(config = {}, context = {}) {
+  if (config.waitForUserInput !== false) {
+    await runPrompt(config, context, {
+      init: () => ({}),
+      key(_state, key) {
+        if (key.name === 'return' || key.name === 'enter') return { done: true };
+      },
+      render: () => [withHint(config), 'Press Enter to launch your preferred editor.'],
+    });
+  } else {
+    (context.output || process.stdout).write(`${withHint(config)}\n`);
+  }
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');

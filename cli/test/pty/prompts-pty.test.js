@@ -85,7 +85,7 @@ test('PTY: a stale slow search response never wins over the newer term', () => {
 });
 
 test('PTY: two prompts in sequence both work and both clean up', () => {
-  const report = runPty('sequential', [[600, 'oct12\r'], [300, 'y']]);
+  const report = runPty('sequential', [[600, 'oct12\r'], [300, 'y\r']]);
   assertTermios(report);
   assert.equal(report.exit, 0);
   assert.equal(report.mark('name'), 'oct12');
@@ -189,4 +189,40 @@ test('PTY: the human demo cancels without a stack trace', () => {
   assert.equal(report.exit, 0);
   assert.match(report.output, /Cancelled\./);
   assert.doesNotMatch(report.output, /at file:/);
+});
+
+
+test('PTY: stale load-more completion leaves the filtered first row selected', () => {
+  const report = runPty('stale-load-more', [[600, DOWN.repeat(2)], [200, 'x'], [500, ENTER]]);
+  assertTermios(report);
+  assert.equal(report.exit, 0);
+  assert.equal(report.mark('picked'), 'search-first');
+});
+
+test('PTY: y remains pending until Enter and can be corrected to no', () => {
+  const report = runPty('confirm-edit', [[600, 'y'], [450, '\u007fno\r']]);
+  assertTermios(report);
+  assert.equal(report.exit, 0);
+  assert.equal(report.mark('pendingBeforeEnter'), true);
+  assert.equal(report.mark('confirmed'), false);
+});
+
+test('PTY: editor shows its message, waits for Enter and then launches', () => {
+  const report = runPty('editor-wait', [[600, ENTER]]);
+  assertTermios(report);
+  assert.equal(report.exit, 0);
+  assert.equal(report.mark('notLaunchedYet'), true);
+  assert.equal(report.mark('editorLaunched'), true);
+  assert.match(report.output, /Notes, one bullet per line/);
+  assert.match(report.output, /Press Enter.*editor/);
+  assert.equal(report.mark('content'), 'fixed editor content');
+});
+
+test('PTY: Escape while waiting for the editor never launches it', () => {
+  const report = runPty('editor-escape', [[600, ESC]]);
+  assertTermios(report);
+  assert.equal(report.exit, 0);
+  assert.equal(report.mark('notLaunchedYet'), true);
+  assert.equal(report.mark('cancelled'), true);
+  assert.equal(report.mark('editorLaunched'), false);
 });
