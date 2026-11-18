@@ -178,7 +178,8 @@ test('immutable real producer executes failing scenarios and restored passing sc
   // fetched pinned producer through alternates instead of re-fetching it. Absent
   // object still means this checkout cannot run the historical integration.
   fs.mkdirSync(path.join(dir, '.git/objects/info'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.git/objects/info/alternates'), `${path.join(root, '.git/objects')}\n`);
+  const objects = path.resolve(root, execFileSync('git', ['rev-parse', '--git-path', 'objects'], { cwd: root, encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(dir, '.git/objects/info/alternates'), `${objects}\n`);
   // Ordinary PR tests must stay offline and work with CI's shallow checkout.
   try { execFileSync('git', ['-C', dir, 'cat-file', '-e', HARNESS_SHA], { stdio: 'ignore' }); }
   catch { t.skip('Pinned historical producer absent in shallow checkout; run full-history integration locally'); return; }

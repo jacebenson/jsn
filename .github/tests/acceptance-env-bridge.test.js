@@ -43,7 +43,8 @@ async function stage(t) {
   const dir = temporary(t);
   execFileSync('git', ['clone', '--quiet', '--shared', '--no-hardlinks', root, dir]);
   fs.mkdirSync(path.join(dir, '.git/objects/info'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.git/objects/info/alternates'), `${path.join(root, '.git/objects')}\n`);
+  const objects = path.resolve(root, execFileSync('git', ['rev-parse', '--git-path', 'objects'], { cwd: root, encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(dir, '.git/objects/info/alternates'), `${objects}\n`);
   try { execFileSync('git', ['-C', dir, 'cat-file', '-e', HARNESS_SHA], { stdio: 'ignore' }); }
   catch { t.skip('Pinned historical producer absent in shallow checkout; run full-history integration locally'); return null; }
   prepare(dir);
