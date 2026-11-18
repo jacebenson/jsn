@@ -2,7 +2,7 @@
 // The npm package ships only cli/, so this projection is checked in and verified
 // by site/test/docs_links_test.rb. Edit the registry, then regenerate this file.
 export const SITE_ORIGIN = 'https://jsn.jace.pro';
-export const ROOT_DOC_LINK = '/docs/install/';
+export const ROOT_DOC_LINK = '/docs/';
 export const DOC_LINKS = Object.freeze({
   codesearch: '/features/servicenow-code-search-cli/',
   docs: '/docs/cli-guide/#jsn-cli-guide',

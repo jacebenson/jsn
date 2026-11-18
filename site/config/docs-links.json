@@ -1,6 +1,6 @@
 {
   "site": "https://jsn.jace.pro",
-  "root": "/docs/install/",
+  "root": "/docs/",
   "commands": {
     "codesearch": "/features/servicenow-code-search-cli/",
     "docs": "/docs/cli-guide/#jsn-cli-guide",

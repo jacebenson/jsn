@@ -5,6 +5,7 @@ import { cpSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROOT_DOC_LINK } from '../src/docs-links.js';
 
 const bin = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 const env = { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' };
@@ -77,7 +78,7 @@ test('root help points at the maintained documentation without flooding commands
   // command families use, so the entry cannot drift from site/config/docs-links.json.
   assert.match(result.stdout, /https:\/\/jsn\.jace\.pro\/docs\//);
   const flat = result.stdout.replace(/\s+/g, ' ');
-  assert.ok(flat.includes(`${SITE}/docs/install/`), flat);
+  assert.ok(flat.includes(`${SITE}${ROOT_DOC_LINK}`), flat);
   // The renderer wraps the description column; assert the words, not the column.
   assert.match(flat, /Guides: install, setup, safety, output, agents/);
 });
