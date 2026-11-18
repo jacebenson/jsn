@@ -120,7 +120,7 @@ async function run() {
       mark('secretLength', secret.length);
       mark('secretIsExpected', secret === 'hunter2');
       const code = await mfaCode({ message: 'Authenticator code' });
-      mark('code', code);
+      mark('codeIsExpected', code === '123456');
       break;
     }
     case 'confirm-yes':

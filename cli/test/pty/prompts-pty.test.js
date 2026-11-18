@@ -107,11 +107,10 @@ test('PTY: password and MFA never echo the typed value', () => {
   assertTermios(report);
   assert.equal(report.exit, 0);
   assert.equal(report.mark('secretIsExpected'), true);
-  assert.equal(report.mark('code'), '123456');
+  assert.equal(report.mark('codeIsExpected'), true);
   assert.match(report.output, /\*+/); // fixed-width placeholder is written
-  const chrome = report.output.replace(/^MARK:.*$/gm, '');
-  assert.doesNotMatch(chrome, /hunter2/);
-  assert.doesNotMatch(chrome, /123456/);
+  assert.doesNotMatch(report.output, /hunter2/);
+  assert.doesNotMatch(report.output, /123456/);
 });
 
 test('PTY: confirm honors the default and explicit no', () => {
@@ -191,4 +190,3 @@ test('PTY: the human demo cancels without a stack trace', () => {
   assert.match(report.output, /Cancelled\./);
   assert.doesNotMatch(report.output, /at file:/);
 });
-
