@@ -1,0 +1,25 @@
+Usage: jsn records list [options]
+
+List records from a table
+
+Options:
+  --table                  Table name [string]
+  --sys-id                 Record sys_id (filters to a single record) [string]
+  --query, -q              Encoded query (e.g. "nameLIKEincident" or "active=true") [string]
+  --columns, -c, --fields  Comma-separated columns (e.g. "number,short_description") [string]
+  --limit                  Max records [number] [default: 20]
+  --offset                 Offset [number] [default: 0]
+  --display-values         Reference values: raw, display or both [string: raw, display, both]
+  --count                  Include the total-matching count (use --no-count to opt out)
+                           [default: true]
+
+In an interactive terminal with automatic output, browse a picker (10 visible items).
+Use arrow keys to browse, type to search sys_id on the server, scroll to load more,
+and press Enter to select or Esc to cancel. --sys-id skips the picker.
+Use --json for noninteractive structured output; pipes and explicit formats also skip the picker.
+Example: jsn records list --table incident --query "active=true" --limit 5 --json
+JSON shape (abbreviated): {"ok":true,"data":{"records":[{"sys_id":"...","number":"INC0010001"}]},...}
+Records are at data.records; fields are directly on each record (e.g. record.number).
+Array only: jsn records list --table incident --get data.records
+Discover fields with: jsn columns --table incident
+Documentation: https://jsn.jace.pro/docs/records/#watching-a-servicenow-record

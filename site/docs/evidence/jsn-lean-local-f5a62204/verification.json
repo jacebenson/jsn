@@ -1,0 +1,35 @@
+{
+  "candidate_sha": "fbd7ff2d2672f75af058b3c2a6971bf28584fff6",
+  "target_base_sha_at_publication": "f4570f7c464f2a6574460ac764b178bda92e1095",
+  "publication_state": "draft_not_merge_ready",
+  "fresh_local_checks": [
+    {"command": "cd cli && node --test test/docs-help.test.js", "exit": 0, "passed": 9},
+    {"command": "cd cli && node --test test/prompt-regressions.test.js test/prompt-corrections.test.js", "exit": 0, "passed": 20},
+    {"command": "cd cli && npm run lint", "exit": 0}
+  ],
+  "earlier_operator_checks_on_same_candidate": {
+    "full_cli": {"command": "cd cli && npm test", "exit": 1, "tests": 2485, "passed": 2480, "failed": 2, "skipped": 3},
+    "full_rails": {"command": "cd site && ruby bin/rails test", "exit": 0, "runs": 95, "assertions": 2108, "failed": 0, "errors": 0},
+    "site_node": {"exit": 0, "passed": 19},
+    "packaged_cli_help_cases": {"passed": 13, "site_tree_present": false},
+    "original_guide_urls": {"passed": 23, "fragment_ids_checked": true},
+    "internal_legacy_targets": {"passed": 21, "fragment_ids_checked": true},
+    "feature_viewport_observations": {"passed": 18, "features": 9, "widths": [1440, 390]}
+  },
+  "known_limits": [
+    "records list help links to record-watching material rather than listing/querying guidance; valid URL/fragment checks do not establish semantic task alignment.",
+    "The two full-CLI failures are setup-terminal presentation assertions. The same titles fail in earlier experiment deedc90c; this is not a clean canonical-main baseline comparison.",
+    "A non-applying merge-tree probe against current main reports modify/delete conflict at docs/acceptance-ci.md. New main documentation must be preserved during reconciliation.",
+    "Protected AGENTS.md retains outdated root-docs references and the Inquirer dependency entry; no protected-file edit was made.",
+    "Ordinary site/bin/dev failed with missing gems in the tryout. Preview verification used a task-local pinned bundle.",
+    "Browser images are after-only captures of the actual local candidate, not production or a full before/after sign-off. Narrow code blocks scroll internally.",
+    "Hosted CI and cross-platform behavior are not certified by these local checks."
+  ],
+  "evidence": {
+    "records-list-help.png": "Terminal-style render of actual captured CLI stdout, explicitly labeled as such.",
+    "records-list-help.txt": "Captured stdout from candidate CLI in an isolated HOME with version/skill checks disabled.",
+    "browser-codesearch-1440.png": "Actual Chromium local preview capture with the native feature-reference details expanded, desktop width.",
+    "browser-codesearch-390.png": "Actual Chromium local preview capture with the native feature-reference details expanded, narrow width."
+  },
+  "authorization_boundary": "Publish draft PR and review evidence only. No merge, release, deployment, live ServiceNow call, installed CLI replacement or profile change."
+}
