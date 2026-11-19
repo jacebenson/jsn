@@ -1,10 +1,10 @@
+import { flowsCmdDefinition } from '../command-families.js';
 import { searchFlows, formatFlowSearch } from '../flow-search.js';
 import fs from 'node:fs';
 import { prepareFlowClone, cloneFlow } from '../flow-clone.js';
 import { canUsePicker } from '../helpers.js';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
-import { declareCapabilities } from '../capabilities.js';
 import { docLink } from '../docs-links.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
@@ -75,7 +75,7 @@ function triggerGuidance(trigger) {
   };
 }
 
-declareCapabilities('flows', { transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -88,9 +88,7 @@ export function flowsCmd(wrap) {
   const originalWrap = wrap;
   wrap = handler => originalWrap((argv, app) => cancelled(() => handler(argv, app)));
   return {
-    command: 'flows [subcommand]',
-    aliases: ['flow'],
-    describe: 'Manage Flow Designer flows',
+    ...flowsCmdDefinition,
     builder: (yargs) => {
       return yargs
         .command({

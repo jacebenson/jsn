@@ -38,6 +38,12 @@ class CommandNode {
 
   build() {
     if (this.built) return;
+    if (this.definition.load) {
+      const definition = this.definition.load();
+      // Root identity is lightweight and authoritative. Implementations only
+      // supply builders/handlers; loading must not change token ownership.
+      this.definition = { ...definition, ...this.definition, load: undefined };
+    }
     this.built = true;
     if (typeof this.definition.builder === 'function') this.definition.builder(this.api());
   }
@@ -293,10 +299,10 @@ export class LocalCLI {
    * help page. Machine discovery leaves it out, so the JSON schema and bytes
    * stay unchanged.
    */
-  commandRegistry({ summaries = false } = {}) {
+  commandRegistry({ summaries = false, shallow = false } = {}) {
     const visible = (node) => !node.definition.hidden;
     const serialize = (node) => {
-      node.build();
+      if (!shallow) node.build();
       const entry = {
         name: node.name,
         command: node.definition.command || node.name,

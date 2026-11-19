@@ -1,4 +1,4 @@
-import { declareCapabilities } from '../capabilities.js';
+import { workflowsCmdDefinition } from '../command-families.js';
 import { errUsage } from '../errors.js';
 import {
   inspectWorkflow,
@@ -11,7 +11,7 @@ import {
 // request in workflow-inspection.js is a Table API GET. Declaring no mutation
 // subcommands keeps the mutation guard and read-only profiles aligned with
 // what the command can actually do.
-declareCapabilities('workflows', { mutationSubcommands: [] });
+
 
 // A curated human view belongs to the command; keeping it non-enumerable
 // leaves the JSON envelope free of presentation text.
@@ -42,9 +42,7 @@ export function selectWorkflowStep(data, number) {
 
 export function workflowsCmd(wrap) {
   return {
-    command: 'workflows [subcommand]',
-    aliases: ['workflow'],
-    describe: 'Inspect legacy Workflow Editor workflows (read-only)',
+    ...workflowsCmdDefinition,
     builder: (yargs) => yargs
       .command({
         command: 'list',

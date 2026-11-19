@@ -1,3 +1,4 @@
+import { flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
 import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
@@ -11,7 +12,6 @@ import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { maybeShowHome } from './welcome.js';
-import { skippedUpdatesCmd } from './commands/skipped-updates.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
@@ -44,7 +44,6 @@ import { versionCmd } from './commands/version.js';
 import { upgradeCmd } from './commands/upgrade.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
-import { docsCmd } from './commands/docs/docs.js';
 
 // Table and platform commands registered at root level for progressive disclosure
 import {
@@ -64,8 +63,6 @@ import {
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/_simple.js';
 import { decisiontablesCmd } from './commands/decisiontables.js';
-import { flowsCmd } from './commands/flows.js';
-import { workflowsCmd } from './commands/workflows.js';
 import { formsCmd } from './commands/forms.js';
 import { listsCmd } from './commands/lists.js';
 import { updateSetsCmd } from './commands/updatesets.js';
@@ -81,11 +78,7 @@ import { scanCmd } from './commands/scan.js';
 import { storeCmd } from './commands/store.js';
 import { pluginsCmd } from './commands/plugins.js';
 import { compareCmd } from './commands/compare.js';
-import { subscriptionsCmd } from './commands/subscriptions.js';
 import { approvalsCmd } from './commands/approvals.js';
-import { perfCmd } from './commands/perf.js';
-import { customizationsCmd } from './commands/customizations.js';
-import { midserversCmd } from './commands/midservers.js';
 import { diffCmd } from './commands/diff.js';
 import { graphqlCmd } from './commands/graphql.js';
 
@@ -554,7 +547,7 @@ export function buildCLI() {
         const welcome = maybeShowHome({ argv: formatArgv, requestedFormat, cfg: config });
         if (!welcome) {
           const registry = visibleCommandRegistry(
-            cliInstance.commandRegistry({ summaries: true }), config, formatArgv);
+            cliInstance.commandRegistry({ summaries: true, shallow: true }), config, formatArgv);
           process.stdout.write(renderHelp(config, registry, { full: formatArgv?.allCommands === true }) + '\n');
         }
         process.exit(0);
@@ -580,7 +573,7 @@ export function buildCLI() {
     const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
     const config = loadConfig(options);
     const registry = visibleCommandRegistry(
-      cliInstance.commandRegistry({ summaries: true }), config, options);
+      cliInstance.commandRegistry({ summaries: true, shallow: true }), config, options);
     return renderHelp(config, registry, { full: options?.allCommands === true });
   };
 

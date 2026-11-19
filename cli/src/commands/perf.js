@@ -1,3 +1,4 @@
+import { perfCmdDefinition } from '../command-families.js';
 import { errUsageHint, errUsage } from '../errors.js';
 import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparisonDetailed } from '../perf.js';
 import { topTransactionsCmd } from './transactions.js';
@@ -54,9 +55,7 @@ function compareHint(runId) {
 
 export function perfCmd(wrap) {
   return {
-    command: 'perf [subcommand]',
-    aliases: ['performance'],
-    describe: 'Capture and compare read-only ServiceNow performance summaries',
+    ...perfCmdDefinition,
     builder: (y) => y
       .command({
         command: 'capture',

@@ -1,8 +1,6 @@
 import * as prompts from './prompts.js';
 const { confirm, select, input } = prompts;
-import { ensureLocalDocumentation } from './commands/docs/local.js';
 import { saveConfig } from './config.js';
-import { docsServiceUrl, DEFAULT_DOCS_URL } from './commands/docs/client.js';
 
 export function connectionPreferences(config, existing = {}, flags = {}) {
   const saved = { read_only: false, skip_confirmations: false, include_counts: true };
@@ -32,11 +30,13 @@ export async function chooseConnectionPreferences(config, flags = {}, prompts = 
 }
 
 export async function configureDocumentation(config, prompts = { input, confirm }) {
+  const { docsServiceUrl, DEFAULT_DOCS_URL } = await import('./commands/docs/client.js');
   const current = config.docs || { source: 'hosted', url: DEFAULT_DOCS_URL };
   const hosted = await prompts.confirm({ message: 'Use JSN-hosted documentation?', default: current.source === 'hosted' });
   const next = { source: hosted ? 'hosted' : 'custom', url: DEFAULT_DOCS_URL };
   if (!hosted && await prompts.confirm({ message: 'Run a local documentation server for you?', default: current.source !== 'custom' })) {
     next.source = 'local';
+    const { ensureLocalDocumentation } = await import('./commands/docs/local.js');
     next.url = (await ensureLocalDocumentation()).url;
   } else if (!hosted) {
     next.url = await prompts.input({ message: 'Docs service base URL:', default: current.source === 'custom' ? current.url : 'http://127.0.0.1:3000',
