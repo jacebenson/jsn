@@ -131,7 +131,7 @@ test('adapter bridge authenticates coordinator children with the fresh token, ne
   const { privateRoot, configHome } = await seeded(dir, { instance_url: origin, read_only: true });
   // Job-like outer environment: stale token, deployment credentials, proxies and
   // Node injection. The allowlist must drop all of it before the producer starts.
-  const outer = { ...process.env, SERVICENOW_OAUTH_TOKEN: stale, SERVICENOW_OAUTH_REFRESH_TOKEN: `refresh-${stale}`,
+  const outer = { ...process.env, JSN_ALWAYS_WARM_SESSION: '0', SERVICENOW_OAUTH_TOKEN: stale, SERVICENOW_OAUTH_REFRESH_TOKEN: `refresh-${stale}`,
     SERVICENOW_INSTANCE_URL: origin, GH_TOKEN: ghToken, GITHUB_TOKEN: ghToken, JSN_ACCEPTANCE_INGEST_TOKEN: ingestToken,
     HTTPS_PROXY: 'http://proxy.invalid:3128', HTTP_PROXY: 'http://proxy.invalid:3128', NODE_OPTIONS: '--no-warnings',
     NODE_EXTRA_CA_CERTS: '/nonexistent/ca.pem', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1' };
@@ -207,6 +207,10 @@ test('coordinator bridge fails closed on profile/target binding mismatches and l
     write({ 'acceptance-ci': { instance_url: origin, read_only: true } });
     const bound = coordinatorEnvironment({ env: childEnv, options, target: origin, token: fresh, configHome: base, home: path.dirname(base) });
     assert.equal(bound.SERVICENOW_OAUTH_TOKEN, fresh);
+    assert.equal(bound.JSN_ALWAYS_WARM_SESSION, undefined, 'ordinary coordinator launches retain the cookie-backed default');
+    const stateless = coordinatorEnvironment({ env: childEnv, options, target: origin, token: fresh, configHome: base, home: path.dirname(base), warmSession: '0' });
+    assert.equal(stateless.JSN_ALWAYS_WARM_SESSION, '0', 'an explicit stateless fixture opt-out survives the pinned child filter');
+    assert.equal(childEnv.JSN_ALWAYS_WARM_SESSION, undefined, 'the bridge never mutates the pinned environment');
     assert.equal(childEnv.SERVICENOW_OAUTH_TOKEN, undefined, 'the pinned child env object is never mutated');
     // Wrong expected target, profile name and HOME all refuse instead of leaking.
     assert.throws(() => coordinatorEnvironment({ env: childEnv, options, target: 'http://127.0.0.1:8', token: fresh, configHome: base, home: path.dirname(base) }), /binding refused/);
@@ -218,6 +222,7 @@ test('coordinator bridge fails closed on profile/target binding mismatches and l
     // Fixture/own-credential launches replace XDG_CONFIG_HOME: byte-identical env.
     const fixture = { HOME: path.join(dir, 'fixture'), XDG_CONFIG_HOME: path.join(dir, 'fixture/config'), SERVICENOW_OAUTH_TOKEN: '' };
     assert.equal(coordinatorEnvironment({ env: fixture, options, target: origin, token: fresh, configHome: base, home: path.dirname(base) }), fixture);
+    assert.equal(coordinatorEnvironment({ env: fixture, options, target: origin, token: fresh, configHome: base, home: path.dirname(base), warmSession: '0' }), fixture, 'coordinator opt-out must not change fixture actors');
     assert.equal(coordinatorEnvironment({ env: childEnv, options, target: origin, token: '', configHome: base, home: path.dirname(base) }), childEnv);
     assert.equal(coordinatorEnvironment({ env: childEnv, options, target: origin, token: fresh, configHome: undefined }), childEnv);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

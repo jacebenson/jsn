@@ -113,6 +113,16 @@ before count fallback/wrapping. Escape remains `Cancelled.` / exit 0. No TOTP
 seed storage or local generation exists. See `site/docs/guides/setup.md` for the
 fixture-only verification boundary and lifecycle.
 
+OAuth defaults to the existing cookie-backed UI session, including Table,
+Stats and Batch, with a matching user token and no Bearer header when the
+session is usable. `JSN_ALWAYS_WARM_SESSION=0` explicitly selects header-only
+OAuth on stateless-capable routes only; required UI endpoints and explicit
+`stateful:true` take precedence. Value 1 retains forced session behavior.
+Internal bootstrap bypass is not a public policy escape. Basic/TOTP, supplied
+token and GCK semantics are unchanged. The pre-existing unavailable-session
+Bearer fallback remains; HTTP 403 never triggers a warm/retry or mutation replay.
+See `site/docs/guides/setup.md#oauth-request-transport` for precedence and limits.
+
 `src/auth-recovery.js` creates the App-owned, identity-scoped recovery provider
 passed to the SDK as `opts.recovery`. Its `recover({ status, kind })` returns
 true only after replacing credentials. Its safe `error` supplies guidance

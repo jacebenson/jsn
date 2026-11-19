@@ -118,6 +118,8 @@ export async function runLocal(options) {
     fs.mkdirSync(path.join(config, 'servicenow'), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(config, 'servicenow/config.json'), JSON.stringify({ default_profile: 'acceptance', profiles: { acceptance: { instance_url: origin, auth_method: creds.auth_method, read_only: mode === 'readonly', ephemeral: true } } }), { mode: 0o600 });
     const env = { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(home, 'cache'), JSN_DATA_HOME: path.join(home, 'data'), DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_DOCS_CHECK: '1', ...(creds.auth_method === 'oauth' ? { SERVICENOW_OAUTH_TOKEN: creds.access_token } : { SN_USERNAME: creds.username, SN_PASSWORD: creds.password }) };
+    // Preserve an explicit stateless opt-out; absence retains the CLI default.
+    if (process.env.JSN_ALWAYS_WARM_SESSION === '0') env.JSN_ALWAYS_WARM_SESSION = '0';
     const harness = stageHarness(temporary, artifact.identity.version);
     const support = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/support.mjs')));
     const { executeScenarios } = await import(pathToFileURL(path.join(harness, 'cli/scripts/acceptance/run.mjs')));

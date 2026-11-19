@@ -39,15 +39,13 @@ function serializeCookies(cookieJar) {
   return [...cookieJar].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
-// REST resources that authenticate from the request's own headers. Every CLI
-// invocation is a fresh Node process, so `_warmSession()` always pays 2-3
-// sequential requests to mint UI cookies these paths never read — measured on a
-// live instance, `jsn records list` spent 4 round-trips on one list. Anything
-// else (script processors, GraphQL, the concourse picker, xmlhttp.do, update-set
-// export/import, binary attachment uploads) keeps the session bootstrap it
-// needs, and JSN_ALWAYS_WARM_SESSION=1 restores it for every path.
-// Basic is the exception: normal requests must first detect any TOTP challenge
-// before a pending operation can be sent. See docs/AUTH_LIFECYCLE.md.
+// Endpoint capability, not authentication policy: these REST surfaces can use
+// header-only auth. OAuth now prefers the existing UI session even here because
+// tables with ws_access=false reject Bearer while allowing the same user's UI
+// session. JSN_ALWAYS_WARM_SESSION=0 opts OAuth out only on these paths;
+// stateful:true, required UI endpoints and value 1 retain session precedence.
+// Basic/TOTP, supplied token and GCK policies remain unchanged. Internal OAuth
+// bootstrap must bypass warming to avoid recursion. See site/docs/guides/setup.md.
 const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch'];
 
 export function needsUiSession(url, { stateful = false, forceSession = false } = {}) {
@@ -106,7 +104,7 @@ export class SDKClient {
     this._recoveryPromise = null;
   }
 
-  async _setAuth(req, { skipOAuthSession = false, basicSession = false } = {}) {
+  async _setAuth(req, { skipOAuthSession = false, basicSession = false, preferOAuthSession = false, oauthHeaderOnly = false } = {}) {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
@@ -141,13 +139,18 @@ export class SDKClient {
         break;
       case 'token':
       case 'oauth':
-        if (!skipOAuthSession) {
+        if (!skipOAuthSession || creds.auth_method === 'oauth' && preferOAuthSession) {
           const cookies = await this._warmSession();
           if (cookies && this.sessionUserToken) {
+            if (creds.auth_method === 'oauth') req.headers.delete('Authorization');
             req.headers.set('Cookie', cookies);
             req.headers.set('X-UserToken', this.sessionUserToken);
             break;
           }
+        }
+        if (creds.auth_method === 'oauth' && oauthHeaderOnly) {
+          req.headers.delete('Cookie');
+          req.headers.delete('X-UserToken');
         }
         req.headers.set('Authorization', `Bearer ${creds.access_token}`);
         break;
@@ -181,14 +184,19 @@ export class SDKClient {
       try {
         const req = new Request(endpoint, { ...opts, redirect: 'error', signal: controller.signal });
         if (prepare) prepare(req);
-        // Header-authenticated REST skips UI warming for OAuth/token/GCK.
-        // Basic must still check for TOTP before dispatch; internal bootstrap
-        // requests explicitly bypass that check to avoid recursion.
+        // Endpoint requirements and Basic challenge gates are unchanged. OAuth
+        // additionally prefers the UI session on otherwise stateless REST unless
+        // explicitly opted out. Internal bootstrap bypasses both to avoid recursion.
         const skipSession = skipOAuthSession || !needsUiSession(endpoint, {
           stateful,
           forceSession: process.env.JSN_ALWAYS_WARM_SESSION === '1',
         });
-        await this._setAuth(req, { skipOAuthSession: skipSession, basicSession: !skipOAuthSession });
+        await this._setAuth(req, {
+          skipOAuthSession: skipSession,
+          basicSession: !skipOAuthSession,
+          preferOAuthSession: !skipOAuthSession && process.env.JSN_ALWAYS_WARM_SESSION !== '0',
+          oauthHeaderOnly: !skipOAuthSession && skipSession && process.env.JSN_ALWAYS_WARM_SESSION === '0',
+        });
         timer = setTimeout(() => controller.abort(), timeout);
         const response = await fetch(req);
         if (!skipOAuthSession && this.recovery) {

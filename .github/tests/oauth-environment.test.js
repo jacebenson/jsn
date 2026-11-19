@@ -50,7 +50,7 @@ test('HTTP refresh then actual CLI GET, rejection, recovery, redirects and timeo
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const local = { ...env, SERVICENOW_INSTANCE_URL: `http://127.0.0.1:${server.address().port}`, JSN_VERIFY_ENABLED: 'true', JSN_VERIFY_TARGET: 'vendor-1' };
+  const local = { ...env, JSN_ALWAYS_WARM_SESSION: '0', SERVICENOW_INSTANCE_URL: `http://127.0.0.1:${server.address().port}`, JSN_VERIFY_ENABLED: 'true', JSN_VERIFY_TARGET: 'vendor-1' };
   const run = () => new Promise((resolve, reject) => {
     const module = new URL('../scripts/verify-instance.mjs', import.meta.url).href;
     const child = spawn(process.execPath, ['--input-type=module', '-e', `import {refreshAndVerify} from ${JSON.stringify(module)}; console.log(JSON.stringify(await refreshAndVerify(process.env,{allowLocal:true})))`], { env: { ...process.env, ...local } });

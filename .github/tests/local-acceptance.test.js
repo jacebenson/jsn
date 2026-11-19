@@ -75,7 +75,9 @@ test('actual checkout and npm 5.5.5 execute bounded readonly scenarios, sanitize
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const old = { SERVICENOW_INSTANCE_URL: process.env.SERVICENOW_INSTANCE_URL, SERVICENOW_OAUTH_TOKEN: process.env.SERVICENOW_OAUTH_TOKEN };
+  // This provider deliberately implements stateless Bearer GETs, not UI sessions.
+  const old = { JSN_ALWAYS_WARM_SESSION: process.env.JSN_ALWAYS_WARM_SESSION, SERVICENOW_INSTANCE_URL: process.env.SERVICENOW_INSTANCE_URL, SERVICENOW_OAUTH_TOKEN: process.env.SERVICENOW_OAUTH_TOKEN };
+  process.env.JSN_ALWAYS_WARM_SESSION = '0';
   process.env.SERVICENOW_INSTANCE_URL = origin; process.env.SERVICENOW_OAUTH_TOKEN = token;
   try {
     for (const version of [undefined, '5.5.5']) {

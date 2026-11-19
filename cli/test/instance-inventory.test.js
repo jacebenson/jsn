@@ -86,8 +86,13 @@ test('duplicates, missing fields, invalid states, malformed responses, limits an
   }
 });
 
-test('Store comparison uses cookie/token session auth while plugin and unrelated Table defaults retain Bearer', async t => {
+test('Store comparison requires session auth while other tables honor the OAuth session policy', async t => {
   const calls = [];
+  const previous = process.env.JSN_ALWAYS_WARM_SESSION;
+  t.after(() => {
+    if (previous === undefined) delete process.env.JSN_ALWAYS_WARM_SESSION;
+    else process.env.JSN_ALWAYS_WARM_SESSION = previous;
+  });
   t.mock.method(globalThis, 'fetch', async request => {
     const url = new URL(request.url);
     const flags = { path: url.pathname, cookie: request.headers.has('cookie'), token: request.headers.has('x-usertoken'), bearer: request.headers.get('authorization')?.startsWith('Bearer ') || false };
@@ -99,12 +104,20 @@ test('Store comparison uses cookie/token session auth while plugin and unrelated
     const row = store ? { sys_id: 'store-local', scope: 'sn_fixture', name: 'Fixture app', version: '1.0', active: 'true', install_date: '2026-01-01' } : plugin('com.fixture');
     return new Response(JSON.stringify(url.pathname.includes('/stats/') ? { result: { stats: { count: '1' } } } : { result: [row] }));
   });
-  const client = new SDKClient('https://fixture.invalid', { getCredentials: async () => ({ auth_method: 'oauth', access_token: 'fixture-token' }) });
-  assert.equal((await readInventory(client, 'store')).coverage.status, 'complete');
-  assert.equal((await readInventory(client, 'plugins')).coverage.status, 'complete');
-  await client.listStrict('sys_properties', { sysparm_limit: 1 });
-  assert.ok(calls.filter(row => row.path.endsWith('sys_store_app')).every(row => row.cookie && row.token && !row.bearer));
-  assert.ok(calls.filter(row => row.path.endsWith('v_plugin') || row.path.endsWith('sys_properties')).every(row => row.bearer && !row.cookie && !row.token));
+  for (const mode of ['default', '0']) {
+    if (mode === 'default') delete process.env.JSN_ALWAYS_WARM_SESSION;
+    else process.env.JSN_ALWAYS_WARM_SESSION = mode;
+    calls.length = 0;
+    const client = new SDKClient('https://fixture.invalid', { getCredentials: async () => ({ auth_method: 'oauth', access_token: 'fixture-token' }) });
+    assert.equal((await readInventory(client, 'store')).coverage.status, 'complete');
+    assert.equal((await readInventory(client, 'plugins')).coverage.status, 'complete');
+    await client.listStrict('sys_properties', { sysparm_limit: 1 });
+    const storeCalls = calls.filter(row => row.path.endsWith('sys_store_app'));
+    const otherCalls = calls.filter(row => row.path.endsWith('v_plugin') || row.path.endsWith('sys_properties'));
+    assert.ok(storeCalls.length > 0 && otherCalls.length > 0);
+    assert.ok(storeCalls.every(row => row.cookie && row.token && !row.bearer), mode);
+    assert.ok(otherCalls.every(row => mode === '0' ? row.bearer && !row.cookie && !row.token : row.cookie && row.token && !row.bearer), mode);
+  }
 });
 
 test('App Client failures invalidate positive evidence; page limits never establish absence', async () => {

@@ -66,6 +66,9 @@ test('target defaults, independent missing configuration and explicit mutation a
   assert.ok(!JSON.stringify(clean).includes(token));
   assert.equal(clean.SERVICENOW_OAUTH_TOKEN, undefined, 'the ambient token is never forwarded by the allowlist');
   assert.equal(clean.HOME, '/private');
+  assert.equal(producerEnvironment({}, '/private', '/private/config').JSN_ALWAYS_WARM_SESSION, undefined);
+  assert.equal(producerEnvironment({ JSN_ALWAYS_WARM_SESSION: '0' }, '/private', '/private/config').JSN_ALWAYS_WARM_SESSION, '0');
+  assert.equal(producerEnvironment({ JSN_ALWAYS_WARM_SESSION: 'invalid' }, '/private', '/private/config').JSN_ALWAYS_WARM_SESSION, undefined);
 });
 
 test('scenario allowlist accepts LF and Windows CRLF without weakening unknown-ID rejection', async t => {
@@ -220,15 +223,16 @@ test('immutable real producer executes failing scenarios and restored passing sc
   // The refreshed token reaches the pinned producer as environment only and the
   // adapter bridge adds it to coordinator children; fixture actors stay isolated.
   assert.equal(fs.existsSync(path.join(configHome, 'servicenow/credentials')), false);
-  const isolated = { ...producerEnvironment(process.env, privateRoot, configHome), SERVICENOW_OAUTH_TOKEN: refreshed.accessToken };
+  // Stateless loopback provider: preserve strict Bearer and GET-only assertions.
+  const isolated = { ...producerEnvironment({ ...process.env, JSN_ALWAYS_WARM_SESSION: '0' }, privateRoot, configHome), SERVICENOW_OAUTH_TOKEN: refreshed.accessToken };
   assert.equal(isolated.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE, undefined);
   const supportURL = pathToFileURL(path.join(dir, 'cli/scripts/acceptance/support.mjs')).href;
   const adapterURL = pathToFileURL(path.join(root, '.github/scripts/acceptance/execute.mjs')).href;
   // In-process contexts still read the pinned environment filter's source env, so
   // emulate the exact producer environment for this test and restore it after.
-  const ambient = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, SERVICENOW_OAUTH_TOKEN: process.env.SERVICENOW_OAUTH_TOKEN };
+  const ambient = { JSN_ALWAYS_WARM_SESSION: process.env.JSN_ALWAYS_WARM_SESSION, HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, SERVICENOW_OAUTH_TOKEN: process.env.SERVICENOW_OAUTH_TOKEN };
   t.after(() => { for (const [key, value] of Object.entries(ambient)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
-  Object.assign(process.env, { HOME: isolated.HOME, XDG_CONFIG_HOME: isolated.XDG_CONFIG_HOME, SERVICENOW_OAUTH_TOKEN: isolated.SERVICENOW_OAUTH_TOKEN });
+  Object.assign(process.env, { JSN_ALWAYS_WARM_SESSION: isolated.JSN_ALWAYS_WARM_SESSION, HOME: isolated.HOME, XDG_CONFIG_HOME: isolated.XDG_CONFIG_HOME, SERVICENOW_OAUTH_TOKEN: isolated.SERVICENOW_OAUTH_TOKEN });
   // Spawn the producer boundary itself: merging isolated paths back into each
   // CLI child below would hide a regression in the pinned environment filter.
   // A rejected token must not emit authenticated scenario evidence; recovery

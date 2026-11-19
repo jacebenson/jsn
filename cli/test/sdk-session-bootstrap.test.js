@@ -8,8 +8,8 @@ const basicAuth = {
 
 /**
  * The UI session bootstrap (`/angular.do`) mints cookies and an X-UserToken for
- * processor-style endpoints. OAuth Table, stats and batch requests skip it;
- * Basic deliberately checks for a TOTP challenge before operation dispatch.
+ * processor-style endpoints and now OAuth data requests too. Basic deliberately
+ * checks for a TOTP challenge before dispatch; token/GCK policies are unchanged.
  */
 test('needsUiSession is false only for header-authenticated REST resources', () => {
   const base = 'https://example.service-now.com';
@@ -46,6 +46,7 @@ function spyClient(auth = basicAuth) {
   const state = { warmed: 0, requests: [] };
   client._warmSession = async () => {
     state.warmed += 1;
+    client.sessionUserToken = 'fixture-user-token';
     return 'JSESSIONID=1';
   };
   return { client, state };
@@ -62,14 +63,14 @@ function stubFetch(t, state) {
   });
 }
 
-test('a table read authenticates from its header without bootstrapping a session', async (t) => {
+test('an OAuth table read prefers session cookies without a Bearer header', async (t) => {
   const { client, state } = spyClient({ getCredentials: async () => ({ auth_method: 'oauth', access_token: 'fixture' }) });
   stubFetch(t, state);
   await client.request('https://example.service-now.com/api/now/table/sys_user?sysparm_limit=1');
-  assert.equal(state.warmed, 0);
+  assert.equal(state.warmed, 1);
   assert.equal(state.requests.length, 1);
-  assert.equal(state.requests[0].authorization, 'Bearer fixture');
-  assert.equal(state.requests[0].cookie, null);
+  assert.equal(state.requests[0].authorization, null);
+  assert.equal(state.requests[0].cookie, 'JSESSIONID=1');
 });
 
 test('a processor-shaped request still bootstraps the UI session', async (t) => {

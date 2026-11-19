@@ -793,6 +793,16 @@ session cookie and user token. An instance that needs a session for table reads
 sets `JSN_ALWAYS_WARM_SESSION=1`, which restores the previous path for the whole
 process; the CLI does not silently retry a refused read behind a caller's back.
 
+**Superseded for OAuth by the current session-default policy.** Live reads of
+sys_store_app with ws_access=false returned 403 with Bearer and 200 with the same
+account's Cookie/X-UserToken session. OAuth now prefers the existing UI session
+for Table/Stats/Batch as well. `JSN_ALWAYS_WARM_SESSION=0` explicitly selects
+header-only OAuth only on stateless-capable routes; required UI endpoints and
+`stateful:true` cannot be opted out. Value 1 still forces session use. Basic/TOTP,
+supplied token and GCK policies, existing bootstrap-unavailable Bearer fallback,
+and bounded recovery/mutation-replay rules are unchanged. No 403 warm/retry is
+introduced. See [OAuth request transport](../guides/setup.md#oauth-request-transport).
+
 ### One directory per owner at the repository root
 
 The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under

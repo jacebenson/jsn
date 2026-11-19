@@ -151,7 +151,7 @@ test('missing upgrade resolution and installed scopes remain unclassified', asyn
   assert.equal(result.categories.unclassified.length, 3);
 });
 
-test('read-only data requests refresh OAuth without a UI session bootstrap and still reject mutations', async t => {
+test('read-only data requests refresh OAuth and bootstrap its session while still rejecting mutations', async t => {
   const { SDKClient } = await import('../src/sdk.js');
   const { AuthManager } = await import('../src/auth.js');
   let creds = { auth_method: 'oauth', access_token: 'expired-fixture', refresh_token: 'fixture', expires_at: 1 };
@@ -178,17 +178,17 @@ test('read-only data requests refresh OAuth without a UI session bootstrap and s
     }
     assert.equal(req.method, 'GET');
     assert.equal(url.pathname, '/api/now/table/sys_metadata');
-    // Table reads authenticate from the request header; no UI session is warmed
-    // for them, so no cookie or user token rides along.
-    assert.equal(req.headers.get('Authorization'), 'Bearer fresh-fixture');
-    assert.equal(req.headers.get('Cookie'), null);
-    assert.equal(req.headers.get('X-UserToken'), null);
+    // Authentication refresh/bootstrap may POST, but the data read must use
+    // the complete default OAuth session pair and never mix it with Bearer.
+    assert.equal(req.headers.get('Authorization'), null);
+    assert.equal(req.headers.get('Cookie'), 'JSESSIONID=fixture');
+    assert.equal(req.headers.get('X-UserToken'), 'fixture-gck');
     return Response.json({ result: metadata });
   });
   const sdk = new SDKClient('https://mock.example', auth.createProfileProvider('https://mock.example', { authMethod: 'oauth' }));
   assert.deepEqual(await sdk.list('sys_metadata', {}, { readOnly: true }), metadata);
   assert.equal(saves, 1);
-  assert.deepEqual(requests, ['POST /oauth_token.do', 'GET /api/now/table/sys_metadata']);
+  assert.deepEqual(requests, ['POST /oauth_token.do', 'POST /angular.do', 'GET /api/now/table/sys_scope', 'POST /angular.do', 'GET /api/now/table/sys_metadata']);
   const count = requests.length;
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
     await assert.rejects(sdk.request('https://mock.example/api/now/table/sys_metadata', { readOnly: true, method }), /require GET/);

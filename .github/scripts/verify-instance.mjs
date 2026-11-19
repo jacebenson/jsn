@@ -33,6 +33,7 @@ export function verifyInstance(env = process.env, { allowLocal = false } = {}) {
       cwd: scratch, encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024,
       env: { PATH: env.PATH || '', HOME: scratch, XDG_CONFIG_HOME: scratch, XDG_CACHE_HOME: scratch, TMPDIR: scratch,
         SERVICENOW_INSTANCE_URL: url.origin, SERVICENOW_OAUTH_TOKEN: env.SERVICENOW_OAUTH_TOKEN,
+        ...(env.JSN_ALWAYS_WARM_SESSION === '0' ? { JSN_ALWAYS_WARM_SESSION: '0' } : {}),
         JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', CI: 'true', NO_COLOR: '1' },
     });
     if (result.error) return failure('unavailable');

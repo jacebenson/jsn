@@ -33,6 +33,7 @@ export function producerEnvironment(env, privateRoot, configHome) {
   // never win. The pinned producer strips it again for non-coordinator children.
   return { PATH: env.PATH || '', HOME: privateRoot, XDG_CONFIG_HOME: configHome,
     XDG_CACHE_HOME: privateRoot, TMPDIR: privateRoot, CI: 'true',
+    ...(env.JSN_ALWAYS_WARM_SESSION === '0' ? { JSN_ALWAYS_WARM_SESSION: '0' } : {}),
     DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent-jsn-acceptance-bus',
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_DOCS_CHECK: '1' };
 }
