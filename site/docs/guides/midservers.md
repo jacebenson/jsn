@@ -18,7 +18,7 @@ a remote target. Current SSH authentication must be noninteractive: use a key,
 agent or an already authenticated connection. An SSH password prompt is a separate
 future option; `--password-stdin` supplies the ServiceNow MID password only.
 
-[Live lifecycle verification and terminal evidence](verification/260-remote-mid.md)
+[Live lifecycle verification and terminal evidence](https://github.com/jacebenson/jsn/blob/main/site/docs/evidence/verification/260-remote-mid.md)
 cover Linux native, Linux Docker and Windows native installation through teardown.
 
 ## Plan and command surface

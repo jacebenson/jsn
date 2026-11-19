@@ -54,8 +54,8 @@ under npm's `dev` tag. Versions include the workflow run number and attempt
 The npm trusted publisher for `publish-dev.yml` must authorize the repository's
 `dev` GitHub environment, alongside the production publishing configuration.
 
-See [contribution rules](../AGENTS.md) and the workflow definitions under
-[.github/workflows](../.github/workflows/).
+See [contribution rules](../../../AGENTS.md) and the workflow definitions under
+[.github/workflows](../../../.github/workflows/).
 
 ## Shell tab-completion removed
 

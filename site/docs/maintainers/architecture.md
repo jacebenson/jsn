@@ -10,7 +10,7 @@ Decision for #324, recorded before moving the serving layer.
 
 Historical migration plan: the later Rails Markdown migration removes the
 Eleventy project described below. Current ownership and URL compatibility are
-documented in [README.md](README.md) and `site/README.md`; this decision record
+documented in [README.md](../README.md) and `site/README.md`; this decision record
 is retained as evidence, not published as a public guide.
 
 ## Current ownership and deployment
@@ -156,7 +156,7 @@ acceptance. Do not turn the live site into a blocking release dependency until
 an exact-version/source scenario, fixture or approved run producer, freshness
 expectation, and outage/failure policy are agreed. Local acceptance page tests
 remain part of the Docker suite. The separate observational workflow documented
-in [acceptance-ci.md](acceptance-ci.md) reuses the pinned genuine producer and
+in [acceptance-ci.md](testing.md#live-acceptance-ci-and-public-results) reuses the pinned genuine producer and
 publishes its closed projection when dedicated test/auth and ingest settings are
 configured. Missing configuration skips execution, never reports passing
 acceptance. The default lane is an explicit readonly subset. PDI mutations need
@@ -841,7 +841,7 @@ This is the product map for JSN. The verification guide under `docs/verification
 | Performance and diagnostics | `perf`, logs, transactions, snippets, and inspect commands | `src/commands/perf.js`, related command modules | Read-only command checks and focused tests |
 | GraphQL | `graphql` with positional, `--query`, `--query-file`, or `--stdin` documents | `src/commands/graphql.js`, `src/sdk.js` | Bounded authenticated query plus command/transport tests |
 
-For proof details, start with the [verification guide](verification/README.md). Add a feature here only when the command exists in the source and its user-visible behavior is understood.
+For proof details, start with the [verification guide](../evidence/verification/README.md). Add a feature here only when the command exists in the source and its user-visible behavior is understood.
 
 ## JSN current state
 

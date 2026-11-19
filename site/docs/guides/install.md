@@ -88,7 +88,7 @@ at `$XDG_CONFIG_HOME/servicenow/config.json`, normally
 ## Direct MID Server ZIP installation
 
 For SSH installation, native Windows services and remote Linux background
-runtimes, see [remote MID management](mid-remote-management.md). The commands below
+runtimes, see [remote MID management](midservers.md#remote-mid-management-over-ssh). The commands below
 describe installation on the local controller.
 
 ```sh

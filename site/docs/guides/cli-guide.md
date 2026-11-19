@@ -58,7 +58,7 @@ Official x86-64 ZIPs for Linux and Windows, selected from the instance's
 `mid.version`. Credentials are prompted and validated before installation.
 Linux supports a user-owned background runtime. Windows currently prepares
 private files and offers a foreground console, not native service registration.
-See [direct MID installation](mid-direct-install.md) for security boundaries,
+See [direct MID installation](install.md#direct-mid-server-zip-installation) for security boundaries,
 lifecycle commands and the untested Windows host phases. Docker remains available.
 
 ## Create an update set in a scope
@@ -290,7 +290,7 @@ retrieved update set and stops; `preview` and `commit` drive the platform's own
 CICD Update Set API steps and follow their progress trackers. `problems` is
 read-only: jsn never accepts, skips, or ignores a preview problem, and commit
 refuses while any remains unresolved. Both mutating steps verify `previewed` /
-`committed` by readback. See [update-set-transfer.md](update-set-transfer.md).
+`committed` by readback. See [update-set-transfer.md](updatesets.md#transfer-an-update-set).
 
 ### Flow Designer actions
 
@@ -426,7 +426,7 @@ Flow edits are limited to the existing manifest contract. They do not rename
 flows, add/remove steps, implement Flow Logic, subflows, variables or error
 handling. Flow deletion remains unsupported. Action deletion retains its
 existing explicit parent-record cleanup and absence readback, not a new native
-builder deletion lifecycle. See [command coverage and local proof](flow-designer-interactive.md).
+builder deletion lifecycle. See [command coverage and local proof](flows.md#flow-designer-interactive-commands).
 
 ### Flow creation manifest
 
@@ -517,7 +517,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Automation** — `flows`, `actions`, `rules`, `scrapi`, `updatesets`, `eval`, `rest`
 
-**Upgrade review** — [`skipped-updates`](skipped-updates.md) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
+**Upgrade review** — [`skipped-updates`](safety.md#skipped-update-review) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
 
 **Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`
 
@@ -736,7 +736,7 @@ Noninteractive, `--json`, and `--get` invocations fail with `mfa_required` and
 guidance instead of prompting. JSN never stores TOTP seeds or generates codes.
 Configure OAuth or a browser session explicitly for unattended use. MFA failure
 never switches authentication methods or sends the pending operation. See the
-[authentication lifecycle](AUTH_LIFECYCLE.md#basic-auth-totp-challenges-402) for
+[authentication lifecycle](setup.md#basic-auth-totp-challenges-402) for
 timeouts, identity verification, and the fixture-only verification boundary.
 For browser-session auth, run `jsn auth login --gck <instance>` and paste the request headers when prompted.
 
@@ -813,7 +813,7 @@ export SERVICENOW_OAUTH_TOKEN="***"
 jsn incidents list
 ```
 
-For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`AUTH_LIFECYCLE.md`](AUTH_LIFECYCLE.md).
+For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`AUTH_LIFECYCLE.md`](setup.md#authentication-lifecycle-review).
 
 GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`; introspection and available namespaces depend on the target instance.
 

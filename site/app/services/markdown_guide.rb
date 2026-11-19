@@ -14,8 +14,10 @@ class MarkdownGuide
   # repository-root spelling and the new site/docs-relative spelling are kept so
   # retained documents do not lose screenshots.
   IMAGES = {
+    '../../static/assets/flow-search-offline.png' => '/assets/flow-search-offline.png',
     '../site/static/assets/flow-search-offline.png' => '/assets/flow-search-offline.png',
     '../static/assets/flow-search-offline.png' => '/assets/flow-search-offline.png',
+    '../../static/images/codesearch-graphql-offline-fixture.png' => '/images/codesearch-graphql-offline-fixture.png',
     '../site/static/images/codesearch-graphql-offline-fixture.png' => '/images/codesearch-graphql-offline-fixture.png',
     '../static/images/codesearch-graphql-offline-fixture.png' => '/images/codesearch-graphql-offline-fixture.png',
     'images/updatesets-diff-compact.png' => '/images/updatesets-diff-compact.png',

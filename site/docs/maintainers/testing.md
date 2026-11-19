@@ -15,8 +15,8 @@ quota. Count changes below describe the result, not a target.
 ## Combined audit scope
 
 The completed review inventories all **153 tracked test files** on this base:
-17 safety/authentication files below, 31 in [the CLI/SDK report](TEST_AUDIT_CLI_SDK.md),
-and 105 in [the remaining-suite report](TEST_AUDIT_REMAINING.md). The manifests
+17 safety/authentication files below, 31 in [the CLI/SDK report](testing.md#cli-and-sdk-test-audit--issue-365),
+and 105 in [the remaining-suite report](testing.md#remaining-suite-test-audit-issue-365). The manifests
 are disjoint and their union matches the tracked suite. Every file received
 source screening; candidate changes received detailed test/production review.
 This does not establish exhaustive behavior or mutation coverage. The earlier

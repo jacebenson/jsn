@@ -134,7 +134,7 @@ npm run lint
 The following image renders verbatim stdout from that authenticated offline
 fixture test. It is not live-instance evidence.
 
-![Offline fixture terminal output](../site/static/images/codesearch-graphql-offline-fixture.png)
+![Offline fixture terminal output](../../static/images/codesearch-graphql-offline-fixture.png)
 
 The implementation worker does not run instance probes. Live acceptance should
 compare the same fields/term/scope against independently paginated Table API

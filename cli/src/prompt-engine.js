@@ -51,6 +51,10 @@ export function truncate(text, width = 70) {
  *     directive: { done: value } finishes, { cancel: true } throws
  *                PromptCancelled, { escape: true } resolves undefined.
  *   render(config, state) -> string | string[]
+ *   final(config, value, state) -> string | null — the settled answer line
+ *     (Inquirer prints `✔ <message> <answer>`). Only written on a TTY after
+ *     the live frame is erased, so one prompt yields exactly one final line
+ *     and piped output keeps its existing byte contract.
  *   escapeValue — when the caller treats Escape as "leave this screen",
  *     pass a sentinel produced by `escapeResult(value)`.
  */
@@ -80,6 +84,16 @@ export async function runPrompt(config, context, spec) {
   const finish = value => {
     if (settled) return;
     settled = true;
+    // The settled answer replaces the live frame rather than appending to it:
+    // rewind the frame height first so a terminal reader sees one final line.
+    if (spec.final && output.isTTY) {
+      const line = spec.final(config, value, state);
+      if (line) {
+        if (height > 0) output.write(`\x1b[${height}A\x1b[0J`);
+        output.write(`${line}\n`);
+        height = 0;
+      }
+    }
     resolveDone(value);
   };
   const fail = error => {

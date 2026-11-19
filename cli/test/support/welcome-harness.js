@@ -164,27 +164,10 @@ export function runPtyAsync(configHome, args = [], opts = {}) {
 
 /**
  * Why PTY-based assertions cannot run on this platform, or `false` when they
- * can. Windows has no `pty` module in Python, so those tests skip there while
- * the rest of the suite keeps running. Returns `false` rather than null
- * because node:test treats the mere presence of a `skip` key as "skip".
- *
- * @param {string} [platform]
- * @param {number|null} [pythonStatus] — exit status of `python3 --version`
- * @returns {string|false}
+ * can. The POSIX PTY boundary is declared once in support/pty-capability.js
+ * (win32 has no Python pty/fcntl) and re-exported here for existing callers.
  */
-export function ptySkipReason(platform = process.platform, pythonStatus = pythonAvailable()) {
-  if (platform === 'win32') return 'PTY assertions need a POSIX pty; skipped on win32 (CI: windows-2022)';
-  if (pythonStatus !== 0) return 'PTY assertions need python3 on PATH';
-  return false;
-}
-
-let pythonStatusCache;
-export function pythonAvailable() {
-  if (pythonStatusCache === undefined) {
-    pythonStatusCache = spawnSync('python3', ['--version'], { encoding: 'utf-8' }).status;
-  }
-  return pythonStatusCache;
-}
+export { ptySkipReason } from './pty-capability.js';
 
 // Built from code points so the source holds no control-character literal.
 const ESC = String.fromCharCode(27);

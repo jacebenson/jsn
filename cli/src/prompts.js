@@ -69,6 +69,12 @@ function textPrompt({ secret = false, defaultValue = null } = {}) {
       const error = state.error ? `\n  ${state.error}` : '';
       return `${label}${suffix}\n> ${shown}${error}`;
     },
+    // Settled line keeps the prompt's own message (and hint) and never the
+    // secret value; Inquirer's `✔ message answer` shape.
+    final(cfg, value) {
+      const answer = secret || value === undefined || value === '' ? '' : ` ${value}`;
+      return `✔ ${withHint(cfg)}${answer}`;
+    },
   });
 }
 
@@ -102,6 +108,7 @@ export async function confirm(config = {}, context = {}) {
       const hint = fallback ? '[Y/n]' : '[y/N]';
       return `${withHint(config)} ${hint} ${state.value}`;
     },
+    final: (cfg, value) => `✔ ${withHint(cfg)} ${value ? 'Yes' : 'No'}`,
   });
 }
 
@@ -128,6 +135,10 @@ export async function select(config = {}, context = {}) {
       });
       lines.push('', '  Use arrow keys, Enter to select.');
       return lines;
+    },
+    final(cfg, value) {
+      const chosen = choices.find(choice => choice.value === value);
+      return `✔ ${withHint(cfg)} ${chosen ? chosen.name : value}`;
     },
   });
 }

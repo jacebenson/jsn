@@ -7,9 +7,9 @@ Inspect Flow Designer structures, search decoded flow definitions, clone a draft
 ## Flow Designer interactive commands
 
 For the partial draft-edit contract, preview, versioning, published-flow refusal
-and instance evidence limits, see [Safe edits to existing flows](safe-flow-edit.md).
+and instance evidence limits, see [Safe edits to existing flows](safety.md#safe-edits-to-existing-flows).
 For native inactive-Draft duplication, supported graph boundaries and pending live
-acceptance, see [Clone a flow](flow-clone.md).
+acceptance, see [Clone a flow](#clone-an-inactive-draft-flow).
 
 ## Terminal contract
 
@@ -156,7 +156,7 @@ The report distinguishes provider count, inventoried flows, downloaded definitio
 
 ### Verification
 
-![Recorded CLI output from the local synthetic fixture, not a live instance capture](../site/static/assets/flow-search-offline.png)
+![Recorded CLI output from the local synthetic fixture, not a live instance capture](../../static/assets/flow-search-offline.png)
 
 Offline fixture tests exercise genuine gzip-encoded provider-shaped values, readable script extraction, deliberate corruption, cold/warm/refresh behavior, cache context isolation, permission revocation, secure file permissions, pagination and partial coverage. The fixture script is synthetic, not copied from an instance or another product. CLI subprocess tests use a local HTTP provider and a read-only profile to exercise the actual parser, backend GET requests, JSON/extraction and human formats.
 
