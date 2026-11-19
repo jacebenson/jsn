@@ -20,10 +20,10 @@ export function recordListParams({ limit, offset, query, fields, displayValue: r
   return params;
 }
 
-export function listRecords(sdk, { table, params, displayValues, ...options }) {
+export function listRecords(sdk, { table, params, displayValues, responseMetadata, ...options }) {
   const query = tableReadParams(params || recordListParams(options), sdk);
   if (displayValues !== undefined) query.set('sysparm_display_value', displayValue(displayValues));
-  return sdk.list(table, query);
+  return responseMetadata ? sdk.list(table, query, { responseMetadata }) : sdk.list(table, query);
 }
 
 export function getRecord(sdk, options) {

@@ -1,8 +1,8 @@
+import { subscriptionsCmdDefinition } from '../command-families.js';
 import { refreshSchedules } from '../schedule-cache.js';
-import { declareCapabilities } from '../capabilities.js';
 import { loadSchedule, scheduleCatalog, scheduleSnapshot, formatSchedule, estimateSubscription, formatEstimate } from '../subscriptions.js';
 
-declareCapabilities('subscriptions', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
+
 export function subscriptionsCmd(wrap) {
   const local = (argv, app) => {
     const snapshot = scheduleSnapshot();
@@ -21,7 +21,7 @@ export function subscriptionsCmd(wrap) {
     app.ok(data, { summary: 'Local dated metering schedules, not purchased rights' });
   };
   return {
-    command: 'subscriptions [subcommand]', describe: 'Inspect local metering schedules and compare illustrative ITOM populations',
+    ...subscriptionsCmdDefinition,
     builder: y => y.command({ command: 'refresh', describe: 'Explicitly download and validate schedule catalog; retain last-good on failure', builder: b => b.option('manifest-url', { type: 'string' }), handler: wrap(async (argv, app) => {
       const origin = process.env.JSN_DOCS_URL || app.config?.docs?.url;
       const manifest = argv.manifestUrl || process.env.JSN_SCHEDULES_MANIFEST_URL || app.config?.docs?.schedule_manifest_url || (origin ? new URL('/subscription-schedules/v1/manifest.json', origin).href : undefined);

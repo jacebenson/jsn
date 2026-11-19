@@ -1,14 +1,14 @@
+import { docsCmdDefinition } from '../../command-families.js';
 // Documentation search always uses the same API, hosted or self-hosted.
 import { searchHostedDocs, getHostedDoc, getHostedDocsStatus, configuredDocsService } from './client.js';
 import { documentationService } from './local.js';
 
-import { declareCapabilities } from '../../capabilities.js';
 import { docLink } from '../../docs-links.js';
 import { AppError } from '../../errors.js';
 import { resolveDocsRelease } from './db.js';
 import { listDocsReleases } from './releases.js';
 
-declareCapabilities('docs', { noInstance: true, skipDailyChecks: true });
+
 
 function presented(data, text) {
   return Object.defineProperty(data, '_formatted', { value: text, enumerable: false });
@@ -58,9 +58,7 @@ export function docsCmd(wrapHandler) {
     return handler(argv, app);
   });
   return {
-    command: 'docs [query..]',
-    defaultPositionals: true,
-    describe: 'Search ServiceNow documentation (hosted by default; configure your service in setup)',
+    ...docsCmdDefinition,
     builder: y => y
       .usage('Usage: jsn docs "search terms" [options]')
       .epilogue(`Documentation for this command: ${docLink('docs')}`)

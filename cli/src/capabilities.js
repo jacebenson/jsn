@@ -36,9 +36,9 @@
 // Note: yargs strips custom properties off command modules when it
 // registers them (only original/description/handler/builder survive in
 // getCommandHandlers()), so declarations live in this module-level map,
-// keyed by root command name. Declaration happens when the command module
-// factory runs — i.e. during cli.js's registration chain — so the registry
-// is complete once buildCLI() returns.
+// keyed by root command name. Eager factories declare during registration;
+// lazy families declare in command-families.js, never in a deferred factory.
+// The registry is complete once buildCLI() returns, before path resolution.
 
 const REGISTRY = new Map();
 

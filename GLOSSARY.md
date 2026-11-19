@@ -249,6 +249,29 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
   (`create`/`update`/`delete`/etc.). Declared via `mutationSubcommands`.
   Read-only profiles block these. See *capability registry*.
 
+## Lazy command family
+
+`src/command-families.js` owns lightweight root identity (signature, aliases,
+description) and eager capabilities for the heavyweight families it exports.
+The implementation spreads that same identity rather than maintaining a second
+help/alias declaration. Capability declarations must never be deferred with the
+handler: the entire registry and mutation paths are complete at `buildCLI()`.
+
+The adapter loads a family's implementation when the normal option-aware path
+resolver reaches its node, before child aliases, required options or middleware
+are evaluated. There is no separate argv scanner. Node >=24's synchronous
+`require(ESM)` preserves the existing synchronous registration/discovery API;
+lazy implementation graphs must not introduce top-level await. This is a module
+loading boundary, not CommonJS source conversion or a generated command catalog.
+
+Root human help explicitly uses `commandRegistry({ shallow: true })`, which
+reads root identity without promising child lists. Default `commandRegistry()`
+(including JSON and `discover`) still builds every family for complete discovery.
+Shared App/SDK infrastructure remains eager; unrelated docs setup/storage helpers
+must not be imported merely to configure another command. The executable
+module-hook assertions in `cli/test/lazy-families.test.js` protect this deliberate
+architecture invariant, alongside parser and eager-policy behavior checks.
+
 ## Attachment transfer
 
 `attachments` is the standalone owner of file listing, download and upload.
