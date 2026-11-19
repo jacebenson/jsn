@@ -41,37 +41,10 @@ const setupHelp = () => [
   'Configure settings directly: jsn setup --configure-defaults or jsn setup --configure-docs.',
 ].join('\n');
 
-/** The setup hub prompt; q and Escape resolve with no selected action. */
+/** The setup hub shares searchable local menus; Escape leaves the hub. */
 export const authHubPrompt = async (config = {}, context = {}) => {
-  const { runPrompt, escapeResult } = await import('../prompt-engine.js');
-  const choices = config.choices || [];
-  const state = { active: 0 };
-  return runPrompt(config, context, {
-    escapeValue: escapeResult(undefined),
-    init: () => state,
-    key(_state, key, api) {
-      if (key.name === 'q') return { done: undefined };
-      if (key.name === 'return' || key.name === 'enter') {
-        const choice = choices[state.active];
-        if (choice) return { done: choice.value };
-        return;
-      }
-      if (key.name === 'up' && state.active > 0) { state.active -= 1; api.redraw(); return; }
-      if (key.name === 'down' && state.active < choices.length - 1) { state.active += 1; api.redraw(); }
-    },
-    render() {
-      // Section headings are rendered inline; the pagination budget the
-      // Inquirer version needed no longer applies to a local renderer.
-      const lines = [config.message];
-      choices.forEach((choice, index) => {
-        const heading = choices[index - 1]?.section !== choice.section ? `${index ? '\n' : ''}  ${choice.section}` : null;
-        if (heading) lines.push(heading);
-        lines.push(`${index === state.active ? '❯' : ' '} ${choice.name}`);
-      });
-      lines.push('', '↑↓ navigate • ⏎ select • q/Esc exit');
-      return lines;
-    },
-  });
+  const { select, escapeResult } = await import('../prompts.js');
+  return select({ ...config, escapeValue: escapeResult(undefined) }, context);
 };
 
 /** Interactive hub: what do you want to do? Returns an action or undefined on exit. */

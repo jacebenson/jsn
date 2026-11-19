@@ -93,5 +93,5 @@ test('the record picker advertises the same Escape convention', async () => {
   const pending = paginatedSearch({ message: 'Pick', totalCount: 1, source: () => [{ name: 'one', value: 1 }] }, { input: stream, output });
   setImmediate(() => stream.write('\x1b'));
   assert.equal(await pending, undefined);
-  assert.match(visible, /type to search, Esc to cancel\)/);
+  assert.match(visible, /↑↓ navigate • ⏎ select • type to search • Esc cancel/);
 });

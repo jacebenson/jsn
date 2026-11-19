@@ -8,7 +8,8 @@
  *   Down at the last loaded row loads more while loaded < totalCount.
  */
 
-import { runPrompt, normalizeChoices, truncate, escapeResult } from './prompt-engine.js';
+import { pickerRows, pickerFooter } from './picker-ui.js';
+import { runPrompt, normalizeChoices, escapeResult } from './prompt-engine.js';
 
 export const paginatedSearch = async (config = {}, context = {}) => {
   const { message, pageSize = 10, totalCount = 0, source } = config;
@@ -41,6 +42,7 @@ export const paginatedSearch = async (config = {}, context = {}) => {
       if (!isCurrent(token)) return;
       state.choices = append ? state.choices.concat(items) : items;
       state.loaded = state.choices.length;
+      state.exhausted = items.length === 0;
       state.active = Math.min(state.active, Math.max(0, state.choices.length - 1));
       state.status = 'done';
     } catch (error) {
@@ -77,7 +79,7 @@ export const paginatedSearch = async (config = {}, context = {}) => {
         // screen may be about to change.
         if (state.status === 'loading' || !state.choices.length) return;
         const choice = state.choices[state.active];
-        if (!choice) return;
+        if (!choice || choice.disabled) return;
         return { done: choice };
       }
       if (key.name === 'up') {
@@ -90,7 +92,7 @@ export const paginatedSearch = async (config = {}, context = {}) => {
         if (state.active < state.choices.length - 1) {
           state.active += 1;
           api?.redraw();
-        } else if (!state.searchMode && state.loaded < totalCount) {
+        } else if (!state.searchMode && !state.exhausted && state.loaded < totalCount) {
           const before = state.loaded;
           const pending = load('', state.loaded, { append: true });
           const token = state.token;
@@ -130,17 +132,11 @@ export const paginatedSearch = async (config = {}, context = {}) => {
       const header = totalCount > 0 && !state.searchMode
         ? `${message} (${state.loaded} of ${totalCount} loaded)`
         : message;
-      const lines = [`${header} Search: ${state.term}${state.status === 'loading' ? ' ...' : ''}`];
+      const lines = [header ?? '', `Search: ${state.term}${state.status === 'loading' ? ' ...' : ''}`];
       if (state.error) lines.push(`  ${state.error}`);
       else if (!state.choices.length) lines.push(state.status === 'loading' ? '  Loading...' : '  No matches');
-      visible.forEach((choice, index) => {
-        const absolute = start + index;
-        lines.push(`${absolute === state.active ? '>' : ' '} ${truncate(choice.name)}`);
-      });
-      const help = state.loaded < totalCount && !state.searchMode
-        ? '(scroll to load more, type to search, Esc to cancel)'
-        : '(type to search, Esc to cancel)';
-      lines.push('', help);
+      lines.push(...pickerRows(visible, state.active - start));
+      lines.push(...pickerFooter({ more: state.loaded < totalCount && !state.searchMode && !state.exhausted }));
       return lines;
     },
   });
