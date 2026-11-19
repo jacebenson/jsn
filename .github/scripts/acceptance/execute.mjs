@@ -24,6 +24,41 @@ export function observeScenario(scenario) {
   return scenario;
 }
 
+// Adapter-owned environment bridge for the pinned producer's inner filter.
+//
+// The pinned createContext deliberately strips SERVICENOW_OAUTH_TOKEN from every
+// CLI child and refuses a fixture-supplied token. CI keeps the refreshed token in
+// memory only (no credential file), so the adapter adds it back for the
+// coordinator launch that uses the seeded private profile. A launch is a
+// coordinator launch only when its child XDG_CONFIG_HOME is the exact seeded
+// config home; fixture, negative and own-credential actors replace it and are
+// left byte-identical. A coordinator config whose single profile does not match
+// the selected profile/target fails closed instead of forwarding the token.
+export function coordinatorEnvironment({ env, options, target, token, configHome, home }) {
+  if (!token || !configHome || env?.XDG_CONFIG_HOME !== configHome) return env;
+  if (home !== undefined && env.HOME !== home) throw new Error('Coordinator environment binding refused');
+  let config;
+  try { config = JSON.parse(fs.readFileSync(path.join(configHome, 'servicenow/config.json'), 'utf8')); }
+  catch { throw new Error('Coordinator profile binding refused'); }
+  const profiles = Object.keys(config.profiles || {});
+  const profile = config.profiles?.[options.profile];
+  let bound;
+  try { bound = new URL(profile?.instance_url ?? '').origin; } catch { bound = ''; }
+  if (profiles.length !== 1 || profiles[0] !== options.profile || bound !== target) throw new Error('Coordinator profile target binding refused');
+  return { ...env, SERVICENOW_OAUTH_TOKEN: token };
+}
+
+export function bridgedRunProcess(runProcess, { options, target, env = process.env }) {
+  return (executable, args, opts = {}) => runProcess(executable, args, {
+    ...opts,
+    env: coordinatorEnvironment({ env: opts.env, options, target: target.target, token: env.SERVICENOW_OAUTH_TOKEN, configHome: env.XDG_CONFIG_HOME, home: env.HOME }),
+  });
+}
+
+export function bridgedContext(support, options, target, env = process.env) {
+  return support.createContext(options, target, { execute: bridgedRunProcess(support.runProcess, { options, target, env }) });
+}
+
 export async function main(args = process.argv.slice(2)) {
   const support = await import('../../../cli/scripts/acceptance/support.mjs');
   const { executeScenarios } = await import('../../../cli/scripts/acceptance/run.mjs');
@@ -32,7 +67,8 @@ export async function main(args = process.argv.slice(2)) {
   const { loadConfig } = await import('../../../cli/src/config.js');
   const { adaptCatalog, adaptInventory } = await import('./catalog-v2.mjs');
   const options = support.parseArgs(args);
-  const ctx = support.createContext(options, support.preflight(options, loadConfig()));
+  const target = support.preflight(options, loadConfig());
+  const ctx = bridgedContext(support, options, target);
   if (options.mode === 'pdi' && options.allowWrites) {
     const { createProviderSessionAdapter } = await import('../../../cli/scripts/acceptance/session-adapter.mjs');
     ctx.state.set('auth.browserAdapter', createProviderSessionAdapter());

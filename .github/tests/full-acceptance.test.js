@@ -13,7 +13,11 @@ test('full immutable catalog plan makes no provider calls and exposes every prer
  try {
   const result = await runLocal({ plan:true, target:'vendor-1', output:path.join(root,'plan') });
   const plan = JSON.parse(fs.readFileSync(result.file));
-  assert.equal(plan.mode,'pdi'); assert.equal(plan.scenarios.length,92);
+  assert.equal(plan.mode,'pdi');
+  // v5.5.7 retired `jsn history`; the candidate plan no longer carries
+  // local.history-empty, leaving 91 of the historical 92 catalog scenarios.
+  assert.equal(plan.scenarios.length,91);
+  assert.ok(!plan.scenarios.some(s=>s.id==='local.history-empty'));
   assert.ok(plan.scenarios.some(s=>s.id==='workflows.catalog-fulfillment' && s.blockedReason));
   assert.ok(plan.scenarios.some(s=>s.id==='auth.fixtures' && s.requires.includes('workflows.context')));
   assert.ok(plan.scenarios.some(s=>s.id==='resources.properties' && s.mutates));

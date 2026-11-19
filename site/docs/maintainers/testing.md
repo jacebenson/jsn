@@ -645,12 +645,17 @@ Use the existing environments. Configure both vendors independently:
 | Repository | Secret | `JSN_ACCEPTANCE_INGEST_TOKEN` | Matching server `ACCEPTANCE_INGEST_TOKEN`, at least 32 characters |
 
 Do not shadow repository publication settings in instance environments. No profile
-JSON secret is required. The producer strips credential environment variables from
-CLI children, so the adapter seeds one OAuth file-store profile in a private
- ephemeral home with keyring access disabled. Children receive an allowlisted
-environment without GitHub, ingest, proxy or Node-injection credentials. Private
-files are deleted on exit and never uploaded. Access-token-only configuration has
-no renewal metadata. Auth rejection does not establish that a token expired.
+JSON secret is required. The adapter seeds only non-secret isolated profile
+configuration (an `auth_method: oauth` config file with the exact instance origin
+and read-only flag) in a private ephemeral home. The refreshed access token is
+held in process environment/memory and is never written to a credential file; the
+pinned producer strips credential environment variables from CLI children and
+refuses a fixture-supplied token, so the adapter adds the refreshed token back
+only to coordinator launches bound to that seeded profile and target. Children
+receive an allowlisted environment without GitHub, ingest, proxy or Node-injection
+credentials, and no plaintext credential storage is enabled. Private files are
+deleted on exit and never uploaded. Access-token-only configuration has no renewal
+metadata. Auth rejection does not establish that a token expired.
 
 Both verification and acceptance refresh before their real checks in the same
 process. The exact validated HTTPS instance origin receives one bounded (15s)
@@ -666,10 +671,12 @@ authenticated check. Closed output identifies `refreshed` versus
 `legacy_access_token`; raw provider responses and credentials are never logged.
 
 Refresh responses stay in memory; no refresh credential is written to files,
-artifacts, step/job outputs or GitHub settings. Acceptance retains its existing
-private ephemeral access-token profile solely for the pinned producer. If the
-provider returns a different refresh token, a fixed warning reports that the
-replacement is **not persisted**. The current run uses the new access token, but
+artifacts, step/job outputs or GitHub settings. Acceptance keeps no access-token
+profile file for the pinned producer: the refreshed access token reaches the
+producer as environment only, and the adapter bridge forwards it to coordinator
+CLI children for the seeded profile/target. If the provider returns a different
+refresh token, a fixed warning reports that the replacement is **not persisted**.
+The current run uses the new access token, but
 operators must securely replace the environment refresh secret for the next run.
 No settings-write PAT is needed or requested. Provider rotation behavior has not
 been live-verified; refresh-token expiration/revocation and local profile refresh
@@ -756,7 +763,8 @@ authentication success/rejection/recovery regression is included here, with only
 its observer import relocated; PR492 should not be merged separately.
 
 Offline tests exercise the actual pinned producer against loopback, deliberate
-assertion failures and restored success, file-store OAuth, independent readonly
+assertion failures and restored success, the environment-only OAuth handoff (no
+credential file, stale-token rejection, fixture isolation), independent readonly
 refusal, honest failed/partial publication, exact readback, and delivery gates.
 No mock output is uploaded or described as live acceptance. Historical producer
 integration explicitly skips in shallow clones without the pin; local full-history
