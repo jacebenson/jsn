@@ -14,8 +14,33 @@ Record fields: stable `id`, `product`, source `title`, `source_url`, discovery `
 
 ## Current coverage and rights boundary
 
-28 unique PDF links observed on the public entitlement supplements index; all 28 extracted once through web_extract. Inventory has one fully normalized new document (API), two partial documents (Integration Hub and historical ITOM section), 25 pending. Existing April 2026 ITOM normalized record is retained separately and shares one inventory source URL: 29 records, **28 documents**, not 29 distinct sources. Original source bytes were not downloaded, so hashes remain null. Private extracted text is evidence, not PDF bytes. No redistribution permission established: preserve source links; specialist must establish rights before hosting original PDFs. Do not synthesize PDF assets or claim text extraction hashes are PDF hashes.
+27 of the 28 unique public PDF documents now have substantive JSN-authored representations of all extracted sections; the remaining USEM document is fully read/re-written but **partial** because its own ratio table and definitions conflict. No documents remain pending or retrieval-blocked. Inventory contains 31 records (30 normalized, 1 partial): the historical July 2020 overview is split into ITOM, SAM, HAM and TNPM with deterministic suffix IDs. With the preserved April 2026 ITOM estimator record there are **32 records referring to 28 documents**, not 32 sources. Original source bytes were not downloaded, so hashes remain null. Private extracted text is evidence, not PDF bytes. No redistribution permission established: preserve source links; specialist must establish rights before hosting original PDFs. Do not synthesize PDF assets or claim text extraction hashes are PDF hashes.
 
 Archive failed browser with ERR_HTTP2_PROTOCOL_ERROR and text extraction; the index's generic Subscription Unit Overview nevertheless yielded historical July 23, 2020 terms. Historical coverage is not exhaustive. HRSD has no PDF link on this index. Public Australia types-subscription-v2 documentation defines an Unrestricted User as an active sys_user with nonempty User ID, irrespective of roles, but does not establish HRSD SKU applicability. No HRSD meter mapping or estimator is asserted. Resolve contract/product meter and eligible organizational population before implementing, never substitute role counts.
+
+## Normalized representation and inspection
+
+`title` retains the observed public index anchor. `source_document_title` identifies the document; `provenance` binds source URL, title, date/version and named sections. Each JSN-authored `definitions` entry carries source sections. `scope`, `entitlements`, `exceptions`, `unknowns` and `section_coverage` preserve applicability and uncertainties. `normalized` means the extracted sections were read and rewritten, **not** that the vendor validated the rewrite, the contract applies, or usage was measured. `measurement: unimplemented` remains on every inventory record.
+
+Meter shapes deliberately differ:
+- `resources_per_su` means divide eligible resource quantity by that number; no rounding/deduplication policy inferred.
+- Explicit `subscription_units` and `resource_quantity` retain literal SU:resource orientation for EAM and OTAM, including their unusual 25:1 and 4:1 rows. Never silently invert them to resemble other products.
+- `rules` preserve usage events, credit/Assist amounts, windows, peaks, batches and conditions. Otto has 285 skill rows, including conditional Search and Voice workflow references, not a single flat per-call charge. Its original private extract was truncated; the preserved full 24-page extraction was read and rates reconciled in order before normalization.
+- `unit: null` explicitly means the document grants/classifies entitlements rather than defining a numeric consumption meter (Foundation, Custom Table Guide and fee-only Overage). Pricing is omitted; consult source for fees.
+- USEM uses `status: ambiguous_source` and `source_rows`, not calculable ratios: left quantities conflict with repeated right-side `(1:1)` labels; prose/table image and application classes differ, FaaS lists Cloud Directory, and AI Asset prose lacks a matching table. These are precise unresolved source conflicts, not guessed corrections.
+
+Null effective dates are retained when the source only has a version date or SKU-introduction wording; `source_version` preserves that wording. Integration Hub has no extracted effective-date label. Explicit package codes are source-backed; shared legacy codes can appear in multiple named package rows, so a code is not a uniquely inferred commercial mapping.
+
+Offline examples from repository root:
+
+```sh
+node cli/bin/jsn.js subscriptions schedules --id servicenow-otto-overview --styled
+node cli/bin/jsn.js subscriptions schedules --id custom-table-guide --json
+node cli/bin/jsn.js subscriptions schedules --id snc-addendum-integrationhub --get 'data.schedules[0].packages'
+node cli/bin/jsn.js subscriptions schedules --id servicenow-subscription-unit-overview-sam --styled
+node cli/bin/jsn.js subscriptions schedules --id unified-security-exposure-management-servicenow-subscription-unit-overview --get 'data.schedules[0].unknowns'
+```
+
+`--id` human output expands every field, definition, rule and source section; JSON/get retain the structured object. Unfiltered listings remain compact. These reads require no instance and never refresh HTTP.
 
 Next specialist must validate delivery schema, add request tests, immutable artifacts and public browse pages, permission-reviewed source assets, promotion integrity and CLI HTTP/cache acceptance. No controllers, models, migrations, deployments or publishing changed here.

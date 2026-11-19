@@ -15,6 +15,8 @@ jsn uses those terms exactly.
 
 Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.
 
+A document is a unique source PDF URL, while a schedule record is an independently selectable product/version section with a stable ID; one historical multi-product document can produce multiple records. Normalized means its extracted sections have JSN-authored definitions/rules and provenance, not vendor approval or measured usage. Non-meter entitlement documents explicitly have no numeric meter. A fully read but internally contradictory source remains partial with literal source rows and unresolved conflicts rather than an invented conversion. SU:resource ratios preserve their source orientation, including unusual numerator values.
+
 ## Direct MID installation
 
 An owned native ZIP installation, identified by `.jsn-mid-direct.json`, separate

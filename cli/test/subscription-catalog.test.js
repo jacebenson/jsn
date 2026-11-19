@@ -11,7 +11,7 @@ test('site canonical records and packaged offline snapshots cannot diverge', () 
 test('inventory reconciles unique public URLs with explicit incomplete normalization', () => {
   const all = scheduleCatalog();
   const inventory = all.filter(s => s.index_url);
-  assert.equal(inventory.length, 28);
+  assert.equal(inventory.length, 31);
   assert.equal(new Set(inventory.map(s => s.source_url)).size, 28);
   for (const s of inventory) {
     assert.match(s.source_url, /^https:\/\/www.servicenow.com\/.*\.pdf$/);
@@ -21,7 +21,7 @@ test('inventory reconciles unique public URLs with explicit incomplete normaliza
     assert.ok(s.unknowns.length);
     assert.equal(s.measurement, 'unimplemented');
   }
-  assert.equal(inventory.filter(s => s.normalization_status === 'pending').length, 25);
+  assert.equal(inventory.filter(s => s.normalization_status === 'pending').length, 0);
 });
 test('exact historical selection retains independent ratios without running current adapter', async () => {
   const old = loadSchedule('servicenow-subscription-unit-overview');

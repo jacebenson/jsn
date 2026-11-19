@@ -1,5 +1,5 @@
 import { declareCapabilities } from '../capabilities.js';
-import { loadSchedule, scheduleCatalog, estimateSubscription, formatEstimate } from '../subscriptions.js';
+import { loadSchedule, scheduleCatalog, formatSchedule, estimateSubscription, formatEstimate } from '../subscriptions.js';
 
 declareCapabilities('subscriptions', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
 export function subscriptionsCmd(wrap) {
@@ -13,7 +13,7 @@ export function subscriptionsCmd(wrap) {
         s.source_url,
         `Measurement: ${s.measurement}. SKU mapping: ${(s.skus || []).join(', ') || 'unverified'}`,
         ...(s.unknowns || s.limitations || []),
-        ...(argv.id ? [JSON.stringify(s, null, 2)] : []),
+        ...(argv.id ? [formatSchedule(s)] : []),
       ]),
     ].join('\n') });
     app.ok(data, { summary: 'Bundled dated metering schedules, not purchased rights' });

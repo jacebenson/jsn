@@ -7,6 +7,33 @@ export function scheduleCatalog({ product, sku, id } = {}) {
   return [{ ...current, product: 'ITOM', measurement: 'illustrative-population', normalization_status: 'normalized', skus: [] }, ...inventory]
     .filter(s => (!product || s.product.toUpperCase() === product.toUpperCase()) && (!sku || s.skus.includes(sku)) && (!id || s.id === id));
 }
+export function formatSchedule(schedule) {
+  const lines = [];
+  const label = key => key.replaceAll('_', ' ');
+  const render = (value, indent = '') => {
+    if (Array.isArray(value)) return value.flatMap(item => typeof item === 'object' && item !== null ? [`${indent}-`, ...render(item, `${indent}  `)] : [`${indent}- ${item}`]);
+    if (value && typeof value === 'object') return Object.entries(value).flatMap(([key, item]) => item && typeof item === 'object' ? [`${indent}${label(key)}:`, ...render(item, `${indent}  `)] : [`${indent}${label(key)}: ${item ?? 'not specified'}`]);
+    return [`${indent}${value ?? 'not specified'}`];
+  };
+  for (const [key, value] of Object.entries(schedule)) {
+    if (key === 'definitions') {
+      lines.push('DEFINITIONS', ...value.map(d => `- ${d.term}: ${d.definition} [${d.source_sections?.join('; ') || schedule.source_sections?.join('; ') || 'see source'}]`));
+    } else if (key === 'meter') {
+      lines.push('METER', ...render(Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'rules'))));
+      if (value.rules) lines.push('USAGE RULES', ...value.rules.map(rule => {
+        const name = rule.skill || rule.capability;
+        const action = rule.action || rule.usage;
+        const rate = rule.assists !== undefined ? (rule.assists === null ? rule.rate_reference || 'conditional; see conditions' : `${rule.assists} Assist`) : `${rule.credits} Credit`;
+        const detail = Object.fromEntries(Object.entries(rule).filter(([k]) => !['skill', 'capability', 'action', 'usage', 'assists', 'credits'].includes(k)));
+        return `- ${name}: ${action} — ${rate}${Object.keys(detail).length ? `; ${render(detail).join('; ')}` : ''}`;
+      }));
+    } else {
+      lines.push(label(key).toUpperCase(), ...render(value));
+    }
+  }
+  return lines.join('\n');
+}
+
 export function loadSchedule(id = 'itom-2026-04-09') {
   const selected = scheduleCatalog({ id });
   if (selected.length !== 1) throw new AppError('unsupported_schedule', 'No bundled schedule for this selection.', 'Run jsn subscriptions schedules for exact IDs.');
