@@ -32,6 +32,25 @@ class SubscriptionSchedulesTest < Minitest::Test
     assert_equal 404, last_response.status
   end
 
+  def test_integrated_normalized_catalog_renders_substantive_fields
+    catalog = SubscriptionScheduleCatalog.new
+    assert_equal 32, catalog.schedules.length
+    assert_equal 28, catalog.schedules.map { |r| r['source_url'] }.uniq.length
+    catalog.schedules.each do |record|
+      get "/subscription-schedules/#{record['id']}"
+      assert_equal 200, last_response.status, record['id']
+    end
+    get '/subscription-schedules/servicenow-otto-overview'
+    assert_includes last_response.body, 'Assist'
+    assert_includes last_response.body, 'Section coverage'
+    assert_includes last_response.body, 'production AND sub-production'
+    get '/subscription-schedules/snc-addendum-integrationhub'
+    %w[Packages Entitlements PROD11415 Starter].each { |text| assert_includes last_response.body, text }
+    get '/subscription-schedules/custom-table-guide'
+    assert_includes last_response.body, 'Grandfathered'
+    assert_includes last_response.body, 'not a resource-to-SU meter'
+  end
+
   def test_manifest_exact_bytes_and_cache
     get '/subscription-schedules/v1/manifest.json'
     assert_equal 200, last_response.status

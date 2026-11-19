@@ -2,12 +2,19 @@ import { readFileSync } from 'node:fs';
 import { cachedSchedules } from './schedule-cache.js';
 import { AppError } from './errors.js';
 
-export function scheduleProvenance() { return cachedSchedules()?.provenance || { source: 'bundled', stale: true, freshness: 'bundled fallback; no network freshness check' }; }
-export function scheduleCatalog({ product, sku, id, bundled = false } = {}) {
+export function scheduleSnapshot({ bundled = false } = {}) {
+  const cached = !bundled && cachedSchedules();
+  if (cached) return cached;
   const current = JSON.parse(readFileSync(new URL('./schedules/itom-2026-04-09.json', import.meta.url), 'utf8'));
   const inventory = JSON.parse(readFileSync(new URL('./schedules/public-inventory.json', import.meta.url), 'utf8'));
-  return ((!bundled && cachedSchedules()?.schedules) || [{ ...current, product: 'ITOM', measurement: 'illustrative-population', normalization_status: 'normalized', skus: [] }, ...inventory])
-    .filter(s => (!product || s.product.toUpperCase() === product.toUpperCase()) && (!sku || s.skus.includes(sku)) && (!id || s.id === id));
+  return {
+    schedules: [{ ...current, product: 'ITOM', measurement: 'illustrative-population', normalization_status: 'normalized', skus: [] }, ...inventory],
+    provenance: { source: 'bundled', stale: true, freshness: 'bundled fallback; no network freshness check' },
+  };
+}
+export function scheduleCatalog({ product, sku, id, bundled = false, snapshot } = {}) {
+  return (snapshot || scheduleSnapshot({ bundled })).schedules
+    .filter(s => (!product || s.product.toUpperCase() === product.toUpperCase()) && (!sku || (s.skus || []).includes(sku)) && (!id || s.id === id));
 }
 export function formatSchedule(schedule) {
   const lines = [];

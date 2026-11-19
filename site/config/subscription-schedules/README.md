@@ -1,14 +1,14 @@
-# Subscription schedule source data (not yet served)
+# Subscription schedule source data and local delivery candidate
 
-These curated files are canonical. `cli/src/schedules/` contains generated offline snapshots, not another authored catalog. Run `node cli/scripts/sync-subscription-catalog.js`; an offline test enforces byte equality. No Rails route serves this directory today.
+These curated files are canonical. `cli/src/schedules/` contains generated offline snapshots, not another authored catalog. Run `node cli/scripts/sync-subscription-catalog.js`; an offline test enforces byte equality. Rails projects these records through public browser and versioned JSON routes in the tested local candidate; no deployment is claimed.
 
-## Proposed version 1 delivery contract — Rails specialist handoff
+## Version 1 local delivery contract
 
 Inspected `site/config/routes.rb`, `SnapshotsController`, and site README. Existing `/docs-index/manifest.json` and immutable `/docs-index/artifacts/:filename` deliver verified SQLite documentation snapshots; `/api/docs/*` searches documentation, not licensing records. Do not put schedule JSON in that SQLite artifact or claim these APIs already serve schedules.
 
-Smallest analogous extension: specialist-owned **proposed**, not available, `/subscription-schedules/v1/manifest.json` with `{schema_version:1, revision:<content digest>, catalog_url:<immutable artifact URL>, sha256:<artifact bytes>, published_at:<ISO timestamp>}` and `/subscription-schedules/v1/artifacts/<sha256>.json` with `{schema_version:1, revision, schedules:[...]}`. Reuse immutable-public-cache/atomic-promotion and safe file handling patterns, not the docs-specific filename regex or release semantics. Add public product/version browsing linked to source PDFs. Confirm canonical hostname: user specified jsn.js.pro, repository README currently names jsn.jace.pro. No remote availability was verified.
+The local Rails candidate serves `/subscription-schedules/v1/manifest.json` with `{schema_version:1, revision, catalog_url, sha256, bytes, published_at}` and `/subscription-schedules/v1/artifacts/<sha256>.json` with `{schema_version:1, revision, schedules:[...]}`. Only the current digest is served; older digests return 404. `/subscription-schedules` provides public product/version browsing and source PDF links. Canonical hostname remains unresolved; manifest URLs derive from the request origin. No deployment or source PDF hosting is claimed.
 
-Consumer behavior: explicit refresh only; verify HTTPS origin, version, size cap, digest, unique IDs and required provenance before atomic cache replacement. Keep last-good validated snapshot on errors; report its revision/retrieval time and stale state, never silently select latest historical terms. Offline reads must never refresh or need auth. This slice implements bundled offline consumption only, not HTTP refresh or a persistent mutable cache. No endpoint URL is configured until specialist implementation and readback verification.
+Consumer behavior is now implemented: `jsn subscriptions refresh --manifest-url <URL>` explicitly downloads and validates before atomically replacing last-good cache. Offline inspection revalidates cache or uses bundled fallback, with visible provenance and stale state, never implicit HTTP. See `site/test/evidence/subscription-schedules/integration.md` for configuration precedence, limits, acceptance evidence and boundaries. The April 2026 ITOM estimator stays pinned to its bundled adapter; refreshed generic records are inspection-only.
 
 Record fields: stable `id`, `product`, source `title`, `source_url`, discovery `index_url`, effective-date wording/provenance (null if not normalized), retrieval timestamp/method/status, normalization status, explicit `skus` (empty means unverified), applicability, meter and source sections when normalized, exceptions and unknowns. Pending records are inventory, not meter definitions. Document may cover several products/versions; partial records must identify omitted sections. Dates do not prove incorporated terms.
 
@@ -43,4 +43,4 @@ node cli/bin/jsn.js subscriptions schedules --id unified-security-exposure-manag
 
 `--id` human output expands every field, definition, rule and source section; JSON/get retain the structured object. Unfiltered listings remain compact. These reads require no instance and never refresh HTTP.
 
-Next specialist must validate delivery schema, add request tests, immutable artifacts and public browse pages, permission-reviewed source assets, promotion integrity and CLI HTTP/cache acceptance. No controllers, models, migrations, deployments or publishing changed here.
+Local integration and HTTP/cache evidence are in `site/test/evidence/subscription-schedules/integration.md`. Operator exact-revision review/source sampling, publication approval and canonical hostname selection remain outstanding. No push, deployment or publication is authorized.
