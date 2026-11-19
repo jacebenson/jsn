@@ -4,6 +4,10 @@ title: Store applications
 
 Inspect and manage ServiceNow Store applications.
 
+To compare plugins and Store apps across profiles and plan target alignment,
+see [Compare plugins and Store applications](instance-inventory-comparison.md).
+Use `jsn compare --source pdi --target vendor` for the combined read-only report.
+
 ## ServiceNow Store applications
 
 `jsn store` inspects the ServiceNow Store applications available to the

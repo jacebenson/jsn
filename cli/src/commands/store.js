@@ -1,3 +1,4 @@
+import { inventoryCompareCommand } from '../instance-inventory.js';
 import { confirmDelete, quoteShellArg, truncateString } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 import { AppError, errUsage } from '../errors.js';
@@ -16,6 +17,7 @@ import {
 // App Client, which writes installed-application state rather than capturing
 // metadata into the selected application/update set.
 declareCapabilities('store', {
+  skipContextHeaderSubcommands: ['compare'],
   mutationSubcommands: ['install', 'update'],
   mutationContextExemptSubcommands: ['install', 'update'],
 });
@@ -229,6 +231,7 @@ export function storeCmd(wrap) {
     command: 'store [subcommand]',
     describe: 'Discover ServiceNow Store applications, inspect versions and entitlement, and request explicit installs/updates',
     builder: y => y
+      .command(inventoryCompareCommand(wrap, 'store'))
       .command({
         command: 'list',
         describe: 'List Store applications for a tab (read-only)',
@@ -302,7 +305,7 @@ export function storeCmd(wrap) {
         handler: wrap(async (argv, app) => runLifecycle(argv, app, 'update')),
       }),
     handler: wrap(async (argv, app) => {
-      report(app, argv, { commands: ['search', 'list', 'show', 'status', 'install', 'update'] }, {
+      report(app, argv, { commands: ['compare', 'search', 'list', 'show', 'status', 'install', 'update'] }, {
         summary: 'ServiceNow Store applications',
         breadcrumbs: [hint('list', 'jsn store list --tab installed', 'List installed applications'),
           hint('search', 'jsn store search "<term>"', 'Search applications available to this instance'),
