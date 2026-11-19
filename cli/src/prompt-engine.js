@@ -12,6 +12,7 @@
  */
 
 import readline from 'node:readline';
+import { stripVTControlCharacters } from 'node:util';
 
 export class PromptCancelled extends Error {
   constructor() {
@@ -27,7 +28,10 @@ export function normalizeChoices(choices = []) {
       return {
         name: String(choice.name ?? choice.value ?? ''),
         value: 'value' in choice ? choice.value : choice.name,
-        disabled: Boolean(choice.disabled),
+        disabled: Boolean(choice.disabled) || choice.type === 'separator',
+        ...(choice.type === 'separator' ? { separator: true } : {}),
+        ...(choice.section !== undefined ? { section: choice.section } : {}),
+        ...(choice.description !== undefined ? { description: choice.description } : {}),
         checked: Boolean(choice.checked),
       };
     }
@@ -78,7 +82,10 @@ export async function runPrompt(config, context, spec) {
     const text = Array.isArray(rendered) ? rendered.join('\n') : String(rendered ?? '');
     if (output.isTTY && height > 0) output.write(`\x1b[${height}A\x1b[0J`);
     output.write(`${text}\n`);
-    height = text.split('\n').length;
+    // Count wrapped terminal rows as well as explicit newlines: the compact
+    // footer can still wrap in a narrow terminal.
+    const columns = output.isTTY && output.columns > 0 ? output.columns : Infinity;
+    height = text.split('\n').reduce((rows, line) => rows + Math.max(1, Math.ceil(Array.from(stripVTControlCharacters(line)).length / columns)), 0);
   };
 
   const finish = value => {

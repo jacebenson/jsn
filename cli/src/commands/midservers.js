@@ -302,12 +302,7 @@ async function promptMidCredentials(app, argv) {
       const validation = await validateMidCredentials(app.getEffectiveInstance(), username, password);
       return { username, password, releaseName: validation.releaseName };
     } catch (error) {
-      const answer = await input({ message: `${error.message}. Press Enter to retry or Q to quit:` });
-      if (answer.trim().toLowerCase() === 'q') {
-        const quit = new Error('MID Server installation cancelled');
-        quit.code = 'cancelled';
-        throw quit;
-      }
+      await input({ message: `${error.message}. Press Enter to retry or Esc to cancel:` });
       username = argv.username || '';
     }
   }

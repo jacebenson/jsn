@@ -49,8 +49,8 @@ describe('authHubMenu', () => {
     for (const heading of ['Connections', 'JSN settings', 'Cleanup']) assert.ok(rendered.includes(heading));
   });
 
-  it('returns undefined when q exits the interactive hub', async () => {
-    assert.strictEqual(await promptWithKey('q'), undefined);
+  it('q filters without dispatch; Escape still exits', async () => {
+    assert.strictEqual(await promptWithKey('q\x1b'), undefined);
   });
 
   it('returns undefined when Escape exits the interactive hub', async () => {

@@ -448,31 +448,24 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
   async function serverSource(term, offset, { signal: _signal } = {}) {
-    try {
-      const params = new URLSearchParams();
-      params.set('sysparm_limit', String(limit));
-      params.set('sysparm_display_value', 'all');
-      if (pickerFields) params.set('sysparm_fields', pickerFields);
-      if (term) {
-        params.set('sysparm_query', `${baseQuery}${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
-      } else {
-        params.set('sysparm_query', baseQuery + 'ORDERBYDESCsys_updated_on');
-        params.set('sysparm_offset', String(offset));
-      }
-      const records = await app.sdk.list(table, params);
-      if (!Array.isArray(records)) {
-        console.error('SDK non-array:', typeof records);
-        return [];
-      }
-      return records.map(r => ({
-        name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-        value: formatValue ? formatValue(r) : r,
-      }));
-    } catch (err) {
-      if (isTerminalAuthError(err)) throw err;
-      console.error('serverSource error:', err.message || err);
-      return [];
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', String(limit));
+    params.set('sysparm_display_value', 'all');
+    if (pickerFields) params.set('sysparm_fields', pickerFields);
+    if (term) {
+      params.set('sysparm_query', `${baseQuery}${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+    } else {
+      params.set('sysparm_query', baseQuery + 'ORDERBYDESCsys_updated_on');
+      params.set('sysparm_offset', String(offset));
     }
+    // Only a successful empty page means exhausted. Let the picker render
+    // failures and retry this offset; preserve terminal auth errors unchanged.
+    const records = await app.sdk.list(table, params);
+    if (!Array.isArray(records)) throw new Error(`Could not list ${table}: list returned a non-array result`);
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: formatValue ? formatValue(r) : r,
+    }));
   }
 
   const selected = await prompt({

@@ -169,6 +169,21 @@ one. Defaults change only through a human choice, `--make-default`, or
 bot's `auth modify` request is idempotent. Noninteractive commands never open
 implicit prompts or browsers.
 
+## Searchable list menus
+
+Interactive list menus share `src/picker-ui.js` row and footer rendering on the
+local prompt engine. Up/down never wrap; Enter selects and Escape cancels
+immediately, including during loading. Printable letters (including q, j and k)
+are search text, not navigation or exit shortcuts. Local select and checkbox
+menus filter labels without changing their underlying values. Checkbox Space
+toggles and Enter confirms all checked values, including hidden selections.
+Setup retains optional section headings and resolves undefined on Escape;
+ordinary menus throw `PromptCancelled`. Record pickers retain their existing
+source/query semantics and resolve the selected choice object or undefined on
+Escape. Navigation alone never dispatches a command or performs a mutation.
+Explicit output formats and noninteractive calls retain their existing prompt
+gates and output envelopes.
+
 ## CI search
 
 `cmdb search` is a read-only, literal substring lookup across four common CI

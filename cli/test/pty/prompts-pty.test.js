@@ -144,8 +144,8 @@ test('PTY: editor runs the fake $EDITOR and returns its content', { skip }, () =
   assert.equal(report.mark('content'), 'fixed editor content');
 });
 
-test('PTY: setup hub q and Escape resolve undefined without dispatching', { skip }, () => {
-  const quit = runPty('setup-hub', [[600, 'q']]);
+test('PTY: setup hub q searches and Escape resolves undefined without dispatching', { skip }, () => {
+  const quit = runPty('setup-hub', [[600, 'q'], [120, ESC]]);
   assertTermios(quit);
   assert.equal(quit.mark('action'), null);
   const escaped = runPty('setup-hub', [[600, ESC]]);
