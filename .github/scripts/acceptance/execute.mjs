@@ -34,7 +34,7 @@ export function observeScenario(scenario) {
 // config home; fixture, negative and own-credential actors replace it and are
 // left byte-identical. A coordinator config whose single profile does not match
 // the selected profile/target fails closed instead of forwarding the token.
-export function coordinatorEnvironment({ env, options, target, token, configHome, home }) {
+export function coordinatorEnvironment({ env, options, target, token, configHome, home, warmSession }) {
   if (!token || !configHome || env?.XDG_CONFIG_HOME !== configHome) return env;
   if (home !== undefined && env.HOME !== home) throw new Error('Coordinator environment binding refused');
   let config;
@@ -45,13 +45,14 @@ export function coordinatorEnvironment({ env, options, target, token, configHome
   let bound;
   try { bound = new URL(profile?.instance_url ?? '').origin; } catch { bound = ''; }
   if (profiles.length !== 1 || profiles[0] !== options.profile || bound !== target) throw new Error('Coordinator profile target binding refused');
-  return { ...env, SERVICENOW_OAUTH_TOKEN: token };
+  return { ...env, SERVICENOW_OAUTH_TOKEN: token,
+    ...(warmSession === '0' ? { JSN_ALWAYS_WARM_SESSION: '0' } : {}) };
 }
 
 export function bridgedRunProcess(runProcess, { options, target, env = process.env }) {
   return (executable, args, opts = {}) => runProcess(executable, args, {
     ...opts,
-    env: coordinatorEnvironment({ env: opts.env, options, target: target.target, token: env.SERVICENOW_OAUTH_TOKEN, configHome: env.XDG_CONFIG_HOME, home: env.HOME }),
+    env: coordinatorEnvironment({ env: opts.env, options, target: target.target, token: env.SERVICENOW_OAUTH_TOKEN, configHome: env.XDG_CONFIG_HOME, home: env.HOME, warmSession: env.JSN_ALWAYS_WARM_SESSION }),
   });
 }
 

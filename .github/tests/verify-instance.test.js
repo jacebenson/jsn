@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { verifyInstance } from '../scripts/verify-instance.mjs';
 
 const token = 'FAKE-private-token-canary';
-const base = { JSN_VERIFY_TARGET: 'pdi', JSN_VERIFY_ENABLED: 'true', SERVICENOW_INSTANCE_URL: 'https://example.invalid', SERVICENOW_OAUTH_TOKEN: token };
+const base = { JSN_ALWAYS_WARM_SESSION: '0', JSN_VERIFY_TARGET: 'pdi', JSN_VERIFY_ENABLED: 'true', SERVICENOW_INSTANCE_URL: 'https://example.invalid', SERVICENOW_OAUTH_TOKEN: token };
 test('selected instance rejects disabled, missing and malformed configuration', () => {
   assert.equal(verifyInstance({ ...base, JSN_VERIFY_ENABLED: '' }).status, 'disabled');
   assert.equal(verifyInstance({ ...base, SERVICENOW_OAUTH_TOKEN: '' }).status, 'not_configured');
