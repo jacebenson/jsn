@@ -17,6 +17,10 @@ function transport(t, options = {}) {
   if (options.overlap) definitions.find(d => d.name === 'cmdb_ci_oslv_container').super_class = 'cmdb_ci_server';
   if (options.missingAncestry) definitions.find(d => d.name === 'x_demo_server').super_class = 'hidden';
   if (options.omitClass) definitions.splice(definitions.findIndex(d => d.name === options.omitClass), 1);
+  if (options.shortPage) for (let i = 0; i < 1100; i++) definitions.push({ sys_id: `z${String(i).padStart(4, '0')}`, name: `x_extra_${i}`, super_class: '' });
+  definitions.sort((a, b) => a.sys_id < b.sys_id ? -1 : 1);
+  if (options.badId) definitions[0].sys_id = options.badId === 'missing' ? undefined : options.badId;
+  let metadataCounts = 0;
   const sdk = new SDKClient('https://example.invalid', {});
   sdk._setAuth = async () => {};
   const seen = [];
@@ -34,9 +38,23 @@ function transport(t, options = {}) {
         const classes = (url.searchParams.get('sysparm_query') || '').replace('sys_class_nameIN', '').split(',');
         value = classes.reduce((n, name) => n + ({ cmdb_ci_server: 2, x_demo_server: 1, cmdb_ci_computer: 5, cmdb_ci_cloud_function: 30, cmdb_ci_oslv_container: 15 }[name] || 0), 0);
       }
+      if (target === 'sys_db_object') {
+        metadataCounts++;
+        if (options.unstable && metadataCounts > 1) value++;
+      }
       if (options.truncated && target === 'sys_db_object') value++;
       body = options.badStats === target ? { result: { stats: { count: '3oops' } } } : { result: { stats: { count: String(value) } } };
-    } else if (target === 'sys_db_object') body = options.malformed ? {} : { result: definitions };
+    } else if (target === 'sys_db_object') {
+      const offset = Number(url.searchParams.get('sysparm_offset'));
+      const limit = Number(url.searchParams.get('sysparm_limit'));
+      assert.equal(url.searchParams.get('sysparm_query'), 'ORDERBYsys_id');
+      assert.ok(limit <= 1000);
+      let page = definitions.slice(offset, offset + Math.min(limit, options.shortPage ? 2 : limit));
+      if (options.empty && offset > 0) page = [];
+      if (options.duplicate && offset > 0) page = [definitions[0]];
+      if (options.unordered) page.reverse();
+      body = options.malformed ? {} : { result: page };
+    }
     else if (target === 'sys_dictionary') body = { result: options.noDictionary ? [] : [{ name: 'cmdb_ci', element: 'sys_class_name', internal_type: 'sys_class_name' }] };
     else throw new Error('Unexpected transport request');
     return new Response(JSON.stringify(body), { status: 200 });
@@ -107,6 +125,30 @@ test('provider completeness mismatch permits only disclosed partial mapped popul
   assert.equal(r.categories[0].illustrative_units, 3);
   assert.ok(r.categories.every(c => !c.mapping_complete));
   assert.equal(r.total_units, null);
+});
+
+test('short metadata page followed by more rows remains honestly partial', async t => {
+  const { sdk, seen } = transport(t, { shortPage: true });
+  const r = await estimateSubscription(sdk, 'ITOM');
+  assert.equal(r.coverage.metadata_status, 'partial');
+  assert.ok(r.coverage.visible_definitions > 2);
+  assert.ok(r.coverage.visible_definitions < r.coverage.provider_count);
+  assert.equal(r.coverage.provider_count_after, r.coverage.provider_count);
+  assert.ok(seen.filter(s => s.path === '/api/now/table/sys_db_object').length > 1);
+  assert.ok(r.categories.every(c => !c.mapping_complete));
+});
+
+for (const options of [
+  { shortPage: true, duplicate: true }, { shortPage: true, empty: true },
+  { unstable: true }, { unordered: true },
+  { badId: 'missing' }, { badId: ' ' }, { badId: 42 }, { badId: 'root' },
+]) test(`metadata cannot falsely complete: ${JSON.stringify(options)}`, async t => {
+  const { sdk } = transport(t, options);
+  const r = await estimateSubscription(sdk, 'ITOM', { assumeEligible: true });
+  assert.notEqual(r.coverage.metadata_status, 'provider-count-matched');
+  assert.ok(r.categories.every(c => !c.mapping_complete));
+  assert.equal(r.total_units, null);
+  assert.equal(r.authoritative, false);
 });
 
 test('missing resource class remains partial rather than silently complete', async t => {

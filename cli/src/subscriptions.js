@@ -15,8 +15,8 @@ async function count(sdk, table, query) {
   if (!/^(0|[1-9]\d*)$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw malformed();
   return Number(value);
 }
-async function rows(sdk, table, query, fields, cap) {
-  const body = await read(sdk, 'table', table, { sysparm_query: query, sysparm_fields: fields, sysparm_limit: String(cap), sysparm_display_value: 'false', sysparm_exclude_reference_link: 'true' });
+async function rows(sdk, table, query, fields, cap, offset = 0) {
+  const body = await read(sdk, 'table', table, { sysparm_query: query, sysparm_fields: fields, sysparm_limit: String(cap), sysparm_offset: String(offset), sysparm_display_value: 'false', sysparm_exclude_reference_link: 'true' });
   if (!Array.isArray(body?.result)) throw malformed();
   return body.result;
 }
@@ -39,11 +39,36 @@ export async function estimateSubscription(sdk, product, { schedule, assumeEligi
   report.coverage = { metadata_status: 'unavailable', visible_definitions: null, provider_count: null, skipped_ancestries: 0, semantics: 'Provider-visible exact-class aggregate counts only; ACL-hidden rows and concurrent changes remain unknown.' };
   try {
     // Include scoped/custom descendants, whose names need not start with cmdb_ci.
-    definitions = await rows(sdk, 'sys_db_object', 'ORDERBYsys_id', 'sys_id,name,super_class', 20000);
     const available = await count(sdk, 'sys_db_object', '');
-    report.coverage.visible_definitions = definitions.length;
     report.coverage.provider_count = available;
-    report.coverage.metadata_status = definitions.length < 20000 && definitions.length === available ? 'provider-count-matched' : 'partial';
+    definitions = [];
+    const ids = new Set();
+    let ordered = true;
+    let previous;
+    let pages = 0;
+    let offset = 0;
+    // Offset addresses provider windows, including rows omitted by visibility.
+    // Short pages are not exhaustion; stable counts and unique rows are required.
+    while (offset < available && offset < 20000 && pages < 200) {
+      const limit = Math.min(1000, available - offset, 20000 - offset);
+      const page = await rows(sdk, 'sys_db_object', 'ORDERBYsys_id', 'sys_id,name,super_class', limit, offset);
+      offset += limit;
+      pages++;
+      if (page.length > limit) throw malformed();
+      if (!page.length) break;
+      for (const d of page) {
+        if (!d || typeof d.sys_id !== 'string' || !d.sys_id.trim() || ids.has(d.sys_id)) throw malformed();
+        if (previous !== undefined && d.sys_id <= previous) ordered = false;
+        previous = d.sys_id;
+        ids.add(d.sys_id);
+      }
+      definitions.push(...page);
+    }
+    const after = await count(sdk, 'sys_db_object', '');
+    report.coverage.provider_count_after = after;
+    report.coverage.metadata_pages = pages;
+    report.coverage.visible_definitions = definitions.length;
+    report.coverage.metadata_status = ordered && available === after && definitions.length === available ? 'provider-count-matched' : 'partial';
     byId = new Map(definitions.map(d => [d.sys_id, d]));
     byName = new Map(definitions.map(d => [d.name, d]));
     if (byId.size !== definitions.length || byName.size !== definitions.length || !byName.has('cmdb_ci') || definitions.some(d => typeof d.name !== 'string' || typeof d.super_class !== 'string')) throw malformed();
