@@ -1,5 +1,6 @@
 // GraphQL read-only queries; no sn_codesearch engine or Flow downloads.
 import { searchGraphQL } from '../codesearch-graphql.js';
+import { docLink } from '../docs-links.js';
 
 export function renderCodeSearch(data) {
   const out = [`${data.recordCount} record(s), ${data.fieldCount} field(s), ${data.matchCount} match(es) — ${data.status}`];
@@ -35,13 +36,21 @@ export function codesearchCmd(wrap) {
         .option('all-scopes', { type: 'boolean', default: true, describe: 'Search all scopes; false requires --scope' })
         .option('page-size', { type: 'number', default: 250, describe: 'GraphQL page window size (max 1000)' })
         .option('max-pages', { type: 'number', default: 20, describe: 'Maximum pages per table (max 1000)' })
-        .option('max-requests', { type: 'number', default: 1000, describe: 'Data-call budget including configuration, excluding SDK auth/bootstrap (max 10000)' }),
+        .option('max-requests', { type: 'number', default: 1000, describe: 'Data-call budget including configuration, excluding SDK auth/bootstrap (max 10000)' })
+        .epilogue(`Code search is literal and read-only. Flow internals use "jsn flows search <term>".
+Examples:
+  jsn codesearch search GlideAjax --limit 5
+  jsn codesearch search approval --scope x_my_app --limit 5
+
+Full reference and coverage limits: ${docLink('codesearch')}`),
       handler: wrap(async (argv, app) => {
         const data = await searchGraphQL(app, argv);
         Object.defineProperty(data, '_formatted', { value: renderCodeSearch(data), enumerable: false });
         app.ok(data, { summary: `${data.recordCount} record(s), ${data.fieldCount} field(s), ${data.matchCount} match(es) — ${data.status}` });
       }),
-    }).demandCommand(1, 'Specify a subcommand: search'),
+    }).demandCommand(1, 'Specify a subcommand: search')
+      .epilogue(`Code search is literal and read-only. Flow internals use "jsn flows search <term>".
+Documentation: ${docLink('codesearch')}`),
     handler: () => {},
   };
 }

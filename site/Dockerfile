@@ -24,8 +24,10 @@ COPY --from=indexer /app/cli/package.json /app/cli/package.json
 COPY --from=indexer /app/cli/node_modules /app/cli/node_modules
 COPY --from=indexer /app/cli/src /app/cli/src
 COPY site/ ./
-# Only allowlisted Markdown is reachable; contributor evidence is not a static tree.
-COPY docs/ /app/docs/
+# Docs are copied for source-link validation, not publication: only the
+# guides/features allowlists in config and MarkdownGuide can render a route,
+# so maintainer and evidence Markdown stay non-public and the negative tests
+# assert their URLs still 404.
 COPY --from=assets /app/site/public ./public
 COPY --from=assets /app/site/config/features.json ./config/features.json
 COPY --from=assets /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json

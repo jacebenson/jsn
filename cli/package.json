@@ -9,8 +9,9 @@
   "main": "src/cli.js",
   "scripts": {
     "test": "node scripts/test.mjs",
-    "test:mutation": "stryker run",
-    "lint": "npx eslint src/ bin/ test/",
+    "test:mutation": "npm exec --yes --package=@stryker-mutator/core@10.1.1 -- stryker run stryker.config.json",
+    "test:pty": "node --test test/pty/prompts-pty.test.js",
+    "lint": "eslint src/ bin/ test/",
     "start": "node bin/jsn.js"
   },
   "keywords": [
@@ -23,8 +24,6 @@
   "repository": "https://github.com/jacebenson/jsn",
   "license": "MIT",
   "dependencies": {
-    "@inquirer/core": "^10.3.2",
-    "@inquirer/prompts": "^7.10.1",
     "commonmark": "^0.31.2",
     "js-yaml": "^5.5.0",
     "saxes": "^6.0.0",
@@ -32,7 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@stryker-mutator/core": "^10.0.0",
+    "eslint": "^10.15.0",
     "globals": "^17.6.0"
   },
   "files": [

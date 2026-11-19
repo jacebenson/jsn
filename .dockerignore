@@ -10,7 +10,12 @@ site/log/*
 !site/log/.keep
 site/tmp
 site/public
-docs/_site
+# Documentation trees stay in the build context because the Rails suite
+# validates same-repository source links (guides, features, maintainers and
+# the evidence they cite) against real files. Publication is decided by the
+# guides/features allowlists in site/config and MarkdownGuide, never by
+# filesystem presence, so these docs remain non-public as routes.
+site/docs/_site
 .env
 .env.*
 **/.env

@@ -5,6 +5,7 @@ import { canUsePicker } from '../helpers.js';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { declareCapabilities } from '../capabilities.js';
+import { docLink } from '../docs-links.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
@@ -96,7 +97,11 @@ export function flowsCmd(wrap) {
           describe: 'Download/decode visible flows into a private cache and search literal text (first use can be slow)',
           builder: y => y
             .positional('term', { type: 'string', describe: 'Case-insensitive literal text to find in readable definitions' })
-            .option('refresh', { type: 'boolean', default: false, describe: 'Rebuild the decoded cache; warm searches still revalidate source access' }),
+            .option('refresh', { type: 'boolean', default: false, describe: 'Rebuild the decoded cache; warm searches still revalidate source access' })
+            .epilogue(`Example:
+  jsn flows search approval
+Interactive use can pick a flow; scripts pass the term.
+Documentation: ${docLink('flows')}`),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const session = app.session || {};
@@ -575,7 +580,7 @@ export function flowsCmd(wrap) {
           }),
         })
         .epilogue('Run "jsn flows <command> --help" for details. In a terminal you can omit the target and pick\n'
-          + 'one; scripts use explicit identifiers and manifests.');
+          + `one; scripts use explicit identifiers and manifests.\nDocumentation: ${docLink('flows')}`);
     },
     handler: wrap(async (_argv, app) => {
       const summary = 'Manage Flow Designer flows from the sys_hub_flow table. Flow structure comes from the ProcessFlow API, so V1, V2 and subflow definitions all render in full.';

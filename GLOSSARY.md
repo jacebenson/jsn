@@ -104,7 +104,7 @@ re-prompt on later requests, or record a mutation outcome. Noninteractive output
 gets `mfa_required`; failed verification gets sanitized `mfa_code_rejected`.
 Interactive records propagates these structured errors and `PromptCancelled`
 before count fallback/wrapping. Escape remains `Cancelled.` / exit 0. No TOTP
-seed storage or local generation exists. See `docs/AUTH_LIFECYCLE.md` for the
+seed storage or local generation exists. See `site/docs/guides/setup.md` for the
 fixture-only verification boundary and lifecycle.
 
 `src/auth-recovery.js` creates the App-owned, identity-scoped recovery provider
@@ -810,7 +810,7 @@ identified by a document/release/revision/body-bound opaque ID, not a browser sl
 preamble and ancestor introductions. Syntactic completeness never establishes
 semantic answer completeness. Older services can return full text for client-side
 selection, explicitly reported as a full-document transfer. See
-`docs/TARGETED_DOCS.md`. Document-reader presentation is non-enumerable so machine
+`site/docs/guides/output.md`. Document-reader presentation is non-enumerable so machine
 output carries the body once; general output formatting is unchanged.
 
 ## Defaults for future connections
@@ -856,7 +856,7 @@ same-instance GET subrequests. The native Batch API envelope is correlated by ID
 per-item failures, unserviced IDs, and missing responses stay distinct. Only an
 explicitly unsupported outer endpoint permits sequential read fallback. Normal
 SDK methods stay unbatched, writes are rejected before dispatch, and authentication
-or ACL errors never silently trigger fallback. See `docs/sdk-batch.md`.
+or ACL errors never silently trigger fallback. See `site/docs/guides/records.md`.
 
 ## Mutation safeguards
 

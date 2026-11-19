@@ -139,7 +139,7 @@ the provider. Clear a URL to remove a video. The app does not upload video files
 Feature and documentation pages remain public. The feature catalog comes from
 `site/data/showcases.js`, exported during asset preparation. Rails owns `/`,
 `/features`, and allowlisted Markdown guides at `/docs/`. No static HTML
-generator runs. See `docs/README.md` for the publication boundary and URL map.
+generator runs. See `site/docs/README.md` for the publication boundary and URL map.
 
 ## Tests
 
@@ -212,7 +212,7 @@ MP4/WebM links become a native player, while watch-page links open the recording
 ## Deployment change filters
 
 Keep the Docker build context at repository root and Dockerfile at `site/Dockerfile`.
-For Coolify automatic deployments, watch `site/**`, `docs/**`,
+For Coolify automatic deployments, watch `site/**`, `site/docs/**`,
 `cli/src/commands/docs/**`, `cli/package.json`, `cli/package-lock.json`, and
 `site/scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
 Coolify watch paths are application settings and must be set when this branch is deployed.

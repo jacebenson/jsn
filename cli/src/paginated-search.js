@@ -1,195 +1,163 @@
 /**
- * Paginated search prompt built with @inquirer/core hooks.
+ * Paginated, searchable record picker built on src/prompt-engine.js.
+ *
+ * Contract (unchanged from the Inquirer version):
+ *   paginatedSearch({ message, pageSize, totalCount, source }, context?)
+ *   source(term, offset, { signal }) -> [{ name, value }]
+ *   Enter resolves the active choice object; Escape resolves undefined.
+ *   Down at the last loaded row loads more while loaded < totalCount.
  */
 
+import { runPrompt, normalizeChoices, truncate, escapeResult } from './prompt-engine.js';
 
-export const paginatedSearch = async (...args) => {
-  const { createPrompt, useState, useKeypress, usePagination, useEffect, useRef, isEnterKey, isUpKey, isDownKey } = await import('@inquirer/core');
-  return createPrompt((config, done) => {
-    const { message, pageSize = 10, totalCount = 0, source } = config;
+export const paginatedSearch = async (config = {}, context = {}) => {
+  const { message, pageSize = 10, totalCount = 0, source } = config;
+  let request;
+  const state = {
+    status: 'loading',
+    term: '',
+    choices: [],
+    active: 0,
+    loaded: 0,
+    searchMode: false,
+    token: 0,
+    error: '',
+  };
 
-    const [status, setStatus] = useState('loading');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [choices, setChoices] = useState([]);
-    const [active, setActive] = useState(0);
-    const [loaded, setLoaded] = useState(0);
-    const [searchMode, setSearchMode] = useState(false);
+  // Every request gets a token. A response may only be applied while its
+  // token is still current, so a stale (slower) search can never replace
+  // newer results or be selected by a later Enter.
+  const isCurrent = token => token === state.token && state.status !== 'cancelled';
 
-    // Refs for mutable state (no functional updaters — @inquirer/core doesn't support them)
-    const choicesRef = useRef([]);
-    const loadedRef = useRef(0);
-    const activeRef = useRef(0);
-    const totalCountRef = useRef(totalCount);
-    const searchModeRef = useRef(false);
-
-    const fullMessage = totalCount > 0
-      ? `${message} (${loaded} of ${totalCount} loaded)`
-      : message;
-
-    // Load initial page
-    useEffect(() => {
-      const controller = new AbortController();
-      setStatus('loading');
-
-      const load = async () => {
-        try {
-          const items = await source(searchTerm || undefined, 0, { signal: controller.signal });
-          if (!controller.signal.aborted) {
-            choicesRef.current = items;
-            loadedRef.current = items.length;
-            activeRef.current = 0;
-            setChoices(items);
-            setLoaded(items.length);
-            setActive(0);
-            setStatus('done');
-          }
-        } catch {
-          if (!controller.signal.aborted) {
-            setStatus('done');
-            setChoices([]);
-            setLoaded(0);
-          }
-        }
-      };
-      load();
-      return () => controller.abort();
-    }, []);
-
-    // Load more when scrolling past end
-    async function loadMore() {
-      if (loadedRef.current >= totalCountRef.current || searchModeRef.current) return;
-      setStatus('loading');
-      try {
-        const newItems = await source('', loadedRef.current, { signal: new AbortController().signal });
-        const updated = choicesRef.current.concat(newItems);
-        choicesRef.current = updated;
-        loadedRef.current = updated.length;
-        setChoices([...updated]);
-        setLoaded(updated.length);
-      } catch (err) {
-        console.error('Scroll load error:', err.message || err);
-        loadedRef.current = totalCountRef.current;
-        setLoaded(totalCountRef.current);
+  async function load(term, offset, { append = false } = {}) {
+    request?.abort();
+    request = new AbortController();
+    const signal = context.signal ? AbortSignal.any([request.signal, context.signal]) : request.signal;
+    const token = ++state.token;
+    state.status = 'loading';
+    state.error = '';
+    try {
+      const items = normalizeChoices(await source(term || undefined, offset, { signal }) || []);
+      if (!isCurrent(token)) return;
+      state.choices = append ? state.choices.concat(items) : items;
+      state.loaded = state.choices.length;
+      state.active = Math.min(state.active, Math.max(0, state.choices.length - 1));
+      state.status = 'done';
+    } catch (error) {
+      if (!isCurrent(token)) return;
+      state.status = 'done';
+      state.error = error?.message || String(error);
+      if (!append) {
+        state.choices = [];
+        state.loaded = 0;
       }
-      setStatus('done');
+      // A failed load-more keeps the rows already on screen.
     }
+  }
 
-    // Search when term changes
-    useEffect(() => {
-      if (!searchTerm) {
-        setSearchMode(false);
-        searchModeRef.current = false;
-        const controller = new AbortController();
-        setStatus('loading');
-        source('', 0, { signal: controller.signal }).then(items => {
-          if (!controller.signal.aborted) {
-            choicesRef.current = items;
-            loadedRef.current = Math.min(items.length, totalCount || Infinity);
-            activeRef.current = 0;
-            setChoices(items);
-            setLoaded(items.length);
-            setActive(0);
-            setStatus('done');
-          }
-        }).catch(() => {
-          if (!controller.signal.aborted) setStatus('done');
-        });
-        return () => controller.abort();
-      }
-
-      const controller = new AbortController();
-      setStatus('loading');
-      setSearchMode(true);
-      searchModeRef.current = true;
-
-      source(searchTerm, undefined, { signal: controller.signal }).then(items => {
-        if (!controller.signal.aborted) {
-          choicesRef.current = items;
-          loadedRef.current = items.length;
-          activeRef.current = 0;
-          setChoices(items);
-          setLoaded(items.length);
-          setActive(0);
-          setStatus('done');
-        }
-      }).catch(() => {
-        if (!controller.signal.aborted) {
-          setStatus('done');
-          setChoices([]);
-        }
+  let api;
+  const prompt = runPrompt({ ...config, message }, context, {
+    escapeValue: escapeResult(undefined),
+    init() {
+      // Kick off the first page. Enter is ignored while status is 'loading',
+      // so nothing is selectable until this resolves.
+      state.pending = load('', 0);
+      return state;
+    },
+    onReady(handle) {
+      api = handle;
+      state.pending.then(() => {
+        if (state.status !== 'cancelled') api.redraw();
       });
-
-      return () => controller.abort();
-    }, [searchTerm]);
-
-    // Key handling
-    useKeypress((key, rl) => {
-      if (status === 'loading') return;
-
-      if (isEnterKey(key)) {
-        if (choicesRef.current.length > 0 && activeRef.current >= 0 && activeRef.current < choicesRef.current.length) {
-          done(choicesRef.current[activeRef.current]);
-        }
+    },
+    key(_state, key, handle) {
+      api = handle;
+      if (key.name === 'return' || key.name === 'enter') {
+        // No selecting a row while a request is in flight: the list on
+        // screen may be about to change.
+        if (state.status === 'loading' || !state.choices.length) return;
+        const choice = state.choices[state.active];
+        if (!choice) return;
+        return { done: choice };
+      }
+      if (key.name === 'up') {
+        if (state.active > 0) state.active -= 1;
+        api?.redraw();
         return;
       }
-
-      if (key.name === 'escape') {
-        done(undefined);
-        return;
-      }
-
-      if (isUpKey(key)) {
-        if (activeRef.current > 0) {
-          activeRef.current--;
-          setActive(activeRef.current);
-        }
-        return;
-      }
-
-      if (isDownKey(key)) {
-        if (activeRef.current < choicesRef.current.length - 1) {
-          activeRef.current++;
-          setActive(activeRef.current);
-        } else if (!searchModeRef.current && loadedRef.current < totalCountRef.current) {
-          loadMore().then(() => {
-            activeRef.current++;
-            setActive(activeRef.current);
+      if (key.name === 'down') {
+        if (state.status === 'loading') return;
+        if (state.active < state.choices.length - 1) {
+          state.active += 1;
+          api?.redraw();
+        } else if (!state.searchMode && state.loaded < totalCount) {
+          const before = state.loaded;
+          const pending = load('', state.loaded, { append: true });
+          const token = state.token;
+          void pending.then(() => {
+            if (!isCurrent(token)) return;
+            if (state.status === 'done' && state.loaded > before) state.active = before;
+            api?.redraw();
           });
+          api?.redraw();
         }
         return;
       }
+      const previous = state.term;
+      if (key.name === 'backspace') state.term = state.term.slice(0, -1);
+      else if (key.name === 'space') state.term += ' ';
+      else if (key.text) state.term += key.text;
+      else return;
+      if (state.term === previous) return;
 
-      // Use readline's built-in line buffer for text input
-      const newTerm = rl.line;
-      if (newTerm !== searchTerm) {
-        setSearchTerm(newTerm);
+      if (!state.term) {
+        state.searchMode = false;
+        state.active = 0;
+        void load('', 0).then(() => api?.redraw());
+        api?.redraw();
+        return;
       }
-    });
+      state.searchMode = true;
+      state.active = 0;
+      void load(state.term, undefined).then(() => api?.redraw());
+      api?.redraw();
+    },
+    render() {
+      const pages = Math.max(1, Math.ceil(state.choices.length / pageSize));
+      const current = Math.min(pages - 1, Math.floor(state.active / pageSize));
+      const start = current * pageSize;
+      const visible = state.choices.slice(start, start + pageSize);
+      const header = totalCount > 0 && !state.searchMode
+        ? `${message} (${state.loaded} of ${totalCount} loaded)`
+        : message;
+      const lines = [`${header} Search: ${state.term}${state.status === 'loading' ? ' ...' : ''}`];
+      if (state.error) lines.push(`  ${state.error}`);
+      else if (!state.choices.length) lines.push(state.status === 'loading' ? '  Loading...' : '  No matches');
+      visible.forEach((choice, index) => {
+        const absolute = start + index;
+        lines.push(`${absolute === state.active ? '>' : ' '} ${truncate(choice.name)}`);
+      });
+      const help = state.loaded < totalCount && !state.searchMode
+        ? '(scroll to load more, type to search, Esc to cancel)'
+        : '(type to search, Esc to cancel)';
+      lines.push('', help);
+      return lines;
+    },
+  });
 
-    // Paginated rendering
-    const page = usePagination({
-      items: Array.isArray(choices) ? choices : [],
-      active,
-      pageSize,
-      renderItem: ({ item, isActive }) => {
-        const prefix = isActive ? '\x1b[7m' : ' ';
-        const suffix = isActive ? '\x1b[0m' : '';
-        const name = item.name || String(item.value || item);
-        const display = name.length > 70 ? name.slice(0, 67) + '...' : name;
-        return ` ${prefix}${display}${suffix}`;
-      },
-      loop: false,
-    });
-
-    const helpText = loaded < totalCount && !searchMode
-      ? '(scroll to load more, type to search, Esc to cancel)'
-      : '(type to search, Esc to cancel)';
-
-    return [
-      `${fullMessage} Search: ${searchTerm}${status === 'loading' ? ' ...' : ''}`,
-      `${page}\n\n${helpText}`,
-    ];
-  })(...args);
+  return prompt.then(value => {
+    // Mark the prompt so an in-flight source response cannot redraw or
+    // apply after the picker closed.
+    state.status = 'cancelled';
+    state.token += 1;
+    request?.abort();
+    return value;
+  }, error => {
+    state.status = 'cancelled';
+    state.token += 1;
+    request?.abort();
+    throw error;
+  }).then(value => value);
 };
 
 export default paginatedSearch;

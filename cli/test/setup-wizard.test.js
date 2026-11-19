@@ -5,6 +5,7 @@
 
 import { describe, it, mock, afterEach } from 'node:test';
 import assert from 'node:assert';
+import * as realPrompts from '../src/prompts.js';
 
 afterEach(() => {
   mock.reset();
@@ -30,8 +31,9 @@ describe('Setup Handler — zero profiles', () => {
       },
     });
     mock.module('../src/helpers.js', { namedExports: { canUsePicker: () => true } });
-    mock.module('@inquirer/prompts', {
+    mock.module('../src/prompts.js', {
       namedExports: {
+        ...realPrompts,
         select: async () => { selectCalled = true; return 'add'; },
       },
     });

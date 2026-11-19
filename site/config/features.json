@@ -13,6 +13,7 @@
         "what": "Toggle read-only, skip confirmations, include counts, domain"
       }
     ],
+    "docs": "guides/setup.md",
     "screens": [
       {
         "cmd": "jsn setup",
@@ -64,6 +65,7 @@
         "what": "Install for Hermes, Claude, Codex, Cursor, OpenCode, Copilot and more"
       }
     ],
+    "docs": "guides/agents.md",
     "demo": "skill",
     "group": "Automate",
     "canonicalSlug": "servicenow-agent-skill-installer",
@@ -116,6 +118,7 @@
   },
   {
     "id": "read",
+    "docs": "guides/records.md",
     "title": "Read & query records",
     "tagline": "Any table, encoded queries, counts on every list.",
     "commands": [
@@ -256,6 +259,7 @@
         "what": "Flow structure with subflow expansion"
       }
     ],
+    "docs": "guides/flows.md",
     "demo": "flows",
     "group": "Automate",
     "canonicalSlug": "servicenow-flow-subflow-context",
@@ -300,13 +304,14 @@
         "what": "Export to XML via the fluent endpoint"
       }
     ],
+    "docs": "guides/updatesets.md",
     "demo": "updatesets",
     "group": "Change",
     "canonicalSlug": "servicenow-update-set-cli",
     "seoTitle": "Manage ServiceNow update sets from the CLI",
     "seoDescription": "Inspect, select, complete, and export ServiceNow update sets while making changes from the terminal.",
     "seoQuery": "How do I manage a ServiceNow update set from the command line?",
-    "demoText": "3 update set(s)\n\n\nname                            state       application           application.scope     \n------------------------------  ----------  --------------------  --------------------  \nExample Export Test C             In prog...  test                  x_8821_test           \nExample Export Test B             In prog...  test                  x_8821_test           \nExample Export Test A             Complete    test                  x_8821_test\n"
+    "demoText": "3 update set(s)\n\n\nname                            state       application           application.scope\n------------------------------  ----------  --------------------  --------------------\nExample Export Test C             In prog...  test                  x_8821_test\nExample Export Test B             In prog...  test                  x_8821_test\nExample Export Test A             Complete    test                  x_8821_test\n"
   },
   {
     "id": "updatesets-complete",
@@ -513,6 +518,7 @@
         "what": "Restrict a search to an application scope"
       }
     ],
+    "docs": "features/servicenow-code-search-cli.md",
     "screens": [
       {
         "cmd": "jsn codesearch search GlideAjax --limit 5 --json",
@@ -563,6 +569,7 @@
   },
   {
     "id": "record-tools",
+    "docs": "guides/records.md",
     "title": "Record tools beyond CRUD",
     "tagline": "Work with attachments, aggregates, and table inspection alongside normal record queries.",
     "commands": [
@@ -633,6 +640,7 @@
   },
   {
     "id": "flow-operations",
+    "docs": "guides/flows.md",
     "title": "Flow operations and diagnostics",
     "tagline": "Inspect executions, check status, diagnose flows, and manage their lifecycle.",
     "commands": [
@@ -742,6 +750,7 @@
   },
   {
     "id": "metadata",
+    "docs": "guides/output.md",
     "title": "Schema and platform metadata",
     "tagline": "Inspect tables, columns, relationships, script includes, and instance properties.",
     "commands": [
