@@ -1,0 +1,97 @@
+import { readFileSync } from 'node:fs';
+import { AppError } from './errors.js';
+
+export function loadSchedule(id = 'itom-2026-04-09') {
+  if (id !== 'itom-2026-04-09') throw new AppError('unsupported_schedule', 'No bundled schedule for this selection.', 'Run jsn subscriptions schedules; HRSD and other SKUs are not supported.');
+  return JSON.parse(readFileSync(new URL('./schedules/itom-2026-04-09.json', import.meta.url), 'utf8'));
+}
+const malformed = () => new AppError('malformed', 'Source response is incomplete or malformed.');
+async function read(sdk, kind, table, params) {
+  return sdk.request(`${sdk.baseURL}/api/now/${kind}/${table}?${new URLSearchParams(params)}`, { method: 'GET', readOnly: true });
+}
+async function count(sdk, table, query) {
+  const body = await read(sdk, 'stats', table, { sysparm_count: 'true', sysparm_query: query });
+  const value = body?.result?.stats?.count;
+  if (!/^(0|[1-9]\d*)$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw malformed();
+  return Number(value);
+}
+async function rows(sdk, table, query, fields, cap) {
+  const body = await read(sdk, 'table', table, { sysparm_query: query, sysparm_fields: fields, sysparm_limit: String(cap), sysparm_display_value: 'false', sysparm_exclude_reference_link: 'true' });
+  if (!Array.isArray(body?.result)) throw malformed();
+  return body.result;
+}
+function status(error) {
+  if (error.status === 403 || error.code === 'forbidden') return 'forbidden';
+  if (error.status === 404) return 'missing-or-hidden';
+  return ['malformed', 'schema_unavailable'].includes(error.code) ? error.code : 'unavailable';
+}
+
+export async function estimateSubscription(sdk, product, { schedule, assumeEligible = false } = {}) {
+  if (String(product).toUpperCase() !== 'ITOM') throw new AppError('unsupported_product', 'Only the ITOM population comparison is supported.', 'Run jsn subscriptions schedules. No HRSD or arbitrary SKU rules are bundled; select ITOM and verify your SKU separately.');
+  const selected = loadSchedule(schedule);
+  const report = {
+    product: 'ITOM', captured_at: new Date().toISOString(), schedule: selected,
+    applicability: schedule ? 'explicit schedule selection; contractual SKU applicability unverified' : 'provisional April 9, 2026 schedule assumption; product name does not prove SKU applicability',
+    eligibility_assumption: assumeEligible ? 'Hypothetically all visible mapped populations are ITOM-managed and meet component/product requirements; exclusions remain unevaluated.' : 'No eligibility assumed; units withheld. Use --assume-eligible only for an illustrative activation scenario.',
+    status: 'incomplete', total_units: null, authoritative: false, categories: [],
+  };
+  let definitions, byId, byName;
+  try {
+    definitions = await rows(sdk, 'sys_db_object', 'nameSTARTSWITHcmdb_ci', 'sys_id,name,super_class', 5000);
+    const available = await count(sdk, 'sys_db_object', 'nameSTARTSWITHcmdb_ci');
+    if (definitions.length >= 5000 || definitions.length !== available) throw malformed();
+    byId = new Map(definitions.map(d => [d.sys_id, d]));
+    byName = new Map(definitions.map(d => [d.name, d]));
+    if (byId.size !== definitions.length || byName.size !== definitions.length || !byName.has('cmdb_ci') || definitions.some(d => !/^[a-z0-9_]+$/.test(d.name) || typeof d.super_class !== 'string')) throw malformed();
+    const dictionary = await rows(sdk, 'sys_dictionary', 'name=cmdb_ci^element=sys_class_name', 'name,element,internal_type', 2);
+    if (dictionary.length !== 1 || dictionary[0].element !== 'sys_class_name' || !dictionary[0].internal_type) throw new AppError('schema_unavailable', 'Class discriminator schema unavailable.');
+  } catch (error) {
+    report.categories = selected.categories.map(c => ({ category: c.id, resources_per_su: c.resources_per_su, status: status(error), population: null, illustrative_units: null }));
+    return report;
+  }
+  const assigned = new Map(selected.categories.map(c => [c.id, []]));
+  const ambiguous = new Set();
+  for (const definition of definitions) {
+    const ancestry = new Set();
+    let current = definition;
+    while (current) {
+      if (ancestry.has(current.name)) throw malformed();
+      ancestry.add(current.name);
+      if (!current.super_class) break;
+      current = byId.get(current.super_class);
+      if (!current) throw new AppError('schema_unavailable', 'Class ancestry is incomplete; no population comparison is safe.');
+    }
+    let matches = selected.categories.filter(c => c.classes.some(name => ancestry.has(name)));
+    if (matches.length > 1) matches = matches.filter(c => c.id !== 'end_user_device');
+    if (matches.length > 1) { matches.forEach(c => ambiguous.add(c.id)); continue; }
+    if (matches.length === 1) assigned.get(matches[0].id).push(definition.name);
+  }
+  for (const category of selected.categories) {
+    const item = { category: category.id, resources_per_su: category.resources_per_su, population: null, illustrative_units: null, status: 'unsupported', missing_classes: category.classes.filter(n => !byName.has(n)), mapping_complete: false };
+    const classes = assigned.get(category.id);
+    item.mapping_complete = !item.missing_classes.length && category.id !== 'paas' && category.id !== 'unresolved_object' && !ambiguous.has(category.id);
+    if (ambiguous.has(category.id)) item.status = 'ambiguous-overlap';
+    else if (classes.length) {
+      try {
+        item.population = await count(sdk, 'cmdb_ci', `sys_class_nameIN${classes.sort().join(',')}`);
+        item.status = item.mapping_complete ? 'visible-population' : 'partial-mapping';
+        if (assumeEligible) item.illustrative_units = item.population / category.resources_per_su;
+      } catch (error) { item.status = status(error); }
+    } else item.status = category.id === 'unresolved_object' ? 'unsupported-source-schema' : 'missing-or-hidden';
+    report.categories.push(item);
+  }
+  return report;
+}
+
+export function formatEstimate(report) {
+  return [
+    'ITOM illustrative population comparison: INCOMPLETE, no authoritative total',
+    `Schedule: ${report.schedule.id}. ${report.applicability}`,
+    `Source: ${report.schedule.source_url}`,
+    report.eligibility_assumption,
+    'CATEGORY | VISIBLE POPULATION | RESOURCES/SU | ILLUSTRATIVE SU | COVERAGE',
+    ...report.categories.map(c => `${c.category} | ${c.population ?? '?'} | ${c.resources_per_su} | ${c.illustrative_units ?? '?'} | ${c.status}`),
+    report.schedule.unresolved_mapping,
+    ...report.schedule.limitations,
+  ].join('\n');
+}
