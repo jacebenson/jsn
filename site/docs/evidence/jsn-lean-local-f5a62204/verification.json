@@ -9,7 +9,7 @@
   ],
   "earlier_operator_checks_on_same_candidate": {
     "full_cli": {"command": "cd cli && npm test", "exit": 1, "tests": 2485, "passed": 2480, "failed": 2, "skipped": 3},
-    "full_rails": {"command": "cd site && ruby bin/rails test", "exit": 0, "runs": 95, "assertions": 2108, "failed": 0, "errors": 0},
+    "full_rails": {"command": "cd site && ruby bin/bundle exec ruby -Itest -e 'Dir[\"test/*_test.rb\"].sort.each { |f| require_relative f }'", "exit": 0, "runs": 95, "assertions": 2108, "failed": 0, "errors": 0},
     "site_node": {"exit": 0, "passed": 19},
     "packaged_cli_help_cases": {"passed": 13, "site_tree_present": false},
     "original_guide_urls": {"passed": 23, "fragment_ids_checked": true},
