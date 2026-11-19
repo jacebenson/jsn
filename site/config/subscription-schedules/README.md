@@ -18,6 +18,8 @@ Record fields: stable `id`, `product`, source `title`, `source_url`, discovery `
 
 Archive failed browser with ERR_HTTP2_PROTOCOL_ERROR and text extraction; the index's generic Subscription Unit Overview nevertheless yielded historical July 23, 2020 terms. Historical coverage is not exhaustive. HRSD has no PDF link on this index. Public Australia types-subscription-v2 documentation defines an Unrestricted User as an active sys_user with nonempty User ID, irrespective of roles, but does not establish HRSD SKU applicability. No HRSD meter mapping or estimator is asserted. Resolve contract/product meter and eligible organizational population before implementing, never substitute role counts.
 
+The retained April 2026 ITOM estimator uses a legacy schema without a literal `normalization_status`. Combined descriptions counting it as normalized use a convention; literal inventory status counts remain **30 normalized, 1 partial**, as recorded in the normalization manifest. No schema/status promotion is implied.
+
 ## Normalized representation and inspection
 
 `title` retains the observed public index anchor. `source_document_title` identifies the document; `provenance` binds source URL, title, date/version and named sections. Each JSN-authored `definitions` entry carries source sections. `scope`, `entitlements`, `exceptions`, `unknowns` and `section_coverage` preserve applicability and uncertainties. `normalized` means the extracted sections were read and rewritten, **not** that the vendor validated the rewrite, the contract applies, or usage was measured. `measurement: unimplemented` remains on every inventory record.

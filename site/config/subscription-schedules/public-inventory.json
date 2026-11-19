@@ -161,15 +161,9 @@
       },
       {
         "term": "Grandfathered tables",
-        "definition": "One-time allocation on migration from legacy Starter products; only tables predating migration contract date and extending out-of-box workflows. Earliest sys_created_on first up to entitlement limit. Quantity, cutoff and mapping immutable through account ownership/structure changes.",
+        "definition": "Grandfathered Custom Tables may be used for any permissible purpose on a production instance according to the prevailing contract in effect. They are allocated once on migration from a legacy product including App Engine Starter tables. Allocation eligibility is limited to tables created before the migration contract date and used to extend out-of-box workflows; Direct Task Inherited Tables are ineligible. Eligibility is considered in earliest sys_created_on order up to the grandfather entitlement limit. The account's quantity, cutoff date and mapping remain fixed through ownership or structure changes.",
         "source_sections": [
-          "1 Definitions",
-          "2.1 Table Extensions",
-          "2.2 Table Type",
-          "3 Field Limitations",
-          "4 Store Downloads",
-          "5 Custom Table Assignments",
-          "6 Starter Usage Rights",
+          "1.6 Grandfathered Custom Tables",
           "7 Grandfathered Eligibility"
         ]
       }
@@ -203,7 +197,10 @@
       ],
       "evidence": "Previously preserved private PDF text extraction; no original PDF bytes or redistribution grant.",
       "document_title": "Custom Table Guide",
-      "source_version": null
+      "source_version": null,
+      "normalization_notes": [
+        "Grandfathered permissible-use rights (section 1.6; preserved extract lines 42–47) are distinct from allocation eligibility (section 7; lines 156–171). Starter usage restrictions remain separately represented (section 6; lines 144–154)."
+      ]
     },
     "meter": {
       "unit": null,
@@ -640,7 +637,10 @@
       ],
       "evidence": "Previously preserved private PDF text extraction; no original PDF bytes or redistribution grant.",
       "document_title": "ServiceNow Integration Hub and Workflow Data Fabric Overview",
-      "source_version": null
+      "source_version": null,
+      "normalization_notes": [
+        "Current Credit Pack API Access Volume cells say Yes with footnote 2, not a daily quantity (preserved extract lines 42–72). Availability and consumption reference are represented separately; daily volume is null."
+      ]
     },
     "packages": [
       {
@@ -669,10 +669,12 @@
         "protocols_and_features": "All",
         "orchestration": true,
         "integration_solutions": true,
-        "api_access_volume_per_day": "Data Fabric Credits",
+        "api_access_volume_per_day": null,
         "conversational_spoke_actions": true,
         "boomi_cloud_api_management": true,
-        "unspecified_columns": null
+        "unspecified_columns": null,
+        "api_access_available": true,
+        "api_access_consumption_reference": "Refer to the Workflow Data Fabric Credit standard unit of consumption (source footnote 2)."
       },
       {
         "name": "Workflow Data Fabric Professional – Data Fabric Credit Pack",
@@ -684,10 +686,12 @@
         "protocols_and_features": "All",
         "orchestration": true,
         "integration_solutions": true,
-        "api_access_volume_per_day": "Data Fabric Credits",
+        "api_access_volume_per_day": null,
         "conversational_spoke_actions": true,
         "boomi_cloud_api_management": true,
-        "unspecified_columns": null
+        "unspecified_columns": null,
+        "api_access_available": true,
+        "api_access_consumption_reference": "Refer to the Workflow Data Fabric Credit standard unit of consumption (source footnote 2)."
       },
       {
         "name": "Workflow Data Fabric Starter (formerly Integration Hub Pro v4)",

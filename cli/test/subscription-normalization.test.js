@@ -37,6 +37,25 @@ test('all indexed documents have substantive rewrites and only source-conflicted
     assert.equal(r.source_pdf_sha256, null);
   }
 });
+test('grandfathered permissible use is distinct from allocation eligibility', () => {
+  const definition = loadSchedule('custom-table-guide').definitions.find(r => r.term === 'Grandfathered tables');
+  assert.match(definition.definition, /any permissible purpose on a production instance according to the prevailing contract in effect/);
+  assert.match(definition.definition, /Allocation eligibility is limited to tables created before the migration contract date and used to extend out-of-box workflows/);
+  assert.match(definition.definition, /Direct Task Inherited Tables are ineligible/);
+  assert.deepEqual(definition.source_sections, ['1.6 Grandfathered Custom Tables', '7 Grandfathered Eligibility']);
+});
+test('Credit Pack API availability and consumption reference are not daily volume limits', () => {
+  const hub = loadSchedule('snc-addendum-integrationhub');
+  const packs = hub.packages.filter(r => r.name.endsWith('Data Fabric Credit Pack'));
+  assert.equal(packs.length, 2);
+  for (const pack of packs) {
+    assert.equal(pack.api_access_volume_per_day, null);
+    assert.equal(pack.api_access_available, true);
+    assert.equal(pack.api_access_consumption_reference, 'Refer to the Workflow Data Fabric Credit standard unit of consumption (source footnote 2).');
+  }
+  assert.match(hub.exceptions.join(' '), /FedRamp\/GCC/);
+  assert.equal(hub.packages[0].api_access_volume_per_day, '300 MB');
+});
 test('literal unusual ratio direction and conflicting USEM conversions are never silently repaired', () => {
   const eam = loadSchedule('sn-enterprise-asset-management');
   assert.deepEqual(eam.meter.ratios[0], { resource: 'Consumable', subscription_units: 25, resource_quantity: 1, source_ratio_su_to_resource: '25:1' });
