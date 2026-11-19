@@ -1,0 +1,31 @@
+<% content_for :title, "#{@schedule['product']} subscription schedule · JSN" %>
+<section class="shell schedules schedule-detail">
+<a href="/subscription-schedules">← All subscription schedules</a>
+<p class="eyebrow"><%= @schedule['product'] %> · <%= @schedule['normalization_status'] || 'partial' %></p>
+<h1><%= SubscriptionScheduleCatalog.label(@schedule) %></h1>
+<p class="lead"><%= SubscriptionScheduleCatalog.version(@schedule) %></p>
+<p><a class="button" href="<%= @schedule['source_url'] %>" rel="noopener noreferrer">Read original ServiceNow PDF ↗</a></p>
+<p class="schedule-notice">Rewritten reference, not contractual advice or an estimator. Verify your incorporated agreement and product/SKU applicability. Original PDFs remain on ServiceNow; no source binaries are hosted here.</p>
+<h2>Effective wording & applicability</h2>
+<p><%= @schedule['applicability'] || 'Only the cited ITOM sections are represented. Managed eligibility, product scope and contractual applicability must be verified.' %></p>
+<p><strong>SKUs:</strong> <%= Array(@schedule['skus']).presence&.join(', ') || 'Not verified; no automatic SKU mapping.' %></p>
+<% %w[definitions meter].each do |field| %>
+<h2><%= field == 'definitions' ? 'Definitions' : 'Meter & ratios' %></h2>
+<%= render partial: 'value', locals: { value: @schedule[field] || (field == 'meter' && @schedule['categories'] ? 'Defined resource ratios are listed below. Managed eligibility and contract applicability remain unverified.' : 'Not normalized. Consult the original PDF.') } %>
+<% end %>
+<% if @schedule['categories'] %><h2>Ratios: resources per subscription unit</h2>
+<p class="small">On narrow screens, scroll the ratio table sideways to read the source classes.</p>
+<div class="schedule-table" role="region" aria-label="Resource ratios and source CI classes" tabindex="0"><table><thead><tr><th>Resource</th><th>Resources per unit</th><th>Source CI classes</th></tr></thead><tbody>
+<% @schedule['categories'].each do |category| %><tr><td><%= category['id'].humanize %></td><td><%= category['resources_per_su'] %></td><td><%= Array(category['classes']).join(', ') %></td></tr><% end %>
+</tbody></table></div><% end %>
+<% %w[scope entitlements packages capability_lists section_coverage provenance].each do |field| %>
+<% if @schedule.key?(field) %><h2><%= field.humanize %></h2><%= render partial: 'value', locals: { value: @schedule[field] } %><% end %>
+<% end %>
+<h2>Exceptions</h2><%= render partial: 'value', locals: { value: @schedule['exceptions'] || 'No separate exceptions normalized; absence here does not establish that none apply.' } %>
+<h2>Unknowns & limitations</h2><%= render partial: 'value', locals: { value: Array(@schedule['unknowns']) + Array(@schedule['limitations']) + Array(@schedule['unresolved_mapping']) } %>
+<h2>Source & provenance</h2><p>Retrieved: <%= @schedule['retrieved_at'] || @schedule['fetched_at'] %></p>
+<p><%= @schedule['retrieval_method'] || @schedule['retrieval'] %></p>
+<p>Sections: <%= Array(@schedule['source_sections']).presence&.join(', ') || @schedule['source_version'] || 'Not normalized' %></p>
+<p><%= @schedule['effective_date_provenance'] %></p>
+<p>Original PDF checksum: <%= @schedule['source_pdf_sha256'] || 'Unavailable; extracted text is not a PDF checksum.' %></p>
+</section>

@@ -1,0 +1,7 @@
+<% case value %>
+<% when Hash %>
+<dl class="schedule-values"><% value.each do |key, item| %><dt><%= key.to_s.humanize %></dt><dd><%= render partial: 'value', locals: { value: item } %></dd><% end %></dl>
+<% when Array %>
+<% if value.empty? %><p>Not normalized.</p><% else %><ul><% value.each do |item| %><li><%= render partial: 'value', locals: { value: item } %></li><% end %></ul><% end %>
+<% else %><p><%= value.nil? ? 'Not verified' : value.to_s %></p>
+<% end %>
