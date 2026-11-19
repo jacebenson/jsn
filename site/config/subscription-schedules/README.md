@@ -1,0 +1,48 @@
+# Subscription schedule source data and local delivery candidate
+
+These curated files are canonical. `cli/src/schedules/` contains generated offline snapshots, not another authored catalog. Run `node cli/scripts/sync-subscription-catalog.js`; an offline test enforces byte equality. Rails projects these records through public browser and versioned JSON routes in the tested local candidate; no deployment is claimed.
+
+## Version 1 local delivery contract
+
+Inspected `site/config/routes.rb`, `SnapshotsController`, and site README. Existing `/docs-index/manifest.json` and immutable `/docs-index/artifacts/:filename` deliver verified SQLite documentation snapshots; `/api/docs/*` searches documentation, not licensing records. Do not put schedule JSON in that SQLite artifact or claim these APIs already serve schedules.
+
+The local Rails candidate serves `/subscription-schedules/v1/manifest.json` with `{schema_version:1, revision, catalog_url, sha256, bytes, published_at}` and `/subscription-schedules/v1/artifacts/<sha256>.json` with `{schema_version:1, revision, schedules:[...]}`. Only the current digest is served; older digests return 404. `/subscription-schedules` provides public product/version browsing and source PDF links. Canonical hostname remains unresolved; manifest URLs derive from the request origin. No deployment or source PDF hosting is claimed.
+
+Consumer behavior is now implemented: `jsn subscriptions refresh --manifest-url <URL>` explicitly downloads and validates before atomically replacing last-good cache. Offline inspection revalidates cache or uses bundled fallback, with visible provenance and stale state, never implicit HTTP. See `site/test/evidence/subscription-schedules/integration.md` for configuration precedence, limits, acceptance evidence and boundaries. The April 2026 ITOM estimator stays pinned to its bundled adapter; refreshed generic records are inspection-only.
+
+Record fields: stable `id`, `product`, source `title`, `source_url`, discovery `index_url`, effective-date wording/provenance (null if not normalized), retrieval timestamp/method/status, normalization status, explicit `skus` (empty means unverified), applicability, meter and source sections when normalized, exceptions and unknowns. Pending records are inventory, not meter definitions. Document may cover several products/versions; partial records must identify omitted sections. Dates do not prove incorporated terms.
+
+## Current coverage and rights boundary
+
+27 of the 28 unique public PDF documents now have substantive JSN-authored representations of all extracted sections; the remaining USEM document is fully read/re-written but **partial** because its own ratio table and definitions conflict. No documents remain pending or retrieval-blocked. Inventory contains 31 records (30 normalized, 1 partial): the historical July 2020 overview is split into ITOM, SAM, HAM and TNPM with deterministic suffix IDs. With the preserved April 2026 ITOM estimator record there are **32 records referring to 28 documents**, not 32 sources. Original source bytes were not downloaded, so hashes remain null. Private extracted text is evidence, not PDF bytes. No redistribution permission established: preserve source links; specialist must establish rights before hosting original PDFs. Do not synthesize PDF assets or claim text extraction hashes are PDF hashes.
+
+Archive failed browser with ERR_HTTP2_PROTOCOL_ERROR and text extraction; the index's generic Subscription Unit Overview nevertheless yielded historical July 23, 2020 terms. Historical coverage is not exhaustive. HRSD has no PDF link on this index. Public Australia types-subscription-v2 documentation defines an Unrestricted User as an active sys_user with nonempty User ID, irrespective of roles, but does not establish HRSD SKU applicability. No HRSD meter mapping or estimator is asserted. Resolve contract/product meter and eligible organizational population before implementing, never substitute role counts.
+
+The retained April 2026 ITOM estimator uses a legacy schema without a literal `normalization_status`. Combined descriptions counting it as normalized use a convention; literal inventory status counts remain **30 normalized, 1 partial**, as recorded in the normalization manifest. No schema/status promotion is implied.
+
+## Normalized representation and inspection
+
+`title` retains the observed public index anchor. `source_document_title` identifies the document; `provenance` binds source URL, title, date/version and named sections. Each JSN-authored `definitions` entry carries source sections. `scope`, `entitlements`, `exceptions`, `unknowns` and `section_coverage` preserve applicability and uncertainties. `normalized` means the extracted sections were read and rewritten, **not** that the vendor validated the rewrite, the contract applies, or usage was measured. `measurement: unimplemented` remains on every inventory record.
+
+Meter shapes deliberately differ:
+- `resources_per_su` means divide eligible resource quantity by that number; no rounding/deduplication policy inferred.
+- Explicit `subscription_units` and `resource_quantity` retain literal SU:resource orientation for EAM and OTAM, including their unusual 25:1 and 4:1 rows. Never silently invert them to resemble other products.
+- `rules` preserve usage events, credit/Assist amounts, windows, peaks, batches and conditions. Otto has 285 skill rows, including conditional Search and Voice workflow references, not a single flat per-call charge. Its original private extract was truncated; the preserved full 24-page extraction was read and rates reconciled in order before normalization.
+- `unit: null` explicitly means the document grants/classifies entitlements rather than defining a numeric consumption meter (Foundation, Custom Table Guide and fee-only Overage). Pricing is omitted; consult source for fees.
+- USEM uses `status: ambiguous_source` and `source_rows`, not calculable ratios: left quantities conflict with repeated right-side `(1:1)` labels; prose/table image and application classes differ, FaaS lists Cloud Directory, and AI Asset prose lacks a matching table. These are precise unresolved source conflicts, not guessed corrections.
+
+Null effective dates are retained when the source only has a version date or SKU-introduction wording; `source_version` preserves that wording. Integration Hub has no extracted effective-date label. Explicit package codes are source-backed; shared legacy codes can appear in multiple named package rows, so a code is not a uniquely inferred commercial mapping.
+
+Offline examples from repository root:
+
+```sh
+node cli/bin/jsn.js subscriptions schedules --id servicenow-otto-overview --styled
+node cli/bin/jsn.js subscriptions schedules --id custom-table-guide --json
+node cli/bin/jsn.js subscriptions schedules --id snc-addendum-integrationhub --get 'data.schedules[0].packages'
+node cli/bin/jsn.js subscriptions schedules --id servicenow-subscription-unit-overview-sam --styled
+node cli/bin/jsn.js subscriptions schedules --id unified-security-exposure-management-servicenow-subscription-unit-overview --get 'data.schedules[0].unknowns'
+```
+
+`--id` human output expands every field, definition, rule and source section; JSON/get retain the structured object. Unfiltered listings remain compact. These reads require no instance and never refresh HTTP.
+
+Local integration and HTTP/cache evidence are in `site/test/evidence/subscription-schedules/integration.md`. Operator exact-revision review/source sampling, publication approval and canonical hostname selection remain outstanding. No push, deployment or publication is authorized.
