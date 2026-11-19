@@ -95,6 +95,20 @@
       "classes": []
     }
   ],
+  "definitions": {
+    "provenance": "Paraphrases of section 1.1, not independent eligibility rules. All CI resource types must be represented in the listed classes or descendants and managed by an ITOM application.",
+    "server": "Physical or virtual server.",
+    "paas": "Cloud-based platform service.",
+    "container": "Operating system-level virtualization.",
+    "image": "Operating system-level virtualization image.",
+    "end_user_device": "Physical or virtual computing device not defined as another Managed IT Resource Type, with an ITOM component such as Agent Client Collector installed.",
+    "faas": "Serverless compute function-as-a-service instance.",
+    "gpu": "Graphics Processing Unit.",
+    "api": "Application programming interface.",
+    "ai_agent": "Service for machine learning, data processing and AI-driven tasks.",
+    "service_instance": "Interconnected applications and IT resources configured to offer a digital service.",
+    "unresolved_object": "IT resource receiving an ITOM event, performance metric or log, not represented as a CMDB CI; recorded in em_unique_nodes with type=unknown. Counting this source is unsupported in this slice."
+  },
   "unresolved_mapping": "cmdb_ci_could_database is literal source text; no corrected mapping is assumed.",
   "limitations": [
     "CMDB populations are not managed or billable counts, nor a ceiling.",

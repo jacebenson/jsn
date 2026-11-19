@@ -6,7 +6,15 @@ export function subscriptionsCmd(wrap) {
   const local = (_argv, app) => {
     const schedule = loadSchedule();
     const data = { schedules: [schedule] };
-    Object.defineProperty(data, '_formatted', { value: `${schedule.id}: ${schedule.source_version}\n${schedule.source_url}\n${schedule.unresolved_mapping}\n${schedule.limitations.join('\n')}` });
+    Object.defineProperty(data, '_formatted', { value: [
+      `${schedule.id}: ${schedule.source_version}`,
+      schedule.source_url,
+      `Fetched: ${schedule.fetched_at}. ${schedule.retrieval}`,
+      ...schedule.categories.map(c => `${c.id}: ${c.resources_per_su} resources/SU; ${c.classes.join(', ') || 'unsupported source'}`),
+      schedule.definitions.provenance,
+      schedule.unresolved_mapping,
+      ...schedule.limitations,
+    ].join('\n') });
     app.ok(data, { summary: 'Bundled dated metering schedules, not purchased rights' });
   };
   return {

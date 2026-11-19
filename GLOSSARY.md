@@ -179,6 +179,27 @@ It retrieves definitions rather than related record data. Static references can
 be described declaratively; scripted relationships remain platform-required.
 Generic record retrieval does not automatically fetch form metadata.
 
+## Subscription population comparison
+
+`subscriptions schedules` inspects a bundled dated public-source schedule offline.
+`subscriptions estimate ITOM` compares current provider-visible exact-class CMDB
+populations with that schedule. Product name alone does not establish SKU or
+contract applicability. Omitting `--schedule` discloses a provisional dated
+schedule assumption. `--assume-eligible` explicitly declares a hypothetical
+managed/component-eligible activation scenario; only then are fractional category
+units shown. This is not observed metering, a ceiling, purchased rights, pricing
+or a compliance audit. Total units remain null.
+
+The class metadata inventory is invocation-local, bounded to 20,000 definitions,
+and compared with the provider Stats count. Missing definitions, partial metadata,
+missing ancestry, ambiguous category overlap and unreadable aggregates remain
+explicit. Exact-class queries avoid hierarchy duplication, including server versus
+computer and scoped descendants. Other resource categories take precedence over
+end-user computing devices. Container/image relationships and component eligibility
+are not evaluated. `cmdb_ci_could_database` is preserved as an unresolved literal
+source mapping. Unresolved monitored-object counting is unsupported. Reads use the
+SDK `readOnly` policy; no instance records or historical usage are collected.
+
 ## Command
 
 A yargs command module — one file in `src/commands/`, exported as

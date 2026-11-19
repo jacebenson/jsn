@@ -36,15 +36,19 @@ export async function estimateSubscription(sdk, product, { schedule, assumeEligi
     status: 'incomplete', total_units: null, authoritative: false, categories: [],
   };
   let definitions, byId, byName;
+  report.coverage = { metadata_status: 'unavailable', visible_definitions: null, provider_count: null, skipped_ancestries: 0, semantics: 'Provider-visible exact-class aggregate counts only; ACL-hidden rows and concurrent changes remain unknown.' };
   try {
-    definitions = await rows(sdk, 'sys_db_object', 'nameSTARTSWITHcmdb_ci', 'sys_id,name,super_class', 5000);
-    const available = await count(sdk, 'sys_db_object', 'nameSTARTSWITHcmdb_ci');
-    if (definitions.length >= 5000 || definitions.length !== available) throw malformed();
+    // Include scoped/custom descendants, whose names need not start with cmdb_ci.
+    definitions = await rows(sdk, 'sys_db_object', 'ORDERBYsys_id', 'sys_id,name,super_class', 20000);
+    const available = await count(sdk, 'sys_db_object', '');
+    report.coverage.visible_definitions = definitions.length;
+    report.coverage.provider_count = available;
+    report.coverage.metadata_status = definitions.length < 20000 && definitions.length === available ? 'provider-count-matched' : 'partial';
     byId = new Map(definitions.map(d => [d.sys_id, d]));
     byName = new Map(definitions.map(d => [d.name, d]));
-    if (byId.size !== definitions.length || byName.size !== definitions.length || !byName.has('cmdb_ci') || definitions.some(d => !/^[a-z0-9_]+$/.test(d.name) || typeof d.super_class !== 'string')) throw malformed();
+    if (byId.size !== definitions.length || byName.size !== definitions.length || !byName.has('cmdb_ci') || definitions.some(d => typeof d.name !== 'string' || typeof d.super_class !== 'string')) throw malformed();
     const dictionary = await rows(sdk, 'sys_dictionary', 'name=cmdb_ci^element=sys_class_name', 'name,element,internal_type', 2);
-    if (dictionary.length !== 1 || dictionary[0].element !== 'sys_class_name' || !dictionary[0].internal_type) throw new AppError('schema_unavailable', 'Class discriminator schema unavailable.');
+    if (dictionary.length !== 1 || dictionary[0].name !== 'cmdb_ci' || dictionary[0].element !== 'sys_class_name' || !['sys_class_name', 'string'].includes(dictionary[0].internal_type)) throw new AppError('schema_unavailable', 'Class discriminator schema unavailable.');
   } catch (error) {
     report.categories = selected.categories.map(c => ({ category: c.id, resources_per_su: c.resources_per_su, status: status(error), population: null, illustrative_units: null }));
     return report;
@@ -59,8 +63,9 @@ export async function estimateSubscription(sdk, product, { schedule, assumeEligi
       ancestry.add(current.name);
       if (!current.super_class) break;
       current = byId.get(current.super_class);
-      if (!current) throw new AppError('schema_unavailable', 'Class ancestry is incomplete; no population comparison is safe.');
+      if (!current) { report.coverage.skipped_ancestries++; break; }
     }
+    if (!current || !ancestry.has('cmdb_ci') || !/^[a-zA-Z0-9_]+$/.test(definition.name)) continue;
     let matches = selected.categories.filter(c => c.classes.some(name => ancestry.has(name)));
     if (matches.length > 1) matches = matches.filter(c => c.id !== 'end_user_device');
     if (matches.length > 1) { matches.forEach(c => ambiguous.add(c.id)); continue; }
@@ -69,7 +74,7 @@ export async function estimateSubscription(sdk, product, { schedule, assumeEligi
   for (const category of selected.categories) {
     const item = { category: category.id, resources_per_su: category.resources_per_su, population: null, illustrative_units: null, status: 'unsupported', missing_classes: category.classes.filter(n => !byName.has(n)), mapping_complete: false };
     const classes = assigned.get(category.id);
-    item.mapping_complete = !item.missing_classes.length && category.id !== 'paas' && category.id !== 'unresolved_object' && !ambiguous.has(category.id);
+    item.mapping_complete = report.coverage.metadata_status === 'provider-count-matched' && report.coverage.skipped_ancestries === 0 && !item.missing_classes.length && category.id !== 'paas' && category.id !== 'unresolved_object' && !ambiguous.has(category.id);
     if (ambiguous.has(category.id)) item.status = 'ambiguous-overlap';
     else if (classes.length) {
       try {
@@ -88,6 +93,8 @@ export function formatEstimate(report) {
     'ITOM illustrative population comparison: INCOMPLETE, no authoritative total',
     `Schedule: ${report.schedule.id}. ${report.applicability}`,
     `Source: ${report.schedule.source_url}`,
+    `Metadata: ${report.coverage.metadata_status}, ${report.coverage.visible_definitions ?? '?'} definitions / ${report.coverage.provider_count ?? '?'} provider count; ${report.coverage.skipped_ancestries} unresolved ancestries`,
+    report.coverage.semantics,
     report.eligibility_assumption,
     'CATEGORY | VISIBLE POPULATION | RESOURCES/SU | ILLUSTRATIVE SU | COVERAGE',
     ...report.categories.map(c => `${c.category} | ${c.population ?? '?'} | ${c.resources_per_su} | ${c.illustrative_units ?? '?'} | ${c.status}`),
