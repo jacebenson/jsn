@@ -16,7 +16,8 @@ import * as sdk from ${JSON.stringify(new URL('../src/sdk.js', import.meta.url).
 mock.module(${JSON.stringify(new URL('../src/config.js', import.meta.url).href)}, { namedExports: { ...config, loadConfig: () => ({ profiles: { fixture: { instance_url: 'https://fixture.invalid', username: 'test', auth_method: 'basic', read_only: process.env.FIXTURE_READONLY === '1', skip_confirmations: true } }, activeProfile: 'fixture', defaultProfile: 'fixture' }) } });
 class SDKClient {
   async list(table, params) {
-    if (table === 'sys_user') return [{ sys_id: 'user' }];
+    if (table === 'sys_db_object') return [{ sys_id: 'incident-table', name: 'incident', super_class: '' }];
+    if (table === 'sys_user') throw new Error('Ordinary data writes must not read context');
     if (table === 'sys_user_preference') return [{ value: params.get('sysparm_query').includes('apps.current_app') ? (process.env.FIXTURE_SCOPE || 'global') : 'set' }];
     return [];
   }
@@ -34,26 +35,14 @@ function run(args, env = {}) {
   });
 }
 for (const format of ['--json', '--quiet']) {
-  it(`enforces approval and structured context with ${format} and headers disabled`, () => {
+  it(`ordinary incident create remains context-free with ${format}`, () => {
     const result = run(['records', 'create', '--table', 'incident', '--data', '{}', format]);
-    assert.equal(result.status, 1, result.stderr);
-    assert.ok(result.stdout, result.stderr);
-    const error = JSON.parse(result.stdout);
-    assert.equal(error.code, 'confirmation_required'); assert.equal(error.context.scope, 'global');
-    assert.equal(error.context.diagnostics[0].code, 'global_default_update_set');
-    assert.match(error.hint, /records create.*--table incident.*--force/);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(format === '--quiet' ? output.sys_id : output.data.sys_id, 'created');
+    assert.equal(output.context?.mutation, undefined);
   });
 }
-it('approved override reaches actual command handler with structured context', () => {
-  const result = run(['records', 'create', '--table', 'incident', '--data', '{}', '--json', '--force']);
-  assert.equal(result.status, 0, result.stderr);
-  const output = JSON.parse(result.stdout);
-  assert.equal(output.context.mutation.approved, true); assert.equal(output.data.sys_id, 'created');
-});
-it('ordinary create in named set needs no confirmation', () => {
-  const result = run(['records', 'create', '--table', 'incident', '--data', '{}', '--json'], { FIXTURE_SET: 'My Feature' });
-  assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).context.mutation.approval_required, false);
-});
 it('read-only REST GET remains blocked by existing policy', () => {
   const result = run(['rest', '/api/now/table/incident', '--json'], { FIXTURE_READONLY: '1' });
   assert.equal(result.status, 1, result.stderr); assert.equal(JSON.parse(result.stdout).code, 'read_only');

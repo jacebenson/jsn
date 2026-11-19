@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { contextArgs, contextResponse } from './helpers/intended-context.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -19,10 +20,10 @@ function fixtureServer({ keepAfterDelete = false, forbidDelete = false } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     requests.push({ method: req.method, pathname: url.pathname, query: url.search });
-    let response = { result: [] };
+    let response = contextResponse(url) || { result: [] };
     if (url.pathname === '/api/now/table/sys_hub_flow' && req.method === 'GET') {
       const present = keepAfterDelete || !deleted;
-      response = { result: present ? [{ sys_id: id, name: 'Fixture flow', status: 'Draft', active: 'false' }] : [] };
+      response = { result: present ? [{ sys_id: id, name: 'Fixture flow', status: 'Draft', active: 'false', sys_scope: 'global' }] : [] };
     }
     if (url.pathname.startsWith('/api/now/stats/') && req.method === 'GET') {
       const present = keepAfterDelete || !deleted;
@@ -62,7 +63,7 @@ async function runDelete(serverResponse) {
     });
     let result;
     try {
-      result = { code: 0, ...await exec(process.execPath, [cli, 'flows', 'delete', id, '--force', '--json', '--verbose'], { env, timeout: 20000 }) };
+      result = { code: 0, ...await exec(process.execPath, [cli, ...contextArgs, 'flows', 'delete', id, '--force', '--json', '--verbose'], { env, timeout: 20000 }) };
     } catch (error) {
       result = { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
     }
@@ -114,7 +115,7 @@ test('flows delete refuses without confirmation when --force is absent', async (
     });
     let result;
     try {
-      result = { code: 0, ...await exec(process.execPath, [cli, 'flows', 'delete', id, '--json'], { env, timeout: 20000 }) };
+      result = { code: 0, ...await exec(process.execPath, [cli, ...contextArgs, 'flows', 'delete', id, '--json'], { env, timeout: 20000 }) };
     } catch (error) {
       result = { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
     }

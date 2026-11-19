@@ -95,6 +95,7 @@ test('real CLI resolves generic/ticket/factory reads and writes without subproce
     const parts = url.pathname.split('/');
     res.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/angular.do') { res.end('{}'); return; }
+    if (url.pathname === '/api/now/table/sys_db_object') { res.end(JSON.stringify({ result: [{ sys_id: 'table', name: url.searchParams.get('sysparm_query').split('=')[1], super_class: '' }] })); return; }
     if (url.pathname.startsWith('/api/now/stats/')) { res.end(JSON.stringify({ result: { stats: { count: '2' } } })); return; }
     if (req.method !== 'GET') {
       let body = ''; for await (const chunk of req) body += chunk;

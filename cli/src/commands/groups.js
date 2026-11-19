@@ -1,7 +1,7 @@
 import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch, buildRecordPayload } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
 
-declareCapabilities('groups', { mutationSubcommands: ['create', 'update', 'delete'] });
+declareCapabilities('groups', { mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function groupsCmd(wrap) {
   return {

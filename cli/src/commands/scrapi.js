@@ -14,7 +14,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 // `scrapi create` builds a full Scripted REST API in one call (list/show are
 // reads). Registered at the root.
-declareCapabilities('scrapi', { mutationSubcommands: ['create'] });
+declareCapabilities('scrapi', { transactionScopeOption: 'scope', mutationSubcommands: ['create'] });
 
 /**
  * Parse a --resource flag value of the form:
@@ -257,7 +257,7 @@ export function scrapiCmd(wrap) {
             const description = argv.description || '';
 
             // 2. Resolve scope if provided
-            let scopeSysId = null;
+            let scopeSysId = app.mutationContext?.application_id || null;
             if (argv.scope) {
               scopeSysId = await app.sdk.resolveScope(argv.scope);
               if (!scopeSysId) {

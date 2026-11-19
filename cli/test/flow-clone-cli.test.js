@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { contextArgs, contextResponse } from './helpers/intended-context.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -19,11 +20,8 @@ async function fixture(scenario, operation) {
     let body = ''; for await (const chunk of req) body += chunk;
     const url = new URL(req.url, 'http://localhost'), query = url.searchParams.get('sysparm_query');
     requests.push({ method: req.method, path: url.pathname, query, scope: url.searchParams.get('sysparm_transaction_scope'), body: body.startsWith('{') ? JSON.parse(body) : body });
-    let result = { result: [] };
+    let result = contextResponse(url, { set: setId, name: scenario.defaultSet ? 'Default' : 'Fixture' }) || { result: [] };
     if (url.pathname.endsWith('/table/sys_hub_flow')) result.result = query?.startsWith('name=New flow') ? scenario.collision ? [{ sys_id: cloneId }] : [] : [{ sys_id: sourceId, sys_scope: 'global', name: 'Source' }];
-    if (url.pathname.endsWith('/table/sys_user')) result.result = [{ sys_id: 'e'.repeat(32) }];
-    if (url.pathname.endsWith('/table/sys_user_preference')) result.result = [{ value: setId }];
-    if (url.pathname.endsWith('/table/sys_update_set')) result.result = [{ sys_id: setId, name: scenario.defaultSet ? 'Default' : 'Fixture', state: 'in progress' }];
     if (url.pathname.endsWith('/concoursepicker/updateset')) result = { result: { current: { sysId: scenario.misaligned || allocated && scenario.changedContext ? 'f'.repeat(32) : setId, name: 'Fixture' } } };
     if (url.pathname === `/api/now/processflow/flow/${sourceId}`) {
       const source = sourceFlow();
@@ -71,7 +69,7 @@ async function fixture(scenario, operation) {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
     Object.assign(env, { HOME: dir, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: configDir, JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
     const run = async argv => {
-      try { return { code: 0, ...await exec(process.execPath, [cli, ...argv], { env, timeout: 20000 }) }; }
+      try { return { code: 0, ...await exec(process.execPath, [cli, ...argv, ...contextArgs.slice(0, 2), '--expect-update-set', setId], { env, timeout: 20000 }) }; }
       catch (error) { return { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' }; }
     };
     await operation(run, requests);

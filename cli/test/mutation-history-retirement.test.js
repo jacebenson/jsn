@@ -17,6 +17,7 @@ test('real CLI mutations preserve output without creating or touching retired hi
     globalThis.fetch = async req => {
       const url = new URL(req.url);
       const table = url.pathname.split('/')[4];
+      if (table === 'sys_db_object') return new Response(JSON.stringify({ result: [{ sys_id: 'table', name: url.searchParams.get('sysparm_query').split('=')[1], super_class: '' }] }));
       if (process.env.FIXTURE_FAIL === '1' && req.method === 'POST') return new Response('{"error":{"message":"synthetic refusal"}}', { status: 403 });
       if (req.method === 'POST') return new Response(JSON.stringify({ result: { sys_id: 'full-resolved-id', number: 'INC0001', ...JSON.parse(await req.text()) } }));
       if (req.method === 'PATCH' || req.method === 'PUT') return new Response(JSON.stringify({ result: { sys_id: 'full-resolved-id' } }));

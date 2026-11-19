@@ -136,7 +136,7 @@ export class OutputWriter {
     // typo looked like a successful empty result until the next tool in the
     // pipeline failed to parse it. Present null/false/0/"" still print as-is.
     if (this.jqFilter) {
-      const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
+      const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [], ...(opts.context ? { context: opts.context } : {}) };
       const value = resolvePath(envelope, this.jqFilter);
       if (value === undefined) throw errExtractionNotFound(this.jqFilter);
       const indent = this.verbose && !this.raw ? 2 : undefined;

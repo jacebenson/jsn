@@ -22,7 +22,15 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 For development:
 
 1. Choose or create the application scope and update set.
-2. Do the work, keeping related changes together.
+2. Supply task-owned `--expect-scope <scope/name/id>` and
+   `--expect-update-set <name/id>` on customization writes, or explicitly save
+   profile-and-instance-bound `write_context` in local `.servicenow/config.json`.
+   Never derive intended values from current preferences. `--force` cannot bypass
+   missing intent, unknown context or mismatches. Domain-scoped customization
+   currently refuses, including `--expect-domain`, because `X-Now-Domain` does not
+   prove effective domain. Inspect with `auth status --context`; `--local` is offline.
+   Reads never print or fetch automatic context. Ordinary ticket/data edits do not
+   need customization expectations. Keep related development changes together.
 3. Verify the results on the instance and report where changes were captured.
 4. Offer to run relevant existing ATFs and instance scans, or create missing checks.
 5. Ask whether anything else belongs in the update set. If the user confirms

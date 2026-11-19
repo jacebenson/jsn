@@ -431,7 +431,16 @@ export class SDKClient {
     return result?.result || null;
   }
 
+  async _guardTableMutation(table, id, data) {
+    const context = this.mutationContext;
+    if (!context?.verified || context.table !== table) return;
+    const { assertMutationScope } = await import('./intended-context.js');
+    if (id) assertMutationScope(context, (await this.get(table, id))?.sys_scope, 'Record target');
+    if (data && Object.hasOwn(data, 'sys_scope')) assertMutationScope(context, data.sys_scope, 'Record payload');
+  }
+
   async create(table, data) {
+    await this._guardTableMutation(table, null, data);
     const endpoint = `${this.baseURL}/api/now/table/${table}`;
     const result = await this.request(endpoint, {
       method: 'POST',
@@ -441,6 +450,7 @@ export class SDKClient {
   }
 
   async update(table, sysID, data) {
+    await this._guardTableMutation(table, sysID, data);
     const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
     const result = await this.request(endpoint, {
       method: 'PUT',
@@ -450,6 +460,7 @@ export class SDKClient {
   }
 
   async delete(table, sysID) {
+    await this._guardTableMutation(table, sysID);
     const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
     await this.request(endpoint, { method: 'DELETE' });
   }

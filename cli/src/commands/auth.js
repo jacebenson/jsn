@@ -894,6 +894,8 @@ Examples:
 }
 
 export async function showAuthStatus(argv, app) {
+  if (argv.context && !argv.profile) argv = { ...argv, profile: app.session?.profileName || app.config.activeProfile || app.config.defaultProfile };
+  if (argv.context && !app.config.profiles?.[argv.profile]) throw errUsage('Select a configured profile for auth status --context.');
   const configuredDefault = app.config.profiles?.[app.config.defaultProfile];
   const defaultInstance = configuredDefault?.instance_url || app.config.instanceURL || '';
 
@@ -923,6 +925,7 @@ export async function showAuthStatus(argv, app) {
     let verified = null;
     let verifiedAt = null;
     let probe;
+    let runtimeContext = argv.context ? { verified: false, status: 'not_attempted' } : undefined;
     if (argv.local) {
       probe = { status: 'not_attempted', code: 'not_requested', classification: 'not_checked' };
     } else if (!instance) {
@@ -942,8 +945,17 @@ export async function showAuthStatus(argv, app) {
         if (probe.status === 'succeeded' && user?.user_name) {
           verified = true;
           verifiedAt = user.user_name;
+          if (argv.context) {
+            try {
+              const { readWriteContext } = await import('../intended-context.js');
+              runtimeContext = { ...await readWriteContext(sdk), verified: true };
+              runtimeContext.domain.requested = profile.domain || null;
+              if (runtimeContext.user.user_name !== user.user_name) throw new Error('Context account mismatch');
+            } catch { runtimeContext = { verified: false, status: 'unavailable' }; }
+          }
           if (profile.username && profile.username !== user.user_name) {
             verified = false;
+            if (runtimeContext) runtimeContext = { verified: false, status: 'account_mismatch' };
             probe = {
               status: 'failed', code: 'account_mismatch', classification: 'account_mismatch',
               message: 'The session account does not match the configured profile account.',
@@ -966,6 +978,7 @@ export async function showAuthStatus(argv, app) {
 
     profiles.push({
       name,
+      ...(runtimeContext ? { context: runtimeContext } : {}),
       instance,
       username: profile.username || undefined,
       active: name === (app.session?.profileName || app.config.activeProfile || app.config.defaultProfile),
@@ -1000,8 +1013,12 @@ export async function showAuthStatus(argv, app) {
   const summary = `${profiles.length} ${profiles.length === 1 ? 'profile' : 'profiles'}`;
   // Ship the styled view as _formatted (see renderAuthStatus); the
   // OutputWriter prints it verbatim and suppresses the summary.
-  result._formatted = renderAuthStatus(result, summary, { details: argv.details === true });
-  if (!argv.details) {
+  result._formatted = renderAuthStatus(result, summary, { details: argv.details === true || argv.context === true });
+  if (argv.context) result._formatted += profiles.map(p => {
+    const c = p.context;
+    return `\n${p.name}: ${c?.verified ? `user ${c.user.user_name}; scope ${c.scope}; update set ${c.update_set.name} (${c.update_set.sys_id}); domain unverified${c.domain.requested ? `, requested ${c.domain.requested}` : ''}` : `context ${c?.status || 'unavailable'}`}`;
+  }).join('');
+  if (!argv.details && !argv.context) {
     delete result.default_instance;
     result.profiles = profiles.map(({ instance: _instance, username: _username, verified_as: _verifiedAs, ...visible }) => visible);
   }
@@ -1207,6 +1224,8 @@ export function authCmd(wrap) {
           describe: 'Show authentication status (use --details for users and instance URLs)',
           builder: sub => sub.option('local', {
             type: 'boolean', describe: 'Show saved credential state without contacting any instance',
+          }).option('context', {
+            type: 'boolean', describe: 'Full context for selected/default profile, including live user, scope, capture set and domain verification limits; --local makes no requests',
           }).option('details', {
             type: 'boolean', describe: 'Include users and instance URLs in status output',
           }),

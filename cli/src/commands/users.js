@@ -2,7 +2,7 @@ import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsP
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
-declareCapabilities('users', { mutationSubcommands: ['create', 'update', 'delete'] });
+declareCapabilities('users', { mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function usersCmd(wrap) {
   return {

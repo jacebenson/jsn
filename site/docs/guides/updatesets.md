@@ -4,6 +4,85 @@ title: Update sets and transfers
 
 Transfer update sets between instances and read compact update-set diffs.
 
+## Intended write context
+
+Reads have no automatic context banner and make no automatic user, scope or
+update-set context requests. Inspect context explicitly:
+
+```sh
+jsn --profile dev auth status --context
+jsn --profile dev auth status --context --local --json
+```
+
+`--context` selects one profile, defaulting to the active profile. The existing
+all-profile status output is unchanged without this option. `--local` makes zero
+requests and never reports live context as verified. Domain output distinguishes
+the requested header from effective domain verification.
+
+Bots must supply independently intended scope and capture set before customization:
+
+```sh
+jsn --profile dev includes create -f name=TaskHelper --expect-scope x_example_app --expect-update-set "Task feature" --json
+```
+
+Use the scope, application name or sys_id and update-set name or sys_id from the
+task, not values copied from the current preferences. Names must resolve uniquely.
+Unknown, ambiguous, incomplete, completed, mismatched or unreadable context blocks
+before mutation. Fresh preferences and effective session picker selections must
+agree. Nothing automatically switches context. Select explicitly with `scopes set`
+or `updatesets set` and retry. `--force` cannot bypass intent or mismatch checks.
+Global + Default still requires separate approval for the exact operation. Human
+interactive use can confirm fresh context when expectations were omitted.
+
+For a task directory, explicitly write `.servicenow/config.json`:
+
+```json
+{
+  "write_context": {
+    "profile": "dev",
+    "instance_url": "https://example.service-now.com",
+    "scope": "x_example_app",
+    "update_set": "Task feature"
+  }
+}
+```
+
+These are illustrative task-owned values, not discovered defaults. CLI expectation
+flags override individual saved fields. A present local binding must exactly match
+the selected profile and instance URL, even when flags override its values. Global
+config never supplies write expectations, and normal configuration saves never
+promote these task-local expectations into global settings.
+
+Ordinary ticket/data edits do not require capture context. Generic records and
+table factories classify customization through `sys_db_object` ancestry to
+`sys_metadata`, not command spelling. Unreadable ancestry refuses classification.
+Resolved action/flow targets and generic metadata record targets must match the
+verified intended scope before mutation. Explicit metadata `sys_scope` payloads
+cannot redirect writes; bulk updates preflight every selected target. Transaction
+scope flags are capability-declared. `scopes create --scope` names the new scope,
+not the transaction scope.
+Raw mutation APIs and eval conservatively require customization context. Operational
+metadata exemptions cover identity/membership administration, approvals, ATF runs,
+attachments, MID runtime operations, catalog ordering, Store installation, domain
+selection, and flow test/lock release. Explicit scope selection and update-set
+creation/selection/import/preview/commit/reopen keep their own safety gates. Scope
+creation is customization and is not exempt.
+
+Successful JSON write envelopes include `context.mutation`, reusable with `--get`.
+Interactive writes show one compact context line from that same guard result.
+Quiet output remains data-only. Context checks supplement, not replace, command
+confirmations, read-only profiles and write-back verification.
+
+### Domain limitation
+
+`--expect-domain` expresses intent but currently refuses customization writes.
+Configured domain headers and profiles known to use domain separation also refuse.
+The SDK propagates `X-Now-Domain`; this does not prove effective server selection.
+No verified provider contract connects that header to every customization transport,
+so domain-scoped customization remains unsupported rather than silently trusted.
+Ordinary domain-header reads/data edits remain available. No live domain mutation
+semantics were verified by this change.
+
 ## Transfer an update set
 
 Export without changing the source set's state or your selected capture context:

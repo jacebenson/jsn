@@ -20,7 +20,7 @@ const LIST_FIELDS = ['sys_id', 'name', 'status', 'host_name', 'ip_address', 'ver
 const DEFAULT_TIMEOUT = 120000;
 const DEFAULT_INTERVAL = 2000;
 
-declareCapabilities('midservers', { mutationSubcommands: ['add', 'remove', 'execute', 'start', 'stop', 'validate'] });
+declareCapabilities('midservers', { mutationContext: 'operational', mutationSubcommands: ['add', 'remove', 'execute', 'start', 'stop', 'validate'] });
 
 function agentName(record) {
   const name = getStringField(record, 'name');

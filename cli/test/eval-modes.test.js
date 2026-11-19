@@ -91,12 +91,12 @@ describe('jsn eval flags', () => {
     }
   });
 
-  it('warns when --sandbox is combined with a multi-line script', () => {
+  it('requires independent intent before evaluating multi-line sandbox input', () => {
     const r = run(['eval', '--stdin', '--sandbox', '--json'], 'var a = 1;\nvar b = 2;\ngs.info(a+b);', isolatedEnv());
     // Fake instance present so the guard passes and the handler runs; it then
     // fails at auth, but the sandbox warning is emitted first on stderr.
-    assert.match(r.stderr, /sandbox/i);
-    assert.match(r.stderr, /single expression|one expression|multi/i);
+    assert.match(r.stdout + r.stderr, /require intended scope and update set/);
+    assert.notStrictEqual(r.status, 0);
   });
 
   it('does not warn for single-expression --sandbox', () => {

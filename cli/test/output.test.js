@@ -57,7 +57,7 @@ describe('printContextHeader', () => {
     assert.equal(stderr.mock.callCount(), 0);
   });
 
-  it('still prints the banner on a terminal without an extraction', async (t) => {
+  it('never prints or probes a banner on a terminal without extraction', async (t) => {
     const { App } = await import('../src/app.js');
     const { OutputWriter } = await import('../src/output.js');
     const queries = [];
@@ -93,16 +93,8 @@ describe('printContextHeader', () => {
     });
     await App.prototype.printContextHeader.call(app, {});
     const printed = stderr.mock.calls.map(call => String(call.arguments[0])).join('');
-    assert.match(printed, /PROFILE\s+USER/);
-    // The banner's price is exactly five instance reads; that is the number the
-    // `--get`/non-TTY guard avoids. Pinned here so it cannot drift silently.
-    assert.deepEqual(queries, [
-      'sys_user user_name=javascript:gs.getUserName()',
-      'sys_user_preference user=u1^name=apps.current_app',
-      'sys_user_preference user=u1^name=sys_update_set',
-      'sys_scope get',
-      'sys_update_set get',
-    ]);
+    assert.equal(printed, '');
+    assert.deepEqual(queries, []);
   });
 
   for (const format of ['json', 'quiet']) {

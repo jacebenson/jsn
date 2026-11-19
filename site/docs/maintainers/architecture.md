@@ -494,23 +494,17 @@ relationship policy. Executable hooks remain JavaScript. The same definition is
 attached to the implemented command as metadata, avoiding a second help-only map.
 Bundled wrappers retain their public exports and specialized hooks; additional
 profiles can use the same factory without a subprocess or a CRUD implementation.
-### Capture-context approval is separate from delete confirmation
+### Intended customization context is separate from confirmation
 
-The mutation wrapper checks capture context before dispatch, even with JSON, quiet
-output, or disabled headers. Global + Default needs explicit approval because
-customization may be captured in the wrong set, and some changes are not captured
-at all. Interactive users see a default-no decision; agents receive
-`confirmation_required` and an exact rerun command with `--force` after approval.
-The profile's skip-delete preference cannot bypass this context decision. Scope
-mismatches warn without another prompt; a selected completed capture set blocks
-writes and directs the user to select an in-progress set.
+`mutation-context.js` checks task-owned CLI/local expectations against fresh
+preference records and effective picker selections. Unknown or mismatched context
+refuses, even with `--force`. The capability registry declares operational writes
+and generic table classification through `sys_metadata` ancestry. Read-only and
+command confirmation gates are independent. Domain-scoped customization refuses
+until effective transport semantics can be proven. See the update-set guide.
+Automatic read banners and their context requests are retired. Explicit
+`auth status --context` reports one selected profile, with an offline `--local` mode.
 
-Selection and creation of scopes/update sets are capability-declared remediation
-exemptions. REST's read-only-profile policy is unchanged; GET is only exempt from
-capture-context approval for write-enabled profiles. Missing or unreadable context
-is reported as unknown, preserving commands on service accounts without falsely
-classifying them as Global + Default. The guard supplements existing update-set
-name disambiguation and completion checks; it does not complete sets automatically.
 
 ### 2026-10-28: Fixed filters remain invariant in constrained table views
 
@@ -780,8 +774,7 @@ show` already does, so the rendered tree stays out of the JSON envelope. The
 other commands keep their current `_formatted` contract; stripping it globally
 changes a wider surface and stays a separate decision.
 
-The context banner no longer prints for `--get`/`--select` or when stderr is
-not a terminal. It printed while the format still reported pretty, so a banner
+Automatic context banners are retired for all reads, including terminals. It printed while the format still reported pretty, so a banner
 merged by `2>&1` landed in front of the extracted JSON and broke
 `json.load(sys.stdin)` / `jq` at character 0; it also cost five requests per
 command (user, application preference, update-set preference, scope, update set).
