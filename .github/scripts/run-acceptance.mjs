@@ -11,6 +11,7 @@ import { preserveRecovery } from './acceptance/recovery.mjs';
 import { selectExactScenario } from './acceptance/select.mjs';
 import { flowCommandDiagnostic } from './acceptance/flow-diagnostic.mjs';
 import { contextAdapterV1 } from './acceptance/context-v1.mjs';
+import { executeReadonlyScenarios } from './acceptance/concurrency.mjs';
 import { HARNESS_SHA, FILES } from './acceptance/prepare.mjs';
 import { publishResults, validateProjection } from './acceptance/publish.mjs';
 import { loadConfig } from '../../cli/src/config.js';
@@ -205,7 +206,10 @@ export async function runLocal(options) {
         throw error;
       } finally { context.command = original; }
     } }));
-    const report = await executeScenarios(progressing, ctx, { missing: [...missing], selection: { ...selection, ids: selectedIds }, provenance: artifact.identity, suiteHooks: hooks });
+    const executionOptions = { missing: [...missing], selection: { ...selection, ids: selectedIds }, provenance: artifact.identity, suiteHooks: hooks };
+    const report = mode === 'readonly'
+      ? await executeReadonlyScenarios(executeScenarios, support, progressing, ctx, executionOptions)
+      : await executeScenarios(progressing, ctx, executionOptions);
     if (mode === 'pdi') {
       const receiptFile = path.join(output, 'cleanup-receipt.json');
       const receipt = fs.existsSync(receiptFile) ? JSON.parse(fs.readFileSync(receiptFile)) : { runKey:ctx.runKey, target:options.target, status:'unresolved-write-intent', countsUnavailable:true };

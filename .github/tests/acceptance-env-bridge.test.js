@@ -69,7 +69,7 @@ test('pinned producer child filter drops the coordinator token and the real CLI 
   const { dir } = staged;
   const requests = [];
   const origin = await loopback(t, (req, res) => {
-    requests.push(req.headers.authorization);
+    requests.push({ authorization: req.headers.authorization, method: req.method });
     if (req.headers.authorization !== `Bearer ${fresh}`) { json(res, 401, { error: { message: 'mock authentication rejected' } }); return; }
     json(res, 200, { result: [{ sys_id: 'f'.repeat(32), name: 'sys_db_object' }] });
   });
@@ -87,17 +87,22 @@ test('pinned producer child filter drops the coordinator token and the real CLI 
       execute: (exe, args, opts) => { seen.push(opts.env); return support.runProcess(exe, args, opts); },
     });
     let failed = null;
-    try { await ctx.read('sys_db_object', { fields: ['sys_id'] }); } catch (error) { failed = String(error.message).slice(0, 80); }
+    try { await ctx.read('sys_db_object', { fields: ['sys_id'] }); } catch (error) { failed = { status: error.status }; }
     const direct = await support.runProcess(process.execPath, [${JSON.stringify(path.join(dir, 'cli/bin/jsn.js'))},
       'records', 'list', '--table', 'sys_db_object', '--json', '--profile', 'acceptance-ci', '--instance', options.expectedHost], { env: seen[0] });
-    console.log(JSON.stringify({ readFailed: failed !== null, message: failed, dispatches: seen.length,
+    const evidence = options.outputDir + '/executed.jsonl';
+    console.log(JSON.stringify({ readFailed: failed !== null, failureStatus: failed?.status, dispatches: seen.length,
+      executionEvidence: fs.existsSync(evidence) && fs.statSync(evidence).size > 0,
       tokenPresent: 'SERVICENOW_OAUTH_TOKEN' in seen[0], tokenValue: seen[0].SERVICENOW_OAUTH_TOKEN ?? null,
-      direct: { exitCode: direct.exitCode, ok: direct.json?.ok ?? null, out: direct.stdout.slice(0, 300), err: direct.stderr.slice(0, 300) } }));
+      direct: { exitCode: direct.exitCode, ok: direct.json?.ok ?? null, code: direct.json?.code ?? null,
+        hasData: direct.json?.data !== undefined,
+        leakedToken: direct.stdout.includes(${JSON.stringify(fresh)}) || direct.stderr.includes(${JSON.stringify(fresh)}) } }));
   `;
   const result = await staged.support.runProcess(process.execPath, ['--input-type=module', '-e', script], { env: producerEnv });
   assert.equal(result.exitCode, 0, result.stderr.replaceAll(fresh, '[redacted]'));
   assert.equal(result.json.readFailed, true, 'an unbridged coordinator read must fail');
-  assert.match(result.json.message, /failed/i);
+  assert.ok(['failed', 'blocked-access'].includes(result.json.failureStatus), 'pinned producer must classify a genuine authentication/storage refusal');
+  assert.equal(result.json.executionEvidence, false, 'rejected reads cannot produce successful operation evidence');
   assert.equal(result.json.dispatches, 1);
   assert.equal(result.json.tokenPresent, false, 'the pinned filter drops SERVICENOW_OAUTH_TOKEN');
   assert.equal(result.json.tokenValue, null);
@@ -105,9 +110,12 @@ test('pinned producer child filter drops the coordinator token and the real CLI 
   // The pinned filter drops the token, so the real CLI cannot authenticate: it
   // either reports no credentials or refuses the unsafe sandbox store path. Both
   // are genuine failures; never fabricate an authenticated envelope.
-  assert.notEqual(result.json.direct.ok, true, JSON.stringify(result.json.direct));
-  assert.match(`${result.json.direct.out}${result.json.direct.err}`, /not authenticated|credential/i, JSON.stringify(result.json.direct));
-  assert.ok(!requests.includes(`Bearer ${fresh}`), 'no CLI child request may carry the dropped token');
+  assert.equal(result.json.direct.ok, false);
+  assert.ok(['auth_error', 'credential_storage_error'].includes(result.json.direct.code), JSON.stringify(result.json.direct));
+  assert.equal(result.json.direct.hasData, false);
+  assert.equal(result.json.direct.leakedToken, false);
+  assert.ok(requests.every(entry => entry.authorization !== `Bearer ${fresh}`), 'no CLI child request may carry the dropped token');
+  assert.ok(requests.every(entry => entry.method === 'GET'), 'negative authentication fixture must not dispatch mutations');
 });
 
 test('adapter bridge authenticates coordinator children with the fresh token, never the stale outer value', async t => {

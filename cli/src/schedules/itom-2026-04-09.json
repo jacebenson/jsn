@@ -1,0 +1,121 @@
+{
+  "id": "itom-2026-04-09",
+  "product": "ITOM",
+  "effective_for_skus_introduced": "2026-04-09",
+  "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/it-operations-management-itom-servicenow-subscription-unit-overview.pdf",
+  "source_version": "Effective for SKUs introduced on April 9, 2026; sections 1.1 and 1.2",
+  "fetched_at": "2026-11-19T07:47:54.276651+00:00",
+  "retrieval": "Independent web_extract PDF text retrieval; direct download returned 403. Binary hash unavailable.",
+  "categories": [
+    {
+      "id": "server",
+      "resources_per_su": 1,
+      "classes": [
+        "cmdb_ci_server",
+        "cmdb_ci_vm_instance",
+        "cmdb_ci_ucs_rack_unit",
+        "cmdb_ci_ucs_blade",
+        "cmdb_ci_mainframe_hardware"
+      ]
+    },
+    {
+      "id": "paas",
+      "resources_per_su": 3,
+      "classes": [
+        "cmdb_ci_cloud_appserver",
+        "cmdb_ci_could_database",
+        "cmdb_ci_dynamodb_table",
+        "cmdb_ci_cloud_directory",
+        "cmdb_ci_cloud_gateway",
+        "cmdb_ci_cloud_messaging_service",
+        "cmdb_ci_cloud_webserver"
+      ]
+    },
+    {
+      "id": "container",
+      "resources_per_su": 10,
+      "classes": [
+        "cmdb_ci_oslv_container"
+      ]
+    },
+    {
+      "id": "image",
+      "resources_per_su": 3,
+      "classes": [
+        "cmdb_ci_oslv_image",
+        "cmdb_ci_oslv_local_image",
+        "cmdb_ci_openshift_images"
+      ]
+    },
+    {
+      "id": "end_user_device",
+      "resources_per_su": 4,
+      "classes": [
+        "cmdb_ci_computer"
+      ]
+    },
+    {
+      "id": "faas",
+      "resources_per_su": 20,
+      "classes": [
+        "cmdb_ci_cloud_function"
+      ]
+    },
+    {
+      "id": "gpu",
+      "resources_per_su": 1,
+      "classes": [
+        "cmdb_ci_gpu"
+      ]
+    },
+    {
+      "id": "api",
+      "resources_per_su": 1,
+      "classes": [
+        "cmdb_ci_api"
+      ]
+    },
+    {
+      "id": "ai_agent",
+      "resources_per_su": 3,
+      "classes": [
+        "cmdb_ci_function_ai"
+      ]
+    },
+    {
+      "id": "service_instance",
+      "resources_per_su": 1,
+      "classes": [
+        "cmdb_ci_service_auto"
+      ]
+    },
+    {
+      "id": "unresolved_object",
+      "resources_per_su": 4,
+      "classes": []
+    }
+  ],
+  "definitions": {
+    "provenance": "Paraphrases of section 1.1, not independent eligibility rules. All CI resource types must be represented in the listed classes or descendants and managed by an ITOM application.",
+    "server": "Physical or virtual server.",
+    "paas": "Cloud-based platform service.",
+    "container": "Operating system-level virtualization.",
+    "image": "Operating system-level virtualization image.",
+    "end_user_device": "Physical or virtual computing device not defined as another Managed IT Resource Type, with an ITOM component such as Agent Client Collector installed.",
+    "faas": "Serverless compute function-as-a-service instance.",
+    "gpu": "Graphics Processing Unit.",
+    "api": "Application programming interface.",
+    "ai_agent": "Service for machine learning, data processing and AI-driven tasks.",
+    "service_instance": "Interconnected applications and IT resources configured to offer a digital service.",
+    "unresolved_object": "IT resource receiving an ITOM event, performance metric or log, not represented as a CMDB CI; recorded in em_unique_nodes with type=unknown. Counting this source is unsupported in this slice."
+  },
+  "unresolved_mapping": "cmdb_ci_could_database is literal source text; no corrected mapping is assumed.",
+  "limitations": [
+    "CMDB populations are not managed or billable counts, nor a ceiling.",
+    "Managed-by-ITOM eligibility and product scope are unverified.",
+    "End-user devices require an installed ITOM component and exclusion of other resource types.",
+    "Container/image relationship exclusions are not evaluated.",
+    "Rounding and contract applicability are unknown.",
+    "Observed 90-day usage and purchased entitlements are not implemented."
+  ]
+}

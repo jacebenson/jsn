@@ -49,6 +49,7 @@ def main():
     parser.add_argument('--scenario', required=True)
     parser.add_argument('--keys', default='[]')
     parser.add_argument('--timeout', type=float, default=20.0)
+    parser.add_argument('--columns', type=int, default=120)
     parser.add_argument('--cwd', default=os.getcwd())
     args = parser.parse_args()
 
@@ -70,7 +71,7 @@ def main():
     flags = fcntl.fcntl(master, fcntl.F_GETFL)
     fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
     # A stable, dumb-friendly window so renderers do not depend on host size.
-    fcntl.ioctl(slave, 0x5414, __import__('struct').pack('HHHH', 40, 120, 0, 0))  # TIOCSWINSZ
+    fcntl.ioctl(slave, 0x5414, __import__('struct').pack('HHHH', 40, args.columns, 0, 0))  # TIOCSWINSZ
     child = subprocess.Popen(
         ['sh', '-c', wrapper], cwd=args.cwd, stdin=slave, stdout=slave,
         stderr=slave, start_new_session=True, env={**os.environ, 'TERM': 'xterm'},

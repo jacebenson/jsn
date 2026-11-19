@@ -7,7 +7,8 @@
  * paginated-search.js and resolve undefined instead.
  */
 
-import { runPrompt, normalizeChoices, truncate, PromptCancelled, escapeResult } from './prompt-engine.js';
+import { pickerRows, pickerFooter } from './picker-ui.js';
+import { runPrompt, normalizeChoices, PromptCancelled, escapeResult } from './prompt-engine.js';
 export { PromptCancelled };
 
 const ESC_HINT = ' (Esc to cancel)';
@@ -113,33 +114,59 @@ export async function confirm(config = {}, context = {}) {
 }
 
 export async function select(config = {}, context = {}) {
+  return localPicker(config, context);
+}
+
+async function localPicker(config, context, multiple = false) {
   const choices = normalizeChoices(config.choices || []);
-  return runPrompt({ ...config, message: withHint(config) }, context, {
-    init: () => ({ active: Math.max(firstEnabled(choices), choices.findIndex(choice => !choice.disabled && choice.value === config.default)) }),
-    key(state, key, api) {
+  const state = {
+    term: '', choices, active: firstEnabled(choices), error: '',
+    picked: new Set(choices.filter(choice => choice.checked && !choice.disabled)),
+  };
+  const defaultIndex = choices.findIndex(choice => !choice.disabled && choice.value === config.default);
+  if (defaultIndex >= 0) state.active = defaultIndex;
+  return runPrompt(config, context, {
+    ...(config.escapeValue ? { escapeValue: config.escapeValue } : {}),
+    init: () => state,
+    async key(_state, key, api) {
+      const visible = state.choices;
+      const choice = visible[state.active];
       if (key.name === 'return' || key.name === 'enter') {
-        const choice = choices[state.active];
-        if (!choice || choice.disabled) return;
-        return { done: choice.value };
+        if (!multiple) {
+          if (choice && !choice.disabled) return { done: choice.value };
+          return;
+        }
+        const values = choices.filter(choice => state.picked.has(choice)).map(choice => choice.value);
+        state.error = config.required && !values.length ? 'Select at least one option.' : await validateAnswer(config.validate, values);
+        if (state.error) { api.redraw(); return; }
+        return { done: values };
       }
-      if (key.name === 'up') { state.active = move(choices, state.active, -1); api.redraw(); return; }
-      if (key.name === 'down') { state.active = move(choices, state.active, 1); api.redraw(); return; }
-      if (key.name === 'k') { state.active = move(choices, state.active, -1); api.redraw(); return; }
-      if (key.name === 'j') { state.active = move(choices, state.active, 1); api.redraw(); return; }
+      if (multiple && key.name === 'space') {
+        if (choice && !choice.disabled) {
+          if (state.picked.has(choice)) state.picked.delete(choice);
+          else state.picked.add(choice);
+          state.error = '';
+        }
+      } else if (multiple && key.ctrl && key.name === 'a') {
+        visible.forEach(choice => { if (!choice.disabled) state.picked.add(choice); });
+      } else if (key.name === 'up' || key.name === 'down') {
+        state.active = move(visible, state.active, key.name === 'up' ? -1 : 1);
+      } else {
+        const previous = state.term;
+        if (key.name === 'backspace') state.term = Array.from(state.term).slice(0, -1).join('');
+        else if (key.text) state.term += key.text;
+        if (previous !== state.term) {
+          state.choices = state.term ? choices.filter(choice => !choice.separator && choice.name.toLocaleLowerCase().includes(state.term.toLocaleLowerCase())) : choices;
+          state.active = firstEnabled(state.choices);
+        }
+      }
+      api.redraw();
     },
-    render(state) {
-      const lines = [withHint(config)];
-      choices.forEach((choice, index) => {
-        const marker = index === state.active ? '>' : ' ';
-        lines.push(`${marker} ${choice.disabled ? `(disabled) ${choice.name}` : choice.name}`);
-      });
-      lines.push('', '  Use arrow keys, Enter to select.');
-      return lines;
+    render() {
+      return [config.message ?? '', `Search: ${state.term}`, ...pickerRows(state.choices, state.active, multiple ? { picked: state.picked } : {}),
+        ...(!state.choices.length ? ['  No matches'] : []), ...(state.error ? [`  ${state.error}`] : []), ...pickerFooter({ checkbox: multiple })];
     },
-    final(cfg, value) {
-      const chosen = choices.find(choice => choice.value === value);
-      return `✔ ${withHint(cfg)} ${chosen ? chosen.name : value}`;
-    },
+    final: (_cfg, value) => value === undefined ? null : `✔ ${config.message ?? ''} ${multiple ? choices.filter(choice => value.includes(choice.value)).map(choice => choice.name).join(', ') : choices.find(choice => choice.value === value)?.name ?? value ?? ''}`,
   });
 }
 
@@ -190,11 +217,11 @@ export async function search(config = {}, context = {}) {
         if (state.term !== previous) void load(api);
       },
       render() {
-        const lines = [`${withHint(config)} Search: ${state.term}${state.loading ? ' ...' : ''}`];
+        const lines = [config.message ?? '', `Search: ${state.term}${state.loading ? ' ...' : ''}`];
         if (state.error) lines.push(`  ${state.error}`);
         else if (!state.choices.length) lines.push(state.loading ? '  Loading...' : '  No matches');
-        else state.choices.forEach((choice, index) => lines.push(`${index === state.active ? '>' : ' '} ${truncate(choice.name)}`));
-        lines.push('', '  Type to filter, arrows to move, Enter to select.');
+        else lines.push(...pickerRows(state.choices, state.active));
+        lines.push(...pickerFooter());
         return lines;
       },
     });
@@ -205,46 +232,7 @@ export async function search(config = {}, context = {}) {
 }
 
 export async function checkbox(config = {}, context = {}) {
-  const choices = normalizeChoices(config.choices || []);
-  return runPrompt({ ...config, message: withHint(config) }, context, {
-    init: () => ({ active: firstEnabled(choices), picked: new Set(choices.flatMap((choice, index) => choice.checked && !choice.disabled ? [index] : [])), error: '' }),
-    key(state, key, api) {
-      if (key.name === 'return' || key.name === 'enter') {
-        const values = choices.filter((_choice, index) => state.picked.has(index)).map(choice => choice.value);
-        if (config.required && values.length === 0) {
-          state.error = 'Select at least one option.';
-          api.redraw();
-          return;
-        }
-        return { done: values };
-      }
-      if (key.name === 'space') {
-        if (choices[state.active] && !choices[state.active].disabled) {
-          if (state.picked.has(state.active)) state.picked.delete(state.active);
-          else state.picked.add(state.active);
-          state.error = '';
-          api.redraw();
-        }
-        return;
-      }
-      if (key.name === 'a' && key.ctrl) {
-        choices.forEach((choice, index) => { if (!choice.disabled) state.picked.add(index); });
-        api.redraw();
-        return;
-      }
-      if (key.name === 'up') { state.active = move(choices, state.active, -1); api.redraw(); return; }
-      if (key.name === 'down') { state.active = move(choices, state.active, 1); api.redraw(); return; }
-    },
-    render(state) {
-      const lines = [withHint(config)];
-      choices.forEach((choice, index) => {
-        lines.push(`${index === state.active ? '>' : ' '} [${state.picked.has(index) ? 'x' : ' '}] ${choice.name}`);
-      });
-      if (state.error) lines.push(`  ${state.error}`);
-      lines.push('', '  Space toggles, arrows move, Enter confirms.');
-      return lines;
-    },
-  });
+  return localPicker(config, context, true);
 }
 
 function firstEnabled(choices) {

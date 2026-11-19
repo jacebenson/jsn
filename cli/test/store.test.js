@@ -557,7 +557,7 @@ test('the production transport builds App Client requests and maps HTTP failures
 test('store is discoverable with lifecycle verbs and read-only profiles block only the mutations', () => {
   const registry = buildCLI([]).commandRegistry();
   const command = registry.commands.find(entry => entry.name === 'store');
-  assert.deepEqual(command.actions.map(action => action.name), ['list', 'search', 'show', 'status', 'install', 'update']);
+  assert.deepEqual(command.actions.map(action => action.name), ['compare', 'list', 'search', 'show', 'status', 'install', 'update']);
   assert.ok(refreshMutationCommands().some(path => path.join(' ') === 'store install'));
   assert.ok(refreshMutationCommands().some(path => path.join(' ') === 'store update'));
   // Store installs are runtime App Client requests, not captured metadata edits.

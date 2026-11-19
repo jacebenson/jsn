@@ -36,6 +36,15 @@ class GuidesTest < Minitest::Test
     assert_equal '/docs/setup/#connect', MarkdownGuide.safe_link('./docs-setup.md#connect', 'install')
     assert_equal '/docs/output/', MarkdownGuide.safe_link('output.md', 'setup')
   end
+  def test_store_comparison_link_uses_registered_public_guide
+    get '/docs/store/'
+    link = Nokogiri::HTML(last_response.body).at_css('a[href="/docs/instance-inventory-comparison/"]')
+    refute_nil link
+    get link['href']
+    assert_equal 200, last_response.status
+    assert_includes Nokogiri::HTML(last_response.body).at_css('.guide-body').text, 'jsn compare --source pdi --target vendor'
+  end
+
   def test_allowlist_rejects_private_and_traversal_paths
     %w[/docs/STATE /docs/DECISIONS.md /docs/../../AGENTS.md /docs/%2e%2e/%2e%2e/etc/passwd /docs/%252e%252e/etc/passwd /docs/install/extra /docs/.env /docs/install.md].each do |url|
       get url
