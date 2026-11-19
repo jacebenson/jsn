@@ -49,7 +49,7 @@ export async function readInventory(sdk, kind, maxPages = 30) {
   const seen = new Set();
   const countParams = new URLSearchParams({ sysparm_count: 'true' });
   const count = async () => {
-    const response = await sdk.request(`${sdk.baseURL}/api/now/stats/${source.table}?${countParams}`, { method: 'GET' });
+    const response = await sdk.request(`${sdk.baseURL}/api/now/stats/${source.table}?${countParams}`, { method: 'GET', ...(kind === 'store' ? { stateful: true } : {}) });
     const value = response?.result?.stats?.count;
     if (value == null || !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value))) throw Object.assign(new Error(), { code: 'unreadable_count' });
     return Number(value);
@@ -61,7 +61,7 @@ export async function readInventory(sdk, kind, maxPages = 30) {
         sysparm_fields: [...source.fields, ...(kind === 'store' ? ['latest_version'] : [])].join(','), sysparm_query: 'ORDERBYsys_id',
         sysparm_display_value: 'false', sysparm_exclude_reference_link: 'true',
         sysparm_limit: 200, sysparm_offset: coverage.fetched,
-      });
+      }, kind === 'store' ? { stateful: true } : {});
       if (!Array.isArray(rows) || !rows.length || rows.length > 200) throw Object.assign(new Error(), { code: 'unstable_pagination' });
       for (const row of rows) {
         if (!row || source.fields.some(field => !Object.hasOwn(row, field) || text(row[field]) === null)) throw Object.assign(new Error(), { code: 'missing_fields' });

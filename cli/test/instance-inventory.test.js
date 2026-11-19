@@ -8,6 +8,7 @@ import { once } from 'node:events';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { SDKClient } from '../src/sdk.js';
 import { credKey } from '../src/auth/credential-store.js';
 import { readInventory, readObservedStoreApps, compareInventories, recommendAlignment, formatInventoryComparison } from '../src/instance-inventory.js';
 
@@ -83,6 +84,27 @@ test('duplicates, missing fields, invalid states, malformed responses, limits an
     assert.ok(compareInventories(result, complete).every(row => row.status === 'unknown'));
     assert.doesNotMatch(JSON.stringify(result.coverage), /private provider text/);
   }
+});
+
+test('Store comparison uses cookie/token session auth while plugin and unrelated Table defaults retain Bearer', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async request => {
+    const url = new URL(request.url);
+    const flags = { path: url.pathname, cookie: request.headers.has('cookie'), token: request.headers.has('x-usertoken'), bearer: request.headers.get('authorization')?.startsWith('Bearer ') || false };
+    calls.push(flags);
+    if (url.pathname === '/angular.do') return new Response('{}', { headers: { 'Set-Cookie': 'JSESSIONID=fixture; Path=/', 'X-UserToken-Response': 'fixture-user-token' } });
+    if (url.pathname.endsWith('sys_scope')) return new Response('{"result":[]}');
+    const store = url.pathname.endsWith('sys_store_app');
+    if (store && (!flags.cookie || !flags.token || flags.bearer)) return new Response('{}', { status: 403 });
+    const row = store ? { sys_id: 'store-local', scope: 'sn_fixture', name: 'Fixture app', version: '1.0', active: 'true', install_date: '2026-01-01' } : plugin('com.fixture');
+    return new Response(JSON.stringify(url.pathname.includes('/stats/') ? { result: { stats: { count: '1' } } } : { result: [row] }));
+  });
+  const client = new SDKClient('https://fixture.invalid', { getCredentials: async () => ({ auth_method: 'oauth', access_token: 'fixture-token' }) });
+  assert.equal((await readInventory(client, 'store')).coverage.status, 'complete');
+  assert.equal((await readInventory(client, 'plugins')).coverage.status, 'complete');
+  await client.listStrict('sys_properties', { sysparm_limit: 1 });
+  assert.ok(calls.filter(row => row.path.endsWith('sys_store_app')).every(row => row.cookie && row.token && !row.bearer));
+  assert.ok(calls.filter(row => row.path.endsWith('v_plugin') || row.path.endsWith('sys_properties')).every(row => row.bearer && !row.cookie && !row.token));
 });
 
 test('App Client failures invalidate positive evidence; page limits never establish absence', async () => {

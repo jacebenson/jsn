@@ -64,12 +64,23 @@ Completeness describes the inventory visible to the account, not records hidden
 by row-level ACLs. Counts cannot detect every concurrent edit. Unsupported state
 values make the source unknown. Empty plugin versions remain unknown.
 
-Live plugin comparisons were verified between the PDI and a vendor instance,
-and between two distinct configured vendor instances, in human, JSON and
-extraction modes. Store Table/Stats reads were forbidden on these profiles.
-The comparison now reuses the production App Client `installed` tab as a
-read-only fallback. Membership in that tab plus a reported local version is
-positive installed evidence; activation is unreported and stays unknown.
+Live comparisons were verified between all three pairs of approved profiles in
+human and JSON modes, plus extraction and a reverse-direction check. Store
+Table/Stats reads require the supported UI session on the tested instances:
+Bearer-only requests returned 403, while the same reads with Cookie and
+X-UserToken returned 200. This command opts only its Store Table/Stats reads
+into the existing session-aware transport. Plugin and unrelated SDK defaults
+remain unchanged. It does not require changing profile authentication or setting
+a process-wide environment override.
+
+Count-verified Store inventories were read and paginated successfully on all
+three profiles. Coverage completeness does not make every installation state
+known: missing local version/install-date evidence still requires investigation.
+The earlier 403 was transport-dependent, not proof of a universal account ACL
+denial. If a session-backed Store source still refuses access, the comparison
+reuses the production App Client `installed` tab as a read-only fallback.
+Membership in that tab plus a reported local version is positive installed
+evidence; activation is unreported and stays unknown.
 
 Actual App Client responses exposed only `result.apps`, with limit/offset
 pagination and no provider total or explicit has-more/exhaustiveness contract.
@@ -84,5 +95,6 @@ Unmatched apps remain unknown and require investigation of visibility, never
 installation or removal based on unproved absence. A malformed/duplicate source
 invalidates positive comparison evidence. Combined reports still exit 1 when
 coverage is incomplete, while retaining useful positive matches/differences.
-The Table/Stats path, including its installation-date interpretation, remains
-fixture-tested but not live-verified on an account with those read permissions.
+Required Table fields, counts and pagination are now verified live. A nonempty
+local version and install date are still described as local installation evidence,
+not an explicit provider installation-state boolean. Empty evidence remains unknown.
