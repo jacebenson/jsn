@@ -1,0 +1,610 @@
+{
+  "base_revision": "4a10b28bb7c83f16cd9714186225f74258f515dd",
+  "public_index": "https://www.servicenow.com/products/entitlements-packages.html",
+  "inventory_records": 31,
+  "total_records_including_preserved_itom": 32,
+  "unique_pdf_documents": 28,
+  "record_status_counts": {
+    "normalized": 30,
+    "partial": 1
+  },
+  "document_status_counts": {
+    "normalized": 27,
+    "partial": 1
+  },
+  "source_bytes_downloaded": false,
+  "source_redistribution_permission_established": false,
+  "documents": [
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/aicm-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-aicm-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "aicm-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 2,
+          "sections": [
+            "1.1 Managed IT Resource Types",
+            "1.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 2,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/custom-table-guide.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-custom-table-guide.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "custom-table-guide",
+          "status": "normalized",
+          "definitions": 4,
+          "sections": [
+            "1 Definitions",
+            "2.1 Table Extensions",
+            "2.2 Table Type",
+            "3 Field Limitations",
+            "4 Store Downloads",
+            "5 Custom Table Assignments",
+            "6 Starter Usage Rights",
+            "7 Grandfathered Eligibility"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/data-fabric-credit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-data-fabric-credit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "data-fabric-credit-overview",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1 Workflow Data Fabric",
+            "2 Data Fabric Credits",
+            "2.1 Workflow Data Fabric Capabilities and Data Fabric Credits Consumed"
+          ],
+          "usage_rules": 10,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/wdf-foundation-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-wdf-foundation-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "wdf-foundation-overview",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1 Overview",
+            "2 Included Applications",
+            "2.1 Additional Capabilities",
+            "2.2 Integration Hub Enterprise Components and Reference Lists"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/snc-addendum-integrationhub.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-snc-addendum-integrationhub.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "snc-addendum-integrationhub",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "Current Integration Hub and Workflow Data Fabric SKUs",
+            "Legacy Integration Hub and Automation Engine SKUs and Packaging",
+            "Integration Hub Starter/Professional/Enterprise Spokes",
+            "Protocols and Features",
+            "Integration Solutions",
+            "Definitions",
+            "Integration Hub Spokes included in ServiceNow product subscriptions"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 22
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/data-center-and-network-asset-management.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-data-center-and-network-asset-management.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "data-center-and-network-asset-management",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "1.1 Managed Data Center and Network Asset Management Resource Types",
+            "1.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 9,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/itam-financial-services-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-itam-financial-services-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "itam-financial-services-overview",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "Cover footnote 1",
+            "1.1 Managed Software Asset Management IT Resource Types",
+            "1.2 Managed Hardware Asset Management IT Resource Types",
+            "1.3 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 8,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-ai-workflow-factory-credit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-servicenow-ai-workflow-factory-credit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "servicenow-ai-workflow-factory-credit-overview",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1 ServiceNow AI Workflow Factory",
+            "2 Credits",
+            "2.1 AI Workflow Factory Capabilities and Credits consumed"
+          ],
+          "usage_rules": 6,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-otto-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/web/www.servicenow.com-34841d2d89.md",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "servicenow-otto-overview",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "1 ServiceNow Otto (page 3)",
+            "2 Assist (page 3)",
+            "2.1 ServiceNow Otto Actions and Assists Consumed (pages 4\u201324)"
+          ],
+          "usage_rules": 285,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/sn-overage-fee-schedule.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-sn-overage-fee-schedule.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "sn-overage-fee-schedule",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "Overage Fee Schedule, single extracted table"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/sn-scaling-platform-capacity-entitlements-addendum.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-sn-scaling-platform-capacity-entitlements-addendum.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "sn-scaling-platform-capacity-entitlements-addendum",
+          "status": "normalized",
+          "definitions": 2,
+          "sections": [
+            "1 Scaling Platform Capacity",
+            "Table 1 and both footnotes"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/api-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-api-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "api-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1 Managed Resource Types",
+            "2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/ai-control-tower-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-ai-control-tower-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "ai-control-tower-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1 Managed Resource Types",
+            "2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 1,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-subscription-unit-overview-digital-enduser-experience-dex.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-servicenow-subscription-unit-overview-digital-enduser-experience-dex.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "servicenow-subscription-unit-overview-digital-enduser-experience-dex",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1.1 Managed IT Resource Types",
+            "1.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 1,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/sn-enterprise-asset-management.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-sn-enterprise-asset-management.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "sn-enterprise-asset-management",
+          "status": "normalized",
+          "definitions": 4,
+          "sections": [
+            "1 Managed EAM Resource Types",
+            "2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 5,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/hardware-asset-management-for-zero-touch-mobility-subscription-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-hardware-asset-management-for-zero-touch-mobility-subscription-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "hardware-asset-management-for-zero-touch-mobility-subscription-overview",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "1.1 Managed IT Resource Types",
+            "1.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 1,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/it-operations-management-itom-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-it-operations-management-itom-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "it-operations-management-itom-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 6,
+          "sections": [
+            "1.1 Managed IT Resource Types (pages 3\u20134)",
+            "1.2 Subscription Unit Defined Ratios (pages 4\u20135)",
+            "1.3 Protocols and Spokes included with ITOM Packages"
+          ],
+          "usage_rules": 0,
+          "ratios": 11,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/it-operations-management-itom-servicenow-subscription-unit-overview-tanium.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-it-operations-management-itom-servicenow-subscription-unit-overview-tanium.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "it-operations-management-itom-servicenow-subscription-unit-overview-tanium",
+          "status": "normalized",
+          "definitions": 6,
+          "sections": [
+            "1.1 Managed IT Resource Types (pages 3\u20134)",
+            "1.2 Subscription Unit Defined Ratios (pages 4\u20135)",
+            "1.3 Protocols and Spokes included with ITOM Packages"
+          ],
+          "usage_rules": 0,
+          "ratios": 11,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/itom-iot-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-itom-iot-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "itom-iot-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "1.1 Managed IT Resource Types (pages 3\u20134)",
+            "1.2 Subscription Unit Defined Ratios (page 4)"
+          ],
+          "usage_rules": 0,
+          "ratios": 9,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/ot-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-ot-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "ot-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "1 Managed OT Resource Types (pages 3\u20134)",
+            "2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 7,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/otam-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-otam-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "otam-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 3,
+          "sections": [
+            "1 Managed OTAM Resource Types (pages 3\u20135)",
+            "2 Subscription Unit Defined Ratios (page 5)"
+          ],
+          "usage_rules": 0,
+          "ratios": 14,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/unified-security-exposure-management-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-unified-security-exposure-management-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "unified-security-exposure-management-servicenow-subscription-unit-overview",
+          "status": "partial",
+          "definitions": 5,
+          "sections": [
+            "1 Managed Resource Types (pages 3\u20134)",
+            "2 Subscription Unit Defined Ratios (page 5)"
+          ],
+          "usage_rules": 0,
+          "ratios": 0,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/software-asset-management-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-software-asset-management-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "software-asset-management-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 4,
+          "sections": [
+            "1.1 Managed IT Resource Types (pages 3\u20134)",
+            "1.2 Subscription Unit Defined Ratios (page 4)"
+          ],
+          "usage_rules": 0,
+          "ratios": 6,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/cloud-cost-management-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-cloud-cost-management-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "cloud-cost-management-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 2,
+          "sections": [
+            "1.1 Managed IT Resource Types",
+            "1.2 Subscription Unit Defined Ratios (pages 3\u20134)"
+          ],
+          "usage_rules": 0,
+          "ratios": 3,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/telecommunications-network-inventory-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-telecommunications-network-inventory-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "telecommunications-network-inventory-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 2,
+          "sections": [
+            "1.1 Managed Telecommunication Resource Types (page 3)",
+            "1.2 Subscription Unit Defined Ratios (page 4)"
+          ],
+          "usage_rules": 0,
+          "ratios": 5,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/telecommunication-service-operations-management-servicenow-subscription.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-telecommunication-service-operations-management-servicenow-subscription.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "telecommunication-service-operations-management-servicenow-subscription",
+          "status": "normalized",
+          "definitions": 4,
+          "sections": [
+            "1.1 Managed Telecommunications Resource Types",
+            "1.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 9,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/hardware-asset-management-servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-hardware-asset-management-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "hardware-asset-management-servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 4,
+          "sections": [
+            "1.1 Managed IT Resource Types (pages 3\u20134)",
+            "1.2 Subscription Unit Defined Ratios (pages 4\u20135)"
+          ],
+          "usage_rules": 0,
+          "ratios": 8,
+          "packages": 0
+        }
+      ]
+    },
+    {
+      "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-subscription-unit-overview.pdf",
+      "private_extract_path": "/home/jace/.hermes/cache/scratch/506-public-servicenow-subscription-unit-overview.txt",
+      "extract_available": true,
+      "records": [
+        {
+          "id": "servicenow-subscription-unit-overview",
+          "status": "normalized",
+          "definitions": 2,
+          "sections": [
+            "1.1 Managed IT Resource Types",
+            "1.2 Subscription Unit Defined Ratios",
+            "1.3 Protocols and Spokes included with ITOM Packages"
+          ],
+          "usage_rules": 0,
+          "ratios": 4,
+          "packages": 0
+        },
+        {
+          "id": "servicenow-subscription-unit-overview-sam",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "2 Software Asset Management",
+            "2.1 Managed IT Resources",
+            "2.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 2,
+          "packages": 0
+        },
+        {
+          "id": "servicenow-subscription-unit-overview-ham",
+          "status": "normalized",
+          "definitions": 1,
+          "sections": [
+            "3 Hardware Asset Management",
+            "3.1 Managed IT Resources",
+            "3.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 3,
+          "packages": 0
+        },
+        {
+          "id": "servicenow-subscription-unit-overview-tnpm",
+          "status": "normalized",
+          "definitions": 2,
+          "sections": [
+            "4 Telecommunication Network Performance Management",
+            "4.1 Managed Telecommunications Resource Types",
+            "4.2 Subscription Unit Defined Ratios"
+          ],
+          "usage_rules": 0,
+          "ratios": 5,
+          "packages": 0
+        }
+      ]
+    }
+  ]
+}

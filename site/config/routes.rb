@@ -1,4 +1,8 @@
 Rails.application.routes.draw do
+  get '/subscription-schedules/v1/manifest.json', to: 'subscription_schedules#manifest'
+  get '/subscription-schedules/v1/artifacts/:digest.json', to: 'subscription_schedules#artifact', constraints: { digest: /[a-f0-9]{64}/ }
+  get '/subscription-schedules', to: 'subscription_schedules#index'
+  get '/subscription-schedules/:id', to: 'subscription_schedules#show', format: false
   get '/docs', to: 'guides#index'
   # The original public guide registry had 23 published routes. Consolidated
   # topics keep an exact /docs/<old-slug>/ alias, registered before the

@@ -11,6 +11,12 @@ jsn uses those terms exactly.
 
 ---
 
+## Subscription schedule catalog
+
+Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.
+
+A document is a unique source PDF URL, while a schedule record is an independently selectable product/version section with a stable ID; one historical multi-product document can produce multiple records. Normalized means its extracted sections have JSN-authored definitions/rules and provenance, not vendor approval or measured usage. Non-meter entitlement documents explicitly have no numeric meter. A fully read but internally contradictory source remains partial with literal source rows and unresolved conflicts rather than an invented conversion. SU:resource ratios preserve their source orientation, including unusual numerator values.
+
 ## Direct MID installation
 
 An owned native ZIP installation, identified by `.jsn-mid-direct.json`, separate
@@ -193,6 +199,27 @@ GET-only batching and bulk section queries, and reports coverage uncertainty.
 It retrieves definitions rather than related record data. Static references can
 be described declaratively; scripted relationships remain platform-required.
 Generic record retrieval does not automatically fetch form metadata.
+
+## Subscription population comparison
+
+`subscriptions schedules` inspects a bundled dated public-source schedule offline.
+`subscriptions estimate ITOM` compares current provider-visible exact-class CMDB
+populations with that schedule. Product name alone does not establish SKU or
+contract applicability. Omitting `--schedule` discloses a provisional dated
+schedule assumption. `--assume-eligible` explicitly declares a hypothetical
+managed/component-eligible activation scenario; only then are fractional category
+units shown. This is not observed metering, a ceiling, purchased rights, pricing
+or a compliance audit. Total units remain null.
+
+The class metadata inventory is invocation-local, bounded to 20,000 definitions,
+and compared with the provider Stats count. Missing definitions, partial metadata,
+missing ancestry, ambiguous category overlap and unreadable aggregates remain
+explicit. Exact-class queries avoid hierarchy duplication, including server versus
+computer and scoped descendants. Other resource categories take precedence over
+end-user computing devices. Container/image relationships and component eligibility
+are not evaluated. `cmdb_ci_could_database` is preserved as an unresolved literal
+source mapping. Unresolved monitored-object counting is unsupported. Reads use the
+SDK `readOnly` policy; no instance records or historical usage are collected.
 
 ## Command
 
