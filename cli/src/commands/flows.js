@@ -74,7 +74,7 @@ function triggerGuidance(trigger) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+declareCapabilities('flows', { mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {

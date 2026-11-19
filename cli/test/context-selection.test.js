@@ -105,17 +105,12 @@ it('updates the effective warmed session before create, update and delete captur
 // #295: the persisted preference (what reporting reads) and a fresh
 // invocation's effective session selection can disagree. Content writes must
 // not proceed until both agree.
-it('aligns a fresh session with the persisted set before content writes', async () => {
+it('refuses a fresh session mismatch without automatically switching context', async () => {
   const { sdk, state } = provider();
-  state.stored = 'new-set';
-  state.current = 'previous-set';
-  const report = await alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' });
-  assert.equal(report.aligned, true);
-  assert.equal(report.action, 'selected');
-  assert.equal(report.previous_effective.sys_id, 'previous-set');
-  assert.equal(report.effective.sys_id, 'new-set');
-  await sdk.update('sys_hub_flow', 'owned-record', { name: 'probe' });
-  assert.equal(state.captures.at(-1).set, 'new-set');
+  state.stored = 'new-set'; state.current = 'previous-set';
+  await assert.rejects(alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' }), /No context was switched/);
+  assert.equal(state.current, 'previous-set');
+  assert.equal(state.calls.some(call => call.method !== 'GET'), false);
 });
 
 it('leaves the session alone when it already matches the persisted set', async () => {
@@ -132,16 +127,13 @@ it('refuses content writes when the session cannot be aligned', async () => {
   state.stored = 'new-set';
   state.current = 'previous-set';
   await assert.rejects(alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' }),
-    error => error.message.includes('before any content write') && /previous-set/.test(error.message) && /new-set/.test(error.message));
+    error => /No context was switched/.test(error.message));
   assert.equal(state.captures.length, 0);
 });
 
-it('reports an unverifiable capture context instead of blocking when the picker is unreadable', async () => {
-  const sdk = { baseURL: 'https://test.service-now.com', request: async () => { throw new Error('picker unavailable'); } };
-  const report = await alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' });
-  assert.equal(report.aligned, null);
-  assert.equal(report.action, 'unverified');
-  assert.match(report.reason, /picker unavailable/);
+it('refuses an unreadable effective capture context instead of proceeding unverified', async () => {
+  const sdk = { baseURL: 'https://fixture.invalid', request: async () => { throw new Error('picker unavailable'); } };
+  await assert.rejects(alignUpdateSetCapture(sdk, { name: 'New', sys_id: 'new-set' }), /picker unavailable/);
 });
 
 it('switches application through the session-aware picker', async () => {

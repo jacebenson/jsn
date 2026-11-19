@@ -10,14 +10,12 @@
 import { AuthManager } from './auth.js';
 import { createAuthRecovery } from './auth-recovery.js';
 import { SDKClient } from './sdk.js';
-import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled, hyperlink } from './output.js';
+import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
 import { saveConfig, isTrustedCredentialDestination } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
-import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
 import { canPrompt, canUsePicker } from './helpers.js';
 import { guardMutationContext } from './mutation-context.js';
-import process from 'node:process';
 
 
 export class App {
@@ -86,82 +84,8 @@ export class App {
     return this.session?.instance || '';
   }
 
-  async printContextHeader(argv = {}) {
-    if (!this.getEffectiveInstance() || !this.sdk) return;
-    if (process.env.JSN_NO_HEADER) return;
-    if (this.output.getFormat() === FormatJSON || this.output.getFormat() === FormatQuiet) return;
-
-    // The banner is a terminal affordance, never data. `--get`/`--select`
-    // prints an extracted JSON value while the format still reports pretty, so
-    // a banner on stderr merged with `2>&1` landed in front of the JSON and
-    // broke `jsn ... 2>&1 | jq` / `json.load(sys.stdin)` at character 0. Skip
-    // it whenever an extraction was requested or stderr is not a terminal
-    // (nobody reads it there, and it costs five HTTP requests per command:
-    // user, application preference, update-set preference, scope, update set).
-    if (argv.get !== undefined && argv.get !== null && argv.get !== false) return;
-    if (process.stderr.isTTY !== true) return;
-
-    let userDisplayName = 'Unknown';
-    let userSysID = '';
-
-    try {
-      const user = await getCurrentUser(this.sdk);
-      if (user) {
-        userDisplayName = user.name || user.user_name;
-        userSysID = user.sys_id;
-        this.context.username = userDisplayName;
-      }
-    } catch {
-      // ignore
-    }
-
-    let displayUserName = userDisplayName;
-    if (displayUserName.length > 10) {
-      displayUserName = displayUserName.slice(0, 6) + '...';
-    }
-
-    // Both lookups depend on the user, but not on one another.
-    const [application, selectedUpdateSet] = userSysID ? await Promise.all([
-      getCurrentApplication(this.sdk, userSysID, { unknownWhenMissing: true }).catch(() => null),
-      getCurrentUpdateSet(this.sdk, userSysID).catch(() => null),
-    ]) : [null, null];
-    const scope = application?.scope || 'unknown';
-    const updateSet = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
-      ? selectedUpdateSet.name : 'unknown';
-    const updateSetSysID = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
-      ? selectedUpdateSet.sys_id : '';
-    this.context.scope = scope;
-    this.context.updateSet = updateSet;
-
-    const instance = this.getEffectiveInstance();
-    const instanceLink = instance;
-    const userLink = `${instance}/sys_user_list.do?sysparm_query=sys_id=${userSysID}`;
-    const scopeLink = `${instance}/sys_scope.do?sysparm_query=scope=${scope}`;
-    const updateSetLink = updateSetSysID
-      ? `${instance}/sys_update_set.do?sys_id=${updateSetSysID}`
-      : `${instance}/sys_update_set_list.do`;
-
-    const scopeFormatted = `[${scope}]`;
-
-    // Terminal hyperlinks are invisible in a TTY and garbage in a pipe, so the
-    // banner only wraps values when stderr is actually a terminal.
-    const link = (text, url) => (process.stderr.isTTY === true ? hyperlink(text, url) : text);
-
-    // Read-only profiles get a lock badge on every command run, so the
-    // armed safety is always visible (not just in `auth status`).
-    const roBadge = this.session?.readOnly === true ? ' 🔒' : '';
-
-    process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
-    process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
-
-    const profileStr = `${link(String(this.context.profileName).padEnd(9), instanceLink)}${roBadge}`;
-    const userStr = link(String(displayUserName).padEnd(9), userLink);
-    const scopeStr = link(String(scopeFormatted).padEnd(17), scopeLink);
-    const updateSetStr = link(String(updateSet), updateSetLink);
-
-    process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
-
-  }
+  // Retained for SDK consumers. Automatic context banners are retired.
+  async printContextHeader() {}
 
   async guardMutationContext(argv) {
     this.mutationContext = await guardMutationContext(this, argv);

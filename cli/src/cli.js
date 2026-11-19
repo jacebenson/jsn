@@ -12,7 +12,7 @@ import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { maybeShowHome } from './welcome.js';
 import { skippedUpdatesCmd } from './commands/skipped-updates.js';
-import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, skipsContextHeader } from './capabilities.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
@@ -155,6 +155,9 @@ export function buildCLI() {
     .options({
       'all-commands': { type: 'boolean', describe: 'Show the full command list, including admin and developer tools' },
 
+      'expect-scope': { type: 'string', description: 'Intended customization scope, exact scope/name or sys_id' },
+      'expect-update-set': { type: 'string', description: 'Intended in-progress capture set, exact name or sys_id' },
+      'expect-domain': { type: 'string', description: 'Intended domain; refuses writes when effective domain cannot be proven' },
       force: {
         type: 'boolean',
         description: 'Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation',
@@ -351,10 +354,7 @@ export function buildCLI() {
         }
       }
 
-      // Print context header for interactive terminals
-      if (!skipsContextHeader(argv)) {
-        await argv.app.printContextHeader(argv);
-      }
+      // Reads never probe or print runtime context. Writes use the guard result.
     })
     // CONFIGURATION
     .command(setupCmd(wrap))

@@ -13,11 +13,17 @@ export function evalCmd(wrap) {
     describe: 'Execute background scripts on the instance (--repl for interactive mode)',
     builder: (yargs) => {
       return yargs
+        .middleware(argv => {
+          if (!argv.repl) return;
+          const conflicts = ['script', 'file', 'stdin'].filter(key => argv[key]).map(key => `--${key}`);
+          if (conflicts.length) throw new Error(`--repl cannot be combined with ${conflicts.join(', ')}`);
+          if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('--repl needs an interactive terminal. Use --script, --file or --stdin for scripts and agents.');
+        })
         .option('script', { alias: 's', type: 'string', describe: 'JavaScript code to execute (single-quote the script, double quotes inside: --script \'gs.log("Hello")\')' })
         .option('file', { alias: 'f', type: 'string', describe: 'Read script from file (avoids shell quoting issues)' })
         .option('stdin', { type: 'boolean', describe: 'Read script from stdin (pipe-friendly, e.g. cat script.js | jsn eval --stdin)' })
         .option('repl', { type: 'boolean', default: false, describe: 'Interactive mode: type a script, submit with .exec (requires a terminal)' })
-        .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: active scope from banner)' })
+        .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: verified intended scope)' })
         // Script-mode flags (issue #177) — map to the Script Background form checkboxes
         .option('rollback', { type: 'boolean', default: true, describe: 'Record rollback context (--no-rollback to skip)' })
         .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript evaluator, single expression only — no DB writes)' })
@@ -26,12 +32,12 @@ export function evalCmd(wrap) {
     },
     handler: wrap(async (argv, app) => {
       let script;
-      let scopeSysId = null;
+      let scopeSysId = app.mutationContext?.application_id || null;
 
       // Resolve execution scope: explicit --scope wins; otherwise use the
       // active scope from apps.current_app (same source as the banner);
       // fall back to global only when no active scope exists.
-      let scope = argv.scope || '';
+      let scope = app.mutationContext?.scope || argv.scope || '';
       if (!scope) {
         try {
           const user = await getCurrentUser(app.sdk);
@@ -46,7 +52,7 @@ export function evalCmd(wrap) {
         }
       }
 
-      if (scope) {
+      if (scope && !scopeSysId) {
         scopeSysId = await app.sdk.resolveScope(scope);
         if (!scopeSysId) {
           throw new Error(`Scope not found: ${scope}`);

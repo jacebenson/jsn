@@ -99,6 +99,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const readOnly = opts.readOnly || false;
   // Capability declaration: the readOnly flag drives the mutation registry.
   declareCapabilities(name, {
+    mutationContext: 'table', table,
     mutationSubcommands: readOnly ? [] : ['create', 'update', 'delete'],
   });
   const scopeValidation = opts.scopeValidation || false;

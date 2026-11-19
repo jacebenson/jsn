@@ -48,43 +48,11 @@ test('related reads overlap with at most four workers, keep order and isolate fa
   assert.deepEqual(result.d, ['d']);
 });
 
-test('context header starts both independent lookups before either finishes', async (t) => {
-  const gate = deferred();
-  const started = [];
-  const app = {
-    getEffectiveInstance: () => 'https://example.invalid',
-    output: { getFormat: () => 'styled' },
-    context: { profileName: 'test' },
-    session: {},
-    sdk: {
-      list: async (table, params) => {
-        if (table === 'sys_user') return [{ sys_id: 'user', name: 'Tester' }];
-        const query = params.get('sysparm_query');
-        started.push(query);
-        if (started.length === 2) gate.resolve();
-        await gate.promise;
-        return [{ value: query.includes('apps.current_app') ? 'scope-id' : 'set-id' }];
-      },
-      get: async (table) => table === 'sys_scope' ? { scope: 'x_test' } : { name: 'Test set' },
-    },
-  };
-  const previous = process.env.JSN_NO_HEADER;
-  delete process.env.JSN_NO_HEADER;
-  t.after(() => { if (previous === undefined) delete process.env.JSN_NO_HEADER; else process.env.JSN_NO_HEADER = previous; });
-  const chunks = [];
-  t.mock.method(process.stderr, 'write', (text) => { chunks.push(text); return true; });
-  // The banner is a terminal affordance: it only prints when stderr is one.
-  const descriptor = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
-  Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
-  t.after(() => {
-    if (descriptor) Object.defineProperty(process.stderr, 'isTTY', descriptor);
-    else delete process.stderr.isTTY;
-  });
-  await App.prototype.printContextHeader.call(app, { _: ['records', 'list'] });
-  assert.equal(started.length, 2);
-  assert.equal(app.context.scope, 'x_test');
-  assert.equal(app.context.updateSet, 'Test set');
-  assert.match(chunks.join(''), /Test set/);
+test('retired context header performs no lookups or output even on a terminal', async t => {
+  const app = { sdk: { list: () => assert.fail('No context reads') } };
+  const stderr = t.mock.method(process.stderr, 'write', () => true);
+  await App.prototype.printContextHeader.call(app, {});
+  assert.equal(stderr.mock.callCount(), 0);
 });
 
 test('npm checks time out and background checks abort on command completion', async (t) => {

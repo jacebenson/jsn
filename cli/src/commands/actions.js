@@ -87,7 +87,7 @@ export const actionsCmd = wrap => {
       { action: 'list', cmd: 'jsn actions list', description: 'Back to actions' },
     ],
   });
-  declareCapabilities('actions', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'test'] });
+  declareCapabilities('actions', { mutationContextExemptSubcommands: ['test'], mutationSubcommands: ['create', 'update', 'edit', 'delete', 'test'] });
   // Retain the common wrap and output controller; domain failures get a
   // structured error envelope and nonzero exit, never a success-shaped dispatch.
   const run = handler => wrap(async (argv, app) => {

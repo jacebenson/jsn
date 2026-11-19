@@ -58,6 +58,7 @@ function loadFromFile(cfg, filePath, source) {
       if (fileCfg.connection_defaults && typeof fileCfg.connection_defaults === 'object') cfg.connectionDefaults = fileCfg.connection_defaults;
       if (fileCfg.docs && typeof fileCfg.docs === 'object') cfg.docs = fileCfg.docs;
     }
+    if (source === 'local' && Object.hasOwn(fileCfg, 'write_context')) cfg.writeContext = fileCfg.write_context;
     if (fileCfg.instance_url) {
       cfg.instanceURL = fileCfg.instance_url;
       cfg.sources.instance_url = source;

@@ -22,10 +22,11 @@ describe('capabilities registry', () => {
     const caps = collectCapabilities();
     // Spot-check a factory-built CRUD command
     assert.deepStrictEqual(caps.get('incidents'), {
+      mutationContext: 'operational',
       mutationSubcommands: ['create', 'update', 'delete'],
     });
     // A read-only factory command declares no mutations
-    assert.deepStrictEqual(caps.get('sppages'), { mutationSubcommands: [] });
+    assert.deepStrictEqual(caps.get('sppages'), { mutationContext: 'table', table: 'sp_page', mutationSubcommands: [] });
     // No-instance commands declare themselves
     assert.deepStrictEqual(caps.get('auth'), { noInstance: true, skipContextHeader: true });
     assert.deepStrictEqual(caps.get('setup'), { noInstance: true, skipContextHeader: true });
@@ -59,6 +60,7 @@ describe('capabilities registry', () => {
     assert.ok('uipolicies' in handlers);
     const caps = collectCapabilities();
     assert.deepStrictEqual(caps.get('uipolicies'), {
+      mutationContext: 'table', table: 'sys_ui_policy',
       mutationSubcommands: ['create', 'update', 'delete'],
     });
   });

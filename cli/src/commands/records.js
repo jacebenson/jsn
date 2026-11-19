@@ -7,6 +7,7 @@ import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('records', {
+  mutationContext: 'table',
   mutationSubcommands: ['create', 'update', 'delete', 'bulk'],
 });
 

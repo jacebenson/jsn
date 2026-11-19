@@ -253,7 +253,7 @@ definition site via `declareCapabilities(name, caps)`; factories emit the
 declaration automatically (e.g. `buildDevCmd`'s existing `readOnly` flag).
 
 The middleware **derives** the skip-lists (instance guard, daily checks,
-context header) and the mutation-guard path list from this registry — it never
+legacy context-header metadata) and the mutation-guard path list from this registry — it never
 matches `argv._[0]` against hand-written string lists.
 
 Capabilities: `mutationSubcommands`, `noInstance`, `skipDailyChecks`,
@@ -867,21 +867,21 @@ reason metadata remain independent of this retirement.
 
 ### Mutation capture-context approval
 
-A **capture-context guard** resolves the selected application and update set before
-an instance mutation, independently of output headers and delete-confirmation
-preferences. Confirmed Global scope plus the exact Default update-set name requires
-explicit approval; `--force` records approval for that invocation. A missing scope
-preference or failed lookup is unknown context, never evidence of Global scope.
-Scope mismatches are warnings with a concrete selection command; selected completed
-capture sets are errors. Success JSON carries `context.mutation`; blocked commands
-carry `context` with stable diagnostic codes, severity, remediation, and approval
-state. Ordinary creates/updates in other contexts need no confirmation.
+A capture-context guard checks independently intended scope/update set against
+fresh preferences and effective session pickers before customization writes.
+Bots require explicit `--expect-scope` and `--expect-update-set` or task-local,
+profile-and-origin-bound `write_context`. CLI values override saved fields; current
+preferences never supply intended values. Unknown, incomplete, ambiguous and
+mismatched context refuses; nothing switches implicitly. Global + Default retains
+separate exact-operation approval. `--force` cannot override failed verification.
+Machine writes carry `context.mutation`; human writes reuse it for one compact line.
+Ordinary data writes do not require capture context. Capability metadata declares
+operational exemptions; table-backed commands use provider table ancestry.
+`--expect-domain` or configured domain customization refuses because header
+propagation is not proof of effective domain. See the update-set guide for limits.
+Reads never automatically print or probe context. `auth status --context` explicitly
+reports the selected profile; `--local` makes no requests and verifies nothing live.
 
-Capabilities declare remediation exemptions (`mutationContextExemptSubcommands`)
-and read methods (`mutationContextReadMethods`) separately from mutation paths.
-Creating/selecting an application or update set remains possible to resolve unsafe
-context. REST GET bypasses capture-context approval but remains blocked on read-only
-profiles, along with every other raw REST request.
 
 ## Documentation snapshot
 
