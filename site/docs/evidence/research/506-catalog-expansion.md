@@ -38,4 +38,3 @@ All checks from candidate `cli/`, finite timeouts, no integration-test opt-in:
 Logs `/home/jace/.hermes/cache/scratch/506-catalog-{focused,lint,full}.log`. New tests verify canonical/snapshot identity, exact historical ratios and no adapter substitution, inventory provenance/status/schema essentials, unique-source count, known vs unknown products, and actual CLI product/SKU/ID human/JSON/get reads with unusable proxy settings. No endpoint refresh exists: local reads perform no network transport.
 
 Remaining: 25 substantive rewrites, omitted sections in two partial records, exhaustive archive discovery, HRSD applicability and population, source PDF hosting rights/bytes, Rails delivery + CLI refresh cache, observed 90-day consumption and purchased rights. Holly owns independent exact revision review/reproduction. No push/PR/merge/deploy or overall completion claim.
-
