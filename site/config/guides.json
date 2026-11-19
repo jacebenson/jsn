@@ -9,5 +9,6 @@
   "records": "guides/records.md",
   "updatesets": "guides/updatesets.md",
   "midservers": "guides/midservers.md",
-  "store": "guides/store.md"
+  "store": "guides/store.md",
+  "instance-inventory-comparison": "guides/instance-inventory-comparison.md"
 }
