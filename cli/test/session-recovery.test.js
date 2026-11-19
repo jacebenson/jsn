@@ -8,10 +8,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-// These tests cover the cookie-backed session path, which table reads now skip
-// unless the instance demands it. Force the bootstrap so the transport contract
-// under test (one invalidation, one replay, shared recovery) still runs.
-process.env.JSN_ALWAYS_WARM_SESSION = '1';
+// Exercise the default OAuth cookie-backed policy, including bounded recovery
+// and mutation replay safety, without a force-session environment override.
 import { SDKClient } from '../src/sdk.js';
 import { dispatchOperation } from '../src/store.js';
 import { createAuthRecovery } from '../src/auth-recovery.js';

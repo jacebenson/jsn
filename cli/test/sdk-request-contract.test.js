@@ -24,9 +24,9 @@ test('request variants retain distinct headers, bootstrap policy and response sh
   assert.equal(requests[1].headers.get('X-Now-Domain'), null);
   assert.equal(requests[2].headers.get('Accept'), null);
   assert.deepEqual(authOptions, [
-    { skipOAuthSession: false, basicSession: true },
-    { skipOAuthSession: false, basicSession: true },
-    { skipOAuthSession: false, basicSession: true },
+    { skipOAuthSession: false, basicSession: true, preferOAuthSession: true, oauthHeaderOnly: false },
+    { skipOAuthSession: false, basicSession: true, preferOAuthSession: true, oauthHeaderOnly: false },
+    { skipOAuthSession: false, basicSession: true, preferOAuthSession: true, oauthHeaderOnly: false },
   ]);
 });
 

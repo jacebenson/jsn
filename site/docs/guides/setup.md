@@ -134,15 +134,53 @@ Pending OAuth PKCE state is also identity-scoped when the profile username is kn
 
 The focused auth tests cover same-instance username isolation, explicit refresh/logout identity, method separation, read-only diagnostics, legacy handling, redaction, and concurrent username-scoped PKCE state.
 
+### OAuth request transport
+
+OAuth requests prefer JSN's existing cookie-backed UI session by default, including
+Table, Stats and Batch. The normal OAuth bootstrap binds the existing credential
+to a UI session; data requests then send Cookie and its matching X-UserToken,
+without a Bearer Authorization header. A client reuses its session and shares a
+concurrent bootstrap. No new credential type, browser login or profile migration
+is involved. This matters for tables such as sys_store_app where ws_access=false
+can reject Bearer requests while the same account's UI session can read them.
+
+Use the existing environment switch for an explicit header-only opt-out:
+
+```sh
+JSN_ALWAYS_WARM_SESSION=0 jsn records list --profile pdi --table sys_properties --columns name --limit 1 --json
+```
+
+This opt-out applies **only to OAuth requests on stateless-capable Table, Stats
+and Batch routes**. It sends Bearer without Cookie or X-UserToken, even when the
+client already has a session. It cannot disable required UI-session endpoints
+such as GraphQL, processors, attachment upload or the concourse picker. Explicit
+SDK `stateful: true` also takes precedence, so Store comparison continues to use
+its required session even under the opt-out. `JSN_ALWAYS_WARM_SESSION=1` forces
+the existing session policy; unset, empty and other values use the OAuth default.
+Internal authentication bootstrap bypasses warming only to prevent recursion.
+
+Existing session-unavailable behavior is retained: if bootstrap cannot produce
+both cookie and user token, OAuth falls back to its Bearer credential before the
+single data dispatch. That is not proof that the target endpoint accepts Bearer.
+A 403 does not trigger warming, recovery or automatic retry. Existing bounded,
+identity-verified 401 recovery and mutation-replay rules are unchanged; ambiguous
+writes are never duplicated merely because authentication may have expired.
+
+This default change is OAuth-only. Supplied `token` credentials keep their
+endpoint-based policy, GCK keeps its supplied cookie/token pair, and Basic keeps
+its pre-dispatch MFA gate and existing non-MFA REST behavior. The opt-out cannot
+bypass Basic/TOTP checks or a recognized challenge's terminal state. Cookies,
+user tokens and OAuth credentials are never printed by transport diagnostics.
+
 ### Basic-auth TOTP challenges (#402)
 
 Basic credentials can require TOTP even for Table, Stats and Batch calls. Those
 normal SDK request paths therefore bootstrap Basic login **before** dispatching
-the pending operation. OAuth/token and GCK retain the endpoint-based stateless
-policy: Table/Stats/Batch do not warm a UI session, while processors and other
-cookie-dependent surfaces still do. `JSN_ALWAYS_WARM_SESSION=1` remains available.
-This deliberate Basic-only exception costs login round trips; it prevents a
-mutation from being used as a probe for an unresolved MFA challenge. Internal
+the pending operation. Its policy is unchanged by the OAuth default described
+above. Supplied token credentials retain endpoint-based header auth on stateless
+routes; GCK uses its supplied cookie/token pair. This deliberate Basic gate costs
+login round trips; it prevents a mutation from being used as a probe for an
+unresolved MFA challenge. Internal
 auth bootstrap bypasses recursion, not a recognized challenge's terminal state.
 Public `fetchResponse` operations use the same pre-dispatch gate and bounded,
 identity-verified recovery/replay rules; their response bodies remain available
