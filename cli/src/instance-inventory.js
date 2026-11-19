@@ -1,5 +1,33 @@
 import { resolveSession } from './session.js';
 import { errUsage } from './errors.js';
+import { listApplications } from './store.js';
+
+export async function readObservedStoreApps(sdk, maxPages, tableFailure) {
+  const items = new Map(), localIds = new Set();
+  const coverage = { table: 'sn_appclient/appmanager/apps', tab: 'installed', status: 'unknown', fetched: 0, total: null, reason: 'no_provider_total', table_failure: tableFailure, observed_items_usable: true, exhaustion: 'not_reached' };
+  try {
+    for (let page = 0; page < maxPages; page++) {
+      // Reuse the production Store discovery transport. Its page_full is a
+      // client heuristic, NOT provider has_more or an exhaustiveness guarantee.
+      const result = await listApplications(sdk, { tab: 'installed', limit: 200, offset: coverage.fetched });
+      if (!result.apps.length) { coverage.exhaustion = 'empty_page_observed'; return { items, coverage }; }
+      if (result.apps.length > 200) throw Object.assign(new Error(), { code: 'invalid_page_size' });
+      for (const row of result.apps) {
+        if (!row.scope?.trim() || !row.sys_id?.trim() || !row.name?.trim() || !row.version?.trim()) throw Object.assign(new Error(), { code: 'missing_fields' });
+        if (items.has(row.scope) || localIds.has(row.sys_id)) throw Object.assign(new Error(), { code: 'duplicate_or_invalid_identity' });
+        localIds.add(row.sys_id);
+        items.set(row.scope, { id: row.scope, name: row.name, version: row.version, available_version: row.latest_version, active: null, installed: true, installation_evidence: 'appclient_installed_tab', observation_verified: true });
+        coverage.fetched++;
+      }
+    }
+    coverage.reason = 'page_limit_no_provider_total';
+  } catch (error) {
+    coverage.reason = error.status === 403 ? 'forbidden' : error.code || 'unreadable_source';
+    coverage.observed_items_usable = false;
+  }
+  return { items, coverage };
+}
+
 
 // Separate inventories: a Store application may also expose platform plugins.
 // Neither inventory is a substitute for the other; custom sys_app rows are excluded.
@@ -55,6 +83,7 @@ export async function readInventory(sdk, kind, maxPages = 30) {
     // Never include provider text, hostnames or credentials in a comparison report.
     coverage.reason = error.status === 403 ? 'forbidden' : error.status === 401 ? 'auth_error' : error.code || 'unreadable_source';
   }
+  if (kind === 'store' && coverage.reason === 'forbidden') return readObservedStoreApps(sdk, maxPages, coverage.reason);
   return { items, coverage };
 }
 
@@ -81,14 +110,16 @@ export function recommendAlignment(before, after, reliable, kind) {
   }
   if (kind === 'store' && before.installed === false && after.installed === true) actions.push({ action: 'review_installation', message: 'Review or retain target installation; no automatic uninstall recommended.' });
   if (!actions.length && (!before.version || !after.version)) actions.push({ action: 'investigate_version', message: 'Investigate missing installed-version evidence.' });
-  return actions.length ? actions : [{ action: 'none', message: 'No action needed; observed versions and states match.' }];
+  return actions.length ? actions : [{ action: 'none', message: kind === 'store' && (before.active == null || after.active == null) ? 'Observed installed versions match; no version action needed. Activation is unreported.' : 'No action needed; observed versions and states match.' }];
 }
 
 export function compareInventories(source, destination, kind = 'plugins') {
   return [...new Set([...source.items.keys(), ...destination.items.keys()])].sort().map(id => {
     const before = source.items.get(id) || null;
     const after = destination.items.get(id) || null;
-    const reliable = source.coverage.status === 'complete' && destination.coverage.status === 'complete';
+    const inventoriesComplete = source.coverage.status === 'complete' && destination.coverage.status === 'complete';
+    const observedPair = kind === 'store' && before && after && (source.coverage.status === 'complete' || before.observation_verified === true && source.coverage.observed_items_usable) && (destination.coverage.status === 'complete' || after.observation_verified === true && destination.coverage.observed_items_usable);
+    const reliable = inventoriesComplete || observedPair;
     let status = 'unknown';
     const changes = [];
     if (reliable) {
@@ -96,24 +127,25 @@ export function compareInventories(source, destination, kind = 'plugins') {
       else if (!after) status = 'source_only';
       else {
         for (const field of ['version', 'active', 'installed']) {
+          if (field === 'active' && (before.active == null || after.active == null)) continue;
           if (before[field] !== after[field]) changes.push(field);
         }
         status = kind === 'store' && (before.installed == null || after.installed == null) || before.version === null || after.version === null ? 'unknown' : changes.length ? 'different' : 'matching';
       }
     }
-    return { id, name: before?.name || after?.name || id, status, changes, before, after, recommendations: recommendAlignment(before, after, reliable, kind) };
+    return { id, name: before?.name || after?.name || id, status, evidence: inventoriesComplete ? 'complete_inventory' : observedPair ? 'observed_pair' : 'incomplete_inventory', changes, before, after, recommendations: recommendAlignment(before, after, reliable, kind) };
   });
 }
 
 export function formatInventoryComparison(data, verbose = false) {
-  const lines = [`${data.kind}: ${data.source} -> ${data.target} (align TARGET ${data.target} to SOURCE ${data.source})`, data.complete ? 'Complete visible inventories' : 'INCOMPLETE: investigate access/coverage; absence and equality are unknown',
+  const lines = [`${data.kind}: ${data.source} -> ${data.target} (align TARGET ${data.target} to SOURCE ${data.source})`, data.complete ? 'Complete visible inventories' : 'INCOMPLETE inventory: absences unknown; verified observed pairs can still be compared',
     ...Object.entries(data.coverage).map(([side, c]) => `${side}: ${c.status}, ${c.fetched}/${c.total ?? '?'} rows${c.reason ? ` (${c.reason})` : ''}`),
     `${data.records.length} identities; ${Object.entries(data.counts).map(([key, value]) => `${value} ${key}`).join(', ')}`,
     'ID | STATUS | SOURCE -> TARGET | WHAT TO DO ON TARGET'];
   const value = item => item ? `${item.version ?? 'version unknown'}, ${item.active === null ? 'activation unknown' : item.active ? 'active' : 'inactive'}${Object.hasOwn(item, 'installed') ? `, ${item.installed == null ? 'installation unknown' : item.installed ? 'installed' : 'not installed'}, available ${item.available_version ?? 'unknown'}` : ''}` : 'not observed';
   const differences = data.records.filter(row => row.status !== 'matching');
   const shown = verbose ? differences : differences.slice(0, 50);
-  for (const row of shown) lines.push(`${row.id} | ${row.status} | ${value(row.before)} -> ${value(row.after)} | ${row.recommendations.map(item => item.message).join(' ')}`);
+  for (const row of shown) lines.push(`${row.name || row.id} [${row.id}] | ${row.status} | ${value(row.before)} -> ${value(row.after)} | ${row.recommendations.map(item => item.message).join(' ')}`);
   if (shown.length < differences.length) lines.push(`${differences.length - shown.length} additional rows omitted; --verbose shows all differences.`);
   lines.push('Matching rows need no action and are omitted; --json includes all rows. Read-only visible inventory, not entitlement or Store connectivity.');
   return lines.join('\n');

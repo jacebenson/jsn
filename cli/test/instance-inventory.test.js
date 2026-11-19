@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { credKey } from '../src/auth/credential-store.js';
-import { readInventory, compareInventories, recommendAlignment, formatInventoryComparison } from '../src/instance-inventory.js';
+import { readInventory, readObservedStoreApps, compareInventories, recommendAlignment, formatInventoryComparison } from '../src/instance-inventory.js';
 
 const plugin = (id, extra = {}) => ({ sys_id: `local-${id}`, id, name: id, active: 'active', version: '1.0', ...extra });
 function sdk(rows, { total = rows.length, pageSize = 200, countAfter = total } = {}) {
@@ -85,19 +85,47 @@ test('duplicates, missing fields, invalid states, malformed responses, limits an
   }
 });
 
+test('App Client failures invalidate positive evidence; page limits never establish absence', async () => {
+  const app = { sys_id: 'a', scope: 'sn_a', name: 'App', version: '1.0' };
+  for (const apps of [[app, { ...app, sys_id: 'b' }], [{ ...app, scope: '' }], null]) {
+    const result = await readObservedStoreApps({ baseURL: 'http://fixture', request: async () => ({ result: { apps } }) }, 2, 'forbidden');
+    assert.equal(result.coverage.status, 'unknown');
+    assert.equal(result.coverage.observed_items_usable, false);
+    assert.ok(compareInventories(result, result, 'store').every(row => row.status === 'unknown'));
+  }
+  const limited = await readObservedStoreApps({ baseURL: 'http://fixture', request: async () => ({ result: { apps: [app] } }) }, 1, 'forbidden');
+  assert.equal(limited.coverage.reason, 'page_limit_no_provider_total');
+  assert.equal(limited.coverage.status, 'unknown');
+  assert.equal(limited.coverage.fetched, 1);
+  assert.equal(compareInventories(limited, limited, 'store')[0].status, 'matching');
+  assert.equal(compareInventories(limited, limited, 'store')[0].before.active, null);
+});
+
 test('real CLI parser, independent profiles, human/JSON/get, ACL failures and zero mutations', async t => {
   const dir = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-inventory-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const calls = [];
   let denied = false;
+  let observedStore = false;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://fixture');
     calls.push([req.method, url.pathname]);
     res.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/angular.do') { res.end('{}'); return; }
-    if (req.method !== 'GET') { res.statusCode = 500; res.end('{}'); return; }
-    if (denied) { res.statusCode = 403; res.end('{"error":{"message":"Forbidden"}}'); return; }
     const destination = req.headers.authorization === `Basic ${Buffer.from('destination:fixture').toString('base64')}`;
+    if (url.pathname === '/api/sn_appclient/appmanager/apps') {
+      assert.equal(req.method, 'POST');
+      assert.equal(url.searchParams.get('tab_context'), 'installed');
+      if (denied) { res.statusCode = 403; res.end('{}'); return; }
+      const apps = [
+        { sys_id: destination ? 'local-target' : 'local-source', scope: 'sn_shared', name: 'Readable Store app', version: destination ? '2.0' : '1.0', latest_version: '9.0' },
+        { sys_id: 'only-' + destination, scope: 'sn_only_' + destination, name: 'Only observed on one side', version: '1.0' },
+      ];
+      const offset = Number(url.searchParams.get('sysparm_offset'));
+      res.end(JSON.stringify({ result: { apps: apps.slice(offset, offset + 1) } })); return;
+    }
+    if (req.method !== 'GET') { res.statusCode = 500; res.end('{}'); return; }
+    if (denied || observedStore && url.pathname.endsWith('sys_store_app')) { res.statusCode = 403; res.end('{"error":{"message":"Forbidden"}}'); return; }
     const store = url.pathname.endsWith('sys_store_app');
     const rows = store ? [{ sys_id: destination ? 'local-b' : 'local-a', scope: 'sn_example', name: 'Store app', active: 'true', install_date: '2026-01-01', latest_version: '9.0', version: destination ? '2.0' : '1.0' }] : [plugin('com.example', { sys_id: destination ? 'local-b' : 'local-a', version: destination ? '2.0' : '1.0' })];
     res.end(JSON.stringify(url.pathname.includes('/stats/') ? { result: { stats: { count: '1' } } } : { result: rows }));
@@ -136,6 +164,26 @@ test('real CLI parser, independent profiles, human/JSON/get, ACL failures and ze
   const reversed = JSON.parse((await run('compare', ['--source', 'destination', '--target', 'source', '--json'])).stdout).data;
   assert.equal(reversed.inventories.plugins.records[0].recommendations[0].action, 'align_version');
   assert.equal(combined.inventories.plugins.records[0].recommendations[0].action, 'review_version');
+  observedStore = true;
+  const partialJSON = await run('compare', ['--json']).catch(error => { assert.equal(error.code, 1); return error; });
+  const partial = JSON.parse(partialJSON.stdout).data;
+  assert.equal(partial.inventories.plugins.complete, true);
+  assert.equal(partial.inventories.store.complete, false);
+  assert.equal(partial.inventories.store.coverage.source.fetched, 2);
+  assert.equal(partial.inventories.store.coverage.source.exhaustion, 'empty_page_observed');
+  const shared = partial.inventories.store.records.find(row => row.id === 'sn_shared');
+  assert.equal(shared.evidence, 'observed_pair');
+  assert.equal(shared.status, 'different');
+  assert.equal(shared.recommendations[0].action, 'review_version');
+  assert.equal(shared.before.active, null);
+  assert.equal(shared.before.version, '1.0');
+  assert.equal(shared.before.available_version, '9.0');
+  assert.ok(partial.inventories.store.records.filter(row => row.id !== 'sn_shared').every(row => row.status === 'unknown' && row.recommendations[0].action === 'investigate_access'));
+  const partialHuman = await run('compare', ['--format', 'styled']).catch(error => error);
+  assert.match(partialHuman.stdout, /Readable Store app \[sn_shared\]/);
+  assert.match(partialHuman.stdout, /Review newer target version/);
+  const partialGet = await run('compare', ['--get', 'data.inventories.store.counts']).catch(error => error);
+  assert.equal(JSON.parse(partialGet.stdout).different, 1);
   denied = true;
   await assert.rejects(run('store', ['--json']), error => {
     assert.equal(error.code, 1);
@@ -145,6 +193,6 @@ test('real CLI parser, independent profiles, human/JSON/get, ACL failures and ze
     assert.deepEqual(report.records, []);
     return true;
   });
-  assert.ok(calls.every(([method, endpoint]) => method === 'GET' || method === 'POST' && endpoint === '/angular.do'));
+  assert.ok(calls.every(([method, endpoint]) => method === 'GET' || method === 'POST' && ['/angular.do', '/api/sn_appclient/appmanager/apps'].includes(endpoint)));
   assert.equal(await fs.readFile(path.join(configDir, 'config.json'), 'utf8'), config);
 });

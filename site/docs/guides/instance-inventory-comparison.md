@@ -54,8 +54,9 @@ sequential, at most 200 rows per page, with a default budget of 30 pages per
 side per inventory. `--max-pages 100` raises the bounded budget. Short pages do
 not establish exhaustion. A changed count, page limit, missing field, duplicate
 identity, unreadable response or ACL refusal leaves coverage unknown. Incomplete
-reports exit 1 but preserve JSON and extraction output. Their recommendation is
-to investigate access/coverage, never install or remove based on unproven absence.
+reports exit 1 but preserve JSON and extraction output. Unverified absences
+require investigation, never installation or removal. Validated observed Store
+pairs can still yield matching installed versions or actionable version differences.
 The other inventory can still be complete and useful. Complete coverage exits 0
 even when differences exist.
 
@@ -63,10 +64,25 @@ Completeness describes the inventory visible to the account, not records hidden
 by row-level ACLs. Counts cannot detect every concurrent edit. Unsupported state
 values make the source unknown. Empty plugin versions remain unknown.
 
-Live plugin comparisons were verified between two configured instances in
-human, JSON and extraction modes. Both accounts denied `sys_store_app` reads
-with HTTP 403. Store refusal and unknown coverage were verified live; successful
-Store comparison is covered by offline provider fixtures and still requires an
-account that can read this table and its Stats API. The App Client installed-tab
-API was readable, but exposed no reliable total count; it is not silently used
-as a complete substitute for the denied Store inventory.
+Live plugin comparisons were verified between the PDI and a vendor instance,
+and between two distinct configured vendor instances, in human, JSON and
+extraction modes. Store Table/Stats reads were forbidden on these profiles.
+The comparison now reuses the production App Client `installed` tab as a
+read-only fallback. Membership in that tab plus a reported local version is
+positive installed evidence; activation is unreported and stays unknown.
+
+Actual App Client responses exposed only `result.apps`, with limit/offset
+pagination and no provider total or explicit has-more/exhaustiveness contract.
+The reader continues short pages until an empty page is observed or the page
+budget is reached. Even an observed empty page is not advertised as a complete
+inventory. The locally calculated `page_full` flag is not provider evidence.
+
+Validated apps observed on both sides have `evidence=observed_pair` and can
+produce useful version alignment/review recommendations despite incomplete
+inventory coverage. Their installed and available versions stay separate.
+Unmatched apps remain unknown and require investigation of visibility, never
+installation or removal based on unproved absence. A malformed/duplicate source
+invalidates positive comparison evidence. Combined reports still exit 1 when
+coverage is incomplete, while retaining useful positive matches/differences.
+The Table/Stats path, including its installation-date interpretation, remains
+fixture-tested but not live-verified on an account with those read permissions.
