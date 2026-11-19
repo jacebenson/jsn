@@ -1,33 +1,34 @@
 import { declareCapabilities } from '../capabilities.js';
-import { loadSchedule, estimateSubscription, formatEstimate } from '../subscriptions.js';
+import { loadSchedule, scheduleCatalog, estimateSubscription, formatEstimate } from '../subscriptions.js';
 
 declareCapabilities('subscriptions', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
 export function subscriptionsCmd(wrap) {
-  const local = (_argv, app) => {
-    const schedule = loadSchedule();
-    const data = { schedules: [schedule] };
+  const local = (argv, app) => {
+    const schedules = scheduleCatalog({ product: argv.product, sku: argv.sku, id: argv.id });
+    const data = { schedules, coverage: { index_documents: new Set(scheduleCatalog().map(s => s.source_url)).size, archive: 'unavailable', sku_mapping: 'only explicitly normalized codes; empty results do not establish absence of rights' } };
     Object.defineProperty(data, '_formatted', { value: [
-      `${schedule.id}: ${schedule.source_version}`,
-      schedule.source_url,
-      `Fetched: ${schedule.fetched_at}. ${schedule.retrieval}`,
-      ...schedule.categories.map(c => `${c.id}: ${c.resources_per_su} resources/SU; ${c.classes.join(', ') || 'unsupported source'}`),
-      schedule.definitions.provenance,
-      schedule.unresolved_mapping,
-      ...schedule.limitations,
+      'Local catalog snapshot; contractual applicability unverified. Archive unavailable.',
+      ...schedules.flatMap(s => [
+        `${s.id} | ${s.product} | ${s.effective_date || s.source_version || 'date unverified'} | ${s.normalization_status}`,
+        s.source_url,
+        `Measurement: ${s.measurement}. SKU mapping: ${(s.skus || []).join(', ') || 'unverified'}`,
+        ...(s.unknowns || s.limitations || []),
+        ...(argv.id ? [JSON.stringify(s, null, 2)] : []),
+      ]),
     ].join('\n') });
     app.ok(data, { summary: 'Bundled dated metering schedules, not purchased rights' });
   };
   return {
     command: 'subscriptions [subcommand]', describe: 'Inspect local metering schedules and compare illustrative ITOM populations',
-    builder: y => y.command({ command: 'schedules', describe: 'Inspect bundled source-backed schedules offline', handler: wrap(local) })
+    builder: y => y.command({ command: 'schedules', describe: 'Inspect bundled source-backed schedules offline', builder: b => b.option('product', { type: 'string' }).option('sku', { type: 'string' }).option('id', { type: 'string' }), handler: wrap(local) })
       .command({ command: 'estimate <product>', describe: 'Read-only ITOM population comparison, not billing or a 90-day meter',
         builder: b => b.positional('product', { type: 'string', describe: 'ITOM; arbitrary SKUs and HRSD unsupported' })
           .option('schedule', { type: 'string', describe: 'Explicit dated schedule ID from subscriptions schedules' })
           .option('assume-eligible', { type: 'boolean', default: false, describe: 'Hypothetically treat mapped populations as managed and component-eligible, exclusions unknown' }),
         handler: wrap(async (argv, app) => {
           // Validate unsupported selections before requesting an instance.
-          loadSchedule(argv.schedule);
-          if (String(argv.product).toUpperCase() !== 'ITOM') await estimateSubscription(null, argv.product);
+          const selected = loadSchedule(argv.schedule);
+          if (String(argv.product).toUpperCase() !== 'ITOM' || selected.measurement !== 'illustrative-population') await estimateSubscription(null, argv.product, { schedule: argv.schedule });
           app.requireInstance();
           const report = await estimateSubscription(app.sdk, argv.product, { schedule: argv.schedule, assumeEligible: argv.assumeEligible });
           Object.defineProperty(report, '_formatted', { value: formatEstimate(report) });

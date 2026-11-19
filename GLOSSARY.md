@@ -11,6 +11,10 @@ jsn uses those terms exactly.
 
 ---
 
+## Subscription schedule catalog
+
+Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.
+
 ## Direct MID installation
 
 An owned native ZIP installation, identified by `.jsn-mid-direct.json`, separate

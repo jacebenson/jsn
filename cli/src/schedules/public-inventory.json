@@ -1,0 +1,665 @@
+[
+  {
+    "id": "aicm-subscription-unit-overview",
+    "product": "AI Cost Management",
+    "title": "AI Cost Managment - ServiceNow Subscription Unit Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/aicm-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "November 5, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236119+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "custom-table-guide",
+    "product": "Custom Table Guide",
+    "title": "Custom Table Guide",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/custom-table-guide.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "October 17, 2025",
+    "retrieved_at": "2026-11-19T08:08:54.236131+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "data-fabric-credit-overview",
+    "product": "Data Fabric Credit",
+    "title": "Data Fabric Credit Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/data-fabric-credit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "April 9,  2026",
+    "retrieved_at": "2026-11-19T08:08:54.236135+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "wdf-foundation-overview",
+    "product": "Workflow Data Fabric Foundation",
+    "title": "Workflow Data Fabric Foundation Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/wdf-foundation-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "September 28, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236137+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "snc-addendum-integrationhub",
+    "product": "Integration Hub and Workflow Data Fabric",
+    "title": "ServiceNow Integration Hub and Workflow Data Fabric Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/snc-addendum-integrationhub.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": null,
+    "retrieved_at": "2026-11-19T08:08:54.236139+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "partial",
+    "skus": [
+      "PROD22417",
+      "PROD22424",
+      "PROD22431",
+      "PROD26897",
+      "PROD26899",
+      "PROD26898",
+      "PROD26900"
+    ],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Legacy SKU packaging and complete capability matrix not normalized.",
+      "Data Fabric Credit conversions require separate overview.",
+      "No verified usage adapter."
+    ],
+    "source_sections": [
+      "Definitions",
+      "Current Integration Hub and Workflow Data Fabric SKUs",
+      "Legacy Integration Hub and Automation Engine SKUs and Packaging"
+    ],
+    "meter": {
+      "unit": "Integration Hub transaction",
+      "definition": "Outbound call originating from Integration Hub, Flow Designer, Remote Tables or Orchestration; also external documents indexed through listed AI Search/REST/content connectors."
+    },
+    "exceptions": [
+      "Included spokes consume transactions unless explicitly excluded; verify referenced KB.",
+      "Product subscriptions do not include Integration Hub transactions; acquire through Integration Hub or Workflow Data Fabric.",
+      "Boomi Cloud API management unavailable on FedRamp/GCC."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "data-center-and-network-asset-management",
+    "product": "Data Center and Network Asset Management",
+    "title": "Data Center and Network Asset Management",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/data-center-and-network-asset-management.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "November 5, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236141+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "itam-financial-services-overview",
+    "product": "ITAM for Financial Services",
+    "title": "ITAM for Financial Services SU Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/itam-financial-services-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "July 31, 2025",
+    "retrieved_at": "2026-11-19T08:08:54.236143+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "servicenow-ai-workflow-factory-credit-overview",
+    "product": "AI Workflow Factory",
+    "title": "ServiceNow AI Workflow Factory Credit Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-ai-workflow-factory-credit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "September 10, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236145+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "servicenow-otto-overview",
+    "product": "Otto",
+    "title": "ServiceNow Otto Overview (formerly Now Assist Overview)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-otto-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "November 12, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236147+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "sn-overage-fee-schedule",
+    "product": "Overage Fee Schedule",
+    "title": "Overage Fee Schedule",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/sn-overage-fee-schedule.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "January 30, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236149+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "sn-scaling-platform-capacity-entitlements-addendum",
+    "product": "Scaling Platform Capacity",
+    "title": "ServiceNow Scaling Platform Capacity Entitlements for Shared Environments",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/sn-scaling-platform-capacity-entitlements-addendum.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "September 9, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236151+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "api-servicenow-subscription-unit-overview",
+    "product": "API",
+    "title": "ServiceNow Subscription Unit Overview \u2013 API",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/api-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "January 30, 2025",
+    "retrieved_at": "2026-11-19T08:08:54.236153+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "normalized",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "No verified instance eligibility or consumption adapter."
+    ],
+    "meter": {
+      "unit": "subscription unit",
+      "resources": [
+        {
+          "name": "API",
+          "resources_per_unit": 1,
+          "definition": "API represented in cmdb_ci_api and managed by API Insights or ITOM."
+        }
+      ]
+    },
+    "source_sections": [
+      "1 Managed Resource Types",
+      "2 Subscription Unit Defined Ratios"
+    ],
+    "exceptions": [
+      "A CMDB row alone does not establish managed eligibility."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "ai-control-tower-servicenow-subscription-unit-overview",
+    "product": "Super Intelligence Control Tower",
+    "title": "ServiceNow Subscription Unit Overview - Super Intelligence Control Tower",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/ai-control-tower-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "April 9, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236155+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator.",
+      "Index labels effective May 1, 2025; retrieved PDF says April 9, 2026. Version conflict unresolved; do not infer applicability."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "servicenow-subscription-unit-overview-digital-enduser-experience-dex",
+    "product": "DEX",
+    "title": "ServiceNow Subscription Unit Overview \u2011 Digital End\u2011User Experience (DEX)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-subscription-unit-overview-digital-enduser-experience-dex.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "May 9, 2024",
+    "retrieved_at": "2026-11-19T08:08:54.236157+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "sn-enterprise-asset-management",
+    "product": "EAM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Enterprise Asset Management (EAM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/sn-enterprise-asset-management.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": null,
+    "retrieved_at": "2026-11-19T08:08:54.236158+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "hardware-asset-management-for-zero-touch-mobility-subscription-overview",
+    "product": "ZTM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Hardware Asset Management for Zero Touch Mobility (ZTM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/hardware-asset-management-for-zero-touch-mobility-subscription-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "February 2, 2024",
+    "retrieved_at": "2026-11-19T08:08:54.236160+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "it-operations-management-itom-servicenow-subscription-unit-overview",
+    "product": "ITOM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 IT Operations Management (ITOM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/it-operations-management-itom-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": null,
+    "retrieved_at": "2026-11-19T08:08:54.236162+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "it-operations-management-itom-servicenow-subscription-unit-overview-tanium",
+    "product": "ITOM Tanium",
+    "title": "ServiceNow Subscription Unit Overview \u2013 IT Operations Management (ITOM) (Tanium)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/it-operations-management-itom-servicenow-subscription-unit-overview-tanium.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "April 9, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236164+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "itom-iot-subscription-unit-overview",
+    "product": "ITOM IoT",
+    "title": "ServiceNow Subscription Unit Overview \u2013 IT Operations Management IoT",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/itom-iot-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "February 1, 2024",
+    "retrieved_at": "2026-11-19T08:08:54.236166+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "ot-servicenow-subscription-unit-overview",
+    "product": "OT",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Operational Technology (OT)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/ot-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": null,
+    "retrieved_at": "2026-11-19T08:08:54.236168+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "otam-servicenow-subscription-unit-overview",
+    "product": "OTAM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Operational Technology Asset Management (OTAM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/otam-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": null,
+    "retrieved_at": "2026-11-19T08:08:54.236170+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "unified-security-exposure-management-servicenow-subscription-unit-overview",
+    "product": "USEM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Unified Security Exposure Management (USEM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/unified-security-exposure-management-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "May 1, 2025",
+    "retrieved_at": "2026-11-19T08:08:54.236172+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "software-asset-management-servicenow-subscription-unit-overview",
+    "product": "SAM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Software Asset Management (SAM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/software-asset-management-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "November 5, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236174+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "cloud-cost-management-servicenow-subscription-unit-overview",
+    "product": "CCM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Cloud Cost Management (CCM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/cloud-cost-management-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "August 3, 2023",
+    "retrieved_at": "2026-11-19T08:08:54.236176+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "telecommunications-network-inventory-subscription-unit-overview",
+    "product": "TNI",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Telecommunications Network Inventory (TNI)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/telecommunications-network-inventory-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "November 5, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236177+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "telecommunication-service-operations-management-servicenow-subscription",
+    "product": "TSOM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Telecommunication Service Operations Management (TSOM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/telecommunication-service-operations-management-servicenow-subscription.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "January 30, 2025",
+    "retrieved_at": "2026-11-19T08:08:54.236179+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "hardware-asset-management-servicenow-subscription-unit-overview",
+    "product": "HAM",
+    "title": "ServiceNow Subscription Unit Overview \u2013 Hardware Asset Management (HAM)",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/hardware-asset-management-servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "July 9, 2026",
+    "retrieved_at": "2026-11-19T08:08:54.236181+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "pending",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Reference only; incorporated agreement and product/SKU applicability must be verified.",
+    "unknowns": [
+      "Meter, exceptions and SKU mapping not yet normalized; not an estimator."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  },
+  {
+    "id": "servicenow-subscription-unit-overview",
+    "product": "ITOM",
+    "title": "ServiceNow Subscription Unit Overview",
+    "source_url": "https://www.servicenow.com/content/dam/servicenow-assets/public/en-us/doc-type/legal/servicenow-subscription-unit-overview.pdf",
+    "index_url": "https://www.servicenow.com/products/entitlements-packages.html",
+    "discovery": "Anonymous public supplements index DOM anchor",
+    "effective_date": "July 23, 2020",
+    "retrieved_at": "2026-11-19T08:08:54.236185+00:00",
+    "retrieval_status": "extracted",
+    "normalization_status": "partial",
+    "skus": [],
+    "measurement": "unimplemented",
+    "applicability": "Index directs purchases referencing Subscription Unit Overview prior to January 21, 2021 here; document effective July 23, 2020. Not an automatic purchase-date rule.",
+    "unknowns": [
+      "Only ITOM section normalized; SAM, HAM and TNPM sections remain pending.",
+      "Historical contract applicability unverified; no measurement adapter for this version."
+    ],
+    "source_sections": [
+      "1.1",
+      "1.2",
+      "1.3"
+    ],
+    "meter": {
+      "unit": "subscription unit",
+      "resources": [
+        {
+          "name": "server",
+          "resources_per_unit": 1
+        },
+        {
+          "name": "paas",
+          "resources_per_unit": 3
+        },
+        {
+          "name": "container",
+          "resources_per_unit": 3
+        },
+        {
+          "name": "unresolved monitored object",
+          "resources_per_unit": 1
+        }
+      ]
+    },
+    "definitions": {
+      "scope": "Physical/virtual servers, cloud platform services and OS-level containers must be represented by listed CI classes and managed by ITOM. Unresolved objects receive ITOM Health events/metrics without a CI; source identifies em_unique_nodes type unknown."
+    },
+    "exceptions": [
+      "Protocol/spoke entitlement for ITOM Operator packages still requires separately entitled IntegrationHub transactions."
+    ],
+    "retrieval_method": "web_extract PDF text; original bytes not downloaded; no raw PDF checksum",
+    "effective_date_provenance": "PDF extracted effective-date wording; null means not normalized, not undated",
+    "source_pdf_sha256": null
+  }
+]

@@ -1,9 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { AppError } from './errors.js';
 
+export function scheduleCatalog({ product, sku, id } = {}) {
+  const current = JSON.parse(readFileSync(new URL('./schedules/itom-2026-04-09.json', import.meta.url), 'utf8'));
+  const inventory = JSON.parse(readFileSync(new URL('./schedules/public-inventory.json', import.meta.url), 'utf8'));
+  return [{ ...current, product: 'ITOM', measurement: 'illustrative-population', normalization_status: 'normalized', skus: [] }, ...inventory]
+    .filter(s => (!product || s.product.toUpperCase() === product.toUpperCase()) && (!sku || s.skus.includes(sku)) && (!id || s.id === id));
+}
 export function loadSchedule(id = 'itom-2026-04-09') {
-  if (id !== 'itom-2026-04-09') throw new AppError('unsupported_schedule', 'No bundled schedule for this selection.', 'Run jsn subscriptions schedules; HRSD and other SKUs are not supported.');
-  return JSON.parse(readFileSync(new URL('./schedules/itom-2026-04-09.json', import.meta.url), 'utf8'));
+  const selected = scheduleCatalog({ id });
+  if (selected.length !== 1) throw new AppError('unsupported_schedule', 'No bundled schedule for this selection.', 'Run jsn subscriptions schedules for exact IDs.');
+  return selected[0];
 }
 const malformed = () => new AppError('malformed', 'Source response is incomplete or malformed.');
 async function read(sdk, kind, table, params) {
@@ -27,8 +34,12 @@ function status(error) {
 }
 
 export async function estimateSubscription(sdk, product, { schedule, assumeEligible = false } = {}) {
-  if (String(product).toUpperCase() !== 'ITOM') throw new AppError('unsupported_product', 'Only the ITOM population comparison is supported.', 'Run jsn subscriptions schedules. No HRSD or arbitrary SKU rules are bundled; select ITOM and verify your SKU separately.');
+  if (String(product).toUpperCase() !== 'ITOM') {
+    if (scheduleCatalog({ product }).length) throw new AppError('measurement_unavailable', 'Known catalog product; measurement is unimplemented.', 'Inspect subscriptions schedules --product with this product. No role or CI population is substituted.');
+    throw new AppError('unsupported_product', 'No verified product meter is bundled for this selection.', 'Run jsn subscriptions schedules. HRSD eligible population and contractual meter remain unverified; role counts are not billable seats.');
+  }
   const selected = loadSchedule(schedule);
+  if (selected.product !== 'ITOM' || selected.measurement !== 'illustrative-population') throw new AppError('measurement_unavailable', 'This exact schedule is catalog-only; its measurement adapter is unimplemented.', 'Inspect subscriptions schedules --id with this schedule ID. No current ITOM ratios are substituted.');
   const report = {
     product: 'ITOM', captured_at: new Date().toISOString(), schedule: selected,
     applicability: schedule ? 'explicit schedule selection; contractual SKU applicability unverified' : 'provisional April 9, 2026 schedule assumption; product name does not prove SKU applicability',
