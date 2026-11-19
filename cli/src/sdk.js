@@ -334,7 +334,7 @@ export class SDKClient {
   async request(endpoint, opts = {}) {
     // Some provider mutations are GET-shaped. Keep this local replay policy
     // out of fetch options rather than treating their HTTP method as read-only.
-    const { timeout = this.timeout, readOnly = false, stateful = false, touchLastSeen, domain = this.domain, ...requestOptions } = opts;
+    const { timeout = this.timeout, readOnly = false, stateful = false, touchLastSeen, domain = this.domain, responseMetadata, ...requestOptions } = opts;
     if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
     return this._withAuthenticatedRequest(endpoint, requestOptions, {
       timeout,
@@ -350,6 +350,13 @@ export class SDKClient {
     }, async (resp) => {
       const body = await resp.text();
       if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (responseMetadata) {
+        // Invocation-local receipt, never a cache: only accept a complete safe
+        // integer from this exact successful response (not an empty header).
+        const count = resp.headers.get('X-Total-Count');
+        responseMetadata.total = count !== null && /^\d+$/.test(count) && Number.isSafeInteger(Number(count))
+          ? Number(count) : undefined;
+      }
       if (resp.status === 204 || body === '') return null;
 
       // Preserve read-only credential-write suppression and the existing empty-body behavior.

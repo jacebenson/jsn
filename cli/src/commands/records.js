@@ -151,7 +151,8 @@ export function recordsCmd(wrap) {
             // Text/table fallback (or sys-id direct lookup)
             const fields = resolveFieldsParam(columns);
             const params = recordListParams({ limit: argv['sys-id'] ? 1 : argv.limit, offset: argv.offset, fields, query });
-            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues });
+            const responseMetadata = {};
+            const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues, responseMetadata });
             const missingColumns = fields ? findOmittedColumns(records, columns) : [];
             const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
             const displayRecords = fields && !argv.displayValues ? records.map(r => formatRecordForDisplay(r, presentColumns)) : records;
@@ -162,7 +163,10 @@ export function recordsCmd(wrap) {
             const countsOn = argv.count !== false && profile.include_counts !== false;
             let total;
             if (countsOn && !argv['sys-id']) {
-              try { total = await app.sdk.aggregateCount(table, query); } catch { total = undefined; }
+              total = responseMetadata.total;
+              if (total === undefined) {
+                try { total = await app.sdk.aggregateCount(table, query); } catch { total = undefined; }
+              }
             }
 
             const breadcrumbs = [

@@ -1,5 +1,7 @@
 import { isHexString, getStringField, assertSafeExactMatch } from '../helpers.js';
 import { discoverFlowContextFields, normalizeFlowContext } from '../flow-context.js';
+import { tableReadParams } from '../table-read-params.js';
+import { boundedReads } from '../bounded-reads.js';
 
 export async function resolveIdentifier(app, table, identifier) {
   // If it looks like a sys_id (32 hex chars), use it directly
@@ -86,24 +88,36 @@ async function resolveHistoryDisplayValues(app, table, history) {
     }
   }
 
-  // Batch lookup choice labels
+  // Preserve each exact field/value query and its one-row limit. Batching
+  // changes HTTP envelopes, not the number or authorization of server reads.
   const choiceLabelMap = new Map();
-  if (choiceLookups.size > 0) {
-    for (const key of choiceLookups) {
-      const [field, val] = key.split('|');
-      const params = new URLSearchParams();
-      params.set('sysparm_query', `name=${table}^element=${field}^value=${val}^language=en`);
-      params.set('sysparm_limit', '1');
-      params.set('sysparm_fields', 'value,label');
-      params.set('sysparm_display_value', 'all');
-      try {
-        const choices = await app.sdk.list('sys_choice', params);
-        if (choices.length > 0) {
-          const label = choices[0].label?.display_value || choices[0].label;
-          if (label) choiceLabelMap.set(key, label);
-        }
-      } catch { /* non-fatal */ }
+  const lookups = [...choiceLookups].map(key => {
+    const [field, val] = key.split('|');
+    return { key, params: new URLSearchParams({
+      sysparm_query: `name=${table}^element=${field}^value=${val}^language=en`,
+      sysparm_limit: '1', sysparm_fields: 'value,label', sysparm_display_value: 'all',
+    }) };
+  });
+  let choicesByLookup;
+  if (lookups.length > 1 && typeof app.sdk.batch === 'function') {
+    try {
+      const batch = await app.sdk.batch(lookups.map(({ params }, index) => ({
+        id: String(index), url: `/api/now/table/sys_choice?${tableReadParams(params, app.sdk)}`,
+      })));
+      choicesByLookup = batch.results.map(item => item.ok && Array.isArray(item.data?.result) ? item.data.result : []);
+    } catch {
+      // Existing policy: labels are optional. Never retry an ACL denial,
+      // malformed response or uncertain batch failure as individual reads.
+      choicesByLookup = lookups.map(() => []);
     }
+  } else {
+    choicesByLookup = await boundedReads(lookups, async ({ params }) => {
+      try { return await app.sdk.list('sys_choice', params); } catch { return []; }
+    });
+  }
+  for (const [index, choices] of choicesByLookup.entries()) {
+    const label = choices[0]?.label?.display_value || choices[0]?.label;
+    if (label) choiceLabelMap.set(lookups[index].key, label);
   }
 
   // Apply resolutions to history entries
