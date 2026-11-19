@@ -40,7 +40,8 @@ async function fixture(t, { total = '7', batchMode = 'ok', delay = 0 } = {}) {
     assert.equal(req.method, 'GET', 'no provider writes');
     if (req.url.startsWith('/api/now/table/sys_choice?')) {
       assert.ok(auditFinished); active++; peak = Math.max(peak, active);
-      await new Promise(resolve => setTimeout(resolve, delay)); active--;
+      const value = new URL(req.url, 'http://fixture').searchParams.get('sysparm_query');
+      await new Promise(resolve => setTimeout(resolve, delay + (value?.includes('value=1^') ? 15 : 0))); active--;
     }
     if (req.url.startsWith('/api/now/stats/')) return respond(200, { result: { stats: { count: '7' } } });
     if (req.url.startsWith('/api/now/table/sys_audit?')) auditFinished = true;
@@ -92,6 +93,12 @@ for (const batchMode of ['ok', 'partial', 'denied', 'malformed', 'unsupported'])
     assert.equal(result.data.history.length, 4);
     assert.equal(result.data.history[0].oldValue.startsWith('label:'), ['ok', 'partial', 'unsupported'].includes(batchMode));
     assert.equal(result.data.history[0].newValue.startsWith('label:'), ['ok', 'unsupported'].includes(batchMode));
+    if (['ok', 'unsupported'].includes(batchMode)) {
+      for (const row of result.data.history) {
+        assert.equal(row.oldValue, `label:name=incident^element=${row.field}^value=1^language=en`);
+        assert.equal(row.newValue, `label:name=incident^element=${row.field}^value=2^language=en`);
+      }
+    }
     assert.ok(f.calls.every(call => call.method === 'GET' || call.path === '/api/now/v1/batch'));
   });
 }
@@ -100,15 +107,15 @@ test('batch fallback cap and result order survive out-of-order completions, sepa
   process.env.JSN_ALWAYS_WARM_SESSION = '0';
   t.after(() => { if (previous === undefined) delete process.env.JSN_ALWAYS_WARM_SESSION; else process.env.JSN_ALWAYS_WARM_SESSION = previous; });
   const f = await fixture(t, { batchMode: 'unsupported', delay: 20 });
-  // Exercise the public SDK without process-global state or private transport mocks.
-  const sdk = new SDKClient(f.origin, { getCredentials: () => ({ auth_method: 'oauth', access_token: 'fixture-only' }) }, { oauthSessionMode: 'header' });
+  // Exercise the public SDK with synthetic header auth and real loopback HTTP.
+  const sdk = new SDKClient(f.origin, { getCredentials: () => ({ auth_method: 'oauth', access_token: 'fixture-only' }) });
   const urls = Array.from({ length: 9 }, (_, n) => ({ id: String(n), url: `/api/now/table/incident?sysparm_query=priority=${n}&sysparm_fields=${n % 2 ? 'number' : 'sys_id'}` }));
   // This fixture's batch endpoint checks discovery order for CLI calls; first perform audit discovery.
   await sdk.list('sys_audit');
   const result = await sdk.batch(urls);
   assert.deepEqual(result.results.map(item => item.id), urls.map(item => item.id));
   assert.equal(result.counts.successful, 9);
-  const other = new SDKClient(f.origin, { getCredentials: () => ({ auth_method: 'oauth', access_token: 'different-fixture' }) }, { oauthSessionMode: 'header' });
+  const other = new SDKClient(f.origin, { getCredentials: () => ({ auth_method: 'oauth', access_token: 'different-fixture' }) });
   await other.batch(urls.slice(0, 1));
   assert.equal(f.calls.filter(call => call.method === 'POST').length, 2, 'support state must not leak across SDK credentials');
   assert.equal(f.calls.filter(call => call.path.startsWith('/api/now/table/incident?')).length, 10, 'different query/field reads must not coalesce');
