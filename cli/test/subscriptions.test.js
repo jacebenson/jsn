@@ -6,6 +6,7 @@ import { subscriptionsCmd } from '../src/commands/subscriptions.js';
 import yargs from '../src/cli-adapter.js';
 import { buildCLI } from '../src/cli.js';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 function transport(t, options = {}) {
   const definitions = [{ sys_id: 'root', name: 'cmdb_ci', super_class: '' }];
@@ -186,7 +187,7 @@ test('actual CLI registration, offline JSON and --get preserve schedule provenan
   const command = buildCLI([]).commandRegistry().commands.find(c => c.name === 'subscriptions');
   assert.deepEqual(command.actions.map(a => a.name), ['refresh', 'schedules', 'estimate']);
   const env = { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' };
-  const entry = new URL('../bin/jsn.js', import.meta.url).pathname;
+  const entry = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
   const json = spawnSync(process.execPath, [entry, 'subscriptions', 'schedules', '--json'], { encoding: 'utf8', env, timeout: 15000 });
   assert.equal(json.status, 0, json.stderr);
   const data = JSON.parse(json.stdout).data;
