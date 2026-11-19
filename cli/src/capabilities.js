@@ -11,6 +11,8 @@
 //     // Omitted means conservative customization; operational skips capture
 //     // requirements, table follows sys_db_object ancestry to sys_metadata.
 //     mutationContext: 'table', table: 'sys_script',
+//     // Only declared flags are transaction overrides, not creation fields.
+//     transactionScopeOption: 'scope',
 //     // Command runs without a configured instance (joins the middleware
 //     // skip-list for the instance guard).
 //     noInstance: true,

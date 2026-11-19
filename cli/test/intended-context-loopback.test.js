@@ -17,18 +17,22 @@ test('real CLI verifies intended customization context and never writes on refus
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jsn-intent-'));
   const requests = [];
   let mode = 'valid';
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
     const url = new URL(req.url, 'http://fixture.invalid');
-    requests.push({ method: req.method, path: url.pathname, query: url.searchParams.get('sysparm_query'), domain: req.headers['x-now-domain'] });
+    requests.push({ method: req.method, path: url.pathname, query: url.searchParams.get('sysparm_query'), body: body.startsWith('{') ? JSON.parse(body) : body || null, domain: req.headers['x-now-domain'] });
     res.setHeader('Content-Type', 'application/json');
     const send = result => res.end(JSON.stringify({ result }));
     if (url.pathname === '/angular.do') return send({});
+    if (url.pathname.startsWith('/api/now/stats/')) return send({ stats: { count: '1' } });
     if (url.pathname.endsWith('/concoursepicker/application')) return send({ current: mode === 'session' ? other : scope });
     if (url.pathname.endsWith('/concoursepicker/updateset')) return send({ current: { sysId: set } });
     const [table, id] = url.pathname.split('/').slice(4);
     const query = url.searchParams.get('sysparm_query') || '';
     if (table === 'sys_user') return send([{ sys_id: other, user_name: 'fixture-user', name: 'Fixture' }]);
     if (table === 'sys_user_preference') return send(mode === 'unknown' ? [] : [{ value: query.includes('apps.current_app') ? scope : set }]);
+    if (table === 'sys_scope' && req.method === 'POST') return send({ sys_id: other, ...JSON.parse(body) });
+    if (table === 'sys_scope' && query.startsWith('scope=x_new_')) return send([]);
     if (table === 'sys_scope') {
       const record = { sys_id: scope, scope: mode === 'global' ? 'global' : 'x_fixture', name: 'Fixture App' };
       return send(id ? record : query.includes('wrong') ? [{ ...record, sys_id: other }] : [record]);
@@ -41,7 +45,10 @@ test('real CLI verifies intended customization context and never writes on refus
       if (id) return send({ sys_id: other, name: 'sys_metadata', super_class: '' });
       return send([{ sys_id: other, name: query.split('=')[1], super_class: query.includes('incident') ? '' : other }]);
     }
-    if (table === 'sys_script' || table === 'incident') return send(req.method === 'POST' || id ? { sys_id: other, name: 'fixture' } : [{ sys_id: other, name: 'fixture' }]);
+    if (['sys_script', 'incident', 'sys_hub_action_type_definition', 'sys_hub_flow', 'sys_decision'].includes(table)) {
+      const record = { sys_id: other, name: 'fixture', sys_scope: mode === 'foreign' ? other : scope };
+      return send(req.method === 'POST' || id ? record : [record]);
+    }
     res.statusCode = 500; res.end('{}');
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -74,6 +81,31 @@ test('real CLI verifies intended customization context and never writes on refus
     assert.notEqual(result.code, 0, `${label}: ${result.stdout} ${result.stderr}`);
     assert.ok(result.stdout, `${label}: ${result.stderr}`);
     assert.equal(JSON.parse(result.stdout).ok, false, label); noWrites();
+  }
+  mode = 'foreign';
+  for (const args of [
+    ['actions', 'update', other, '--data', '{}'], ['actions', 'delete', other, '--force'],
+    ['flows', 'update', other, '--data', '{}', '--force'], ['flows', 'delete', other, '--force'],
+    ['flows', 'publish', other, '--force'], ['flows', 'clone', other, '--name', 'Copy', '--force'],
+    ['flows', 'create', '--data', JSON.stringify({ scope: other })],
+    ['decisiontables', 'delete', other, '--force'],
+    ['decisiontables', 'update', other, '--data', '{}'],
+    ['records', 'update', '--table', 'sys_script', '--sys-id', other, '--data', '{}'],
+    ['records', 'delete', '--table', 'sys_script', '--sys-id', other, '--force'],
+    ['records', 'bulk', '--table', 'sys_script', '--query', 'active=true', '-f', 'name=changed', '--execute', '--force'],
+    ['records', 'create', '--table', 'sys_script', '--data', JSON.stringify({ sys_scope: other })],
+  ]) {
+    const rejected = await run([...args, ...intent, '--json']);
+    assert.notEqual(rejected.code, 0, rejected.stdout);
+    assert.match(JSON.parse(rejected.stdout).error, /scope/i, rejected.stdout); noWrites();
+  }
+  mode = 'valid';
+  for (const explicit of [true, false]) {
+    const created = await run(['scopes', 'create', '--name', 'New Feature', ...(explicit ? ['--scope', 'x_new_explicit'] : []), ...intent, '--json']);
+    assert.equal(created.code, 0, created.stdout + created.stderr);
+    const post = requests.find(r => r.method === 'POST' && r.path.endsWith('/sys_scope'));
+    assert.equal(post.body.scope, explicit ? 'x_new_explicit' : 'x_new_feature');
+    assert.equal(JSON.parse(created.stdout).context.mutation.application_id, scope);
   }
   mode = 'global';
   let approval = await run([...write, '--expect-scope', scope, '--expect-update-set', set]);

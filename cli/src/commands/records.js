@@ -5,6 +5,7 @@ import { errUsage } from '../errors.js';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
+import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
@@ -530,6 +531,10 @@ export function recordsCmd(wrap) {
               offset += recs.length;
             }
             const targets = sysIDs.slice(0, argv.limit);
+            if (app.mutationContext?.verified) {
+              if (Object.hasOwn(set, 'sys_scope')) assertMutationScope(app.mutationContext, set.sys_scope, 'Bulk payload');
+              for (const id of targets) await assertMutationRecordScope(app, argv.table, id);
+            }
             let updated = 0;
             const failures = [];
             for (const id of targets) {

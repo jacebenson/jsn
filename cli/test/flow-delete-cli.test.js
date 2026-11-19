@@ -23,7 +23,7 @@ function fixtureServer({ keepAfterDelete = false, forbidDelete = false } = {}) {
     let response = contextResponse(url) || { result: [] };
     if (url.pathname === '/api/now/table/sys_hub_flow' && req.method === 'GET') {
       const present = keepAfterDelete || !deleted;
-      response = { result: present ? [{ sys_id: id, name: 'Fixture flow', status: 'Draft', active: 'false' }] : [] };
+      response = { result: present ? [{ sys_id: id, name: 'Fixture flow', status: 'Draft', active: 'false', sys_scope: 'global' }] : [] };
     }
     if (url.pathname.startsWith('/api/now/stats/') && req.method === 'GET') {
       const present = keepAfterDelete || !deleted;

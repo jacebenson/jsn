@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { assertMutationScope } from '../intended-context.js';
 import { getStringField, formatRecordForDisplay, interactiveList, assertSafeExactMatch, confirmDelete } from '../helpers.js';
 import { resolveRecord, unwrapSysId, isSysId } from '../resolve-record.js';
 import { inspectDecisionTable } from '../decision-table-inspection.js';
@@ -19,6 +20,7 @@ export const decisiontablesCmd = (wrap) => {
     .option('data', { type: 'string', describe: 'Complete decision-table JSON payload' })
     .option('data-file', { type: 'string', describe: 'Read complete decision-table JSON payload from a file' });
   const resolveExecutionScope = async (app) => {
+    if (app.mutationContext?.verified) return app.mutationContext.application_id;
     const scope = app.context?.scope;
     if (!scope) return 'global';
     const scopeSysId = await app.sdk.resolveScope(scope);
@@ -32,6 +34,7 @@ export const decisiontablesCmd = (wrap) => {
     const records = await app.sdk.list('sys_decision', params);
     if (records.length === 0) throw new Error(`Decision table not found in active scope: ${identifier}`);
     if (records.length > 1) throw new Error(`Decision table ${field} is ambiguous in active scope: ${identifier}`);
+    assertMutationScope(app.mutationContext, records[0].sys_scope, 'Decision table target');
     return records[0];
   };
   const resolveDecisionTableForUpdate = async (app, identifier, scopeSysId) => {
@@ -42,6 +45,7 @@ export const decisiontablesCmd = (wrap) => {
     const records = await app.sdk.list('sys_decision', params);
     if (records.length === 0) throw new Error(`Decision table not found${scopeSysId === 'global' ? '' : ' in active scope'}: ${identifier}`);
     if (records.length > 1) throw new Error(`Decision table ${field} is ambiguous: ${identifier}`);
+    assertMutationScope(app.mutationContext, records[0].sys_scope, 'Decision table target');
     const id = unwrapSysId(records[0]);
     if (!isSysId(id)) throw new Error(`Decision table returned an invalid identifier: ${identifier}`);
     return id;

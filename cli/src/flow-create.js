@@ -1914,6 +1914,10 @@ async function planManifestSteps({ manifest, beforeDefinition, existingActions, 
 export async function createFlowFromManifest(sdk, instance, inputManifest, options = {}) {
   const manifest = validateFlowManifest(inputManifest);
   const scope = manifest.scope;
+  if (sdk.mutationContext?.verified) {
+    const { assertMutationScope } = await import('./intended-context.js');
+    assertMutationScope(sdk.mutationContext, scope, 'Flow creation transaction');
+  }
   const idFactory = options.idFactory || (() => randomUUID());
   const readUpdateSet = options.readUpdateSet || (async () => null);
   const snapshots = [];
@@ -2141,6 +2145,11 @@ export async function updateFlowFromManifest(sdk, instance, identifier, inputMan
   const published = !lifecycle.draft;
   const targetScope = stringValue(target.flow.sys_scope) || stringValue(target.flow.scope);
   const scope = manifest.scope ?? targetScope;
+  if (sdk.mutationContext?.verified) {
+    const { assertMutationScope } = await import('./intended-context.js');
+    assertMutationScope(sdk.mutationContext, targetScope, 'Resolved flow target');
+    assertMutationScope(sdk.mutationContext, scope, 'Flow update transaction');
+  }
   const readUpdateSet = options.readUpdateSet || (async () => null);
   if (!scope) throw new Error(`Flow ${flowId} has no transaction scope`);
   if (manifest.scope !== undefined && targetScope && manifest.scope !== targetScope) throw new Error(`Flow ${flowId} scope does not match the update manifest`);

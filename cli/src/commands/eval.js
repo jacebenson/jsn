@@ -5,7 +5,7 @@ import { runRepl } from '../eval-repl.js';
 
 // The whole command is a mutation surface (runs arbitrary server-side JS) —
 // declared as `['']` so the root `jsn eval` command are gated.
-declareCapabilities('eval', { mutationSubcommands: [''] });
+declareCapabilities('eval', { transactionScopeOption: 'scope', mutationSubcommands: [''] });
 
 export function evalCmd(wrap) {
   return {

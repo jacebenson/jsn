@@ -89,6 +89,7 @@ export class App {
 
   async guardMutationContext(argv) {
     this.mutationContext = await guardMutationContext(this, argv);
+    if (this.sdk) this.sdk.mutationContext = this.mutationContext;
   }
 
   ok(data, opts = {}) {

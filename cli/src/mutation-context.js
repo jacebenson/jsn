@@ -57,8 +57,8 @@ export async function guardMutationContext(app, argv, { ask = confirm, rawArgs =
     const scope = await exactContextRecord(app.sdk, 'sys_scope', 'scope', expected.scope);
     if ((scope.sys_id?.value ?? scope.sys_id) !== context.application_id) fail('Intended scope does not match fresh selected scope.');
   }
-  if (argv.scope !== undefined) {
-    const scope = await exactContextRecord(app.sdk, 'sys_scope', 'scope', argv.scope);
+  if (caps.transactionScopeOption && argv[caps.transactionScopeOption] !== undefined) {
+    const scope = await exactContextRecord(app.sdk, 'sys_scope', 'scope', argv[caps.transactionScopeOption]);
     if ((scope.sys_id?.value ?? scope.sys_id) !== context.application_id) fail('Command transaction scope differs from verified intended scope.');
   }
   if (expected.update_set !== undefined) {
@@ -73,6 +73,7 @@ export async function guardMutationContext(app, argv, { ask = confirm, rawArgs =
   ]);
   if (scopeResponse?.result?.current !== context.application_id || setResponse?.result?.current?.sysId !== context.update_set.sys_id) fail('Effective session context is unknown or differs from the selected preferences. No context was switched.');
   context.verified = true;
+  if (caps.mutationContext === 'table') context.table = caps.table || argv.table;
   context.source = 'fresh_preferences_and_session';
   context.expected = expected;
   context.diagnostics = [];

@@ -56,6 +56,11 @@ promote these task-local expectations into global settings.
 Ordinary ticket/data edits do not require capture context. Generic records and
 table factories classify customization through `sys_db_object` ancestry to
 `sys_metadata`, not command spelling. Unreadable ancestry refuses classification.
+Resolved action/flow targets and generic metadata record targets must match the
+verified intended scope before mutation. Explicit metadata `sys_scope` payloads
+cannot redirect writes; bulk updates preflight every selected target. Transaction
+scope flags are capability-declared. `scopes create --scope` names the new scope,
+not the transaction scope.
 Raw mutation APIs and eval conservatively require customization context. Operational
 metadata exemptions cover identity/membership administration, approvals, ATF runs,
 attachments, MID runtime operations, catalog ordering, Store installation, domain

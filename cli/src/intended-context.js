@@ -43,6 +43,18 @@ export async function readWriteContext(sdk) {
   };
 }
 
+export function assertMutationScope(context, value, label = 'Mutation target') {
+  if (!context?.verified) return;
+  const scope = value?.value ?? value;
+  if (!scope || scope !== context.application_id) throw contextFailure(`${label} scope is unknown or differs from verified intended scope.`);
+}
+
+export async function assertMutationRecordScope(app, table, id) {
+  if (!app.mutationContext?.verified) return;
+  const record = await app.sdk.get(table, id);
+  assertMutationScope(app.mutationContext, record?.sys_scope, 'Resolved target');
+}
+
 export function intendedContext(app, argv) {
   const saved = app.config.writeContext;
   if (saved !== undefined) {

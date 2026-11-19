@@ -11,6 +11,7 @@ import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '.
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet, readCatalogItemVariables } from '../flow-create.js';
 import { alignUpdateSetCapture } from '../context.js';
+import { assertMutationScope, assertMutationRecordScope } from '../intended-context.js';
 import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
 import { releaseOwnFlowSafeEdit } from '../flow-safe-edit.js';
@@ -74,7 +75,7 @@ function triggerGuidance(trigger) {
   };
 }
 
-declareCapabilities('flows', { mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+declareCapabilities('flows', { transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -321,6 +322,7 @@ Documentation: ${docLink('flows')}`),
                 resource: argv.action ? 'Custom action' : 'Flow',
               }));
 
+            await assertMutationRecordScope(app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', sysID);
             await confirmDesignerMutation(argv, app, `Publish and activate ${argv.action ? 'action' : 'flow'} ${sysID}?`);
             if (!argv.action) {
               const lifecycle = await publishFlowLifecycle(app.sdk, app.getEffectiveInstance(), sysID);
@@ -408,7 +410,12 @@ Documentation: ${docLink('flows')}`),
             app.requireInstance();
             const identifier = await pickFlow(argv, app);
             if (identifier === undefined) return;
+            if (app.mutationContext?.verified) {
+              const source = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
+              assertMutationScope(app.mutationContext, source.sys_scope, 'Flow clone source');
+            }
             const plan = await prepareFlowClone(app.sdk, app.getEffectiveInstance(), identifier, { ...argv, interactive: canUsePicker(app, argv) });
+            assertMutationScope(app.mutationContext, plan.scope, 'Flow clone');
             await confirmDesignerMutation(argv, app,
               `Clone ${plan.source.name} (${plan.source.id}) as ${JSON.stringify(plan.name)} in ${plan.scope}; inactive Draft, source unchanged`,
               ['flows', 'clone', plan.source.id, '--name', plan.name]);
@@ -437,6 +444,7 @@ Documentation: ${docLink('flows')}`),
             } catch (error) {
               throw new Error(`Invalid flow manifest JSON: ${error.message}`, { cause: error });
             }
+            assertMutationScope(app.mutationContext, manifest.scope, 'Flow creation manifest');
             const result = await createFlowFromManifest(app.sdk, app.getEffectiveInstance(), manifest, {
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
               ensureCapture: intended => alignUpdateSetCapture(app.sdk, intended),
@@ -481,6 +489,11 @@ Documentation: ${docLink('flows')}`),
               manifest = JSON.parse(raw.charCodeAt?.(0) === 0xFEFF ? raw.slice(1) : raw);
             } catch (error) {
               throw new Error(`Invalid flow update manifest JSON: ${error.message}`, { cause: error });
+            }
+            if (!argv.preview && app.mutationContext?.verified) {
+              const target = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
+              assertMutationScope(app.mutationContext, target.sys_scope, 'Flow update target');
+              if (manifest.scope !== undefined) assertMutationScope(app.mutationContext, manifest.scope, 'Flow update manifest');
             }
             if (!argv.preview) await confirmDesignerMutation(argv, app, `Update flow ${identifier}; unspecified components and inputs are preserved. A published flow is edited as its working definition: the published snapshot must stay unchanged.`);
             const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
@@ -545,6 +558,7 @@ Documentation: ${docLink('flows')}`),
               sysparm_limit: '1',
             }));
             if (!flow) throw errUsage(`Flow ${identifier} (${sysID}) was not found`);
+            assertMutationScope(app.mutationContext, flow.sys_scope, 'Flow deletion target');
             const name = getStringField(flow, 'name');
             const active = getStringField(flow, 'active') === 'true';
             const counted = async () => {

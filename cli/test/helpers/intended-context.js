@@ -1,5 +1,5 @@
 // Shared independent fixture for CLI tests whose subject is not context policy.
-export const contextScope = 'd'.repeat(32);
+export const contextScope = 'global';
 export const contextSet = 'b'.repeat(32);
 export const contextArgs = ['--expect-scope', contextScope, '--expect-update-set', contextSet];
 export function contextResponse(url, { set = contextSet, user = 'e'.repeat(32), name = 'Fixture' } = {}) {
