@@ -18,6 +18,9 @@
 <div class="schedule-table" role="region" aria-label="Resource ratios and source CI classes" tabindex="0"><table><thead><tr><th>Resource</th><th>Resources per unit</th><th>Source CI classes</th></tr></thead><tbody>
 <% @schedule['categories'].each do |category| %><tr><td><%= category['id'].humanize %></td><td><%= category['resources_per_su'] %></td><td><%= Array(category['classes']).join(', ') %></td></tr><% end %>
 </tbody></table></div><% end %>
+<% %w[scope entitlements packages capability_lists section_coverage provenance].each do |field| %>
+<% if @schedule.key?(field) %><h2><%= field.humanize %></h2><%= render partial: 'value', locals: { value: @schedule[field] } %><% end %>
+<% end %>
 <h2>Exceptions</h2><%= render partial: 'value', locals: { value: @schedule['exceptions'] || 'No separate exceptions normalized; absence here does not establish that none apply.' } %>
 <h2>Unknowns & limitations</h2><%= render partial: 'value', locals: { value: Array(@schedule['unknowns']) + Array(@schedule['limitations']) + Array(@schedule['unresolved_mapping']) } %>
 <h2>Source & provenance</h2><p>Retrieved: <%= @schedule['retrieved_at'] || @schedule['fetched_at'] %></p>

@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { cachedSchedules } from './schedule-cache.js';
 import { AppError } from './errors.js';
 
-export function scheduleCatalog({ product, sku, id } = {}) {
+export function scheduleProvenance() { return cachedSchedules()?.provenance || { source: 'bundled', stale: true, freshness: 'bundled fallback; no network freshness check' }; }
+export function scheduleCatalog({ product, sku, id, bundled = false } = {}) {
   const current = JSON.parse(readFileSync(new URL('./schedules/itom-2026-04-09.json', import.meta.url), 'utf8'));
   const inventory = JSON.parse(readFileSync(new URL('./schedules/public-inventory.json', import.meta.url), 'utf8'));
-  return [{ ...current, product: 'ITOM', measurement: 'illustrative-population', normalization_status: 'normalized', skus: [] }, ...inventory]
+  return ((!bundled && cachedSchedules()?.schedules) || [{ ...current, product: 'ITOM', measurement: 'illustrative-population', normalization_status: 'normalized', skus: [] }, ...inventory])
     .filter(s => (!product || s.product.toUpperCase() === product.toUpperCase()) && (!sku || s.skus.includes(sku)) && (!id || s.id === id));
 }
 export function formatSchedule(schedule) {
@@ -16,7 +18,7 @@ export function formatSchedule(schedule) {
     return [`${indent}${value ?? 'not specified'}`];
   };
   for (const [key, value] of Object.entries(schedule)) {
-    if (key === 'definitions') {
+    if (key === 'definitions' && Array.isArray(value)) {
       lines.push('DEFINITIONS', ...value.map(d => `- ${d.term}: ${d.definition} [${d.source_sections?.join('; ') || schedule.source_sections?.join('; ') || 'see source'}]`));
     } else if (key === 'meter') {
       lines.push('METER', ...render(Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'rules'))));
@@ -35,7 +37,7 @@ export function formatSchedule(schedule) {
 }
 
 export function loadSchedule(id = 'itom-2026-04-09') {
-  const selected = scheduleCatalog({ id });
+  const selected = scheduleCatalog({ id, bundled: true });
   if (selected.length !== 1) throw new AppError('unsupported_schedule', 'No bundled schedule for this selection.', 'Run jsn subscriptions schedules for exact IDs.');
   return selected[0];
 }
