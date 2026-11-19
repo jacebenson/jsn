@@ -1,0 +1,20 @@
+<% content_for :title, 'Subscription schedules · JSN' %>
+<section class="shell schedules">
+<p class="eyebrow">PUBLIC SERVICENOW REFERENCES</p><h1>Subscription schedules</h1>
+<p class="lead">Find product definitions, ratios and historical versions, with links to the original ServiceNow PDFs.</p>
+<p class="schedule-notice">Reference, not a licensing determination. Coverage is incomplete; pending entries are source inventory, not verified meter definitions. Effective dates do not establish which terms your agreement incorporates.</p>
+<form method="get" action="/subscription-schedules" class="schedule-filters">
+<label>Search<input type="search" name="q" value="<%= params[:q] %>" placeholder="Product, definition or SKU"></label>
+<label>Product<select name="product" aria-label="Product"><option value="">All products</option><%= options_for_select(@products, params[:product]) %></select></label>
+<label>Version / effective wording<select name="version"><option value="">All versions</option><%= options_for_select(@versions, params[:version]) %></select></label>
+<button class="button" type="submit">Filter schedules</button><a href="/subscription-schedules">Reset</a>
+</form>
+<p role="status"><%= @schedules.length %> matching records</p>
+<% @schedules.each do |record| %>
+<article class="schedule-row"><p class="eyebrow"><%= record['product'] %> · <%= record['normalization_status'] || 'partial' %></p>
+<h2><a href="/subscription-schedules/<%= record['id'] %>"><%= SubscriptionScheduleCatalog.label(record) %></a></h2>
+<p><%= SubscriptionScheduleCatalog.version(record) %></p></article>
+<% end %>
+<% if @schedules.empty? %><p>No matching schedules. Try a broader search or reset the filters.</p><% end %>
+<p><a href="/subscription-schedules/v1/manifest.json">Version 1 JSON download manifest</a></p>
+</section>
