@@ -5,7 +5,8 @@
  *   paginatedSearch({ message, pageSize, totalCount, source }, context?)
  *   source(term, offset, { signal }) -> [{ name, value }]
  *   Enter resolves the active choice object; Escape resolves undefined.
- *   Down at the last loaded row loads more while loaded < totalCount.
+ *   Down at the last loaded row loads more while loaded < totalCount;
+ *   a null totalCount is unknown and continues until a successful empty page.
  */
 
 import { pickerRows, pickerFooter } from './picker-ui.js';
@@ -24,6 +25,9 @@ export const paginatedSearch = async (config = {}, context = {}) => {
     token: 0,
     error: '',
   };
+
+  const canLoadMore = () => !state.searchMode && !state.exhausted
+    && (totalCount == null || state.loaded < totalCount);
 
   // Every request gets a token. A response may only be applied while its
   // token is still current, so a stale (slower) search can never replace
@@ -92,7 +96,7 @@ export const paginatedSearch = async (config = {}, context = {}) => {
         if (state.active < state.choices.length - 1) {
           state.active += 1;
           api?.redraw();
-        } else if (!state.searchMode && !state.exhausted && state.loaded < totalCount) {
+        } else if (canLoadMore()) {
           const before = state.loaded;
           const pending = load('', state.loaded, { append: true });
           const token = state.token;
@@ -136,7 +140,7 @@ export const paginatedSearch = async (config = {}, context = {}) => {
       if (state.error) lines.push(`  ${state.error}`);
       else if (!state.choices.length) lines.push(state.status === 'loading' ? '  Loading...' : '  No matches');
       lines.push(...pickerRows(visible, state.active - start));
-      lines.push(...pickerFooter({ more: state.loaded < totalCount && !state.searchMode && !state.exhausted }));
+      lines.push(...pickerFooter({ more: canLoadMore() }));
       return lines;
     },
   });
