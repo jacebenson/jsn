@@ -97,6 +97,7 @@ export function flowsCmd(wrap) {
           builder: y => y
             .positional('term', { type: 'string', describe: 'Case-insensitive literal text to find in readable definitions' })
             .option('refresh', { type: 'boolean', default: false, describe: 'Rebuild the decoded cache; warm searches still revalidate source access' })
+            .option('concurrency', { type: 'number', default: 6, describe: 'Parallel definition downloads (1 = one at a time); instance reads still happen for every visible flow' })
             .epilogue(`Example:
   jsn flows search approval
 Interactive use can pick a flow; scripts pass the term.
@@ -105,7 +106,7 @@ Documentation: ${docLink('flows')}`),
             app.requireInstance();
             const session = app.session || {};
             const result = await searchFlows({
-              sdk: app.sdk, term: argv.term, refresh: argv.refresh,
+              sdk: app.sdk, term: argv.term, refresh: argv.refresh, concurrency: argv.concurrency,
               context: { profile: session.profileName, username: session.username, domain: session.domain, authMethod: session.profile?.auth_method },
               progress: message => {
                 if (!argv.json && !argv.get && (!argv.format || ['auto', 'pretty', 'styled'].includes(argv.format))) process.stderr.write(`${message}\n`);

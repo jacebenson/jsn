@@ -52,9 +52,10 @@ export function formatFlowSearch(report) {
   ].join('\n');
 }
 
-export async function searchFlows({ sdk, term, context = {}, refresh = false, cacheRoot, platform = process.platform, pageSize = 100, maxPages = 10000, progress = () => {} }) {
+export async function searchFlows({ sdk, term, context = {}, refresh = false, cacheRoot, platform = process.platform, pageSize = 100, maxPages = 10000, concurrency = 6, progress = () => {} }) {
   if (!String(term || '').trim()) throw new Error('A nonempty literal search term is required');
   if (!Number.isInteger(pageSize) || pageSize < 1 || !Number.isInteger(maxPages) || maxPages < 1) throw new Error('Invalid flow pagination bounds');
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Invalid flow download concurrency');
   const instance = new URL(sdk.baseURL).origin;
   const directory = path.join(cacheRoot || process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'jsn', 'flow-search');
   // Node's Windows mode bits cannot establish a private DACL. Do not touch
@@ -109,12 +110,19 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
   const flows = [];
   let downloaded = 0;
   let reused = 0;
-  for (const row of rows.values()) {
+  /**
+   * A fresh source read is deliberately mandatory even on a cache hit. A
+   * profile/role fingerprint cannot detect field ACLs, impersonation or a
+   * revoked permission. Never release old source on a failed live read.
+   *
+   * The reads are independent, so they run through a bounded pool. Serially,
+   * an instance with ~370 visible flows spent minutes in this loop: one
+   * processflow GET at a time. Each read still happens; the bound keeps the
+   * instance from being flooded and keeps the failure isolation per flow.
+   */
+  const fetchDefinition = async (row) => {
     let data;
     try {
-      // A fresh source read is deliberately mandatory even on a cache hit. A
-      // profile/role fingerprint cannot detect field ACLs, impersonation or a
-      // revoked permission. Never release old source on a failed live read.
       const response = await get(`/api/now/processflow/flow/${row.sys_id}`);
       const code = response?.result?.errorCode;
       if (response?.result?.errorMessage || (code != null && code !== '' && String(code) !== '0')) throw new Error('Provider refused the flow definition');
@@ -123,8 +131,7 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
       if (!data || typeof data !== 'object') throw new Error('No readable ProcessFlow definition');
       downloaded++;
     } catch (error) {
-      failures.push({ ...row, stage: 'download', message: error.status === 403 || /403|forbidden/i.test(error.message) ? 'Access denied reading definition' : 'Definition download failed or unavailable', status: error.status || null });
-      continue;
+      return { failure: { ...row, stage: 'download', message: error.status === 403 || /403|forbidden/i.test(error.message) ? 'Access denied reading definition' : 'Definition download failed or unavailable', status: error.status || null } };
     }
     try {
       const sourceDigest = digest(data);
@@ -132,8 +139,26 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
       const entries = cached?.source_digest === sourceDigest && Array.isArray(cached.entries) ? cached.entries : decodeFlowSearchDefinition(data);
       const unchanged = entries === cached?.entries;
       if (unchanged) reused++;
-      flows.push({ ...row, source: `/api/now/processflow/flow/${row.sys_id}`, source_digest: sourceDigest, decoded_at: unchanged ? cached.decoded_at : new Date().toISOString(), entries });
-    } catch (error) { failures.push({ ...row, stage: 'decode', message: error.message }); }
+      return { flow: { ...row, source: `/api/now/processflow/flow/${row.sys_id}`, source_digest: sourceDigest, decoded_at: unchanged ? cached.decoded_at : new Date().toISOString(), entries } };
+    } catch (error) { return { failure: { ...row, stage: 'decode', message: error.message } }; }
+  };
+  const rowList = [...rows.values()];
+  // Results are collected by inventory position, not completion order, so a
+  // faster flow can never reorder matches or failures between runs.
+  const results = new Array(rowList.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= rowList.length) return;
+      results[index] = await fetchDefinition(rowList[index]);
+    }
+  };
+  const poolSize = Math.max(1, Math.min(concurrency, rowList.length));
+  await Promise.all(Array.from({ length: poolSize }, worker));
+  for (const result of results) {
+    if (!result || result.failure) { if (result?.failure) failures.push(result.failure); continue; }
+    flows.push(result.flow);
   }
   const captured = new Date().toISOString();
   if (diskCache) await writeCache(file, { schema: 1, captured_at: captured, flows });

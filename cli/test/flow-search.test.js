@@ -217,3 +217,55 @@ test('decodes provider gzip JSON values and retains readable scripts with source
   assert.throws(() => decodeFlowSearchDefinition({ actionInstances: [{ values: 'H4sIcorrupted' }] }), /decode/i);
   assert.throws(() => decodeFlowSearchDefinition({ security: { can_read: true } }), /structure/i);
 });
+
+// Definitions are independent reads. They run through a bounded pool so an
+// instance with hundreds of visible flows does not spend minutes one GET at a
+// time, and results are reassembled by inventory position so a faster flow can
+// never reorder matches between runs.
+function parallelProvider(count, { delayFor = () => 1 } = {}) {
+  const ids = Array.from({ length: count }, (_, index) => index.toString(16).padStart(32, '0'));
+  const completion = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const sdk = { baseURL: 'https://example.service-now.com', request: async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.includes('/stats/')) return { result: { stats: { count: String(count) } } };
+    if (parsed.pathname.includes('/table/')) {
+      const offset = Number(parsed.searchParams.get('sysparm_offset'));
+      const limit = Number(parsed.searchParams.get('sysparm_limit'));
+      return { result: ids.slice(offset, offset + limit).map(sys_id => ({ sys_id, name: `Flow ${sys_id.slice(-2)}` })) };
+    }
+    const id = parsed.pathname.split('/').pop();
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, delayFor(id)));
+    inFlight -= 1;
+    completion.push(id);
+    return { result: { data: { actionInstances: [{ values: gzipSync(JSON.stringify({ script: `marker ${id}` })).toString('base64') }], triggerInstances: [] } } };
+  } };
+  return { sdk, ids, completion, maxInFlight: () => maxInFlight };
+}
+
+test('flow definitions are fetched concurrently within the bound and matches keep inventory order', async (t) => {
+  const cacheRoot = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'flow-search-pool-'));
+  t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));
+  // Later rows finish first, so completion order is the reverse of inventory order.
+  const provider = parallelProvider(12, { delayFor: (id) => (12 - parseInt(id.slice(-2), 16)) * 2 });
+  const report = await searchFlows({ sdk: provider.sdk, cacheRoot, term: 'marker', concurrency: 6 });
+  assert.equal(report.coverage.decoded, 12);
+  assert.equal(report.match_count, 12);
+  assert.deepEqual(report.matches.map(match => match.sys_id), provider.ids, 'matches follow inventory order');
+  assert.equal(report.completion ?? provider.completion.length, 12);
+  assert.ok(provider.maxInFlight() > 1, 'reads overlap');
+  assert.ok(provider.maxInFlight() <= 6, `pool stayed bounded at ${provider.maxInFlight()}`);
+});
+
+test('download concurrency of one stays sequential and produces the same ordered result', async (t) => {
+  const cacheRoot = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'flow-search-serial-'));
+  t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));
+  const provider = parallelProvider(6, { delayFor: () => 1 });
+  const report = await searchFlows({ sdk: provider.sdk, cacheRoot, term: 'marker', concurrency: 1 });
+  assert.equal(provider.maxInFlight(), 1);
+  assert.deepEqual(report.matches.map(match => match.sys_id), provider.ids);
+  await assert.rejects(() => searchFlows({ sdk: provider.sdk, cacheRoot, term: 'marker', concurrency: 0 }), /concurrency/);
+});
