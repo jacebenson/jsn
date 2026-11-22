@@ -11,6 +11,19 @@ jsn uses those terms exactly.
 
 ---
 
+## Windows credential helper
+
+Windows credentials use one Credential Manager entry per username and instance.
+The bundled PowerShell helper is trusted static command text; request identities
+and secrets travel only on stdin, never in command arguments or interpolated code.
+Stock Windows defaults work without changing execution policy. Explicit enterprise
+policy, restrictive local policy, ConstrainedLanguage and Add-Type denial fail
+closed without alternate-host retries or automatic plaintext fallback.
+The source/protocol checks in `cli/test/windows-credential-store.test.js` enforce
+this security boundary: command text matches the bundled helper and policy checks
+precede native compilation and request consumption. Native Windows tests prove
+storage behavior separately.
+
 ## Subscription schedule catalog
 
 Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.

@@ -1,5 +1,5 @@
 # Static command text: all request data (including secrets) arrives on stdin.
-# See docs/WINDOWS_CREDENTIAL_STORAGE_530.md for the conservative policy contract.
+# See GLOSSARY.md, Windows credential helper, for the policy contract.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 function Reply($status, $reason, $value) {
