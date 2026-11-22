@@ -486,8 +486,9 @@ export function buildCLI() {
       })(argv);
     })
     .epilogue(renderTips())
+    .option('version', { type: 'boolean', alias: 'V', describe: 'Show the jsn version' })
     .help('help', 'Show help')
-    .version(false)
+    .version(getVersion())
     .strictCommands()
     .strictOptions(false)
     .fail((msg, err) => {

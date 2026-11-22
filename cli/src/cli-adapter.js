@@ -144,7 +144,20 @@ export class LocalCLI {
   onParentDiscovery(fn) { this.parentDiscovery = fn; return this; }
   demandCommand(count, message) { this.root.demand = { count, message }; return this; }
   help() { this.helpEnabled = true; return this; }
-  version() { return this; }
+  /**
+   * `--version`: print the tool's version and exit.
+   *
+   * A command's own version comes from the package manifest, so the root flag
+   * has to be answered by the parser before dispatch. `.version(false)` (used
+   * by the previous `jsn --version` wiring) silently removed the flag, so the
+   * token was tolerated as an unknown option and the page fell through to the
+   * root help — a script or agent asking "what version is this?" got 2 KB of
+   * help text instead of a version string.
+   */
+  version(value = false) {
+    this.versionText = value === false ? undefined : String(value);
+    return this;
+  }
   strictCommands() { this.strictCmd = true; return this; }
   strictOptions() { return this; }
   fail(fn) { this.failHandler = fn; return this; }
@@ -443,6 +456,13 @@ export class LocalCLI {
     const node = path.at(-1) || this.root;
     node.build();
     if (commandArgs.includes('--help') || commandArgs.includes('-h')) { this._help(node, path.map((n) => n.name)); return; }
+    // The root `--version` flag is answered here, before any command dispatch
+    // or demand-command failure, so `jsn --version` is a one-line answer.
+    if (this.versionText !== undefined && !path.length
+      && (commandArgs.includes('--version') || commandArgs.includes('-V'))) {
+      process.stdout.write(`${this.versionText}\n`);
+      return;
+    }
     const firstWord = this.args.find((arg, index) => !discoveryConsumed.has(index) && !arg.startsWith('-'));
     if (this.strictCmd && !path.length && firstWord && !this._lookup(this.root.children, firstWord)) {
       return this._fail(`Unknown command: ${firstWord}`);
