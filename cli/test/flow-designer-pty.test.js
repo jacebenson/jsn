@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
-const fixture = new URL('./support/flow-designer-pty.js', import.meta.url).pathname;
-const driver = new URL('./support/flow-designer-pty-driver.py', import.meta.url).pathname;
-const script = new URL('./fixtures/interactive-action-script.js', import.meta.url).pathname;
+const fixture = fileURLToPath(new URL('./support/flow-designer-pty.js', import.meta.url));
+const driver = fileURLToPath(new URL('./support/flow-designer-pty-driver.py', import.meta.url));
+const script = fileURLToPath(new URL('./fixtures/interactive-action-script.js', import.meta.url));
 const SCOPE = 'b'.repeat(32);
 function run(args, steps) {
   const result = spawnSync('python3', [driver, JSON.stringify({ command: [process.execPath, fixture, ...args], steps })], { encoding: 'utf8', timeout: 60000 });
