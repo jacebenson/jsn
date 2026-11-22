@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -373,4 +374,24 @@ test('unsafe POST variants are rejected before real SDK transport', async t => {
     ['https://example.invalid' + path, { method: 'POST', body: '{}', readOnly: false }],
   ]) await assert.rejects(requestSubscriptionEvidence(sdk, endpoint, options), { code: 'unsafe-evidence-request' });
   assert.equal(calls, 0);
+});
+
+
+test('documented offline fixture exercises populated source sections and forbidden evidence through actual CLI', t => {
+  const home = mkdtempSync(join(tmpdir(), 'jsn-evidence-example-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const run = spawnSync(process.execPath, ['--import', new URL('./helpers/subscription-evidence-fixture.js', import.meta.url).href,
+    fileURLToPath(new URL('../bin/jsn.js', import.meta.url)), 'subscriptions', 'evidence', '--instance', 'https://example.invalid', '--limit', '2', '--json'], {
+    encoding: 'utf8', timeout: 15000,
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, XDG_CACHE_HOME: home, SERVICENOW_INSTANCE_URL: '', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(run.stdout).data;
+  assert.equal(report.entitlements[1].observations[0].quantity, '12');
+  assert.equal(report.allocation[0].observations[0].quantity, '4');
+  assert.equal(report.consumption[0].observations[0].count, '9');
+  assert.equal(report.installed_hints[0].observations[0].installation_evidence, 'appclient_installed_tab');
+  assert.equal(report.installed_hints[1].observations[0].active, true);
+  assert.equal(report.entitlements[0].reason, 'forbidden');
+  assert.equal(report.access.status, 'unavailable');
 });

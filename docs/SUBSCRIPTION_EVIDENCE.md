@@ -119,3 +119,80 @@ automatically detected. Allocation is not a valid unexpired contract. Source
 consumption rows are not a product-specific charging calculation. No dollar
 estimate, legal/compliance verdict, SKU/effective-date substitution, instance write,
 Store install/update, or record export is performed.
+
+
+## Executed offline examples
+
+These outputs came from the actual CLI with a synthetic SDK transport preload,
+not a live ServiceNow instance. The fixture supplies populated entitlement,
+latest-allocation and ITOM source rows, Store/plugin hints and unavailable
+sources. It also exercises Store Table API 403 followed by installed-tab POST
+discovery. Values are examples, not a licensing assessment.
+
+Run from the repository root. The test-only preload replaces authentication and
+fetch, refuses other destinations/writes, and must never be used for live work.
+These commands were executed under an isolated HOME/config/cache with daily
+checks and prompts disabled:
+
+```sh
+export JSN_NO_HEADER=1 JSN_NO_PROMPTS=1 JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1
+node --import ./cli/test/helpers/subscription-evidence-fixture.js ./cli/bin/jsn.js \
+  subscriptions evidence --instance https://example.invalid --limit 2 --styled
+node --import ./cli/test/helpers/subscription-evidence-fixture.js ./cli/bin/jsn.js \
+  subscriptions evidence --instance https://example.invalid --limit 2 --json
+node --import ./cli/test/helpers/subscription-evidence-fixture.js ./cli/bin/jsn.js \
+  subscriptions evidence --instance https://example.invalid --limit 2 \
+  --get 'data.entitlements[1].observations'
+```
+
+All three exited 0. Readable output excerpt, with other unavailable allocation
+and consumption sources omitted:
+
+```text
+ENTITLEMENTS
+license_details: unavailable (forbidden); bounded, provider-visible, completeness unknown
+  Coverage: returned unavailable, output limit 2, truncated unknown
+  Freshness: unknown; collection time is not source freshness
+subscription_entitlement: observed; bounded, provider-visible, completeness unknown
+  Coverage: returned 1, output limit 2, truncated false
+  Freshness: Per-row sys_updated_on where visible and valid; not a source-wide freshness guarantee
+  quantity=12 | product_name=Example Product | sys_updated_on=2026-01-02 03:04:05
+
+ALLOCATION
+subscription_detail: observed; bounded, provider-visible, completeness unknown
+  Coverage: returned 1, output limit 2, truncated false
+  Freshness: Per-row sys_updated_on where visible and valid; not a source-wide freshness guarantee
+  Latest allocation: verified boolean is_latest=true
+  quantity=4 | status=allocated | is_latest=true | sys_updated_on=2026-01-02 03:04:05
+
+CONSUMPTION
+itom_lu_ci_counts: observed; bounded, provider-visible, completeness unknown
+  Coverage: returned 1, output limit 2, truncated false
+  Freshness: unavailable; no verified update timestamp
+  count=9 | sample_date=2026-01-02
+
+INSTALLED HINTS
+sys_store_app: observed (page_limit_no_provider_total); bounded, provider-visible, completeness unknown
+  Coverage: returned 1, output limit 2, truncated true
+  Freshness: unavailable; observed inventory state, not deployment history
+  name=Example Store App | version=1.0 | active=unavailable | installed=true | installation_evidence=appclient_installed_tab
+v_plugin: observed; bounded, provider-visible, completeness unknown
+  Coverage: returned 1, output limit 2, truncated false
+  Freshness: unavailable; observed inventory state, not deployment history
+  name=Example Plugin | version=1.0 | active=true | installation_evidence=platform plugin state; activation is not purchased entitlement
+
+ACCESS
+SDK aggregate supports count and groupBy, not a bounded distinct-user aggregate; role assignments are not allocated or billable seats. No user-role rows were fetched.
+```
+
+`--json` emits the standard `ok`/`data` envelope with the same observations and
+coverage. The exact JSON emitted by the `--get` command above was:
+
+```json
+[{"quantity":"12","product_name":"Example Product","sys_updated_on":"2026-01-02 03:04:05"}]
+```
+
+The numeric strings are raw source observations. The allocation quantity is not
+joined to the entitlement quantity, ITOM count is not converted to a meter, and
+the Store fallback remains incomplete because it has no provider total. The
+forbidden source remains unavailable instead of becoming zero.
