@@ -1,4 +1,3 @@
-import { PLAINTEXT_WARNING } from './helpers/fake-keyring.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -121,7 +120,8 @@ test('records commands authenticate directly across methods and output modes wit
         await seed(method, credentials(method));
         const result = await run(command(format));
         assert.match(result.stdout, /INC001/);
-        assert.equal(result.stderr, PLAINTEXT_WARNING);
+        // Reading plaintext-backed credentials is silent; auth status reports the mode.
+        assert.equal(result.stderr, '');
         assert.equal(recordCalls(), 1); assert.equal(refreshCalls(), 0);
       });
       await t.test(`${method} missing / ${format}`, async () => {

@@ -1,4 +1,3 @@
-import { PLAINTEXT_WARNING } from './helpers/fake-keyring.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -987,7 +986,8 @@ describe('tables behavior CLI', () => {
         const result = await execute(process.execPath, [cli, 'tables', 'behavior', ...args, '--profile', 'selected'], {
           env, cwd: directory, encoding: 'utf8', timeout: 20000,
         });
-        assert.equal(result.stderr, PLAINTEXT_WARNING);
+        // Reading a plaintext-backed credential is silent; see auth status.
+        assert.equal(result.stderr, '');
         assert.ok(!result.stdout.includes('fixture-password'));
         return result.stdout;
       };

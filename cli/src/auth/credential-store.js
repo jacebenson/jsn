@@ -46,6 +46,17 @@ function storageError(message) {
   error.code = 'credential_storage_error';
   return error;
 }
+/**
+ * The plaintext warning belongs to the moment a credential is stored, not to
+ * every command that reads one back.
+ *
+ * It used to fire on the read path too, which meant once per process, which
+ * means once per command — every read, list, or search printed it on stderr.
+ * That is noise in a terminal and permanently in an agent transcript, and it
+ * told nobody anything they could act on at that moment. The storage mode is
+ * reported instead by `jsn auth status`, and the warning is emitted when the
+ * choice is actually made (login, setup, token save).
+ */
 let plaintextWarningShown = false;
 function warnPlaintext() {
   if (plaintextWarningShown) return;
@@ -251,7 +262,6 @@ export function loadCredentials(instance, username, injectedStore) {
   // Reads (including local status) never persist or migrate credentials. A
   // subsequent explicit login/save or token refresh performs verified retirement.
   if (!plaintextAllowed()) throw refusal();
-  warnPlaintext();
   const creds = readPrivateState('credentials', key);
   return creds ? { ...creds, auth_source: 'file' } : null;
 }
@@ -278,8 +288,26 @@ export function saveCredentials(instance, creds, username, injectedStore) {
     return;
   }
   if (!plaintextAllowed()) throw secureFailure || refusal();
-  warnPlaintext();
+  // Re-stamping last_seen after a successful call is bookkeeping, not a storage
+  // decision. Warning on it put the message on every command again, which is
+  // what this change is meant to stop; only a change to the secret material
+  // (a real login or token refresh) is worth the warning.
+  if (materialChanged(key, creds)) warnPlaintext();
   writePrivateState('credentials', key, creds);
+}
+
+/** True when the incoming credential material differs from what is on disk. */
+function materialChanged(key, creds) {
+  let previous;
+  try { previous = readPrivateState('credentials', key); } catch { return true; }
+  if (!previous) return true;
+  const material = (value) => {
+    // last_seen is bookkeeping; auth_source is derived by the loader and never
+    // part of the stored secret.
+    const { last_seen: _seen, auth_source: _source, ...rest } = value || {};
+    return JSON.stringify(rest, Object.keys(rest).sort());
+  };
+  return material(previous) !== material(creds);
 }
 
 /**

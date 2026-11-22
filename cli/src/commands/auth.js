@@ -65,6 +65,17 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
   if (profiles.some(profile => profile.read_only !== true)) lines.push('  Read/write: permits profile operations, subject to each command\'s guards.');
   if (profiles.some(profile => profile.skip_confirmations !== true)) lines.push('  Confirm: guarded deletes require confirmation; --force bypasses this prompt, not read-only.');
   if (profiles.some(profile => profile.skip_confirmations === true)) lines.push('  No prompt: profile skips standard delete confirmation; command-specific safeguards still apply.');
+  // Storage mode is a standing property of a profile, so it belongs in status
+  // rather than in a warning repeated on every command that reads credentials.
+  const plaintextProfiles = profiles.filter(profile => profile.auth_source === 'file' || profile.diagnostics?.auth_source === 'file');
+  if (plaintextProfiles.length) {
+    lines.push('', 'Credential storage:');
+    for (const profile of plaintextProfiles) {
+      const label = profile.name || 'profile';
+      lines.push(`  ${label}: portable plaintext file; backups and copies can expose it.`
+        + ` Move it to the OS credential store: jsn auth login --profile ${quoteShellArg(label)}`);
+    }
+  }
   lines.push('ACCESS is a JSN profile setting, not ServiceNow ACL authorization.',
     'CREDENTIALS describes local availability; only CONNECTION Verified confirms the status probe succeeded.');
   if (profiles.some(profile => profile.diagnostics?.probe?.code === 'not_requested')) lines.push('', 'Connection not checked (--local).');
