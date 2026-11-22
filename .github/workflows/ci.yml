@@ -85,8 +85,9 @@ jobs:
           cache: npm
           cache-dependency-path: cli/package-lock.json
       - run: npm ci
-      - name: Native Windows Credential Manager (production host discovery)
+      - name: Native Windows Credential Manager (production discovery from PowerShell 7)
         if: runner.os == 'Windows'
+        shell: pwsh
         env:
           JSN_REQUIRE_WINDOWS_CREDENTIAL_TEST: '1'
           JSN_TEST_WINDOWS_POWERSHELL: default

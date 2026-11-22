@@ -78,6 +78,33 @@ test('unsupported first host discovers supported PowerShell 7 without changing s
   assert.equal(calls[0].input, calls[1].input);
 });
 
+test('PS7 parent module paths are removed only for the Windows PowerShell child environment', () => {
+  const original = { ...process.env };
+  try {
+    for (const key of Object.keys(process.env)) if (key.toUpperCase() === 'PSMODULEPATH') delete process.env[key];
+    process.env.PsMoDuLePaTh = 'synthetic-PS7-module-path';
+    process.env.JSN_SYNTHETIC_ENV_SECRET = secret;
+    process.env.PSExecutionPolicyPreference = 'Restricted';
+    const calls = [];
+    assert.equal(windowsCredentialOperation('read', 'synthetic', undefined, (exe, _args, options) => {
+      calls.push(exe);
+      assert.notEqual(options.env, process.env);
+      assert.equal(options.env.JSN_SYNTHETIC_ENV_SECRET, secret);
+      assert.equal(options.env.PSExecutionPolicyPreference, 'Restricted', 'never discard an inherited policy preference');
+      const moduleKeys = Object.keys(options.env).filter(key => key.toUpperCase() === 'PSMODULEPATH');
+      assert.equal(moduleKeys.length, exe === 'powershell.exe' ? 0 : 1);
+      if (exe === 'pwsh.exe') assert.equal(options.env[moduleKeys[0]], 'synthetic-PS7-module-path');
+      return exe === 'powershell.exe' ? '{"status":"error","reason":"unsupported"}' : '{"status":"missing"}';
+    }), null);
+    assert.deepEqual(calls, ['powershell.exe', 'pwsh.exe']);
+    assert.equal(process.env.PsMoDuLePaTh, 'synthetic-PS7-module-path', 'parent module environment must remain unchanged');
+    assert.equal(process.env.PSExecutionPolicyPreference, 'Restricted');
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in original)) delete process.env[key];
+    Object.assign(process.env, original);
+  }
+});
+
 test('host discovery never retries policy, capability or native denial', () => {
   for (const reason of ['policy', 'capability', 'native', 'oversized']) {
     const calls = [];

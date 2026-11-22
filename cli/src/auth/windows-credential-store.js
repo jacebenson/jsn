@@ -39,10 +39,18 @@ export function windowsCredentialOperation(operation, key, value, run = execFile
     command = Buffer.from(readFileSync(helper, 'utf8'), 'utf16le').toString('base64');
   } catch { throw failure(reasons.capability); }
   for (const executable of ['powershell.exe', 'pwsh.exe']) {
+    const env = { ...process.env };
+    if (executable === 'powershell.exe') {
+      // PS7 normalizes PSModulePath only for a directly launched PS5.1 child,
+      // not PS7 -> Node -> PS5.1. Let Windows PowerShell construct its own
+      // default module paths instead of autoloading incompatible PS7 modules.
+      // Preserve every other variable, including execution-policy preferences.
+      for (const key of Object.keys(env)) if (key.toUpperCase() === 'PSMODULEPATH') delete env[key];
+    }
     let output;
     try {
       output = run(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
-        input, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
+        input, env, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
         windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (error) {

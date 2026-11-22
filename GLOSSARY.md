@@ -33,6 +33,15 @@ exercise failure and independently attempt every owned target's deletion and
 absence readback. Cleanup failures remain failures and cannot replace the
 primary error.
 
+For the Windows PowerShell child only, omit inherited PSModulePath from a copy
+of the process environment. PowerShell 7 normalizes this path for direct PS5.1
+children, but cannot do so through an intermediate Node process. PS5.1 otherwise
+autoloads incompatible PS7 modules before reaching its own system modules.
+Let the selected host construct its default module paths; do not hardcode paths,
+edit the parent's environment, drop secrets or discard execution-policy settings.
+PowerShell 7 children retain their inherited module path. The native CI lane
+launches production discovery from a real PowerShell 7 parent.
+
 ## Subscription schedule catalog
 
 Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.
