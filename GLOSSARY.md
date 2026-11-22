@@ -11,6 +11,47 @@ jsn uses those terms exactly.
 
 ---
 
+## Windows credential helper
+
+Windows credentials use one Credential Manager entry per username and instance.
+The bundled PowerShell helper is trusted static command text; request identities
+and secrets travel only on stdin, never in command arguments or interpolated code.
+Stock Windows defaults work without changing execution policy. Explicit enterprise
+policy, restrictive local policy, ConstrainedLanguage and Add-Type denial fail
+closed without alternate-host retries or automatic plaintext fallback.
+The source/protocol checks in `cli/test/windows-credential-store.test.js` enforce
+this security boundary: command text matches the bundled helper and policy checks
+precede native compilation and request consumption. Native Windows tests prove
+storage behavior separately.
+
+Helper failures may identify a closed setup/operation stage, such as policy
+query, console encoding or native compilation. Only literal allowlisted stage
+labels may reach user-visible errors; never exception/compiler output, request
+content, environment values, source or paths. Stage diagnostics do not change
+capability or policy refusal behavior. Synthetic native tests preserve the first
+exercise failure and independently attempt every owned target's deletion and
+absence readback. Cleanup failures remain failures and cannot replace the
+primary error.
+
+For the Windows PowerShell child only, omit inherited PSModulePath from a copy
+of the process environment. PowerShell 7 normalizes this path for direct PS5.1
+children, but cannot do so through an intermediate Node process. PS5.1 otherwise
+autoloads incompatible PS7 modules before reaching its own system modules.
+Let the selected host construct its default module paths; do not hardcode paths,
+edit the parent's environment, drop secrets or discard execution-policy settings.
+PowerShell 7 children retain their inherited module path. The native CI lane
+launches production discovery from a real PowerShell 7 parent.
+
+Loopback CLI workflow fixtures explicitly preload a synthetic credential process
+transport. PATH removal alone is not a portable storage fixture. The transport
+reports empty secure reads/idempotent deletion and refuses secure writes, so
+plaintext tests still require the real explicit opt-in and exercise actual file
+persistence/deletion. Command, provider-request, permission and mutation assertions
+remain active. Real missing/backend-error refusal belongs to storage security
+tests; native CI separately proves real Windows vault behavior. A failed native
+delete must not be turned into a successful logout merely because plaintext was
+explicitly enabled.
+
 ## Subscription schedule catalog
 
 Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.

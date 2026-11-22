@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import { contextArgs, contextResponse } from './helpers/intended-context.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -69,7 +70,7 @@ async function fixture(scenario, operation) {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
     Object.assign(env, { HOME: dir, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: configDir, JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
     const run = async argv => {
-      try { return { code: 0, ...await exec(process.execPath, [cli, ...argv, ...contextArgs.slice(0, 2), '--expect-update-set', setId], { env, timeout: 20000 }) }; }
+      try { return { code: 0, ...await exec(process.execPath, [...credentialFixtureArgs, cli, ...argv, ...contextArgs.slice(0, 2), '--expect-update-set', setId], { env, timeout: 20000 }) }; }
       catch (error) { return { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' }; }
     };
     await operation(run, requests);

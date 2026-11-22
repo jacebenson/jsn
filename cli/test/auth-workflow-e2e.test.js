@@ -1,4 +1,4 @@
-import { PLAINTEXT_WARNING } from './helpers/fake-keyring.js';
+import { PLAINTEXT_WARNING, credentialFixtureArgs } from './helpers/fake-keyring.js';
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -55,7 +55,7 @@ it('Basic and OAuth CLI workflows preserve credentials, settings, defaults, PKCE
   });
   async function run(args, expected = 0) {
     let output;
-    try { output = { ...await execute(process.execPath, [cli, ...args], { cwd: directory, env, timeout: 15000 }), code: 0 }; }
+    try { output = { ...await execute(process.execPath, [...credentialFixtureArgs, cli, ...args], { cwd: directory, env, timeout: 15000 }), code: 0 }; }
     catch (error) { output = error; }
     assert.equal(output.code, expected, output.stderr || output.message);
     assert.doesNotMatch(output.stdout, /fixture-password|fixture-oauth-secret|fixture-refresh-secret|fixture-provider-secret/);

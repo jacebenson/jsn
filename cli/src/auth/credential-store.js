@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { globalConfigDir } from '../config.js';
+import { windowsCredentialOperation, legacyWindowsKey } from './windows-credential-store.js';
 
 // ─── Credential key helpers ───
 
@@ -52,7 +53,10 @@ function warnPlaintext() {
   process.stderr.write('Warning: plaintext credential storage explicitly enabled for this process; credentials are portable and backups can expose them.\n');
 }
 function refusal() {
-  return storageError(`Secure credential storage unavailable or readback failed. Unlock/install secret-tool and retry. Existing plaintext credentials are preserved; to use or migrate them on a headless host, explicitly set ${PLAINTEXT_ENV}=1 for this process. Never commit or share credential files.`);
+  const repair = process.platform === 'win32'
+    ? 'Windows Credential Manager requires Windows PowerShell 5.1 or PowerShell 7+ with FullLanguage/Add-Type and native API access allowed by policy.'
+    : 'Unlock/install secret-tool and retry.';
+  return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved; to use or migrate them on a headless host, explicitly set ${PLAINTEXT_ENV}=1 for this process. Never commit or share credential files.`);
 }
 
 // Validate broad ancestors without chmod: only the leaf secret directory must
@@ -145,16 +149,18 @@ export function removePrivateState(kind, key) {
 
 // ─── Keyring via secret-tool (libsecret, same backend as Go's go-keyring) ───
 
-function keyringLookup(key) {
+function keyringLookup(key, legacyKey) {
   try {
     // execFileSync with an arg array — no shell, so `key` can never
     // break out into command injection (issue #143 finding #2).
-    const result = execFileSync(
+    const result = process.platform === 'win32'
+      ? (windowsCredentialOperation('read', key) ?? (legacyKey ? windowsCredentialOperation('read', legacyKey) : null))
+      : execFileSync(
       'secret-tool',
       ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
     );
-    const trimmed = result.trim();
+    const trimmed = result?.trim();
     if (!trimmed) return null;
     const parsed = JSON.parse(trimmed);
     // Spread all fields from keyring first, then normalize known fields
@@ -168,7 +174,10 @@ function keyringLookup(key) {
       created_at: parsed.created_at || parsed.CreatedAt || 0,
       auth_source: parsed.auth_method === 'gck' ? 'gck' : 'keyring',
     };
-  } catch {
+  } catch (error) {
+    if (process.platform === 'win32' && !plaintextAllowed()) {
+      throw error.code === 'credential_storage_error' ? error : refusal();
+    }
     return null;
   }
 }
@@ -188,6 +197,12 @@ function keyringStore(key, creds) {
 }
 
 function storeVerified(key, creds) {
+  if (process.platform === 'win32') {
+    const value = JSON.stringify(creds);
+    windowsCredentialOperation('write', key, value);
+    const readback = windowsCredentialOperation('read', key);
+    return isDeepStrictEqual(JSON.parse(readback), JSON.parse(value));
+  }
   if (!keyringStore(key, creds)) return false;
   try {
     const value = execFileSync('secret-tool',
@@ -198,6 +213,11 @@ function storeVerified(key, creds) {
 }
 
 function keyringDelete(key) {
+  if (process.platform === 'win32') {
+    windowsCredentialOperation('delete', key);
+    if (windowsCredentialOperation('read', key) !== null) throw refusal();
+    return;
+  }
   try {
     execFileSync(
       'secret-tool',
@@ -219,7 +239,7 @@ function keyringDelete(key) {
 export function loadCredentials(instance, username, injectedStore) {
   if (injectedStore) return injectedStore.load(instance, username);
   const key = username ? credKey(instance, username) : credKey(instance);
-  const keyringCreds = keyringLookup(key);
+  const keyringCreds = keyringLookup(key, !username ? legacyWindowsKey(instance) : undefined);
   if (keyringCreds) {
     return {
       ...keyringCreds,
@@ -248,12 +268,16 @@ export function saveCredentials(instance, creds, username, injectedStore) {
   const key = username ? credKey(instance, username) : credKey(instance);
   // Stamp last_seen on every credential save
   creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
-  if (storeVerified(key, creds)) {
+  let verified = false;
+  let secureFailure;
+  try { verified = storeVerified(key, creds); }
+  catch (error) { secureFailure = error.code === 'credential_storage_error' ? error : refusal(); }
+  if (verified) {
     // Retire only this identity, and only after exact secure-store readback.
     removePrivateState('credentials', key);
     return;
   }
-  if (!plaintextAllowed()) throw refusal();
+  if (!plaintextAllowed()) throw secureFailure || refusal();
   warnPlaintext();
   writePrivateState('credentials', key, creds);
 }
@@ -265,6 +289,7 @@ export function deleteCredentials(instance, username, injectedStore) {
   if (injectedStore) return injectedStore.delete(instance, username);
   const key = username ? credKey(instance, username) : credKey(instance);
   keyringDelete(key);
+  if (process.platform === 'win32' && !username) keyringDelete(legacyWindowsKey(instance));
   removePrivateState('credentials', key);
 }
 

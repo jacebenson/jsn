@@ -35,10 +35,19 @@ beforeEach(() => {
   // Inject the process boundary, not a Unix executable: works on Windows too
   // and cannot reach the real keyring, even if a test changes PATH.
   mock.method(childProcess, 'execFileSync', (command, args, options) => {
-    assert.equal(command, 'secret-tool');
+    const windows = command === 'powershell.exe';
+    if (!windows) assert.equal(command, 'secret-tool');
     const mode = process.env.FAKE_KEYRING_MODE;
+    if (windows && mode === 'fail' && JSON.parse(options.input).operation === 'read') return '{"status":"missing"}';
     if (mode === 'fail') throw new Error('synthetic-backend-secret');
     const file = process.env.FAKE_KEYRING;
+    if (windows) {
+      const request = JSON.parse(options.input);
+      if (request.operation === 'write') fs.writeFileSync(file, request.value);
+      if (request.operation === 'delete' && fs.existsSync(file)) fs.unlinkSync(file);
+      return JSON.stringify({ status: request.operation === 'read' && !fs.existsSync(file) ? 'missing' : 'ok',
+        value: request.operation === 'read' && fs.existsSync(file) ? (mode === 'mismatch' ? '{}' : fs.readFileSync(file, 'utf8')) : null });
+    }
     if (args[0] === 'store') fs.writeFileSync(file, options.input);
     if (args[0] === 'lookup') {
       if (!fs.existsSync(file)) throw new Error('missing synthetic entry');
@@ -195,6 +204,7 @@ it('rejects unexpected ownership, hard links and writable ancestors', () => {
   }
 });
 it('explicit deletion removes only selected synthetic credentials', () => {
+  process.env.FAKE_KEYRING_MODE = 'ok';
   legacy(); const other = legacy('other');
   deleteCredentials(instance, 'fixture');
   assert.equal(fs.existsSync(file()), false);
