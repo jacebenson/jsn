@@ -15,6 +15,9 @@ feature references named by `site/data/showcase-data.json` on their feature page
 
 ## Feature references
 
+- [Read-only upgrade preparation](features/servicenow-upgrade-preparation.md), rendered on
+  `/features/servicenow-upgrade-preparation/`.
+
 - [ServiceNow code search](features/servicenow-code-search-cli.md) — rendered on
   `/features/servicenow-code-search-cli/` in a default-closed details section.
 

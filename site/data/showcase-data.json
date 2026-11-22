@@ -621,6 +621,16 @@
     ]
   },
   {
+    "id": "upgrade-preparation",
+    "title": "Read-only upgrade preparation",
+    "tagline": "Collect platform and Store evidence for an AI-assisted upgrade briefing without changing the instance.",
+    "docs": "features/servicenow-upgrade-preparation.md",
+    "commands": [
+      { "cmd": "jsn upgrade prep --profile production --format markdown", "what": "Discover local targets, existing evidence and human review gaps" },
+      { "cmd": "jsn upgrade prep --profile production --related-profile test --get data.sources", "what": "Read exact evidence references, including an explicitly related lower environment" }
+    ]
+  },
+  {
     "id": "rest",
     "title": "Raw REST escape hatch",
     "tagline": "Call a ServiceNow REST endpoint when no specific command exists.",

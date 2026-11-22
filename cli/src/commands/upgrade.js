@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { declareCapabilities } from '../capabilities.js';
 import { AppError, CodeAPI, CodeNetwork } from '../errors.js';
 import { checkLatest, getReleaseChannel, getVersion } from './version.js';
+import { collectUpgradePrep, prepSummary } from '../upgrade-prep.js';
 
 for (const name of ['upgrade', 'update']) {
   declareCapabilities(name, { noInstance: true, skipDailyChecks: true });
@@ -43,6 +44,17 @@ export function upgradeCmd(wrap, { version = getVersion, check = checkLatest, in
     aliases: ['update'],
     describe: 'Upgrade jsn through npm (preserves the installed release channel)',
     builder: (y) => y
+      .command({ command: 'prep', describe: 'Collect read-only platform and Store upgrade preparation evidence',
+        builder: p => p
+          .option('target', { type: 'string', describe: 'Optional exact offered target label/value/sys_id; never selected automatically' })
+          .option('related-profile', { type: 'array', string: true, describe: 'Explicit related lower-environment profiles for update-set evidence' })
+          .option('customizations', { type: 'string', describe: 'Existing local customization capture ID' })
+          .option('limit', { type: 'number', default: 50, describe: 'Maximum rows per evidence source (1–200)' }),
+        handler: wrap(async (argv, app) => {
+          const data = await collectUpgradePrep(argv, app);
+          app.ok(data, { summary: prepSummary(data) });
+        }),
+      })
       .option('channel', { type: 'string', choices: ['dev', 'main', 'latest'], describe: 'Choose dev or stable (main/latest)' })
       .option('dry-run', { type: 'boolean', describe: 'Show the install command without installing' })
       .option('force', { type: 'boolean', describe: 'Reinstall even when the selected version is not newer' }),
