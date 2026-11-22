@@ -11,6 +11,26 @@ jsn uses those terms exactly.
 
 ---
 
+## Instance subscription evidence
+
+`subscriptions evidence` is a bounded, read-only observation report for the queried
+instance. Entitlement-source observations, allocation-source observations, access,
+consumption-source observations and installed Store/plugin hints remain separate.
+A field's verified dictionary type permits a conservative projection, not a claim
+about contractual authority or charging semantics. Verified references are metadata
+only: no subscription-to-app joins or cross-source totals are inferred. Missing,
+forbidden, hidden or malformed sources are unavailable, never zero rights or use;
+a successful empty read means no visible rows. Collection time is not source
+freshness, and even uncapped provider-visible reads do not establish ACL coverage.
+
+Installed applications and plugin activation are possibilities, not purchased
+rights, billable seats, production deployment or bills. Nonproduction installs do
+not prove production use; the report does not detect or infer environment type.
+ITOM source rows do not constitute a meter or a 90-day average. Access remains
+unavailable because the existing SDK does not provide a bounded distinct-user
+aggregate; role assignments must never be substituted for allocated/billable seats.
+See `docs/SUBSCRIPTION_EVIDENCE.md` for projections, hard request bounds and limits.
+
 ## Windows credential helper
 
 Windows credentials use one Credential Manager entry per username and instance.

@@ -1,4 +1,5 @@
 import { subscriptionsCmdDefinition } from '../command-families.js';
+import { subscriptionEvidence, formatSubscriptionEvidence, evidenceLimit } from '../subscription-evidence.js';
 import { refreshSchedules } from '../schedule-cache.js';
 import { loadSchedule, scheduleCatalog, scheduleSnapshot, formatSchedule, estimateSubscription, formatEstimate } from '../subscriptions.js';
 
@@ -22,7 +23,16 @@ export function subscriptionsCmd(wrap) {
   };
   return {
     ...subscriptionsCmdDefinition,
-    builder: y => y.command({ command: 'refresh', describe: 'Explicitly download and validate schedule catalog; retain last-good on failure', builder: b => b.option('manifest-url', { type: 'string' }), handler: wrap(async (argv, app) => {
+    builder: y => y.command({ command: 'evidence', describe: 'Show subscription evidence and installed-app hints (read-only)',
+      builder: b => b.option('limit', { type: 'number', default: 50, describe: 'Maximum observations per source (integer 1–200)' }),
+      handler: wrap(async (argv, app) => {
+        const limit = evidenceLimit(argv.limit);
+        app.requireInstance();
+        const report = await subscriptionEvidence(app.sdk, { limit });
+        Object.defineProperty(report, '_formatted', { value: formatSubscriptionEvidence(report) });
+        app.ok(report, { summary: 'Bounded instance evidence; contractual authority and completeness unverified' });
+      }),
+    }).command({ command: 'refresh', describe: 'Explicitly download and validate schedule catalog; retain last-good on failure', builder: b => b.option('manifest-url', { type: 'string' }), handler: wrap(async (argv, app) => {
       const origin = process.env.JSN_DOCS_URL || app.config?.docs?.url;
       const manifest = argv.manifestUrl || process.env.JSN_SCHEDULES_MANIFEST_URL || app.config?.docs?.schedule_manifest_url || (origin ? new URL('/subscription-schedules/v1/manifest.json', origin).href : undefined);
       const provenance = await refreshSchedules(manifest);

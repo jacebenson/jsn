@@ -185,7 +185,7 @@ test('unsupported product and SKU refuse before transport with actionable schedu
 
 test('actual CLI registration, offline JSON and --get preserve schedule provenance', () => {
   const command = buildCLI([]).commandRegistry().commands.find(c => c.name === 'subscriptions');
-  assert.deepEqual(command.actions.map(a => a.name), ['refresh', 'schedules', 'estimate']);
+  assert.deepEqual(command.actions.map(a => a.name), ['evidence', 'refresh', 'schedules', 'estimate']);
   const env = { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' };
   const entry = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
   const json = spawnSync(process.execPath, [entry, 'subscriptions', 'schedules', '--json'], { encoding: 'utf8', env, timeout: 15000 });
