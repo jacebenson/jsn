@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import { contextArgs, contextResponse } from './helpers/intended-context.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -63,7 +64,7 @@ async function runDelete(serverResponse) {
     });
     let result;
     try {
-      result = { code: 0, ...await exec(process.execPath, [cli, ...contextArgs, 'flows', 'delete', id, '--force', '--json', '--verbose'], { env, timeout: 20000 }) };
+      result = { code: 0, ...await exec(process.execPath, [...credentialFixtureArgs, cli, ...contextArgs, 'flows', 'delete', id, '--force', '--json', '--verbose'], { env, timeout: 20000 }) };
     } catch (error) {
       result = { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
     }
@@ -115,7 +116,7 @@ test('flows delete refuses without confirmation when --force is absent', async (
     });
     let result;
     try {
-      result = { code: 0, ...await exec(process.execPath, [cli, ...contextArgs, 'flows', 'delete', id, '--json'], { env, timeout: 20000 }) };
+      result = { code: 0, ...await exec(process.execPath, [...credentialFixtureArgs, cli, ...contextArgs, 'flows', 'delete', id, '--json'], { env, timeout: 20000 }) };
     } catch (error) {
       result = { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
     }
