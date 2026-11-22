@@ -6,9 +6,12 @@ const property = node => node?.type === 'MemberExpression' && !node.computed ? n
 export default {
   meta: {
     type: 'problem',
-    docs: { description: 'Use file URLs for filesystem paths passed to Node ESM loaders' },
+    docs: { description: 'Use portable conversions between filesystem paths and Node ESM file URLs' },
     schema: [],
-    messages: { fileUrl: 'Raw filesystem path used as a Node ESM module specifier. Use pathToFileURL(path).href (or new URL(relative, import.meta.url).href).' },
+    messages: {
+      fileUrl: 'Raw filesystem path used as a Node ESM module specifier. Use pathToFileURL(path).href (or new URL(relative, import.meta.url).href).',
+      filePath: 'File URL .pathname is not a portable filesystem path (drive letters and percent escapes). Use fileURLToPath(url).',
+    },
   },
   create(context) {
     const source = context.sourceCode;
@@ -59,6 +62,24 @@ export default {
         (imported(node.callee, ['node:path', 'path'], ['join', 'resolve']) ||
          imported(node.callee, ['node:url', 'url'], ['fileURLToPath']));
     }
+    // Only known file bases and literal references; no general URL data flow.
+    function fileURL(node, seen = new Set()) {
+      node = unwrap(node);
+      if (!node || seen.has(node)) return false;
+      seen.add(node);
+      if (property(node) === 'url' && node.object.type === 'MetaProperty' &&
+          node.object.meta.name === 'import' && node.object.property.name === 'meta') return true;
+      if (node.type !== 'NewExpression') return false;
+      const constructor = unwrap(node.callee);
+      if (!(constructor?.type === 'Identifier' && constructor.name === 'URL' && !variable(constructor)?.defs.length) &&
+          !imported(constructor, ['node:url', 'url'], ['URL'])) return false;
+      const reference = text(node.arguments[0]);
+      if (reference === undefined) return false;
+      if (/^file:/i.test(reference)) return true;
+      if (/^[a-z][a-z\d+.-]*:/i.test(reference)) return false;
+      const base = text(node.arguments[1]);
+      return base !== undefined ? /^file:/i.test(base) : fileURL(node.arguments[1], seen);
+    }
     const report = node => context.report({ node, messageId: 'fileUrl' });
     function argumentsArray(node) {
       node = unwrap(node);
@@ -102,6 +123,11 @@ export default {
           /(?:^|\s)--(?:import|loader|experimental-loader)(?:=|\s+)"?$/.test(text(node.left) ?? '') && filesystem(node.right)) report(node.right);
     }
     return {
+      MemberExpression(node) {
+        if ((node.computed ? text(node.property) : node.property.name) === 'pathname' && fileURL(node.object)) {
+          context.report({ node, messageId: 'filePath' });
+        }
+      },
       ImportExpression(node) { if (filesystem(node.source)) report(node.source); },
       CallExpression(node) {
         if (!imported(node.callee, ['node:child_process', 'child_process'], ['spawn', 'spawnSync', 'execFile', 'execFileSync'])) return;

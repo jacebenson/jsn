@@ -21,7 +21,8 @@ function lintCases(name, cases) {
           assert.equal(messages.filter(message => message.fatal).length, 0, result.stdout);
           const diagnostics = messages.filter(message => message.ruleId === 'local/portable-esm-paths');
           assert.deepEqual(diagnostics.map(message => message.messageId), kind === 'valid' ? [] : entry.errors.map(error => error.messageId));
-          for (const diagnostic of diagnostics) assert.match(diagnostic.message, /pathToFileURL\(path\)\.href/);
+          for (const diagnostic of diagnostics) assert.match(diagnostic.message,
+            diagnostic.messageId === 'filePath' ? /fileURLToPath\(url\)/ : /pathToFileURL\(path\)\.href/);
         });
       }
     }
@@ -60,4 +61,33 @@ lintCases('portable-esm-paths', {
     { code: `${imports} const env = { NODE_OPTIONS: \`--import=\${path.resolve('a')}\` };`, errors: [{ messageId: 'fileUrl' }] },
     { code: `${imports} process.env.NODE_OPTIONS = '--loader=' + path.resolve('a');`, errors: [{ messageId: 'fileUrl' }] },
   ],
+});
+
+// PR533: URL.pathname is not a native path (drive letters and percent escapes).
+// Keep this bounded to statically recognizable file URLs, not arbitrary URLs.
+lintCases('file URL native paths', {
+  valid: [
+    `import { fileURLToPath } from 'node:url'; fileURLToPath(new URL('../../bin/jsn.js', import.meta.url));`,
+    `import { pathToFileURL } from 'node:url'; pathToFileURL('/tmp/a').href;`,
+    `new URL('https://example.com/a').pathname;`,
+    `new URL('/a', 'https://example.com').pathname;`,
+    `new URL('https://example.com', import.meta.url).pathname;`,
+    `new URL(value, import.meta.url).pathname;`,
+    `new URL('./a', base).pathname;`,
+    `request.url.pathname; url.pathname;`,
+    `let url = new URL('./a', import.meta.url); url.pathname;`,
+    `const url = new URL('./a', import.meta.url); function read(url) { return url.pathname; }`,
+    `function read(URL) { return new URL('./a', import.meta.url).pathname; }`,
+    `const url = new URL('./a', import.meta.url); url.href; url[key];`,
+  ],
+  invalid: [
+    `new URL('../../bin/jsn.js', import.meta.url).pathname;`,
+    `new URL('file:///D:/space%20dir/caf%C3%A9.js').pathname;`,
+    `new URL('file://server/share/a').pathname;`,
+    `new URL('./a', import.meta.url)['pathname'];`,
+    `const url = new URL('./a', import.meta.url); const alias = url; alias.pathname;`,
+    `const relative = './a'; const base = import.meta.url; new URL(relative, base).pathname;`,
+    `const base = new URL('file:///D:/root/'); new URL('./a', base).pathname;`,
+    `import { URL as FileURL } from 'node:url'; new FileURL('./a', import.meta.url).pathname;`,
+  ].map(code => ({ code, errors: [{ messageId: 'filePath' }] })),
 });
