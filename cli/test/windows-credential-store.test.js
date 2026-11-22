@@ -54,6 +54,44 @@ test('missing/old/policy-blocked/native failures are actionable and redact child
   assert.deepEqual(calls, ['powershell.exe', 'pwsh.exe']);
 });
 
+test('unsupported first host discovers supported PowerShell 7 without changing stdin', () => {
+  const calls = [];
+  const result = windowsCredentialOperation('read', 'synthetic', undefined, (exe, _args, options) => {
+    calls.push({ exe, input: options.input });
+    return exe === 'powershell.exe'
+      ? '{"status":"error","reason":"unsupported"}'
+      : JSON.stringify({ status: 'ok', value: secret });
+  });
+  assert.equal(result, secret);
+  assert.deepEqual(calls.map(call => call.exe), ['powershell.exe', 'pwsh.exe']);
+  assert.equal(calls[0].input, calls[1].input);
+});
+
+test('host discovery never retries policy, capability or native denial', () => {
+  for (const reason of ['capability', 'native', 'oversized']) {
+    const calls = [];
+    assert.throws(() => windowsCredentialOperation('write', 'synthetic', secret, exe => {
+      calls.push(exe);
+      return JSON.stringify({ status: 'error', reason });
+    }), error => error.code === 'credential_storage_error' && !error.message.includes(secret));
+    assert.deepEqual(calls, ['powershell.exe'], reason);
+  }
+  for (const response of ['not-json', 'null', '{"status":"ok"}', '{"status":"other","reason":"unsupported"}']) {
+    const calls = [];
+    assert.throws(() => windowsCredentialOperation('read', 'synthetic', undefined, exe => {
+      calls.push(exe);
+      return response;
+    }), { code: 'credential_storage_error' });
+    assert.deepEqual(calls, ['powershell.exe'], response);
+  }
+  const calls = [];
+  assert.throws(() => windowsCredentialOperation('write', 'synthetic', secret, exe => {
+    calls.push(exe);
+    throw Object.assign(new Error(secret), { status: 1 });
+  }), /FullLanguage/);
+  assert.deepEqual(calls, ['powershell.exe'], 'execution-policy process failure must not retry another host');
+});
+
 test('oversized single entries reject before any native operation (UTF-8 bytes)', () => {
   for (const value of ['x'.repeat(2561), '雪'.repeat(854)]) {
     assert.throws(() => windowsCredentialOperation('write', 'synthetic', value, () => assert.fail('must not replace existing entry')), /2560 UTF-8 bytes/);

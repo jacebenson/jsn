@@ -20,32 +20,34 @@ export function windowsCredentialOperation(operation, key, value, run = execFile
   if (!['read', 'write', 'delete'].includes(operation)) throw failure(reasons.native);
   if (operation === 'write' && Buffer.byteLength(value, 'utf8') > 2560) throw failure(reasons.oversized);
   const input = JSON.stringify({ operation, target: `servicenow-cli:${key}`, username: key, value });
-  let output;
   for (const executable of ['powershell.exe', 'pwsh.exe']) {
+    let output;
     try {
       output = run(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper], {
         input, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
         windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       });
-      break;
     } catch (error) {
       // Never expose child stdout/stderr, exception message or input. In
       // particular policy/parser errors can quote the source or request.
       if (error.code === 'ENOENT') continue;
       throw failure(reasons.capability);
     }
+    let response;
+    try { response = JSON.parse(output.replace(/^\uFEFF/, '')); }
+    catch { throw failure(reasons.capability); }
+    // Only an explicit unsupported host/version (or ENOENT above) permits
+    // discovery of another host. Never retry policy/capability/native denial.
+    if (response?.status === 'error' && response.reason === 'unsupported') continue;
+    if (response?.status === 'missing' && operation !== 'write') return null;
+    if (response?.status !== 'ok') throw failure(reasons[response?.reason] || reasons.native);
+    if (operation === 'read') {
+      if (typeof response.value !== 'string') throw failure(reasons.native);
+      return response.value;
+    }
+    return true;
   }
-  if (output === undefined) throw failure(reasons.unsupported);
-  let response;
-  try { response = JSON.parse(output.replace(/^\uFEFF/, '')); }
-  catch { throw failure(reasons.capability); }
-  if (response.status === 'missing' && operation !== 'write') return null;
-  if (response.status !== 'ok') throw failure(reasons[response.reason] || reasons.native);
-  if (operation === 'read') {
-    if (typeof response.value !== 'string') throw failure(reasons.native);
-    return response.value;
-  }
-  return true;
+  throw failure(reasons.unsupported);
 }
 
 // Go v1 used normalizeURL(instance), not the sanitized file name. Only

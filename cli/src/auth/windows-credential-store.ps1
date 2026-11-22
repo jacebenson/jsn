@@ -39,15 +39,31 @@ public static class JsnCredentialNative {
         public string UserName;
     }
     [DllImport("advapi32.dll", EntryPoint="CredReadW", CharSet=CharSet.Unicode, SetLastError=true)]
-    public static extern bool Read(string target, uint type, uint flags, out IntPtr credential);
+    private static extern bool NativeRead(string target, uint type, uint flags, out IntPtr credential);
     [DllImport("advapi32.dll", EntryPoint="CredWriteW", CharSet=CharSet.Unicode, SetLastError=true)]
     public static extern bool Write(ref Credential credential, uint flags);
     [DllImport("advapi32.dll", EntryPoint="CredDeleteW", CharSet=CharSet.Unicode, SetLastError=true)]
-    public static extern bool Delete(string target, uint type, uint flags);
+    private static extern bool NativeDelete(string target, uint type, uint flags);
     [DllImport("advapi32.dll", EntryPoint="CredFree")]
     public static extern void Free(IntPtr credential);
-    public static int LastError() { return Marshal.GetLastWin32Error(); }
-    public static string ReadValue(IntPtr pointer) {
+    public class ReadResult {
+        public int Error;
+        public string Value;
+    }
+    public static ReadResult ReadCredential(string target) {
+        IntPtr pointer;
+        bool success = NativeRead(target, 1, 0, out pointer);
+        int error = Marshal.GetLastWin32Error();
+        if (!success) return new ReadResult { Error = error };
+        try { return new ReadResult { Error = 0, Value = ReadValue(pointer) }; }
+        finally { Free(pointer); }
+    }
+    public static int DeleteCredential(string target) {
+        bool success = NativeDelete(target, 1, 0);
+        int error = Marshal.GetLastWin32Error();
+        return success ? 0 : error;
+    }
+    private static string ReadValue(IntPtr pointer) {
         Credential c = (Credential)Marshal.PtrToStructure(pointer, typeof(Credential));
         byte[] bytes = new byte[c.CredentialBlobSize];
         Marshal.Copy(c.CredentialBlob, bytes, 0, bytes.Length);
@@ -91,16 +107,15 @@ try {
             } else { Reply 'error' 'native' $null }
         }
         'read' {
-            $pointer = [IntPtr]::Zero
-            if ([JsnCredentialNative]::Read($request.target, 1, 0, [ref]$pointer)) {
-                try { Reply 'ok' $null ([JsnCredentialNative]::ReadValue($pointer)) }
-                finally { [JsnCredentialNative]::Free($pointer) }
-            } elseif ([JsnCredentialNative]::LastError() -eq 1168) { Reply 'missing' $null $null }
+            $result = [JsnCredentialNative]::ReadCredential($request.target)
+            if ($result.Error -eq 0) { Reply 'ok' $null $result.Value }
+            elseif ($result.Error -eq 1168) { Reply 'missing' $null $null }
             else { Reply 'error' 'native' $null }
         }
         'delete' {
-            if ([JsnCredentialNative]::Delete($request.target, 1, 0)) { Reply 'ok' $null $null }
-            elseif ([JsnCredentialNative]::LastError() -eq 1168) { Reply 'missing' $null $null }
+            $errorCode = [JsnCredentialNative]::DeleteCredential($request.target)
+            if ($errorCode -eq 0) { Reply 'ok' $null $null }
+            elseif ($errorCode -eq 1168) { Reply 'missing' $null $null }
             else { Reply 'error' 'native' $null }
         }
         default { Reply 'error' 'native' $null }
