@@ -1,0 +1,110 @@
+# Static helper: all request data (including secrets) arrives on stdin.
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+function Reply($status, $reason, $value) {
+    $result = @{ status = $status; reason = $reason; value = $value }
+    [Console]::Out.Write(($result | ConvertTo-Json -Compress))
+}
+try {
+    if ($PSVersionTable.PSVersion -lt [Version]'5.1' -or
+        ($PSVersionTable.PSEdition -eq 'Core' -and $PSVersionTable.PSVersion.Major -lt 7) -or
+        [Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+        Reply 'error' 'unsupported' $null
+        exit 0
+    }
+    if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+        Reply 'error' 'capability' $null
+        exit 0
+    }
+    [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class JsnCredentialNative {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct Credential {
+        public uint Flags;
+        public uint Type;
+        public string TargetName;
+        public string Comment;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+        public uint CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public uint Persist;
+        public uint AttributeCount;
+        public IntPtr Attributes;
+        public string TargetAlias;
+        public string UserName;
+    }
+    [DllImport("advapi32.dll", EntryPoint="CredReadW", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern bool Read(string target, uint type, uint flags, out IntPtr credential);
+    [DllImport("advapi32.dll", EntryPoint="CredWriteW", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern bool Write(ref Credential credential, uint flags);
+    [DllImport("advapi32.dll", EntryPoint="CredDeleteW", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern bool Delete(string target, uint type, uint flags);
+    [DllImport("advapi32.dll", EntryPoint="CredFree")]
+    public static extern void Free(IntPtr credential);
+    public static int LastError() { return Marshal.GetLastWin32Error(); }
+    public static string ReadValue(IntPtr pointer) {
+        Credential c = (Credential)Marshal.PtrToStructure(pointer, typeof(Credential));
+        byte[] bytes = new byte[c.CredentialBlobSize];
+        Marshal.Copy(c.CredentialBlob, bytes, 0, bytes.Length);
+        return new UTF8Encoding(false, true).GetString(bytes);
+    }
+    public static bool WriteValue(string target, string username, string value) {
+        byte[] bytes = new UTF8Encoding(false, true).GetBytes(value);
+        if (bytes.Length > 2560) throw new ArgumentException();
+        IntPtr pointer = Marshal.AllocHGlobal(bytes.Length);
+        try {
+            Marshal.Copy(bytes, 0, pointer, bytes.Length);
+            Credential c = new Credential();
+            c.Type = 1; c.TargetName = target; c.UserName = username;
+            c.Persist = 2; c.CredentialBlobSize = (uint)bytes.Length; c.CredentialBlob = pointer;
+            return Write(ref c, 0);
+        } finally {
+            for (int i = 0; i < bytes.Length; i++) Marshal.WriteByte(pointer, i, 0);
+            Marshal.FreeHGlobal(pointer);
+            Array.Clear(bytes, 0, bytes.Length);
+        }
+    }
+}
+'@
+} catch {
+    Reply 'error' 'capability' $null
+    exit 0
+}
+try {
+    $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    if ($request.target -isnot [string] -or !$request.target.StartsWith('servicenow-cli:') -or
+        $request.target.Length -gt 32767 -or $request.target.Contains([char]0)) {
+        Reply 'error' 'native' $null
+        exit 0
+    }
+    switch ($request.operation) {
+        'write' {
+            if ($request.value -isnot [string] -or [Text.Encoding]::UTF8.GetByteCount($request.value) -gt 2560) {
+                Reply 'error' 'oversized' $null
+            } elseif ([JsnCredentialNative]::WriteValue($request.target, $request.username, $request.value)) {
+                Reply 'ok' $null $null
+            } else { Reply 'error' 'native' $null }
+        }
+        'read' {
+            $pointer = [IntPtr]::Zero
+            if ([JsnCredentialNative]::Read($request.target, 1, 0, [ref]$pointer)) {
+                try { Reply 'ok' $null ([JsnCredentialNative]::ReadValue($pointer)) }
+                finally { [JsnCredentialNative]::Free($pointer) }
+            } elseif ([JsnCredentialNative]::LastError() -eq 1168) { Reply 'missing' $null $null }
+            else { Reply 'error' 'native' $null }
+        }
+        'delete' {
+            if ([JsnCredentialNative]::Delete($request.target, 1, 0)) { Reply 'ok' $null $null }
+            elseif ([JsnCredentialNative]::LastError() -eq 1168) { Reply 'missing' $null $null }
+            else { Reply 'error' 'native' $null }
+        }
+        default { Reply 'error' 'native' $null }
+    }
+} catch {
+    Reply 'error' 'native' $null
+}
