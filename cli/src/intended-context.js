@@ -1,9 +1,12 @@
 // Intent comes from the task, never from the current provider preferences.
 import { assertSafeExactMatch, getStringField } from './helpers.js';
 import { errUsageHint } from './errors.js';
+import { readEffectiveUpdateSet } from './context.js';
 
-export function contextFailure(message) {
-  return errUsageHint(message, 'Supply --expect-scope and --expect-update-set from the task. Select context explicitly with scopes set / updatesets set, then retry. --force never overrides missing or mismatched intent.');
+const CONTEXT_HINT = 'Supply --expect-scope and --expect-update-set from the task. Select context explicitly with scopes set / updatesets set, then retry. --force never overrides missing or mismatched intent.';
+
+export function contextFailure(message, hint = CONTEXT_HINT) {
+  return errUsageHint(message, hint);
 }
 const raw = (record, key) => record?.[key]?.value ?? record?.[key];
 export async function exactContextRecord(sdk, table, field, identifier) {
@@ -25,14 +28,74 @@ export async function readWriteContext(sdk) {
   }));
   if (users.length !== 1 || !raw(users[0], 'sys_id') || !getStringField(users[0], 'user_name')) throw contextFailure('Current user is unknown.');
   const user = { sys_id: raw(users[0], 'sys_id'), user_name: getStringField(users[0], 'user_name') };
-  async function preference(name) {
-    const rows = await sdk.list('sys_user_preference', new URLSearchParams({
-      sysparm_query: `user=${user.sys_id}^name=${name}`, sysparm_limit: '2', sysparm_fields: 'value',
-    }));
-    if (rows.length !== 1 || !raw(rows[0], 'value') || raw(rows[0], 'value') === '-') throw contextFailure(`Current ${name} preference is unknown.`);
+  /**
+   * Read one persisted capture-context preference.
+   *
+   * A missing row is not the same failure as an unreadable one. On a fresh
+   * instance nobody has ever picked an update set, so there is genuinely
+   * nothing to verify a customization write against — and the old message
+   * ("Current sys_update_set preference is unknown") named an internal
+   * preference key and pointed at --expect-* flags that cannot create a
+   * selection. An agent following that hint retries the same dead end. Each
+   * branch below says what is actually wrong and names the command that fixes
+   * it.
+   */
+  async function preference({ key, label, remediation, sessionTruth }) {
+    let rows;
+    try {
+      rows = await sdk.list('sys_user_preference', new URLSearchParams({
+        sysparm_query: `user=${user.sys_id}^name=${key}`, sysparm_limit: '2', sysparm_fields: 'value',
+      }));
+    } catch (error) {
+      throw contextFailure(
+        `Could not read the persisted ${label} for ${user.user_name}: ${error.message}`,
+        `Confirm the instance is reachable and retry. Do not retry the write until the selection can be read.`,
+      );
+    }
+    if (rows.length === 0) {
+      throw contextFailure(
+        `No ${label} is selected for ${user.user_name}, so there is no capture context to verify this write against.${await sessionNote(sessionTruth)}`,
+        `Select one first, then rerun the same command: ${remediation}. --expect-scope and --expect-update-set assert an existing selection; they cannot create one.`,
+      );
+    }
+    if (rows.length > 1) {
+      throw contextFailure(
+        `${rows.length} persisted ${label} preferences exist for ${user.user_name}, so the capture context is ambiguous.`,
+        `Resolve the duplicate preferences for this user, then retry: ${remediation}`,
+      );
+    }
+    if (!raw(rows[0], 'value') || raw(rows[0], 'value') === '-') {
+      throw contextFailure(
+        `The ${label} for ${user.user_name} is saved but empty, so the capture context is unreadable.`,
+        `Select one again, then rerun the same command: ${remediation}`,
+      );
+    }
     return raw(rows[0], 'value');
   }
-  const [scopeId, setId] = await Promise.all([preference('apps.current_app'), preference('sys_update_set')]);
+  // Failure-path diagnostic only: the provider's session picker is a different
+  // source from the persisted preference, and saying so stops an agent from
+  // assuming a fresh session already has a set selected.
+  async function sessionNote(readSession) {
+    if (!readSession) return '';
+    try {
+      const effective = await readSession();
+      if (!effective?.sys_id) return '';
+      return `\nThe session picker reports "${effective.label || effective.name || effective.sys_id}" (${effective.sys_id}); that selection is not persisted for this user and is not used for a customization write.`;
+    } catch {
+      return '';
+    }
+  }
+  const [scopeId, setId] = await Promise.all([
+    preference({
+      key: 'apps.current_app', label: 'application scope',
+      remediation: 'jsn scopes set "<scope value or name>"',
+    }),
+    preference({
+      key: 'sys_update_set', label: 'update set',
+      remediation: 'jsn updatesets set "<update set name>"',
+      sessionTruth: () => readEffectiveUpdateSet(sdk),
+    }),
+  ]);
   const [scope, set] = await Promise.all([sdk.get('sys_scope', scopeId), sdk.get('sys_update_set', setId)]);
   const applicationId = raw(set, 'application');
   if (!getStringField(scope || {}, 'scope') || !getStringField(set || {}, 'name') || !applicationId || !getStringField(set || {}, 'state')) throw contextFailure('Capture context is incomplete or unreadable.');

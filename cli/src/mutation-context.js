@@ -48,7 +48,14 @@ export async function guardMutationContext(app, argv, { ask = confirm, rawArgs =
   }
   let context;
   try { context = await readWriteContext(app.sdk); }
-  catch (error) { throw contextFailure(`Cannot verify capture context: ${error.message}`); }
+  catch (error) {
+    // A structured failure already explains which selection is missing and
+    // which command fixes it. Prefixing it with "Cannot verify capture
+    // context" buried that remediation and replaced it with the generic
+    // --expect-* hint, which cannot create a selection.
+    if (error?.hint) throw error;
+    throw contextFailure(`Cannot verify capture context: ${error.message}`);
+  }
   if (app.session?.username && context.user.user_name !== app.session.username) throw contextFailure('Current user differs from the selected profile.');
   const fail = message => { const error = contextFailure(message); error.context = context; throw error; };
   if (context.application_id !== context.update_set.application_id) fail('Selected scope and update set belong to different applications.');
