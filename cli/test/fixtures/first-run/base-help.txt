@@ -3,7 +3,6 @@ Usage: jsn <command> [options]
 Command-line interface for ServiceNow
 
 COMMON COMMANDS
-──────────────────────────────────────────────────
   incidents  List, show, create, or update incidents
   requests   Work with requested items
   tasks      Work with catalog tasks
@@ -13,6 +12,26 @@ COMMON COMMANDS
   records    Query any table when no specialized command fits
   setup      Connect to ServiceNow and manage profiles
   discover   Find commands by task word or table
+
+ALL COMMANDS BY GROUP
+names only; jsn --all-commands --help has descriptions and flags
+  CORE             knowledge incidents changes requests tasks tickets approvals
+  AUTOMATION       flows actions scriptactions scheduledjobs triggers asyncrules
+                   rules decisiontables assignments scrapi email restmessage
+                   soapmessages
+  ACCESS           acls b4rules roles privileges aliases groups groupmembers
+                   grouproles users
+  USER EXPERIENCE  forms lists clientscripts uipolicies uiactions views
+                   catalogitems catalogscripts cataloguipolicies uipages
+                   uimacros listcontrols sppages spwidgets uxscripts uxlists
+                   uxapplicability appmenu appmodules
+  DATA             tables columns relationships cmdb includes import logs
+                   properties records transactions snippets
+  CONFIGURATION    setup auth updatesets scopes midservers platform
+  DEVELOPER        scan atf eval rest graphql codesearch docs diff perf skill
+                   version
+  OTHER            cases workflows attachments store plugins compare
+                   subscriptions skipped-updates customizations upgrade discover
 
 EXAMPLES
   jsn incidents list --query "active=true" --limit 5
@@ -29,18 +48,15 @@ FLAGS
   --help          Show help [boolean]
 
 OUTPUT
-  For smaller list responses, select fields with --columns and bound rows with
-  --limit.
-  CSV and TSV avoid repeated field names; JSON preserves metadata and nested
-  structure.
-  Use JSON for pagination metadata or both reference IDs and display labels.
+  Bound lists with --columns and --limit.
+  CSV/TSV save tokens; JSON preserves metadata and nesting.
+  Use JSON for pagination or reference IDs with display labels.
 
-MORE
-  https://jsn.jace.pro/docs/     Guides: install, setup, safety, output, agents
-                                 and feature references
+NEXT
+  https://jsn.jace.pro/docs/     Guides: setup, safety, output, agents, features
   jsn <command> <action> --help  Options for one command or action
   jsn discover <word>            Find commands by task words
   jsn discover --table <table>   Find commands configured for a table
-  jsn --all-commands --help      Every registered command and global flag
+  jsn --all-commands --help      Every command and global flag
   jsn --json                     Registered command surface as JSON
 

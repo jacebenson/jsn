@@ -25,11 +25,11 @@ const CONCISE_EXAMPLES = [
 ];
 
 const CONCISE_MORE = [
-  { label: `${SITE_ORIGIN}${ROOT_DOC_LINK}`, description: 'Guides: install, setup, safety, output, agents and feature references' },
+  { label: `${SITE_ORIGIN}${ROOT_DOC_LINK}`, description: 'Guides: setup, safety, output, agents, features' },
   { label: 'jsn <command> <action> --help', description: 'Options for one command or action' },
   { label: 'jsn discover <word>', description: 'Find commands by task words' },
   { label: 'jsn discover --table <table>', description: 'Find commands configured for a table' },
-  { label: 'jsn --all-commands --help', description: 'Every registered command and global flag' },
+  { label: 'jsn --all-commands --help', description: 'Every command and global flag' },
   { label: 'jsn --json', description: 'Registered command surface as JSON' },
 ];
 
@@ -256,11 +256,28 @@ function renderConciseHelp(config, registry, width) {
       desc: command.summary || command.description || '',
     }));
 
+  const used = new Set();
+  const groups = Object.entries(COMMAND_GROUPS)
+    .map(([label, hint]) => ({
+      label,
+      description: rowsFor(hint, byName, used, config)
+        .filter((row) => !row.divider).map((row) => row.name).join(' '),
+    }))
+    .filter((row) => row.description);
+  const other = commands
+    .filter((command) => !used.has(command.name) && !isCapabilityHidden(command.name, config))
+    .map((command) => command.name);
+  if (other.length) groups.push({ label: 'OTHER', description: other.join(' ') });
+
   return [
     'Usage: jsn <command> [options]',
     '',
     'Command-line interface for ServiceNow',
-    renderGroup('COMMON COMMANDS', common, width),
+    `\nCOMMON COMMANDS\n${renderRows(common.map((command) => ({ label: command.name, description: command.desc })), { width, indent: 2 })}`,
+    '',
+    'ALL COMMANDS BY GROUP',
+    ...wrapText('names only; jsn --all-commands --help has descriptions and flags', { width }),
+    renderRows(groups, { width, indent: 2 }),
     '',
     'EXAMPLES',
     ...CONCISE_EXAMPLES.map((example) => wrapText(example, { width: width - 2, firstIndent: 2 }).join(' \\\n')),
@@ -268,12 +285,12 @@ function renderConciseHelp(config, registry, width) {
     '',
     'OUTPUT',
     ...[
-      'For smaller list responses, select fields with --columns and bound rows with --limit.',
-      'CSV and TSV avoid repeated field names; JSON preserves metadata and nested structure.',
-      'Use JSON for pagination metadata or both reference IDs and display labels.',
+      'Bound lists with --columns and --limit.',
+      'CSV/TSV save tokens; JSON preserves metadata and nesting.',
+      'Use JSON for pagination or reference IDs with display labels.',
     ].flatMap(text => wrapText(text, { width, firstIndent: 2 })),
     '',
-    'MORE',
+    'NEXT',
     renderRows(CONCISE_MORE, { width, indent: 2 }),
     '',
   ].join('\n');

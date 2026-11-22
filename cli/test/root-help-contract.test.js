@@ -58,13 +58,13 @@ describe('ordinary root help is a concise task directory', () => {
   it('stays short and lists common commands without repeating jsn on every row', () => {
     const stdout = output(run(['--help']));
     const lines = stdout.split('\n').filter(Boolean);
-    assert.ok(lines.length <= 45, `root help is ${lines.length} lines`);
-    assert.ok(stdout.length <= 3000, `root help is ${stdout.length} characters`);
+    assert.ok(lines.length <= 65, `root help is ${lines.length} lines`);
+    assert.ok(Buffer.byteLength(stdout) <= 1976 + 900, `root help is ${Buffer.byteLength(stdout)} bytes`);
     assert.match(stdout, /^Usage: jsn <command> \[options\]$/m);
     assert.match(stdout, /^COMMON COMMANDS$/m);
     assert.match(stdout, /^EXAMPLES$/m);
     assert.match(stdout, /^FLAGS$/m);
-    assert.match(stdout, /^MORE$/m);
+    assert.match(stdout, /^NEXT$/m);
 
     for (const name of ['incidents', 'requests', 'tasks', 'changes', 'approvals', 'knowledge', 'records', 'setup', 'discover']) {
       assert.match(stdout, new RegExp(`^  ${name}\\s{2,}\\S`, 'm'), `${name} is missing from common commands`);
@@ -91,6 +91,31 @@ describe('ordinary root help is a concise task directory', () => {
     for (const flag of ['-p, --profile', '-i, --instance', '--json', '--all-commands', '--help']) {
       assert.ok(stdout.includes(flag), `missing essential flag: ${flag}`);
     }
+  });
+
+  it('indexes every visible registered name within the byte and column budgets', () => {
+    const registry = buildCLI([]).commandRegistry({ summaries: true });
+    const stdout = output(run(['--help']));
+    assert.ok(Buffer.byteLength(stdout) <= 1976 + 900);
+    for (const line of stdout.split('\n')) assert.ok(line.length <= 80, line);
+    for (const enabled of [false, true]) {
+      const help = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: enabled } } }, registry);
+      const index = help.split('\nALL COMMANDS BY GROUP\n')[1].split('\nEXAMPLES\n')[0];
+      const names = new Set(index.split(/\s+/));
+      for (const command of registry.commands) {
+        assert.equal(names.has(command.name), command.name !== 'domains' || enabled, command.name);
+      }
+    }
+  });
+
+  it('indexes unplaced registrations under OTHER and tolerates a null registry', () => {
+    const cli = buildCLI([]);
+    cli.command({ command: 'dynamicfixture', aliases: ['fixturealias'], describe: 'Fixture description', handler: () => {} });
+    const help = renderHelp({}, cli.commandRegistry());
+    const other = help.split(/\n {2}OTHER +/)[1].split('\nEXAMPLES')[0];
+    assert.match(other, /\bdynamicfixture\b/);
+    assert.doesNotMatch(other, /fixturealias|Fixture description/);
+    assert.doesNotThrow(() => renderHelp({}, null));
   });
 
   it('wraps and aligns cleanly at a narrow terminal width', () => {

@@ -80,7 +80,7 @@ test('root help points at the maintained documentation without flooding commands
   const flat = result.stdout.replace(/\s+/g, ' ');
   assert.ok(flat.includes(`${SITE}${ROOT_DOC_LINK}`), flat);
   // The renderer wraps the description column; assert the words, not the column.
-  assert.match(flat, /Guides: install, setup, safety, output, agents/);
+  assert.match(flat, /Guides: setup, safety, output, agents, features/);
 });
 
 test('codesearch family and nested help carry the feature reference and literal syntax', () => {
