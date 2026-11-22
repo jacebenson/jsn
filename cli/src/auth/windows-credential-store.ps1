@@ -1,4 +1,5 @@
-# Static helper: all request data (including secrets) arrives on stdin.
+# Static command text: all request data (including secrets) arrives on stdin.
+# See docs/WINDOWS_CREDENTIAL_STORAGE_530.md for the conservative policy contract.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 function Reply($status, $reason, $value) {
@@ -15,6 +16,26 @@ try {
     if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
         Reply 'error' 'capability' $null
         exit 0
+    }
+    # Restricted with all scopes Undefined is the stock Windows client default:
+    # it permits individual command text, unlike -File. Never modify any scope.
+    # Refuse ALL explicitly configured enterprise policy, including RemoteSigned:
+    # embedded text cannot establish the original script's zone/signature status.
+    foreach ($scope in @('MachinePolicy', 'UserPolicy')) {
+        $policy = [string](Microsoft.PowerShell.Security\Get-ExecutionPolicy -Scope $scope -ErrorAction Stop)
+        if ($policy -ne 'Undefined') {
+            Reply 'error' 'policy' $null
+            exit 0
+        }
+    }
+    # Also honor explicit local/session Restricted or AllSigned. Fail closed on
+    # unknown policy values. No Set-ExecutionPolicy, environment or registry writes.
+    foreach ($scope in @('Process', 'CurrentUser', 'LocalMachine')) {
+        $policy = [string](Microsoft.PowerShell.Security\Get-ExecutionPolicy -Scope $scope -ErrorAction Stop)
+        if ($policy -notin @('Undefined', 'RemoteSigned', 'Unrestricted', 'Bypass')) {
+            Reply 'error' 'policy' $null
+            exit 0
+        }
     }
     [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)

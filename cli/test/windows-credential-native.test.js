@@ -10,9 +10,11 @@ test('real Windows Credential Manager: UTF-8 roundtrip, independent entries, ove
   timeout: 180000,
 }, () => {
   assert.equal(process.platform, 'win32', 'mandatory native lane must not run on a mock/non-Windows host');
-  const executable = process.env.JSN_TEST_WINDOWS_POWERSHELL || 'powershell.exe';
-  assert.ok(['powershell.exe', 'pwsh.exe'].includes(executable));
-  const run = (_exe, args, options) => execFileSync(executable, args, options);
+  const executable = process.env.JSN_TEST_WINDOWS_POWERSHELL || 'default';
+  assert.ok(['default', 'powershell.exe', 'pwsh.exe'].includes(executable));
+  // With no override, exercise actual production executable discovery. The
+  // extra pinned lanes establish each host's ABI behavior independently.
+  const run = executable === 'default' ? undefined : (_exe, args, options) => execFileSync(executable, args, options);
   const prefix = `jsn-530-native-${randomUUID()}`;
   const keys = [`alice@${prefix}`, `bob@${prefix}`, `alice@${prefix}-other`];
   const values = keys.map((key, i) => JSON.stringify({ auth_method: 'oauth', access_token: 'synthetic-' + i + '-雪-🔐-"-$()`\n', username: key }));

@@ -11,14 +11,24 @@ import { credKey, saveCredentials, loadCredentials, deleteCredentials, writePriv
 const secret = 'synthetic-雪-🔐-$(not-code)`"\n';
 test('Windows process protocol keeps secrets and identities exclusively on stdin', () => {
   const entries = new Map();
+  const trustedSource = fs.readFileSync(new URL('../src/auth/windows-credential-store.ps1', import.meta.url), 'utf8');
+  let firstCommand;
   const run = (exe, args, options) => {
     assert.equal(exe, 'powershell.exe');
-    assert.equal(args[args.length - 2], '-File');
-    assert.ok(args.at(-1).endsWith('windows-credential-store.ps1'));
+    assert.equal(args[args.length - 2], '-EncodedCommand');
+    const source = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+    assert.equal(source, trustedSource);
+    firstCommand ??= args.at(-1);
+    assert.equal(args.at(-1), firstCommand, 'source must be identical across identities, secrets and operations');
+    assert.ok(!args.includes('-ExecutionPolicy'));
+    assert.ok(!source.includes(secret));
+    assert.ok(args.join(' ').length < 30000, 'static encoded source must fit the Windows command line');
     assert.ok(!args.join(' ').includes(secret));
     assert.equal(options.timeout, 20000);
     const request = JSON.parse(options.input);
     if (request.operation === 'write') entries.set(request.target, request.value);
+    assert.ok(!source.includes(request.target));
+    assert.ok(!args.join(' ').includes(request.target));
     if (request.operation === 'delete') entries.delete(request.target);
     return JSON.stringify({ status: request.operation === 'read' && !entries.has(request.target) ? 'missing' : 'ok', value: entries.get(request.target) });
   };
@@ -68,7 +78,7 @@ test('unsupported first host discovers supported PowerShell 7 without changing s
 });
 
 test('host discovery never retries policy, capability or native denial', () => {
-  for (const reason of ['capability', 'native', 'oversized']) {
+  for (const reason of ['policy', 'capability', 'native', 'oversized']) {
     const calls = [];
     assert.throws(() => windowsCredentialOperation('write', 'synthetic', secret, exe => {
       calls.push(exe);
@@ -90,6 +100,32 @@ test('host discovery never retries policy, capability or native denial', () => {
     throw Object.assign(new Error(secret), { status: 1 });
   }), /FullLanguage/);
   assert.deepEqual(calls, ['powershell.exe'], 'execution-policy process failure must not retry another host');
+});
+
+test('static policy gate distinguishes stock defaults and explicit enterprise policy before native/request access', () => {
+  // Deliberate security invariant documented in docs/DECISIONS.md:
+  // the exact packaged source must gate enterprise and local restrictions before
+  // Add-Type/stdin. These are source/protocol checks, not PowerShell execution.
+  const source = fs.readFileSync(new URL('../src/auth/windows-credential-store.ps1', import.meta.url), 'utf8');
+  assert.match(source, /foreach \(\$scope in @\('MachinePolicy', 'UserPolicy'\)\)/);
+  assert.match(source, /if \(\$policy -ne 'Undefined'\)/);
+  assert.match(source, /foreach \(\$scope in @\('Process', 'CurrentUser', 'LocalMachine'\)\)/);
+  assert.match(source, /\$policy -notin @\('Undefined', 'RemoteSigned', 'Unrestricted', 'Bypass'\)/);
+  assert.match(source, /Microsoft\.PowerShell\.Security\\Get-ExecutionPolicy -Scope \$scope -ErrorAction Stop/);
+  assert.ok(source.indexOf("'MachinePolicy'") < source.indexOf('Add-Type -TypeDefinition'));
+  assert.ok(source.indexOf("'MachinePolicy'") < source.indexOf('[Console]::In.ReadToEnd()'));
+  assert.doesNotMatch(source, /^\s*(?:Set-ExecutionPolicy|\$Env:PSExecutionPolicyPreference\s*=)/mi);
+  // Response fixtures, not a claim of PowerShell policy evaluation on Linux.
+  for (const scenario of ['all-Undefined-stock-Restricted', 'MachinePolicy-Restricted', 'UserPolicy-AllSigned', 'MachinePolicy-RemoteSigned']) {
+    const calls = [];
+    const run = exe => {
+      calls.push(exe);
+      return scenario.startsWith('all-Undefined') ? '{"status":"missing"}' : '{"status":"error","reason":"policy"}';
+    };
+    if (scenario.startsWith('all-Undefined')) assert.equal(windowsCredentialOperation('read', 'synthetic-policy', undefined, run), null);
+    else assert.throws(() => windowsCredentialOperation('read', 'synthetic-policy', undefined, run), /execution policy explicitly restricts/);
+    assert.deepEqual(calls, ['powershell.exe'], scenario);
+  }
 });
 
 test('oversized single entries reject before any native operation (UTF-8 bytes)', () => {
@@ -114,6 +150,7 @@ test('Windows frontend verifies readback, isolates usernames/instances, preserve
     mock.method(childProcess, 'execFileSync', (_exe, _args, options) => {
       const request = JSON.parse(options.input);
       if (mode === 'fail') throw new Error(secret);
+      if (mode === 'policy') return '{"status":"error","reason":"policy"}';
       if (request.operation === 'write') entries.set(request.target, request.value);
       if (request.operation === 'delete') entries.delete(request.target);
       return JSON.stringify({ status: request.operation === 'read' && !entries.has(request.target) ? 'missing' : 'ok',
@@ -131,6 +168,13 @@ test('Windows frontend verifies readback, isolates usernames/instances, preserve
     assert.throws(() => loadCredentials(instance, 'alice'), /FullLanguage/);
     assert.throws(() => saveCredentials(instance, { ...creds }, 'alice'), /FullLanguage/);
     assert.throws(() => deleteCredentials(instance, 'alice'), /FullLanguage/);
+    assert.deepEqual(fs.readFileSync(file('alice')), original);
+    mode = 'policy';
+    const vaultBeforePolicyDenial = [...entries];
+    assert.throws(() => loadCredentials(instance, 'alice'), /execution policy explicitly restricts/);
+    assert.throws(() => saveCredentials(instance, { ...creds }, 'alice'), /execution policy explicitly restricts/);
+    assert.throws(() => deleteCredentials(instance, 'alice'), /execution policy explicitly restricts/);
+    assert.deepEqual([...entries], vaultBeforePolicyDenial);
     assert.deepEqual(fs.readFileSync(file('alice')), original);
     mode = 'ok';
     saveCredentials(instance, { ...creds }, 'alice');
