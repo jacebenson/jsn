@@ -93,15 +93,26 @@ test('native import uploads multipart XML and verifies every member without comm
   assert.equal(await posts[0].opts.body.get('attachFile').text(), xml);
 });
 
-test('existing retrieved sets are refused without uploading or overwriting', async () => {
+test('an already loaded set with the same content is reported, never uploaded again', async () => {
   const { sdk, calls } = sdkFixture({ existing: true });
-  await assert.rejects(sdk.importUpdateSet(xml, inspectUpdateSetXML(xml)), /already exists/);
-  assert.equal(calls.some(call => call.endpoint), false);
+  const result = await sdk.importUpdateSet(xml, inspectUpdateSetXML(xml));
+  assert.equal(result.already_loaded, true);
+  assert.equal(result.sys_id, id);
+  assert.equal(calls.some(call => call.endpoint), false, 'no upload form is opened');
 });
-for (const options of [{ mismatch: true }, { postError: true }]) test(`uncertain native import never retries (${JSON.stringify(options)})`, async () => {
-  const { sdk, calls } = sdkFixture(options);
+test('a verification mismatch stays a failure and is never retried', async () => {
+  const { sdk, calls } = sdkFixture({ mismatch: true });
   await assert.rejects(sdk.importUpdateSet(xml, inspectUpdateSetXML(xml)), /partially loaded/);
   assert.equal(calls.filter(call => call.opts?.method === 'POST').length, 1);
+});
+
+test('a lost upload response is reconciled by reading, never by uploading twice', async () => {
+  const { sdk, calls } = sdkFixture({ postError: true });
+  const result = await sdk.importUpdateSet(xml, inspectUpdateSetXML(xml));
+  assert.equal(result.recovered_after_error, true);
+  assert.equal(result.sys_id, id);
+  assert.equal(result.members_match_inspection, true);
+  assert.equal(calls.filter(call => call.opts?.method === 'POST').length, 1, 'exactly one upload attempt');
 });
 
 test('member collisions refuse before opening the upload form', async () => {
@@ -118,4 +129,75 @@ test('inspection includes subsidiary payload operations and platform-default act
     { table: 'sys_translated_text', action: 'delete_multiple', count: 1 },
     { table: 'sys_documentation', action: 'platform_default', count: 1 },
   ]);
+});
+
+// Loading is not transactional with the HTTP response that reports it: the
+// native upload can commit and still fail in transport. A bare "fetch failed"
+// sent agents into a retry of work that had already happened.
+const UPLOAD_HTML = '<form action="/sys_upload.do"><input name="sysparm_ck" value="tok"><input name="attachFile" type="file"></form>';
+function importableSdk(list) {
+  const sdk = new SDKClient('https://example.service-now.com', {});
+  const calls = { uploads: 0 };
+  sdk._warmSession = async () => 'sid=session';
+  sdk.rawRequest = async (url) => {
+    if (url.includes('/upload.do')) return UPLOAD_HTML;
+    calls.uploads += 1;
+    return '';
+  };
+  sdk.list = async (table, params) => list(table, String(params), calls);
+  return { sdk, calls };
+}
+
+test('a transport error after a successful upload reports the loaded set instead of failing', async () => {
+  const loaded = [{ sys_id: id, name: 'Example & test', state: 'loaded' }];
+  let setQueries = 0;
+  const { sdk } = importableSdk((table, query) => {
+    if (table === 'sys_update_xml') return query.includes('remote_update_set') ? [{ sys_id: memberID }] : [];
+    setQueries += 1;
+    if (setQueries === 2) {
+      const error = new Error('fetch failed');
+      error.cause = { code: 'ECONNRESET' };
+      throw error;
+    }
+    return setQueries === 1 ? [] : loaded;
+  });
+  const result = await sdk.importUpdateSet(xml, inspectUpdateSetXML(xml));
+  assert.equal(result.recovered_after_error, true);
+  assert.equal(result.sys_id, id);
+  assert.equal(result.count, 1);
+  assert.equal(result.members_match_inspection, true);
+});
+
+test('re-importing the same XML reports the existing set without uploading again', async () => {
+  const { sdk, calls } = importableSdk((table) => (table === 'sys_remote_update_set'
+    ? [{ sys_id: 'd'.repeat(32), name: 'Example & test', state: 'loaded' }] : []));
+  const result = await sdk.importUpdateSet(xml, inspectUpdateSetXML(xml));
+  assert.equal(result.already_loaded, true);
+  assert.equal(result.sys_id, 'd'.repeat(32));
+  assert.equal(calls.uploads, 0, 'nothing is uploaded a second time');
+});
+
+test('an identity collision with different content is still refused', async () => {
+  const { sdk } = importableSdk((table) => (table === 'sys_remote_update_set'
+    ? [{ sys_id: 'd'.repeat(32), name: 'Some other set', state: 'loaded' }] : []));
+  await assert.rejects(() => sdk.importUpdateSet(xml, inspectUpdateSetXML(xml)), /refusing to overwrite/);
+});
+
+test('a failure that left nothing behind names the transport cause and sends the reader to the record list', async () => {
+  let setQueries = 0;
+  const { sdk } = importableSdk((table) => {
+    if (table === 'sys_update_xml') return [];
+    setQueries += 1;
+    if (setQueries === 2) {
+      const error = new Error('fetch failed');
+      error.cause = { code: 'ECONNRESET' };
+      throw error;
+    }
+    return [];
+  });
+  await assert.rejects(() => sdk.importUpdateSet(xml, inspectUpdateSetXML(xml)), (error) => {
+    assert.match(error.message, /fetch failed \(ECONNRESET\)/);
+    assert.match(error.hint, /Retrieved Update Sets/);
+    return true;
+  });
 });
