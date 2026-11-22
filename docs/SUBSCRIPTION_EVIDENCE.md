@@ -1,12 +1,16 @@
 # Instance subscription evidence
 
 ```sh
-jsn subscriptions evidence --limit 50 --json
-jsn subscriptions evidence --limit 50 --get 'data.entitlements'
-jsn subscriptions evidence --limit 50 --styled
+jsn subscriptions evidence --profile <profile>
+jsn subscriptions evidence --profile <profile> --json
+jsn subscriptions evidence --profile <profile> --get 'data.entitlements'
 ```
 
-Select the instance using normal explicit instance/profile/session resolution.
+Replace `<profile>` with your configured profile. With a configured default,
+`jsn subscriptions evidence` is enough. The normal command uses your installed
+CLI; no fixture preload or instance URL is needed.
+
+Select the instance using normal profile/session resolution.
 The command requires an instance; the existing offline `subscriptions schedules`
 command and explicit `refresh` behavior are unchanged. `estimate ITOM` remains
 an independent illustrative population comparison, not measured consumption.
@@ -121,78 +125,149 @@ estimate, legal/compliance verdict, SKU/effective-date substitution, instance wr
 Store install/update, or record export is performed.
 
 
-## Executed offline examples
+## Synthetic example, not live instance data
 
-These outputs came from the actual CLI with a synthetic SDK transport preload,
-not a live ServiceNow instance. The fixture supplies populated entitlement,
-latest-allocation and ITOM source rows, Store/plugin hints and unavailable
-sources. It also exercises Store Table API 403 followed by installed-tab POST
-discovery. Values are examples, not a licensing assessment.
+The human view uses plain-language groups and aligned labels. Source tables,
+coverage and freshness appear once beneath each source's observations. JSON and
+`--get` keep the original structured fields unchanged.
 
-Run from the repository root. The test-only preload replaces authentication and
-fetch, refuses other destinations/writes, and must never be used for live work.
-These commands were executed under an isolated HOME/config/cache with daily
-checks and prompts disabled:
+The following sample was captured from the actual CLI with synthetic responses.
+It is not a live entitlement or consumption assessment. Any live example shared
+for review must redact instance hostnames, context headers and identifying values.
+
+<details>
+<summary>Captured synthetic output and exact offline reproduction</summary>
+
+```text
+Subscription evidence
+Observed: 2026-11-22T18:54:49.132Z
+Source observations only. Not a contract, compliance verdict, billable seats or bills.
+Installed apps/plugins are possibilities, not proof of purchased rights.
+Nonproduction installs do not prove production deployment or bills.
+No environment detection, cross-source totals, licensing meters or 90-day averages.
+Missing data is unavailable, not zero. Empty reads mean no visible rows.
+
+Entitlement evidence
+--------------------
+
+Subscription forms
+  Unavailable: access denied.
+  Source: license_details
+  Coverage: not established, limit 2; completeness unknown.
+  Freshness: Not established.
+
+Subscription entitlements
+  Example Product
+    Quantity            12
+    Updated             2026-01-02 03:04:05
+  Source: subscription_entitlement
+  Coverage: 1 shown, limit 2; completeness unknown.
+  Freshness: See Updated values; source-wide freshness unknown.
+
+Allocation evidence
+-------------------
+
+Allocation observations
+  Observation 1
+    Quantity            4
+    Status              allocated
+    Latest              Yes
+    Updated             2026-01-02 03:04:05
+  Source: subscription_detail
+  Coverage: 1 shown, limit 2; completeness unknown.
+  Freshness: See Updated values; source-wide freshness unknown.
+  Latest allocation: latest rows only (is_latest=true).
+
+Account allocation
+  Unavailable: schema unavailable.
+  Source: account_subscription_entitlement
+  Coverage: not established, limit 2; completeness unknown.
+  Freshness: Not established.
+
+Instance allocation
+  Unavailable: schema unavailable.
+  Source: instance_subscription_entitlement
+  Coverage: not established, limit 2; completeness unknown.
+  Freshness: Not established.
+
+Consumption evidence
+--------------------
+
+ITOM CI counts
+  Observation 1
+    Count               9
+    Sample date         2026-01-02
+  Source: itom_lu_ci_counts
+  Coverage: 1 shown, limit 2; completeness unknown.
+  Freshness: Not established.
+
+Usage analytics
+  Unavailable: schema unavailable.
+  Source: usageanalytics_count
+  Coverage: not established, limit 2; completeness unknown.
+  Freshness: Not established.
+
+ITOM licensable CI observations
+  Unavailable: schema unavailable.
+  Source: itom_lu_licensable_cis
+  Coverage: not established, limit 2; completeness unknown.
+  Freshness: Not established.
+
+Installed app and plugin hints
+------------------------------
+
+Store applications
+  Note: no provider total; bounded page only.
+  Example Store App
+    Version             1.0
+    Active              Unavailable
+    Installed           Yes
+    Install evidence    Observed in installed Store tab
+  Source: sys_store_app
+  Coverage: 1 shown, limit 2; more rows may exist; completeness unknown.
+  Freshness: Not established.
+
+Platform plugins
+  Example Plugin
+    Version             1.0
+    Active              Yes
+    Install evidence    Plugin state, not purchased entitlement
+  Source: v_plugin
+  Coverage: 1 shown, limit 2; completeness unknown.
+  Freshness: Not established.
+
+Access evidence
+---------------
+Unavailable: bounded distinct-user aggregation is not supported by this SDK.
+No user-role rows fetched. Role assignments are not allocated or billable seats.
+Source: sys_user_has_role (not queried).
+```
+
+From the repository root, under an isolated HOME/config/cache, all three commands
+below exited 0. The test-only preload replaces authentication and fetch, refuses
+other destinations/writes, and must never be used for live work. Its synthetic
+origin is read from the fixture itself rather than a real instance URL.
 
 ```sh
 export JSN_NO_HEADER=1 JSN_NO_PROMPTS=1 JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1
+FIXTURE_ORIGIN=$(node --input-type=module -e "import { fixtureOrigin } from './cli/test/helpers/subscription-evidence-fixture.js'; process.stdout.write(fixtureOrigin)")
 node --import ./cli/test/helpers/subscription-evidence-fixture.js ./cli/bin/jsn.js \
-  subscriptions evidence --instance https://example.invalid --limit 2 --styled
+  subscriptions evidence --instance "$FIXTURE_ORIGIN" --limit 2 --styled
 node --import ./cli/test/helpers/subscription-evidence-fixture.js ./cli/bin/jsn.js \
-  subscriptions evidence --instance https://example.invalid --limit 2 --json
+  subscriptions evidence --instance "$FIXTURE_ORIGIN" --limit 2 --json
 node --import ./cli/test/helpers/subscription-evidence-fixture.js ./cli/bin/jsn.js \
-  subscriptions evidence --instance https://example.invalid --limit 2 \
+  subscriptions evidence --instance "$FIXTURE_ORIGIN" --limit 2 \
   --get 'data.entitlements[1].observations'
 ```
 
-All three exited 0. Readable output excerpt, with other unavailable allocation
-and consumption sources omitted:
-
-```text
-ENTITLEMENTS
-license_details: unavailable (forbidden); bounded, provider-visible, completeness unknown
-  Coverage: returned unavailable, output limit 2, truncated unknown
-  Freshness: unknown; collection time is not source freshness
-subscription_entitlement: observed; bounded, provider-visible, completeness unknown
-  Coverage: returned 1, output limit 2, truncated false
-  Freshness: Per-row sys_updated_on where visible and valid; not a source-wide freshness guarantee
-  quantity=12 | product_name=Example Product | sys_updated_on=2026-01-02 03:04:05
-
-ALLOCATION
-subscription_detail: observed; bounded, provider-visible, completeness unknown
-  Coverage: returned 1, output limit 2, truncated false
-  Freshness: Per-row sys_updated_on where visible and valid; not a source-wide freshness guarantee
-  Latest allocation: verified boolean is_latest=true
-  quantity=4 | status=allocated | is_latest=true | sys_updated_on=2026-01-02 03:04:05
-
-CONSUMPTION
-itom_lu_ci_counts: observed; bounded, provider-visible, completeness unknown
-  Coverage: returned 1, output limit 2, truncated false
-  Freshness: unavailable; no verified update timestamp
-  count=9 | sample_date=2026-01-02
-
-INSTALLED HINTS
-sys_store_app: observed (page_limit_no_provider_total); bounded, provider-visible, completeness unknown
-  Coverage: returned 1, output limit 2, truncated true
-  Freshness: unavailable; observed inventory state, not deployment history
-  name=Example Store App | version=1.0 | active=unavailable | installed=true | installation_evidence=appclient_installed_tab
-v_plugin: observed; bounded, provider-visible, completeness unknown
-  Coverage: returned 1, output limit 2, truncated false
-  Freshness: unavailable; observed inventory state, not deployment history
-  name=Example Plugin | version=1.0 | active=true | installation_evidence=platform plugin state; activation is not purchased entitlement
-
-ACCESS
-SDK aggregate supports count and groupBy, not a bounded distinct-user aggregate; role assignments are not allocated or billable seats. No user-role rows were fetched.
-```
-
-`--json` emits the standard `ok`/`data` envelope with the same observations and
-coverage. The exact JSON emitted by the `--get` command above was:
+`--json` emits the standard `ok`/`data` envelope. The exact `--get` result was:
 
 ```json
 [{"quantity":"12","product_name":"Example Product","sys_updated_on":"2026-01-02 03:04:05"}]
 ```
 
-The numeric strings are raw source observations. The allocation quantity is not
-joined to the entitlement quantity, ITOM count is not converted to a meter, and
-the Store fallback remains incomplete because it has no provider total. The
-forbidden source remains unavailable instead of becoming zero.
+</details>
+
+Quantities and counts remain raw source observations, not joined or converted
+into licensing meters. The Store fallback has no provider total. Missing or
+forbidden sources remain unavailable, never zero.

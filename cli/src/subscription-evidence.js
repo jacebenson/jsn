@@ -206,18 +206,71 @@ export async function subscriptionEvidence(sdk, { limit = 50 } = {}) {
   return report;
 }
 
+const sourceTitles = {
+  license_details: 'Subscription forms', subscription_entitlement: 'Subscription entitlements',
+  subscription_detail: 'Allocation observations', account_subscription_entitlement: 'Account allocation',
+  instance_subscription_entitlement: 'Instance allocation', itom_lu_ci_counts: 'ITOM CI counts',
+  usageanalytics_count: 'Usage analytics', itom_lu_licensable_cis: 'ITOM licensable CI observations',
+  sys_store_app: 'Store applications', v_plugin: 'Platform plugins',
+};
+const fieldLabels = {
+  product_name: 'Product', name: 'Name',
+  product_code: 'Product code', sku: 'SKU', license_type: 'License type', subscription_type: 'Subscription type',
+  unit: 'Unit', status: 'Status', state: 'State', active: 'Active', is_latest: 'Latest',
+  quantity: 'Quantity', purchased_quantity: 'Purchased quantity', allocated_quantity: 'Allocated quantity',
+  allocated: 'Allocated', used: 'Used', consumption: 'Consumption', count: 'Count', ci_count: 'CI count',
+  licensable_count: 'Licensable count', sample_date: 'Sample date', start_date: 'Start date',
+  end_date: 'End date', effective_date: 'Effective date', sys_updated_on: 'Updated', version: 'Version',
+  installed: 'Installed', installation_evidence: 'Install evidence',
+};
+const humanReasons = {
+  forbidden: 'access denied', 'missing-or-hidden': 'missing or hidden', 'schema-unavailable': 'schema unavailable',
+  malformed: 'incomplete or invalid response', 'metadata-cap': 'metadata limit reached',
+  'inheritance-limit': 'schema ancestry limit reached', 'request-budget': 'request limit reached',
+  'ambiguous-schema': 'ambiguous schema', page_limit_no_provider_total: 'no provider total; bounded page only',
+};
+const humanValue = value => value === null || value === undefined ? 'Unavailable'
+  : value === true ? 'Yes' : value === false ? 'No'
+    : value === 'appclient_installed_tab' ? 'Observed in installed Store tab'
+      : value === 'local_version_and_install_date' ? 'Local version and install date'
+        : value === 'platform plugin state; activation is not purchased entitlement' ? 'Plugin state, not purchased entitlement'
+          : String(value);
+
 export function formatSubscriptionEvidence(report) {
-  const lines = [`Instance subscription evidence — observed ${report.captured_at}`, ...report.limitations];
-  for (const section of ['entitlements', 'allocation', 'consumption', 'installed_hints']) {
-    lines.push('', section.replaceAll('_', ' ').toUpperCase());
+  const lines = ['Subscription evidence', `Observed: ${report.captured_at}`,
+    'Source observations only. Not a contract, compliance verdict, billable seats or bills.',
+    'Installed apps/plugins are possibilities, not proof of purchased rights.',
+    'Nonproduction installs do not prove production deployment or bills.',
+    'No environment detection, cross-source totals, licensing meters or 90-day averages.',
+    'Missing data is unavailable, not zero. Empty reads mean no visible rows.'];
+  for (const [section, title] of [
+    ['entitlements', 'Entitlement evidence'], ['allocation', 'Allocation evidence'],
+    ['consumption', 'Consumption evidence'], ['installed_hints', 'Installed app and plugin hints'],
+  ]) {
+    lines.push('', title, '-'.repeat(title.length));
     for (const source of report[section]) {
-      lines.push(`${source.source}: ${source.status}${source.reason ? ` (${source.reason})` : ''}; bounded, provider-visible, completeness unknown`,
-        `  Coverage: returned ${source.coverage.returned ?? 'unavailable'}, output limit ${source.coverage.limit}, truncated ${source.coverage.truncated ?? 'unknown'}`,
-        `  Freshness: ${source.freshness.source_updated_on}`);
-      if (source.latest_filter) lines.push(`  Latest allocation: ${source.latest_filter}`);
-      for (const row of source.observations || []) lines.push(`  ${Object.entries(row).map(([key, value]) => `${key}=${value ?? 'unavailable'}`).join(' | ')}`);
+      lines.push('', sourceTitles[source.source] || source.source);
+      if (source.status === 'unavailable') lines.push(`  Unavailable: ${humanReasons[source.reason] || 'source could not be read'}.`);
+      else if (source.status === 'no-visible-rows') lines.push('  No visible rows.');
+      else if (source.reason) lines.push(`  Note: ${humanReasons[source.reason] || source.reason.replaceAll('_', ' ')}.`);
+      for (const [index, row] of (source.observations || []).entries()) {
+        lines.push(`  ${row.product_name || row.name || `Observation ${index + 1}`}`);
+        for (const [key, value] of Object.entries(row)) {
+          if ((key === 'product_name' || key === 'name') && value) continue;
+          const label = fieldLabels[key] || key.replaceAll('_', ' ');
+          lines.push(`    ${label.padEnd(19)} ${humanValue(value)}`);
+        }
+      }
+      lines.push(`  Source: ${source.source}`);
+      const shown = source.coverage.returned === undefined ? 'not established' : `${source.coverage.returned} shown`;
+      const more = source.coverage.truncated === true ? '; more rows may exist' : '';
+      lines.push(`  Coverage: ${shown}, limit ${source.coverage.limit}${more}; completeness unknown.`);
+      lines.push(`  Freshness: ${source.freshness.source_updated_on.startsWith('Per-row') ? 'See Updated values; source-wide freshness unknown.' : 'Not established.'}`);
+      if (source.latest_filter) lines.push(`  Latest allocation: ${source.latest_filter.startsWith('verified') ? 'latest rows only (is_latest=true).' : 'not established.'}`);
     }
   }
-  lines.push('', 'ACCESS', report.access.reason);
+  lines.push('', 'Access evidence', '---------------', 'Unavailable: bounded distinct-user aggregation is not supported by this SDK.',
+    'No user-role rows fetched. Role assignments are not allocated or billable seats.',
+    `Source: ${report.access.source} (not queried).`);
   return lines.join('\n');
 }

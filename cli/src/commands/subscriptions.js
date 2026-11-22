@@ -23,7 +23,7 @@ export function subscriptionsCmd(wrap) {
   };
   return {
     ...subscriptionsCmdDefinition,
-    builder: y => y.command({ command: 'evidence', describe: 'Read bounded instance subscription observations and installed hints; not rights or bills',
+    builder: y => y.command({ command: 'evidence', describe: 'Show subscription evidence and installed-app hints (read-only)',
       builder: b => b.option('limit', { type: 'number', default: 50, describe: 'Maximum observations per source (integer 1–200)' }),
       handler: wrap(async (argv, app) => {
         const limit = evidenceLimit(argv.limit);

@@ -62,7 +62,7 @@ test('registered evidence requires an instance and formats the shared report', a
   const report = await registered(sdk, ['--limit', '1'], () => { required = true; });
   assert.equal(required, true);
   assert.equal(report.entitlements[1].observations.length, 1);
-  assert.match(report._formatted, /quantity=12/);
+  assert.match(report._formatted, /Quantity\s+12/);
   assert.ok(!JSON.stringify(report).includes('_formatted'));
   assert.match(formatSubscriptionEvidence(report), /Nonproduction installs do not prove production deployment/);
 });
@@ -266,7 +266,7 @@ test('real CLI discovery, JSON, extraction, text, invalid limit and missing inst
   assert.equal(JSON.parse(get.stdout), '12');
   const human = run(['evidence', '--instance', 'https://example.invalid', '--styled']);
   assert.equal(human.status, 0, human.stderr);
-  assert.match(human.stdout, /quantity=12/);
+  assert.match(human.stdout, /Quantity\s+12/);
   for (const limit of ['0', '201', '1.5', 'NaN', 'Infinity']) {
     const invalid = run(['evidence', '--limit', limit, '--json']);
     assert.notEqual(invalid.status, 0, limit);
@@ -394,4 +394,31 @@ test('documented offline fixture exercises populated source sections and forbidd
   assert.equal(report.installed_hints[1].observations[0].active, true);
   assert.equal(report.entitlements[0].reason, 'forbidden');
   assert.equal(report.access.status, 'unavailable');
+});
+
+
+test('human report uses readable sections and labels without altering structured evidence', async () => {
+  const { sdk } = fixture();
+  const report = await subscriptionEvidence(sdk);
+  const before = JSON.stringify(report);
+  const human = formatSubscriptionEvidence(report);
+  for (const heading of ['Entitlement evidence', 'Allocation evidence', 'Consumption evidence', 'Installed app and plugin hints', 'Access evidence']) assert.ok(human.includes(heading), heading);
+  assert.match(human, /Subscription entitlements\n\s+Example Product\n\s+Quantity\s+12/);
+  assert.match(human, /Source: subscription_entitlement/);
+  assert.equal(human.split('Source: subscription_entitlement').length, 2);
+  assert.match(human, /Coverage:.*limit 50.*completeness unknown/);
+  assert.match(human, /Unavailable:.*schema/i);
+  assert.doesNotMatch(human, /quantity=|product_name=|sys_updated_on=|installation_evidence=/);
+  assert.equal(JSON.stringify(report), before);
+});
+
+test('human allocation distinguishes a source count, null value and latest uncertainty', async () => {
+  const { sdk } = tableFixture({ observations: [{ count: '0', sys_updated_on: '' }] });
+  const report = await subscriptionEvidence(sdk);
+  const human = formatSubscriptionEvidence(report);
+  assert.match(human, /Count\s+0/);
+  assert.match(human, /Updated\s+Unavailable/);
+  assert.match(human, /Latest allocation: not established/);
+  assert.match(human, /No visible rows|Unavailable:/);
+  assert.equal(report.allocation[0].observations[0].count, '0');
 });

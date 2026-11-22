@@ -3,6 +3,8 @@
 // and supplies synthetic rows through the same CLI/SDK path as the tests.
 import { SDKClient } from '../../src/sdk.js';
 
+export const fixtureOrigin = 'https://example.invalid';
+
 SDKClient.prototype._setAuth = async () => {};
 const definitions = {
   subscription_entitlement: { quantity: 'integer', product_name: 'string', sys_updated_on: 'glide_date_time' },
@@ -20,7 +22,7 @@ const records = {
 
 globalThis.fetch = async request => {
   const url = new URL(request.url), query = url.searchParams.get('sysparm_query') || '';
-  if (url.origin !== 'https://example.invalid') throw new Error('Fixture refused destination');
+  if (url.origin !== fixtureOrigin) throw new Error('Fixture refused destination');
   if (url.pathname === '/api/sn_appclient/appmanager/apps') {
     if (request.method !== 'POST' || await request.text() !== '{}'
       || url.search !== '?tab_context=installed&sysparm_limit=200&sysparm_offset=0') throw new Error('Fixture refused discovery request');
