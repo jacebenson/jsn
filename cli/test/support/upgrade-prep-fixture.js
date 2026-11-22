@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 
 const exec = promisify(execFile);
 const id = n => String(n).padStart(32, '0');
@@ -90,7 +91,7 @@ export async function upgradeFixture(options = {}) {
     JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1',
     JSN_NO_PROMPTS: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture' };
   delete env.SERVICENOW_INSTANCE_URL;
-  const binary = new URL('../../bin/jsn.js', import.meta.url).pathname;
+  const binary = fileURLToPath(new URL('../../bin/jsn.js', import.meta.url));
   return { requests, violations, instance: origin(main),
     run: args => exec(process.execPath, [binary, ...args], { cwd: dir, env, timeout: 30000, maxBuffer: 4 * 1024 * 1024 }),
     close: async () => { await Promise.all([main, lower].map(s => new Promise(resolve => s.close(resolve)))); fs.rmSync(dir, { recursive: true, force: true }); },
