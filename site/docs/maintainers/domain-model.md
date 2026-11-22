@@ -1,13 +1,13 @@
-# GLOSSARY.md — jsn domain vocabulary
+# Domain model and implementation contracts
 
-The names we use for the concepts in this codebase. When code, PRs, and docs
-disagree with this file, the file wins until it's updated — update it in the
-same commit that changes the concept.
+Maintainer reference for jsn concepts, safety boundaries and implementation
+decisions. Paths in backticks are repository-relative unless stated otherwise;
+CLI `src/` paths are relative to `cli/`. Read the relevant section when changing
+that feature rather than loading this entire reference as agent instructions.
 
-This is the **domain model**: the named things and how they relate. For the
-architecture vocabulary used to *reason about* the code (module, interface,
-depth, seam, adapter, leverage, locality), see the `codebase-design` skill —
-jsn uses those terms exactly.
+Code and executable tests establish current behavior. If they disagree with
+this reference, investigate the mismatch and update the affected documentation
+alongside the fix. This document does not override implementation evidence.
 
 ---
 
@@ -29,7 +29,7 @@ not prove production use; the report does not detect or infer environment type.
 ITOM source rows do not constitute a meter or a 90-day average. Access remains
 unavailable because the existing SDK does not provide a bounded distinct-user
 aggregate; role assignments must never be substituted for allocated/billable seats.
-See `docs/SUBSCRIPTION_EVIDENCE.md` for projections, hard request bounds and limits.
+See `cli/src/commands/subscriptions.js` and its tests for the report implementation.
 
 ## Windows credential helper
 

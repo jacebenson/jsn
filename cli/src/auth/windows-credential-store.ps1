@@ -1,5 +1,5 @@
 # Static command text: all request data (including secrets) arrives on stdin.
-# See GLOSSARY.md, Windows credential helper, for the policy contract.
+# See site/docs/maintainers/domain-model.md, Windows credential helper, for the policy contract.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $stage = 'host_check'
