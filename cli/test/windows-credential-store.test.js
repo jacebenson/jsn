@@ -6,6 +6,7 @@ import path from 'node:path';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { windowsCredentialOperation, legacyWindowsKey } from '../src/auth/windows-credential-store.js';
+import { withSyntheticCredentialCleanup } from './helpers/windows-credential-fixture.js';
 import { credKey, saveCredentials, loadCredentials, deleteCredentials, writePrivateState } from '../src/auth/credential-store.js';
 
 const secret = 'synthetic-雪-🔐-$(not-code)`"\n';
@@ -126,6 +127,49 @@ test('static policy gate distinguishes stock defaults and explicit enterprise po
     else assert.throws(() => windowsCredentialOperation('read', 'synthetic-policy', undefined, run), /execution policy explicitly restricts/);
     assert.deepEqual(calls, ['powershell.exe'], scenario);
   }
+});
+
+test('closed helper stages diagnose capability failure without exposing raw diagnostics or retrying', () => {
+  for (const stage of ['language_mode', 'machine_policy_query', 'user_policy_query', 'process_policy_query', 'current_user_policy_query', 'local_machine_policy_query', 'input_encoding', 'output_encoding', 'native_compilation']) {
+    const calls = [];
+    assert.throws(() => windowsCredentialOperation('read', 'synthetic', undefined, exe => {
+      calls.push(exe);
+      return JSON.stringify({ status: 'error', reason: 'capability', stage, message: secret, stderr: secret, path: secret });
+    }), error => error.code === 'credential_storage_error' && error.storageStage === stage && error.message.includes(`Stage: ${stage}.`) && !error.message.includes(secret));
+    assert.deepEqual(calls, ['powershell.exe']);
+  }
+  for (const stage of [secret, 'native_compilation\n' + secret, null, {}, ['native_compilation']]) {
+    assert.throws(() => windowsCredentialOperation('read', 'synthetic', undefined,
+      () => JSON.stringify({ status: 'error', reason: 'capability', stage })),
+    error => error.storageStage === undefined && !error.message.includes('Stage:') && !error.message.includes(secret));
+  }
+});
+
+test('native fixture keeps primary failure and reports all cleanup failures while attempting every target', () => {
+  const keys = ['synthetic-a', 'synthetic-b', 'synthetic-c'];
+  const calls = [];
+  const primary = new Error('synthetic primary');
+  const deleteFailure = new Error('synthetic delete');
+  const readFailure = new Error('synthetic readback');
+  assert.throws(() => withSyntheticCredentialCleanup(keys, (operation, key) => {
+    calls.push([operation, key]);
+    if (operation === 'delete' && key === keys[0]) throw deleteFailure;
+    if (operation === 'read' && key === keys[1]) throw readFailure;
+    return null;
+  }, () => { throw primary; }), error => {
+    assert.ok(error instanceof AggregateError);
+    assert.equal(error.cause, primary);
+    assert.deepEqual(error.errors, [primary, deleteFailure, readFailure]);
+    return true;
+  });
+  assert.deepEqual(calls, keys.flatMap(key => [['delete', key], ['read', key]]));
+});
+
+test('native fixture never turns cleanup failure into a pass and preserves a lone primary', () => {
+  const primary = new Error('synthetic primary');
+  assert.throws(() => withSyntheticCredentialCleanup(['synthetic'], () => null, () => { throw primary; }), error => error === primary);
+  assert.throws(() => withSyntheticCredentialCleanup(['synthetic'], operation => operation === 'read' ? 'still-present' : true, () => {}), error => error instanceof AggregateError && error.errors.length === 1);
+  assert.doesNotThrow(() => withSyntheticCredentialCleanup(['synthetic'], () => null, () => {}));
 });
 
 test('oversized single entries reject before any native operation (UTF-8 bytes)', () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { windowsCredentialOperation } from '../src/auth/windows-credential-store.js';
+import { withSyntheticCredentialCleanup } from './helpers/windows-credential-fixture.js';
 
 const required = process.env.JSN_REQUIRE_WINDOWS_CREDENTIAL_TEST === '1';
 test('real Windows Credential Manager: UTF-8 roundtrip, independent entries, oversize preservation and exact cleanup', {
@@ -18,7 +19,7 @@ test('real Windows Credential Manager: UTF-8 roundtrip, independent entries, ove
   const prefix = `jsn-530-native-${randomUUID()}`;
   const keys = [`alice@${prefix}`, `bob@${prefix}`, `alice@${prefix}-other`];
   const values = keys.map((key, i) => JSON.stringify({ auth_method: 'oauth', access_token: 'synthetic-' + i + '-雪-🔐-"-$()`\n', username: key }));
-  try {
+  withSyntheticCredentialCleanup(keys, (operation, key) => windowsCredentialOperation(operation, key, undefined, run), () => {
     for (let i = 0; i < keys.length; i++) {
       assert.equal(windowsCredentialOperation('read', keys[i], undefined, run), null);
       windowsCredentialOperation('write', keys[i], values[i], run);
@@ -29,11 +30,5 @@ test('real Windows Credential Manager: UTF-8 roundtrip, independent entries, ove
     windowsCredentialOperation('delete', keys[0], undefined, run);
     assert.equal(windowsCredentialOperation('read', keys[0], undefined, run), null);
     assert.equal(windowsCredentialOperation('read', keys[1], undefined, run), values[1]);
-  } finally {
-    // Never enumerate the vault or remove another test/user's credential.
-    for (const key of keys) {
-      windowsCredentialOperation('delete', key, undefined, run);
-      assert.equal(windowsCredentialOperation('read', key, undefined, run), null);
-    }
-  }
+  });
 });

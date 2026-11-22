@@ -24,6 +24,15 @@ this security boundary: command text matches the bundled helper and policy check
 precede native compilation and request consumption. Native Windows tests prove
 storage behavior separately.
 
+Helper failures may identify a closed setup/operation stage, such as policy
+query, console encoding or native compilation. Only literal allowlisted stage
+labels may reach user-visible errors; never exception/compiler output, request
+content, environment values, source or paths. Stage diagnostics do not change
+capability or policy refusal behavior. Synthetic native tests preserve the first
+exercise failure and independently attempt every owned target's deletion and
+absence readback. Cleanup failures remain failures and cannot replace the
+primary error.
+
 ## Subscription schedule catalog
 
 Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.

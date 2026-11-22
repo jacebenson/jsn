@@ -2,8 +2,11 @@
 # See GLOSSARY.md, Windows credential helper, for the policy contract.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$stage = 'host_check'
 function Reply($status, $reason, $value) {
-    $result = @{ status = $status; reason = $reason; value = $value }
+    # Stage is assigned only from literals below; never emit exception/source,
+    # compiler diagnostics, paths, request data or environment values.
+    $result = @{ status = $status; reason = $reason; value = $value; stage = $stage }
     [Console]::Out.Write(($result | ConvertTo-Json -Compress))
 }
 try {
@@ -13,6 +16,7 @@ try {
         Reply 'error' 'unsupported' $null
         exit 0
     }
+    $stage = 'language_mode'
     if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
         Reply 'error' 'capability' $null
         exit 0
@@ -22,6 +26,7 @@ try {
     # Refuse ALL explicitly configured enterprise policy, including RemoteSigned:
     # embedded text cannot establish the original script's zone/signature status.
     foreach ($scope in @('MachinePolicy', 'UserPolicy')) {
+        $stage = if ($scope -eq 'MachinePolicy') { 'machine_policy_query' } else { 'user_policy_query' }
         $policy = [string](Microsoft.PowerShell.Security\Get-ExecutionPolicy -Scope $scope -ErrorAction Stop)
         if ($policy -ne 'Undefined') {
             Reply 'error' 'policy' $null
@@ -31,14 +36,22 @@ try {
     # Also honor explicit local/session Restricted or AllSigned. Fail closed on
     # unknown policy values. No Set-ExecutionPolicy, environment or registry writes.
     foreach ($scope in @('Process', 'CurrentUser', 'LocalMachine')) {
+        $stage = switch ($scope) {
+            'Process' { 'process_policy_query' }
+            'CurrentUser' { 'current_user_policy_query' }
+            'LocalMachine' { 'local_machine_policy_query' }
+        }
         $policy = [string](Microsoft.PowerShell.Security\Get-ExecutionPolicy -Scope $scope -ErrorAction Stop)
         if ($policy -notin @('Undefined', 'RemoteSigned', 'Unrestricted', 'Bypass')) {
             Reply 'error' 'policy' $null
             exit 0
         }
     }
+    $stage = 'input_encoding'
     [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $stage = 'output_encoding'
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $stage = 'native_compilation'
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -113,6 +126,7 @@ public static class JsnCredentialNative {
     exit 0
 }
 try {
+    $stage = 'request_decode'
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
     if ($request.target -isnot [string] -or !$request.target.StartsWith('servicenow-cli:') -or
         $request.target.Length -gt 32767 -or $request.target.Contains([char]0)) {
@@ -121,6 +135,7 @@ try {
     }
     switch ($request.operation) {
         'write' {
+            $stage = 'native_write'
             if ($request.value -isnot [string] -or [Text.Encoding]::UTF8.GetByteCount($request.value) -gt 2560) {
                 Reply 'error' 'oversized' $null
             } elseif ([JsnCredentialNative]::WriteValue($request.target, $request.username, $request.value)) {
@@ -128,12 +143,14 @@ try {
             } else { Reply 'error' 'native' $null }
         }
         'read' {
+            $stage = 'native_read'
             $result = [JsnCredentialNative]::ReadCredential($request.target)
             if ($result.Error -eq 0) { Reply 'ok' $null $result.Value }
             elseif ($result.Error -eq 1168) { Reply 'missing' $null $null }
             else { Reply 'error' 'native' $null }
         }
         'delete' {
+            $stage = 'native_delete'
             $errorCode = [JsnCredentialNative]::DeleteCredential($request.target)
             if ($errorCode -eq 0) { Reply 'ok' $null $null }
             elseif ($errorCode -eq 1168) { Reply 'missing' $null $null }

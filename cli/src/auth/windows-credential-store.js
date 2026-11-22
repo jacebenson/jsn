@@ -10,9 +10,18 @@ const reasons = {
   oversized: 'Credential exceeds the Windows Credential Manager single-entry limit (2560 UTF-8 bytes); existing credentials were not replaced.',
   native: 'Windows Credential Manager operation failed; check vault access and system policy.',
 };
-function failure(reason) {
-  const error = new Error(`Secure credential storage unavailable or readback failed. ${reason} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.`);
+const stages = new Set([
+  'host_check', 'language_mode', 'machine_policy_query', 'user_policy_query',
+  'process_policy_query', 'current_user_policy_query', 'local_machine_policy_query',
+  'input_encoding', 'output_encoding', 'native_compilation', 'request_decode',
+  'native_read', 'native_write', 'native_delete',
+]);
+function failure(reason, stage) {
+  const safeStage = stages.has(stage) ? stage : undefined;
+  const diagnostic = safeStage ? ` Stage: ${safeStage}.` : '';
+  const error = new Error(`Secure credential storage unavailable or readback failed. ${reason}${diagnostic} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.`);
   error.code = 'credential_storage_error';
+  if (safeStage) error.storageStage = safeStage;
   return error;
 }
 
@@ -49,7 +58,7 @@ export function windowsCredentialOperation(operation, key, value, run = execFile
     // discovery of another host. Never retry policy/capability/native denial.
     if (response?.status === 'error' && response.reason === 'unsupported') continue;
     if (response?.status === 'missing' && operation !== 'write') return null;
-    if (response?.status !== 'ok') throw failure(reasons[response?.reason] || reasons.native);
+    if (response?.status !== 'ok') throw failure(reasons[response?.reason] || reasons.native, response?.stage);
     if (operation === 'read') {
       if (typeof response.value !== 'string') throw failure(reasons.native);
       return response.value;
