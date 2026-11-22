@@ -2,6 +2,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Explicit Node preload, not a PATH-dependent executable. Works for both
+// secret-tool and the static PowerShell stdin protocol in CLI subprocesses.
+export const credentialFixtureArgs = Object.freeze(['--import', new URL('./credential-process-fixture.js', import.meta.url).href]);
+
 export function fakeKeyringEnv(directory) {
   const bin = path.join(directory, 'fake-keyring-bin');
   const store = path.join(directory, 'fake-keyring.json');

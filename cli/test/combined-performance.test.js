@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SDKClient } from '../src/sdk.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 const exec = promisify(execFile);
 const bin = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 const id = '0123456789abcdef0123456789abcdef';
@@ -56,7 +57,7 @@ async function fixture(t, { total = '7', batchMode = 'ok', delay = 0 } = {}) {
   const env = Object.fromEntries(['PATH', 'TMPDIR', 'SystemRoot'].filter(key => process.env[key]).map(key => [key, process.env[key]]));
   Object.assign(env, { HOME: home, XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_CACHE_HOME: join(home, 'cache'), JSN_HERMES_BASE_DIR: join(home, 'hermes'), SERVICENOW_OAUTH_TOKEN: 'fixture-only', JSN_ALWAYS_WARM_SESSION: '0', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', CI: 'true', NO_COLOR: '1' });
   return { calls, peak: () => peak, origin,
-    run: async args => JSON.parse((await exec(process.execPath, [bin, '--instance', origin, ...args, '--json'], { env, timeout: 20000 })).stdout),
+    run: async args => JSON.parse((await exec(process.execPath, [...credentialFixtureArgs, bin, '--instance', origin, ...args, '--json'], { env, timeout: 20000 })).stdout),
   };
 }
 for (const total of ['7', '0', null, '', '-1', '1.5', '9007199254740992', '7junk']) {

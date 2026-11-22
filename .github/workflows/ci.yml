@@ -85,6 +85,25 @@ jobs:
           cache: npm
           cache-dependency-path: cli/package-lock.json
       - run: npm ci
+      - name: Native Windows Credential Manager (production discovery from PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          JSN_REQUIRE_WINDOWS_CREDENTIAL_TEST: '1'
+          JSN_TEST_WINDOWS_POWERSHELL: default
+        run: node --test test/windows-credential-native.test.js
+      - name: Native Windows Credential Manager (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        env:
+          JSN_REQUIRE_WINDOWS_CREDENTIAL_TEST: '1'
+          JSN_TEST_WINDOWS_POWERSHELL: powershell.exe
+        run: node --test test/windows-credential-native.test.js
+      - name: Native Windows Credential Manager (PowerShell 7)
+        if: runner.os == 'Windows'
+        env:
+          JSN_REQUIRE_WINDOWS_CREDENTIAL_TEST: '1'
+          JSN_TEST_WINDOWS_POWERSHELL: pwsh.exe
+        run: node --test test/windows-credential-native.test.js
       - run: npm test
       - run: npm run lint
       - name: Verify npm package contents

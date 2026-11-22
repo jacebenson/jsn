@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, saveLocalConfig, setActiveProfile } from '../src/config.js';
 import { loginProfile } from '../src/commands/auth.js';
 import { configureGlobalDefaults } from '../src/setup-preferences.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 
 const exec = promisify(execFile);
 const entry = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
@@ -30,7 +31,7 @@ function fixture(local = {}) {
   return { root, global, globalPath, localPath, env, read: () => JSON.parse(fs.readFileSync(globalPath)), cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 async function run(f, args, env = {}) {
-  try { return { ...await exec(process.execPath, [entry, ...args], { cwd: f.root, env: { ...f.env, ...env }, timeout: 15000 }), code: 0 }; }
+  try { return { ...await exec(process.execPath, [...credentialFixtureArgs, entry, ...args], { cwd: f.root, env: { ...f.env, ...env }, timeout: 15000 }), code: 0 }; }
   catch (error) { return { stdout: error.stdout, stderr: error.stderr, code: error.code }; }
 }
 
