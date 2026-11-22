@@ -1,4 +1,3 @@
-import { PLAINTEXT_WARNING } from './helpers/fake-keyring.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -59,7 +58,9 @@ test('forms show uses selected-profile HTTP metadata and output controller while
     requests.length = 0;
     const result = await execute(process.execPath, [cli, ...args, '--profile', 'selected'], { env, cwd: directory, timeout: 15000 });
     assert.ok(!result.stdout.includes('local-fixture-password'));
-    assert.equal(result.stderr, PLAINTEXT_WARNING);
+    // Reading a plaintext-backed credential is silent; storage mode is reported
+    // by `jsn auth status`, and the warning belongs to the save that created it.
+    assert.equal(result.stderr, '');
     return result.stdout;
   }
   const metadata = JSON.parse(await run(['forms', 'show', 'x_case', '--json']));

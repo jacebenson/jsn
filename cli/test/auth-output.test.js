@@ -110,6 +110,28 @@ prod: jsn auth login --profile prod
 Show users and instance URLs: jsn auth status --details
 `;
 
+describe('auth status reports credential storage mode', () => {
+  it('names profiles whose credentials live in the portable plaintext file', async () => {
+    const { renderAuthStatus } = await import('../src/commands/auth.js');
+    const out = renderAuthStatus({ profiles: [
+      { name: 'pdi', authenticated: true, auth_source: 'file', diagnostics: { auth_method: 'basic', auth_source: 'file', state: 'available' } },
+      { name: 'prod', authenticated: true, auth_source: 'keyring', diagnostics: { auth_method: 'oauth', auth_source: 'keyring', state: 'available' } },
+    ] }, '2 profiles');
+    assert.match(out, /Credential storage:/);
+    assert.match(out, /pdi: portable plaintext file/);
+    assert.match(out, /jsn auth login --profile/);
+    assert.doesNotMatch(out, /prod: portable plaintext file/);
+  });
+
+  it('says nothing when every profile uses the OS credential store', async () => {
+    const { renderAuthStatus } = await import('../src/commands/auth.js');
+    const out = renderAuthStatus({ profiles: [
+      { name: 'prod', authenticated: true, auth_source: 'keyring', diagnostics: { auth_method: 'oauth', auth_source: 'keyring', state: 'available' } },
+    ] }, '1 profile');
+    assert.doesNotMatch(out, /Credential storage:/);
+  });
+});
+
 describe('auth status styled output (visual pin)', () => {
   it('renders the profiles envelope byte-identically via OutputWriter', async () => {
     const { OutputWriter } = await import('../src/output.js');
