@@ -700,8 +700,13 @@ export function updateSetsCmd(wrap) {
             const question = `Load "${inspection.name}" (${inspection.count} updates) into ${app.getEffectiveInstance()} as a retrieved update set? This does not commit its changes.`;
             if (!await confirmUpdateSetMutation(argv, app, question, ['updatesets', 'import', argv.file, '--yes'])) return;
             const result = await app.sdk.importUpdateSet(xml, inspection, path.basename(argv.file));
+            const summaryText = result.already_loaded
+              ? `Retrieved update set "${inspection.name}" was already loaded on this target (${result.state}); nothing was uploaded again`
+              : result.recovered_after_error
+                ? `Retrieved update set "${inspection.name}" is loaded (${result.count} updates); confirmed after a transport error, not committed`
+                : `Loaded retrieved update set "${inspection.name}" (${result.count} updates); not committed`;
             app.ok({ ...summary, ...result, committed: false }, {
-              summary: `Loaded retrieved update set "${inspection.name}" (${result.count} updates); not committed`,
+              summary: summaryText,
               breadcrumbs: [
                 { action: 'preview', cmd: `jsn updatesets preview ${quoteShellArg(result.sys_id)}`, description: 'Preview against this instance before committing' },
                 { action: 'problems', cmd: `jsn updatesets problems ${quoteShellArg(result.sys_id)}`, description: 'Review preview problems' },

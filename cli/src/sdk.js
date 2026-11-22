@@ -21,6 +21,17 @@ import {
 
 const DEFAULT_TIMEOUT = 30000;
 
+/**
+ * Node reports every network-layer problem as "fetch failed" and hides the
+ * reason in `cause`. That message cannot tell a reset from a proxy rejection or
+ * a timeout, so the code is appended when one is available.
+ */
+function describeTransportError(error) {
+  const base = error?.message || String(error);
+  const code = error?.cause?.code || error?.code;
+  return code && !base.includes(code) ? `${base} (${code})` : base;
+}
+
 function collectSetCookies(cookieJar, response) {
   const values = response.headers.getSetCookie?.() || [];
   const raw = Array.isArray(values) && values.length
@@ -933,15 +944,41 @@ export class SDKClient {
     });
   }
 
-  /** Load through the native XML upload processor, then verify the exact envelope. */
+  /**
+   * Load through the native XML upload processor, then verify the exact envelope.
+   *
+   * Loading is the step that changes the instance, and it is not transactional
+   * with the HTTP response that reports it: `sys_upload.do` can commit the
+   * retrieved update set and still fail in transport. Treating any later error
+   * as "the import failed" made agents retry a load that had already happened,
+   * so every failure path now re-reads for the set before deciding, and a
+   * second attempt at the same XML reports what is already there instead of
+   * dead-ending.
+   */
   async importUpdateSet(xml, inspection, filename = 'update-set.xml') {
     const { sys_id: id, remote_sys_id: sourceID } = inspection;
     const params = new URLSearchParams({
       sysparm_query: `sys_id=${id}^ORremote_sys_id=${sourceID}`,
       sysparm_fields: 'sys_id,name,state', sysparm_limit: '2', sysparm_display_value: 'false',
     });
-    if ((await this.list('sys_remote_update_set', params)).length) {
-      throw errUsage('This retrieved update set already exists on the target; refusing to overwrite it. Inspect it before retrying.');
+    const existing = await this.list('sys_remote_update_set', params);
+    if (existing.length > 1) {
+      throw errUsage('More than one retrieved update set matches this XML identity; refusing to guess. Inspect Retrieved Update Sets before retrying.');
+    }
+    if (existing.length === 1) {
+      const name = getStringField(existing[0], 'name');
+      // Same XML, already loaded: an interrupted or retried attempt lands here.
+      // Reporting the existing set is the useful answer; refusing to overwrite
+      // it is only right when the identity collides with different content.
+      if (name === inspection.name) {
+        const sysID = getStringField(existing[0], 'sys_id');
+        const state = getStringField(existing[0], 'state');
+        return {
+          sys_id: sysID, state, count: inspection.count, already_loaded: true, members_verified: false,
+          link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${sysID}`,
+        };
+      }
+      throw errUsage(`A retrieved update set for this XML identity already exists on the target as "${name}"; refusing to overwrite it. Inspect it before retrying.`);
     }
     // Native INSERT_OR_UPDATE must not move/overwrite a member belonging to another set.
     for (let offset = 0; offset < inspection.members.length; offset += 50) {
@@ -964,16 +1001,24 @@ export class SDKClient {
     form.set('sysparm_upload_prefix', '');
     form.set('sysparm_referring_url', 'sys_remote_update_set_list.do');
     form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
+    // A verification disagreement is knowledge about the instance, not a lost
+    // response: the upload landed and its contents are wrong. Those must stay
+    // failures, so they are tagged and exempted from post-error reconciliation.
+    const mismatch = (message) => {
+      const error = new Error(message);
+      error.verificationMismatch = true;
+      return error;
+    };
     try {
       await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form,
         headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
       });
       const records = await this.list('sys_remote_update_set', params);
-      if (records.length !== 1) throw new Error('Could not identify exactly one uploaded retrieved update set');
+      if (records.length !== 1) throw mismatch('Could not identify exactly one uploaded retrieved update set');
       const record = records[0];
       const importedID = getStringField(record, 'sys_id');
       const state = getStringField(record, 'state');
-      if (state !== 'loaded' || getStringField(record, 'name') !== inspection.name) throw new Error('Uploaded update set name/state did not match the loaded export');
+      if (state !== 'loaded' || getStringField(record, 'name') !== inspection.name) throw mismatch('Uploaded update set name/state did not match the loaded export');
       const members = [];
       for (let offset = 0; ; offset += 500) {
         const page = await this.list('sys_update_xml', new URLSearchParams({
@@ -981,18 +1026,50 @@ export class SDKClient {
           sysparm_offset: String(offset), sysparm_display_value: 'false', sysparm_fields: 'sys_id,name,action',
         }));
         members.push(...page);
-        if (members.length > inspection.count) throw new Error('Uploaded update set contains unexpected extra members');
+        if (members.length > inspection.count) throw mismatch('Uploaded update set contains unexpected extra members');
         if (page.length < 500) break;
       }
       const actual = new Map(members.map(member => [getStringField(member, 'sys_id'), member]));
       if (actual.size !== inspection.count || inspection.members.some(expected => {
         const member = actual.get(expected.sys_id);
         return !member || getStringField(member, 'name') !== expected.name || getStringField(member, 'action') !== expected.action;
-      })) throw new Error('Uploaded update set members did not match the XML export');
+      })) throw mismatch('Uploaded update set members did not match the XML export');
       return { sys_id: importedID, state, count: members.length, link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${importedID}` };
     } catch (error) {
-      throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying. No automatic retry was attempted.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
+      if (error.verificationMismatch) {
+        throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
+      }
+      // The upload may have landed even though a request threw. Re-read for the
+      // exact identity before declaring failure; an agent told "failed" retries
+      // a load that already happened.
+      const landed = await this.#findImportedSet(params, inspection).catch(() => null);
+      if (landed) return landed;
+      throw new AppError(CodeAPI, `XML import could not be verified: ${describeTransportError(error)}. It may have partially loaded, and no matching retrieved update set is visible yet.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
     }
+  }
+
+  /**
+   * Find the retrieved update set this XML would have created, and report it as
+   * a successful load. Returns null when nothing matching is readable, so the
+   * caller can report the original failure.
+   */
+  async #findImportedSet(params, inspection) {
+    const records = await this.list('sys_remote_update_set', params);
+    if (records.length !== 1) return null;
+    const record = records[0];
+    if (getStringField(record, 'name') !== inspection.name) return null;
+    const sysID = getStringField(record, 'sys_id');
+    const members = await this.list('sys_update_xml', new URLSearchParams({
+      sysparm_query: `remote_update_set=${sysID}`, sysparm_fields: 'sys_id', sysparm_limit: String(inspection.count + 1),
+    }));
+    return {
+      sys_id: sysID,
+      state: getStringField(record, 'state'),
+      count: members.length,
+      link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${sysID}`,
+      recovered_after_error: true,
+      members_match_inspection: members.length === inspection.count,
+    };
   }
 
   /**
