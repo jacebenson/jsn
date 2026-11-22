@@ -11,6 +11,26 @@ jsn uses those terms exactly.
 
 ---
 
+## Instance subscription evidence
+
+`subscriptions evidence` is a bounded, read-only observation report for the queried
+instance. Entitlement-source observations, allocation-source observations, access,
+consumption-source observations and installed Store/plugin hints remain separate.
+A field's verified dictionary type permits a conservative projection, not a claim
+about contractual authority or charging semantics. Verified references are metadata
+only: no subscription-to-app joins or cross-source totals are inferred. Missing,
+forbidden, hidden or malformed sources are unavailable, never zero rights or use;
+a successful empty read means no visible rows. Collection time is not source
+freshness, and even uncapped provider-visible reads do not establish ACL coverage.
+
+Installed applications and plugin activation are possibilities, not purchased
+rights, billable seats, production deployment or bills. Nonproduction installs do
+not prove production use; the report does not detect or infer environment type.
+ITOM source rows do not constitute a meter or a 90-day average. Access remains
+unavailable because the existing SDK does not provide a bounded distinct-user
+aggregate; role assignments must never be substituted for allocated/billable seats.
+See `docs/SUBSCRIPTION_EVIDENCE.md` for projections, hard request bounds and limits.
+
 ## Subscription schedule catalog
 
 Site-owned curated public-source schedule records in `site/config/subscription-schedules/` are the canonical data; packaged CLI copies are generated offline snapshots. An inventory entry is not a normalized meter, a source effective date is not contract applicability, and known catalog products can lack measurement adapters. Exact historical IDs never borrow a newer version's adapter. Public delivery and mutable cache refresh are separate, currently unimplemented contracts. Snapshot equality is a deliberate architecture invariant tested in `cli/test/subscription-catalog.test.js`.

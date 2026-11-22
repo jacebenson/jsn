@@ -33,7 +33,7 @@ declareCapabilities('midservers', { mutationContext: 'operational', mutationSubc
 export const midserversCmd = wrap => ({ ...midserversCmdDefinition, load: () => require('./commands/midservers.js').midserversCmd(wrap) });
 
 export const subscriptionsCmdDefinition = {
-  command: 'subscriptions [subcommand]', describe: 'Inspect local metering schedules and compare illustrative ITOM populations',
+  command: 'subscriptions [subcommand]', describe: 'Inspect subscription evidence, local schedules and illustrative ITOM populations',
 };
 declareCapabilities('subscriptions', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
 export const subscriptionsCmd = wrap => ({ ...subscriptionsCmdDefinition, load: () => require('./commands/subscriptions.js').subscriptionsCmd(wrap) });
