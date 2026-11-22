@@ -11,6 +11,19 @@ jsn uses those terms exactly.
 
 ---
 
+## Upgrade preparation briefing
+
+A bounded, read-only evidence report for platform and Store upgrade preparation,
+not an upgrade executor or readiness certification. Explicit primary instance
+selection and explicit related-profile declarations prevent inferred topology.
+Sources retain exact GET provenance, returned records, timestamps, access gaps
+and bounds. Findings distinguish observed contradictions from missing, stale,
+inaccessible and unchecked evidence. Activities carry source references,
+dependencies and completion checks. Local target metadata is not fresh eligibility;
+platform history is not the live node build; historical skips are not predictions;
+missing retrieval is not missing backup. Technical workflow preservation and
+later optional feature activation remain separate owner decisions.
+
 ## Windows credential helper
 
 Windows credentials use one Credential Manager entry per username and instance.
