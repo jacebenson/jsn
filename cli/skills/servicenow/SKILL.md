@@ -18,6 +18,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
   approval before using eval; avoid bypassing ServiceNow protections.
 - Honor delete confirmations. Get approval for destructive work and Global +
   Default mutations; use `--force` only for the approved operation.
+- Deleting several records by filter is `jsn records delete-many`, not `eval`.
+  It previews without `--yes`, and a real delete requires the exact
+  `--expect-count` from that preview.
 
 For development:
 

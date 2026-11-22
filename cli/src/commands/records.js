@@ -1,4 +1,4 @@
-import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { errUsage } from '../errors.js';
@@ -9,7 +9,7 @@ import { assertMutationRecordScope, assertMutationScope } from '../intended-cont
 
 declareCapabilities('records', {
   mutationContext: 'table',
-  mutationSubcommands: ['create', 'update', 'delete', 'bulk'],
+  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
 });
 
 const tableDefaultColumns = {
@@ -427,6 +427,80 @@ export function recordsCmd(wrap) {
             await confirmDelete(app, argv, `Delete record from ${argv.table} (${lookup.identifier})`);
             const sysID = await deleteRecord(app.sdk, lookup);
             app.ok({ message: 'Record deleted', table: argv.table, sys_id: sysID }, { summary: `Deleted record from ${argv.table}` });
+          }),
+        })
+        .command({
+          command: 'delete-many',
+          describe: 'Delete records matching a filter; preview by default, verify after deletion',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('query', { type: 'string', describe: 'Required nonempty encoded query; use records delete for a single record' })
+            .option('expect-count', { type: 'number', describe: 'Required for deletion: exact expected matching count' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Confirm deletion (requires --expect-count)' })
+            .option('dry-run', { type: 'boolean', default: false, describe: 'Preview only, even with --yes' })
+            .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse if matches exceed this count' })
+            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.'),
+          handler: wrap(async (argv, app) => {
+            if (!argv.query?.trim()) throw errUsage('--query must be nonempty. Use records delete for a single record.');
+            if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
+            const dryRun = !argv.yes || argv['dry-run'];
+            const expected = argv['expect-count'];
+            if (!dryRun && (!Number.isSafeInteger(expected) || expected < 0)) throw errUsage('Deletion requires --expect-count as a nonnegative safe integer.');
+            const countMatches = async () => {
+              const count = await app.sdk.aggregateCount(argv.table, argv.query);
+              if (!Number.isSafeInteger(count) || count < 0) throw new Error('Cannot verify matching count; refusing deletion.');
+              return count;
+            };
+            const count = await countMatches();
+            if (count > argv.limit) throw errUsage(`Matched ${count} records, exceeding --limit ${argv.limit}. Raise --limit explicitly to proceed.`);
+            if (!dryRun && count !== expected) throw errUsage(`Count mismatch: --expect-count ${expected}, live count ${count}. No records deleted.`);
+            const readPage = (limit, offset) => listRecords(app.sdk, { table: argv.table,
+              params: recordListParams({ query: argv.query, limit, offset, fields: ['sys_id', 'number'], displayValue: 'false' }) });
+            const rerun = ['jsn', 'records', 'delete-many', '--table', argv.table, '--query', argv.query,
+              '--expect-count', String(count), '--limit', String(argv.limit), '--yes'].map(quoteShellArg).join(' ');
+            const breadcrumbs = [{ action: 'verify', cmd: `jsn records aggregate --table ${quoteShellArg(argv.table)} --query ${quoteShellArg(argv.query)}`, description: 'Re-check matching records' }];
+            if (dryRun) {
+              const sample = count ? await readPage(Math.min(10, count), 0) : [];
+              return app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun }, {
+                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted`,
+                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' }],
+              });
+            }
+            // Snapshot all targets before deleting: offset paging over a shrinking set skips rows.
+            const targets = [];
+            while (targets.length < count) {
+              const rows = await readPage(Math.min(1000, count - targets.length), targets.length);
+              if (!rows.length) break;
+              targets.push(...rows);
+              if (targets.length > count) break;
+            }
+            const ids = targets.map(unwrapSysId);
+            if (targets.length !== count || ids.some(id => !id) || new Set(ids).size !== count) {
+              throw errUsage('Enumeration differs from the counted targets or contains unreadable/duplicate sys_ids. No records deleted.');
+            }
+            if (await countMatches() !== count) throw errUsage('Matching count changed during enumeration. No records deleted.');
+            // Preflight all customization scopes before the first write, as bulk does.
+            if (app.mutationContext?.verified) {
+              for (const id of ids) await assertMutationRecordScope(app, argv.table, id);
+            }
+            const deleted = [];
+            const failed = [];
+            for (const record of targets) {
+              try { deleted.push(await deleteRecord(app.sdk, { table: argv.table, record })); }
+              catch (error) { failed.push({ sys_id: unwrapSysId(record), error: error.message || String(error) }); }
+            }
+            let remaining = null;
+            let verificationError;
+            try { remaining = await countMatches(); }
+            catch (error) { verificationError = error.message; }
+            const verified = failed.length === 0 && remaining === 0;
+            app.ok({ table: argv.table, query: argv.query, matched: count, deleted, failed, remaining,
+              verified, ...(verificationError ? { verification_error: verificationError } : {}) }, {
+              summary: verified ? `Deleted ${deleted.length} record(s) from ${argv.table}; verified zero remaining`
+                : `Deletion incomplete or unverified: ${deleted.length} deleted, ${failed.length} failed, ${remaining ?? 'unknown'} remaining`,
+              breadcrumbs,
+            });
+            if (!verified) process.exitCode = 1;
           }),
         })
         .command({
