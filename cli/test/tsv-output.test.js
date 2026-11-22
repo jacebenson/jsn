@@ -89,7 +89,7 @@ test('real CLI TSV flags render records, preserve scalar projection, advertise f
   }
   const root = run(['--help']).stdout;
   assert.match(root.replace(/ \\\n\s*/g, ' '), /--columns sys_id,number,state --limit 5 --csv/);
-  assert.ok(root.indexOf('\nOUTPUT\n') < root.indexOf('\nMORE\n'));
+  assert.ok(root.indexOf('\nOUTPUT\n') < root.indexOf('\nNEXT\n'));
   const registry = JSON.parse(run(['--json']).stdout);
   assert.ok(registry.data.commands.length > 0);
   assert.equal(run([...args, '--tsv', '--no-count']).stderr, '');
