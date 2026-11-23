@@ -40,6 +40,32 @@ class DocsReleasesTest < Minitest::Test
     FileUtils.remove_entry(@storage)
   end
 
+  def test_reader_canonical_keeps_selected_release_even_for_the_same_document_path
+    %w[australia brazil].each do |release|
+      directory = release == 'australia' ? @storage : File.join(@storage, 'releases', release)
+      db = SQLite3::Database.new(File.join(directory, 'docs.sqlite3'))
+      db.execute('UPDATE docs SET path = ?, title = ?, body = ?', ['api/shared.md', "#{release} shared guide", "#{release} reference content."])
+      db.close
+    end
+    header 'Host', 'jsn2.jace.pro'
+    canonicals = %w[australia brazil].map do |release|
+      get '/documentation/read', path: 'api/shared.md', release: release, utm_campaign: 'discard-me'
+      assert_equal 200, last_response.status
+      canonical = Nokogiri::HTML(last_response.body).at_css('link[rel=canonical]')['href']
+      uri = URI(canonical)
+      assert_equal 'jsn.jace.pro', uri.host
+      assert_equal({ 'path' => 'api/shared.md', 'release' => release }, URI.decode_www_form(uri.query.to_s).to_h)
+      get uri.request_uri
+      assert_equal 200, last_response.status
+      assert_equal "#{release} shared guide", Nokogiri::HTML(last_response.body).at_css('h1').text
+      canonical
+    end
+    assert_equal 2, canonicals.uniq.size
+    get '/documentation/read', path: 'api/shared.md', release: 'unknown'
+    assert_equal 400, last_response.status
+    assert_empty Nokogiri::HTML(last_response.body).css('link[rel=canonical]')
+  end
+
   def test_default_release_when_parameter_is_absent
     get '/api/docs/search', q: 'GlideRecord'
     assert_equal 200, last_response.status

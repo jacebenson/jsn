@@ -42,6 +42,7 @@ import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
 import { upgradeCmd } from './commands/upgrade.js';
+import { documentCmd } from './commands/document.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
 
@@ -456,6 +457,7 @@ export function buildCLI() {
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
     .command(upgradeCmd(wrap))
+    .command(documentCmd(wrap))
     .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry({ details: true }), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     .onParentDiscovery((argv, { path, subcommands }) => {

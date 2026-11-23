@@ -126,6 +126,16 @@ export class OutputWriter {
     return this.format;
   }
 
+  // Export callers can preflight exactly the extraction that ok() will emit,
+  // before creating a local file or performing another irreversible side effect.
+  validateExtraction(data, opts = {}) {
+    if (!this.jqFilter) return undefined;
+    const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [], ...(opts.context ? { context: opts.context } : {}) };
+    const value = resolvePath(envelope, this.jqFilter);
+    if (value === undefined) throw errExtractionNotFound(this.jqFilter);
+    return value;
+  }
+
   ok(data, opts = {}) {
     // --get extractor: resolve against the JSON envelope and print just that
     // value as JSON. Takes precedence over styling/table formats — a path
@@ -136,9 +146,7 @@ export class OutputWriter {
     // typo looked like a successful empty result until the next tool in the
     // pipeline failed to parse it. Present null/false/0/"" still print as-is.
     if (this.jqFilter) {
-      const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [], ...(opts.context ? { context: opts.context } : {}) };
-      const value = resolvePath(envelope, this.jqFilter);
-      if (value === undefined) throw errExtractionNotFound(this.jqFilter);
+      const value = this.validateExtraction(data, opts);
       const indent = this.verbose && !this.raw ? 2 : undefined;
       const text = this.raw && typeof value === 'string' ? value : JSON.stringify(value, null, indent);
       this.writer.write(text + '\n');
