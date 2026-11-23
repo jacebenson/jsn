@@ -202,11 +202,11 @@ function keyringLookup(key, legacyKey) {
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
     );
   } catch (error) {
-    // A classified native failure (policy, capability, oversized write) is a
-    // refusal, never "missing". Plain POSIX lookup failures stay historical
-    // "missing": an absent secret-tool means no secure entry was readable.
-    if (error?.code === 'credential_storage_error') throw error;
-    if (process.platform === 'win32' && !plaintextAllowed()) throw refusal();
+    // Preserve the existing process-local plaintext opt-in. Without it, a
+    // Windows backend failure is a refusal, not a missing entry.
+    if (process.platform === 'win32' && !plaintextAllowed()) {
+      throw error?.code === 'credential_storage_error' ? error : refusal();
+    }
     return null;
   }
   const trimmed = typeof result === 'string' ? result.trim() : result;
