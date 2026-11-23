@@ -32,6 +32,13 @@ module MetadataHelper
   end
 
   def page_canonical_url
+    if controller_name == 'documentation' && action_name == 'show' && @document.present?
+      # Reader identity is query-based. Use only the resolved document and
+      # selected, validated release; tracking parameters never belong here.
+      identity = { path: @document.fetch('path'), release: @release }
+      return "https://jsn.jace.pro/documentation/read?#{identity.to_query}"
+    end
+
     path = @guide ? @guide.url : request.path
     if path.match?(%r{\A/(features|docs)(/|\z)})
       path = "#{path.delete_suffix('/')}/"

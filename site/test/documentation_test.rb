@@ -3,6 +3,8 @@ require_relative '../config/environment'
 require 'minitest/autorun'
 require 'rack/test'
 require 'tmpdir'
+require 'nokogiri'
+require 'uri'
 class DocumentationTest < Minitest::Test
   include Rack::Test::Methods
   def app = Rails.application
@@ -27,6 +29,40 @@ class DocumentationTest < Minitest::Test
     ENV['DOCS_STORAGE_DIR'] = @previous
     FileUtils.remove_entry(@storage)
   end
+  def test_reader_canonicals_preserve_document_identity_but_not_tracking_or_host
+    db = SQLite3::Database.new(File.join(@storage, 'docs.sqlite3'))
+    second_path = 'api/client & server.md'
+    db.execute('INSERT INTO docs VALUES(2, ?, ?, ?, ?, ?, ?, ?)', [second_path, 'Client server guide', 'Distinct client server content.', 'api', 'reference', 'australia', '{}'])
+    db.close
+    header 'Host', 'jsn2.jace.pro'
+    canonicals = ['api/gliderecord.md', second_path].map do |path|
+      get '/documentation/read', path: path, utm_source: 'fixture', tracking: 'discard-me'
+      assert_equal 200, last_response.status
+      document = Nokogiri::HTML(last_response.body)
+      canonical = document.at_css('link[rel=canonical]')&.[]('href')
+      refute_nil canonical
+      uri = URI(canonical)
+      assert_equal 'https', uri.scheme
+      assert_equal 'jsn.jace.pro', uri.host
+      assert_equal '/documentation/read', uri.path
+      assert_equal({ 'path' => path, 'release' => 'australia' }, URI.decode_www_form(uri.query.to_s).to_h)
+      original_title = document.at_css('h1').text
+      get uri.request_uri
+      assert_equal 200, last_response.status
+      assert_equal original_title, Nokogiri::HTML(last_response.body).at_css('h1').text
+      canonical
+    end
+    assert_equal 2, canonicals.uniq.size
+  end
+
+  def test_reader_missing_or_unknown_identity_stays_not_found_without_a_canonical
+    [{}, { path: 'api/unknown.md' }, { path: '' }].each do |query|
+      get '/documentation/read', query.merge(utm_source: 'fixture')
+      assert_equal 404, last_response.status
+      assert_empty Nokogiri::HTML(last_response.body).css('link[rel=canonical]')
+    end
+  end
+
   def test_public_search_read_and_revision_contract
     get '/api/docs/search', q: 'GlideRecord'
     assert_equal 200, last_response.status
