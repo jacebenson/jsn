@@ -100,6 +100,33 @@ export async function scanAjax(sdk, method, parameters) {
 }
 
 const TERMINAL = new Set(['successful', 'failed', 'cancelled']);
+// Execution tracker types that belong to Instance Scan. Exact matches only:
+// no aliases or prefix matching, so unrelated trackers cannot be read as scans.
+const SCAN_TRACKER_TYPES = new Set(['instance_scan', 'point_scan']);
+
+// Read the execution back-reference from a result row without guessing: a
+// non-empty value that is not a full sys_id is still "present, but not ours".
+// Strings are checked by type so the legacy String.prototype.link is never read
+// as a reference.
+function hasResultBackReference(value) {
+  if (typeof value === 'string') return value !== '';
+  if (typeof value === 'object' && value !== null) return Boolean(raw(value) || value.link);
+  return false;
+}
+
+function resultBackReference(value) {
+  if (typeof value === 'object' && value !== null) return referenceId(value);
+  return isSysId(String(value ?? '')) ? String(value) : '';
+}
+// 'malformed' means a payload exists but could not be read as a reference.
+function resultLink(value) {
+  const text = raw(value);
+  if (!text) return { state: 'missing', id: '', verified: false };
+  try {
+    const id = referenceId(JSON.parse(text).result_id);
+    return id ? { state: 'linked', id, verified: true } : { state: 'malformed', id: '', verified: false };
+  } catch { return { state: 'malformed', id: '', verified: false }; }
+}
 const STATES = { '0': 'pending', '1': 'running', '2': 'successful', '3': 'failed', '4': 'cancelled',
   pending: 'pending', running: 'running', successful: 'successful', failed: 'failed',
   cancelled: 'cancelled', canceled: 'cancelled' };
@@ -108,19 +135,20 @@ export async function scanStatus(sdk, id, { allowInitializing = false } = {}) {
   requireId(id);
   const tracker = await sdk.get('sys_execution_tracker', id);
   if (!tracker) throw errNotFound('scan execution', id);
-  if (!raw(tracker.type) && allowInitializing) return { execution_id: id, status: 'pending', terminal: false,
-    percent_complete: null, message: 'Execution tracker is initializing', result_id: null };
-  if (raw(tracker.type) === 'sys.instance_scan.queue') return { execution_id: id, status: 'pending', terminal: false,
-    percent_complete: raw(tracker.percent_complete) ?? null, message: raw(tracker.message) || 'Scan is queued', result_id: null };
-  if (raw(tracker.type) !== 'instance_scan') throw errUsage('This execution tracker is not an Instance Scan.');
+  const type = String(raw(tracker.type) ?? '');
+  const link = resultLink(tracker.result);
+  if (!type && allowInitializing) return { execution_id: id, status: 'pending', terminal: false,
+    percent_complete: null, message: 'Execution tracker is initializing', result_id: null,
+    execution_type: type, result_link: link.state, result_verified: link.verified };
+  if (type === 'sys.instance_scan.queue') return { execution_id: id, status: 'pending', terminal: false,
+    percent_complete: raw(tracker.percent_complete) ?? null, message: raw(tracker.message) || 'Scan is queued',
+    result_id: null, execution_type: type, result_link: link.state, result_verified: link.verified };
+  if (!SCAN_TRACKER_TYPES.has(type)) throw errUsage('This execution tracker is not an Instance Scan.');
   const state = STATES[String(raw(tracker.state)).toLowerCase()] || 'unknown';
-  let resultId = '';
-  if (raw(tracker.result)) {
-    try { resultId = referenceId(JSON.parse(raw(tracker.result)).result_id); } catch { /* reported as unavailable below */ }
-  }
   return { execution_id: id, status: state, terminal: TERMINAL.has(state),
     percent_complete: raw(tracker.percent_complete) ?? null,
-    message: raw(tracker.message) || '', result_id: resultId || null };
+    message: raw(tracker.message) || '', result_id: link.id || null,
+    execution_type: type, result_link: link.state, result_verified: link.verified };
 }
 
 async function resolveSuite(sdk, identifier) {
@@ -206,17 +234,29 @@ export async function scanResults(sdk, id, limit = 50) {
   boundedLimit(limit);
   const status = await scanStatus(sdk, id);
   const data = { ...status, checks_executed: null, findings_count: null, checks: [], findings: [],
+    findings_state: 'unknown', checks_state: 'unknown',
     incomplete: !status.terminal, unavailable: [], truncated: {}, rerun_full: false, reusable_target: false };
   if (!status.result_id) { data.unavailable.push('scan_result'); data.incomplete = true; return data; }
   let result;
   try {
     result = await sdk.get('scan_result', status.result_id);
     if (!result) throw new Error('Result unavailable');
-    data.scan_number = raw(result.number);
-    const value = raw(result.finding_count);
-    const count = Number(value);
-    if ((typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) && Number.isInteger(count) && count >= 0) data.findings_count = count;
-    else { data.unavailable.push('scan_result.finding_count'); data.incomplete = true; }
+    // The result row must point back to this execution. A point scan always
+    // records its execution id; a foreign or absent back-reference means the
+    // row cannot be trusted to describe this scan.
+    const backReferencePresent = hasResultBackReference(result.progress_id);
+    const backReferenceMatches = resultBackReference(result.progress_id) === status.execution_id;
+    if ((backReferencePresent && !backReferenceMatches) || (!backReferencePresent && status.execution_type === 'point_scan')) {
+      data.unavailable.push('scan_result.back_reference');
+      data.incomplete = true;
+      result = null;
+    } else {
+      data.scan_number = raw(result.number);
+      const value = raw(result.finding_count);
+      const count = Number(value);
+      if ((typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) && Number.isInteger(count) && count >= 0) data.findings_count = count;
+      else { data.unavailable.push('scan_result.finding_count'); data.incomplete = true; }
+    }
   } catch { data.unavailable.push('scan_result'); data.incomplete = true; }
   for (const [key, table, fields] of [
     ['checks', 'scan_check_execution', ['check', 'message', 'execution_time']],
@@ -230,6 +270,16 @@ export async function scanResults(sdk, id, limit = 50) {
       if (key === 'checks' && !data.truncated[key] && status.terminal) data.checks_executed = rows.length;
     } catch { data.unavailable.push(table); data.incomplete = true; }
   }
+  // A positive reported count with nothing retrieved is unretrieved data, not
+  // a clean zero. Only a reconciled count (including a true zero) is verified.
+  if (data.findings_count === null || data.unavailable.includes('scan_finding')) data.findings_state = 'unknown';
+  else if (data.truncated.findings) data.findings_state = 'truncated';
+  else if (data.findings_count > 0 && data.findings.length === 0) { data.findings_state = 'unretrieved'; data.incomplete = true; }
+  else data.findings_state = 'verified';
+  if (data.unavailable.includes('scan_check_execution')) data.checks_state = 'unknown';
+  else if (data.truncated.checks) data.checks_state = 'truncated';
+  else if (data.checks.length === 0) data.checks_state = 'empty';
+  else data.checks_state = 'verified';
   const comboId = referenceId(result?.combo);
   if (comboId) {
     try { const combo = await sdk.get('scan_combo', comboId); if (combo) { data.reusable_target = true; data.rerun_full = !raw(combo.targets); } }
