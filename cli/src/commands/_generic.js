@@ -4,6 +4,7 @@ import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 
 import { formatRecordForDisplay, findOmittedColumns, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { validateReadQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { FormatAuto } from '../output.js';
@@ -134,6 +135,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         },
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
+          const verdict = await validateReadQuery(app, { table, query });
           const constrainedQuery = constrainQuery(query, extraQuery);
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
           const limit = argv.limit;
@@ -186,6 +188,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             } : {}),
             records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, presentColumns)),
             context: { instance_url: app.getEffectiveInstance() },
+            ...queryDiagnostics(verdict),
           }, {
             summary: `${records.length} ${name}(s)`,
             breadcrumbs: buildHints(name, singular, readOnly),
@@ -240,6 +243,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           handler: wrap(async (argv, app) => {
             const recordData = buildRecordPayload(argv);
             const record = await createRecord(app.sdk, { table, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(record, {
               summary: `Created ${singular}`,
               breadcrumbs: [
@@ -266,6 +270,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             const sysID = unwrapSysId(record);
             const recordData = buildRecordPayload(argv);
             const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(updated, { summary: `Updated ${singular} ${id}` });
           }),
         })
@@ -286,6 +291,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             await confirmDelete(app, argv, `Delete ${singular} '${recordName}'`);
 
             await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
+            invalidateAfterMutation(app, table);
             app.ok({ name: recordName, sys_id: sysID, deleted: true }, { summary: `Deleted ${singular} '${recordName}'` });
           }),
         });

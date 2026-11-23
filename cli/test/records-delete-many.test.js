@@ -17,6 +17,8 @@ function fixture(size = 2) {
     sdk: {
       aggregateCount: async () => rows.length,
       list: async (table, params) => {
+        if (table === 'sys_db_object') return [{ sys_id: 'f'.repeat(32), name: 'incident', super_class: '' }];
+        if (table === 'sys_dictionary') return [{ sys_id: 'e'.repeat(32), name: 'incident', element: 'active', internal_type: 'boolean', reference: '' }];
         reads.push(Object.fromEntries(params));
         return rows.slice(Number(params.get('sysparm_offset')), Number(params.get('sysparm_offset')) + Number(params.get('sysparm_limit')));
       },
@@ -90,7 +92,11 @@ test('delete-many reports partial failures and nonzero remaining without claimin
 
 test('delete-many refuses incomplete enumeration before any delete request', async () => {
   const f = fixture();
-  f.app.sdk.list = async () => [];
+  f.app.sdk.list = async (table) => {
+    if (table === 'sys_db_object') return [{ sys_id: 'f'.repeat(32), name: 'incident', super_class: '' }];
+    if (table === 'sys_dictionary') return [{ sys_id: 'e'.repeat(32), name: 'incident', element: 'active', internal_type: 'boolean', reference: '' }];
+    return [];
+  };
   await assert.rejects(f.run({ yes: true, 'expect-count': 2 }), /Enumeration differs/);
   assert.deepEqual(f.deletes, []);
 });

@@ -285,3 +285,33 @@ defaults to the SDK timeout and applies to each native batch or fallback read,
 not the entire operation. Platform payload/processing limits can still leave
 items unserviced; batching does not promise parallel transactions or atomicity.
 Successful earlier chunks may have been read if a later aggregate request fails.
+
+## Encoded-query validation
+
+User-supplied `--query` values on the records family, ticket/case/generic list
+commands, aggregate and filter-based mutations are parsed and checked against
+on-demand, table-scoped metadata (`sys_db_object` ancestry plus one
+`sys_dictionary` read). The query string is never rewritten, re-encoded,
+substituted, retried or dropped: AND/OR/NQ clauses, escaped `^^` carets,
+`ORDERBY`/`ORDERBYDESC` directives and dot-walks reach ServiceNow
+byte-identically.
+
+- Demonstrably invalid syntax, an unknown visible field, or a dot-walk through a
+  non-reference field is refused with a structured diagnostic and suggestions.
+- Denied, unavailable or incomplete metadata is reported as unverified
+  (`query_validation.state` in JSON plus `warnings` in human output). Reads may
+  continue with the original query. Hidden metadata is never reported as proof
+  that a table or field is absent.
+- Dynamic/script syntax is reported as `unsupported`, never invalid.
+- Filter-based mutations (`delete-many`, `bulk`) validate the complete filter
+  before any count, enumeration, scope read or write, and fail closed with zero
+  writes on any non-valid state. There is no skip-validation flag.
+
+Usable metadata is cached on disk for five minutes per exact instance URL,
+selected profile and authenticated principal (owner-only files under the
+existing cache directory). Different instances, profiles or principals never
+share entries; an unverified identity uses in-process metadata only. Pass
+`--refresh-metadata` to `records list`, `aggregate`, `delete-many` or `bulk` to
+force a fresh read. Successful `records`/generic table or field mutations
+invalidate affected entries. The five-minute window is a latency tradeoff, not
+authorization and not a guarantee that ACLs or schema stay stable inside it.

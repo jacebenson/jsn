@@ -1,6 +1,7 @@
 import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 import { formatRecordForDisplay, findOmittedColumns, getStringField, buildQuerySuffix, resolveFieldsParam, buildRecordPayload, confirmDelete } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { validateReadQuery, queryDiagnostics } from '../query-validate.js';
 import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
@@ -25,6 +26,7 @@ export function ticketsCmd(wrap) {
           handler: wrap(async (argv, app) => {
             const columns = argv.columns ? argv.columns.split(',') : ['number', 'short_description', 'state', 'assigned_to'];
             const fields = resolveFieldsParam(columns);
+            const verdict = await validateReadQuery(app, { table: 'task', query: argv.query || '' });
             const q = argv.query ? argv.query + '^ORDERBYDESCsys_updated_on' : 'ORDERBYDESCsys_updated_on';
             const params = recordListParams({ limit: argv.limit, offset: argv.offset, fields, query: q });
             const records = await listRecords(app.sdk, { table: 'task', params, displayValues: argv.displayValues });
@@ -52,6 +54,7 @@ export function ticketsCmd(wrap) {
               table: 'task',
               count: records.length,
               columns,
+              ...queryDiagnostics(verdict),
               ...(missingColumns.length ? {
                 missing_columns: missingColumns,
                 warnings: [

@@ -7,6 +7,7 @@
 import { AppError, CodeForbidden, errUsage, errUsageHint } from '../errors.js';
 import { buildQuerySuffix, formatCommandList, formatRecordForDisplay, getStringField, quoteShellArg, resolveFieldsParam } from '../helpers.js';
 import { getRecord, listRecords, recordListParams } from '../records-engine.js';
+import { validateReadQuery, queryDiagnostics } from '../query-validate.js';
 import { declareCapabilities } from '../capabilities.js';
 
 declareCapabilities('cases', {}); // read-only: no mutating subcommands
@@ -87,6 +88,7 @@ async function resolveTable(app, argv) {
 async function listCases(app, argv, resolved, query) {
   const columns = argv.columns ? argv.columns.split(',') : DEFAULT_COLUMNS;
   const fields = resolveFieldsParam(columns);
+  const verdict = await validateReadQuery(app, { table: resolved.table, query });
   const ordered = query ? `${query}^ORDERBYDESCsys_updated_on` : 'ORDERBYDESCsys_updated_on';
   const params = recordListParams({ limit: argv.limit, offset: argv.offset, fields, query: ordered });
   let records;
@@ -114,6 +116,7 @@ async function listCases(app, argv, resolved, query) {
     records: displayRecords,
     pagination: { limit: argv.limit, offset: argv.offset, hasMore: records.length === argv.limit },
     context: { instance_url: app.getEffectiveInstance() },
+    ...queryDiagnostics(verdict),
   }, { summary: `${records.length} ${resolved.table}(s)`, breadcrumbs });
 }
 
