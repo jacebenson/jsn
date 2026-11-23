@@ -69,8 +69,8 @@ function warnPlaintext() {
 function refusal(classification = 'secure_storage_unavailable') {
   const repair = process.platform === 'win32'
     ? 'Windows Credential Manager requires Windows PowerShell 5.1 or PowerShell 7+ with FullLanguage/Add-Type and native API access allowed by policy.'
-    : 'Unlock/install secret-tool and retry.';
-  return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.`, classification);
+    : 'Unlock/install secret-tool and retry. On Debian/Ubuntu (including WSL), run: sudo apt install libsecret-tools gnome-keyring. If already installed, ensure a running, unlocked keyring is available in your D-Bus session.';
+  return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically. To explicitly allow unencrypted credential files, set ${PLAINTEXT_ENV}=1 in the environment of each jsn process that needs them. Only do this if your security policy permits it; backups can expose credentials.`, classification);
 }
 
 /**
@@ -88,7 +88,7 @@ function plaintextBlocked() {
 }
 function readbackFailure() {
   return storageError(
-    'Secure credential storage unavailable or readback failed. The secure entry could not be verified after writing. Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.',
+    `Secure credential storage unavailable or readback failed. The secure entry could not be verified after writing. Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically. To explicitly allow unencrypted credential files, set ${PLAINTEXT_ENV}=1 in the environment of each jsn process that needs them. Only do this if your security policy permits it; backups can expose credentials.`,
     'secure_readback_failed',
   );
 }
