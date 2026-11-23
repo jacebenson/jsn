@@ -6,7 +6,7 @@
 <form method="get" action="/snbench"><% %w[tool model track].each do |key| %><input type="hidden" name="<%= key %>" value="<%= params[key] %>"><% end %><label>X axis <select name="metric"><% @x_metrics.each do |key, label| %><option value="<%= key %>" <%= 'selected' if key == @x_metric %>><%= label %></option><% end %></select></label> <button type="submit">Update chart</button></form>
 <p>Agent configurations only. Points separate task digests and instance builds. No lines imply a learning trajectory. The current measured sample has one attempt per task per run; n is distinct tasks, not a confidence interval. Repeated attempts use task-weighted pass rate, not a best-of-k score. Resource totals sum attempts within task, then average tasks. Partial coverage is not directly comparable.</p>
 <% agents = @entries.select { |e| e.key[0] == 'agent' }; points = agents.select { |e| e.per_task_total(@x_metric.to_sym) }; max_x = points.map { |e| e.per_task_total(@x_metric.to_sym) }.max.to_f; max_x = 1 if max_x.zero? %>
-<% efficient = agents.select { |e| e.per_task_total(:cost_usd) && e.score.positive? }.min_by { |e| e.per_task_total(:cost_usd) / e.score } %>
+<% efficient = agents.select { |e| cost = e.per_task_total(:cost_usd); cost && cost.positive? && e.score.positive? }.min_by { |e| e.per_task_total(:cost_usd) / e.score } %>
 <p>Most efficient means lowest reported USD per score point among shown agent entries with known cost. Zero reported cost is not a verified market price. <% if efficient %>Most efficient: <%= efficient.label %>.<% end %></p>
 <% if points.any? %>
 <div class="results-table-wrap"><svg viewBox="0 0 1000 <%= 420 + points.size * 24 %>" role="img" aria-labelledby="snbench-chart-title" style="min-width:700px;width:100%;font:14px sans-serif">
