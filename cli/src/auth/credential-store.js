@@ -69,6 +69,21 @@ function refusal() {
     : 'Unlock/install secret-tool and retry.';
   return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved; to use or migrate them on a headless host, explicitly set ${PLAINTEXT_ENV}=1 for this process. Never commit or share credential files.`);
 }
+/**
+ * A plaintext file left behind by an earlier version is not a broken secure
+ * store: the secret is right there, it just needs an explicit opt-in or a
+ * re-login. Reporting it through refusal() blamed Windows PowerShell,
+ * FullLanguage and Add-Type for a problem that was none of those.
+ */
+function migrationRequired() {
+  const error = storageError(
+    `A plaintext credential file from an earlier JSN version exists for this profile, so the saved sign-in is not read without explicit opt-in. `
+    + `Existing plaintext credentials are preserved. Move it into the OS credential store by signing in again: jsn auth login. `
+    + `To keep using the file on this host, explicitly set ${PLAINTEXT_ENV}=1 for this process. Never commit or share credential files.`
+  );
+  error.code = 'credential_migration_required';
+  return error;
+}
 
 // Validate broad ancestors without chmod: only the leaf secret directory must
 // be private. Root-owned sticky temporary ancestors are permitted, not leaves.
@@ -261,7 +276,7 @@ export function loadCredentials(instance, username, injectedStore) {
   if (!fs.existsSync(file)) return null;
   // Reads (including local status) never persist or migrate credentials. A
   // subsequent explicit login/save or token refresh performs verified retirement.
-  if (!plaintextAllowed()) throw refusal();
+  if (!plaintextAllowed()) throw migrationRequired();
   const creds = readPrivateState('credentials', key);
   return creds ? { ...creds, auth_source: 'file' } : null;
 }

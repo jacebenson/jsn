@@ -4,6 +4,7 @@ import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfil
 import { errUsage, errUsageHint, errConfirmationRequired } from '../errors.js';
 import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
+import { normalizeAuthMethod } from '../auth/credential-state.js';
 import process from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { refreshSession } from '../session.js';
@@ -22,7 +23,7 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
   const profiles = Array.isArray(result.profiles) ? result.profiles : [];
   if (!profiles.length) return 'No profiles configured.\nRun: jsn auth login <instance> --browser\n';
   const methods = { oauth: 'OAuth', basic: 'Basic', gck: 'Browser session' };
-  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid' };
+  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid', migration_required: 'Needs migration', storage_error: 'Unavailable' };
   const headings = ['PROFILE', 'AUTH', 'CREDENTIALS', 'CONNECTION', 'ACCESS', 'DELETES', 'COUNTS'];
   if (details) headings.push('USER', 'INSTANCE');
   const notes = [];
@@ -49,7 +50,7 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
     if (profile.verified !== true && probe.message) notes.push(`${label}: ${probe.message}`);
     if (profile.name && profile.verified !== true) {
       const command = `jsn auth ${diagnostics.state === 'refreshable' ? 'refresh' : 'login'} --profile ${quoteShellArg(profile.name)}`;
-      const hint = ['missing', 'expired', 'refreshable', 'malformed'].includes(diagnostics.state)
+      const hint = ['missing', 'expired', 'refreshable', 'malformed', 'migration_required', 'storage_error'].includes(diagnostics.state)
         || ['unauthorized', 'invalid_browser_session', 'refresh_failed', 'account_mismatch'].includes(probe.code)
         ? command : probe.hint;
       if (hint) notes.push(`${label}: ${hint}`);
@@ -922,10 +923,27 @@ export async function showAuthStatus(argv, app) {
     const instance = profile.instance_url;
     const authOptions = { authMethod: profile.auth_method, username: profile.username };
     const identityOptions = { username: profile.username, authMethod: profile.auth_method };
-    const isAuth = app.auth.isAuthenticatedFor(instance, identityOptions);
-    const lastSeen = app.auth.getLastSeen(instance, identityOptions);
-    const authState = app.auth.getAuthState(instance, authOptions);
-    const legacy = !isAuth && app.auth.hasLegacyCredentials(instance, identityOptions) ? true : undefined;
+    // A credential file that cannot be read is one profile's problem. Letting
+    // that throw abandoned the whole command, so a single unreadable profile
+    // hid the status of every other one.
+    let isAuth = false;
+    let lastSeen = null;
+    let legacy;
+    let authState;
+    let credentialError = null;
+    try {
+      isAuth = app.auth.isAuthenticatedFor(instance, identityOptions);
+      lastSeen = app.auth.getLastSeen(instance, identityOptions);
+      authState = app.auth.getAuthState(instance, authOptions);
+      legacy = !isAuth && app.auth.hasLegacyCredentials(instance, identityOptions) ? true : undefined;
+    } catch (error) {
+      credentialError = error;
+      authState = {
+        auth_method: normalizeAuthMethod(profile.auth_method, 'unconfigured'),
+        auth_source: 'unavailable',
+        state: error.code === 'credential_migration_required' ? 'migration_required' : 'storage_error',
+      };
+    }
     // Keep the established status field contract: unauthenticated
     // profiles omit auth_source, except legacy credentials retain
     // their historical `legacy` marker. getAuthState remains the
@@ -937,7 +955,19 @@ export async function showAuthStatus(argv, app) {
     let verifiedAt = null;
     let probe;
     let runtimeContext = argv.context ? { verified: false, status: 'not_attempted' } : undefined;
-    if (argv.local) {
+    if (credentialError) {
+      const migration = credentialError.code === 'credential_migration_required';
+      probe = {
+        status: 'not_attempted',
+        code: migration ? 'migration_required' : 'credential_storage_error',
+        classification: 'unavailable',
+        message: migration
+          ? 'A plaintext credential file from an earlier JSN version needs migration before this profile can be read.'
+          : credentialError.message,
+        hint: `Move this profile to the OS credential store: jsn auth login --profile ${quoteShellArg(name)}`,
+      };
+      verified = false;
+    } else if (argv.local) {
       probe = { status: 'not_attempted', code: 'not_requested', classification: 'not_checked' };
     } else if (!instance) {
       probe = app.auth.probeUnavailable?.('missing_instance') || { status: 'not_attempted', code: 'missing_instance', classification: 'unavailable' };
@@ -1014,9 +1044,11 @@ export async function showAuthStatus(argv, app) {
     });
   }
 
+  let authenticated;
+  try { authenticated = app.auth.isAuthenticated(); } catch { authenticated = false; }
   const result = {
     default_instance: defaultInstance,
-    authenticated: app.auth.isAuthenticated(),
+    authenticated,
     environment_auth: envToken ? true : undefined,
     profiles,
   };

@@ -104,3 +104,46 @@ it('status suggests switching, renewing, and editing a profile without identity 
   ]);
   assert.doesNotMatch(JSON.stringify(options), /fixture.service-now.com|limited/);
 });
+
+it('an unreadable credential file reports that profile as needing migration, not the whole table', async () => {
+  const instance = 'https://fixture.service-now.com';
+  const migration = Object.assign(
+    new Error('A plaintext credential file from an earlier JSN version exists for this profile.'),
+    { code: 'credential_migration_required' });
+  const store = {
+    load: (_instance, username) => {
+      if (username === 'stale-user') throw migration;
+      return { auth_method: 'gck', access_token: 'fixture-token', cookies: 'sid=fixture-cookie', auth_source: 'gck' };
+    },
+    save: () => assert.fail('status must not save'),
+    delete: () => assert.fail('status must not delete'),
+  };
+  const auth = new AuthManager({
+    getUsername: () => null, getEffectiveInstance: () => instance, getAuthMethod: () => 'gck',
+  }, { credentialStore: store });
+  const output = [];
+  const app = {
+    auth, session: {}, config: {
+      defaultProfile: 'working',
+      profiles: {
+        stale: { instance_url: instance, username: 'stale-user', auth_method: 'gck' },
+        working: { instance_url: instance, username: 'working-user', auth_method: 'gck' },
+      },
+    },
+    getSDKForProfile: () => assert.fail('--local must not construct an SDK'),
+    ok: data => output.push(data),
+  };
+  const commands = [];
+  const builder = { command: command => { commands.push(command); return builder; } };
+  authCmd(fn => argv => fn(argv, app)).builder(builder);
+  await commands.find(command => command.command === 'status').handler({ local: true });
+
+  const [stale, working] = output[0].profiles;
+  assert.equal(stale.diagnostics.state, 'migration_required');
+  assert.equal(stale.diagnostics.probe.code, 'migration_required');
+  assert.equal(working.diagnostics.state, 'available');
+  assert.match(output[0]._formatted, /Needs migration/);
+  assert.match(output[0]._formatted, /jsn auth login --profile stale/);
+  assert.doesNotMatch(output[0]._formatted, /stale-user/);
+});
+

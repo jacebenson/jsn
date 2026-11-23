@@ -231,7 +231,12 @@ it('default refusal does not open an existing plaintext credential', () => {
     assert.notEqual(args[0], file(), 'plaintext must not be opened without opt-in');
     return open(...args);
   });
-  assert.throws(load, /Existing plaintext credentials are preserved/);
+  // A leftover file is a migration, not a broken secure store: the message must
+  // name the file and the fix instead of blaming the OS credential backend.
+  assert.throws(load, error => error.code === 'credential_migration_required'
+    && /Existing plaintext credentials are preserved/.test(error.message)
+    && /plaintext credential file from an earlier JSN version/.test(error.message)
+    && !/PowerShell|FullLanguage|Add-Type/.test(error.message));
 });
 it('failed atomic replacement preserves the original PKCE state and cleans its temporary file', () => {
   savePKCEState(instance, { state: 'synthetic-original' }, 'fixture');
