@@ -14,7 +14,7 @@ COMMON COMMANDS
   discover   Find commands by task word or table
 
 ALL COMMANDS BY GROUP
-names only; jsn --all-commands --help has descriptions and flags
+names only; jsn --all-commands --help for details
   CORE             knowledge incidents changes requests tasks tickets approvals
   AUTOMATION       flows actions scriptactions scheduledjobs triggers asyncrules
                    rules decisiontables assignments scrapi email restmessage
@@ -28,8 +28,8 @@ names only; jsn --all-commands --help has descriptions and flags
   DATA             tables columns relationships cmdb includes import logs
                    properties records transactions snippets
   CONFIGURATION    setup auth updatesets scopes midservers platform
-  DEVELOPER        scan atf eval rest graphql codesearch docs diff perf skill
-                   version
+  DEVELOPER        scan atf eval rest graphql codesearch docs document diff perf
+                   skill version
   OTHER            cases workflows attachments store plugins compare
                    subscriptions skipped-updates customizations upgrade discover
 
