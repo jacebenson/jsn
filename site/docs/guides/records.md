@@ -288,21 +288,28 @@ Successful earlier chunks may have been read if a later aggregate request fails.
 
 ## Encoded-query validation
 
-User-supplied `--query` values on the records family, ticket/case/generic list
-commands, aggregate and filter-based mutations are parsed and checked against
+User-supplied encoded `--query` values on table-resolvable public commands,
+including shared lists, counts, aggregates and filter-based mutations are parsed and checked against
 on-demand, table-scoped metadata (`sys_db_object` ancestry plus one
 `sys_dictionary` read). The query string is never rewritten, re-encoded,
 substituted, retried or dropped: AND/OR/NQ clauses, escaped `^^` carets,
 `ORDERBY`/`ORDERBYDESC` directives and dot-walks reach ServiceNow
 byte-identically.
 
-- Demonstrably invalid syntax, an unknown visible field, or a dot-walk through a
-  non-reference field is refused with a structured diagnostic and suggestions.
+- Demonstrably invalid syntax or a dot-walk through a proven non-reference
+  field is refused with a structured diagnostic and suggestions. Operator
+  boundaries use visible field names. Missing fields remain unverified because
+  dictionary ACLs can hide them.
 - Denied, unavailable or incomplete metadata is reported as unverified
   (`query_validation.state` in JSON plus `warnings` in human output). Reads may
   continue with the original query. Hidden metadata is never reported as proof
   that a table or field is absent.
-- Dynamic/script syntax is reported as `unsupported`, never invalid.
+- Dynamic/script syntax, ON/NOTON, RELATIVE, DYNAMIC, RLQUERY and unsupported
+  directives are reported as `unsupported`, never invalid. Dot-walks beyond
+  five field components are unverified, never partially accepted. Ancestry is
+  capped at eight tables and dictionary reads at 1,000 rows. A missing or
+  inconsistent total-count receipt, empty dictionary, hidden type/reference,
+  malformed row or truncated response cannot prove a complete schema.
 - Filter-based mutations (`delete-many`, `bulk`) validate the complete filter
   before any count, enumeration, scope read or write, and fail closed with zero
   writes on any non-valid state. There is no skip-validation flag.
@@ -311,7 +318,9 @@ Usable metadata is cached on disk for five minutes per exact instance URL,
 selected profile and authenticated principal (owner-only files under the
 existing cache directory). Different instances, profiles or principals never
 share entries; an unverified identity uses in-process metadata only. Pass
-`--refresh-metadata` to `records list`, `aggregate`, `delete-many` or `bulk` to
-force a fresh read. Successful `records`/generic table or field mutations
+the global `--refresh-metadata` flag to force a fresh read. The principal must
+be independently read back from the authenticated provider; matching configured
+usernames are not proof. Cache files are capped at 256 KiB each, 64 entries and
+8 MiB in total. Successful table or field mutations
 invalidate affected entries. The five-minute window is a latency tradeoff, not
 authorization and not a guarantee that ACLs or schema stay stable inside it.

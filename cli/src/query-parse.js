@@ -9,10 +9,10 @@
 
 const SYMBOLIC = ['>=', '<=', '!=', '=', '>', '<'];
 const WORD = ['ISNOTEMPTY', 'INSTANCEOF', 'STARTSWITH', 'ENDSWITH', 'NOTLIKE',
-  'BETWEEN', 'NSAMEAS', 'SAMEAS', 'ISEMPTY', 'NOTIN', 'LIKE', 'IN'];
+  'NOT LIKE', 'NOT IN', 'BETWEEN', 'NSAMEAS', 'SAMEAS', 'ISEMPTY', 'NOTIN', 'LIKE', 'IN'];
 const CANONICAL = new Set([...SYMBOLIC, ...WORD]);
 const NO_VALUE = new Set(['ISEMPTY', 'ISNOTEMPTY']);
-const CONNECTOR = /^(OR|NQ|EQ)(?!RDERBY)/;
+const CONNECTOR = /^(OR(?!DERBY)|NQ|EQ|AND)/;
 
 const raw = value => String(value && typeof value === 'object' ? value.value ?? '' : value ?? '');
 
@@ -64,7 +64,7 @@ function splitClauses(query) {
   for (let i = 0; i < query.length; i++) {
     const char = query[i];
     if (char === '^') {
-      if (query[i + 1] === '^') { current += '^'; i++; continue; }
+      if (query[i + 1] === '^') { current += '^^'; i++; continue; }
       clauses.push(current); current = ''; continue;
     }
     if (escaped) { current += char; escaped = false; continue; }
@@ -97,9 +97,9 @@ function findOperator(clause) {
   if (at < 0) return null;
   if (at === symbol) {
     const op = SYMBOLIC.find(candidate => clause.startsWith(candidate, at));
-    return { field: clause.slice(0, at), operator: op, value: clause.slice(at + op.length), index: at };
+    return { field: clause.slice(0, at), operator: op, value: clause.slice(at + op.length).replaceAll('^^', '^'), index: at };
   }
-  return { field: clause.slice(0, word), operator: wordOp, value: clause.slice(word + wordOp.length), index: word };
+  return { field: clause.slice(0, word), operator: wordOp, value: clause.slice(word + wordOp.length).replaceAll('^^', '^'), index: word };
 }
 
 /**
@@ -135,7 +135,9 @@ export function parseEncodedQuery(query) {
     if (connected) { connector = connected[1]; clause = clause.slice(connected[0].length); }
     if (clause === '') continue;
 
-    if (/^(?:javascript|js):/i.test(clause) || /javascript:/i.test(clause)) {
+    if (/^(?:javascript|js):/i.test(clause) || /(?:javascript|js):/i.test(clause)
+      || /^(?:RLQUERY|ENDRLQUERY|GROUPBY|HAVING)/.test(clause)
+      || /(?:NOTON|ON|RELATIVE[A-Z]*|DYNAMIC)/.test(clause.split(/[=!<>]/, 1)[0])) {
       terms.push({ kind: 'unsupported', raw: rawClause, connector, reason: 'dynamic_script' });
       diagnostics.push({ code: 'unsupported_dynamic_query', severity: 'warning', term: rawClause,
         message: 'This term uses platform dynamic/script syntax, which jsn does not evaluate.',
@@ -146,8 +148,8 @@ export function parseEncodedQuery(query) {
     const found = findOperator(clause);
     if (!found) {
       const suggestions = closestOperators(clause);
-      terms.push({ kind: 'invalid', raw: rawClause, connector, code: 'missing_operator', field: clause });
-      diagnostics.push({ code: 'missing_operator', severity: 'error', term: rawClause,
+      terms.push({ kind: 'ambiguous', raw: rawClause, clause, connector, code: 'missing_operator', field: clause });
+      diagnostics.push({ code: 'missing_operator', severity: 'warning', term: rawClause,
         message: `"${rawClause}" has no recognised operator.`,
         ...(suggestions.length ? { suggestions } : {}),
         hint: suggestions.length ? `Did you mean a canonical operator such as ${suggestions.join(', ')}?` : 'Use fieldOPERATORvalue, for example active=true.' });
@@ -174,13 +176,13 @@ export function parseEncodedQuery(query) {
         hint: 'The query is unchanged; confirm this is intentional.' });
     }
     terms.push({
-      kind: 'clause', raw: rawClause, connector, field, operator: found.operator, value: found.value,
+      kind: 'clause', raw: rawClause, clause, connector, field, operator: found.operator, value: found.value,
       path: field.split('.'), inherited: false,
     });
   }
 
   const invalid = terms.some(term => term.kind === 'invalid') || diagnostics.some(d => d.severity === 'error');
-  const unsupported = terms.some(term => term.kind === 'unsupported');
+  const unsupported = terms.some(term => term.kind === 'unsupported' || term.kind === 'ambiguous');
   return { original, terms, diagnostics, unsupported, invalid };
 }
 

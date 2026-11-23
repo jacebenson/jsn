@@ -464,6 +464,7 @@ export class SDKClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (['sys_db_object', 'sys_dictionary', 'sys_dictionary_override'].includes(table)) this.afterMetadataMutation?.(table);
     return result?.result || null;
   }
 
@@ -474,6 +475,7 @@ export class SDKClient {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    if (['sys_db_object', 'sys_dictionary', 'sys_dictionary_override'].includes(table)) this.afterMetadataMutation?.(table);
     return result?.result || null;
   }
 
@@ -481,6 +483,7 @@ export class SDKClient {
     await this._guardTableMutation(table, sysID);
     const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
     await this.request(endpoint, { method: 'DELETE' });
+    if (['sys_db_object', 'sys_dictionary', 'sys_dictionary_override'].includes(table)) this.afterMetadataMutation?.(table);
   }
 
   // Flow Designer actions use full Process Flow documents, not table CRUD.

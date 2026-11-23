@@ -9,7 +9,7 @@ import { declareCapabilities } from '../capabilities.js';
 export const decisiontablesCmd = (wrap) => {
   const name = 'decisiontables';
   const singular = 'decision table';
-  declareCapabilities(name, { mutationSubcommands: ['create', 'update', 'delete'] });
+  declareCapabilities(name, { queryTable: 'sys_decision', mutationSubcommands: ['create', 'update', 'delete'] });
 
   const readData = (argv) => {
     if (argv.dataFile) return fs.readFileSync(argv.dataFile, 'utf8');

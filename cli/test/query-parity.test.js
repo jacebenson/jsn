@@ -88,7 +88,7 @@ test('CLI -q filters records and generic commands, -S/quiet stay data-only', t =
     assert.equal(Object.hasOwn(result, 'data'), false);
   }
   const urls = f.requests().filter(r => new URL(r.url).pathname.startsWith('/api/now/table/')
-    && !/\/sys_(?:db_object|dictionary)$/.test(new URL(r.url).pathname));
+    && !/\/sys_(?:db_object|dictionary|user)$/.test(new URL(r.url).pathname));
   assert.ok(urls.length >= 5);
   assert.ok(urls.every(r => new URL(r.url).searchParams.get('sysparm_query').split('^').includes('active=true')));
 });

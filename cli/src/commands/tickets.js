@@ -5,7 +5,7 @@ import { validateReadQuery, queryDiagnostics } from '../query-validate.js';
 import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 
-declareCapabilities('tickets', { mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+declareCapabilities('tickets', { queryTable: 'task', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function ticketsCmd(wrap) {
   return {

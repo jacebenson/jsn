@@ -6,7 +6,7 @@ import { getStringField, interactiveList, assertSafeExactMatch } from '../helper
 import { declareCapabilities } from '../capabilities.js';
 
 // `domains set` writes the chosen domain into the profile config.
-declareCapabilities('domains', { mutationContext: 'operational', mutationSubcommands: ['set', 'session-set', 'session-reset'] });
+declareCapabilities('domains', { queryTable: 'domain', mutationContext: 'operational', mutationSubcommands: ['set', 'session-set', 'session-reset'] });
 
 const DETAIL_FIELDS = 'sys_id,name,parent,sys_domain_path,description,active,sys_created_on,sys_updated_on';
 

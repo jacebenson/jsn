@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { validateEncodedQuery, validateReadQuery, assertWriteQuery, queryDiagnostics, metadataIdentity } from '../src/query-validate.js';
 import { recordsCmd } from '../src/commands/records.js';
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { after } from 'node:test';
+const cacheHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn549-validate-'));
+process.env.XDG_CACHE_HOME = cacheHome;
+after(() => fs.rmSync(cacheHome, { recursive: true, force: true }));
 const id = letter => letter.repeat(32);
 
 function metadataSdk({ deny = false, fields } = {}) {
@@ -20,7 +27,7 @@ function metadataSdk({ deny = false, fields } = {}) {
   };
   return {
     calls,
-    async list(table, params) {
+    async list(table, params, opts = {}) {
       calls.push({ table, query: params.get('sysparm_query'), fields: params.get('sysparm_fields'), limit: params.get('sysparm_limit') });
       if (deny) throw Object.assign(new Error('denied'), { status: 403 });
       if (table === 'sys_db_object') {
@@ -34,7 +41,9 @@ function metadataSdk({ deny = false, fields } = {}) {
       }
       if (table === 'sys_dictionary') {
         const owners = (params.get('sysparm_query').match(/^nameIN([^^]+)\^/) || [])[1]?.split(',') || [];
-        return owners.flatMap(owner => rows[owner] || []);
+        const result = owners.flatMap(owner => rows[owner] || []);
+        if (opts.responseMetadata) opts.responseMetadata.total = result.length;
+        return result;
       }
       return [];
     },
@@ -53,6 +62,7 @@ function appFor(sdk, { profile, username = 'alice' } = {}) {
   };
 }
 
+appFor.counter = 0;
 const identity = { instance: 'https://dev1.service-now.com', profile: 'work', principal: 'alice' };
 let identityCounter = 0;
 const ident = () => ({ ...identity, profile: `work-${++identityCounter}` });
@@ -67,7 +77,7 @@ test('valid query uses inherited fields and reference dot-walks', async () => {
 
 test('unknown field and invalid dot-walk are invalid with actionable suggestions', async () => {
   const unknown = await validateEncodedQuery({ sdk: metadataSdk(), identity: ident(), table: 'x_case', query: 'short_descripitonLIKEfoo' });
-  assert.equal(unknown.state, 'invalid');
+  assert.equal(unknown.state, 'incomplete');
   const diagnostic = unknown.diagnostics.find(d => d.code === 'unknown_field');
   assert.ok(diagnostic);
   assert.ok(diagnostic.suggestions.includes('short_description'));
@@ -76,11 +86,11 @@ test('unknown field and invalid dot-walk are invalid with actionable suggestions
   assert.equal(walk.diagnostics.find(d => d.code === 'invalid_dot_walk').field, 'short_description');
 });
 
-test('operator typo is rejected without any metadata request', async () => {
+test('operator typo is rejected using visible field metadata', async () => {
   const sdk = metadataSdk();
   const verdict = await validateEncodedQuery({ sdk, identity, table: 'x_case', query: 'short_descriptionSTARTWITHfoo' });
   assert.equal(verdict.state, 'invalid');
-  assert.equal(sdk.calls.length, 0);
+  assert.ok(sdk.calls.length > 0);
   assert.equal(verdict.query, 'short_descriptionSTARTWITHfoo');
 });
 
@@ -109,8 +119,8 @@ test('diagnostics carry limits and byte-identical query for unverified reads', a
   assert.ok(data.warnings.length > 0);
 });
 
-test('identity is only trusted when profile and SDK usernames agree', () => {
-  assert.equal(metadataIdentity(appFor(metadataSdk())).principal, 'alice');
+test('configured usernames alone do not verify a principal', () => {
+  assert.equal(metadataIdentity(appFor(metadataSdk())).principal, '');
   assert.equal(metadataIdentity(appFor(metadataSdk(), { username: 'alice' }) && { ...appFor(metadataSdk()), sdk: { username: 'bob' } }).principal, '');
   assert.equal(metadataIdentity({ getEffectiveInstance: () => 'https://x' }).principal, '');
 });
@@ -130,8 +140,8 @@ function writeFixture({ deny = false } = {}) {
   app.sdk.aggregateCount = async () => { state.counts++; return 0; };
   app.sdk.delete = async (table, idValue) => { state.deletes.push(idValue); };
   app.sdk.update = async (table, idValue) => { state.updates.push(idValue); };
-  app.sdk.list = async (table, params) => {
-    if (table === 'sys_db_object' || table === 'sys_dictionary') return base.list(table, params);
+  app.sdk.list = async (table, params, opts) => {
+    if (table === 'sys_db_object' || table === 'sys_dictionary') return base.list(table, params, opts);
     state.recordLists++;
     return [];
   };

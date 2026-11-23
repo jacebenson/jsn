@@ -2,7 +2,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 // Raw REST passthrough — can hit any endpoint with any method, so the whole
 // command is a mutation surface on read-only profiles.
-declareCapabilities('rest', { mutationSubcommands: [''], mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'] });
+declareCapabilities('rest', { encodedQuery: false, mutationSubcommands: [''], mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'] });
 
 export function restCmd(wrap) {
   return {

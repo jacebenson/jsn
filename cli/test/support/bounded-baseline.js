@@ -57,6 +57,16 @@ export async function measureBaseline({ repetitions = 5, budgets } = {}) {
       const url = new URL(req.url, 'http://fixture');
       calls.push({ method: req.method, path: url.pathname });
       assert.equal(req.method, 'GET');
+      if (url.pathname === '/api/now/table/sys_user') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ result: [] })); }
+      if (url.pathname === '/api/now/table/sys_db_object' || url.pathname === '/api/now/table/sys_dictionary') {
+        const query = url.searchParams.get('sysparm_query');
+        const target = fixture.tables.find(t => query === `name=${t.table}` || query === `nameIN${t.table}^elementISNOTEMPTY`);
+        assert.ok(target, 'metadata stays table-scoped');
+        const result = url.pathname.endsWith('/sys_db_object') ? [{ sys_id: 'a'.repeat(32), name: target.table, super_class: '' }]
+          : [...new Set([...target.fields, 'active', 'priority'])].map(element => ({ name: target.table, element, internal_type: 'string', reference: '' }));
+        res.setHeader('X-Total-Count', String(result.length)); res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({ result }));
+      }
       const table = fixture.tables.find(t => url.pathname.endsWith('/' + t.table));
       assert.ok(table, 'known table only');
       assert.equal(url.searchParams.get('sysparm_query'), table.query);
@@ -113,7 +123,10 @@ globalThis.fetch = (request, options) => {
         const elapsed = performance.now() - start;
         validate(stdout, stderr);
         assert.deepEqual(violations, []);
-        const requests = requestLog.slice(before);
+        const allRequests = requestLog.slice(before);
+        const validationRequests = allRequests.filter(r => /^\/api\/now\/table\/sys_(?:user|db_object|dictionary)$/.test(r.path));
+        if (!id.startsWith('docs/')) assert.equal(validationRequests.length, 3, 'bounded identity and table metadata reads');
+        const requests = allRequests.filter(r => !validationRequests.includes(r));
         assert.equal(requests.length, expectedCalls, id + ' request count');
         assert.ok(requests.every(r => r.method === 'GET'));
         samples.push({ elapsed_ms: elapsed, stdout_bytes: Buffer.byteLength(stdout), stderr_bytes: Buffer.byteLength(stderr),

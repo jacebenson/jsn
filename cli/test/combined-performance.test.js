@@ -20,7 +20,12 @@ async function fixture(t, { total = '7', batchMode = 'ok', delay = 0 } = {}) {
   const server = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk;
     const call = { method: req.method, path: req.url, body: body ? JSON.parse(body) : null, auditFinished };
-    calls.push(call);
+    const parsed = new URL(req.url, 'http://fixture');
+    const validationRead = parsed.searchParams.get('sysparm_fields') === 'sys_id,name,super_class'
+      || parsed.searchParams.get('sysparm_fields') === 'sys_id,name,element,internal_type,reference'
+      || parsed.searchParams.get('sysparm_query') === 'user_name=javascript:gs.getUserName()';
+    if (!validationRead) calls.push(call);
+    else { assert.equal(req.method, 'GET'); assert.ok(new URL(req.url, 'http://fixture').searchParams.get('sysparm_limit') <= 1000); }
     const respond = (status, data, headers = {}) => { res.writeHead(status, { 'Content-Type': 'application/json', ...headers }); res.end(JSON.stringify(data)); };
     const dataFor = path => {
       const url = new URL(path, 'http://fixture');

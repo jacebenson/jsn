@@ -41,6 +41,12 @@ test('real CLI verifies intended customization context and never writes on refus
       const record = { sys_id: set, name: mode === 'global' ? 'Default' : 'Feature', application: mode === 'scope-mismatch' ? other : scope, state: mode === 'complete' ? 'complete' : mode === 'incomplete' ? '' : 'in progress' };
       return send(id ? record : mode === 'ambiguous' ? [record, { ...record, sys_id: other }] : query.includes('wrong') ? [{ ...record, sys_id: other }] : [record]);
     }
+    if (table === 'sys_dictionary') {
+      const rows = [{ name: 'sys_script', element: 'active', internal_type: 'boolean', reference: '' },
+        { name: 'sys_metadata', element: 'sys_id', internal_type: 'string', reference: '' }];
+      res.setHeader('X-Total-Count', String(rows.length)); return send(rows);
+    }
+    if (table === 'sys_db_object' && query === `sys_id=${other}`) return send([{ sys_id: other, name: 'sys_metadata', super_class: '' }]);
     if (table === 'sys_db_object') {
       if (id) return send({ sys_id: other, name: 'sys_metadata', super_class: '' });
       return send([{ sys_id: other, name: query.split('=')[1], super_class: query.includes('incident') ? '' : other }]);

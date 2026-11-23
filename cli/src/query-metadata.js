@@ -27,11 +27,13 @@ function classifyFailure(error) {
 
 async function readList(sdk, table, searchParams) {
   try {
-    const rows = await sdk.list(table, searchParams);
+    const responseMetadata = {};
+    const read = sdk.listStrict || sdk.list;
+    const rows = await read.call(sdk, table, searchParams, { responseMetadata });
     if (!Array.isArray(rows)) return { state: 'unavailable', reason: 'Metadata response was not an array' };
-    return { rows };
+    return { rows, total: responseMetadata.total };
   } catch (error) {
-    return { state: classifyFailure(error), reason: error?.message || 'Metadata read failed' };
+    return { state: classifyFailure(error), reason: 'Metadata read failed or returned an invalid envelope' };
   }
 }
 
@@ -41,7 +43,7 @@ async function readList(sdk, table, searchParams) {
  * `incomplete` is never absence: callers must not treat missing fields as
  * definitively unknown-to-the-platform.
  */
-export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limit = FIELD_LIMIT, refresh = false } = {}) {
+export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limit = FIELD_LIMIT } = {}) {
   if (!isName(table)) {
     return { state: 'unavailable', table, hierarchy: [], fields: {}, reason: 'Invalid table name', requests: [] };
   }
@@ -69,9 +71,10 @@ export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limi
       break;
     }
     const row = result.rows[0];
-    const name = raw(row.name);
-    const id = raw(row.sys_id);
-    if (!isName(name) || visited.has(name)) {
+    const name = raw(row?.name);
+    const id = raw(row?.sys_id);
+    if (!row || typeof row !== 'object' || !isName(name) || visited.has(name)
+      || (depth === 0 ? name !== table : id !== next.query.slice(7))) {
       state = 'incomplete';
       reason = 'Malformed or cyclic sys_db_object ancestry';
       break;
@@ -109,12 +112,18 @@ export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limi
   }
   const fields = {};
   for (const row of dictionary.rows) {
-    const owner = raw(row.name);
-    const element = raw(row.element);
+    const owner = raw(row?.name);
+    const element = raw(row?.element);
     if (!isName(owner) || !isName(element) || !names.includes(owner)) {
       state = state === 'observed' ? 'incomplete' : state;
       reason ||= 'Ignored a malformed or out-of-scope sys_dictionary row';
       continue;
+    }
+    if (!Object.hasOwn(row, 'internal_type') || !raw(row.internal_type)
+      || !Object.hasOwn(row, 'reference')
+      || (raw(row.internal_type) === 'reference' && !isName(raw(row.reference)))) {
+      state = state === 'observed' ? 'incomplete' : state;
+      reason ||= 'Field type or reference metadata is not visible';
     }
     fields[owner] ||= {};
     fields[owner][element] = {
@@ -122,11 +131,13 @@ export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limi
       reference: isName(raw(row.reference)) ? raw(row.reference) : '',
     };
   }
-  if (dictionary.rows.length >= limit) {
+  if (!dictionary.rows.length || !Number.isSafeInteger(dictionary.total)
+    || dictionary.total !== dictionary.rows.length || dictionary.rows.length >= limit) {
     state = state === 'observed' ? 'incomplete' : state;
     reason ||= `sys_dictionary limit ${limit} reached; field coverage is incomplete`;
   }
-  return { state, table, hierarchy: names, fields, reason, requests };
+  return { state, table, hierarchy: names, fields, reason, requests,
+    complete: state === 'observed', source: 'table-api', total: dictionary.total };
 }
 
 /** Resolve one field through the dictionary, marking where it was inherited. */

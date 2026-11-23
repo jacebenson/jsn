@@ -25,7 +25,7 @@ import { errUsage, errNotFound } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 // approve/reject/submit change approval state on records.
-declareCapabilities('approvals', { mutationContext: 'operational', mutationSubcommands: ['approve', 'reject', 'submit'] });
+declareCapabilities('approvals', { queryTable: 'sysapproval_approver', mutationContext: 'operational', mutationSubcommands: ['approve', 'reject', 'submit'] });
 
 // Raw sysapproval_approver.state values (verified live).
 const APPROVAL_STATES = [

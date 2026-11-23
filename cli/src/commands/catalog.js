@@ -4,7 +4,7 @@ import { resolveSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 import { enrichCatalogItem, buildCatalogFormatted } from './catalog/enrich.js';
 
-declareCapabilities('catalogitems', { mutationSubcommands: ['create', 'order'], mutationContextExemptSubcommands: ['order'], localPreviewSubcommands: ['order'] });
+declareCapabilities('catalogitems', { queryTable: 'sc_cat_item', mutationSubcommands: ['create', 'order'], mutationContextExemptSubcommands: ['order'], localPreviewSubcommands: ['order'] });
 
 export function catalogCmd(wrap) {
   return {

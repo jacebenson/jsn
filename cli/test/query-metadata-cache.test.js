@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readTableMetadata, resolveField } from '../src/query-metadata.js';
-import { createQueryMetadataCache, identityKey } from '../src/query-cache.js';
+import { createQueryMetadataCache, identityKey, QUERY_CACHE_LIMITS } from '../src/query-cache.js';
 
 const id = letter => letter.repeat(32);
 const ref = value => ({ value });
@@ -12,7 +12,7 @@ const ref = value => ({ value });
 function fixture({ deny = '', fail = '', empty = false, truncated = false, parentHidden = false } = {}) {
   const calls = [];
   const sdk = {
-    async list(table, params) {
+    async list(table, params, opts = {}) {
       calls.push({ table, query: params.get('sysparm_query'), fields: params.get('sysparm_fields'), limit: params.get('sysparm_limit') });
       if (deny === table) throw Object.assign(new Error('Access denied'), { status: 403 });
       if (fail === table) throw Object.assign(new Error('Server error'), { status: 500 });
@@ -32,6 +32,7 @@ function fixture({ deny = '', fail = '', empty = false, truncated = false, paren
           { sys_id: id('f'), name: 'task', element: 'parent', internal_type: 'reference', reference: 'task' },
         ];
         if (truncated) return Array.from({ length: 1000 }, (_, i) => ({ sys_id: String(i).padStart(32, '0'), name: 'x_case', element: `f${i}`, internal_type: 'string', reference: '' }));
+        if (opts.responseMetadata) opts.responseMetadata.total = rows.length;
         return rows;
       }
       return [];
@@ -80,7 +81,7 @@ test('hidden ancestor and truncated dictionary are incomplete', async () => {
 });
 
 const identity = { instance: 'https://dev1.service-now.com', profile: 'work', principal: 'alice' };
-const payload = { state: 'observed', hierarchy: ['x_case', 'task'], fields: { x_case: { short_description: { type: 'string', reference: '' } } } };
+const payload = { state: 'observed', complete: true, source: 'table-api', total: 1, hierarchy: ['x_case', 'task'], fields: { x_case: { short_description: { type: 'string', reference: '' } } } };
 
 function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'jsn549-cache-')); }
 
@@ -114,7 +115,7 @@ test('explicit refresh and affected-entry invalidation remove only the right ent
   const dir = tmpDir();
   const cache = createQueryMetadataCache({ identity, dir });
   cache.set('x_case', payload);
-  cache.set('incident', payload);
+  cache.set('incident', { ...payload, hierarchy: ['incident'], fields: { incident: { active: { type: 'boolean', reference: '' } } } });
   cache.refresh('x_case');
   assert.equal(cache.get('x_case'), null);
   assert.ok(cache.get('incident'));
@@ -135,4 +136,30 @@ test('corrupt, malformed and foreign cache entries are rejected', () => {
   assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
   fs.writeFileSync(file, JSON.stringify({ version: 1, key: identityKey(identity, 'x_case'), instance: identity.instance, profile: 'work', principal: 'alice', table: 'x_case', fetched_at: Date.now(), payload: { state: 'denied', hierarchy: ['x_case'], fields: {} } }));
   assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
+});
+
+test('future timestamps and oversized entries cannot be reused', () => {
+  const dir = tmpDir();
+  const cache = createQueryMetadataCache({ identity, dir });
+  cache.set('x_case', payload);
+  const file = path.join(dir, `${identityKey(identity, 'x_case')}.json`);
+  const entry = JSON.parse(fs.readFileSync(file));
+  entry.fetched_at = Date.now() + 60000;
+  fs.writeFileSync(file, JSON.stringify(entry));
+  assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
+  fs.writeFileSync(file, ' '.repeat(QUERY_CACHE_LIMITS.entryBytes + 1));
+  assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
+});
+
+test('ancestor invalidation uses payload hierarchy and respects other principals', () => {
+  const dir = tmpDir();
+  const cache = createQueryMetadataCache({ identity, dir });
+  cache.set('x_case', payload);
+  const otherIdentity = { ...identity, principal: 'bob' };
+  createQueryMetadataCache({ identity: otherIdentity, dir }).set('x_case', payload);
+  cache.invalidate({ tables: ['task'] });
+  assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
+  assert.ok(createQueryMetadataCache({ identity: otherIdentity, dir }).get('x_case'));
+  createQueryMetadataCache({ identity: { ...identity, principal: '' }, dir }).invalidate({ all: true });
+  assert.equal(createQueryMetadataCache({ identity: otherIdentity, dir }).get('x_case'), null);
 });

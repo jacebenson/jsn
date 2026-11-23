@@ -13,7 +13,7 @@ export const flowsCmdDefinition = {
   aliases: ['flow'],
   describe: 'Manage Flow Designer flows',
 };
-declareCapabilities('flows', { transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+declareCapabilities('flows', { queryTable: argv => argv._?.[1] === 'executions' ? 'sys_flow_context' : 'sys_hub_flow', transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
 export const flowsCmd = wrap => ({ ...flowsCmdDefinition, load: () => require('./commands/flows.js').flowsCmd(wrap) });
 
 export const workflowsCmdDefinition = {
@@ -21,7 +21,7 @@ export const workflowsCmdDefinition = {
   aliases: ['workflow'],
   describe: 'Inspect legacy Workflow Editor workflows (read-only)',
 };
-declareCapabilities('workflows', { mutationSubcommands: [] });
+declareCapabilities('workflows', { queryTable: 'wf_workflow', mutationSubcommands: [] });
 export const workflowsCmd = wrap => ({ ...workflowsCmdDefinition, load: () => require('./commands/workflows.js').workflowsCmd(wrap) });
 
 export const midserversCmdDefinition = {
@@ -29,7 +29,7 @@ export const midserversCmdDefinition = {
   aliases: ['midserver', 'mid'],
   describe: 'Manage ServiceNow MID Servers and run commands through them',
 };
-declareCapabilities('midservers', { mutationContext: 'operational', mutationSubcommands: ['add', 'remove', 'execute', 'start', 'stop', 'validate'] });
+declareCapabilities('midservers', { queryTable: 'ecc_agent', mutationContext: 'operational', mutationSubcommands: ['add', 'remove', 'execute', 'start', 'stop', 'validate'] });
 export const midserversCmd = wrap => ({ ...midserversCmdDefinition, load: () => require('./commands/midservers.js').midserversCmd(wrap) });
 
 export const subscriptionsCmdDefinition = {

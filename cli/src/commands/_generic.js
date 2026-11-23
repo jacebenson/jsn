@@ -135,8 +135,8 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         },
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
-          const verdict = await validateReadQuery(app, { table, query });
           const constrainedQuery = constrainQuery(query, extraQuery);
+          const verdict = await validateReadQuery(app, { table, query, refresh: argv['refresh-metadata'] });
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
           const limit = argv.limit;
 

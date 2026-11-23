@@ -15,6 +15,9 @@ import {
   resolveFieldsParam,
 } from '../helpers.js';
 import { errNotFound, errUsage } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
+declareCapabilities('cmdb', { queryTable: 'cmdb_ci' });
+
 import { cmdbSearchCmd } from './cmdb-search.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;

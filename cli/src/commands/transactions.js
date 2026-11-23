@@ -103,6 +103,9 @@ function formatTopTransactions(groups) {
   return `${lines.join('\\n')}\\n`;
 }
 
+import { declareCapabilities } from '../capabilities.js';
+declareCapabilities('transactions', { queryTable: 'syslog_transaction' });
+
 export function topTransactionsCmd(wrap) {
   return {
     command: 'top',

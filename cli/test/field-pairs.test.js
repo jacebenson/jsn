@@ -14,6 +14,7 @@ import { incidentsCmd } from '../src/commands/incidents.js';
 import { ticketsCmd } from '../src/commands/tickets.js';
 import { captureSubcommands, findCommand, wrapHandler } from './support/command-test-helpers.js';
 import { makeApp } from './support/app-test-helpers.js';
+import { queryMetadataFixture } from './support/query-metadata-fixture.js';
 
 function command(module, name) {
   return findCommand(captureSubcommands(module(wrapHandler)), name);
@@ -110,7 +111,7 @@ describe('registered mutation commands accept field pairs', () => {
     const updates = [];
     const app = makeApp({ sdk: {
       aggregateCount: async () => 2,
-      list: async () => [{ sys_id: 'a' }, { sys_id: 'b' }],
+      list: async (table, params, opts) => queryMetadataFixture(table, params, opts) ?? [{ sys_id: 'a' }, { sys_id: 'b' }],
       update: async (table, id, body) => { updates.push({ table, id, body }); },
     } });
     const bulk = command(recordsCmd, 'bulk');

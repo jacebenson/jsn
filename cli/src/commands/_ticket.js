@@ -12,7 +12,7 @@ import { declareCapabilities } from '../capabilities.js';
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap, opts = {}) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
   // Root-level command only.
-  declareCapabilities(displayName, { mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+  declareCapabilities(displayName, { queryTable: table, mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
   return {
     command: `${displayName} [subcommand]`,
     aliases: [table, alias],
@@ -31,7 +31,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             .option('offset', { alias: 'o', type: 'number', default: 0, describe: 'Offset for pagination' }),
           handler: wrap(async (argv, app) => {
             const query = argv.query || '';
-            const verdict = await validateReadQuery(app, { table, query });
+            const verdict = await validateReadQuery(app, { table, query, refresh: argv['refresh-metadata'] });
             const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
             const limit = argv.limit;
             const offset = argv.offset;

@@ -17,7 +17,8 @@ function fixture() {
   let data;
   const sdk = {
     username: 'alice',
-    async list(table, params) {
+    async list(table, params, opts = {}) {
+      if (table === 'sys_dictionary' && opts.responseMetadata) opts.responseMetadata.total = 2;
       if (table === 'sys_db_object') {
         const query = params.get('sysparm_query');
         if (query === 'name=incident') return [{ sys_id: id('a'), name: 'incident', super_class: '' }];

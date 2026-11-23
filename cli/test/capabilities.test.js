@@ -22,6 +22,7 @@ describe('capabilities registry', () => {
     const caps = collectCapabilities();
     // Spot-check a factory-built CRUD command
     assert.deepStrictEqual(caps.get('incidents'), {
+      queryTable: 'incident',
       mutationContext: 'operational',
       mutationSubcommands: ['create', 'update', 'delete'],
     });

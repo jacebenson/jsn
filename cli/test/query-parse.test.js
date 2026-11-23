@@ -24,7 +24,8 @@ test('parser recognises canonical operators and values without rewriting', () =>
 
 test('operator typo is reported with a canonical suggestion, not silently fixed', () => {
   const parsed = parseEncodedQuery('nameSTARTWITHfoo');
-  assert.equal(parsed.invalid, true);
+  assert.equal(parsed.invalid, false);
+  assert.equal(parsed.unsupported, true);
   const diagnostic = parsed.diagnostics.find(d => d.code === 'missing_operator');
   assert.ok(diagnostic, 'missing_operator diagnostic');
   assert.ok(diagnostic.suggestions.includes('STARTSWITH'));
