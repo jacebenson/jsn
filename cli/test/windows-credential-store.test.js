@@ -131,7 +131,7 @@ test('host discovery never retries policy, capability or native denial', () => {
 });
 
 test('static policy gate distinguishes stock defaults and explicit enterprise policy before native/request access', () => {
-  // Deliberate security invariant documented in GLOSSARY.md, Windows credential helper:
+  // Deliberate security invariant documented in site/docs/maintainers/domain-model.md, Windows credential helper:
   // the exact packaged source must gate enterprise and local restrictions before
   // Add-Type/stdin. These are source/protocol checks, not PowerShell execution.
   const source = fs.readFileSync(new URL('../src/auth/windows-credential-store.ps1', import.meta.url), 'utf8');

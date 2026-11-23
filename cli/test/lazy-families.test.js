@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Architecture invariant documented in GLOSSARY.md, Lazy command family.
+// Architecture invariant documented in site/docs/maintainers/domain-model.md, Lazy command family.
 test('real executable loads only selected heavy families; discovery retains eager safety policy', () => {
   const home = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-lazy-'));
   const cliDir = fileURLToPath(new URL('../', import.meta.url));

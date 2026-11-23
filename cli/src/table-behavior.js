@@ -2,7 +2,7 @@
 //
 // Inventories accessible configuration associated with a table and its
 // ancestors. It does NOT execute scripts, evaluate conditions, or predict
-// which artifact runs for a record. See docs/decisions and GLOSSARY.md.
+// which artifact runs for a record. See docs/decisions and site/docs/maintainers/domain-model.md.
 //
 // Design informed by now-sdk-ext-core's TableBehaviorDiscovery (MIT,
 // Copyright (c) 2026 SoniSoft Inc). This implementation is written for jsn's

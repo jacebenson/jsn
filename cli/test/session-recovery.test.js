@@ -1,7 +1,7 @@
 // Bounded, safe session recovery (issue #403).
 //
 // Contract: docs/AUTH_LIFECYCLE.md § "Runtime authentication recovery" and
-// GLOSSARY.md § "Runtime authentication recovery". A rejected session is
+// site/docs/maintainers/domain-model.md § "Runtime authentication recovery". A rejected session is
 // replaced at most once, a request is replayed at most once and only when the
 // rejection proves it never ran, concurrent requests share one recovery, and an
 // unrecoverable session fails with actionable guidance instead of replaying.
