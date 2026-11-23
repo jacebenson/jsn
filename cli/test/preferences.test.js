@@ -140,7 +140,9 @@ describe('set/unset persistence', () => {
     assert.equal(raw.instance_url, 'https://keep.example');
     assert.deepEqual(raw.custom_key, { keep: true });
     assert.equal(raw.profiles.prod.instance_url, 'https://prod.example');
-    assert.equal(fs.statSync(globalConfigPath()).mode & 0o777, 0o600);
+    // Windows does not expose POSIX permission bits; the persistence checks
+    // above and below still run there, while Unix verifies the private mode.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(globalConfigPath()).mode & 0o777, 0o600);
 
     setPreference({ key: 'testing.methods', value: 'fixscripts,backgroundscripts' });
     assert.deepEqual(readGlobal().preferences.testing.methods, ['fixscripts', 'backgroundscripts']);
