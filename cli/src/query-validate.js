@@ -85,7 +85,8 @@ export async function validateEncodedQuery({ sdk, table, query, identity = {}, r
       let metadata = await load(currentTable);
       if (metadata.state !== 'observed') {
         state = worse(state, metadata.state);
-        diagnostics.push({ ...diagnostic(metadata.state, term, currentTable), table: currentTable });
+        diagnostics.push({ ...diagnostic(metadata.state, term, currentTable), table: currentTable,
+          ...(metadata.suggestions?.length ? { suggestions: metadata.suggestions } : {}) });
         continue;
       }
       // Resolve operator boundaries against accessible dictionary names, longest
@@ -117,6 +118,13 @@ export async function validateEncodedQuery({ sdk, table, query, identity = {}, r
         if (term.kind === 'ambiguous' && !resolved) {
           state = worse(state, 'unsupported'); continue;
         }
+      }
+      if (['SAMEAS', 'NSAMEAS', 'INSTANCEOF', 'BETWEEN'].includes(term.operator)) {
+        state = worse(state, 'unsupported');
+        diagnostics.push({ code: 'unsupported_operands', severity: 'warning', state: 'unsupported', term: term.raw,
+          message: `${term.operator} operand semantics are not fully verified; the original query is unchanged.`,
+          hint: 'Use a filter whose complete operands can be verified before writing. See jsn records list --help.' });
+        continue;
       }
       const path = term.path || term.field.split('.');
       if (path.length > MAX_DOT_WALK) {
@@ -152,7 +160,8 @@ export async function validateEncodedQuery({ sdk, table, query, identity = {}, r
         metadata = await load(currentTable);
         if (metadata.state !== 'observed') {
           state = worse(state, metadata.state);
-          diagnostics.push(diagnostic(metadata.state, term, currentTable)); break;
+          diagnostics.push({ ...diagnostic(metadata.state, term, currentTable),
+            ...(metadata.suggestions?.length ? { suggestions: metadata.suggestions } : {}) }); break;
         }
       }
     }

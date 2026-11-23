@@ -21,7 +21,8 @@ async function fixture(t, { total = '7', batchMode = 'ok', delay = 0 } = {}) {
     let body = ''; for await (const chunk of req) body += chunk;
     const call = { method: req.method, path: req.url, body: body ? JSON.parse(body) : null, auditFinished };
     const parsed = new URL(req.url, 'http://fixture');
-    const validationRead = parsed.searchParams.get('sysparm_fields') === 'sys_id,name,super_class'
+    const validationRead = (parsed.pathname === '/api/now/table/sys_db_object' && parsed.searchParams.get('sysparm_query')?.startsWith('nameSTARTSWITH'))
+      || parsed.searchParams.get('sysparm_fields') === 'sys_id,name,super_class'
       || parsed.searchParams.get('sysparm_fields') === 'sys_id,name,element,internal_type,reference'
       || parsed.searchParams.get('sysparm_query') === 'user_name=javascript:gs.getUserName()';
     if (!validationRead) calls.push(call);

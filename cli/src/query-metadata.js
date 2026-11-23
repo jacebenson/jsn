@@ -1,7 +1,7 @@
 // On-demand, table-scoped metadata for encoded-query validation.
 //
-// Two bounded reads at most per table: a sys_db_object ancestry walk and one
-// sys_dictionary request covering the visible ancestors. Nothing here dumps a
+// A bounded sys_db_object ancestry walk and one sys_dictionary request cover
+// visible ancestors. Unresolved tables allow one bounded name-candidate lookup. Nothing here dumps a
 // whole instance schema, and nothing here treats a hidden row as absence.
 
 const FIELD_LIMIT = 1000;
@@ -37,6 +37,32 @@ async function readList(sdk, table, searchParams) {
   }
 }
 
+// One prefix-bounded, ACL-scoped candidate read, never a schema inventory.
+// Suggestions are labels only and are never cached or substituted into queries.
+async function tableSuggestions(sdk, table, requests) {
+  if (!isName(table) || table.length < 3) return [];
+  const prefix = table.slice(0, 3);
+  const query = `nameSTARTSWITH${prefix}^ORDERBYname`;
+  requests.push({ table: 'sys_db_object', query, fields: 'name', limit: 20 });
+  const result = await readList(sdk, 'sys_db_object', params(query, 'name', 20));
+  if (!result.rows || result.rows.length > 20) return [];
+  const distance = (a, b) => {
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j++) next[j] = Math.min(next[j - 1] + 1, previous[j] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = next;
+    }
+    return previous[b.length];
+  };
+  return [...new Set(result.rows.map(row => raw(row?.name)))]
+    .filter(name => isName(name) && name.length <= 160 && name !== table && name.startsWith(prefix))
+    .map(name => ({ name, distance: distance(table.slice(0, 160), name) }))
+    .filter(candidate => candidate.distance <= Math.max(2, Math.floor(table.length / 4)))
+    .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name))
+    .slice(0, 3).map(candidate => candidate.name);
+}
+
 /**
  * Read table + ancestor field metadata as visible to the caller's own ACLs.
  * States: observed | denied | unavailable | incomplete.
@@ -59,7 +85,8 @@ export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limi
     requests.push({ table: 'sys_db_object', query: next.query, fields: next.fields, limit: next.limit });
     const result = await readList(sdk, 'sys_db_object', search);
     if (!result.rows) {
-      return { state: result.state, table, hierarchy: hierarchy.map(item => item.name), fields: {}, reason: result.reason, requests };
+      return { state: result.state, table, hierarchy: hierarchy.map(item => item.name), fields: {}, reason: result.reason, requests,
+        suggestions: depth === 0 ? await tableSuggestions(sdk, table, requests) : [] };
     }
     if (result.rows.length !== 1) {
       // First hop: the table is not visible (may not exist, may be ACL-hidden).
@@ -100,7 +127,7 @@ export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limi
     reason ||= `Table inheritance depth limit ${maxDepth} reached`;
   }
   if (!hierarchy.length) {
-    return { state, table, hierarchy: [], fields: {}, reason, requests };
+    return { state, table, hierarchy: [], fields: {}, reason, requests, suggestions: await tableSuggestions(sdk, table, requests) };
   }
 
   const names = hierarchy.map(item => item.name);

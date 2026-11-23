@@ -80,12 +80,13 @@ test('hidden ancestor and truncated dictionary are incomplete', async () => {
   assert.match(truncated.reason, /incomplete/);
 });
 
+const diskOnly = { skip: process.platform === 'win32' ? 'Windows private cache ACLs are not verified; disk cache disabled' : false };
 const identity = { instance: 'https://dev1.service-now.com', profile: 'work', principal: 'alice' };
 const payload = { state: 'observed', complete: true, source: 'table-api', total: 1, hierarchy: ['x_case', 'task'], fields: { x_case: { short_description: { type: 'string', reference: '' } } } };
 
 function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'jsn549-cache-')); }
 
-test('cache reuses within TTL across instances and expires after it, with 0600/0700', async () => {
+test('cache reuses within TTL across instances and expires after it, with 0600/0700', diskOnly, async () => {
   const dir = tmpDir();
   const first = createQueryMetadataCache({ identity, dir, ttlMs: 25 });
   first.set('x_case', payload);
@@ -111,7 +112,7 @@ test('cache is isolated by instance, profile and principal; unknown identity is 
   assert.equal(createQueryMetadataCache({ identity: { ...identity, principal: '' }, dir }).get('x_case'), null);
 });
 
-test('explicit refresh and affected-entry invalidation remove only the right entries', () => {
+test('explicit refresh and affected-entry invalidation remove only the right entries', diskOnly, () => {
   const dir = tmpDir();
   const cache = createQueryMetadataCache({ identity, dir });
   cache.set('x_case', payload);
@@ -125,7 +126,7 @@ test('explicit refresh and affected-entry invalidation remove only the right ent
   assert.ok(cache.get('incident'));
 });
 
-test('corrupt, malformed and foreign cache entries are rejected', () => {
+test('corrupt, malformed and foreign cache entries are rejected', diskOnly, () => {
   const dir = tmpDir();
   const cache = createQueryMetadataCache({ identity, dir });
   cache.set('x_case', payload);
@@ -138,7 +139,7 @@ test('corrupt, malformed and foreign cache entries are rejected', () => {
   assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
 });
 
-test('future timestamps and oversized entries cannot be reused', () => {
+test('future timestamps and oversized entries cannot be reused', diskOnly, () => {
   const dir = tmpDir();
   const cache = createQueryMetadataCache({ identity, dir });
   cache.set('x_case', payload);
@@ -151,7 +152,7 @@ test('future timestamps and oversized entries cannot be reused', () => {
   assert.equal(createQueryMetadataCache({ identity, dir }).get('x_case'), null);
 });
 
-test('ancestor invalidation uses payload hierarchy and respects other principals', () => {
+test('ancestor invalidation uses payload hierarchy and respects other principals', diskOnly, () => {
   const dir = tmpDir();
   const cache = createQueryMetadataCache({ identity, dir });
   cache.set('x_case', payload);

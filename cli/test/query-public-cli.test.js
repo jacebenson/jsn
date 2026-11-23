@@ -83,6 +83,7 @@ try {
     { name: 'operator typo read', args: ['records', 'list', '--table', 'incident', '--query', 'nameSTARTWITHfixture', '--no-count'], rejected: true, zeroWrites: true },
     { name: 'unknown later OR/NQ term bulk mutation', args: ['records', 'bulk', '--table', 'incident', '--query', 'nameSTARTSWITHfixture^ORbogus=1^NQactive=true', '-f', 'short_description=changed', '--execute', '--force', '--limit', '1'], rejected: true, zeroWrites: true },
     { name: 'operator typo delete mutation', args: ['records', 'delete-many', '--table', 'incident', '--query', 'nameSTARTWITHfixture', '--yes', '--expect-count', '1', '--limit', '1'], rejected: true, zeroWrites: true },
+    { name: 'unresolved table mutation with accessible suggestions', args: ['records', 'bulk', '--table', 'incidnet', '--query', 'name=fixture', '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true },
     { name: 'unsupported platform mutation', args: ['records', 'bulk', '--table', 'incident', '--query', 'nameONtoday', '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true },
     { name: 'unresolved order field mutation', args: ['records', 'bulk', '--table', 'incident', '--query', 'name=fixture^ORDERBYhidden', '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true },
     { name: 'inherited field valid read', args: ['records', 'list', '--table', 'incident', '--query', 'nameSTARTSWITHfixture', '--no-count'], rejected: false, zeroWrites: true },
@@ -105,6 +106,9 @@ try {
       passed: (item.rejected ? result.code !== 0 : result.code === 0) && (!item.zeroWrites || writes.length === 0) && data !== null,
     });
   }
+  const unresolved = observed.find(item => item.name === 'unresolved table mutation with accessible suggestions');
+  assert.deepEqual(unresolved.queryValidation.diagnostics[0].suggestions, ['incident']);
+  assert.equal(requests.some(call => call.path === '/api/now/table/incidnet'), false, 'unresolved target must never reach record transport');
   for (const item of observed.filter(item => item.expectedRejected)) {
     assert.ok(item.queryValidation, item.name + ': structured validation must render');
     assert.ok(item.queryValidation.diagnostics.some(d => d.term), item.name + ': failing term');

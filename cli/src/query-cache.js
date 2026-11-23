@@ -50,14 +50,24 @@ function validPayload(payload) {
  * @param {{identity:{instance:string,profile:string,principal:string},
  *   ttlMs?:number, dir?:string}} options
  */
-export function createQueryMetadataCache({ identity = {}, ttlMs = DEFAULT_TTL_MS, dir = '' } = {}) {
+export function createQueryMetadataCache({ identity = {}, ttlMs = DEFAULT_TTL_MS, dir = '', platform = process.platform } = {}) {
   identity = { ...identity };
   ttlMs = Math.min(DEFAULT_TTL_MS, Math.max(0, ttlMs));
   const memory = new Map();
-  const persist = validIdentity(identity);
+  // Match flow-search policy: Node mode bits cannot prove Windows private DACLs.
+  const persist = platform !== 'win32' && validIdentity(identity);
   const root = dir || path.join(cacheDir(), 'query-metadata');
   const keyFor = table => identityKey(identity, table);
   const fileFor = key => path.join(root, `${key}.json`);
+  function boundMemory() {
+    let bytes = 0;
+    for (const [table, entry] of [...memory].reverse()) {
+      bytes += Buffer.byteLength(JSON.stringify(entry.payload));
+      if (bytes > QUERY_CACHE_LIMITS.bytes) memory.delete(table);
+    }
+    while (memory.size > QUERY_CACHE_LIMITS.entries) memory.delete(memory.keys().next().value);
+  }
+
 
   function readFile(table) {
     if (!persist) return null;
@@ -119,7 +129,7 @@ export function createQueryMetadataCache({ identity = {}, ttlMs = DEFAULT_TTL_MS
       if (hit && hit.fetched_at <= Date.now() && Date.now() - hit.fetched_at < ttlMs) return hit;
       if (hit) memory.delete(table);
       const disk = readFile(table);
-      if (disk) memory.set(table, disk);
+      if (disk) { memory.set(table, disk); boundMemory(); }
       return disk;
     },
     set(table, payload) {
@@ -127,7 +137,7 @@ export function createQueryMetadataCache({ identity = {}, ttlMs = DEFAULT_TTL_MS
         || Buffer.byteLength(JSON.stringify(payload)) > QUERY_CACHE_LIMITS.entryBytes - 2048) return null;
       const entry = { payload, fetched_at: Date.now() };
       memory.set(table, entry);
-      while (memory.size > QUERY_CACHE_LIMITS.entries) memory.delete(memory.keys().next().value);
+      boundMemory();
       writeFile(table, payload);
       return entry;
     },
@@ -140,6 +150,7 @@ export function createQueryMetadataCache({ identity = {}, ttlMs = DEFAULT_TTL_MS
     invalidate({ tables = [], all = false } = {}) {
       const affected = new Set(tables.filter(Boolean));
       memory.clear();
+      if (platform === 'win32') return { removed: 0 };
       // With unknown principal, clear this instance/profile to avoid stale privileged reuse.
       let removed = 0;
       let entries;

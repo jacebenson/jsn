@@ -303,9 +303,16 @@ byte-identically.
 - Denied, unavailable or incomplete metadata is reported as unverified
   (`query_validation.state` in JSON plus `warnings` in human output). Reads may
   continue with the original query. Hidden metadata is never reported as proof
-  that a table or field is absent.
+  that a table or field is absent. An unresolved table may include up to three
+  close accessible names from one `nameSTARTSWITH` lookup, restricted to the
+  first three input characters and at most 20 rows. This is not a schema scan
+  or an exhaustive match list. Failed candidate lookups are not cached, and
+  suggestions are never substituted into queries.
 - Dynamic/script syntax, ON/NOTON, RELATIVE, DYNAMIC, RLQUERY and unsupported
-  directives are reported as `unsupported`, never invalid. Dot-walks beyond
+  directives are reported as `unsupported`, never invalid. SAMEAS/NSAMEAS,
+  INSTANCEOF and BETWEEN also remain unverified because their operand semantics
+  are not fully checked; reads retain their original syntax, filtered writes
+  refuse them. Dot-walks beyond
   five field components are unverified, never partially accepted. Ancestry is
   capped at eight tables and dictionary reads at 1,000 rows. A missing or
   inconsistent total-count receipt, empty dictionary, hidden type/reference,
@@ -321,6 +328,8 @@ share entries; an unverified identity uses in-process metadata only. Pass
 the global `--refresh-metadata` flag to force a fresh read. The principal must
 be independently read back from the authenticated provider; matching configured
 usernames are not proof. Cache files are capped at 256 KiB each, 64 entries and
-8 MiB in total. Successful table or field mutations
+8 MiB in total, with the same memory limits. Windows uses memory-only metadata:
+Node permission bits cannot verify private Windows cache ACLs, so the CLI never
+reads or writes query-metadata cache files there. Successful table or field mutations
 invalidate affected entries. The five-minute window is a latency tradeoff, not
 authorization and not a guarantee that ACLs or schema stay stable inside it.
