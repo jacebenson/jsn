@@ -75,6 +75,23 @@ it('fails closed without creating plaintext; missing credentials still return nu
   assert.equal(fs.existsSync(path.join(process.env.XDG_CONFIG_HOME, 'servicenow')), false);
   assert.equal(warnings.length, 0);
 });
+it('explains Linux keyring repair and explicit plaintext opt-in without writing files', { skip: process.platform !== 'linux' }, () => {
+  for (const mode of ['fail', 'mismatch']) {
+    process.env.FAKE_KEYRING_MODE = mode;
+    assert.throws(save, error => {
+      assert.match(error.message, /JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE=1/);
+      assert.match(error.message, /unencrypted credential files/);
+      assert.match(error.message, /each jsn process/);
+      assert.match(error.message, /security policy.*backups can expose credentials/);
+      if (mode === 'fail') {
+        assert.match(error.message, /Debian\/Ubuntu.*sudo apt install libsecret-tools gnome-keyring/);
+        assert.match(error.message, /running, unlocked keyring.*D-Bus session/);
+      }
+      return true;
+    });
+    assert.equal(fs.existsSync(file()), false);
+  }
+});
 it('only exact process-local opt-in permits portable plaintext, warns, and reports file source', () => {
   process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = 'true';
   assert.throws(save, /Secure credential storage unavailable/);
