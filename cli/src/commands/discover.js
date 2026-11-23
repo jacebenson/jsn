@@ -25,11 +25,13 @@ const quote = value => /^[a-zA-Z0-9_./:<>=-]+$/.test(value) && !value.includes('
 function invocationArgs(entry, suffix) {
   if (entry.parent) return suffix.length ? null : [...entry.path, '--help'];
   if (entry.hiddenRequired) return null;
-  const options = new Map(entry.options.flatMap(spec => [spec.name, ...(Array.isArray(spec.alias) ? spec.alias : spec.alias ? [spec.alias] : [])].map(name => [name, spec])));
+  const options = new Map(entry.options.flatMap(spec => [spec.token || spec.name, ...(Array.isArray(spec.alias) ? spec.alias : spec.alias ? [spec.alias] : [])].map(name => [name, spec])));
   const positional = [], flags = [], supplied = new Set();
   for (let i = 0; i < suffix.length; i++) {
     const token = suffix[i];
     if (!token.startsWith('-')) { positional.push(token); continue; }
+    // Long options require --; the parser treats -mode as short bundles.
+    if (!token.startsWith('--') && !/^-[^-](?:=|$)/.test(token)) return null;
     const name = token.replace(/^-+/, '').split('=')[0];
     const spec = options.get(name) || (name.startsWith('no-') && options.get(name.slice(3))?.type === 'boolean' ? options.get(name.slice(3)) : null);
     if (!spec) return null;
@@ -43,7 +45,7 @@ function invocationArgs(entry, suffix) {
     }
     if (value !== undefined && !value.includes('<')) {
       if (spec.choices && !spec.choices.includes(value)) return null;
-      if (spec.type === 'number' && !Number.isFinite(Number(value))) return null;
+      if (spec.type === 'number' && (value === '' || !Number.isFinite(Number(value)))) return null;
       if (spec.type === 'boolean' && !['true', 'false'].includes(value)) return null;
     }
   }
@@ -52,7 +54,7 @@ function invocationArgs(entry, suffix) {
   }
   for (const spec of entry.options) {
     if (spec.demandOption && !supplied.has(spec.name)) {
-      flags.push(`--${spec.name}`);
+      flags.push(`--${spec.token || spec.name}`);
       if (spec.type !== 'boolean') flags.push(`<${spec.name}>`);
     }
   }
@@ -89,7 +91,7 @@ export function rankedDiscoveries(registry, { query = '', table = '', limit = 5 
     }
     if (!entry.parent) for (const option of entry.options) {
       if (matches(`${option.name} ${[].concat(option.alias || []).join(' ')} ${option.describe || option.description || ''}`)) {
-        add(250, [`--${option.name}`, ...(option.type && option.type !== 'boolean' ? [`<${option.name}>`] : [])],
+        add(250, [`--${option.token || option.name}`, ...(option.type && option.type !== 'boolean' ? [`<${option.name}>`] : [])],
           option.describe || option.description || entry.description, 'option');
       }
     }

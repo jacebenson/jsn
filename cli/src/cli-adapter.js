@@ -350,11 +350,22 @@ export class LocalCLI {
       registry.entries = [];
       const visit = (node, ancestors = [], aliases = []) => {
         if (!visible(node)) return;
+        // Dispatch resolves names as literal tokens, not positional patterns.
+        // A positional-headed declaration cannot yield a fixed canonical path
+        // after placeholder substitution. Keep it only in the legacy projection.
+        if (positionSpec(node.name).length) return;
         node.build();
         const nodes = [...ancestors, node];
         const path = nodes.map(value => value.name);
-        const allOptions = [...new Set(this._optionConfig(nodes).values())];
-        const options = allOptions.filter(spec => !spec.hidden);
+        const bindings = this._optionConfig(nodes);
+        const allOptions = [...new Set(bindings.values())];
+        const options = allOptions.filter(spec => !spec.hidden).map(spec => {
+          // An inherited alias can now belong to a different, hidden option.
+          // Advertise only tokens that still resolve to this visible spec.
+          const tokens = [...bindings].filter(([_name, bound]) => bound === spec).map(([name]) => name);
+          return { ...spec, token: tokens.includes(spec.name) ? spec.name : tokens[0],
+            alias: tokens.filter(name => name !== spec.name) };
+        });
         const positions = positionSpec(node.definition.command || '').map(position => ({
           ...position, ...node.positionals.get(position.name), name: position.name,
         }));

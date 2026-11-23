@@ -163,6 +163,81 @@ test('suggested task, action, option and example invocations pass real parsing w
   await assert.rejects(() => cli.parse(), /Missing required argument: id/);
 });
 
+test('positional-headed registrations are not canonical discovery paths and remain parser-rejected', async () => {
+  const cli = yargs(['agents', 'fixture', 'logs']).strictCommands().command({
+    command: 'agents', builder: y => y
+      .command({ command: '<identifier> logs', describe: 'positionalheadfixture',
+        builder: y => y.option('follow', { type: 'boolean', describe: 'followfixture' }),
+        handler: () => assert.fail('positional-headed handler must not run'),
+      })
+      .command({ command: 'logs <identifier>', describe: 'canonical log fixture', handler() {} }),
+  });
+  const legacy = cli.commandRegistry();
+  assert.ok(legacy.commands[0].actions.some(action => action.name === '<identifier>'));
+  await assert.rejects(() => cli.parse(), /Unknown command: fixture/);
+  const detailed = cli.commandRegistry({ details: true });
+  assert.deepEqual(detailed.commands, legacy.commands, 'legacy projection stays unchanged');
+  assert.ok(!detailed.entries.some(entry => entry.path.includes('<identifier>')));
+  assert.deepEqual(rankedDiscoveries(detailed, { query: 'positionalheadfixture' }), []);
+  assert.deepEqual(rankedDiscoveries(detailed, { query: 'followfixture' }), []);
+  const result = rankedDiscoveries(detailed, { query: 'canonical log fixture' })[0];
+  assert.deepEqual(result.args, ['agents', 'logs', '<identifier>']);
+  await intercepted(cli, result);
+});
+
+test('ranked options use effective visible bindings after canonical and alias overrides', async () => {
+  for (const name of ['public', 's']) {
+    let seen;
+    const cli = yargs(['family', 'open', '--s', 'fixture'])
+      .option(name, { type: 'string', alias: ['s', 'p'].filter(alias => alias !== name), describe: 'publicfixture' })
+      .command({ command: 'family', builder: y => y.command({ command: 'open',
+        examples: [{ args: ['--s', 'fixture'], description: 'shadowedaliasexample' }],
+        builder: y => y.option('secret', { type: 'string', alias: 's', hidden: true }),
+        handler: argv => { seen = argv; },
+      }) });
+    await cli.parse();
+    assert.equal(seen.secret, 'fixture', 'the real parser binds s to the hidden child option');
+    assert.deepEqual(ranked(cli, 'shadowedaliasexample'), []);
+    const result = ranked(cli, 'publicfixture')[0];
+    assert.ok(!result.args.includes('--s'));
+    assert.ok(result.args.includes(name === 'public' ? '--public' : '--p'));
+    await intercepted(cli, result);
+  }
+});
+
+test('empty numeric example values are rejected just as the real parser rejects them', async () => {
+  for (const value of ['']) {
+    const cli = yargs(['numbers', `--count=${value}`]).command({ command: 'numbers',
+      examples: [{ args: [`--count=${value}`], description: 'emptycountfixture' }],
+      builder: y => y.option('count', { type: 'number' }), handler() {},
+    });
+    await assert.rejects(() => cli.parse(), /Invalid number/);
+    assert.deepEqual(ranked(cli, 'emptycountfixture'), []);
+  }
+});
+
+test('multi-character single-dash example spellings are not advertised as long options', async () => {
+  let seen;
+  const cli = yargs(['modes', '-mode', 'safe']).command({ command: 'modes',
+    examples: [{ args: ['-mode', 'safe'], description: 'singlehyphenfixture' }],
+    builder: y => y.option('mode', { type: 'string' }), handler: argv => { seen = argv; },
+  });
+  await cli.parse();
+  assert.equal(seen.mode, undefined, 'the parser does not assign the long mode option');
+  assert.deepEqual(ranked(cli, 'singlehyphenfixture'), []);
+});
+
+test('common plural work-note and application/capture-context paraphrases retain the task mappings', () => {
+  const cli = ownerCLI();
+  for (const query of ['write work notes', 'add work notes']) {
+    assert.deepEqual(ranked(cli, query)[0]?.args, ['tickets', 'update', '<number>', '--field', 'work_notes=<text>', '--json'], query);
+  }
+  for (const query of ['current application scope', 'show current capture context']) {
+    assert.equal(ranked(cli, query)[0]?.invocation, 'jsn auth status --context --json', query);
+  }
+  for (const query of ['do not write work notes', 'current application scope unicorn']) assert.deepEqual(ranked(cli, query), []);
+});
+
 test('stale example values and unavailable hidden required inputs never produce suggestions', () => {
   const cli = yargs().command({ command: 'analyze', describe: 'Analysis',
     examples: [

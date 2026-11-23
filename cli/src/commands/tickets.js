@@ -93,7 +93,7 @@ export function ticketsCmd(wrap) {
           command: 'update <number>',
           describe: 'Update a ticket',
           discoveryTasks: [{
-            phrases: ['write work note', 'add work note', 'append work notes', 'write a work note', 'add internal note'],
+            phrases: ['write work note', 'write work notes', 'add work note', 'add work notes', 'append work notes', 'write a work note', 'add internal note'],
             args: ['--field', 'work_notes=<text>', '--json'],
             description: 'Write a work note to the specified ticket; replace the required number and text placeholders',
           }],
