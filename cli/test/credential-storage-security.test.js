@@ -97,7 +97,7 @@ it('project configuration and an existing file cannot authorize fallback', () =>
   fs.mkdirSync(path.join(root, '.servicenow'));
   fs.writeFileSync(path.join(root, '.servicenow/config.json'), JSON.stringify({ JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', allow_plaintext_credential_storage: true }));
   const cwd = process.cwd();
-  try { process.chdir(root); assert.throws(load, /explicitly set JSN_ALLOW_PLAINTEXT/); }
+  try { process.chdir(root); assert.throws(load, error => error.code === 'credential_storage_error' && error.classification === 'plaintext_requires_recovery'); }
   finally { process.chdir(cwd); }
   assert.deepEqual(JSON.parse(fs.readFileSync(file())), secret);
 });

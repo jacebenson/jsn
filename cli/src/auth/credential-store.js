@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { globalConfigDir } from '../config.js';
-import { windowsCredentialOperation, legacyWindowsKey } from './windows-credential-store.js';
+import { windowsCredentialOperation, legacyWindowsKey, STORAGE_CLASSIFICATIONS, STORAGE_RECOVERY } from './windows-credential-store.js';
 
 // ─── Credential key helpers ───
 
@@ -41,9 +41,12 @@ const KEYRING_ATTR_USERNAME = 'username';
 // Only this process environment can authorize portable plaintext storage.
 const PLAINTEXT_ENV = 'JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE';
 function plaintextAllowed() { return process.env[PLAINTEXT_ENV] === '1'; }
-function storageError(message) {
+function storageError(message, classification = 'secure_storage_unavailable') {
+  const safe = STORAGE_CLASSIFICATIONS.includes(classification) ? classification : 'secure_storage_unavailable';
   const error = new Error(message);
   error.code = 'credential_storage_error';
+  error.classification = safe;
+  error.recovery = STORAGE_RECOVERY[safe];
   return error;
 }
 /**
@@ -63,11 +66,37 @@ function warnPlaintext() {
   plaintextWarningShown = true;
   process.stderr.write('Warning: plaintext credential storage explicitly enabled for this process; credentials are portable and backups can expose them.\n');
 }
-function refusal() {
+function refusal(classification = 'secure_storage_unavailable') {
   const repair = process.platform === 'win32'
     ? 'Windows Credential Manager requires Windows PowerShell 5.1 or PowerShell 7+ with FullLanguage/Add-Type and native API access allowed by policy.'
     : 'Unlock/install secret-tool and retry.';
-  return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved; to use or migrate them on a headless host, explicitly set ${PLAINTEXT_ENV}=1 for this process. Never commit or share credential files.`);
+  return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.`, classification);
+}
+
+/**
+ * A stored plaintext file is not a storage failure and must never be reported
+ * as one: the secure backend may be perfectly healthy. Reading it needs the
+ * exact process-local opt-in, which a status --local read never has, so the
+ * file is left untouched and the recovery is a fresh verified login.
+ */
+function plaintextBlocked() {
+  return storageError(
+    'Existing plaintext credentials are preserved; this process cannot read them and no plaintext fallback is enabled automatically. ' +
+    STORAGE_RECOVERY.plaintext_requires_recovery,
+    'plaintext_requires_recovery',
+  );
+}
+function readbackFailure() {
+  return storageError(
+    'Secure credential storage unavailable or readback failed. The secure entry could not be verified after writing. Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.',
+    'secure_readback_failed',
+  );
+}
+function malformedSecureEntry() {
+  return storageError(
+    `Stored secure credential entry is malformed and cannot be used. ${STORAGE_RECOVERY.malformed_secure_entry}`,
+    'malformed_secure_entry',
+  );
 }
 
 // Validate broad ancestors without chmod: only the leaf secret directory must
@@ -86,7 +115,7 @@ function checkPath(target, directory, privateMode = false) {
         ((stat.mode & 0o022) !== 0 && !(directory && stat.uid === 0 && (stat.mode & 0o1000)))))) {
     throw storageError(posix
       ? 'Unsafe credential/PKCE path: require owned regular 0600 files and private 0700 secret directories; reject symlinks, links and writable ancestors. Repair or move the path manually, then retry.'
-      : 'Unsafe credential/PKCE path: require regular files/directories without symlinks, junctions or hard links. Windows ACL privacy must be managed separately.');
+      : 'Unsafe credential/PKCE path: require regular files/directories without symlinks, junctions or hard links. Windows ACL privacy must be managed separately.', 'storage_path_unsafe');
   }
   return stat;
 }
@@ -101,7 +130,7 @@ export function privateStateDirectories(dir, pathAPI = path) {
 }
 function privateStatePath(kind, key, create = false) {
   if (!['credentials', 'pkce'].includes(kind) || !/^[a-zA-Z0-9._@-]+$/.test(key) || key === '.' || key === '..') {
-    throw storageError('Invalid credential/PKCE storage key.');
+    throw storageError('Invalid credential/PKCE storage key.', 'invalid_storage_key');
   }
   // Resolve once so traversal, leaf comparison and IO share the same path,
   // including when the configured XDG directory is relative.
@@ -127,12 +156,12 @@ export function readPrivateState(kind, key) {
     fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     const before = checkPath(file, false, true);
     const opened = fs.fstatSync(fd);
-    if (before.ino !== opened.ino || before.dev !== opened.dev) throw storageError('Credential/PKCE path changed while opening.');
+    if (before.ino !== opened.ino || before.dev !== opened.dev) throw storageError('Credential/PKCE path changed while opening.', 'storage_path_unsafe');
     return JSON.parse(fs.readFileSync(fd, 'utf8'));
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     if (error.code === 'credential_storage_error') throw error;
-    throw storageError('Unable to read credential/PKCE state safely; original file preserved.');
+    throw storageError('Unable to read credential/PKCE state safely; original file preserved.', 'storage_path_unsafe');
   } finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 export function writePrivateState(kind, key, value) {
@@ -161,36 +190,42 @@ export function removePrivateState(kind, key) {
 // ─── Keyring via secret-tool (libsecret, same backend as Go's go-keyring) ───
 
 function keyringLookup(key, legacyKey) {
+  let result;
   try {
     // execFileSync with an arg array — no shell, so `key` can never
     // break out into command injection (issue #143 finding #2).
-    const result = process.platform === 'win32'
+    result = process.platform === 'win32'
       ? (windowsCredentialOperation('read', key) ?? (legacyKey ? windowsCredentialOperation('read', legacyKey) : null))
       : execFileSync(
       'secret-tool',
       ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
     );
-    const trimmed = result?.trim();
-    if (!trimmed) return null;
-    const parsed = JSON.parse(trimmed);
-    // Spread all fields from keyring first, then normalize known fields
-    // so username, password, and other extras are preserved.
-    return {
-      ...parsed,
-      auth_method: parsed.auth_method || 'oauth',
-      access_token: parsed.access_token || parsed.AccessToken || '',
-      refresh_token: parsed.refresh_token || parsed.RefreshToken || '',
-      expires_at: parsed.expires_at || parsed.ExpiresAt || 0,
-      created_at: parsed.created_at || parsed.CreatedAt || 0,
-      auth_source: parsed.auth_method === 'gck' ? 'gck' : 'keyring',
-    };
   } catch (error) {
-    if (process.platform === 'win32' && !plaintextAllowed()) {
-      throw error.code === 'credential_storage_error' ? error : refusal();
-    }
+    // A classified native failure (policy, capability, oversized write) is a
+    // refusal, never "missing". Plain POSIX lookup failures stay historical
+    // "missing": an absent secret-tool means no secure entry was readable.
+    if (error?.code === 'credential_storage_error') throw error;
+    if (process.platform === 'win32' && !plaintextAllowed()) throw refusal();
     return null;
   }
+  const trimmed = typeof result === 'string' ? result.trim() : result;
+  if (!trimmed) return null;
+  let parsed;
+  try { parsed = JSON.parse(trimmed); }
+  catch { throw malformedSecureEntry(); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw malformedSecureEntry();
+  // Spread all fields from keyring first, then normalize known fields
+  // so username, password, and other extras are preserved.
+  return {
+    ...parsed,
+    auth_method: parsed.auth_method || 'oauth',
+    access_token: parsed.access_token || parsed.AccessToken || '',
+    refresh_token: parsed.refresh_token || parsed.RefreshToken || '',
+    expires_at: parsed.expires_at || parsed.ExpiresAt || 0,
+    created_at: parsed.created_at || parsed.CreatedAt || 0,
+    auth_source: parsed.auth_method === 'gck' ? 'gck' : 'keyring',
+  };
 }
 
 function keyringStore(key, creds) {
@@ -207,20 +242,27 @@ function keyringStore(key, creds) {
   }
 }
 
+// Returns 'ok', 'readback_failed' (backend accepted the write but the exact
+// value did not come back) or 'unavailable' (no secure write happened).
 function storeVerified(key, creds) {
   if (process.platform === 'win32') {
     const value = JSON.stringify(creds);
     windowsCredentialOperation('write', key, value);
-    const readback = windowsCredentialOperation('read', key);
-    return isDeepStrictEqual(JSON.parse(readback), JSON.parse(value));
+    let readback;
+    try { readback = windowsCredentialOperation('read', key); }
+    catch (error) { throw error.code === 'credential_storage_error' ? error : refusal(); }
+    let parsed;
+    try { parsed = typeof readback === 'string' ? JSON.parse(readback) : null; }
+    catch { parsed = null; }
+    return parsed && isDeepStrictEqual(parsed, JSON.parse(value)) ? 'ok' : 'readback_failed';
   }
-  if (!keyringStore(key, creds)) return false;
+  if (!keyringStore(key, creds)) return 'unavailable';
   try {
     const value = execFileSync('secret-tool',
       ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
       { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' });
-    return isDeepStrictEqual(JSON.parse(value), JSON.parse(JSON.stringify(creds)));
-  } catch { return false; }
+    return isDeepStrictEqual(JSON.parse(value), JSON.parse(JSON.stringify(creds))) ? 'ok' : 'readback_failed';
+  } catch { return 'readback_failed'; }
 }
 
 function keyringDelete(key) {
@@ -259,9 +301,10 @@ export function loadCredentials(instance, username, injectedStore) {
   }
   const file = privateStatePath('credentials', key);
   if (!fs.existsSync(file)) return null;
-  // Reads (including local status) never persist or migrate credentials. A
-  // subsequent explicit login/save or token refresh performs verified retirement.
-  if (!plaintextAllowed()) throw refusal();
+  // Reads (including local status) never persist, migrate, or open a legacy
+  // plaintext file. A subsequent explicit login/save performs verified
+  // retirement; the blocked file keeps its exact bytes until then.
+  if (!plaintextAllowed()) throw plaintextBlocked();
   const creds = readPrivateState('credentials', key);
   return creds ? { ...creds, auth_source: 'file' } : null;
 }
@@ -278,16 +321,16 @@ export function saveCredentials(instance, creds, username, injectedStore) {
   const key = username ? credKey(instance, username) : credKey(instance);
   // Stamp last_seen on every credential save
   creds.last_seen = creds.last_seen || Math.floor(Date.now() / 1000);
-  let verified = false;
+  let status = 'unavailable';
   let secureFailure;
-  try { verified = storeVerified(key, creds); }
+  try { status = storeVerified(key, creds); }
   catch (error) { secureFailure = error.code === 'credential_storage_error' ? error : refusal(); }
-  if (verified) {
+  if (status === 'ok') {
     // Retire only this identity, and only after exact secure-store readback.
     removePrivateState('credentials', key);
     return;
   }
-  if (!plaintextAllowed()) throw secureFailure || refusal();
+  if (!plaintextAllowed()) throw secureFailure || (status === 'readback_failed' ? readbackFailure() : refusal());
   // Re-stamping last_seen after a successful call is bookkeeping, not a storage
   // decision. Warning on it put the message on every command again, which is
   // what this change is meant to stop; only a change to the secret material
