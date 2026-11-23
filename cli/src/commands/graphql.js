@@ -3,7 +3,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 // GraphQL documents may contain mutations. Gate the whole command so normal
 // instance/auth and read-only protections apply without attempting AST parsing.
-declareCapabilities('graphql', { mutationSubcommands: [''] });
+declareCapabilities('graphql', { encodedQuery: false, mutationSubcommands: [''] });
 
 function readStdin() {
   return new Promise((resolve, reject) => {

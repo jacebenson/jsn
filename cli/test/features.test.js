@@ -5,6 +5,7 @@ import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import { captureSubcommands, findCommand, wrapHandler } from './support/command-test-helpers.js';
 import { makeApp } from './support/app-test-helpers.js';
+import { queryMetadataFixture } from './support/query-metadata-fixture.js';
 
 
 describe('records list totals (include_counts)', () => {
@@ -52,7 +53,7 @@ describe('records bulk (dry-run by default)', () => {
     let updates = 0;
     const sdk = {
       aggregateCount: async () => 12,
-      list: async () => [],
+      list: async (table, params, opts) => queryMetadataFixture(table, params, opts) ?? [],
       update: async () => { updates += 1; },
     };
     const app = makeApp({ sdk });
@@ -73,7 +74,7 @@ describe('records bulk (dry-run by default)', () => {
     const updated = [];
     const sdk = {
       aggregateCount: async () => 2,
-      list: async () => [{ sys_id: 'aaa' }, { sys_id: 'bbb' }],
+      list: async (table, params, opts) => queryMetadataFixture(table, params, opts) ?? [{ sys_id: 'aaa' }, { sys_id: 'bbb' }],
       update: async (t, id) => { updated.push(id); },
     };
     // --force bypasses the interactive confirmation

@@ -15,6 +15,7 @@ import { saveConfig, isTrustedCredentialDestination } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
 import { errUsage, errAuth } from './errors.js';
 import { canPrompt, canUsePicker } from './helpers.js';
+import { queryDiagnostics, invalidateAfterMutation } from './query-validate.js';
 import { guardMutationContext } from './mutation-context.js';
 
 
@@ -64,6 +65,7 @@ export class App {
       recovery: createAuthRecovery({ app: this, session }),
       canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
+    this.sdk.afterMetadataMutation = table => invalidateAfterMutation(this, table);
   }
 
   /** Build a profile-scoped SDK without leaking auth construction to commands. */
@@ -93,6 +95,9 @@ export class App {
   }
 
   ok(data, opts = {}) {
+    const diagnostics = queryDiagnostics(this.queryValidation);
+    if (diagnostics.query_validation && data && typeof data === 'object' && !Array.isArray(data)) data = Object.assign(data, diagnostics);
+    else if (diagnostics.query_validation) opts = { ...opts, meta: { ...opts.meta, ...diagnostics } };
     this.output.ok(data, this.mutationContext ? { ...opts, context: { ...opts.context, mutation: this.mutationContext } } : opts);
   }
 

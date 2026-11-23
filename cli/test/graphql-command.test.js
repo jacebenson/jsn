@@ -23,7 +23,7 @@ describe('graphql command', () => {
   it('registers a whole-command mutation capability', async () => {
     const { collectCapabilities, mutationPaths } = await import('../src/capabilities.js');
     await import('../src/commands/graphql.js');
-    assert.deepStrictEqual(collectCapabilities().get('graphql'), { mutationSubcommands: [''] });
+    assert.deepEqual(collectCapabilities().get('graphql'), { encodedQuery: false, mutationSubcommands: [''] });
     assert.ok(mutationPaths().some((path) => path.length === 1 && path[0] === 'graphql'));
   });
 

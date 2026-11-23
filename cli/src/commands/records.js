@@ -6,9 +6,11 @@ import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
+import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
+  filteredMutationSubcommands: ['delete-many', 'bulk'],
   mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
 });
 
@@ -95,6 +97,7 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', describe: 'Record sys_id (filters to a single record)' })
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true")' })
+            .option('refresh-metadata', { type: 'boolean', default: false, describe: 'Refresh table metadata used to validate --query (five-minute cache)' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "number,short_description")' })
             .option('limit', { type: 'number', default: 20, describe: 'Max records' })
             .option('offset', { type: 'number', default: 0, describe: 'Offset' })
@@ -115,6 +118,7 @@ export function recordsCmd(wrap) {
             const table = argv.table;
             const columns = argv.columns ? argv.columns.split(',') : getDefaultColumns(table);
             let query = argv.query || '';
+            const verdict = await validateReadQuery(app, { table, query: argv.query || '', refresh: argv['refresh-metadata'] });
 
             // If --sys-id is provided, append it to the query
             if (argv['sys-id']) {
@@ -208,6 +212,7 @@ export function recordsCmd(wrap) {
               records: displayRecords,
               pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total, hasMore: argv.offset + argv.limit < total } : {}) },
               context: { instance_url: app.getEffectiveInstance() },
+              ...queryDiagnostics(verdict),
             }, {
               summary: `${records.length} record(s) from ${table}${total != null ? ` of ${total}` : ''}`,
               breadcrumbs,
@@ -370,6 +375,7 @@ export function recordsCmd(wrap) {
               process.stderr.write(`⚠ ${w.hint}\n`);
             }
             const record = await createRecord(app.sdk, { table: argv.table, data: recordData });
+            invalidateAfterMutation(app, argv.table);
             const sysID = getStringField(record, 'sys_id');
             const mismatches = await verifyWriteBack(app, argv.table, sysID, recordData);
             for (const m of mismatches) {
@@ -403,6 +409,7 @@ export function recordsCmd(wrap) {
             const lookup = recordLookup(argv);
             const resolved = await getRecord(app.sdk, lookup);
             const record = await updateRecord(app.sdk, { table: argv.table, record: resolved, data: recordData });
+            invalidateAfterMutation(app, argv.table);
             const mismatches = await verifyWriteBack(app, argv.table, unwrapSysId(resolved), recordData);
             for (const m of mismatches) {
               process.stderr.write(`⚠ field "${m.field}" was not persisted (sent: "${m.sent}", got: "${m.got}")\n`);
@@ -426,6 +433,7 @@ export function recordsCmd(wrap) {
             const lookup = recordLookup(argv);
             await confirmDelete(app, argv, `Delete record from ${argv.table} (${lookup.identifier})`);
             const sysID = await deleteRecord(app.sdk, lookup);
+            invalidateAfterMutation(app, argv.table);
             app.ok({ message: 'Record deleted', table: argv.table, sys_id: sysID }, { summary: `Deleted record from ${argv.table}` });
           }),
         })
@@ -435,6 +443,7 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', describe: 'Required nonempty encoded query; use records delete for a single record' })
+            .option('refresh-metadata', { type: 'boolean', default: false, describe: 'Refresh table metadata before validating the filter (five-minute cache)' })
             .option('expect-count', { type: 'number', describe: 'Required for deletion: exact expected matching count' })
             .option('yes', { type: 'boolean', default: false, describe: 'Confirm deletion (requires --expect-count)' })
             .option('dry-run', { type: 'boolean', default: false, describe: 'Preview only, even with --yes' })
@@ -442,6 +451,8 @@ export function recordsCmd(wrap) {
             .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.'),
           handler: wrap(async (argv, app) => {
             if (!argv.query?.trim()) throw errUsage('--query must be nonempty. Use records delete for a single record.');
+            // Complete original filter validated before count/enumeration/scope reads or any write.
+            await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'] });
             if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
             const dryRun = !argv.yes || argv['dry-run'];
             const expected = argv['expect-count'];
@@ -509,6 +520,7 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', describe: 'Encoded query to constrain the aggregation' })
+            .option('refresh-metadata', { type: 'boolean', default: false, describe: 'Refresh table metadata used to validate --query (five-minute cache)' })
             .option('group-by', { type: 'string', describe: 'Comma-separated fields to group by' })
             .option('display-values', { type: 'string', choices: ['raw', 'display', 'both'], describe: 'Reference values: raw, display or both' })
             .option('count', { type: 'boolean', default: true, describe: 'Include record counts' })
@@ -519,6 +531,7 @@ export function recordsCmd(wrap) {
             .option('order-by', { type: 'string', describe: 'Comma-separated fields to order by' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
+            const verdict = await validateReadQuery(app, { table: argv.table, query: argv.query || '', refresh: argv['refresh-metadata'] });
             const split = (value) => value ? value.split(',').map(v => v.trim()).filter(Boolean) : [];
             const options = {
               query: argv.query || '',
@@ -545,6 +558,7 @@ export function recordsCmd(wrap) {
               },
               ...result,
               context: { instance_url: app.getEffectiveInstance() },
+              ...queryDiagnostics(verdict),
             }, { summary: `Aggregated ${argv.table}${options.groupBy.length ? ` by ${options.groupBy.join(', ')}` : ''}` });
           }),
         })
@@ -554,6 +568,7 @@ export function recordsCmd(wrap) {
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('query', { type: 'string', demandOption: true, describe: 'Encoded query selecting the records to update (e.g. "priority=1^state=1")' })
+            .option('refresh-metadata', { type: 'boolean', default: false, describe: 'Refresh table metadata before validating the filter (five-minute cache)' })
             .option('set', { type: 'string', describe: 'JSON object of fields to set' })
             .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('dry-run', { type: 'boolean', default: true, describe: 'Preview the count + a sample without mutating (default)' })
@@ -562,6 +577,8 @@ export function recordsCmd(wrap) {
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
+            // Validate the complete original filter before confirmation, count or any write.
+            await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'] });
             const set = buildRecordPayload({ ...argv, data: argv.set }, { required: true });
             if (!argv['dry-run'] && !argv.execute) {
               argv.execute = true; // explicit --no-dry-run implies execute intent

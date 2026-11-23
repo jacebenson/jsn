@@ -13,7 +13,7 @@ import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
 
-declareCapabilities('updatesets', {
+declareCapabilities('updatesets', { queryTable: 'sys_update_set',
   mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen', 'preview', 'commit'],
   mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen', 'preview', 'commit'],
   skipContextHeaderSubcommands: ['diff'],

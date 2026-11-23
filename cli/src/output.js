@@ -137,6 +137,9 @@ export class OutputWriter {
   }
 
   ok(data, opts = {}) {
+    if (!['json', 'quiet'].includes(this.effectiveFormat()) && !this.jqFilter) {
+      for (const warning of (data?.query_validation ? data.warnings : opts.meta?.warnings) || [] ) this.errorWriter.write(`Warning: ${warning}\n`);
+    }
     // --get extractor: resolve against the JSON envelope and print just that
     // value as JSON. Takes precedence over styling/table formats — a path
     // extract is inherently scriptable, not presentational.
@@ -176,6 +179,7 @@ export class OutputWriter {
     const format = this.effectiveFormat();
     const e = error.code ? error : { code: 'unknown', message: String(error), hint: '' };
     const resp = { ok: false, error: e.message, code: e.code, hint: e.hint || '' };
+    if (e.query_validation) resp.query_validation = e.query_validation;
     if (e.resolution) resp.resolution = e.resolution;
     if (e.context) resp.context = e.context;
     if (e.status === 401 || e.status === 403) resp.status = e.status;

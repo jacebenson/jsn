@@ -285,3 +285,51 @@ defaults to the SDK timeout and applies to each native batch or fallback read,
 not the entire operation. Platform payload/processing limits can still leave
 items unserviced; batching does not promise parallel transactions or atomicity.
 Successful earlier chunks may have been read if a later aggregate request fails.
+
+## Encoded-query validation
+
+User-supplied encoded `--query` values on table-resolvable public commands,
+including shared lists, counts, aggregates and filter-based mutations are parsed and checked against
+on-demand, table-scoped metadata (`sys_db_object` ancestry plus one
+`sys_dictionary` read). The query string is never rewritten, re-encoded,
+substituted, retried or dropped: AND/OR/NQ clauses, escaped `^^` carets,
+`ORDERBY`/`ORDERBYDESC` directives and dot-walks reach ServiceNow
+byte-identically.
+
+- Demonstrably invalid syntax or a dot-walk through a proven non-reference
+  field is refused with a structured diagnostic and suggestions. Operator
+  boundaries use visible field names. Missing fields remain unverified because
+  dictionary ACLs can hide them.
+- Denied, unavailable or incomplete metadata is reported as unverified
+  (`query_validation.state` in JSON plus `warnings` in human output). Reads may
+  continue with the original query. Hidden metadata is never reported as proof
+  that a table or field is absent. An unresolved table may include up to three
+  close accessible names from one `nameSTARTSWITH` lookup, restricted to the
+  first three input characters and at most 20 rows. This is not a schema scan
+  or an exhaustive match list. Failed candidate lookups are not cached, and
+  suggestions are never substituted into queries.
+- Dynamic/script syntax, ON/NOTON, RELATIVE, DYNAMIC, RLQUERY and unsupported
+  directives are reported as `unsupported`, never invalid. SAMEAS/NSAMEAS,
+  INSTANCEOF and BETWEEN also remain unverified because their operand semantics
+  are not fully checked; reads retain their original syntax, filtered writes
+  refuse them. Dot-walks beyond
+  five field components are unverified, never partially accepted. Ancestry is
+  capped at eight tables and dictionary reads at 1,000 rows. A missing or
+  inconsistent total-count receipt, empty dictionary, hidden type/reference,
+  malformed row or truncated response cannot prove a complete schema.
+- Filter-based mutations (`delete-many`, `bulk`) validate the complete filter
+  before any count, enumeration, scope read or write, and fail closed with zero
+  writes on any non-valid state. There is no skip-validation flag.
+
+Usable metadata is cached on disk for five minutes per exact instance URL,
+selected profile and authenticated principal (owner-only files under the
+existing cache directory). Different instances, profiles or principals never
+share entries; an unverified identity uses in-process metadata only. Pass
+the global `--refresh-metadata` flag to force a fresh read. The principal must
+be independently read back from the authenticated provider; matching configured
+usernames are not proof. Cache files are capped at 256 KiB each, 64 entries and
+8 MiB in total, with the same memory limits. Windows uses memory-only metadata:
+Node permission bits cannot verify private Windows cache ACLs, so the CLI never
+reads or writes query-metadata cache files there. Successful table or field mutations
+invalidate affected entries. The five-minute window is a latency tradeoff, not
+authorization and not a guarantee that ACLs or schema stay stable inside it.

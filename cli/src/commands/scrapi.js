@@ -14,7 +14,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 // `scrapi create` builds a full Scripted REST API in one call (list/show are
 // reads). Registered at the root.
-declareCapabilities('scrapi', { transactionScopeOption: 'scope', mutationSubcommands: ['create'] });
+declareCapabilities('scrapi', { queryTable: 'sys_ws_operation', transactionScopeOption: 'scope', mutationSubcommands: ['create'] });
 
 /**
  * Parse a --resource flag value of the form:

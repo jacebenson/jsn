@@ -4,6 +4,7 @@ import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 
 import { getStringField, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { validateReadQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -11,7 +12,7 @@ import { declareCapabilities } from '../capabilities.js';
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap, opts = {}) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
   // Root-level command only.
-  declareCapabilities(displayName, { mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+  declareCapabilities(displayName, { queryTable: table, mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
   return {
     command: `${displayName} [subcommand]`,
     aliases: [table, alias],
@@ -30,6 +31,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             .option('offset', { alias: 'o', type: 'number', default: 0, describe: 'Offset for pagination' }),
           handler: wrap(async (argv, app) => {
             const query = argv.query || '';
+            const verdict = await validateReadQuery(app, { table, query, refresh: argv['refresh-metadata'] });
             const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
             const limit = argv.limit;
             const offset = argv.offset;
@@ -125,6 +127,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               records: displayRecords,
               pagination: { limit, offset, hasMore: records.length === limit },
               context: { instance_url: app.getEffectiveInstance() },
+              ...queryDiagnostics(verdict),
             }, {
               summary: `${records.length} ${table}(s)`,
               breadcrumbs,
@@ -175,6 +178,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               throw new Error('short_description is required (use --description, -f short_description=..., or --data)');
             }
             const record = await createRecord(app.sdk, { table, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(record, {
               summary: `Created ${displayName} ${getStringField(record, 'number')}`,
               breadcrumbs: [
@@ -196,6 +200,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(updated, {
               summary: `Updated ${displayName} ${number}`,
               breadcrumbs: [
@@ -213,6 +218,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
             const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
+            invalidateAfterMutation(app, table);
             app.ok({ number, message: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} deleted` }, {
               summary: `Deleted ${displayName} ${number}`,
             });

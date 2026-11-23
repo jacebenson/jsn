@@ -12,7 +12,7 @@ import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { maybeShowHome } from './welcome.js';
-import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands } from './capabilities.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
@@ -116,6 +116,8 @@ export function resolveRequestedFormat(argv) {
  */
 const DISCOVERY_OWNED_ELSEWHERE = new Set(['auth', 'perf', 'skill', 'groupmembers', 'grouproles']);
 
+import { validateReadQuery, assertWriteQuery } from './query-validate.js';
+
 function wrap(handler) {
   return async (argv) => {
     try {
@@ -123,6 +125,14 @@ function wrap(handler) {
       if (!app) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
+      }
+      const caps = collectCapabilities().get(argv._?.[0]) || {};
+      app.queryValidation = null;
+      if (((typeof argv.query === 'string' && argv.query.trim()) || caps.filteredMutationSubcommands?.includes(argv._?.[1]))
+        && !caps.noInstance && caps.encodedQuery !== false) {
+        const target = typeof caps.queryTable === 'function' ? caps.queryTable(argv) : caps.queryTable || caps.table || argv.table;
+        const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
+        app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
       }
       await app.guardMutationContext(argv);
       await handler(argv, app);
@@ -150,6 +160,7 @@ export function buildCLI() {
       },
     ])
     .options({
+      'refresh-metadata': { type: 'boolean', describe: 'Refresh query metadata instead of reusing the five-minute cache' },
       'all-commands': { type: 'boolean', describe: 'Show the full command list, including admin and developer tools' },
 
       'expect-scope': { type: 'string', description: 'Intended customization scope, exact scope/name or sys_id' },

@@ -27,7 +27,7 @@ import { errUsage, errNotFound } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 // run/run-suite schedule tests that act on records (top-level only).
-declareCapabilities('atf', { mutationContext: 'operational', mutationSubcommands: ['run', 'run-suite'] });
+declareCapabilities('atf', { queryTable: argv => argv._?.[1] === 'suites' ? 'sys_atf_test_suite' : 'sys_atf_test', mutationContext: 'operational', mutationSubcommands: ['run', 'run-suite'] });
 
 // sn_cicd progress statuses (now-sdk poller.ts)
 const PROGRESS_PENDING = '0';

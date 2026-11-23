@@ -1,3 +1,6 @@
+import { declareCapabilities } from '../capabilities.js';
+declareCapabilities('logs', { queryTable: 'syslog' });
+
 import { formatRecordForDisplay, interactiveList, getStringField } from '../helpers.js';
 
 function logIcon(level) {
