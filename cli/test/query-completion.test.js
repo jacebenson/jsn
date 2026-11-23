@@ -177,4 +177,3 @@ test('Windows policy is explicitly memory-only and never touches disk paths', ()
   assert.deepEqual(cache.invalidate({ all: true }), { removed: 0 });
   assert.equal(fs.existsSync(dir), false);
 });
-
