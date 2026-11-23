@@ -235,11 +235,14 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         .command({
           command: 'create',
           describe: `Create a new ${singular}`,
-          builder: (y) => recordOptions(y, false)
-            .option('data', { type: 'string', describe: 'JSON fields' })
-            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
-            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
-            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
+          builder: (y) => {
+            const command = recordOptions(y, false)
+              .option('data', { type: 'string', describe: 'JSON fields' })
+              .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+              .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+              .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' });
+            return opts.createHelp ? command.epilogue(opts.createHelp) : command;
+          },
           handler: wrap(async (argv, app) => {
             const recordData = buildRecordPayload(argv);
             const record = await createRecord(app.sdk, { table, data: recordData });
@@ -248,6 +251,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
               summary: `Created ${singular}`,
               breadcrumbs: [
                 { action: 'show', cmd: `jsn ${name} show ${getStringField(record, 'name') || getStringField(record, 'sys_id')}`, description: `View the new ${singular}` },
+                ...(opts.createBreadcrumbs || []),
               ],
             });
           }),
