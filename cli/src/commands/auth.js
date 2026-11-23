@@ -1277,6 +1277,12 @@ export function authCmd(wrap) {
         .command({
           command: 'status',
           describe: 'Show authentication status (use --details for users and instance URLs)',
+          discoveryTasks: [{
+            phrases: ['current update set', 'selected scope', 'capture context', 'current scope', 'active scope', 'selected application scope', 'active update set', 'selected update set', 'capture set', 'which scope am I in'],
+            args: ['--context', '--json'],
+            description: 'Read the selected profile context, including scope and current capture update set; does not select or change them',
+          }],
+          examples: [{ args: ['--context', '--json'], description: 'Inspect the selected scope and capture update set' }],
           builder: sub => sub.option('local', {
             type: 'boolean', describe: 'Show saved credential state without contacting any instance',
           }).option('context', {

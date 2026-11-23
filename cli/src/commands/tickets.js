@@ -92,6 +92,11 @@ export function ticketsCmd(wrap) {
         .command({
           command: 'update <number>',
           describe: 'Update a ticket',
+          discoveryTasks: [{
+            phrases: ['write work note', 'add work note', 'append work notes', 'write a work note', 'add internal note'],
+            args: ['--field', 'work_notes=<text>', '--json'],
+            description: 'Write a work note to the specified ticket; replace the required number and text placeholders',
+          }],
           builder: (y) => recordOptions(y, false)
             .option('data', { type: 'string', describe: 'JSON fields' })
             .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })

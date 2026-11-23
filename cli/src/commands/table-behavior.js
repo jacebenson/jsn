@@ -26,6 +26,11 @@ export function withTableBehavior(command, wrap) {
     command: 'behavior <table>',
     aliases: ['behaviour'],
     describe: 'Read-only inventory of tables behavior: rules, scripts, actions, policies, dictionary, notifications, ACLs, styles, views and flow triggers (inherited included)',
+    discoveryTasks: [{
+      phrases: ['inherited business rules', 'inherited rules', 'parent table business rules', 'business rules from ancestors'],
+      args: ['--category', 'business_rules', '--json'],
+      description: 'List business rules for the specified table, including inherited rules by default',
+    }],
     builder: (y) => y
       .positional('table', { type: 'string', describe: 'Table name (e.g. incident)' })
       .option('category', {
