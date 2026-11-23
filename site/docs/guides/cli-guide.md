@@ -48,6 +48,73 @@ npm install -g @jacebenson/jsn
 
 Requires Node.js 24 or newer. SQLite is built into Node.js, so npm and git installs do not need Python, make, or a C++ compiler. Local docs indexing/search requires FTS5 in the installed Node build and checks this at runtime. Use a current official Node.js 24 LTS or newer build if FTS5 is unavailable. Hosted docs search does not load SQLite.
 
+## Document instance configuration
+
+Generate an offline Markdown report with restrained Mermaid diagrams from the
+explicitly selected profile. Read-only profiles work. This workflow reads metadata,
+not business records, and does not modify provider data. Normal authentication may
+bootstrap a session or refresh local OAuth credentials.
+
+```sh
+jsn document instance --profile development --output instance-configuration.md
+jsn document instance --profile development --json
+jsn document instance --profile development --get data.sources
+jsn document instance --profile development --format markdown
+```
+
+`--output` creates a new owner-only file. Existing files, directories and symlinks
+are refused without overwriting. Its parent directory must already exist.
+Invalid budgets and existing destinations are rejected before instance reads.
+JSON includes the projected evidence and Markdown. `--get data.markdown --raw`
+extracts the rendered report. Identical saved evidence renders identically offline;
+new collection timestamps naturally differ between runs. No AI or remote assets
+are required. A Markdown viewer must support Mermaid to draw the optional diagrams.
+
+| Budget | Default | Accepted range |
+| --- | --- | --- |
+| `--page-size` | 25 | 1–100 rows per request |
+| `--discovery-pages` | 2 | 1–5 application discovery pages |
+| `--applications` | 3 | 1–6 selected applications |
+| `--detail-pages` | 1 | 1–3 pages per detail source |
+| `--max-requests` | 96 | 1–200 Table API requests, including dictionary reads |
+
+Discovery uses application records and exact scope/package references, never an
+application-name or namespace-prefix filter. Distinct apps sharing a namespace
+remain separate. A representative Global application and scoped application are
+selected first, then remaining identities in stable order within the budget.
+Store/vendor class is not evidence of customer authorship. Missing, conflicting or
+unknown ownership remains unresolved rather than being merged into Global.
+Unassigned Global `u_` tables are separate development leads, not proof of shipped
+baseline changes. At most two returned Global leads receive detail.
+
+Selected sections cover table/field definitions, direct rules, client scripts, UI
+policies/actions, Script Includes, flow metadata, portal pages/widgets, REST/SOAP
+message names/active flags and scheduled-script names/active/run-type metadata.
+Exact target matches are configured applicability, not executed behavior. Portal
+page-to-widget diagrams require dictionary-verified references through container,
+row, column and instance records. Ordinary layout children stay in supporting
+tables. At most 20 collapsed page/widget relations per app are drawn.
+
+Every source receipt retains its actual query, selected fields, observation time,
+page bounds, returned count, continuation and reasons. All inventories remain
+incomplete with unknown completeness because no provider count is collected.
+Short or empty pages do not prove exhaustion. ACL denial, unavailable/malformed
+sources, missing fields, duplicate records and budget truncation remain explicit;
+one source gap does not erase the others. Partial evidence exits successfully,
+with `data.status` equal to `incomplete`. Authentication, server and transport
+failures exit nonzero instead of manufacturing empty evidence.
+
+Scripts, conditions, defaults, endpoints/URLs, secrets, payload bodies and business
+records are not requested or retained. Provider over-return is projected through
+an allowlist again locally. Release/build identity and customization evidence are
+explicitly unknown/not collected. Inherited behavior, flow internals, nested portal
+rows, inbound integration contracts, catalog configuration, effective access,
+execution history and unsupported standalone/OOTB changes remain gaps.
+
+The regression fixture in `cli/test/support/document-fixture.js` is entirely
+synthetic and runs the real CLI against an isolated loopback provider. It is not a
+live instance capture. No private evidence is included in the package.
+
 ## Direct MID installation
 
 ```sh

@@ -1,22 +1,22 @@
 {
-  "commit": "393b91d + concise root help + site docs link",
-  "note": "Updated for the names-only root command index; regenerate when the command surface or help layout intentionally changes.",
+  "commit": "d12d61015814e845e93d9371b3f2c4cdf1415091 + instance documentation command (#505)",
+  "note": "Regenerated from actual CLI after intentional document registration and concise root index placement. No byte budget or welcome assertion was weakened.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2872,
-    "json": 70856,
-    "quiet": 2872,
-    "csv": 2872,
-    "markdown": 2872,
-    "get": 2872
+    "help": 2866,
+    "json": 73099,
+    "quiet": 2866,
+    "csv": 2866,
+    "markdown": 2866,
+    "get": 2866
   },
   "sha256": {
-    "help": "dcc0d733e308f899791c267f96cc064317cdac386d9e50771ec48ff213786ad2",
-    "json": "4e392bd5dad5b62707ac3f7d93f6bca1c365f4e7a9ca0e500ad40316826c6379",
-    "quiet": "dcc0d733e308f899791c267f96cc064317cdac386d9e50771ec48ff213786ad2",
-    "csv": "dcc0d733e308f899791c267f96cc064317cdac386d9e50771ec48ff213786ad2",
-    "markdown": "dcc0d733e308f899791c267f96cc064317cdac386d9e50771ec48ff213786ad2",
-    "get": "dcc0d733e308f899791c267f96cc064317cdac386d9e50771ec48ff213786ad2"
+    "help": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
+    "json": "501f0ba698ca45e969ecfe06e560398a549f0a00613cfa069be769a423c9ac96",
+    "quiet": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
+    "csv": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
+    "markdown": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
+    "get": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a"
   },
-  "json_command_count": 87
+  "json_command_count": 89
 }
