@@ -7,6 +7,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
@@ -59,15 +60,14 @@ for (const scenario of scenarios) {
         default_profile: 'fixture',
         profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: false } },
       }));
-      const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
-      Object.assign(env, {
+      const env = loopbackFixtureEnv({
         HOME: directory, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: configDir,
         JSN_DATA_HOME: path.join(directory, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1',
         JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only',
       });
       let result;
       try {
-        result = { code: 0, ...await exec(process.execPath, [cli, 'flows', 'unlock', id, '--force', '--json'], { env, timeout: 20000 }) };
+        result = { code: 0, ...await exec(process.execPath, [...loopbackCredentialArgs, cli, 'flows', 'unlock', id, '--force', '--json'], { cwd: directory, env, timeout: 20000 }) };
       } catch (error) {
         result = { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
       }

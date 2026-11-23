@@ -1,24 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ESLint } from 'eslint';
 
-// Exercise the actual lint configuration without adding an ESLint dependency.
-// The repository already runs ESLint through npm exec (npx).
+// Reuse the installed public API and real project configuration for every
+// fixture. A separate CLI bridge below retains process/exit/JSON coverage.
+const cwd = fileURLToPath(new URL('../', import.meta.url));
+const eslint = new ESLint({ cwd });
 function lintCases(name, cases) {
   test(name, async t => {
     for (const [kind, entries] of Object.entries(cases)) {
       for (const [index, entry] of entries.entries()) {
         const code = typeof entry === 'string' ? entry : entry.code;
-        await t.test(`${kind} ${index + 1}: ${code}`, () => {
-          assert.ok(process.env.npm_execpath, 'Run via npm test or npm exec -- node --test');
-          const result = spawnSync(process.execPath, [process.env.npm_execpath, 'exec', '--', 'eslint', '--stdin', '--stdin-filename', 'test/esm-path-case.js', '--format', 'json'], {
-            cwd: fileURLToPath(new URL('../', import.meta.url)), input: code, encoding: 'utf8', timeout: 30000,
-          });
-          assert.ifError(result.error);
-          assert.ok(result.status === 0 || result.status === 1, result.stderr);
-          const messages = JSON.parse(result.stdout)[0].messages;
-          assert.equal(messages.filter(message => message.fatal).length, 0, result.stdout);
+        await t.test(`${kind} ${index + 1}: ${code}`, { timeout: 30000 }, async () => {
+          const result = await eslint.lintText(code, { filePath: 'test/esm-path-case.js' });
+          const messages = result[0].messages;
+          assert.equal(messages.filter(message => message.fatal).length, 0, JSON.stringify(result));
           const diagnostics = messages.filter(message => message.ruleId === 'local/portable-esm-paths');
           assert.deepEqual(diagnostics.map(message => message.messageId), kind === 'valid' ? [] : entry.errors.map(error => error.messageId));
           for (const diagnostic of diagnostics) assert.match(diagnostic.message,
@@ -28,6 +27,26 @@ function lintCases(name, cases) {
     }
   });
 }
+test('installed ESLint CLI preserves actual-config valid/invalid exit and JSON diagnostics', () => {
+  const manifestURL = new URL(import.meta.resolve('eslint/package.json'));
+  const manifest = JSON.parse(fs.readFileSync(manifestURL, 'utf8'));
+  const executable = fileURLToPath(new URL(manifest.bin.eslint, manifestURL));
+  for (const [code, status, messageIds] of [
+    ["import { fileURLToPath } from 'node:url'; fileURLToPath(new URL('./a', import.meta.url));", 0, []],
+    ["new URL('./a', import.meta.url).pathname;", 1, ['filePath']],
+  ]) {
+    const result = spawnSync(process.execPath, [executable, '--stdin', '--stdin-filename', 'test/esm-path-case.js', '--format', 'json'], {
+      cwd, input: code, encoding: 'utf8', timeout: 30000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, status, result.stderr);
+    const messages = JSON.parse(result.stdout)[0].messages;
+    assert.equal(messages.filter(message => message.fatal).length, 0, result.stdout);
+    assert.deepEqual(messages.map(message => message.messageId), messageIds);
+    assert.ok(messages.every(message => message.ruleId === 'local/portable-esm-paths'));
+    for (const message of messages) assert.match(message.message, /fileURLToPath\(url\)/);
+  }
+});
 const imports = `import path from 'node:path'; import { spawnSync } from 'node:child_process';`;
 lintCases('portable-esm-paths', {
   valid: [
