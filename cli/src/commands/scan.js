@@ -13,9 +13,12 @@ declareCapabilities('scan', { mutationSubcommands: [
 ] });
 
 const hint = (action, cmd, description) => ({ action, cmd, description });
-function report(app, argv, data, options) {
-  const connection = argv.profile ? ` --profile ${quoteShellArg(argv.profile)}`
+function connectionSuffix(argv) {
+  return argv.profile ? ` --profile ${quoteShellArg(argv.profile)}`
     : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : '';
+}
+function report(app, argv, data, options) {
+  const connection = connectionSuffix(argv);
   app.ok(data, { ...options, breadcrumbs: options.breadcrumbs.map(item => ({ ...item, cmd: item.cmd + connection })) });
 }
 const rootHints = () => [hint('checks', 'jsn scan checks list', 'Browse available checks'),
@@ -31,6 +34,18 @@ const itemHints = (group, record) => {
       [hint('suites', 'jsn scan suites list', 'Choose a suite for this check')]),
     hint('delete', `jsn scan ${group} delete ${id}`, 'Delete this definition after confirmation')];
 };
+
+// Structured recovery for a dispatched scan whose progress or results cannot be
+// read. It records what was started so an operator can inspect it; resubmission
+// is never recommended because the original execution may still be running.
+function recoveryTarget(target = {}) {
+  return { kind: target.kind,
+    ...(target.sys_id ? { sys_id: target.sys_id } : {}),
+    ...(target.table ? { table: target.table } : {}),
+    ...(target.name ? { name: target.name } : {}),
+    ...(target.execution_id ? { execution_id: target.execution_id } : {}),
+    ...(target.combo_id ? { combo_id: target.combo_id } : {}) };
+}
 
 function executionHints(data) {
   const id = data.execution_id;
@@ -188,6 +203,7 @@ export function scanCmd(wrap) {
           await confirmDelete(app, argv, `Start scan of ${plan.target.kind} ${plan.target.name || plan.target.sys_id || plan.target.execution_id || 'the full instance'}${plan.suite_id ? ` using suite ${plan.suite_id}` : ''}?`);
           const scheduled = await startScan(app.sdk, plan);
           let data = { ...scheduled, status: 'scheduled', terminal: false };
+          let phase = 'progress';
           if (argv.wait) {
             try {
               const deadline = Date.now() + argv.timeout * 1000;
@@ -199,12 +215,24 @@ export function scanCmd(wrap) {
                   // The processor can return before its execution tracker is visible.
                   data = { ...scheduled, status: 'scheduled', terminal: false };
                 }
-                if (data.terminal) { data = { ...scheduled, ...await scanResults(app.sdk, scheduled.execution_id) }; break; }
+                if (data.terminal) { phase = 'results'; data = { ...scheduled, ...await scanResults(app.sdk, scheduled.execution_id) }; break; }
                 await new Promise(resolve => setTimeout(resolve, Math.min(2000, Math.max(0, deadline - Date.now()))));
               }
               if (!data.terminal) data.wait_timed_out = true;
             } catch (error) {
-              throw errAPI(error.status || 0, `Scan ${scheduled.execution_id} was scheduled, but progress could not be read: ${error.message}. Use jsn scan status ${scheduled.execution_id}; do not resubmit automatically.`);
+              const id = scheduled.execution_id;
+              const connection = connectionSuffix(argv);
+              const statusCommand = `jsn scan status ${id}${connection}`;
+              // Provider errors may contain credentials or request payloads.
+              const wrapped = errAPI(error.status || 0, `Scan ${id} was scheduled, but ${phase} could not be read. Use ${statusCommand}; do not resubmit automatically.`);
+              // errAPI replaces the message for 401/403, so the dispatched id and
+              // the no-resubmit warning must also survive in the hint.
+              wrapped.hint = [wrapped.hint, `Scan ${id} was already dispatched; inspect it with "${statusCommand}" and do not resubmit automatically.`].filter(Boolean).join(' ');
+              wrapped.recovery = { execution_id: id, via: scheduled.via, phase,
+                target: recoveryTarget(plan.target), suite_id: scheduled.suite_id ?? null, status: 'unverified',
+                status_command: statusCommand,
+                results_command: `jsn scan results ${id}${connection}`, resubmit: 'forbidden' };
+              throw wrapped;
             }
           }
           const breadcrumbs = executionHints(data);
@@ -220,7 +248,14 @@ export function scanCmd(wrap) {
         builder: p => p.option('limit', { type: 'number', default: 50, describe: 'Maximum findings/check rows (1–200); truncation is reported' }),
         handler: wrap(async (argv, app) => {
           const data = await scanResults(app.sdk, argv.id, boundedLimit(argv.limit));
-          report(app, argv, data, { summary: `Scan ${data.status}; ${data.findings_count ?? 'unknown'} findings; ${data.checks_executed ?? 'unknown'} recorded check executions${data.incomplete ? '; incomplete data' : ''}`, breadcrumbs: executionHints(data) });
+          const findings = data.findings_state === 'unretrieved'
+            ? `findings unretrieved (${data.findings_count} reported, 0 rows returned)`
+            : data.findings_state === 'mismatch'
+              ? `findings mismatch (${data.findings_count} reported, ${data.findings_retrieved} retrieved)`
+              : data.findings_state === 'truncated'
+                ? `findings truncated (${data.findings_retrieved} retrieved; count not reconciled)`
+                : `${data.findings_count ?? 'unknown'} findings`;
+          report(app, argv, data, { summary: `Scan ${data.status}; ${findings}; ${data.checks_executed ?? 'unknown'} recorded check executions${data.incomplete ? '; incomplete data' : ''}`, breadcrumbs: executionHints(data) });
         }) })
       .command({ command: 'cancel <id>', describe: 'Request cancellation of this scan after confirmation',
         handler: wrap(async (argv, app) => {

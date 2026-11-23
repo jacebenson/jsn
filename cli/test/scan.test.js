@@ -3,10 +3,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import http from 'node:http';
+import { once } from 'node:events';
+import { spawnSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import yargs from '../src/cli-adapter.js';
 import { scanCmd } from '../src/commands/scan.js';
 import { CHECK_TABLES, prepareScan, startScan, scanResults, scanStatus, cancelScan } from '../src/scan.js';
+import { OutputWriter, FormatJSON } from '../src/output.js';
+import { contextArgs, contextResponse } from './helpers/intended-context.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
+
+const cliJsn = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
+const execFileAsync = promisify(execFile);
 
 const ID = 'a'.repeat(32), RESULT = 'b'.repeat(32), SUITE = 'c'.repeat(32), CHECK = 'd'.repeat(32), TARGET = 'e'.repeat(32);
 
@@ -288,4 +298,521 @@ test('real CLI guards nested writes before authentication and exposes scan help 
     assert.match(help.stdout, /checks/);
     assert.match(help.stdout, /results/);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+// --- Issue 551: point scans must read as Instance Scan executions without
+// claiming a verified result, and partial/unretrieved findings must never read
+// as a clean zero. Fixtures below are synthetic; no live instance is involved.
+
+function pointScan(f, { tracker = {}, result = {} } = {}) {
+  Object.assign(f.rows('sys_execution_tracker')[0], { type: 'point_scan', state: '2', percent_complete: '100',
+    message: 'Scan completed with 0 warning(s), 0 error(s), and 1 finding(s)' }, tracker);
+  Object.assign(f.rows('scan_result')[0], { scan_type: 'Point Scan', state: 'Complete', finding_count: '1', progress_id: ID }, result);
+  f.rows('scan_finding').length = 0;
+  return f;
+}
+
+test('point_scan executions are accepted for status and results with a linked result', async () => {
+  const f = pointScan(fixture());
+  const status = await scanStatus(f.sdk, ID);
+  assert.equal(status.execution_type, 'point_scan');
+  assert.equal(status.status, 'successful');
+  assert.equal(status.result_id, RESULT);
+  assert.equal(status.result_link, 'linked');
+  assert.equal(status.phase, 'dispatched');
+  assert.ok(!Object.hasOwn(status, 'result_verified'), 'status reports only a parsed reference, never verification');
+  const results = await scanResults(f.sdk, ID);
+  assert.equal(results.execution_type, 'point_scan');
+  assert.equal(results.result_verified, true);
+  assert.equal(results.back_reference, 'matched');
+  assert.equal(results.scan_number, 'SR1');
+  assert.equal(results.findings_count, 1);
+  assert.equal(results.findings_state, 'unretrieved');
+  assert.equal(results.incomplete, true);
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('queued and initializing point scans stay distinct from terminal executions', async () => {
+  const f = pointScan(fixture());
+  const tracker = f.rows('sys_execution_tracker')[0];
+  const result = tracker.result;
+  Object.assign(tracker, { type: '', state: '', result: '' });
+  let status = await scanStatus(f.sdk, ID, { allowInitializing: true });
+  assert.equal(status.status, 'pending');
+  assert.equal(status.phase, 'initializing');
+  assert.equal(status.terminal, false);
+  assert.equal(status.execution_type, '');
+  await assert.rejects(scanStatus(f.sdk, ID), /not an Instance Scan/);
+  tracker.type = 'sys.instance_scan.queue';
+  status = await scanStatus(f.sdk, ID);
+  assert.equal(status.status, 'pending');
+  assert.equal(status.phase, 'queued');
+  assert.equal(status.result_id, null);
+  assert.equal(status.result_link, 'missing');
+  Object.assign(tracker, { type: 'point_scan', state: '1', result });
+  status = await scanStatus(f.sdk, ID);
+  assert.equal(status.status, 'running');
+  assert.equal(status.terminal, false);
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('unrelated tracker types are rejected for status, results and cancellation', async () => {
+  const f = pointScan(fixture());
+  f.rows('sys_execution_tracker')[0].type = 'sys_scan_queue_item';
+  for (const call of [() => scanStatus(f.sdk, ID, { allowInitializing: true }), () => scanResults(f.sdk, ID), () => cancelScan(f.sdk, ID)]) {
+    await assert.rejects(call, error => error.message === 'This execution tracker is not an Instance Scan.');
+  }
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('missing, denied or malformed tracker metadata never verifies success', async () => {
+  const f = pointScan(fixture());
+  const tracker = f.rows('sys_execution_tracker')[0];
+  delete tracker.result;
+  let status = await scanStatus(f.sdk, ID);
+  assert.equal(status.result_link, 'missing');
+  assert.equal(status.result_id, null);
+  let results = await scanResults(f.sdk, ID);
+  assert.equal(results.result_verified, false);
+  assert.equal(results.incomplete, true);
+  assert.deepEqual(results.unavailable, ['scan_result']);
+  assert.equal(results.findings_state, 'unknown');
+  for (const body of ['not json', '{}', JSON.stringify({ result_id: 'short' }), JSON.stringify({ result_id: null })]) {
+    tracker.result = body;
+    status = await scanStatus(f.sdk, ID);
+    assert.equal(status.result_link, 'malformed');
+    assert.equal(status.result_id, null);
+    await f.run(['results', ID]);
+    assert.equal(f.output.at(-1).data.result_link, 'malformed');
+    assert.equal(f.output.at(-1).data.result_verified, false);
+    assert.equal(f.output.at(-1).data.findings_count, null);
+    assert.equal(f.output.at(-1).data.findings_state, 'unknown');
+  }
+  tracker.result = JSON.stringify({ result_id: RESULT });
+  const get = f.sdk.get;
+  f.sdk.get = async (table, id) => { if (table === 'sys_execution_tracker') throw new Error('denied'); return get(table, id); };
+  await assert.rejects(scanStatus(f.sdk, ID), /denied/);
+  await assert.rejects(scanResults(f.sdk, ID), /denied/);
+});
+
+test('a denied or missing scan result is reported and never counted', async () => {
+  const f = pointScan(fixture());
+  const get = f.sdk.get;
+  f.sdk.get = async (table, id) => { if (table === 'scan_result') throw new Error('denied'); return get(table, id); };
+  let results = await scanResults(f.sdk, ID);
+  assert.equal(results.result_verified, false);
+  assert.equal(results.findings_count, null);
+  assert.equal(results.findings_state, 'unknown');
+  assert.equal(results.incomplete, true);
+  assert.ok(results.unavailable.includes('scan_result'));
+  f.sdk.get = async (table, id) => (table === 'scan_result' ? null : get(table, id));
+  results = await scanResults(f.sdk, ID);
+  assert.equal(results.result_verified, false);
+  assert.equal(results.findings_count, null);
+  assert.deepEqual(results.unavailable, ['scan_result']);
+  assert.equal(results.findings_state, 'unknown');
+});
+
+test('a foreign or absent result back-reference makes a point scan result unusable', async () => {
+  const f = pointScan(fixture(), { result: { progress_id: SUITE } });
+  let results = await scanResults(f.sdk, ID);
+  assert.equal(results.findings_count, null);
+  assert.equal(results.scan_number, undefined);
+  assert.ok(results.unavailable.includes('scan_result.back_reference'));
+  assert.equal(results.incomplete, true);
+  pointScan(f, { result: { progress_id: '' } });
+  results = await scanResults(f.sdk, ID);
+  assert.ok(results.unavailable.includes('scan_result.back_reference'));
+  assert.equal(results.incomplete, true);
+  f.rows('sys_execution_tracker')[0].type = 'instance_scan';
+  results = await scanResults(f.sdk, ID);
+  assert.equal(results.findings_count, 1);
+  assert.ok(!results.unavailable.includes('scan_result.back_reference'));
+});
+
+test('findings reconciliation separates unretrieved, verified zero and truncation', async () => {
+  const f = pointScan(fixture());
+  let results = await scanResults(f.sdk, ID);
+  assert.equal(results.findings_state, 'unretrieved');
+  assert.equal(results.incomplete, true);
+  assert.equal(results.checks_state, 'verified');
+  pointScan(f, { result: { finding_count: '0' } });
+  results = await scanResults(f.sdk, ID);
+  assert.equal(results.findings_state, 'verified');
+  assert.equal(results.findings_count, 0);
+  assert.equal(results.incomplete, false);
+  pointScan(f, { result: { finding_count: '2' } });
+  f.rows('scan_finding').push({ sys_id: '3', result: RESULT, check: CHECK, count: '1' },
+    { sys_id: '4', result: RESULT, check: CHECK, count: '1' });
+  results = await scanResults(f.sdk, ID, 1);
+  assert.equal(results.findings_state, 'truncated');
+  assert.equal(results.truncated.findings, true);
+  f.rows('scan_check_execution').length = 0;
+  results = await scanResults(f.sdk, ID);
+  assert.equal(results.checks_state, 'empty');
+  const list = f.sdk.listStrict;
+  f.sdk.listStrict = async (table, params) => { if (table === 'scan_check_execution') throw new Error('denied'); return list(table, params); };
+  results = await scanResults(f.sdk, ID);
+  assert.equal(results.checks_state, 'unknown');
+});
+
+test('results output states an unretrieved findings set instead of a bare count', async () => {
+  const f = pointScan(fixture());
+  await f.run(['results', ID]);
+  assert.match(f.output.at(-1).meta.summary, /findings unretrieved \(1 reported, 0 rows returned\)/);
+  assert.equal(f.output.at(-1).data.findings_state, 'unretrieved');
+});
+
+test('post-dispatch progress failures keep a structured recovery with one dispatch and no cancel', async () => {
+  const f = fixture(), get = f.sdk.get;
+  f.sdk.get = async (table, id) => { if (table === 'sys_execution_tracker') throw new Error('offline'); return get(table, id); };
+  let error;
+  await assert.rejects(f.run(['run', '--full', '--wait', '--force']), caught => {
+    error = caught;
+    return caught.message.includes(ID) && caught.message.includes('do not resubmit automatically');
+  });
+  assert.equal(error.recovery.execution_id, ID);
+  assert.equal(error.recovery.via, 'ScanAjaxProcessor');
+  assert.equal(error.recovery.phase, 'progress');
+  assert.deepEqual(error.recovery.target, { kind: 'full' });
+  assert.equal(error.recovery.suite_id, null);
+  assert.equal(error.recovery.status, 'unverified');
+  assert.equal(error.recovery.status_command, `jsn scan status ${ID}`);
+  assert.equal(error.recovery.results_command, `jsn scan results ${ID}`);
+  assert.equal(error.recovery.resubmit, 'forbidden');
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.requests.filter(request => /cancel/i.test(request.url)), []);
+  assert.deepEqual(f.writes, []);
+});
+
+test('a failure reading results after a terminal status reports phase results', async () => {
+  const f = pointScan(fixture()), get = f.sdk.get;
+  let trackerReads = 0;
+  f.sdk.get = async (table, id) => {
+    if (table === 'sys_execution_tracker' && ++trackerReads > 1) throw new Error('denied after terminal');
+    return get(table, id);
+  };
+  let error;
+  await assert.rejects(f.run(['run', '--record', TARGET, '--table', 'sys_script_include', '--wait', '--force']), caught => { error = caught; return true; });
+  assert.equal(error.recovery.phase, 'results');
+  assert.equal(error.recovery.execution_id, ID);
+  assert.match(error.message, /results could not be read/);
+  assert.match(error.message, /do not resubmit automatically/);
+  assert.deepEqual(error.recovery.target, { kind: 'record', sys_id: TARGET, table: 'sys_script_include' });
+  assert.equal(error.recovery.resubmit, 'forbidden');
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.writes, []);
+});
+
+test('the JSON error envelope carries the structured recovery object', async () => {
+  const f = fixture(), get = f.sdk.get;
+  f.sdk.get = async (table, id) => { if (table === 'sys_execution_tracker') throw new Error('offline'); return get(table, id); };
+  let error;
+  try { await f.run(['run', '--update-set', 'Test set', '--wait', '--force']); } catch (caught) { error = caught; }
+  assert.ok(error?.recovery, 'expected a recovery object');
+  const chunks = [];
+  new OutputWriter({ format: FormatJSON, writer: { write: text => chunks.push(text) } }).err(error);
+  const envelope = JSON.parse(chunks.join(''));
+  assert.equal(envelope.ok, false);
+  assert.equal(envelope.code, error.code);
+  assert.equal(envelope.recovery.execution_id, ID);
+  assert.equal(envelope.recovery.phase, 'progress');
+  assert.deepEqual(envelope.recovery.target, { kind: 'update_set', sys_id: TARGET, name: 'Test set' });
+  assert.equal(envelope.recovery.status, 'unverified');
+  assert.equal(envelope.recovery.resubmit, 'forbidden');
+});
+
+test('registered CLI reports a point scan read without writes or dispatch', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-scan-point-'));
+  const tracker = { sys_id: ID, type: 'point_scan', state: '2', percent_complete: '100',
+    message: 'Scan completed with 0 warning(s), 0 error(s), and 1 finding(s)',
+    result: JSON.stringify({ result_id: RESULT }) };
+  const result = { sys_id: RESULT, number: 'SR1', scan_type: 'Point Scan', state: 'Complete', finding_count: '0', progress_id: ID };
+  const seen = [];
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://fixture');
+    seen.push(`${request.method} ${url.pathname}`);
+    const body = url.pathname === `/api/now/table/sys_execution_tracker/${ID}` ? { result: tracker }
+      : url.pathname === `/api/now/table/scan_result/${RESULT}` ? { result }
+        : contextResponse(url) || { result: [] };
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify(body));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const configDir = path.join(home, 'config');
+    fs.mkdirSync(path.join(configDir, 'servicenow'), { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'servicenow', 'config.json'), JSON.stringify({ default_profile: 'fixture',
+      profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
+    Object.assign(env, { HOME: home, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: configDir,
+      JSN_DATA_HOME: path.join(home, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1',
+      JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', TMPDIR: process.env.TMPDIR || os.tmpdir(),
+      SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
+    const runCli = async args => {
+      try {
+        const { stdout } = await execFileAsync(process.execPath,
+          [...credentialFixtureArgs, cliJsn, 'scan', ...args, '--json', ...contextArgs], { env, timeout: 20000 });
+        return { code: 0, stdout, stderr: '' };
+      } catch (error) { return { code: error.code, stdout: error.stdout || '', stderr: error.stderr || '' }; }
+    };
+    const status = await runCli(['status', ID]);
+    assert.equal(status.code, 0, status.stderr || status.stdout);
+    const statusEnvelope = JSON.parse(status.stdout);
+    assert.equal(statusEnvelope.data.execution_type, 'point_scan');
+    assert.equal(statusEnvelope.data.result_link, 'linked');
+    const results = await runCli(['results', ID]);
+    assert.equal(results.code, 0, results.stderr || results.stdout);
+    const resultsEnvelope = JSON.parse(results.stdout);
+    assert.equal(resultsEnvelope.data.findings_state, 'verified');
+    assert.equal(resultsEnvelope.data.findings_count, 0);
+    // /angular.do is the read-only context probe; table mutations are the concern.
+    assert.ok(seen.every(line => !/^(POST|PUT|DELETE|PATCH) .*\/api\/now\/table\//.test(line)), `unexpected writes: ${seen.join(', ')}`);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('a tracker returned under a different sys_id is refused, not reported', async () => {
+  const f = pointScan(fixture()), get = f.sdk.get, tracker = f.rows('sys_execution_tracker')[0];
+  f.sdk.get = async (table, id) => (table === 'sys_execution_tracker' ? { ...tracker, sys_id: SUITE } : get(table, id));
+  await assert.rejects(scanStatus(f.sdk, ID), /identity does not match/);
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('a result filed under a different sys_id is unusable and never verified', async () => {
+  const f = pointScan(fixture()), get = f.sdk.get, result = f.rows('scan_result')[0];
+  f.sdk.get = async (table, id) => (table === 'scan_result' ? { ...result, sys_id: SUITE } : get(table, id));
+  const data = await scanResults(f.sdk, ID);
+  assert.equal(data.result_verified, false);
+  assert.equal(data.findings_count, null);
+  assert.equal(data.scan_number, undefined);
+  assert.ok(data.unavailable.includes('scan_result.identity'));
+  assert.equal(data.incomplete, true);
+  assert.equal(data.findings_state, 'unknown');
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('any reported/retrieved finding disagreement is a mismatch, not a verified total', async () => {
+  const f = pointScan(fixture(), { result: { finding_count: '3' } });
+  f.rows('scan_finding').push({ sys_id: '3', result: RESULT, check: CHECK, count: '1' });
+  let data = await scanResults(f.sdk, ID);
+  assert.equal(data.findings_count, 3);
+  assert.equal(data.findings_retrieved, 1);
+  assert.equal(data.findings_state, 'mismatch');
+  assert.equal(data.incomplete, true);
+  pointScan(f, { result: { finding_count: '0' } });
+  f.rows('scan_finding').push({ sys_id: '4', result: RESULT, check: CHECK, count: '1' });
+  data = await scanResults(f.sdk, ID);
+  assert.equal(data.findings_count, 0);
+  assert.equal(data.findings_retrieved, 1);
+  assert.equal(data.findings_state, 'mismatch');
+  assert.equal(data.incomplete, true);
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('truncated findings cannot be reconciled and stay incomplete', async () => {
+  const f = pointScan(fixture(), { result: { finding_count: '2' } });
+  f.rows('scan_finding').push({ sys_id: '5', result: RESULT, check: CHECK, count: '1' },
+    { sys_id: '6', result: RESULT, check: CHECK, count: '1' });
+  const data = await scanResults(f.sdk, ID, 1);
+  assert.equal(data.truncated.findings, true);
+  assert.equal(data.findings_state, 'truncated');
+  assert.equal(data.incomplete, true);
+});
+
+test('initializing, queued and dispatched phases stay structurally distinct', async () => {
+  const f = pointScan(fixture()), tracker = f.rows('sys_execution_tracker')[0], saved = tracker.result;
+  Object.assign(tracker, { type: '', state: '', result: '' });
+  assert.equal((await scanStatus(f.sdk, ID, { allowInitializing: true })).phase, 'initializing');
+  tracker.type = 'sys.instance_scan.queue';
+  assert.equal((await scanStatus(f.sdk, ID)).phase, 'queued');
+  Object.assign(tracker, { type: 'point_scan', result: saved });
+  assert.equal((await scanStatus(f.sdk, ID)).phase, 'dispatched');
+  assert.deepEqual(f.writes, []);
+  assert.deepEqual(f.requests, []);
+});
+
+test('post-dispatch authorization failures keep the id and profile in hint and recovery', async () => {
+  const f = fixture(), get = f.sdk.get;
+  f.sdk.get = async (table, id) => {
+    if (table === 'sys_execution_tracker') throw Object.assign(new Error('forbidden'), { status: 403 });
+    return get(table, id);
+  };
+  let error;
+  await assert.rejects(f.run(['run', '--full', '--wait', '--force', '--profile', 'pdi']), caught => { error = caught; return true; });
+  assert.equal(error.code, 'forbidden');
+  assert.match(error.hint, new RegExp(ID));
+  assert.match(error.hint, /do not resubmit automatically/);
+  assert.equal(error.recovery.execution_id, ID);
+  assert.equal(error.recovery.status_command, `jsn scan status ${ID} --profile pdi`);
+  assert.equal(error.recovery.results_command, `jsn scan results ${ID} --profile pdi`);
+  const chunks = [];
+  new OutputWriter({ format: FormatJSON, writer: { write: text => chunks.push(text) } }).err(error);
+  const envelope = JSON.parse(chunks.join(''));
+  assert.equal(envelope.ok, false);
+  assert.match(envelope.hint, new RegExp(ID));
+  assert.equal(envelope.recovery.execution_id, ID);
+  assert.equal(envelope.recovery.status_command, `jsn scan status ${ID} --profile pdi`);
+  assert.equal(envelope.recovery.resubmit, 'forbidden');
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.writes, []);
+});
+
+test('post-dispatch transport failures retain the id, recovery and no-resubmit warning', async () => {
+  const f = fixture(), get = f.sdk.get;
+  f.sdk.get = async (table, id) => {
+    if (table === 'sys_execution_tracker') throw Object.assign(new Error('socket hang up'), { code: 'network_error' });
+    return get(table, id);
+  };
+  let error;
+  await assert.rejects(f.run(['run', '--full', '--wait', '--force', '--instance', 'dev.example.invalid']), caught => { error = caught; return true; });
+  assert.match(error.message, new RegExp(ID));
+  assert.match(error.message, /do not resubmit automatically/);
+  assert.equal(error.recovery.phase, 'progress');
+  assert.equal(error.recovery.status_command, `jsn scan status ${ID} --instance dev.example.invalid`);
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.writes, []);
+});
+
+test('missing or denied tracker identities are refused before reads can authorize mutation', async () => {
+  for (const sys_id of [undefined, null, '', {}, { display_value: ID }]) {
+    const f = pointScan(fixture()), get = f.sdk.get, tracker = f.rows('sys_execution_tracker')[0];
+    f.sdk.get = async (table, id) => table === 'sys_execution_tracker' ? { ...tracker, sys_id } : get(table, id);
+    await assert.rejects(scanStatus(f.sdk, ID, { allowInitializing: true }), /identity does not match/);
+    await assert.rejects(scanResults(f.sdk, ID), /identity does not match/);
+    await assert.rejects(cancelScan(f.sdk, ID), /identity does not match/);
+    assert.deepEqual(f.writes, []);
+    assert.deepEqual(f.requests, []);
+  }
+});
+
+test('missing or denied result identities cannot verify clean point scans', async () => {
+  for (const sys_id of [undefined, null, '', {}, { display_value: RESULT }]) {
+    const f = pointScan(fixture(), { result: { finding_count: '0' } }), get = f.sdk.get, result = f.rows('scan_result')[0];
+    f.sdk.get = async (table, id) => table === 'scan_result' ? { ...result, sys_id } : get(table, id);
+    const data = await scanResults(f.sdk, ID);
+    assert.equal(data.result_verified, false);
+    assert.equal(data.findings_count, null);
+    assert.equal(data.findings_state, 'unknown');
+    assert.equal(data.incomplete, true);
+    assert.ok(data.unavailable.includes('scan_result.identity'));
+    assert.deepEqual(f.writes, []);
+    assert.deepEqual(f.requests, []);
+  }
+});
+
+test('malformed findings and check lists remain unavailable, never verified empty', async () => {
+  for (const payload of ['', {}, null, [null], ['not a row'], [[]]]) {
+    const f = pointScan(fixture(), { result: { finding_count: '0' } });
+    f.sdk.listStrict = async () => payload;
+    const data = await scanResults(f.sdk, ID);
+    assert.equal(data.incomplete, true);
+    assert.equal(data.findings_state, 'unknown');
+    assert.equal(data.checks_state, 'unknown');
+    assert.equal(data.findings_retrieved, null);
+    assert.equal(data.checks_executed, null);
+    assert.ok(data.unavailable.includes('scan_finding'));
+    assert.ok(data.unavailable.includes('scan_check_execution'));
+  }
+});
+
+test('denied or malformed mandatory result counts cannot claim verified zero', async () => {
+  for (const finding_count of [undefined, null, '', {}, { display_value: '0' }, 'NaN', '-1']) {
+    const f = pointScan(fixture(), { result: { finding_count } });
+    const data = await scanResults(f.sdk, ID);
+    assert.equal(data.findings_count, null);
+    assert.equal(data.findings_state, 'unknown');
+    assert.equal(data.incomplete, true);
+    assert.ok(data.unavailable.includes('scan_result.finding_count'));
+  }
+});
+
+test('human recovery pins the same shell-quoted connection as structured commands', async () => {
+  for (const selector of [['--profile', 'approved profile'], ['--instance', 'https://fixture.invalid/path with spaces']]) {
+    const f = fixture();
+    f.sdk.get = async () => { throw new Error('provider-secret-must-not-appear'); };
+    let error;
+    await assert.rejects(f.run(['run', '--full', '--wait', '--force', ...selector]), caught => { error = caught; return true; });
+    assert.ok(error.hint.includes(error.recovery.status_command));
+    assert.ok(error.recovery.status_command.endsWith(`${selector[0]} '${selector[1]}'`));
+    assert.ok(!`${error.message} ${error.hint}`.includes('provider-secret-must-not-appear'));
+    assert.equal(f.requests.length, 1);
+    assert.deepEqual(f.writes, []);
+  }
+});
+
+test('public CLI JSON and human 401/403 failures preserve pinned recovery without provider secrets', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-scan-recovery-'));
+  const selected = 'approved profile', seen = [];
+  let deniedStatus = 403;
+  const secret = 'synthetic-provider-secret-never-render';
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://fixture');
+    seen.push({ method: request.method, path: url.pathname, action: url.searchParams.get('sysparm_name') });
+    if (url.pathname === '/xmlhttp.do') {
+      response.writeHead(200, { 'Content-Type': 'text/xml' });
+      response.end(`<xml answer="{&quot;status&quot;:0,&quot;progressId&quot;:&quot;${ID}&quot;}"/>`);
+    } else if (url.pathname === `/api/now/table/sys_execution_tracker/${ID}`) {
+      response.writeHead(deniedStatus, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: { message: secret, detail: secret } }));
+    } else {
+      const body = contextResponse(url);
+      response.writeHead(200, { 'Content-Type': body ? 'application/json' : 'text/html' });
+      response.end(body ? JSON.stringify(body) : '<html>Fixture</html>');
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const configDir = path.join(home, 'config');
+    fs.mkdirSync(path.join(configDir, 'servicenow'), { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'servicenow', 'config.json'), JSON.stringify({ default_profile: selected,
+      profiles: { [selected]: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: false } } }));
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
+    Object.assign(env, { HOME: home, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: configDir,
+      JSN_DATA_HOME: path.join(home, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1',
+      JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', TMPDIR: process.env.TMPDIR || os.tmpdir(),
+      SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
+    for (deniedStatus of [401, 403]) for (const format of ['json', 'styled']) {
+      const before = seen.length;
+      let failure;
+      try {
+        await execFileAsync(process.execPath, [...credentialFixtureArgs, cliJsn, 'scan', 'run', '--full', '--wait', '--force',
+          '--profile', selected, '--format', format, ...contextArgs], { env, timeout: 20000 });
+      } catch (error) { failure = error; }
+      assert.ok(failure, `expected HTTP ${deniedStatus} ${format} failure`);
+      assert.equal(failure.code, 1, failure.stdout || failure.stderr);
+      const text = `${failure.stdout}${failure.stderr}`;
+      assert.ok(!text.includes(secret));
+      assert.match(text, new RegExp(ID));
+      assert.match(text, /do not resubmit automatically/i);
+      const command = `jsn scan status ${ID} --profile 'approved profile'`;
+      if (format === 'json') {
+        const envelope = JSON.parse(failure.stdout);
+        assert.equal(envelope.ok, false);
+        assert.equal(envelope.code, deniedStatus === 401 ? 'auth_error' : 'forbidden');
+        assert.equal(envelope.recovery.execution_id, ID);
+        assert.equal(envelope.recovery.status_command, command);
+        assert.equal(envelope.recovery.results_command, `jsn scan results ${ID} --profile 'approved profile'`);
+        assert.equal(envelope.recovery.resubmit, 'forbidden');
+        assert.ok(envelope.hint.includes(command));
+      } else assert.ok(failure.stderr.includes(command), failure.stderr);
+      const requests = seen.slice(before);
+      assert.equal(requests.filter(r => r.action === 'executeFullScan').length, 1);
+      assert.ok(!requests.some(r => /cancel/i.test(r.action || '')));
+      assert.ok(!requests.some(r => /^(POST|PUT|PATCH|DELETE)$/.test(r.method) && r.path.includes('/api/now/table/')));
+    }
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
