@@ -133,7 +133,14 @@ export function parseEncodedQuery(query) {
 
     const connected = clause.match(CONNECTOR);
     if (connected) { connector = connected[1]; clause = clause.slice(connected[0].length); }
-    if (clause === '') continue;
+    if (clause.trim() === '') {
+      if (connector !== 'EQ') {
+        terms.push({ kind: 'invalid', raw: rawClause, connector });
+        diagnostics.push({ code: 'empty_branch', severity: 'error', term: rawClause,
+          message: `${connector} requires a complete query term.`, hint: 'Supply a condition after every OR, NQ or AND branch. See jsn records list --help.' });
+      }
+      continue;
+    }
 
     if (/^(?:javascript|js):/i.test(clause) || /(?:javascript|js):/i.test(clause)
       || /^(?:RLQUERY|ENDRLQUERY|GROUPBY|HAVING)/.test(clause)
@@ -180,6 +187,10 @@ export function parseEncodedQuery(query) {
       path: field.split('.'), inherited: false,
     });
   }
+
+  if (!terms.length) diagnostics.push({ code: 'empty_filter', severity: 'error', term: original,
+    message: 'A nonempty encoded query must contain a condition or directive, not only separators or connectors.',
+    hint: 'Supply a complete filter. See jsn records list --help.' });
 
   const invalid = terms.some(term => term.kind === 'invalid') || diagnostics.some(d => d.severity === 'error');
   const unsupported = terms.some(term => term.kind === 'unsupported' || term.kind === 'ambiguous');

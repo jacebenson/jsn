@@ -113,6 +113,15 @@ export async function readTableMetadata(sdk, table, { maxDepth = MAX_DEPTH, limi
       reason = 'Parent metadata is not visible; inheritance coverage is incomplete';
       break;
     }
+    const parentValue = row.super_class;
+    const readableParent = typeof parentValue === 'string'
+      || (parentValue && typeof parentValue === 'object' && !Array.isArray(parentValue)
+        && Object.hasOwn(parentValue, 'value') && typeof parentValue.value === 'string');
+    if (!readableParent) {
+      state = 'incomplete';
+      reason = 'Parent reference has no readable raw value; inheritance coverage is incomplete';
+      break;
+    }
     const parent = raw(row.super_class);
     if (!parent) { next = null; break; }
     if (!/^[a-f0-9]{32}$/i.test(parent)) {

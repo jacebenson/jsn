@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import { cacheDir } from './config.js';
 
 export const DEFAULT_TTL_MS = 300_000;
-const VERSION = 2;
+const VERSION = 3;
 export const QUERY_CACHE_LIMITS = Object.freeze({ entries: 64, entryBytes: 262144, bytes: 8388608 });
 const TABLE = /^[a-zA-Z0-9_]+$/;
 

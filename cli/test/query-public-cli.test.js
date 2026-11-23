@@ -25,7 +25,7 @@ const dictionary = [
   ...['sys_id', 'name', 'active', 'short_description'].map(element => ({ sys_id: element, name: 'task', element, internal_type: 'string', reference: '' })),
   { sys_id: 'number', name: 'incident', element: 'number', internal_type: 'string', reference: '' },
   { sys_id: 'caller', name: 'incident', element: 'caller_id', internal_type: 'reference', reference: 'sys_user' },
-  ...['sys_id', 'name', 'user_name', 'email'].map(element => ({ sys_id: `user-${element}`, name: 'sys_user', element, internal_type: 'string', reference: '' })),
+  ...['sys_id', 'name', 'nameINTERNAL', 'user_name', 'email'].map(element => ({ sys_id: `user-${element}`, name: 'sys_user', element, internal_type: 'string', reference: '' })),
 ];
 let rows;
 const requests = [];
@@ -80,6 +80,14 @@ try {
   Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, JSN_DATA_HOME: path.join(directory, 'data'), PATH: '',
     SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-probe-password', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
   const cases = [
+    ...['^', 'OR', 'NQ', 'AND', '^EQ', 'name=fixture^OR', 'name=fixture^NQ', 'name=fixture^AND'].map(query => ({
+      name: `local syntax rejection ${query}`, args: ['records', 'delete-many', '--table', 'incident', '--query', query, '--yes', '--expect-count', '1', '--limit', '1'], rejected: true, zeroWrites: true, local: true })),
+    ...['', ' '].map(query => ({ name: 'empty bulk filter', args: ['records', 'bulk', '--table', 'incident', '--query', query, '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true, local: true })),
+    ...[{}, { display_value: 'Task' }].map(parent => ({ name: 'malformed ancestor bulk refusal', parent, args: ['records', 'bulk', '--table', 'incident', '--query', 'name=fixture', '-f', 'active=false', '--execute', '--force', '--refresh-metadata'], rejected: true, zeroWrites: true })),
+    { name: 'ambiguous dot-walk bulk refusal', args: ['records', 'bulk', '--table', 'incident', '--query', 'caller_id.nameINTERNAL.foo=x', '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true },
+    { name: 'valid terminal EQ deletion', args: ['records', 'delete-many', '--table', 'incident', '--query', 'name=fixture^EQ', '--yes', '--expect-count', '1', '--limit', '1', '--refresh-metadata'], rejected: false, zeroWrites: false, expectedWrites: 1 },
+    { name: 'valid terminal EQ read', parent: { value: '' }, args: ['records', 'list', '--table', 'incident', '--query', 'name=fixture^EQ', '--no-count', '--refresh-metadata'], rejected: false, zeroWrites: true },
+
     { name: 'operator typo read', args: ['records', 'list', '--table', 'incident', '--query', 'nameSTARTWITHfixture', '--no-count'], rejected: true, zeroWrites: true },
     { name: 'unknown later OR/NQ term bulk mutation', args: ['records', 'bulk', '--table', 'incident', '--query', 'nameSTARTSWITHfixture^ORbogus=1^NQactive=true', '-f', 'short_description=changed', '--execute', '--force', '--limit', '1'], rejected: true, zeroWrites: true },
     { name: 'operator typo delete mutation', args: ['records', 'delete-many', '--table', 'incident', '--query', 'nameSTARTWITHfixture', '--yes', '--expect-count', '1', '--limit', '1'], rejected: true, zeroWrites: true },
@@ -90,13 +98,17 @@ try {
   ];
   const observed = [];
   for (const item of cases) {
+    definitions[1].super_class = Object.hasOwn(item, 'parent') ? item.parent : '';
     rows = [{ sys_id: id('a'), number: 'INC-FIXTURE', name: 'fixture', active: 'true', short_description: 'Synthetic fixture' }];
     const before = requests.length;
     let result;
     try { result = { ...await execute(process.execPath, [cli, '--profile', 'selected', ...item.args, '--json'], { cwd: directory, env, timeout: 20000 }), code: 0 }; }
     catch (error) { result = error; }
     const calls = requests.slice(before);
+    if (item.local) assert.deepEqual(calls, [], item.name + ': syntax must fail before identity/schema/count/context traffic');
     const writes = calls.filter(call => !['GET', 'HEAD'].includes(call.method) && call.path !== '/angular.do');
+    if (item.expectedWrites !== undefined) assert.equal(writes.length, item.expectedWrites, item.name);
+    if (item.name === 'valid terminal EQ deletion') assert.equal(rows.length, 0, 'valid terminal EQ must reach and complete its intended fixture deletion');
     let data; try { data = JSON.parse(result.stdout); } catch { data = null; }
     observed.push({ name: item.name, exit: result.code, expectedRejected: item.rejected, writeCount: writes.length,
       responseCode: data?.code || null, responseMessage: data?.message || data?.error?.message || null,
@@ -111,9 +123,14 @@ try {
   assert.equal(requests.some(call => call.path === '/api/now/table/incidnet'), false, 'unresolved target must never reach record transport');
   for (const item of observed.filter(item => item.expectedRejected)) {
     assert.ok(item.queryValidation, item.name + ': structured validation must render');
-    assert.ok(item.queryValidation.diagnostics.some(d => d.term), item.name + ': failing term');
+    if (item.queryValidation.query.trim()) assert.ok(item.queryValidation.diagnostics.some(d => d.term), item.name + ': failing term');
+    else assert.ok(item.queryValidation.diagnostics.some(d => d.code === 'empty_filter'));
   }
   assert.ok(observed.every(item => item.passed), 'Public CLI query-safety acceptance failed. See per-case observations.');
+  const ambiguousQuery = 'caller_id.nameINTERNAL.foo=x';
+  const ambiguous = await execute(process.execPath, [cli, '--profile', 'selected', 'records', 'list', '--table', 'incident', '--query', ambiguousQuery, '--no-count', '--json'], { cwd: directory, env, timeout: 20000 });
+  assert.equal(JSON.parse(ambiguous.stdout).data.query_validation.state, 'unsupported');
+  assert.ok(requests.some(call => call.path === '/api/now/table/incident' && call.query === ambiguousQuery), 'ambiguous read bytes remain unchanged');
   const unverified = ['records', 'list', '--table', 'incident', '--query', 'nameONtoday', '--no-count'];
   const extracted = await execute(process.execPath, [cli, '--profile', 'selected', ...unverified, '--get', 'data.query_validation.state'], { cwd: directory, env, timeout: 20000 });
   assert.equal(JSON.parse(extracted.stdout), 'unsupported');

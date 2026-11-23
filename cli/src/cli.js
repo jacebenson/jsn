@@ -127,7 +127,8 @@ function wrap(handler) {
       }
       const caps = collectCapabilities().get(argv._?.[0]) || {};
       app.queryValidation = null;
-      if (typeof argv.query === 'string' && argv.query.trim() && !caps.noInstance && caps.encodedQuery !== false) {
+      if (((typeof argv.query === 'string' && argv.query.trim()) || caps.filteredMutationSubcommands?.includes(argv._?.[1]))
+        && !caps.noInstance && caps.encodedQuery !== false) {
         const target = typeof caps.queryTable === 'function' ? caps.queryTable(argv) : caps.queryTable || caps.table || argv.table;
         const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
         app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
