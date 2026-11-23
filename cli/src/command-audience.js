@@ -34,5 +34,7 @@ export function commandAudience(config, { instance, allCommands = false } = {}) 
 
 export function visibleCommandRegistry(registry, config, options = {}) {
   if (commandAudience(config, options) !== 'basic') return registry;
-  return { ...registry, commands: registry.commands.filter(command => BASIC_COMMANDS.has(command.name)) };
+  return { ...registry, commands: registry.commands.filter(command => BASIC_COMMANDS.has(command.name)),
+    ...(registry.entries ? { entries: registry.entries.filter(entry => BASIC_COMMANDS.has(entry.path[0])) } : {}),
+  };
 }

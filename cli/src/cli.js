@@ -458,7 +458,7 @@ export function buildCLI() {
     .command(versionCmd(wrap))
     .command(upgradeCmd(wrap))
     .command(documentCmd(wrap))
-    .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry(), app.config, argv)))
+    .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry({ details: true }), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of

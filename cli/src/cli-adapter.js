@@ -312,7 +312,7 @@ export class LocalCLI {
    * help page. Machine discovery leaves it out, so the JSON schema and bytes
    * stay unchanged.
    */
-  commandRegistry({ summaries = false, shallow = false } = {}) {
+  commandRegistry({ summaries = false, shallow = false, details = false } = {}) {
     const visible = (node) => !node.definition.hidden;
     const serialize = (node) => {
       if (!shallow) node.build();
@@ -333,7 +333,7 @@ export class LocalCLI {
       if (summaries) entry.summary = node.definition.summary || '';
       return entry;
     };
-    return {
+    const registry = {
       commands: this.root.children.filter(visible).map(serialize),
       options: [...this.root.options.values()].map((spec) => ({
         name: spec.name,
@@ -343,6 +343,49 @@ export class LocalCLI {
         type: spec.type || 'boolean',
       })),
     };
+    // Opt-in action detail leaves the legacy command/group projection intact.
+    // Build every visible descendant, using the same option inheritance and
+    // signatures as dispatch. Hidden subtrees are never indexed.
+    if (details) {
+      registry.entries = [];
+      const visit = (node, ancestors = [], aliases = []) => {
+        if (!visible(node)) return;
+        // Dispatch resolves names as literal tokens, not positional patterns.
+        // A positional-headed declaration cannot yield a fixed canonical path
+        // after placeholder substitution. Keep it only in the legacy projection.
+        if (positionSpec(node.name).length) return;
+        node.build();
+        const nodes = [...ancestors, node];
+        const path = nodes.map(value => value.name);
+        const bindings = this._optionConfig(nodes);
+        const allOptions = [...new Set(bindings.values())];
+        const options = allOptions.filter(spec => !spec.hidden).map(spec => {
+          // An inherited alias can now belong to a different, hidden option.
+          // Advertise only tokens that still resolve to this visible spec.
+          const tokens = [...bindings].filter(([_name, bound]) => bound === spec).map(([name]) => name);
+          return { ...spec, token: tokens.includes(spec.name) ? spec.name : tokens[0],
+            alias: tokens.filter(name => name !== spec.name) };
+        });
+        const positions = positionSpec(node.definition.command || '').map(position => ({
+          ...position, ...node.positionals.get(position.name), name: position.name,
+        }));
+        registry.entries.push({
+          path, aliases: [...aliases, ...node.aliases],
+          description: node.definition.describe || '',
+          group: nodes[0].definition.describe || '',
+          table: nodes[0].definition.discovery?.table || '',
+          help: `jsn ${path.join(' ')} --help`,
+          parent: node.children.some(visible),
+          options, positions,
+          hiddenRequired: allOptions.some(spec => spec.hidden && spec.demandOption),
+          tasks: node.definition.discoveryTasks || [],
+          examples: node.definition.examples || [],
+        });
+        for (const child of node.children) visit(child, nodes, [...aliases, ...node.aliases]);
+      };
+      for (const node of this.root.children) visit(node);
+    }
+    return registry;
   }
 
   /** Structured child signatures for a parent node, built on demand. */

@@ -365,6 +365,29 @@ column configuration and supported view benefits through optional `discovery`
 metadata on the command definition. This metadata is additive to the existing
 root JSON registry; it is not a second command inventory or a mutation policy.
 
+`data.commands` retains the original unranked group matching and object shape.
+`data.results` is an additive, deterministic action suggestion list, bounded to
+five results by default. Exact task phrases precede other task-word matches,
+registered examples, option help, action descriptions and broad group text.
+Equal scores sort by invocation. Human output shows these suggestions first;
+exact-table searches also retain configured columns and view benefits.
+
+The adapter's opt-in `commandRegistry({ details: true })` walks visible nested
+registrations and their inherited options. Action definitions can declare
+`discoveryTasks: [{ phrases, args, description }]` and
+`examples: [{ args, description }]`. `args` is an array of argv tokens after the
+canonical action path, not shell code. Parser-required positionals and options
+are added as explicit placeholders when absent. Task-specific payload values,
+such as `work_notes=<text>`, belong in the owning annotation. Hidden or unknown
+flags and stale typed example values cannot produce ranked suggestions. Default
+registry consumers do not receive this additional internal detail.
+
+Suggestions never dispatch handlers, contact an instance, select context or
+infer actual identifiers. Required placeholders must be replaced before use;
+parser-valid syntax is not proof of provider permissions or record validity.
+`cli/test/ranked-discovery.test.js` covers task mappings, dynamic registrations,
+visibility, stable ranking, extraction and intercepted parser validation.
+
 After login or OAuth refresh, the selected profile caches a command audience
 bound to its account and instance. A verified `admin` role shows the full
 surface. Other authenticated accounts see a compact task and connection surface;

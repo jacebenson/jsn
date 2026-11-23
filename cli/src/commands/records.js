@@ -638,6 +638,10 @@ export function recordsCmd(wrap) {
           command: 'inspect <table> <identifier>',
           aliases: ['debug', 'diag'],
           describe: 'Inspect a record: show audit history, business rules, and running flows',
+          discoveryTasks: [{
+            phrases: ['record history', 'audit history', 'record changes', 'show record history', 'who changed a record'],
+            args: ['--json'], description: 'Inspect audit history for the specified table and record',
+          }],
           builder: (y) => y
             .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
             .positional('identifier', { describe: 'Record sys_id or number', type: 'string' }),
