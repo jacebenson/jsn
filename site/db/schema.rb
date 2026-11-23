@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_15_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_23_000000) do
   create_table "acceptance_checks", force: :cascade do |t|
     t.integer "acceptance_run_id", null: false
     t.string "check_id", null: false
@@ -83,6 +83,40 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_15_000000) do
     t.index ["user_id"], name: "index_login_sessions_on_user_id"
   end
 
+  create_table "snbench_attempts", force: :cascade do |t|
+    t.integer "snbench_run_id", null: false
+    t.string "task", null: false
+    t.string "category", null: false
+    t.integer "attempt", null: false
+    t.boolean "passed", null: false
+    t.json "measurements", null: false
+    t.json "checks", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["snbench_run_id", "task", "attempt"], name: "index_snbench_attempts_on_snbench_run_id_and_task_and_attempt", unique: true
+    t.index ["snbench_run_id"], name: "index_snbench_attempts_on_snbench_run_id"
+  end
+
+  create_table "snbench_runs", force: :cascade do |t|
+    t.string "run_id", null: false
+    t.string "benchmark"
+    t.string "adapter"
+    t.string "tool"
+    t.string "tool_version"
+    t.string "model"
+    t.string "agent_runner"
+    t.string "track", null: false
+    t.string "instance_build"
+    t.string "commit"
+    t.string "tasks_digest"
+    t.float "budget_usd"
+    t.datetime "date", null: false
+    t.string "payload_digest", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["run_id"], name: "index_snbench_runs_on_run_id", unique: true
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "email", null: false
     t.string "password_digest", null: false
@@ -94,4 +128,5 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_15_000000) do
 
   add_foreign_key "acceptance_checks", "acceptance_runs"
   add_foreign_key "login_sessions", "users"
+  add_foreign_key "snbench_attempts", "snbench_runs"
 end

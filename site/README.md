@@ -155,6 +155,42 @@ Tests cover public API/search/reads, input limits, revision mismatch, sanitized
 Markdown, account/session security, video publishing, Markdown guides/legacy redirects, and
 Git fixture additions/edits/deletions, unchanged revisions, and failed publication.
 
+## snbench benchmark results
+
+`/snbench` publishes Jace Benson's ServiceNow tool benchmark. Filter by tool,
+model or track. A server-rendered SVG plots score against query-selected cost,
+output tokens or agent seconds. The ranked agent table reports PASS@1 with n,
+per-task cost, output tokens and turns. Resource totals sum attempts within task
+before averaging tasks; the secondary aggregate table reports per-attempt means.
+Efficiency means lowest reported USD per score point and does not validate prices.
+The primary matrix always shows the 34-task snbench 0.1.0
+inventory, grouped by category, with attempt counts, task pass rates and expandable
+per-task cost, time and token means. Row totals are raw attempt counts across
+explicitly labeled tracks, not agent scores. Column totals use task weighting.
+Partial flags use the README's three-attempt example as a reference target because
+result files do not declare planned replication counts. Follow a run for
+individual attempt checks, seconds, tokens, cost, turns and shell execution counts.
+Agent rows
+are separate from oracle/nop controls and from other benchmark/task digests and
+instance builds. Attempts are averaged within task, then tasks have equal weight.
+Repeated runs contribute attempts to the same task. Fractional tasks passed is
+the sum of those task means. Missing measurements are shown as unavailable.
+
+From `site/`, after `bin/rails db:prepare`:
+
+```sh
+bin/rails 'snbench:import[/absolute/path/to/snbench/results]'
+# Curated local sample, including a clearly labeled synthetic nop fixture:
+bin/rails snbench:import
+```
+
+Imports are transactional per run and immutable by `run_id`. Identical retries
+are no-ops; conflicting snapshots fail rather than overwrite published history.
+No public ingestion endpoint or automatic seed is added. See
+`test/fixtures/snbench/README.md` for sample provenance. Import measured results,
+not synthetic test controls, for publication. No production deployment is part
+of this feature.
+
 ## Deployment
 
 Build from the repository root using `site/Dockerfile`. It includes the existing
