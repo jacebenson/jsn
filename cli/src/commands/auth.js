@@ -22,7 +22,8 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
   const profiles = Array.isArray(result.profiles) ? result.profiles : [];
   if (!profiles.length) return 'No profiles configured.\nRun: jsn auth login <instance> --browser\n';
   const methods = { oauth: 'OAuth', basic: 'Basic', gck: 'Browser session' };
-  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid' };
+  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid',
+    blocked: 'Storage blocked', unavailable: 'Storage unavailable' };
   const headings = ['PROFILE', 'AUTH', 'CREDENTIALS', 'CONNECTION', 'ACCESS', 'DELETES', 'COUNTS'];
   if (details) headings.push('USER', 'INSTANCE');
   const notes = [];
@@ -32,7 +33,8 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
     const label = profile.name || `Profile ${index + 1}`;
     const connection = profile.verified === true ? 'Verified'
       : probe.code === 'account_mismatch' ? 'User mismatch'
-      : profile.verified === false ? 'Failed' : 'Not checked';
+      : profile.verified === false ? 'Failed'
+      : probe.code === 'storage_blocked' ? 'Not attempted' : 'Not checked';
     const row = [
       `${label}${profile.active ? ' *' : ''}${profile.default ? ' (default)' : ''}`,
       methods[diagnostics.auth_method] || 'Not configured',
@@ -47,7 +49,13 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
       row.push(`${user}${profile.verified_as && profile.verified_as !== user ? ` (session: ${profile.verified_as})` : ''}`, profile.instance || 'Not configured');
     }
     if (profile.verified !== true && probe.message) notes.push(`${label}: ${probe.message}`);
-    if (profile.name && profile.verified !== true) {
+    if (profile.storage) {
+      const status = profile.storage.status === 'blocked' ? 'storage blocked' : 'storage unavailable';
+      // JSON keeps the fixed `<name>` placeholder; human output shows the
+      // concrete recovery command for this profile.
+      const recovery = profile.name ? profile.storage.recovery.replaceAll('<name>', profile.name) : profile.storage.recovery;
+      notes.push(`${label}: credentials ${status} (${profile.storage.classification}). ${recovery}`);
+    } else if (profile.name && profile.verified !== true) {
       const command = `jsn auth ${diagnostics.state === 'refreshable' ? 'refresh' : 'login'} --profile ${quoteShellArg(profile.name)}`;
       const hint = ['missing', 'expired', 'refreshable', 'malformed'].includes(diagnostics.state)
         || ['unauthorized', 'invalid_browser_session', 'refresh_failed', 'account_mismatch'].includes(probe.code)
@@ -922,10 +930,31 @@ export async function showAuthStatus(argv, app) {
     const instance = profile.instance_url;
     const authOptions = { authMethod: profile.auth_method, username: profile.username };
     const identityOptions = { username: profile.username, authMethod: profile.auth_method };
-    const isAuth = app.auth.isAuthenticatedFor(instance, identityOptions);
-    const lastSeen = app.auth.getLastSeen(instance, identityOptions);
-    const authState = app.auth.getAuthState(instance, authOptions);
-    const legacy = !isAuth && app.auth.hasLegacyCredentials(instance, identityOptions) ? true : undefined;
+    // One profile's storage refusal must not abort the report for the others.
+    // Catch exactly credential_storage_error; anything else is still a bug.
+    let storage;
+    const recordStorage = (error) => {
+      if (error?.code !== 'credential_storage_error') throw error;
+      const classification = error.classification || 'secure_storage_unavailable';
+      const status = classification === 'plaintext_requires_recovery' ? 'blocked' : 'unavailable';
+      storage ||= {
+        status,
+        classification,
+        ...(error.storageStage ? { stage: error.storageStage } : {}),
+        recovery: error.recovery || `Run \`jsn auth login --profile ${name}\` to sign in again.`,
+      };
+      return status;
+    };
+    const attempt = (read, fallback) => {
+      try { return read(); } catch (error) { recordStorage(error); return fallback; }
+    };
+    let isAuth = attempt(() => app.auth.isAuthenticatedFor(instance, identityOptions), false) === true;
+    const lastSeen = attempt(() => app.auth.getLastSeen(instance, identityOptions), null);
+    const authState = attempt(() => app.auth.getAuthState(instance, authOptions), null)
+      || { auth_method: profile.auth_method || 'unconfigured', auth_source: 'unavailable', state: storage?.status || 'unavailable' };
+    if (authState.storage) storage ||= authState.storage;
+    if (storage) isAuth = false;
+    const legacy = !isAuth && attempt(() => app.auth.hasLegacyCredentials(instance, identityOptions), false) ? true : undefined;
     // Keep the established status field contract: unauthenticated
     // profiles omit auth_source, except legacy credentials retain
     // their historical `legacy` marker. getAuthState remains the
@@ -939,6 +968,13 @@ export async function showAuthStatus(argv, app) {
     let runtimeContext = argv.context ? { verified: false, status: 'not_attempted' } : undefined;
     if (argv.local) {
       probe = { status: 'not_attempted', code: 'not_requested', classification: 'not_checked' };
+    } else if (storage) {
+      // Blocked/unavailable storage is not a connection result, and it must
+      // not build an SDK or contact the instance.
+      probe = {
+        status: 'not_attempted', code: 'storage_blocked', classification: 'storage_blocked',
+        message: 'Credential storage is blocked; the connection probe was not attempted.',
+      };
     } else if (!instance) {
       probe = app.auth.probeUnavailable?.('missing_instance') || { status: 'not_attempted', code: 'missing_instance', classification: 'unavailable' };
     } else {
@@ -1011,12 +1047,20 @@ export async function showAuthStatus(argv, app) {
         state: authState.state,
         probe,
       },
+      ...(storage ? { storage } : {}),
     });
+  }
+
+  // The global flag describes the selected profile; a storage refusal there
+  // is reported, not thrown, so the report still includes every profile.
+  let authenticated = false;
+  try { authenticated = app.auth.isAuthenticated() === true; } catch (error) {
+    if (error?.code !== 'credential_storage_error') throw error;
   }
 
   const result = {
     default_instance: defaultInstance,
-    authenticated: app.auth.isAuthenticated(),
+    authenticated,
     environment_auth: envToken ? true : undefined,
     profiles,
   };

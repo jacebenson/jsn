@@ -16,11 +16,34 @@ const stages = new Set([
   'input_encoding', 'output_encoding', 'native_compilation', 'request_decode',
   'native_read', 'native_write', 'native_delete',
 ]);
+
+// Closed vocabulary for credential storage failures. Every storage error
+// carries one of these so callers can tell an unavailable backend, an invalid
+// secure entry, a failed readback and a deliberately blocked legacy plaintext
+// file apart instead of seeing the one generic backend message.
+export const STORAGE_CLASSIFICATIONS = Object.freeze([
+  'plaintext_requires_recovery',
+  'secure_storage_unavailable',
+  'secure_readback_failed',
+  'malformed_secure_entry',
+  'storage_path_unsafe',
+  'invalid_storage_key',
+]);
+export const STORAGE_RECOVERY = Object.freeze({
+  plaintext_requires_recovery: 'Run `jsn auth login --profile <name>` to sign in again; the verified secure save retires the old credential file.',
+  secure_storage_unavailable: 'Restore the OS credential store for this account, then run `jsn auth login --profile <name>` to sign in again. Existing credential files are preserved.',
+  secure_readback_failed: 'Run `jsn auth login --profile <name>` to sign in again and verify secure storage. Existing credential files are preserved.',
+  malformed_secure_entry: 'Run `jsn auth login --profile <name>` to replace the unusable secure entry with fresh credentials. Existing credential files are preserved.',
+  storage_path_unsafe: 'Repair or move the credential path manually, then run `jsn auth login --profile <name>` to sign in again.',
+  invalid_storage_key: 'Select a profile whose username and instance produce a valid credential key, then run `jsn auth login --profile <name>`.',
+});
 function failure(reason, stage) {
   const safeStage = stages.has(stage) ? stage : undefined;
   const diagnostic = safeStage ? ` Stage: ${safeStage}.` : '';
   const error = new Error(`Secure credential storage unavailable or readback failed. ${reason}${diagnostic} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically.`);
   error.code = 'credential_storage_error';
+  error.classification = 'secure_storage_unavailable';
+  error.recovery = STORAGE_RECOVERY.secure_storage_unavailable;
   if (safeStage) error.storageStage = safeStage;
   return error;
 }

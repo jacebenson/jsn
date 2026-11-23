@@ -19,6 +19,22 @@ import { normalizeAuthMethod, normalizeAuthSource, sourceMethod, probeFailure, c
 // `refreshable` refreshes at point of use; see isAuthenticated().
 const AUTHENTICATED_STATES = new Set(['available', 'refreshable']);
 
+// Storage refusals are a closed vocabulary. They are reported as safe states
+// here, but never as authenticated and never with the raw failure text.
+function storageFailure(error) {
+  const classification = error?.classification || 'secure_storage_unavailable';
+  const blocked = classification === 'plaintext_requires_recovery';
+  return {
+    state: blocked ? 'blocked' : 'unavailable',
+    storage: {
+      status: blocked ? 'blocked' : 'unavailable',
+      classification,
+      ...(error?.storageStage ? { stage: error.storageStage } : {}),
+      recovery: error?.recovery || 'Run `jsn auth login --profile <name>` to sign in again.',
+    },
+  };
+}
+
 // Preserve the public auth module API while implementation stays separated.
 export { sanitizeKeyPart } from './auth/credential-store.js';
 export { parseBrowserSessionInput } from './auth/browser-session.js';
@@ -149,13 +165,19 @@ export class AuthManager {
    */
   hasLegacyCredentials(instance, options = {}) {
     if (!instance) return false;
-    const bareCreds = this.credentialStore.load(instance);
+    // This marker is advisory for status. A storage refusal must not turn it
+    // into a hard failure of the command that displays it.
+    let bareCreds;
+    try { bareCreds = this.credentialStore.load(instance); }
+    catch (error) { if (error?.code === 'credential_storage_error') return false; throw error; }
     if (!bareCreds) return false;
     // If active profile has a username, the bare key won't be found
     // by loadCredentials(instance, username). That's the legacy case.
     const username = this._usernameForOptions(options);
     if (!username) return false; // No username set — bare key IS the active path
-    const userCreds = this.credentialStore.load(instance, username);
+    let userCreds;
+    try { userCreds = this.credentialStore.load(instance, username); }
+    catch (error) { if (error?.code === 'credential_storage_error') return false; throw error; }
     return !!bareCreds && !userCreds;
   }
 
@@ -233,7 +255,19 @@ export class AuthManager {
         classificationMethod = 'basic';
         credentials = basicCredentials;
       } else if (instance) {
-        credentials = this.credentialStore.load(instance, this._usernameForOptions(options));
+        try {
+          credentials = this.credentialStore.load(instance, this._usernameForOptions(options));
+        } catch (error) {
+          if (error?.code !== 'credential_storage_error') throw error;
+          // Storage errors are reported, not thrown: status and
+          // isAuthenticated()/isAuthenticatedFor() must stay callable. Actual
+          // authenticated calls still fail loudly through getCredentialsFor().
+          return {
+            auth_method: method,
+            auth_source: 'unavailable',
+            ...storageFailure(error),
+          };
+        }
         if (credentials) {
           if (credentials.auth_method != null) {
             const storedMethod = normalizeAuthMethod(credentials.auth_method, '');
@@ -277,6 +311,14 @@ export class AuthManager {
    */
   async probeCurrentUser(instance = this.identity.getEffectiveInstance(), sdk, options = {}) {
     const authState = this.getAuthState(instance, options);
+    // A storage refusal is not a probe result and must not reach the SDK:
+    // no host contact, no token refresh, no credential read.
+    if (authState.storage) {
+      return {
+        ...probeFailure('storage_blocked', 'not_attempted'),
+        recovery: authState.storage.recovery,
+      };
+    }
     const method = authState.auth_method === 'unconfigured' ? null : authState.auth_method;
     const stateFailures = {
       missing: 'missing_credentials',
@@ -449,7 +491,11 @@ export class AuthManager {
     if (!suppliedCredentials && envCreds && this.identity.isTrustedCredentialDestination?.(instanceURL) === false) {
       throw errAuth('Project configuration cannot authorize an ambient credential destination. Select --instance explicitly or save the origin in global configuration.');
     }
-    const storedCreds = this.loadCredentials(instanceURL, username);
+    // Advisory lookup only: a blocked legacy file must not prevent a fresh
+    // supplied login, which is the documented recovery route.
+    let storedCreds = null;
+    try { storedCreds = this.loadCredentials(instanceURL, username); }
+    catch (error) { if (error?.code !== 'credential_storage_error') throw error; }
     const creds = suppliedCredentials
       ? { auth_method: 'basic', ...suppliedCredentials }
       : envCreds || storedCreds;
@@ -662,7 +708,11 @@ export class AuthManager {
    */
   migrateLegacyCredential(instance, username) {
     if (!instance || !username) return false;
-    const stored = this.credentialStore.load(instance);
+    let stored;
+    // Migration is opportunistic. A blocked or unavailable storage read must
+    // not undo the fresh login that already saved under the compound key.
+    try { stored = this.credentialStore.load(instance); }
+    catch (error) { if (error?.code === 'credential_storage_error') return false; throw error; }
     if (!stored || !stored.access_token) return false;
     stored.username = username;
     this.credentialStore.save(instance, stored, username);
