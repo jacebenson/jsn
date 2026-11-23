@@ -45,8 +45,17 @@ test('HTTP refresh then actual CLI GET, rejection, recovery, redirects and timeo
     } else {
       assert.equal(req.method, 'GET');
       assert.equal(req.headers.authorization, `Bearer ${access}`);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ result: [{ name: 'incident' }] }));
+      const url = new URL(req.url, 'http://fixture.invalid');
+      // Query validation adds bounded identity and dictionary reads before the probe.
+      const result = url.pathname.endsWith('/sys_user')
+        ? [{ sys_id: 'a'.repeat(32), user_name: 'fixture' }]
+        : url.pathname.endsWith('/sys_dictionary')
+          ? [{ name: 'sys_db_object', element: 'name', internal_type: 'string', reference: '' }]
+          : url.searchParams.get('sysparm_fields') === 'sys_id,name,super_class'
+            ? [{ sys_id: 'b'.repeat(32), name: 'sys_db_object', super_class: '' }]
+            : [{ name: 'incident' }];
+      res.writeHead(200, { 'Content-Type': 'application/json', 'X-Total-Count': String(result.length) });
+      res.end(JSON.stringify({ result }));
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -62,10 +71,15 @@ test('HTTP refresh then actual CLI GET, rejection, recovery, redirects and timeo
   });
   try {
     assert.equal((await run()).ok, true);
-    assert.deepEqual(requests.map(r => r.method), ['POST', 'GET']);
+    assert.deepEqual(requests.map(r => r.method), ['POST', 'GET', 'GET', 'GET', 'GET']);
+    assert.deepEqual(requests.slice(1).map(r => new URL(r.url, local.SERVICENOW_INSTANCE_URL).pathname), [
+      '/api/now/table/sys_user', '/api/now/table/sys_db_object',
+      '/api/now/table/sys_dictionary', '/api/now/table/sys_db_object',
+    ]);
+    assert.equal(new URL(requests.at(-1).url, local.SERVICENOW_INSTANCE_URL).searchParams.get('sysparm_query'), 'name=incident');
     mode = 'reject';
     assert.equal((await run()).status, 'authentication_failed');
-    assert.equal(requests.length, 3);
+    assert.equal(requests.length, 6);
     mode = 'ok';
     assert.equal((await run()).ok, true);
     mode = 'redirect';

@@ -21,8 +21,16 @@ test('real CLI uses env OAuth on bounded GET; failures never emit provider data'
   const requests = [];
   const server = http.createServer((req, res) => {
     requests.push({ method: req.method, url: req.url, auth: req.headers.authorization });
-    res.writeHead(mode, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(mode === 200 ? { result: records } : { error: { message: `${token} private-user-canary` } }));
+    const url = new URL(req.url, 'http://fixture.invalid');
+    const result = url.pathname.endsWith('/sys_user')
+      ? [{ sys_id: 'a'.repeat(32), user_name: 'fixture' }]
+      : url.pathname.endsWith('/sys_dictionary')
+        ? [{ name: 'sys_db_object', element: 'name', internal_type: 'string', reference: '' }]
+        : url.searchParams.get('sysparm_fields') === 'sys_id,name,super_class'
+          ? [{ sys_id: 'b'.repeat(32), name: 'sys_db_object', super_class: '' }]
+          : records;
+    res.writeHead(mode, { 'Content-Type': 'application/json', 'X-Total-Count': String(result.length) });
+    res.end(JSON.stringify(mode === 200 ? { result } : { error: { message: `${token} private-user-canary` } }));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
@@ -39,11 +47,15 @@ test('real CLI uses env OAuth on bounded GET; failures never emit provider data'
   });
   try {
     assert.equal((await run()).ok, true);
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].method, 'GET');
-    assert.equal(requests[0].auth, `Bearer ${token}`);
-    const request = new URL(requests[0].url, url);
+    assert.equal(requests.length, 4);
+    assert.ok(requests.every(request => request.method === 'GET' && request.auth === `Bearer ${token}`));
+    assert.deepEqual(requests.map(request => new URL(request.url, url).pathname), [
+      '/api/now/table/sys_user', '/api/now/table/sys_db_object',
+      '/api/now/table/sys_dictionary', '/api/now/table/sys_db_object',
+    ]);
+    const request = new URL(requests.at(-1).url, url);
     assert.equal(request.pathname, '/api/now/table/sys_db_object');
+    assert.equal(request.searchParams.get('sysparm_query'), 'name=incident');
     assert.equal(request.searchParams.get('sysparm_limit'), '1');
     for (const target of ['vendor-1', 'vendor-2']) {
       const result = await run(url, target);
