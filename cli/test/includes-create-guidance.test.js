@@ -7,8 +7,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { includesCmd, rulesCmd } from '../src/commands/_simple.js';
 import { OutputWriter, FormatJSON, FormatStyled, FormatMarkdown } from '../src/output.js';
+import { testingGuidance, DEFAULT_PREFERENCES } from '../src/preferences.js';
 
-const helpCommands = ['jsn scan checks create --help', 'jsn scan run --help'];
+// Guidance is preference-driven; the defaults are ATF + scan with missing-check
+// suggestions, so the fixture derives its expected commands instead of baking
+// in a second copy of the policy.
+const helpCommands = testingGuidance(DEFAULT_PREFERENCES).hints.map(hint => hint.cmd);
 const payload = { name: 'Fixture', script: '/* do not infer methods */\nthrow new Error("not executed");', active: false };
 
 function createHandler(command) {
@@ -47,7 +51,7 @@ test('successful includes create adds help breadcrumbs without changing record d
   assert.deepEqual(result.data, { sys_id: 'created', ...payload });
   assert.equal(result.breadcrumbs[0].cmd, 'jsn includes show Fixture');
   assert.deepEqual(result.breadcrumbs.slice(1).map(item => item.cmd), helpCommands);
-  assert.match(result.breadcrumbs[1].description, /untested.*check runs/i);
+  assert.match(result.breadcrumbs[1].description, /ATF|scan/i);
 });
 
 test('failed create emits no success output; unrelated commands retain their breadcrumbs', async () => {
@@ -59,7 +63,7 @@ test('human output exposes guidance while compact JSON and extraction retain exi
   for (const format of [FormatStyled, FormatMarkdown]) {
     const text = await create({ format });
     for (const cmd of helpCommands) assert.ok(text.includes(cmd));
-    assert.match(text, /Behavior is untested/);
+    assert.match(text, /ATF|scan|Behavior is untested/);
   }
   assert.deepEqual(JSON.parse(await create({ verbose: false })), { ok: true, data: { sys_id: 'created', ...payload } });
   assert.equal(JSON.parse(await create({ get: 'data.sys_id' })), 'created');
@@ -172,7 +176,7 @@ test('referenced help commands really parse; owning help preserves execution-evi
   for (const command of helpCommands) {
     const result = run(command.split(' ').slice(1));
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    assert.match(result.stdout, /--type|--record/);
+    assert.match(result.stdout, /--type|--record|--wait|--force/);
     assert.deepEqual(result.calls, []);
   }
   const result = run(['includes', 'create', '--help']);

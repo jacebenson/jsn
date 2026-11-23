@@ -144,6 +144,66 @@ export function _resetCapabilities() {
   REGISTRY.clear();
 }
 
+// Verb -> operation class. Only verbs that the capability registry already
+// declares as mutations can be classified; reads stay null. This is derived
+// from the registry, not a second command-name allowlist.
+const OPERATION_VERBS = new Map([
+  ['create', 'create'], ['add', 'create'], ['upload', 'create'], ['clone', 'create'],
+  ['copy', 'create'], ['install', 'create'], ['import', 'create'],
+  ['update', 'update'], ['edit', 'update'], ['set', 'update'], ['publish', 'update'],
+  ['complete', 'update'], ['commit', 'update'], ['preview', 'update'],
+  ['parent', 'update'], ['ignore', 'update'], ['reopen', 'update'], ['process', 'update'],
+  ['approve', 'update'], ['reject', 'update'], ['submit', 'update'], ['start', 'update'],
+  ['stop', 'update'], ['validate', 'update'], ['execute', 'update'], ['activate', 'update'],
+  ['deactivate', 'update'], ['add-check', 'update'], ['remove-check', 'update'],
+  ['run', 'update'], ['run-suite', 'update'], ['test', 'update'], ['unlock', 'update'],
+  ['delete', 'delete'], ['remove', 'delete'], ['delete-many', 'delete'],
+]);
+
+/**
+ * Classify the operation a command performs for the preference guard.
+ *
+ * Derived from the mutation declarations in this registry:
+ *   - a declared mutating subcommand maps its verb to create/update/delete;
+ *   - a whole-command mutation (mutationSubcommands: ['']) uses its known
+ *     method (`rest --method DELETE`) or is treated as update (`eval`);
+ *   - read commands and unclassifiable mixed surfaces (`records bulk`) are null.
+ *
+ * This is a workflow opinion, not a security boundary: it only knows the
+ * operations JSN itself performs.
+ *
+ * @param {object} argv — parsed argv with `_`
+ * @param {Map<string, object>} [caps]
+ * @returns {'create'|'update'|'delete'|null}
+ */
+export function operationOf(argv, caps = collectCapabilities()) {
+  const path = argv?._ || [];
+  const name = path[0];
+  const capability = caps.get(name);
+  if (!capability?.mutationSubcommands) return null;
+  const sub = path[1];
+
+  if (capability.mutationSubcommands.includes('')) {
+    const method = String(argv.method || 'GET').toUpperCase();
+    if (name === 'rest') {
+      if (method === 'DELETE') return 'delete';
+      if (['POST', 'PUT', 'PATCH'].includes(method)) return 'update';
+      return null;
+    }
+    // eval and other arbitrary-code surfaces are classified as update: they
+    // can change instance state, but they are not table create/delete verbs.
+    return 'update';
+  }
+
+  if (typeof sub !== 'string' || !capability.mutationSubcommands.includes(sub)) return null;
+  if (name === 'updatesets') {
+    if (sub === 'create' || sub === 'import') return 'create';
+    if (['set', 'complete', 'ignore', 'parent', 'preview', 'commit', 'reopen'].includes(sub)) return 'update';
+    return null;
+  }
+  return OPERATION_VERBS.get(sub) || null;
+}
+
 /** Declared local-only previews bypass instance access, including context headers. */
 export function isLocalPreview(argv, caps = collectCapabilities()) {
   return argv.dryRun === true && caps.get(argv._?.[0])?.localPreviewSubcommands?.includes(argv._?.[1]) === true;

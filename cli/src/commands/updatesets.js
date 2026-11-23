@@ -5,6 +5,7 @@ import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '..
 import { editor, confirm } from '../prompts.js';
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
+import { resolvePreferences, renderUpdateSetName, currentTestingGuidance } from '../preferences.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
 import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRequired } from '../errors.js';
@@ -483,7 +484,10 @@ export async function formatUpdateSetDetail(app, record) {
   const stateRaw = String(full.state?.value ?? full.state ?? '').toLowerCase();
   const isClosed = ['complete', 'committed'].includes(stateRaw);
   const hints = [];
-  hints.push({ action: 'scan', cmd: `jsn scan run --update-set ${sysID}${app.session?.profileName ? ` --profile ${quoteShellArg(app.session.profileName)}` : ''}`, description: 'Offer an explicit scan of current records before completing or promoting this set' });
+  const guidance = currentTestingGuidance({ profile: app.session?.profileName || app.config?.activeProfile || app.config?.defaultProfile || '' });
+  if (guidance) {
+    hints.push(...guidance.hints.map(hint => ({ ...hint, cmd: hint.action === 'scan' ? `jsn scan run --update-set ${sysID}${app.session?.profileName ? ` --profile ${quoteShellArg(app.session.profileName)}` : ''}` : hint.cmd })));
+  }
   if (isClosed) {
     hints.push({
       action: 'set',
@@ -919,10 +923,25 @@ export function updateSetsCmd(wrap) {
           command: 'create',
           describe: 'Create a new update set (auto-sets as current)',
           builder: (y) => y
-            .option('name', { alias: 'n', type: 'string', demandOption: true, describe: 'Update set name' })
+            .option('name', { alias: 'n', type: 'string', describe: 'Update set name (verbatim; by default rendered from preferences.updatesets.nameTemplate)' })
+            .option('tracker', { type: 'string', describe: 'Tracker id for the {{tracker}} template token' })
             .option('description', { type: 'string', describe: 'Description' })
             .option('scope', { type: 'string', describe: 'Switch to this application before creating (scope value, sys_id, or name)' }),
           handler: wrap(async (argv, app) => {
+            // Render the configured name locally, before any SDK call. An
+            // explicit --name is always used verbatim and never templated.
+            let name = argv.name;
+            if (name === undefined || name === '') {
+              const profile = app.session?.profileName || app.config.activeProfile || app.config.defaultProfile || '';
+              const { preferences } = resolvePreferences({ profile });
+              name = renderUpdateSetName({
+                preferences,
+                tracker: argv.tracker,
+                // The current scope is only known locally when the caller
+                // supplied it or a profile records it; never fetched here.
+                scope: argv.scope || app.context?.scope || getActiveProfile(app.config)?.scope || '',
+              });
+            }
             let scopeSysID;
             if (argv.scope !== undefined) {
               if (!String(argv.scope).trim()) throw errUsage('Scope must not be empty');
@@ -932,8 +951,8 @@ export function updateSetsCmd(wrap) {
               await setCurrentApplication(app.sdk, userSysID, scopeSysID);
             }
             const record = await app.sdk.create('sys_update_set', {
-              name: argv.name,
-              description: argv.description || argv.name,
+              name,
+              description: argv.description || name,
               state: 'in progress',
               ...(scopeSysID ? { application: scopeSysID } : {}),
             });
@@ -947,20 +966,20 @@ export function updateSetsCmd(wrap) {
             } catch (error) {
               // Creation succeeded. Report partial success without hiding a
               // failed selection or inviting a duplicate create on retry.
-              selectionNote = `; not selected as current: ${error.message}. Run jsn updatesets set "${argv.name}"`;
+              selectionNote = `; not selected as current: ${error.message}. Run jsn updatesets set "${name}"`;
             }
 
             app.ok(record, {
-              summary: `Created update set: ${argv.name}${selectionNote}`,
+              summary: `Created update set: ${name}${selectionNote}`,
               breadcrumbs: [
                 {
                   action: 'set',
-                  cmd: `jsn updatesets set "${argv.name}"`,
+                  cmd: `jsn updatesets set "${name}"`,
                   description: 'Switch to this update set',
                 },
                 {
                   action: 'complete',
-                  cmd: `jsn updatesets complete "${argv.name}"`,
+                  cmd: `jsn updatesets complete "${name}"`,
                   description: 'Mark as complete when done',
                 },
               ],

@@ -35,7 +35,12 @@ For development:
    Reads never print or fetch automatic context. Ordinary ticket/data edits do not
    need customization expectations. Keep related development changes together.
 3. Verify the results on the instance and report where changes were captured.
-4. Offer to run relevant existing ATFs and instance scans, or create missing checks.
+4. Read the effective testing guidance at runtime with `jsn preferences show --json`
+   (fields `testing.recommend`, `testing.methods`, `testing.suggestMissing`) and
+   follow it: offer the configured methods only, suppress the recommendation
+   entirely when `recommend` is false, and mention creating missing checks only
+   when `suggestMissing` is true. Explicit `jsn atf` / `jsn scan` commands remain
+   available; never auto-create or auto-run tests.
 5. Ask whether anything else belongs in the update set. If the user confirms
    it is finished, complete it with notes.
 

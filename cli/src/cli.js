@@ -12,13 +12,15 @@ import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { maybeShowHome } from './welcome.js';
-import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities, operationOf } from './capabilities.js';
+import { resolvePreferences } from './preferences.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
 // Command modules
 import { discoverCmd } from './commands/discover.js';
 import { setupCmd } from './commands/setup.js';
+import { preferencesCmd } from './commands/preferences.js';
 import { authCmd } from './commands/auth.js';
 import { recordsCmd } from './commands/records.js';
 import { attachmentsCmd } from './commands/attachments.js';
@@ -284,6 +286,21 @@ export function buildCLI() {
               hint: 'Switch to a write-enabled profile first:\n  jsn auth switch <name>',
             });
           }
+          // Workflow preferences gate known JSN operations after the
+          // read-only policy (which keeps precedence). --force/--yes cannot
+          // bypass this: it is a preference, not a confirmation.
+          const operation = operationOf(argv);
+          if (operation) {
+            const profile = app.session?.profileName || app.config.activeProfile || app.config.defaultProfile || '';
+            const { preferences } = resolvePreferences({ profile });
+            if (preferences.operations?.[operation] === false) {
+              guardExit(argv, {
+                code: 'operation_denied',
+                message: `${operation} operations are disabled by JSN preferences${profile ? ` for profile "${profile}"` : ''}.`,
+                hint: `Re-enable with: jsn preferences set operations.${operation} true${profile ? ` --profile ${profile}` : ''}\nNo request was sent.`,
+              });
+            }
+          }
         }
       },
     ])
@@ -366,6 +383,7 @@ export function buildCLI() {
     })
     // CONFIGURATION
     .command(setupCmd(wrap))
+    .command(preferencesCmd(wrap))
     .command(authCmd(wrap))
     .command(updateSetsCmd(wrap))
     .command(scopesCmd(wrap))
