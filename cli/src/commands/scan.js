@@ -13,9 +13,12 @@ declareCapabilities('scan', { mutationSubcommands: [
 ] });
 
 const hint = (action, cmd, description) => ({ action, cmd, description });
-function report(app, argv, data, options) {
-  const connection = argv.profile ? ` --profile ${quoteShellArg(argv.profile)}`
+function connectionSuffix(argv) {
+  return argv.profile ? ` --profile ${quoteShellArg(argv.profile)}`
     : argv.instance ? ` --instance ${quoteShellArg(argv.instance)}` : '';
+}
+function report(app, argv, data, options) {
+  const connection = connectionSuffix(argv);
   app.ok(data, { ...options, breadcrumbs: options.breadcrumbs.map(item => ({ ...item, cmd: item.cmd + connection })) });
 }
 const rootHints = () => [hint('checks', 'jsn scan checks list', 'Browse available checks'),
@@ -217,11 +220,18 @@ export function scanCmd(wrap) {
               }
               if (!data.terminal) data.wait_timed_out = true;
             } catch (error) {
-              const wrapped = errAPI(error.status || 0, `Scan ${scheduled.execution_id} was scheduled, but ${phase} could not be read: ${error.message}. Use jsn scan status ${scheduled.execution_id}; do not resubmit automatically.`);
-              wrapped.recovery = { execution_id: scheduled.execution_id, via: scheduled.via, phase,
+              const id = scheduled.execution_id;
+              const connection = connectionSuffix(argv);
+              const statusCommand = `jsn scan status ${id}${connection}`;
+              // Provider errors may contain credentials or request payloads.
+              const wrapped = errAPI(error.status || 0, `Scan ${id} was scheduled, but ${phase} could not be read. Use ${statusCommand}; do not resubmit automatically.`);
+              // errAPI replaces the message for 401/403, so the dispatched id and
+              // the no-resubmit warning must also survive in the hint.
+              wrapped.hint = [wrapped.hint, `Scan ${id} was already dispatched; inspect it with "${statusCommand}" and do not resubmit automatically.`].filter(Boolean).join(' ');
+              wrapped.recovery = { execution_id: id, via: scheduled.via, phase,
                 target: recoveryTarget(plan.target), suite_id: scheduled.suite_id ?? null, status: 'unverified',
-                status_command: `jsn scan status ${scheduled.execution_id}`,
-                results_command: `jsn scan results ${scheduled.execution_id}`, resubmit: 'forbidden' };
+                status_command: statusCommand,
+                results_command: `jsn scan results ${id}${connection}`, resubmit: 'forbidden' };
               throw wrapped;
             }
           }
@@ -240,7 +250,11 @@ export function scanCmd(wrap) {
           const data = await scanResults(app.sdk, argv.id, boundedLimit(argv.limit));
           const findings = data.findings_state === 'unretrieved'
             ? `findings unretrieved (${data.findings_count} reported, 0 rows returned)`
-            : `${data.findings_count ?? 'unknown'} findings`;
+            : data.findings_state === 'mismatch'
+              ? `findings mismatch (${data.findings_count} reported, ${data.findings_retrieved} retrieved)`
+              : data.findings_state === 'truncated'
+                ? `findings truncated (${data.findings_retrieved} retrieved; count not reconciled)`
+                : `${data.findings_count ?? 'unknown'} findings`;
           report(app, argv, data, { summary: `Scan ${data.status}; ${findings}; ${data.checks_executed ?? 'unknown'} recorded check executions${data.incomplete ? '; incomplete data' : ''}`, breadcrumbs: executionHints(data) });
         }) })
       .command({ command: 'cancel <id>', describe: 'Request cancellation of this scan after confirmation',
