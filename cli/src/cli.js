@@ -13,7 +13,7 @@ import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { maybeShowHome } from './welcome.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities, operationOf } from './capabilities.js';
-import { resolvePreferences } from './preferences.js';
+import { resolveRuntimePreferences } from './preferences.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
 import { formatCommandList } from './helpers.js';
 
@@ -291,8 +291,7 @@ export function buildCLI() {
           // bypass this: it is a preference, not a confirmation.
           const operation = operationOf(argv);
           if (operation) {
-            const profile = app.session?.profileName || app.config.activeProfile || app.config.defaultProfile || '';
-            const { preferences } = resolvePreferences({ profile });
+            const { preferences, profile } = resolveRuntimePreferences(argv, app.config);
             if (preferences.operations?.[operation] === false) {
               guardExit(argv, {
                 code: 'operation_denied',

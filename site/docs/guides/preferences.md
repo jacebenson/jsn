@@ -40,7 +40,7 @@ The guard is a workflow preference, not a security boundary. It classifies opera
 
 ## Testing guidance
 
-`testing.recommend` (default `true`) controls whether JSN offers testing. `testing.methods` (default `["atf","scan"]`) selects which methods appear in guidance and command hints:
+`testing.recommend` (default `true`) controls whether JSN offers testing. `testing.methods` defaults to ATF plus scans for agent guidance, and scans only for Script Include and update-set command hints. Effective `testing.contextMethods` shows these context defaults. `testing.contextMethods` is derived, not a settable key. An authored `testing.methods` list replaces the methods in every context:
 
 - `atf` — ATF tests
 - `scan` — instance scans
@@ -68,7 +68,7 @@ jsn preferences set testing.recommend false
 
 ```bash
 jsn preferences set updatesets.initials JB
-jsn updatesets create --tracker STRY001
+jsn updatesets create --tracker STRY001 --scope x_custom
 # STRY001-2026-11-23-JB-x_custom
 ```
 

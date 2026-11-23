@@ -1,18 +1,16 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 import { includesCmd, rulesCmd } from '../src/commands/_simple.js';
 import { OutputWriter, FormatJSON, FormatStyled, FormatMarkdown } from '../src/output.js';
-import { testingGuidance, DEFAULT_PREFERENCES } from '../src/preferences.js';
 
-// Guidance is preference-driven; the defaults are ATF + scan with missing-check
-// suggestions, so the fixture derives its expected commands instead of baking
-// in a second copy of the policy.
-const helpCommands = testingGuidance(DEFAULT_PREFERENCES).hints.map(hint => hint.cmd);
+// Preserve the pre-preferences Script Include guidance contract.
+const helpCommands = ['jsn scan checks create --help', 'jsn scan run --help'];
 const payload = { name: 'Fixture', script: '/* do not infer methods */\nthrow new Error("not executed");', active: false };
 
 function createHandler(command) {
@@ -51,7 +49,8 @@ test('successful includes create adds help breadcrumbs without changing record d
   assert.deepEqual(result.data, { sys_id: 'created', ...payload });
   assert.equal(result.breadcrumbs[0].cmd, 'jsn includes show Fixture');
   assert.deepEqual(result.breadcrumbs.slice(1).map(item => item.cmd), helpCommands);
-  assert.match(result.breadcrumbs[1].description, /ATF|scan/i);
+  assert.match(result.breadcrumbs[1].description, /Behavior is untested/);
+  assert.match(result.breadcrumbs[2].description, /intended-check execution/);
 });
 
 test('failed create emits no success output; unrelated commands retain their breadcrumbs', async () => {
@@ -63,7 +62,7 @@ test('human output exposes guidance while compact JSON and extraction retain exi
   for (const format of [FormatStyled, FormatMarkdown]) {
     const text = await create({ format });
     for (const cmd of helpCommands) assert.ok(text.includes(cmd));
-    assert.match(text, /ATF|scan|Behavior is untested/);
+    assert.match(text, /scan|Behavior is untested/);
   }
   assert.deepEqual(JSON.parse(await create({ verbose: false })), { ok: true, data: { sys_id: 'created', ...payload } });
   assert.equal(JSON.parse(await create({ get: 'data.sys_id' })), 'created');
@@ -83,7 +82,7 @@ import * as sdk from ${JSON.stringify(new URL('../src/sdk.js', import.meta.url).
 globalThis.fetch = () => { throw new Error('No network permitted'); };
 const scope = 'a'.repeat(32), set = 'b'.repeat(32);
 const log = (method, ...args) => appendFileSync(process.env.FIXTURE_LOG, JSON.stringify([method, ...args]) + '\\n');
-mock.module(${JSON.stringify(new URL('../src/config.js', import.meta.url).href)}, { namedExports: { ...config, loadConfig: () => ({ profiles: { fixture: { instance_url: 'https://fixture.invalid', username: 'fixture', auth_method: 'basic', read_only: process.env.FIXTURE_READONLY === '1', skip_confirmations: true } }, activeProfile: 'fixture', defaultProfile: 'fixture' }) } });
+mock.module(${JSON.stringify(new URL('../src/config.js', import.meta.url).href)}, { namedExports: { ...config, loadConfig: () => process.env.FIXTURE_PREF_CONFIG ? config.loadConfig() : ({ profiles: { fixture: { instance_url: 'https://fixture.invalid', username: 'fixture', auth_method: 'basic', read_only: process.env.FIXTURE_READONLY === '1', skip_confirmations: true } }, activeProfile: 'fixture', defaultProfile: 'fixture' }) } });
 class SDKClient {
   constructor() { this.baseURL = 'https://fixture.invalid'; }
   async list(table, params) {
@@ -119,9 +118,15 @@ mock.module(${JSON.stringify(new URL('../src/sdk.js', import.meta.url).href)}, {
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 function run(args, env = {}) {
+  const configDir = path.join(dir, 'servicenow');
+  rmSync(configDir, { recursive: true, force: true });
+  if (env.FIXTURE_PREF_CONFIG) {
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(path.join(configDir, 'config.json'), env.FIXTURE_PREF_CONFIG);
+  }
   const log = path.join(dir, 'calls.jsonl');
   writeFileSync(log, '');
-  const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--import', pathToFileURL(path.join(dir, 'fixture.mjs')).href, path.join(root, 'bin/jsn.js'), ...args], {
+  const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', ...credentialFixtureArgs, '--import', pathToFileURL(path.join(dir, 'fixture.mjs')).href, path.join(root, 'bin/jsn.js'), ...args], {
     cwd: dir, timeout: 10000, encoding: 'utf8',
     env: { ...process.env, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', FIXTURE_LOG: log, ...env },
   });
@@ -185,3 +190,31 @@ test('referenced help commands really parse; owning help preserves execution-evi
   for (const phrase of ['still executes code', 'never inferred', 'intended check executed', 'zero findings alone', 'Skipped or unreadable', 'blocked by #551', 'script-only checks', 'deliberate assertion failure', 'does not verify capture']) assert.ok(text.includes(phrase), phrase);
   assert.deepEqual(result.calls, []);
 });
+
+for (const [label, selector, testing, expected] of [
+  ['default', [], {}, ['jsn scan checks create --help', 'jsn scan run --help']],
+  ['selected false', ['--profile', 'alternative'], { recommend: false }, []],
+  ['short selector alternative', ['-p', 'alternative'], { methods: ['fixscripts', 'backgroundscripts'], suggestMissing: false }, ['jsn records create --table sys_script_fix --help', 'jsn eval --help']],
+  ['selected none', ['--profile', 'alternative'], { methods: ['none'] }, []],
+  ['no missing checks', ['-p', 'alternative'], { methods: ['scan'], suggestMissing: false }, ['jsn scan run --help']],
+]) {
+  test(`public includes create and help use runtime guidance: ${label}`, () => {
+    const profile = { instance_url: 'https://fixture.invalid', username: 'fixture', auth_method: 'basic', skip_confirmations: true };
+    const env = { FIXTURE_PREF_CONFIG: JSON.stringify({ default_profile: 'fixture', preferences: { testing: { recommend: true } }, profiles: {
+      fixture: profile, alternative: { ...profile, preferences: { testing } },
+    } }) };
+    const help = run(['includes', 'create', ...selector, '--help'], env);
+    assert.equal(help.status, 0, help.stdout + help.stderr);
+    assert.deepEqual(help.calls, []);
+    if (!expected.length) assert.match(help.stdout, /recommendations are disabled/);
+    else if (testing.methods?.includes('fixscripts')) {
+      assert.match(help.stdout, /fix scripts/);
+      assert.match(help.stdout, /background scripts/);
+      assert.doesNotMatch(help.stdout, /Instance Scan|ATF/);
+    }
+    const result = run(['includes', 'create', '--data', JSON.stringify(payload), ...intent, ...selector, '--force', '--json', '--verbose'], env);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).breadcrumbs.slice(1).map(hint => hint.cmd), expected);
+    assert.equal(result.calls.filter(call => call[0] === 'create').length, 1);
+  });
+}

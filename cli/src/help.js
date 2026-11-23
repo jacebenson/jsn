@@ -278,7 +278,7 @@ function renderConciseHelp(config, registry, width) {
     `\nCOMMON COMMANDS\n${renderRows(common.map((command) => ({ label: command.name, description: command.desc })), { width, indent: 2 })}`,
     '',
     'ALL COMMANDS BY GROUP',
-    ...wrapText('names only; jsn --all-commands --help for details', { width }),
+    ...wrapText('names; jsn --all-commands --help for details', { width }),
     renderRows(groups, { width, indent: 2 }),
     '',
     'EXAMPLES',

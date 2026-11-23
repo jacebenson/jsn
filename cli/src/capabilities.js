@@ -51,7 +51,9 @@ const REGISTRY = new Map();
  * @returns {object} the caps object (for convenient inline use)
  */
 export function declareCapabilities(name, caps) {
-  REGISTRY.set(name, { ...caps });
+  const operations = Object.fromEntries((caps.mutationSubcommands || []).map(sub =>
+    [sub, sub === '' ? 'update' : OPERATION_VERBS.get(sub.split(' ').at(-1)) || null]));
+  REGISTRY.set(name, { ...caps, ...(caps.mutationSubcommands?.length ? { operations: { ...operations, ...caps.operations } } : {}) });
   return caps;
 }
 
@@ -149,7 +151,7 @@ export function _resetCapabilities() {
 // from the registry, not a second command-name allowlist.
 const OPERATION_VERBS = new Map([
   ['create', 'create'], ['add', 'create'], ['upload', 'create'], ['clone', 'create'],
-  ['copy', 'create'], ['install', 'create'], ['import', 'create'],
+  ['copy', 'create'], ['install', 'create'], ['import', 'create'], ['order', 'create'],
   ['update', 'update'], ['edit', 'update'], ['set', 'update'], ['publish', 'update'],
   ['complete', 'update'], ['commit', 'update'], ['preview', 'update'],
   ['parent', 'update'], ['ignore', 'update'], ['reopen', 'update'], ['process', 'update'],
@@ -157,6 +159,7 @@ const OPERATION_VERBS = new Map([
   ['stop', 'update'], ['validate', 'update'], ['execute', 'update'], ['activate', 'update'],
   ['deactivate', 'update'], ['add-check', 'update'], ['remove-check', 'update'],
   ['run', 'update'], ['run-suite', 'update'], ['test', 'update'], ['unlock', 'update'],
+  ['session-set', 'update'], ['session-reset', 'update'], ['cancel', 'update'],
   ['delete', 'delete'], ['remove', 'delete'], ['delete-many', 'delete'],
 ]);
 
@@ -177,31 +180,15 @@ const OPERATION_VERBS = new Map([
  * @returns {'create'|'update'|'delete'|null}
  */
 export function operationOf(argv, caps = collectCapabilities()) {
-  const path = argv?._ || [];
-  const name = path[0];
-  const capability = caps.get(name);
+  const tokens = argv?._ || [];
+  const capability = caps.get(tokens[0]);
   if (!capability?.mutationSubcommands) return null;
-  const sub = path[1];
-
-  if (capability.mutationSubcommands.includes('')) {
-    const method = String(argv.method || 'GET').toUpperCase();
-    if (name === 'rest') {
-      if (method === 'DELETE') return 'delete';
-      if (['POST', 'PUT', 'PATCH'].includes(method)) return 'update';
-      return null;
-    }
-    // eval and other arbitrary-code surfaces are classified as update: they
-    // can change instance state, but they are not table create/delete verbs.
-    return 'update';
-  }
-
-  if (typeof sub !== 'string' || !capability.mutationSubcommands.includes(sub)) return null;
-  if (name === 'updatesets') {
-    if (sub === 'create' || sub === 'import') return 'create';
-    if (['set', 'complete', 'ignore', 'parent', 'preview', 'commit', 'reopen'].includes(sub)) return 'update';
-    return null;
-  }
-  return OPERATION_VERBS.get(sub) || null;
+  const sub = capability.mutationSubcommands
+    .filter(sub => (sub ? sub.split(' ') : []).every((token, index) => tokens[index + 1] === token))
+    .sort((a, b) => b.length - a.length)[0];
+  if (sub === undefined) return null;
+  const operation = capability.operations?.[sub];
+  return typeof operation === 'function' ? operation(argv) : operation ?? null;
 }
 
 /** Declared local-only previews bypass instance access, including context headers. */

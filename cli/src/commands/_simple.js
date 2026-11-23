@@ -49,19 +49,26 @@ async function fetchExtensionChain(sdk, record) {
 
 export { actionsCmd } from './actions.js';
 
+function includeGuidance(argv, app) {
+  return currentTestingGuidance({ argv, config: app?.config, context: 'includes' });
+}
+
 export const includesCmd = (wrap) => buildProfileCommand('includes', wrap, {
-  // Testing guidance is an opinion, not a hardcoded recommendation: it is
-  // derived from effective preferences (installation level at build time).
-  createBreadcrumbs: currentTestingGuidance()?.hints || [],
-  createHelp: [
-    'Behavior is untested until the intended check runs. Behavior verification is a separate, explicitly approved operation, not performed by includes create.',
-    ...(currentTestingGuidance() ? [`Testing guidance from jsn preferences: ${currentTestingGuidance().text}`] : ['Testing recommendations are disabled by jsn preferences; explicit jsn atf / jsn scan commands remain available.']),
-    'A suitable scripted Instance Scan check can execute intended behavior server-side without jsn eval, but still executes code; it is not a safety bypass.',
-    'Supply the intended target and check identity. Method, inputs and expected value must come from the task, never inferred from submitted source.',
-    'Confirm positive evidence that the intended check executed and its assertion passed. A completed scan or zero findings alone is not behavioral correctness. Skipped or unreadable execution remains unverified.',
-    'Live end-to-end validation is unverified and blocked by #551. Do not assume script-only checks participate in record or update-set point scans. On an approved disposable target, a future verified example must demonstrate a deliberate assertion failure producing a finding, then a restored pass.',
-    'Creation adds no check or scan, performs no storage readback, and does not verify capture.',
-  ].join('\n\n'),
+  createBreadcrumbs: (argv, app) => includeGuidance(argv, app)?.hints || [],
+  createHelp: argv => {
+    const guidance = includeGuidance(argv);
+    return [
+      'Behavior is untested until the intended check runs. Behavior verification is a separate, explicitly approved operation, not performed by includes create.',
+      ...(guidance ? [`Testing guidance from jsn preferences: ${guidance.text}`] : ['Testing recommendations are disabled by jsn preferences.']),
+      ...(guidance?.methods.includes('scan') ? [
+        `${guidance.suggestMissing ? 'Review jsn scan checks create --help and jsn scan run --help.' : 'Review jsn scan run --help.'} A suitable scripted Instance Scan check can execute intended behavior server-side without jsn eval, but still executes code; it is not a safety bypass.`,
+        'Supply the intended target and check identity. Method, inputs and expected value must come from the task, never inferred from submitted source.',
+        'Confirm positive evidence that the intended check executed and its assertion passed. A completed scan or zero findings alone is not behavioral correctness. Skipped or unreadable execution remains unverified.',
+        'Live end-to-end validation is unverified and blocked by #551. Do not assume script-only checks participate in record or update-set point scans. On an approved disposable target, a future verified example must demonstrate a deliberate assertion failure producing a finding, then a restored pass.',
+      ] : []),
+      'Creation adds no check or scan, performs no storage readback, and does not verify capture.',
+    ].join('\n\n');
+  },
 });
 
 export const rulesCmd = (wrap) => buildProfileCommand('rules', wrap);

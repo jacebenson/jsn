@@ -137,6 +137,9 @@ test('trusted switch, modification, deletion and local-only saves remain availab
 
 test('explicit login approves only the authored profile, never unrelated project data', async () => {
   await isolated({ default_profile: 'injected', profiles: { primary: { instance_url: 'https://approved.invalid', domain: 'project-domain' }, injected: { instance_url: 'https://unrelated.invalid' } } }, async f => {
+    f.global.preferences = { operations: { delete: false } };
+    f.global.profiles.primary = { ...trusted, preferences: { updatesets: { initials: 'ZZ' } } };
+    fs.writeFileSync(f.globalPath, JSON.stringify(f.global));
     const cfg = loadConfig();
     const sdk = { getCurrentUser: async () => ({ user_name: 'synthetic-user' }), get: async () => ({ result: [] }) };
     const app = { config: cfg, sdk, getSDKForProfile: () => sdk, auth: { loginWithPassword: async () => ({ username: 'synthetic-user' }) }, ok: () => {} };
@@ -147,6 +150,8 @@ test('explicit login approves only the authored profile, never unrelated project
     assert.deepEqual(f.read(), f.global);
     await loginProfile({ instance: 'https://approved.invalid', basic: true, makeDefault: true, 'include-counts': true }, app);
     const saved = f.read();
+    assert.deepEqual(saved.preferences, f.global.preferences);
+    assert.deepEqual(saved.profiles.primary.preferences, f.global.profiles.primary.preferences);
     assert.equal(saved.profiles.primary.instance_url, 'https://approved.invalid');
     assert.equal(saved.profiles.primary.username, 'synthetic-user');
     assert.equal(saved.profiles.primary.domain, undefined);

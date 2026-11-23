@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { operationOf } from '../src/capabilities.js';
+import { buildCLI } from '../src/cli.js';
+import { operationOf, collectCapabilities } from '../src/capabilities.js';
 import { updateSetsCmd } from '../src/commands/updatesets.js';
 import { setPreference } from '../src/preferences.js';
 import { globalConfigPath } from '../src/config.js';
@@ -44,18 +45,17 @@ function run(args) {
   });
 }
 
-const CAPS = new Map([
-  ['records', { mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'] }],
-  ['rest', { mutationSubcommands: [''] }],
-  ['eval', { mutationSubcommands: [''] }],
-  ['attachments', { mutationSubcommands: ['upload', 'add'] }],
-  ['updatesets', { mutationSubcommands: ['create', 'set', 'complete', 'import', 'preview', 'commit'] }],
-  ['atf', { mutationSubcommands: ['run', 'run-suite'] }],
-  ['platform', { mutationSubcommands: [] }],
-]);
+buildCLI([]);
+const CAPS = collectCapabilities();
 
 describe('operationOf derives the operation class from the capability registry', () => {
   const cases = [
+    [['scan', 'checks', 'delete', 'abc'], 'delete'],
+    [['scan', 'checks', 'create'], 'create'],
+    [['scan', 'suites', 'update', 'abc'], 'update'],
+    [['scan', 'suites', 'add-check', 'abc'], 'update'],
+    [['catalogitems', 'order'], 'create'],
+    [['domains', 'session-set'], 'update'],
     [['records', 'create'], 'create'],
     [['records', 'update', 'abc'], 'update'],
     [['records', 'delete', 'abc'], 'delete'],
@@ -82,7 +82,7 @@ describe('operationOf derives the operation class from the capability registry',
 
   it('classifies explicit REST methods and eval', () => {
     assert.equal(operationOf({ _: ['rest', '/api/now/table/incident'], method: 'DELETE' }, CAPS), 'delete');
-    assert.equal(operationOf({ _: ['rest', '/api/now/table/incident'], method: 'POST' }, CAPS), 'update');
+    assert.equal(operationOf({ _: ['rest', '/api/now/table/incident'], method: 'POST' }, CAPS), 'create');
     assert.equal(operationOf({ _: ['rest', '/api/now/table/incident'], method: 'GET' }, CAPS), null);
     assert.equal(operationOf({ _: ['eval', 'gs.info(1)'] }, CAPS), 'update');
   });

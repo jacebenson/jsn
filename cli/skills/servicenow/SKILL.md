@@ -35,10 +35,15 @@ For development:
    Reads never print or fetch automatic context. Ordinary ticket/data edits do not
    need customization expectations. Keep related development changes together.
 3. Verify the results on the instance and report where changes were captured.
-4. Read the effective testing guidance at runtime with `jsn preferences show --json`
-   (fields `testing.recommend`, `testing.methods`, `testing.suggestMissing`) and
+4. Read effective preferences for the actual target at runtime with
+   `jsn preferences show --profile <target-profile> --json`, or use the matching
+   `--instance <URL>` selector. Respect `data.preferences.operations` before
+   attempting known create/update/delete operations; force cannot override denial.
+   Read `data.preferences.testing.recommend`, `data.preferences.testing.methods`,
+   `data.preferences.testing.contextMethods.agent` and
+   `data.preferences.testing.suggestMissing`, and
    follow it: offer the configured methods only, suppress the recommendation
-   entirely when `recommend` is false, and mention creating missing checks only
+   entirely when `recommend` is false or methods are empty or `none`, and mention creating missing checks only
    when `suggestMissing` is true. Explicit `jsn atf` / `jsn scan` commands remain
    available; never auto-create or auto-run tests.
 5. Ask whether anything else belongs in the update set. If the user confirms

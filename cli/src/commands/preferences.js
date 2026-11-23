@@ -1,5 +1,5 @@
 import { declareCapabilities } from '../capabilities.js';
-import { resolvePreferences, setPreference, unsetPreference, PREFERENCE_KEYS } from '../preferences.js';
+import { resolveRuntimePreferences, setPreference, unsetPreference, PREFERENCE_KEYS } from '../preferences.js';
 import { errUsageHint } from '../errors.js';
 
 // Preferences are installation settings: no instance is required or contacted.
@@ -20,10 +20,6 @@ const HELP = [
   `Keys: ${PREFERENCE_KEYS.join(', ')}`,
 ].join('\n');
 
-function activeProfile(argv, app) {
-  return argv.profile || app.config.activeProfile || app.config.defaultProfile || '';
-}
-
 function summarize({ preferences, sources, profile }) {
   const lines = [`Preferences (${profile ? `profile "${profile}"` : 'installation'}) — precedence: default < installation < profile`];
   const walk = (value, prefix = '') => {
@@ -38,8 +34,8 @@ function summarize({ preferences, sources, profile }) {
 }
 
 function show(argv, app) {
-  const profile = activeProfile(argv, app);
-  const result = resolvePreferences({ profile });
+  const result = resolveRuntimePreferences(argv, app.config);
+  const profile = result.profile;
   app.ok(
     { profile: profile || null, preferences: result.preferences, sources: result.sources },
     { summary: summarize(result) },
@@ -60,15 +56,19 @@ export function preferencesCmd(wrap) {
         handler: wrap(async (argv, app) => show(argv, app)),
       })
       .command({
-        command: 'set <key>',
+        command: 'set <key> [positionalValue]',
         describe: 'Set one preference (installation-wide, or --profile for an override)',
         builder: y2 => y2
           .positional('key', { type: 'string', describe: `One of: ${PREFERENCE_KEYS.join(', ')}` })
-          .option('value', { type: 'string', describe: 'Value (true/false, comma-separated methods, or text)', demandOption: true })
+          .positional('positionalValue', { type: 'string', describe: 'Preference value' })
+          .option('value', { type: 'string', describe: 'Value (alternative to positional value)' })
           .option('profile', { alias: 'p', type: 'string', describe: 'Write a profile override instead of installation settings' }),
         handler: wrap(async (argv, app) => {
           const key = argv.key;
-          const value = argv.value;
+          if (argv.value !== undefined && argv.positionalValue !== undefined) {
+            throw errUsageHint('Supply a positional value or --value, not both.', 'Usage: jsn preferences set <key> <value>');
+          }
+          const value = argv.positionalValue ?? argv.value;
           if (value === undefined) {
             throw errUsageHint('Missing value.', 'Usage: jsn preferences set <key> <value> [--profile <name>]');
           }

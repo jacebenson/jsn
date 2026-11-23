@@ -5,7 +5,7 @@ import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '..
 import { editor, confirm } from '../prompts.js';
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
-import { resolvePreferences, renderUpdateSetName, currentTestingGuidance } from '../preferences.js';
+import { resolveRuntimePreferences, renderUpdateSetName, currentTestingGuidance } from '../preferences.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
 import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRequired } from '../errors.js';
@@ -484,7 +484,7 @@ export async function formatUpdateSetDetail(app, record) {
   const stateRaw = String(full.state?.value ?? full.state ?? '').toLowerCase();
   const isClosed = ['complete', 'committed'].includes(stateRaw);
   const hints = [];
-  const guidance = currentTestingGuidance({ profile: app.session?.profileName || app.config?.activeProfile || app.config?.defaultProfile || '' });
+  const guidance = currentTestingGuidance({ argv: app._authArgv || {}, config: app.config, context: 'updatesets' });
   if (guidance) {
     hints.push(...guidance.hints.map(hint => ({ ...hint, cmd: hint.action === 'scan' ? `jsn scan run --update-set ${sysID}${app.session?.profileName ? ` --profile ${quoteShellArg(app.session.profileName)}` : ''}` : hint.cmd })));
   }
@@ -932,8 +932,7 @@ export function updateSetsCmd(wrap) {
             // explicit --name is always used verbatim and never templated.
             let name = argv.name;
             if (name === undefined || name === '') {
-              const profile = app.session?.profileName || app.config.activeProfile || app.config.defaultProfile || '';
-              const { preferences } = resolvePreferences({ profile });
+              const { preferences } = resolveRuntimePreferences(argv, app.config);
               name = renderUpdateSetName({
                 preferences,
                 tracker: argv.tracker,

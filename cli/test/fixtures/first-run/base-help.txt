@@ -14,7 +14,7 @@ COMMON COMMANDS
   discover   Find commands by task word or table
 
 ALL COMMANDS BY GROUP
-names only; jsn --all-commands --help for details
+names; jsn --all-commands --help for details
   CORE             knowledge incidents changes requests tasks tickets approvals
   AUTOMATION       flows actions scriptactions scheduledjobs triggers asyncrules
                    rules decisiontables assignments scrapi email restmessage
@@ -27,7 +27,7 @@ names only; jsn --all-commands --help for details
                    uxapplicability appmenu appmodules
   DATA             tables columns relationships cmdb includes import logs
                    properties records transactions snippets
-  CONFIGURATION    setup auth updatesets scopes midservers platform
+  CONFIGURATION    setup preferences auth updatesets scopes midservers platform
   DEVELOPER        scan atf eval rest graphql codesearch docs document diff perf
                    skill version
   OTHER            cases workflows attachments store plugins compare

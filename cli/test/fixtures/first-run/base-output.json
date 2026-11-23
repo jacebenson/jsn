@@ -1,22 +1,22 @@
 {
   "commit": "d12d61015814e845e93d9371b3f2c4cdf1415091 + instance documentation command (#505)",
-  "note": "Regenerated from actual CLI after intentional document registration and concise root index placement. No byte budget or welcome assertion was weakened.",
+  "note": "Regenerated from actual isolated CLI stdout after preferences registration. Concise index wording trimmed to retain the original 2876-byte budget; welcome and safety assertions unchanged.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2866,
-    "json": 73099,
-    "quiet": 2866,
-    "csv": 2866,
-    "markdown": 2866,
-    "get": 2866
+    "help": 2873,
+    "json": 73719,
+    "quiet": 2873,
+    "csv": 2873,
+    "markdown": 2873,
+    "get": 2873
   },
   "sha256": {
-    "help": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
-    "json": "501f0ba698ca45e969ecfe06e560398a549f0a00613cfa069be769a423c9ac96",
-    "quiet": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
-    "csv": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
-    "markdown": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a",
-    "get": "688c0e8ee3fc81e0d812f392b410a4ea6d93e51df02d0fac3356f1ead466355a"
+    "help": "7803c8ede2d4141787a9835d9e24c7f69c0c2341f4cdafe884c472c64240e0c3",
+    "json": "589582cc6ee94490d115880434db5b70e93fa851f81d640b00801f76a18c4c47",
+    "quiet": "7803c8ede2d4141787a9835d9e24c7f69c0c2341f4cdafe884c472c64240e0c3",
+    "csv": "7803c8ede2d4141787a9835d9e24c7f69c0c2341f4cdafe884c472c64240e0c3",
+    "markdown": "7803c8ede2d4141787a9835d9e24c7f69c0c2341f4cdafe884c472c64240e0c3",
+    "get": "7803c8ede2d4141787a9835d9e24c7f69c0c2341f4cdafe884c472c64240e0c3"
   },
-  "json_command_count": 89
+  "json_command_count": 90
 }

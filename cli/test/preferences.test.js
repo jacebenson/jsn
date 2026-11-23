@@ -10,7 +10,7 @@ import {
   DEFAULT_PREFERENCES, resolvePreferences, setPreference, unsetPreference,
   renderUpdateSetName, testingGuidance, coercePreferenceValue,
 } from '../src/preferences.js';
-import { globalConfigPath } from '../src/config.js';
+import { loadConfig, saveConfig, setActiveProfile, globalConfigPath } from '../src/config.js';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/jsn.js');
 let root;
@@ -107,6 +107,31 @@ describe('resolution and defaults', () => {
 });
 
 describe('set/unset persistence', () => {
+  it('installation and selected profile preferences survive ordinary config saves', () => {
+    const preferences = { operations: { delete: false }, testing: { recommend: false } };
+    const profilePreferences = { updatesets: { initials: 'ZZ' } };
+    writeGlobal({ preferences, default_profile: 'customer', profiles: {
+      customer: { instance_url: 'https://customer.invalid', preferences: profilePreferences },
+      other: { instance_url: 'https://other.invalid' },
+    } });
+    fs.mkdirSync(path.join(root, '.servicenow'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.servicenow/config.json'), JSON.stringify({ preferences: { operations: { delete: true } } }));
+    const config = loadConfig();
+    config.format = 'json';
+    saveConfig(config);
+    config.connectionDefaults = { read_only: true };
+    saveConfig(config);
+    setActiveProfile(config, 'other');
+    setPreference({ key: 'testing.suggestMissing', value: false });
+    preferences.testing.suggestMissing = false;
+    setPreference({ key: 'updatesets.initials', value: 'NEW', profile: 'customer' });
+    profilePreferences.updatesets.initials = 'NEW';
+    config.profiles.customer.include_counts = true;
+    saveConfig(config);
+    assert.deepEqual(readGlobal().preferences, preferences);
+    assert.deepEqual(readGlobal().profiles.customer.preferences, profilePreferences);
+  });
+
   it('round-trips installation values and preserves unrelated global keys', () => {
     writeGlobal({ instance_url: 'https://keep.example', custom_key: { keep: true }, profiles: { prod: { instance_url: 'https://prod.example' } } });
     setPreference({ key: 'operations.delete', value: 'false' });
@@ -204,6 +229,25 @@ describe('update-set name template', () => {
 });
 
 describe('preferences CLI', () => {
+  it('documented positional setters work and conflicting/missing values never write', () => {
+    assert.equal(run(['preferences', 'set', 'testing.methods', 'atf,scan', '--json']).status, 0);
+    assert.equal(run(['preferences', 'set', 'updatesets.initials', 'ZZ', '--json']).status, 0);
+    assert.equal(run(['preferences', 'set', 'operations.delete', 'false', '--json']).status, 0);
+    const before = fs.readFileSync(globalConfigPath(), 'utf8');
+    for (const args of [[], ['true', '--value', 'false']]) {
+      assert.notEqual(run(['preferences', 'set', 'operations.delete', ...args, '--json']).status, 0);
+      assert.equal(fs.readFileSync(globalConfigPath(), 'utf8'), before);
+    }
+    assert.equal(JSON.parse(run(['preferences', 'show', '--get', 'data.preferences.operations.delete']).stdout), false);
+  });
+
+  it('malformed stored shapes fail with usage errors rather than permitting writes', () => {
+    for (const preferences of [{ operations: [] }, { operations: { delete: 'false' } }, { testing: { methods: 'scan' } }]) {
+      writeGlobal({ preferences });
+      assert.throws(() => resolvePreferences(), e => e.code === 'usage_error');
+    }
+  });
+
   it('show works offline with no instance and reports default sources', () => {
     const result = run(['preferences', 'show', '--json']);
     assert.equal(result.status, 0, result.stderr);

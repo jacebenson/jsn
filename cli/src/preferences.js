@@ -12,14 +12,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { globalConfigDir, globalConfigPath } from './config.js';
+import { loadConfig, normalizeInstanceURL, globalConfigDir, globalConfigPath } from './config.js';
 import { errUsageHint } from './errors.js';
+import { resolveSession } from './session.js';
 
 export const TESTING_METHODS = ['atf', 'scan', 'fixscripts', 'backgroundscripts', 'none'];
 
 export const DEFAULT_PREFERENCES = Object.freeze({
   operations: Object.freeze({ create: true, update: true, delete: true }),
-  testing: Object.freeze({ recommend: true, methods: Object.freeze(['atf', 'scan']), suggestMissing: true }),
+  testing: Object.freeze({ recommend: true, methods: Object.freeze(['atf', 'scan']), suggestMissing: true,
+    contextMethods: Object.freeze({ agent: Object.freeze(['atf', 'scan']), includes: Object.freeze(['scan']), updatesets: Object.freeze(['scan']) }) }),
   updatesets: Object.freeze({
     nameTemplate: '{{tracker}}-{{date}}-{{initials}}-{{scope}}',
     initials: '',
@@ -60,12 +62,66 @@ export function resolvePreferences({ profile = '', globalConfig = readGlobalPref
   const override = profile && isPlainObject(globalConfig?.profiles?.[profile]?.preferences)
     ? globalConfig.profiles[profile].preferences
     : undefined;
+  validateStoredPreferences(globalConfig?.preferences);
+  if (profile) {
+    assertProfileExists(globalConfig, profile);
+    validateStoredPreferences(globalConfig.profiles[profile].preferences);
+  }
   const preferences = merge(merge(clone(DEFAULT_PREFERENCES), installation), override);
   const sources = {};
   markSources(sources, clone(DEFAULT_PREFERENCES), 'default');
   markSources(sources, installation, 'installation');
   markSources(sources, override, 'profile');
+  const methods = preferences.testing.methods;
+  preferences.testing.contextMethods = {
+    agent: [...methods],
+    includes: sources['testing.methods'] === 'default' ? ['scan'] : [...methods],
+    updatesets: sources['testing.methods'] === 'default' ? ['scan'] : [...methods],
+  };
+  for (const context of Object.keys(preferences.testing.contextMethods)) {
+    sources[`testing.contextMethods.${context}`] = sources['testing.methods'];
+  }
   return { preferences, sources, profile: profile || '' };
+}
+
+// Bind policy to trusted identity and origin, never a project-selected name.
+export function resolveRuntimePreferences(argv = {}, config = loadConfig()) {
+  const globalConfig = readGlobalPreferencesConfig();
+  const session = resolveSession(argv, config);
+  if (session.unknownProfile) throw usage(`Unknown profile "${session.unknownProfile}"`);
+  const profiles = globalConfig.profiles || {};
+  const origin = session.instance;
+  const matches = name => name && profiles[name] && normalizeInstanceURL(profiles[name].instance_url) === origin;
+  let profile = '';
+  if (argv.profile && matches(argv.profile)) profile = argv.profile;
+  else if (matches(globalConfig.default_profile)) profile = globalConfig.default_profile;
+  else if (!config.credentialTrust && matches(session.profileName)) profile = session.profileName;
+  else {
+    const candidates = Object.keys(profiles).filter(matches);
+    if (candidates.length === 1) profile = candidates[0];
+    else if (candidates.length > 1) throw usage('Multiple trusted profiles match this origin.', 'Select the intended trusted profile with --profile <name>.');
+  }
+  return resolvePreferences({ profile, globalConfig });
+}
+
+function validateStoredPreferences(value, prefix = '') {
+  if (value === undefined || value === null && !prefix) {
+    if (value === null) throw usage('Stored preferences must be an object');
+    return;
+  }
+  if (!isPlainObject(value)) throw usage(`Stored ${prefix || 'preferences'} must be an object`);
+  for (const [key, entry] of Object.entries(value)) {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (PREFERENCE_KEYS.includes(name)) {
+      const type = KEY_TYPES[name];
+      if (type === 'boolean' && typeof entry !== 'boolean'
+        || type === 'methods' && (!Array.isArray(entry) || entry.some(item => typeof item !== 'string'))
+        || !['boolean', 'methods'].includes(type) && typeof entry !== 'string') throw usage(`Invalid stored preference ${name}`);
+      const canonical = coercePreferenceValue(name, entry);
+      if (type === 'methods' && JSON.stringify(canonical) !== JSON.stringify(entry)) throw usage(`Invalid stored preference ${name}`);
+    } else if (PREFERENCE_KEYS.some(key => key.startsWith(name + '.'))) validateStoredPreferences(entry, name);
+    else throw usage(`Unknown preference key "${name}"`);
+  }
 }
 
 function markSources(sources, value, source, prefix = '') {
@@ -240,8 +296,9 @@ export function setPreference({ key, value, profile = '' }) {
     config.preferences ||= {};
     setPath(config.preferences, key, coerced);
   }
+  const result = resolvePreferences({ profile, globalConfig: config });
   writeGlobalAtomic(config);
-  return resolvePreferences({ profile, globalConfig: config });
+  return result;
 }
 
 /** Remove one preference override. Returns the updated effective preferences. */
@@ -258,8 +315,9 @@ export function unsetPreference({ key, profile = '' }) {
     if (isPlainObject(config.preferences)) deletePath(config.preferences, key);
     if (config.preferences && Object.keys(config.preferences).length === 0) delete config.preferences;
   }
+  const result = resolvePreferences({ profile, globalConfig: config });
   writeGlobalAtomic(config);
-  return resolvePreferences({ profile, globalConfig: config });
+  return result;
 }
 
 function formatDate(date, dateFormat) {
@@ -333,10 +391,10 @@ export const TESTING_METHOD_HINTS = {
  * no recommendation at all. Explicit `jsn atf` / `jsn scan` commands remain
  * available; this never auto-creates or auto-runs tests.
  */
-export function testingGuidance(preferences = DEFAULT_PREFERENCES) {
+export function testingGuidance(preferences = DEFAULT_PREFERENCES, context = 'agent') {
   const testing = preferences.testing || DEFAULT_PREFERENCES.testing;
   if (testing.recommend !== true) return null;
-  const methods = (testing.methods || []).filter(method => method !== 'none' && TESTING_METHOD_LABELS[method]);
+  const methods = (testing.contextMethods?.[context] || testing.methods || []).filter(method => method !== 'none' && TESTING_METHOD_LABELS[method]);
   if (!methods.length) return null;
   const labels = methods.map(method => TESTING_METHOD_LABELS[method]);
   const suggestMissing = testing.suggestMissing === true;
@@ -345,11 +403,18 @@ export function testingGuidance(preferences = DEFAULT_PREFERENCES) {
     methods,
     suggestMissing,
     text,
-    hints: methods.map(method => ({ ...TESTING_METHOD_HINTS[method] })),
+    hints: [
+      ...(context === 'includes' && methods.includes('scan') && suggestMissing
+        ? [{ action: 'check-help', cmd: 'jsn scan checks create --help', description: 'Behavior is untested until the intended check runs. Review a suitable check.' }] : []),
+      ...methods.map(method => context === 'includes' && method === 'scan'
+        ? { action: 'scan-help', cmd: 'jsn scan run --help', description: 'Choose an explicit target; verify intended-check execution and its assertion.' }
+        : { ...TESTING_METHOD_HINTS[method] }),
+    ],
   };
 }
 
 /** Convenience for command builders: current guidance, or null. */
-export function currentTestingGuidance({ profile = '', globalConfig } = {}) {
-  return testingGuidance(resolvePreferences({ profile, globalConfig }).preferences);
+export function currentTestingGuidance({ profile = '', globalConfig, argv, config, context = 'agent' } = {}) {
+  const result = argv ? resolveRuntimePreferences(argv, config) : resolvePreferences({ profile, globalConfig });
+  return testingGuidance(result.preferences, context);
 }
