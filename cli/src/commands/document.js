@@ -11,7 +11,7 @@ export function documentCmd(wrap) {
       command: 'instance',
       describe: 'Generate deterministic Markdown/Mermaid from safe metadata. Requires --profile.',
       builder: child => {
-        child.option('output', { type: 'string', describe: 'New owner-only Markdown file. Never overwrites existing paths.' });
+        child.option('output', { type: 'string', describe: 'New Markdown file; never overwrites. POSIX mode 0600; Windows inherits directory ACLs; use a private directory.' });
         for (const [name, [fallback, min, max]] of Object.entries(DOCUMENT_BUDGETS)) {
           const flag = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
           child.option(flag, { type: 'number', default: fallback, describe: `${name} budget (${min}–${max})` });

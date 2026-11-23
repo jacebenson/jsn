@@ -43,16 +43,21 @@ test('arguments and existing destination types reject before any instance reques
     assert.equal(f.requests.length, 0);
   } finally { await f.close(); }
 });
-test('owner-only new output, JSON extraction, help and styled report use the registered CLI', async () => {
+test('new output content, POSIX permissions, JSON extraction, help and styled report use the registered CLI', async () => {
   const f = await documentFixture();
   try {
     const destination = path.join(f.dir, 'new.md');
     const data = JSON.parse((await f.run([...command, '--output', destination, '--json'])).stdout).data;
     assert.equal(fs.readFileSync(destination, 'utf8'), data.markdown);
-    assert.equal(fs.statSync(destination).mode & 0o777, 0o600);
+    // Windows inherits directory ACLs; Node does not implement POSIX owner/group/other modes there.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(destination).mode & 0o777, 0o600);
     assert.equal(JSON.parse((await f.run([...command, '--get', 'data.release_identity'])).stdout), 'unknown');
     assert.match((await f.run([...command, '--format', 'styled'])).stdout, /^# Instance configuration documentation/);
-    assert.match((await f.run(['document', 'instance', '--help'])).stdout, /--max-requests/);
+    const help = (await f.run(['document', 'instance', '--help'])).stdout;
+    assert.match(help, /--max-requests/);
+    assert.match(help, /POSIX[\s\S]*0600/);
+    assert.match(help, /Windows[\s\S]*directory\s+ACLs/);
+    assert.match(help, /private\s+directory/);
     assert.deepEqual(f.violations, []);
   } finally { await f.close(); }
 });

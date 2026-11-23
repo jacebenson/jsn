@@ -62,8 +62,11 @@ jsn document instance --profile development --get data.sources
 jsn document instance --profile development --format markdown
 ```
 
-`--output` creates a new owner-only file. Existing files, directories and symlinks
-are refused without overwriting. Its parent directory must already exist.
+`--output` creates a new file with owner-only mode `0600` on POSIX. On Windows,
+the file inherits directory ACLs; choose a private directory with appropriate
+access restrictions. Node does not implement POSIX owner/group/other permission
+distinctions on Windows. Existing files, directories and symlinks are refused
+without overwriting. The parent directory must already exist.
 Invalid budgets and existing destinations are rejected before instance reads.
 JSON includes the projected evidence and Markdown. `--get data.markdown --raw`
 extracts the rendered report. Identical saved evidence renders identically offline;
