@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 import { SDKClient } from '../src/sdk.js';
 import {
   listWorkflows,
@@ -574,7 +575,6 @@ test('step selector rejects non-positive integers and reports valid range and co
 });
 
 const baseEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key))),
   JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1',
   SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret',
 };
@@ -591,12 +591,12 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
   const fixture = await startFixture();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-legacy-workflow-'));
   writeConfig(dir, fixture.instance);
-  const env = { ...baseEnv, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir };
+  const env = loopbackFixtureEnv({ ...baseEnv, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data') });
   // Async exec: the fixture server shares this process's event loop, so a
   // synchronous spawn would deadlock before the fixture could answer.
   const run = async (args) => {
     try {
-      const result = await execute(process.execPath, [CLI, ...args], { encoding: 'utf8', env, timeout: 20000 });
+      const result = await execute(process.execPath, [...loopbackCredentialArgs, CLI, ...args], { cwd: dir, encoding: 'utf8', env, timeout: 20000 });
       return { status: 0, stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
       return { status: typeof error.code === 'number' ? error.code : 1, stdout: error.stdout || '', stderr: error.stderr || '' };

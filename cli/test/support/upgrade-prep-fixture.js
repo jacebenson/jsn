@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { loopbackCredentialArgs, loopbackFixtureEnv } from './loopback-credential-fixture.mjs';
 
 const exec = promisify(execFile);
 const id = n => String(n).padStart(32, '0');
@@ -87,13 +88,12 @@ export async function upgradeFixture(options = {}) {
     fixture: { instance_url: origin(main), username: 'fixture', read_only: true },
     lower: { instance_url: origin(lower), username: 'fixture', read_only: true },
   } }));
-  const env = { ...process.env, XDG_CONFIG_HOME: path.join(dir, 'config'), XDG_CACHE_HOME: path.join(dir, 'cache'),
+  const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: path.join(dir, 'config'), XDG_CACHE_HOME: path.join(dir, 'cache'),
     JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1',
-    JSN_NO_PROMPTS: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture' };
-  delete env.SERVICENOW_INSTANCE_URL;
+    JSN_NO_PROMPTS: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture' });
   const binary = fileURLToPath(new URL('../../bin/jsn.js', import.meta.url));
   return { requests, violations, instance: origin(main),
-    run: args => exec(process.execPath, [binary, ...args], { cwd: dir, env, timeout: 30000, maxBuffer: 4 * 1024 * 1024 }),
+    run: args => exec(process.execPath, [...loopbackCredentialArgs, binary, ...args], { cwd: dir, env, timeout: 30000, maxBuffer: 4 * 1024 * 1024 }),
     close: async () => { await Promise.all([main, lower].map(s => new Promise(resolve => s.close(resolve)))); fs.rmSync(dir, { recursive: true, force: true }); },
   };
 }

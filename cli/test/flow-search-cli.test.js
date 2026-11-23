@@ -7,6 +7,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
@@ -31,9 +32,8 @@ test('real CLI read-only profile supports cold/warm/refresh and machine/human fo
   const configDir = path.join(directory, 'config');
   await fs.mkdir(path.join(configDir, 'servicenow'), { recursive: true });
   await fs.writeFile(path.join(configDir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_|JSN_|XDG_)/i.test(key)));
-  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: path.join(directory, 'cache'), JSN_DATA_HOME: path.join(directory, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
-  const run = (...args) => exec(process.execPath, [cli, 'flows', 'search', 'current.number', ...args], { env, timeout: 20000 });
+  const env = loopbackFixtureEnv({ HOME: directory, XDG_CONFIG_HOME: configDir, XDG_CACHE_HOME: path.join(directory, 'cache'), JSN_DATA_HOME: path.join(directory, 'data'), JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'synthetic-fixture-only' });
+  const run = (...args) => exec(process.execPath, [...loopbackCredentialArgs, cli, 'flows', 'search', 'current.number', ...args], { cwd: directory, env, timeout: 20000 });
   const cold = await run('--json');
   assert.equal(cold.stderr, '');
   assert.equal(JSON.parse(cold.stdout).data.match_count, 1);
