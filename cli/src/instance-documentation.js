@@ -56,8 +56,9 @@ export function validateDocument(argv) {
 
 /** A namespace string never establishes ownership. Missing/unknown references stay unresolved. */
 export function documentOwner(row, candidates) {
-  if (!Object.hasOwn(row, 'sys_scope') || !Object.hasOwn(row, 'sys_package') || row.sys_scope === null || row.sys_package === null) return { kind: 'unresolved', reason: 'missing_ownership_fields' };
-  const refs = [row.sys_scope, row.sys_package].filter(ref => ref && ref !== 'global');
+  const ownership = [row.sys_scope, row.sys_package];
+  if (!Object.hasOwn(row, 'sys_scope') || !Object.hasOwn(row, 'sys_package') || ownership.some(ref => typeof ref !== 'string' || !ref.trim())) return { kind: 'unresolved', reason: 'missing_ownership_fields' };
+  const refs = ownership.filter(ref => ref !== 'global');
   if (refs.some(ref => !candidates.some(c => c.identity === ref))) return { kind: 'unresolved', reason: 'unknown_ownership_reference' };
   if (new Set(refs).size > 1) return { kind: 'unresolved', reason: 'conflicting_ownership_references' };
   return refs.length ? { kind: 'application', identity: refs[0] } : { kind: 'unassigned-global' };
@@ -157,7 +158,14 @@ export async function collectInstanceDocumentation(argv, app) {
         application.sections[table] = records; parents = records;
       }
       const widgetIds = [...new Set((application.sections.sp_instance || []).map(r => r.sp_widget).filter(v => identity.test(v || '')))];
-      if (widgetIds.length) application.sections.sp_widget = classify(await read('sp_widget', `sys_idIN${widgetIds.join(',')}^ORDERBYsys_id`), candidate.identity, true).filter(r => widgetIds.includes(r.sys_id));
+      if (widgetIds.length) {
+        const endpoints = classify(await read('sp_widget', `sys_idIN${widgetIds.join(',')}^ORDERBYsys_id`), candidate.identity, true).filter(r => widgetIds.includes(r.sys_id));
+        // Endpoint reads supplement the independent inventory, never replace it.
+        // Retain each original row's source, including when the follow-up is denied.
+        const widgets = new Map(application.sections.sp_widget.map(row => [row.sys_id, row]));
+        for (const endpoint of endpoints) if (!widgets.has(endpoint.sys_id)) widgets.set(endpoint.sys_id, endpoint);
+        application.sections.sp_widget = sort([...widgets.values()]);
+      }
       for (const instance of application.sections.sp_instance || []) {
         const column = application.sections.sp_column.find(r => r.sys_id === instance.sp_column);
         const row = application.sections.sp_row.find(r => r.sys_id === column?.sp_row);

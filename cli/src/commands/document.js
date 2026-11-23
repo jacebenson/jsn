@@ -1,6 +1,4 @@
 import { declareCapabilities } from '../capabilities.js';
-import { resolvePath } from '../output.js';
-import { errExtractionNotFound } from '../errors.js';
 import { DOCUMENT_BUDGETS, collectInstanceDocumentation, renderInstanceDocumentation, writeDocumentFile } from '../instance-documentation.js';
 
 declareCapabilities('document', { mutationSubcommands: [], skipDailyChecks: true });
@@ -23,7 +21,7 @@ export function documentCmd(wrap) {
       handler: wrap(async (argv, app) => {
         const data = await collectInstanceDocumentation(argv, app);
         data.markdown = renderInstanceDocumentation(data);
-        if (app.output.jqFilter && resolvePath({ ok: true, data, summary: data.markdown, breadcrumbs: [] }, app.output.jqFilter) === undefined) throw errExtractionNotFound(app.output.jqFilter);
+        app.output.validateExtraction(data);
         if (argv.output) writeDocumentFile(argv.output, data.markdown);
         const human = !app.output.jqFilter && ['styled', 'markdown'].includes(app.output.effectiveFormat());
         app.output.ok(human ? data.markdown : data);

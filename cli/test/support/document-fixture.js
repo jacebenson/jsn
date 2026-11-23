@@ -91,6 +91,9 @@ export async function documentFixture(options = {}) {
     if (req.method !== 'GET' || !table || !(table in data || table === 'sys_dictionary') || fields.some(f => !allowedFields[table]?.includes(f))) {
       violations.push(requests.at(-1)); res.writeHead(405); res.end('{}'); return;
     }
+    if (table === 'sp_widget' && options.widgetFollowupStatus && url.searchParams.get('sysparm_query')?.startsWith('sys_idIN')) {
+      res.writeHead(options.widgetFollowupStatus); res.end('{}'); return;
+    }
     if (options.fail === table) { res.writeHead(options.status || 403); res.end('{"error":{"message":"synthetic refusal"}}'); return; }
     if (options.malformed === table) { res.end('{}'); return; }
     if (options.disconnect === table) { req.destroy(); return; }
@@ -104,7 +107,9 @@ export async function documentFixture(options = {}) {
     rows = rows.filter(row => matches(row, url.searchParams.get('sysparm_query') || ''));
     rows.sort((a, b) => a.sys_id.localeCompare(b.sys_id));
     const offset = options.repeatDiscoveryPage && table === 'sys_scope' ? 0 : Number(url.searchParams.get('sysparm_offset') || 0), limit = Number(url.searchParams.get('sysparm_limit'));
-    rows = rows.slice(offset, offset + limit).map(row => Object.fromEntries(fields.filter(f => Object.hasOwn(row, f) && f !== options.omitField).map(f => [f, row[f]])));
+    // ACL redaction happens after provider-side selection, not before the query.
+    rows = rows.slice(offset, offset + limit).map(row => ({ ...row, ...options.redactOwnership?.[row.sys_id] }))
+      .map(row => Object.fromEntries(fields.filter(f => Object.hasOwn(row, f) && f !== options.omitField).map(f => [f, row[f]])));
     // Deliberate provider over-return. Product must project again client-side.
     rows = rows.map(row => ({ ...row, script: 'SENSITIVE_SCRIPT_CANARY', endpoint: 'https://SENSITIVE_ENDPOINT_CANARY.invalid', unexpected: { token: 'SENSITIVE_TOKEN_CANARY' } }));
     res.end(JSON.stringify({ result: rows }));
