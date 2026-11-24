@@ -30,6 +30,7 @@ function fakeSdk(result) {
   } };
 }
 const withTemplate = overrides => notification({ template: pair(TEMPLATE, 'Branded'), ...overrides });
+const without = (row, field) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== field));
 
 test('a template with a body supplies the body, not the notification message_html', async () => {
   const sdk = fakeSdk([templateRow('<div>${mail_script:template_header}</div>')]);
@@ -69,6 +70,19 @@ test('plain-text notifications claim no body source and read nothing', async () 
   assert.equal(body.source, null);
   assert.equal(body.status, 'unsupported');
   assert.equal(sdk.calls.length, 0);
+  const own = await describeNotification(sdk, notification({ content_type: pair('text/plain', 'Plain text') }));
+  assert.equal(own.body.status, 'unsupported');
+  assert.equal(sdk.calls.length, 0);
+});
+
+test('labels or missing fields make delivery unavailable instead of guessing', async () => {
+  const sdk = fakeSdk([templateRow('<p>x</p>')]);
+  assert.equal((await describeNotification(sdk, withTemplate(), { displayValues: 'display' })).status, 'unavailable');
+  assert.equal((await describeNotification(sdk, without(withTemplate(), 'template'))).status, 'unavailable');
+  assert.equal((await describeNotification(sdk, without(withTemplate(), 'content_type'))).status, 'unavailable');
+  assert.equal(sdk.calls.length, 0);
+  const { body } = await describeNotification(fakeSdk([without(templateRow('<p>x</p>'), 'message_html')]), withTemplate());
+  assert.equal(body.status, 'unavailable');
 });
 
 test('the trigger says what sends it: a record save, an event or a flow', async () => {
@@ -92,7 +106,8 @@ test('real CLI lists and shows notifications on a read-only profile and refuses 
     const table = url.pathname.startsWith('/api/now/table/') ? url.pathname.split('/').pop() : '';
     if (req.method !== 'GET' && url.pathname !== '/angular.do') { res.statusCode = 405; res.end('{"error":{"message":"mutation refused"}}'); return; }
     const rows = table === 'sysevent_email_action' ? [record] : table === 'sysevent_email_template' ? [templateRow('<div>${mail_script:template_header}</div>')] : [];
-    res.end(JSON.stringify({ result: rows }));
+    const shape = { true: 'display_value', false: 'value' }[url.searchParams.get('sysparm_display_value')];
+    res.end(JSON.stringify({ result: shape ? rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value[shape]]))) : rows }));
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -117,6 +132,12 @@ test('real CLI lists and shows notifications on a read-only profile and refuses 
     assert.equal(JSON.parse((await run(['notification', 'show', id(1), '--get', 'data._delivery.body.source'])).stdout), 'template');
     const human = await run(['notifications', 'show', id(1), '--format', 'styled']);
     assert.match(human.stdout, /Sends on: record insert on incident; condition: active=true\n {2}Body: template Branded \(layout Branded layout\); mail scripts: template_header\n/);
+    assert.equal(JSON.parse((await run(['notifications', 'show', id(1), '--display-values', 'raw', '--get', 'data._delivery.body.source'])).stdout), 'template');
+    const beforeLabels = calls.length;
+    const labels = JSON.parse((await run(['notifications', 'show', id(1), '--display-values', 'display', '--json'])).stdout);
+    assert.equal(labels.data._delivery.status, 'unavailable');
+    assert.ok(calls.slice(beforeLabels).every(call => call.pathname !== '/api/now/table/sysevent_email_template'));
+    assert.match((await run(['notifications', 'show', id(1), '--display-values', 'display', '--format', 'styled'])).stdout, /Delivery: unavailable\. Display values hide/);
     const help = (await run(['notifications', '--help'])).stdout;
     assert.match(help, /^ {2}show <identifier>/m);
     assert.doesNotMatch(help, /^ {2}(create|update|delete)\b/m);

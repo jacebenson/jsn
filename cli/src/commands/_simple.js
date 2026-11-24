@@ -129,7 +129,7 @@ export const emailCmd = (wrap) => buildProfileCommand('email', wrap);
 
 // ── Automation: Outbound ──
 export const notificationsCmd = (wrap) => buildProfileCommand('notifications', wrap, {
-  async onShow(record, app) { record._delivery = await describeNotification(app.sdk, record); },
+  async onShow(record, app, argv) { record._delivery = await describeNotification(app.sdk, record, argv); },
   showSummary: deliverySummary,
 });
 export { restmessageCmd } from './restmessage.js';
