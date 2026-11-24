@@ -64,7 +64,7 @@ test('an action run with reporting off shows its version, failed step and that n
   ]);
   assert.ok(sdk.calls.every(call => call.params.get('sysparm_display_value') === 'all'));
   assert.deepEqual(data.version, { definition_table: 'sys_hub_action_type_definition', definition: id(2), snapshot: id(3), latest_snapshot: id(3), is_latest: true });
-  assert.deepEqual(data.step_data, { recorded: false, reporting: 'OFF' });
+  assert.deepEqual(data.step_data, { recorded: false, values_recorded: false, reporting: 'OFF' });
   assert.equal(data.execution.type, 'ACTION');
   assert.equal(data.failed_steps.length, 1);
   assert.deepEqual({ ...data.failed_steps[0], message: undefined }, { log: id(20), path: `Synthetic Lookup.${id(30)}`, instances: [id(30)], action: null, step: { sys_id: id(30), order: '2', name: 'Synthetic Lookup', step_type: 'REST' }, message: undefined, message_length: trace.length, truncated: false });
@@ -86,7 +86,7 @@ test('a flow run joins its failed action on the raw sys_id, flags an older snaps
   assert.equal(sdk.calls[1].table, 'sys_hub_flow');
   assert.deepEqual(sdk.calls.slice(3).map(call => [call.table, call.params.get('sysparm_query'), call.params.get('sysparm_limit')]), ['sys_hub_action_instance_v2', 'sys_hub_step_instance'].map(table => [table, `sys_idIN${id(40)},${id(41)},${id(42)}`, '3']));
   assert.equal(data.version.is_latest, false);
-  assert.deepEqual(data.step_data, { recorded: true, reporting: 'FULL' });
+  assert.deepEqual(data.step_data, { recorded: true, values_recorded: true, reporting: 'FULL' });
   assert.deepEqual(data.failed_steps[0].action, { sys_id: id(41), order: '4', name: 'Update Record', comment: 'Set the approval to approved' });
   assert.deepEqual(data.failed_steps[0].step, { sys_id: id(42), order: '1', name: 'Synthetic step', step_type: 'Update Record' });
   const human = formatFlowExecution(data);
@@ -95,6 +95,15 @@ test('a flow run joins its failed action on the raw sys_id, flags an older snaps
   assert.match(human, /Reporting was FULL for this run/);
   assert.match(human, /Step 4 Update Record: Set the approval to approved, at its step 1 Synthetic step \(Update Record\)/);
   assert.match(human, /IllegalArgumentException: ID may not contain colons/);
+});
+
+test('basic or unrecorded reporting never claims inputs and outputs were kept', async () => {
+  const basic = await showFlowExecution(fixtureSdk({ sys_flow_context: [{ ...flowContext, attributes: field(JSON.stringify({ type: 'FLOW', reporting: 'BASIC' })) }] }), id(10));
+  assert.deepEqual(basic.step_data, { recorded: true, values_recorded: false, reporting: 'BASIC' });
+  assert.match(formatFlowExecution(basic), /Reporting was BASIC for this run: step states and durations are in Workflow Studio's execution details, but no inputs or outputs were kept/);
+  const unknown = await showFlowExecution(fixtureSdk({ sys_flow_context: [{ ...flowContext, attributes: field(JSON.stringify({ type: 'FLOW' })) }] }), id(10));
+  assert.deepEqual(unknown.step_data, { recorded: true, values_recorded: null, reporting: 'ON' });
+  assert.match(formatFlowExecution(unknown), /Reporting was ON for this run, at a level the run does not record, so whether inputs and outputs were kept is unknown/);
 });
 
 test('invalid context IDs reject before any request', async () => {
@@ -131,16 +140,19 @@ test('an unreadable definition or step keeps the raw IDs and says so', async () 
   assert.equal(data.failed_steps[0].step, null);
   const human = formatFlowExecution(data);
   assert.match(human, /definition is not readable/);
-  assert.ok(human.includes(id(30)));
+  assert.ok(human.includes(`Instances ${id(30)} (not found as an action or step instance)`));
   const broken = await showFlowExecution(answering('sys_flow_context', [{ ...actionContext, attributes: field('{broken') }]), id(1));
   assert.equal(broken.execution.type, null);
-  assert.deepEqual(broken.step_data, { recorded: false, reporting: 'OFF' });
+  assert.deepEqual(broken.step_data, { recorded: false, values_recorded: false, reporting: 'OFF' });
+  const unlinked = await showFlowExecution(fixtureSdk({ sys_flow_context: [{ ...actionContext, flow: field('') }] }), id(1));
+  assert.match(formatFlowExecution(unlinked), /the run has no definition reference, so whether it has changed since is unknown/);
 });
 
 test('a run with no error rows says the log names no failed step, and JSON caps long messages at 16 KB', async () => {
   const quiet = await showFlowExecution(fixtureSdk({ sys_flow_log: [] }), id(1));
   assert.equal(quiet.failed_steps.length, 0);
-  assert.match(formatFlowExecution(quiet), /The flow log names no failed step/);
+  assert.match(formatFlowExecution(quiet), /No Error rows in sys_flow_log were readable for this run; an empty read does not prove none were logged/);
+  assert.doesNotMatch(formatFlowExecution(quiet), /names no failed step/);
   const long = 'x'.repeat(20000);
   const data = await showFlowExecution(fixtureSdk({ sys_flow_log: [{ ...logs[0], message: field(long) }] }), id(1));
   assert.equal(data.failed_steps[0].message.length, 16384);
@@ -151,6 +163,7 @@ test('a run with no error rows says the log names no failed step, and JSON caps 
   assert.equal(capped.log.count, 20);
   assert.equal(capped.log.has_more, true);
   assert.match(formatFlowExecution(capped), /More error rows exist/);
+  assert.match(formatFlowExecution(capped), /The flow log names no failed step/);
 });
 
 test('real CLI shows one execution on a read-only profile, keeps the list, and rejects bad input before any request', async () => {
@@ -190,6 +203,7 @@ test('real CLI shows one execution on a read-only profile, keeps the list, and r
     assert.equal(calls.length, before);
     const help = await run(['flows', 'executions', '--help']);
     assert.match(help.stdout, /show <context>/);
+    assert.match(help.stdout, /Usage: jsn flows executions \[show <context>\] \[options\]/);
     assert.ok(calls.filter(call => call.pathname.startsWith('/api/now/table/')).every(call => call.method === 'GET'));
     assert.ok(calls.every(call => call.pathname.startsWith('/api/now/table/') || call.pathname === '/angular.do'));
   } finally {

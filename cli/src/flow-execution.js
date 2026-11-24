@@ -13,6 +13,8 @@ const LOG_LIMIT = 20;
 const ERROR_LEVEL = '2';
 // The instance's own default for com.snc.process_flow.reporting.serialized.val_size_limit.
 const VALUE_LIMIT = 16384;
+// Basic keeps runtime states and durations only; Full and Trace also keep input and output values.
+const VALUES_KEPT = { OFF: false, BASIC: false, FULL: true, TRACE: true };
 // Display labels are presentation only. Never use them as join keys.
 const raw = value => value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? '');
 const text = value => value && typeof value === 'object' ? String(value.display_value ?? value.value ?? '') : String(value ?? '');
@@ -61,7 +63,7 @@ export async function showFlowExecution(sdk, id) {
   return {
     execution: { sys_id: id, name: text(context.name), type, state: raw(context.state), state_label: text(context.state), error_state: raw(context.error_state) || null, error_message: raw(context.error_message) || null, started: raw(context.sys_created_on), run_time: raw(context.run_time) || null, source_table: raw(context.source_table) || null, source_record: raw(context.source_record) || null, source_display: text(context.source_record) || null, is_test_run: raw(context.is_test_run) === 'true' },
     version: { definition_table: definitionTable, definition: definitionId || null, snapshot, latest_snapshot: latest, is_latest: definition && snapshot && latest ? snapshot === latest : null },
-    step_data: { recorded: Boolean(level) && level !== 'OFF', reporting: level },
+    step_data: { recorded: Boolean(level) && level !== 'OFF', values_recorded: VALUES_KEPT[level] ?? null, reporting: level },
     failed_steps: failing.map(({ record, ids: path }) => {
       const action = actions.get(path.findLast(item => actions.has(item)));
       const step = steps.get(path.findLast(item => steps.has(item)));
@@ -84,7 +86,7 @@ function short({ message, message_length: length }) {
 function describeStep({ action, step, instances }) {
   const inner = step && `${step.order} ${step.name}${step.step_type ? ` (${step.step_type})` : ''}`;
   if (action) return `Step ${action.order} ${action.name}${action.comment ? `: ${action.comment}` : ''}${inner ? `, at its step ${inner}` : ''}`;
-  return inner ? `Step ${inner}` : `Instances ${instances.join(' > ')} (not readable)`;
+  return inner ? `Step ${inner}` : `Instances ${instances.join(' > ')} (not found as an action or step instance)`;
 }
 
 export function formatFlowExecution(data) {
@@ -93,13 +95,16 @@ export function formatFlowExecution(data) {
   const lines = [`${run.name} (${kind}): ${run.state_label}`, `Started ${run.started} UTC${run.run_time ? `, run time ${run.run_time} s` : ''}${run.source_table ? `, from ${run.source_table} ${run.source_display || run.source_record || ''}`.trimEnd() : ''}${run.is_test_run ? ' (test run)' : ''}`];
   if (run.error_message) lines.push(`Error: ${stripHtml(run.error_message)}`);
   lines.push(version.is_latest === null
-    ? `Version: snapshot ${version.snapshot || 'not recorded'}; the ${kind} definition is not readable, so whether it has changed since is unknown.`
+    ? `Version: snapshot ${version.snapshot || 'not recorded'}; ${version.definition ? `the ${kind} definition is not readable` : 'the run has no definition reference'}, so whether it has changed since is unknown.`
     : `Version: snapshot ${version.snapshot}, ${version.is_latest ? `the ${kind}'s latest snapshot` : `not the ${kind}'s latest snapshot (now ${version.latest_snapshot}), so the ${kind} has changed since this run`}.`);
   lines.push(!stepData.reporting ? 'This run does not record its reporting level.'
-    : stepData.recorded ? `Reporting was ${stepData.reporting} for this run: step statuses, inputs and outputs are in Workflow Studio's execution details. This command reads only the flow log.`
+    : stepData.values_recorded ? `Reporting was ${stepData.reporting} for this run: step statuses, inputs and outputs are in Workflow Studio's execution details. This command reads only the flow log.`
+    : stepData.values_recorded === null ? `Reporting was ${stepData.reporting} for this run, at a level the run does not record, so whether inputs and outputs were kept is unknown. This command reads only the flow log.`
+    : stepData.recorded ? `Reporting was ${stepData.reporting} for this run: step states and durations are in Workflow Studio's execution details, but no inputs or outputs were kept. This command reads only the flow log.`
       : `Reporting was ${stepData.reporting} for this run, so no step statuses, inputs or outputs were kept. Runs after the level is raised keep them (Workflow Studio Reporting settings, or com.snc.process_flow.reporting.level).`);
   lines.push('');
-  if (!failed.length) lines.push('The flow log names no failed step.');
+  if (!log.count) lines.push('No Error rows in sys_flow_log were readable for this run; an empty read does not prove none were logged.');
+  else if (!failed.length) lines.push('The flow log names no failed step.');
   else lines.push('Failed steps from the flow log:', ...failed.flatMap(item => [`  ${describeStep(item)}`, `    ${short(item)}`]));
   const named = new Set(failed.map(step => step.log));
   const other = log.records.filter(record => !named.has(record.sys_id));

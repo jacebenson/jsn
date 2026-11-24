@@ -220,6 +220,7 @@ Documentation: ${docLink('flows')}`),
           aliases: ['runs', 'contexts'],
           describe: 'Show Flow Designer executions from sys_flow_context',
           builder: (y) => y
+            .usage('Usage: jsn flows executions [show <context>] [options]')
             .command({
               command: 'show <context>',
               describe: 'Show one execution: its version, reporting level and the failed step from sys_flow_log',
@@ -228,7 +229,8 @@ Documentation: ${docLink('flows')}`),
                 app.requireInstance();
                 const data = await showFlowExecution(app.sdk, argv.context);
                 Object.defineProperty(data, '_formatted', { value: formatFlowExecution(data), enumerable: false });
-                app.ok(data, { summary: `${data.execution.name}: ${data.execution.state_label}; ${data.failed_steps.length} failed step(s) in the flow log; step data ${data.step_data.recorded ? 'recorded' : 'not recorded'} (reporting ${data.step_data.reporting ?? 'unknown'})` });
+                const { values_recorded: values, reporting } = data.step_data;
+                app.ok(data, { summary: `${data.execution.name}: ${data.execution.state_label}; ${data.failed_steps.length} failed step(s) from ${data.log.count} Error row(s) in the flow log; reporting ${reporting ?? 'unknown'}, ${values ? 'inputs and outputs kept' : values === false ? 'no inputs or outputs kept' : 'inputs and outputs unknown'}` });
               }),
             })
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "state=WAITING" or "source_record=<sys_id>")' })
