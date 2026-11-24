@@ -522,7 +522,7 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: "The deleted record's own table (incident, not task)" })
             .option('sys-id', { type: 'string', demandOption: true, describe: "The deleted record's sys_id" })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
-            .epilogue('Restores the newest deleted copy with its sys_id, and the references to it that were audited, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted. The restore is an insert, so business rules run. Needs admin and background script access.'),
+            .epilogue('Restores the newest deleted copy with its sys_id and created date, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted, and references other records held to it may stay cleared. The restore is an insert, so business rules run. Needs admin and background script access.'),
           handler: wrap(async (argv, app) => {
             const entry = await findDeletedRecord(app, argv.table, argv['sys-id']);
             const display = entry.display_value || entry.documentkey;
