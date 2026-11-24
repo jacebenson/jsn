@@ -88,6 +88,7 @@ const AUTOMATION_COMMANDS = [
   { name: 'email', desc: 'Inbound email actions' },
 
   { divider: '── Outbound ──' },
+  { name: 'notifications', alias: 'notification', desc: 'Outbound email notifications (read-only)' },
   { name: 'restmessage', alias: 'rm', desc: 'REST Messages (sys_rest_message)' },
   { name: 'soapmessages', desc: 'SOAP Messages' },
 ];
