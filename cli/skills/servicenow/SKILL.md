@@ -53,5 +53,11 @@ For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.
 
+Slow queries and scripts: to see what the platform logged as slow, use
+`jsn perf slow [--type queries|scripts|transactions|events|mutex|cache]`, ranked
+by total time, then `jsn perf slow show <sys_id>` for the full SQL and the stack
+trace naming the code that issued it. Both are reads; an empty list does not
+prove nothing is slow.
+
 Search documentation with `jsn docs "query"` or read with `jsn docs --path <path>`.
 Documentation source and defaults for future connections are configured in `jsn setup`.
