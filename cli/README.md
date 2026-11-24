@@ -70,7 +70,8 @@ subclasses for queries, scripts, transactions, events, mutexes and cache
 builds), ranked by total time, run count or average time. `show` finds the
 record's class itself and prints the full SQL and the stack trace that issued
 it. Both are read-only Table API reads and need read access to those tables,
-usually admin. `average` is in milliseconds and `total` is a duration;
+usually admin. `average` is in milliseconds and `total` is a duration; first
+and last seen times are UTC, and `--since` compares with them in UTC.
 `executable_sql` and `url` can hold literal values from live requests. An empty
 or ACL-filtered list does not prove nothing is slow. `--limit` (1–200) and
 `--offset` page the list; JSON has `pagination.has_more` from one-row lookahead.

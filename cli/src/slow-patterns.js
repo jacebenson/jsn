@@ -54,13 +54,15 @@ export async function showSlowPattern(sdk, id) {
   return { type, table, record };
 }
 
+// Times print as the stored UTC value, which is what --since compares with; the display value is in the user's zone.
+const utc = value => raw(value) ? `${raw(value)} UTC` : '-';
 function summary(row) {
-  return `total ${text(row.total) || '-'} | count ${text(row.count) || '-'} | avg ${text(row.average) || '-'} ms | last ${text(row.last) || '-'}`;
+  return `total ${text(row.total) || '-'} | count ${text(row.count) || '-'} | avg ${text(row.average) || '-'} ms | last ${utc(row.last)}`;
 }
 export function formatSlowPatterns(data, mode) {
   if (mode === 'show') {
     const { record } = data;
-    const lines = [`Slow pattern ${raw(record.sys_id)} (${data.table}, read-only)`, `Label: ${text(record.label)}`, `URL: ${text(record.url)}`, `${summary(record)} | first ${text(record.first) || '-'}`];
+    const lines = [`Slow pattern ${raw(record.sys_id)} (${data.table}, read-only)`, `Label: ${text(record.label)}`, `URL: ${text(record.url)}`, `${summary(record)} | first ${utc(record.first)}`];
     for (const name of data.type ? TYPES[data.type][1].split(',') : []) if (text(record[name])) lines.push(`${name}: ${text(record[name])}`);
     lines.push('Stack trace:', text(record.stack_trace) || '(empty)');
     return lines.join('\n');

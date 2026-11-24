@@ -134,7 +134,7 @@ export function perfCmd(wrap) {
         builder: (b) => b.strict()
           .option('type', { type: 'string', choices: SLOW_PATTERN_TYPES, default: 'queries', describe: 'Which slow pattern log to read' })
           .option('order-by', { type: 'string', choices: SLOW_PATTERN_ORDERS, default: 'total', describe: 'Rank by total time, run count or average time' })
-          .option('since', { type: 'string', describe: 'Only patterns last seen on or after YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS" (instance time)' })
+          .option('since', { type: 'string', describe: 'Only patterns last seen on or after YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS" (UTC, compared with the stored value)' })
           .option('limit', { type: 'number', default: 20, describe: 'Page size (1-200)' })
           .option('offset', { type: 'number', default: 0, describe: 'Nonnegative page offset' })
           .command({
@@ -154,7 +154,7 @@ export function perfCmd(wrap) {
           Object.defineProperty(data, '_formatted', { value: formatSlowPatterns(data, 'list'), enumerable: false });
           app.ok(data, {
             summary: `${data.count} slow ${data.type} pattern(s)${data.pagination.has_more ? ', more available' : ''}`,
-            breadcrumbs: data.records[0] ? [{ action: 'show', cmd: `jsn perf slow show ${data.records[0].sys_id?.value}`, description: 'Full SQL and stack trace for the top pattern' }] : [],
+            breadcrumbs: data.records[0] ? [{ action: 'show', cmd: `jsn perf slow show ${data.records[0].sys_id?.value}`, description: 'Every field and the stack trace for the top pattern' }] : [],
           });
         }),
       })

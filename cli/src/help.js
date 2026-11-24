@@ -174,7 +174,7 @@ const DEVELOPER_COMMANDS = [
   { name: 'docs', desc: 'Local ServiceNow documentation search' },
   { name: 'document', desc: 'Read-only instance configuration documentation' },
   { name: 'diff', desc: 'Compare records across configured profiles' },
-  { name: 'perf', desc: 'Read-only performance capture and comparison' },
+  { name: 'perf', desc: 'Read-only performance capture, comparison and slow patterns' },
   { name: 'skill', desc: 'AI agent skill file (show, fetch, install)' },
   { name: 'version', desc: 'Version info (--check for npm updates)' },
 ];

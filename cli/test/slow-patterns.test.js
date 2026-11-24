@@ -13,7 +13,7 @@ import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-c
 
 const id = n => n.toString(16).padStart(32, '0');
 const field = (value, display = value) => ({ value, display_value: display });
-const query = (n, extra = {}) => ({ sys_id: field(id(n)), sys_class_name: field('sys_query_pattern', 'Slow Queries'), label: field(`SELECT synthetic${n}0.\`name\` FROM synthetic${n}`), url: field('Synthetic list\n    sysparm_query=active=true'), count: field('9591763', '9,591,763'), total: field('1970-01-01 02:51:18', '2 Hours 51 Minutes'), average: field('1.07'), first: field('2026-11-04 11:11:17'), last: field('2026-11-24 21:57:26'), ...extra });
+const query = (n, extra = {}) => ({ sys_id: field(id(n)), sys_class_name: field('sys_query_pattern', 'Slow Queries'), label: field(`SELECT synthetic${n}0.\`name\` FROM synthetic${n}`), url: field('Synthetic list\n    sysparm_query=active=true'), count: field('9591763', '9,591,763'), total: field('1970-01-01 02:51:18', '2 Hours 51 Minutes'), average: field('1.07'), first: field('2026-11-04 11:11:17', '2026-11-04 08:11:17'), last: field('2026-11-24 21:57:26', '2026-11-24 18:57:26'), ...extra });
 const fullQuery = query(1, { example: field('SELECT synthetic10.`name` FROM synthetic1 synthetic10 WHERE synthetic10.`active` = 1 ORDER BY synthetic10.`name` LIMIT 0,20'), db_name: field('synthetic_1'), pool_name: field('glide'), stack_trace: field('glide.scheduler.worker.1\n\tcom.glide.Synthetic.run(Synthetic.java:1)\n\tSyntheticScriptInclude.get(sys_script_include.abc:12)') });
 const script = { sys_id: field(id(5)), sys_class_name: field('sys_script_pattern', 'Slow Scripts'), label: field('sys_script:Synthetic rule'), url: field('/api/now/table/synthetic'), count: field('2'), total: field('1970-01-01 00:45:00', '45 Minutes'), average: field('1354885.27', '1,354,885.27'), script_source_table: field('sys_script'), script_source: field(id(6), 'Synthetic rule'), stack_trace: field('trace for synthetic rule') };
 const interaction = { sys_id: field(id(7)), sys_class_name: field('sys_interaction_pattern', 'Slow Interaction'), label: field('Synthetic page'), count: field('1') };
@@ -45,7 +45,8 @@ test('list ranks slow queries by total with an explicit field list and bounded l
   assert.deepEqual(data.pagination, { limit: 1, offset: 0, has_more: true, next_offset: 1 });
   const human = formatSlowPatterns(data, 'list');
   assert.match(human, /Slow queries by total/);
-  assert.match(human, /2 Hours 51 Minutes[\s\S]*9,591,763[\s\S]*1\.07 ms/);
+  assert.match(human, /2 Hours 51 Minutes[\s\S]*9,591,763[\s\S]*1\.07 ms \| last 2026-11-24 21:57:26 UTC/);
+  assert.doesNotMatch(human, /18:57:26/);
   assert.ok(human.includes(id(1)));
   assert.match(human, /Synthetic list: SELECT synthetic10/);
   assert.doesNotMatch(human, /sysparm_query/);
@@ -84,6 +85,7 @@ test('show finds the class by raw sys_id, then prints the full SQL and stack tra
   assert.ok(human.includes(fullQuery.example.value));
   assert.match(human, /SyntheticScriptInclude\.get\(sys_script_include\.abc:12\)/);
   assert.match(human, /sysparm_query=active=true/);
+  assert.match(human, /last 2026-11-24 21:57:26 UTC \| first 2026-11-04 11:11:17 UTC/);
 
   const scriptData = await showSlowPattern(fixtureSdk(), id(5));
   assert.equal(scriptData.type, 'scripts');
