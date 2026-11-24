@@ -28,6 +28,21 @@ jsn --help
 
 Instance reads use your selected profile; add `--profile <name>` to choose another. Documentation search needs no ServiceNow connection and uses the hosted service by default. Use `jsn <command> --help` for options or `jsn --all-commands --help` for the full reference.
 
+## Record version history
+
+```sh
+jsn records versions sys_script_include <sys_id>
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
+```
+
+Lists a record's `sys_update_version` history newest first (1 is the newest),
+and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+version N to the current version on raw values, line by line for scripts. Current
+means the version in state current, as the platform's Compare to Current uses; the
+live record is not read. Read-only. No versions does not mean unchanged: only
+records tracked by update sets have them.
+
 ## Saved Access Analyzer evidence
 
 ```sh
@@ -52,21 +67,6 @@ that outcomes belong to the request's last run. `explain` orders checks by log s
 Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
-
-## Record version history
-
-```sh
-jsn records versions sys_script_include <sys_id>
-jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
-jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
-```
-
-Lists a record's `sys_update_version` history newest first (1 is the newest),
-and the newest `sys_update_xml` capture with its update set. `--diff N` compares
-version N to the current version on raw values, line by line for scripts. Current
-means the version in state current, as the platform's Compare to Current uses; the
-live record is not read. Read-only. No versions does not mean unchanged: only
-records tracked by update sets have them.
 
 ## Choose output
 
