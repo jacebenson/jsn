@@ -53,6 +53,21 @@ Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
 
+## Record version history
+
+```sh
+jsn records versions sys_script_include <sys_id>
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
+```
+
+Lists a record's `sys_update_version` history newest first (1 is the newest),
+and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+version N to the current version on raw values, line by line for scripts. Current
+means the version in state current, as the platform's Compare to Current uses; the
+live record is not read. Read-only. No versions does not mean unchanged: only
+records tracked by update sets have them.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).

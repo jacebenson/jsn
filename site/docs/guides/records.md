@@ -143,6 +143,44 @@ table-level subscriptions. Unit and mock coverage lives in
 `cli/test/records-watch.test.js`; the opt-in live harness is
 `cli/test/amb-live.test.js`.
 
+## Version history
+
+`jsn records versions` lists the saved versions of one record and compares an
+older one to the current version. It is the CLI form of the Versions related
+list, Compare to Current and Show Latest Update, and it only reads.
+
+```bash
+jsn records versions sys_script_include <sys_id> --limit 10
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 --json
+```
+
+- The record is resolved like `records get`, then versions are read from
+  `sys_update_version` by the record's `sys_update_name`, which is not always
+  `<table>_<sys_id>` (dictionary entries and list layouts are keyed by name).
+  A record with no readable `sys_update_name` falls back to
+  `<sys_class_name>_<sys_id>` and says so.
+- Versions are numbered newest first, by `sys_recorded_at`, with one-row
+  lookahead for `pagination.has_more`. Each shows state, action, when, who and
+  the source (update set, upgrade or Store app). Payloads are not read for the
+  list.
+- `latest_update` is the newest `sys_update_xml` with the same name, with its
+  update set as a raw sys_id and label. A version's `source` is the set at the
+  time; the two differ after an update is moved.
+- `--diff N` reads two payloads, version N and the version in state current,
+  and compares them in the CLI. Every element with an `action` attribute is a
+  record, keyed by table and sys_id, so composite payloads (a list layout's
+  columns) compare column by column. Fields compare on raw values; display
+  labels are shown, never compared. `sys_created_*`, `sys_updated_*` and
+  `sys_mod_count` are ignored, as `jsn diff record` does. Multi-line fields get
+  a line diff, which reports counts only past about four million line pairs.
+- No versions is never reported as "unchanged": only records tracked by update
+  sets have versions, and tables in `glide.update.suppress_update_version`
+  keep none. A denied read, a second current version, a missing or unreadable
+  payload, or a row for another record name fails.
+
+It does not read the live record, compare across instances, or show a record
+that has been deleted (the record must resolve first).
+
 ## Records engine compatibility contract
 
 Audit for #313, prerequisite to #314–#321. Baseline: origin/main at a3b0e6f.

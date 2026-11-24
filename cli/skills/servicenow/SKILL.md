@@ -49,6 +49,11 @@ for a single-change check. A `gap` or `"complete": false` means events were
 missed — read the record's current state rather than assuming continuity.
 Watching needs a browser session (`jsn auth login --browser`).
 
+Configuration history: to see what an earlier version of a script, rule or other
+update-set-tracked record held, or which update set captured it last, use
+`jsn records versions <table> <sys_id> [--diff N]`. It reads saved versions,
+not the live record; no versions does not mean unchanged.
+
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.
