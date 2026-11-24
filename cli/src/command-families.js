@@ -8,6 +8,13 @@ import { declareCapabilities } from './capabilities.js';
 // and complete-discovery API without pre-parsing argv or a generated catalog.
 const require = createRequire(import.meta.url);
 
+export const accessAnalyzerCmdDefinition = {
+  command: 'access-analyzer [subcommand]',
+  describe: 'Inspect saved Access Analyzer requests, outcomes and checks (read-only)',
+};
+declareCapabilities('access-analyzer', { queryTable: 'sn_access_analyzer_request', mutationSubcommands: [] });
+export const accessAnalyzerCmd = wrap => ({ ...accessAnalyzerCmdDefinition, load: () => require('./commands/access-analyzer.js').accessAnalyzerCmd(wrap) });
+
 export const flowsCmdDefinition = {
   command: 'flows [subcommand]',
   aliases: ['flow'],

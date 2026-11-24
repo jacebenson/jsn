@@ -28,6 +28,31 @@ jsn --help
 
 Instance reads use your selected profile; add `--profile <name>` to choose another. Documentation search needs no ServiceNow connection and uses the hosted service by default. Use `jsn <command> --help` for options or `jsn --all-commands --help` for the full reference.
 
+## Saved Access Analyzer evidence
+
+```sh
+jsn access-analyzer list --limit 20 --profile <name>
+jsn access-analyzer show <request-id> --json
+jsn access-analyzer explain <result-id> --format styled
+jsn access-analyzer show <request-id> --get data.request.user.value
+```
+
+These commands read saved `sn_access_analyzer_request`,
+`sn_access_analyzer_access_result`, and `sn_access_analyzer_debug_log` records.
+They never evaluate access or save an analysis. The Access Analyzer application
+and read permissions on its tables are required; denied or unavailable table
+reads fail rather than appearing as empty evidence. ACL-filtered empty reads
+cannot prove access or absence of saved data.
+
+IDs must be exact 32-character hexadecimal sys_ids. Each command supports
+`--limit` (1–200) and `--offset` (default 0). JSON includes `pagination.has_more`
+and `next_offset` from one-row lookahead, not a total count. `show` preserves
+per-operation execution IDs; these are not shared run IDs and do not imply
+that outcomes belong to the request's last run. `explain` orders checks by log sequence then sys_id.
+Raw reference values and display labels are retained in JSON; joins use raw IDs.
+Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
+failure with Business Rule evidence is not automatically an ACL failure.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
