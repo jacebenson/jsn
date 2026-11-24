@@ -1,4 +1,4 @@
-import { flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
+import { accessAnalyzerCmd, flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
 import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
@@ -380,6 +380,7 @@ export function buildCLI() {
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(workflowsCmd(wrap))
+    .command(accessAnalyzerCmd(wrap))
     .command(actionsCmd(wrap))
     .command(scriptactionsCmd(wrap))
     .command(scheduledjobsCmd(wrap))

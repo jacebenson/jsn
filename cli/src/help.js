@@ -93,6 +93,7 @@ const AUTOMATION_COMMANDS = [
 ];
 
 const ACCESS_COMMANDS = [
+  { name: 'access-analyzer', desc: 'Saved access analysis evidence (read-only)' },
   { name: 'acls', alias: 'acl', desc: 'Access controls' },
   { name: 'b4rules', alias: 'b4r', desc: 'Before-query business rules (see also Automation)' },
   { name: 'roles', alias: 'role', desc: 'Roles' },
@@ -277,7 +278,7 @@ function renderConciseHelp(config, registry, width) {
     `\nCOMMON COMMANDS\n${renderRows(common.map((command) => ({ label: command.name, description: command.desc })), { width, indent: 2 })}`,
     '',
     'ALL COMMANDS BY GROUP',
-    ...wrapText('names only; jsn --all-commands --help for details', { width }),
+    ...wrapText('jsn --all-commands --help for details', { width }),
     renderRows(groups, { width, indent: 2 }),
     '',
     'EXAMPLES',

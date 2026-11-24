@@ -105,7 +105,7 @@ class CommandNode {
       positional(name, config = {}) { node.positionals.set(name, { ...config, name }); return this; },
       demandCommand(count, message) { node.demand = { count, message }; return this; },
       middleware(fn) { node.middlewares.push(...(Array.isArray(fn) ? fn : [fn])); return this; },
-      strict() { return this; },
+      strict() { node.strict = true; return this; },
       check() { return this; },
       usage(value) { node.usageText = value; return this; },
       epilogue(value) { node.epilogueText = value; return this; },
@@ -256,6 +256,10 @@ export class LocalCLI {
     catch (err) { this._fail(err.message, err); return { values: {}, positionals: [] }; }
     const argv = { _: path.map((n) => n.name) };
     for (const [key, value] of Object.entries(parsed.values)) {
+      if (opts.validate !== false && path.some(node => node.strict) && !Object.hasOwn(defs, key)) {
+        this._fail(`Unknown option: --${key}`);
+        return null;
+      }
       if (opts.validate !== false && key === 'q' && !options.has('q')) {
         this._fail('Option -q (--query) is not supported by this command.');
         return null;
@@ -537,6 +541,9 @@ export class LocalCLI {
     }
     for (const spec of specs) if (spec.demandOption && argv[spec.name] === undefined) return this._fail(`Missing required argument: --${spec.name}`);
     for (const pos of positions) if (pos.required && argv[pos.name] === undefined) return this._fail(`Missing required argument: ${pos.name}`);
+    if (path.some(commandNode => commandNode.strict) && positionalIndex < parsed.positionals.length) {
+      return this._fail(`Unexpected argument: ${parsed.positionals[positionalIndex]}`);
+    }
     for (const middleware of this.middlewares) await middleware(argv);
     for (const commandNode of path) for (const middleware of commandNode.middlewares) await middleware(argv);
     if (node.definition.handler) await node.definition.handler(argv);
