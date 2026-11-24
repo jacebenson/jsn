@@ -7,11 +7,12 @@ import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
+import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
   filteredMutationSubcommands: ['delete-many', 'bulk'],
-  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
+  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk', 'undelete'],
 });
 
 const tableDefaultColumns = {
@@ -512,6 +513,28 @@ export function recordsCmd(wrap) {
               breadcrumbs,
             });
             if (!verified) process.exitCode = 1;
+          }),
+        })
+        .command({
+          command: 'undelete',
+          describe: 'Restore a deleted record from Deleted Records (sys_audit_delete)',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: "The deleted record's own table (incident, not task)" })
+            .option('sys-id', { type: 'string', demandOption: true, describe: "The deleted record's sys_id" })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Restores the newest deleted copy with its sys_id, and the references to it that were audited, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted. The restore is an insert, so business rules run. Needs admin and background script access.'),
+          handler: wrap(async (argv, app) => {
+            const entry = await findDeletedRecord(app, argv.table, argv['sys-id']);
+            const display = entry.display_value || entry.documentkey;
+            await confirmDelete(app, argv, `Restore ${argv.table} ${display} (${entry.documentkey}), deleted ${entry.sys_created_on} by ${entry.sys_created_by}; its attachments and cascaded records stay deleted`,
+              { rerun: ['records', 'undelete', '--table', argv.table, '--sys-id', entry.documentkey] });
+            await restoreDeletedRecord(app.sdk, entry);
+            invalidateAfterMutation(app, argv.table);
+            app.ok({ restored: true, table: argv.table, sys_id: entry.documentkey, display_value: entry.display_value, audit_delete: entry.sys_id,
+              deleted_on: entry.sys_created_on, deleted_by: entry.sys_created_by }, {
+              summary: `Restored ${argv.table} ${display} from Deleted Records`,
+              breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }],
+            });
           }),
         })
         .command({
