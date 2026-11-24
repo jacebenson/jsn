@@ -276,6 +276,7 @@ jsn flows executions --summary                 # Server totals + sampled duratio
 jsn flows executions --limit 100               # Inspect more rows from the matching population
 jsn flows executions --record <sys_id>        # Executions for one source record
 jsn flows executions show <context>           # One run: version, reporting level, failed step
+jsn flows settings <flow> --reporting FULL     # Preview one flow's reporting level; --yes writes it
 jsn flows create --data-file flow.manifest.json # Create a draft record-triggered flow
 jsn workflows list --table incident             # Legacy Workflow Editor, read-only (wf_* tables)
 jsn workflows show "Incident approval"          # Versions, activities, transitions, conditions, scripts
@@ -581,6 +582,8 @@ and ambiguous selectors are rejected before mutation.
 The timestamp fields are instance-dependent. `sys_created_on` is a fallback for when the context row was created, not a claim that it is the true runtime start time.
 
 `jsn flows executions show <context>` reads one `sys_flow_context` row by sys_id and answers three questions about that run. Which version ran: the context's `snapshot` against the definition's current `latest_snapshot` (`sys_hub_flow` for flows and subflows, `sys_hub_action_type_definition` for actions). Whether step data was kept: the reporting level from the context's `attributes`, falling back to its `reporting` field; Basic keeps step states and durations, and only Full and Trace keep inputs and outputs. Which step failed: the Error rows in `sys_flow_log` (the first 20, ordered by `order`), whose `action` path names the run, then instance sys_ids from the outside in; JSN resolves the deepest `sys_hub_action_instance_v2` and `sys_hub_step_instance` in that path to their order, name and comment. The flow log is kept whatever the reporting level, so this works on runs that had reporting Off; step inputs and outputs are not, and the command says so instead of printing an empty list. When no Error row is readable it says that an empty read does not prove none were logged. JSON keeps each log message up to 16384 characters (the instance's own `com.snc.process_flow.reporting.serialized.val_size_limit` default) with `message_length` and `truncated`; the terminal shows the exception line or the first line, cut at 200 characters.
+
+`jsn flows settings <flow>` shows or sets the flow's one `sys_flow_execution_setting` row (`source` is the flow, `source_type` its table), which overrides `com.snc.process_flow.reporting.level` for that flow as Workflow Studio's Reporting settings do. `--reporting` takes OFF, BASIC, FULL or TRACE and `--logging` DEBUG, INFO, WARN or ERROR, checked before any request; `--action` targets a custom action instead. Without `--yes` it prints the current row, the change and the exact rerun, and writes nothing. With `--yes` it creates the row or updates only the fields that change, then reads the row back, and an unconfirmed write exits 1. It refuses a flow with more than one row. A subflow or action called from a flow runs at the parent flow's setting. The row is runtime data, not a customization (`sys_flow_execution_setting` does not extend `sys_metadata`), so it needs no update set and is not captured in one.
 
 ## Commands
 

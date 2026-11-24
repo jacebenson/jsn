@@ -20,7 +20,7 @@ export const flowsCmdDefinition = {
   aliases: ['flow'],
   describe: 'Manage Flow Designer flows',
 };
-declareCapabilities('flows', { queryTable: argv => argv._?.[1] === 'executions' ? 'sys_flow_context' : 'sys_hub_flow', transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+declareCapabilities('flows', { queryTable: argv => argv._?.[1] === 'executions' ? 'sys_flow_context' : 'sys_hub_flow', transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock', 'settings'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock', 'settings'] });
 export const flowsCmd = wrap => ({ ...flowsCmdDefinition, load: () => require('./commands/flows.js').flowsCmd(wrap) });
 
 export const workflowsCmdDefinition = {

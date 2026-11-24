@@ -868,6 +868,8 @@ Dispatch is not success; log and artifact readback are required.
 
 `src/flow-execution.js` owns one run's detail for `flows executions show`. It reads the context, its definition, the context's Error rows in `sys_flow_log` and the action and step instances named in each row's `action` path, all by raw sys_id. `step_data.recorded` is false when the run's reporting level was Off, and `step_data.values_recorded` is true only for Full and Trace (null when the run does not say which level), because the flow log survives at any level and step inputs and outputs do not.
 
+`src/flow-settings.js` owns `flows settings`. It reads the definition's `sys_flow_execution_setting` row by raw `source` and `source_type` with a two-row lookahead, refuses duplicates and foreign rows, and writes only the fields whose value changes. A failed read-back after a write is reported as unverified, never thrown away, because the write already happened.
+
 ---
 
 ## Release channel
