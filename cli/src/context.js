@@ -122,6 +122,25 @@ export async function readEffectiveUpdateSet(sdk) {
   };
 }
 
+/**
+ * Read the application this authenticated session has selected.
+ *
+ * The platform stores the Global selection as the *absence* of the
+ * `apps.current_app` preference, so that preference alone can never prove
+ * Global. This endpoint reports the session's effective picker selection; a
+ * response without a readable `result.current` proves nothing and must never
+ * be interpreted as Global.
+ */
+export async function readEffectiveApplication(sdk) {
+  const endpoint = `${sdk.baseURL}/api/now/ui/concoursepicker/application`;
+  const response = await sdk.request(endpoint, { method: 'GET', readOnly: true });
+  const current = response?.result?.current;
+  if (typeof current !== 'string' || !current) {
+    throw new Error('Invalid application picker response: expected result.current.');
+  }
+  return { sys_id: current };
+}
+
 /** Verify capture consistency without ever changing the session. */
 export async function alignUpdateSetCapture(sdk, intended) {
   const effective = await readEffectiveUpdateSet(sdk);
