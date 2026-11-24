@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { recordsCmd } from '../src/commands/records.js';
 import { isMutationCommand } from '../src/mutations.js';
+import { restoreDeletedRecord } from '../src/record-undelete.js';
 
 const ID = 'e59ae049c33c571068353eec0501318b';
 const AUDIT = 'c5eaec49c33c571068353eec05013186';
@@ -143,6 +144,14 @@ test('undelete holds a verified capture context to the deleted record\'s own sco
   const same = scoped('<sys_script_include><sys_scope display_value="Global">global</sys_scope></sys_script_include>', 'global');
   await same.run();
   assert.equal(same.scripts.length, 1);
+});
+
+test('restoreDeletedRecord checks every value it puts into the script itself', async () => {
+  for (const wrong of [{ tablename: "incident'); gs.print('x" }, { documentkey: 'INC0010315' }, { sys_id: `${AUDIT}'` }]) {
+    const scripts = [];
+    await assert.rejects(restoreDeletedRecord({ executeScript: async (script) => { scripts.push(script); return 'JSN_UNDELETE:dispatched'; } }, entry(wrong)), /--table|--sys-id|no valid sys_id/);
+    assert.deepEqual(scripts, []);
+  }
 });
 
 test('undelete is registered as a mutation and its help lists its flags', () => {
