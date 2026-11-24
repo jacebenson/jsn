@@ -27,7 +27,8 @@ export async function listUserRoles(sdk, identifier, { role, limit = 100 } = {})
     throw malformed('sys_user_has_role', 'a row belongs to a different user or role');
   }
   const records = rows.slice(0, limit).map(row => ({ role: text(row['role.name']) || text(row.role), inherited: raw(row.inherited), inh_count: raw(row.inh_count), state: raw(row.state), role_sys_id: raw(row.role), sys_id: unwrapSysId(row) }));
-  return { ...target, table: 'sys_user_has_role', count: records.length, columns: ['role', 'inherited', 'inh_count', 'state', 'role_sys_id'], records, pagination: { limit, has_more: rows.length > limit } };
+  return { ...target, table: 'sys_user_has_role', count: records.length, columns: ['role', 'inherited', 'inh_count', 'state', 'role_sys_id'], records, pagination: { limit, has_more: rows.length > limit },
+    coverage: 'visible_rows_only', visibility: 'Subject to row ACLs; an empty list does not prove the user lacks a role.' };
 }
 
 // "/a/b" is a direct grant of a that contains b; "[Group]/a/b" is the same through Group.
@@ -53,13 +54,13 @@ export async function explainUserRoles(sdk, identifier, { role } = {}) {
     reply = await sdk.request(`${sdk.baseURL}${API}?${new URLSearchParams({ user_sysid: target.user.sys_id })}`, { method: 'GET', readOnly: true });
   } catch (error) {
     if (error?.status === 403) error.hint = 'The User Role Inheritance API needs the user_admin role (admin overrides).';
-    if (error?.status === 404) error.hint = 'The User Role Inheritance API needs the plugin com.glide.role_management.inh_count.rest_api.';
     throw error;
   }
   const result = reply?.result;
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw malformed(API, 'no result object');
   // The script answers a null user_name when it finds no such user; never read that as "no roles".
   if (typeof result.user_name !== 'string' || !result.user_name) throw malformed(API, 'no user_name, so the API did not find the user');
+  if (result.user_name !== target.user.user_name) throw malformed(API, `the reply is for ${JSON.stringify(result.user_name)}, not ${target.user.user_name}`);
   const byRole = new Map();
   for (const from of ['from_role', 'from_group']) {
     if (!Array.isArray(result[from])) throw malformed(API, `${from} is not an array`);

@@ -28,6 +28,22 @@ jsn --help
 
 Instance reads use your selected profile; add `--profile <name>` to choose another. Documentation search needs no ServiceNow connection and uses the hosted service by default. Use `jsn <command> --help` for options or `jsn --all-commands --help` for the full reference.
 
+## Why a user holds a role
+
+```sh
+jsn users roles <user> --profile <name>
+jsn users roles <user> --why --role <role>
+jsn users roles <user> --why --json
+```
+
+`users roles` lists the user's `sys_user_has_role` rows, joined on raw sys_ids
+(`--limit` 1–1000, default 100, with `pagination.has_more`). Row ACLs can hide
+rows, so an empty list does not prove the user lacks a role. `--why` asks the
+platform's User Role Inheritance API, which needs `user_admin`, for every path
+to each role: a direct grant, a chain of contained roles, or a group. Groups
+appear by the name the platform prints; the API returns no sys_ids. A missing,
+denied or malformed reply is an error, never an empty answer.
+
 ## Saved Access Analyzer evidence
 
 ```sh

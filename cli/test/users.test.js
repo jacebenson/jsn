@@ -189,7 +189,8 @@ describe('users roles', () => {
     assert.deepEqual(data.user, { sys_id: userId, user_name: 'beth.anglin' });
     assert.deepEqual(data.records, [{ role: 'itil', inherited: 'false', inh_count: '', state: 'Active', role_sys_id: roleId, sys_id: 'itil'.padEnd(32, '0') }]);
     assert.deepEqual(data.pagination, { limit: 1, has_more: true });
-    assert.equal(opts.summary, '1 role row(s) for beth.anglin, more available (raise --limit)');
+    assert.equal(opts.summary, '1 role row(s) for beth.anglin, more available (raise --limit or narrow with --role)');
+    assert.equal(data.coverage, 'visible_rows_only');
     assert.deepEqual(opts.breadcrumbs, [{ action: 'why', cmd: 'jsn users roles beth.anglin --why', description: 'How each role is granted' }]);
   });
 
@@ -204,10 +205,18 @@ describe('users roles', () => {
     assert.deepEqual(missing.app.outputCalls, []);
   });
 
+  it('says an empty list is visible rows only, never that the user lacks the role', async () => {
+    const { app } = fixture({ rows: [] });
+    await handler('roles')({ app, identifier: 'beth.anglin', role: 'itil' });
+    assert.equal(app.lastOk.data.count, 0);
+    assert.equal(app.lastOk.opts.summary, 'No visible role rows for beth.anglin (role itil); row ACLs can hide rows, so this does not prove the user lacks a role (--why asks the platform)');
+  });
+
   for (const [label, args] of [
     ['limit 0', { limit: 0 }], ['limit 1001', { limit: 1001 }], ['fractional limit', { limit: 1.5 }],
     ['unsafe user', { identifier: 'x^ORactive=true', limit: 100 }], ['unsafe role', { role: 'itil^ORname=admin', limit: 100 }],
     ['empty role', { role: '', limit: 100 }], ['unsafe user with --why', { identifier: 'x*', why: true }], ['unsafe role with --why', { role: 'a^b', why: true }],
+    ['--limit with --why', { why: true, limit: 5 }],
   ]) {
     it(`rejects ${label} before any request`, async () => {
       const { calls, app } = fixture();
@@ -284,7 +293,8 @@ describe('users roles', () => {
   for (const [label, body] of [
     ['an empty body', null], ['no result', {}], ['a result array', { result: [] }],
     ['a null user_name', { result: { ...good, user_name: null } }], ['an empty user_name', { result: { ...good, user_name: '' } }],
-    ['from_role missing', { result: { user_name: 'b', from_group: [] } }], ['from_group as a string', { result: { ...good, from_group: '[G]/itil' } }],
+    ['another user\'s reply', { result: { ...good, user_name: 'abel.tuter' } }],
+    ['from_role missing', { result: { user_name: 'beth.anglin', from_group: [] } }], ['from_group as a string', { result: { ...good, from_group: '[G]/itil' } }],
     ['a non-string path', { result: { ...good, from_role: [{ path: '/itil' }] } }],
     ['a role path without a slash', { result: { ...good, from_role: ['itil'] } }], ['an empty role segment', { result: { ...good, from_role: ['/a//b'] } }],
     ['a group path in from_role', { result: { ...good, from_role: ['[G]/itil'] } }], ['a group path without brackets', { result: { ...good, from_group: ['/itil'] } }],
@@ -297,7 +307,7 @@ describe('users roles', () => {
     });
   }
 
-  for (const [status, hint] of [[403, /user_admin/], [404, /com\.glide\.role_management\.inh_count\.rest_api/]]) {
+  for (const [status, hint] of [[403, /user_admin/]]) {
     it(`--why keeps HTTP ${status} an error and names what is missing`, async () => {
       const error = Object.assign(new Error(`HTTP ${status}`), { status, hint: 'generic' });
       const { app } = fixture({ error });
