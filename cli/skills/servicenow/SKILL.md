@@ -21,6 +21,8 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+  Add `--preview-cascade` to see the records in other tables the delete would
+  cascade to before asking for approval.
 
 For development:
 
