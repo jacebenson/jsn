@@ -1,13 +1,13 @@
 import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
 import { errUsage } from '../errors.js';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
-import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
