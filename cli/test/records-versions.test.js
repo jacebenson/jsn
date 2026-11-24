@@ -24,16 +24,16 @@ const version = (n, state) => ({ sys_id: field(id(n)), name: field(KEY), record_
 const tables = {
   sys_script_include: [{ sys_id: field(id(1)), name: field('SynthUtil'), sys_update_name: field(KEY), sys_class_name: field('sys_script_include', 'Script Include') }],
   sys_update_version: [version(13, 'current'), version(12, 'previous'), version(11, 'history')],
-  sys_update_xml: [{ sys_id: field(id(40)), name: field(KEY), update_set: field(id(31), 'Synthetic moved set'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-03 10:00:00'), sys_updated_by: field('admin') }],
+  sys_update_xml: [{ sys_id: field(id(41)), name: field(KEY), update_set: field(''), remote_update_set: field(id(32), 'Retrieved preview'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-04 10:00:00'), sys_updated_by: field('admin') }, { sys_id: field(id(40)), name: field(KEY), update_set: field(id(31), 'Synthetic moved set'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-03 10:00:00'), sys_updated_by: field('admin') }],
 };
 
 // Exact-condition filter over the fixture tables; ORDERBY terms are asserted by tests, not applied.
 function filter(rows, query) {
   const terms = query.split('^').filter(term => !term.startsWith('ORDERBY'));
   return rows.filter(row => terms.every(term => {
-    const [, name, op, value] = term.match(/^(\w+?)(=|STARTSWITH|ENDSWITH)(.*)$/);
+    const [, name, op, value] = term.match(/^(\w+?)(=|STARTSWITH|ENDSWITH|ISNOTEMPTY)(.*)$/);
     const actual = row[name]?.value ?? row[name] ?? '';
-    return op === '=' ? actual === value : op === 'STARTSWITH' ? actual.startsWith(value) : actual.endsWith(value);
+    return op === 'ISNOTEMPTY' ? actual !== '' : op === '=' ? actual === value : op === 'STARTSWITH' ? actual.startsWith(value) : actual.endsWith(value);
   }));
 }
 function fixtureSdk(overrides = {}) {
@@ -55,7 +55,7 @@ test('lists versions newest first by the record update name, with bounded lookah
   assert.equal(sdk.calls[1].params.get('sysparm_query'), `name=${KEY}^ORDERBYDESCsys_recorded_at^ORDERBYDESCsys_id`);
   assert.equal(sdk.calls[1].params.get('sysparm_limit'), '3');
   assert.doesNotMatch(sdk.calls[1].params.get('sysparm_fields'), /payload,|payload$/);
-  assert.equal(sdk.calls[2].params.get('sysparm_query'), `name=${KEY}^ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id`);
+  assert.equal(sdk.calls[2].params.get('sysparm_query'), `name=${KEY}^update_setISNOTEMPTY^ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id`);
   assert.deepEqual(data.versions.map(row => [row.number, row.state.value]), [[1, 'current'], [2, 'previous']]);
   assert.deepEqual(data.pagination, { limit: 2, has_more: true });
   assert.deepEqual(data.latest_update.update_set, field(id(31), 'Synthetic moved set'));
@@ -101,7 +101,13 @@ test('a record without a readable update name falls back to class and sys_id and
   assert.match(human, /looked up as incident_/);
   assert.match(human, /glide\.update\.suppress_update_version/);
   assert.match(human, /does not mean the record is unchanged/);
-  assert.match(human, /none in sys_update_xml/);
+  assert.match(human, /none readable in sys_update_xml/);
+  assert.match(human, /ACLs can hide them/);
+  assert.match(human, /No sys_update_xml row in an update set was readable for incident_/);
+  const many = Array.from({ length: 201 }, (_, i) => ({ sys_id: field(id(100 + i)), name: field(KEY), state: field(i ? 'history' : 'current') }));
+  const capped = await recordVersions(fixtureSdk({ sys_update_version: many }), { table: 'sys_script_include', identifier: id(1), limit: 200 });
+  assert.equal(capped.count, 200);
+  assert.match(formatVersions(capped), /only the newest 200 can be listed or compared/);
 });
 
 test('invalid input rejects before any call', async () => {

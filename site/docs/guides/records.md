@@ -163,7 +163,8 @@ jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 
   lookahead for `pagination.has_more`. Each shows state, action, when, who and
   the source (update set, upgrade or Store app). Payloads are not read for the
   list.
-- `latest_update` is the newest `sys_update_xml` with the same name, with its
+- `latest_update` is the newest `sys_update_xml` with the same name that is in
+  an update set (a retrieved update not yet committed is left out), with its
   update set as a raw sys_id and label. A version's `source` is the set at the
   time; the two differ after an update is moved.
 - `--diff N` reads two payloads, version N and the version in state current,
@@ -174,8 +175,9 @@ jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 
   `sys_mod_count` are ignored, as `jsn diff record` does. Multi-line fields get
   a line diff, which reports counts only past about four million line pairs.
 - No versions is never reported as "unchanged": only records tracked by update
-  sets have versions, and tables in `glide.update.suppress_update_version`
-  keep none. A denied read, a second current version, a missing or unreadable
+  sets have versions, tables in `glide.update.suppress_update_version` keep
+  none, and ACLs can hide rows from a user without admin. Only the newest 200
+  versions can be listed or compared. A denied read, a second current version, a missing or unreadable
   payload, or a row for another record name fails.
 
 It does not read the live record, compare across instances, or show a record

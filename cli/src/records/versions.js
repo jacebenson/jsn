@@ -146,11 +146,12 @@ export async function recordVersions(sdk, { table, identifier, identifierField, 
   assertName(rows, 'name', name, VERSION);
   const shown = Math.max(limit, diff || 0);
   const versions = rows.slice(0, shown).map((row, index) => ({ number: index + 1, ...row }));
-  const updates = await read(sdk, UPDATE, `name=${name}^ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id`, UPDATE_FIELDS, 1);
+  const updates = await read(sdk, UPDATE, `name=${name}^update_setISNOTEMPTY^ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id`, UPDATE_FIELDS, 1);
   assertName(updates, 'name', name, UPDATE);
 
-  if (!versions.length) notes.push(`No versions found for ${name}. Versions exist only for records tracked by update sets that someone changed, or that an upgrade or app installed; tables in glide.update.suppress_update_version keep none. This does not mean the record is unchanged.`);
-  if (rows.length > shown) notes.push(`More versions exist; raise --limit (up to 200) to list them.`);
+  if (!versions.length) notes.push(`No versions found for ${name}. Versions exist only for records tracked by update sets that someone changed, or that an upgrade or app installed; tables in glide.update.suppress_update_version keep none, and ACLs can hide them. This does not mean the record is unchanged.`);
+  if (!updates.length) notes.push(`No sys_update_xml row in an update set was readable for ${name}; ACLs can hide rows, and records an upgrade or app installed have none.`);
+  if (rows.length > shown) notes.push(shown < 200 ? 'More versions exist; raise --limit (up to 200) to list them.' : 'More versions exist; only the newest 200 can be listed or compared.');
   const data = {
     table, record: { sys_id: sysId, table: raw(record.sys_class_name) || table, update_name: name },
     count: versions.length, versions, pagination: { limit: shown, has_more: rows.length > shown },
@@ -185,7 +186,7 @@ export function formatVersions(data) {
   const update = data.latest_update;
   lines.push(update
     ? `Latest captured update: update set "${text(update.update_set)}" [${raw(update.update_set)}], ${text(update.sys_updated_on)} by ${text(update.sys_updated_by)} (${raw(update.action)}) [${raw(update.sys_id)}]`
-    : 'Latest captured update: none in sys_update_xml for this record.');
+    : 'Latest captured update: none readable in sys_update_xml for this record.');
   lines.push(...data.versions.map(versionLine));
   if (data.diff) {
     const { diff } = data;
