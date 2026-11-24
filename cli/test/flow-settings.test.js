@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { flowsCmd } from '../src/commands/flows.js';
+import { setFlowSettings, formatFlowSettings } from '../src/flow-settings.js';
 import { OutputWriter, FormatJSON } from '../src/output.js';
 import { collectCapabilities, mutationPaths } from '../src/capabilities.js';
 import { isMutationCommand } from '../src/mutations.js';
@@ -90,7 +91,21 @@ test('flows settings writes nothing when the levels are already set or none are 
   const current = await run({ identifier: FLOW, yes: true }, shown);
   assert.equal(writes(shown).length, 0);
   assert.equal(current.data.setting, null);
-  assert.match(current.summary, /no sys_flow_execution_setting row, so the instance-wide levels apply/);
+  assert.match(current.summary, /no readable sys_flow_execution_setting row, so the instance-wide levels apply/);
+});
+
+test('flows settings prints the row it read back after a write, not the one before', async () => {
+  const flow = { sys_id: FLOW, name: 'Approve laptops', type: 'flow', table: 'sys_hub_flow' };
+  const created = formatFlowSettings(await setFlowSettings(settingsSdk({ rows: [], after: [row('FULL', 'INFO', { sys_id: NEW })] }), { flow, requested: { reporting: 'FULL' }, write: true }));
+  assert.match(created, new RegExp(`^Approve laptops \\(flow ${FLOW}\\): sys_flow_execution_setting ${NEW}$`, 'm'));
+  assert.match(created, /^ {2}Reporting: not set -> FULL$/m);
+  assert.match(created, /^ {2}Logging: not set -> INFO$/m);
+  assert.doesNotMatch(created, /instance-wide/);
+  const refused = formatFlowSettings(await setFlowSettings(settingsSdk({ rows: [row('OFF')], after: [row('OFF')] }), { flow, requested: { reporting: 'TRACE' }, write: true }));
+  assert.match(refused, /^ {2}Reporting: OFF$/m);
+  assert.match(refused, /read-back does not show the requested levels/);
+  const empty = formatFlowSettings(await setFlowSettings(settingsSdk({ rows: [] }), { flow, requested: {}, write: false }));
+  assert.match(empty, /no readable sys_flow_execution_setting row, so the instance-wide levels apply/);
 });
 
 test('flows settings rejects bad levels before any request', async () => {

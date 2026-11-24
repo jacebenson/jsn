@@ -52,13 +52,18 @@ export function flowSettingsSummary(data) {
   if (written) return verified ? `Set ${describe(changes)} on ${name} in ${TABLE} ${after.sys_id}; read back and verified` : `Wrote ${describe(changes)} for ${name} but the read-back did not confirm it`;
   if (Object.keys(changes).length) return `Preview for ${name}: ${describe(changes, setting || {})}; nothing written`;
   if (Object.keys(requested).length) return `${name[0].toUpperCase()}${name.slice(1)} already has ${describe(requested)}; nothing written`;
-  return setting ? `${name[0].toUpperCase()}${name.slice(1)}: reporting ${shown(setting.reporting)}, logging ${shown(setting.logging)} in ${TABLE} ${setting.sys_id}` : `${name[0].toUpperCase()}${name.slice(1)} has no ${TABLE} row, so the instance-wide levels apply`;
+  return setting ? `${name[0].toUpperCase()}${name.slice(1)}: reporting ${shown(setting.reporting)}, logging ${shown(setting.logging)} in ${TABLE} ${setting.sys_id}` : `${name[0].toUpperCase()}${name.slice(1)} has no readable ${TABLE} row, so the instance-wide levels apply`;
 }
 
 export function formatFlowSettings(data) {
   const { flow, setting, changes, written, verified, after, note, rerun } = data;
-  const lines = [`${flow.name} (${flow.type} ${flow.sys_id}): ${setting ? `${TABLE} ${setting.sys_id}` : `no ${TABLE} row, so the instance-wide levels apply`}`];
-  for (const field of Object.keys(LEVELS)) lines.push(`  ${field[0].toUpperCase()}${field.slice(1)}: ${shown(setting?.[field])}${changes[field] ? ` -> ${changes[field]}` : ''}`);
+  // After a write the row as read back is the truth; before one, the change is what would be written.
+  const current = written ? after : setting;
+  const lines = [`${flow.name} (${flow.type} ${flow.sys_id}): ${current ? `${TABLE} ${current.sys_id}` : written ? `${TABLE} row not read back` : `no readable ${TABLE} row, so the instance-wide levels apply`}`];
+  for (const field of Object.keys(LEVELS)) {
+    const from = shown(setting?.[field]), to = written ? after && shown(after[field]) : changes[field];
+    lines.push(`  ${field[0].toUpperCase()}${field.slice(1)}: ${from}${to && to !== from ? ` -> ${to}` : ''}`);
+  }
   if (['FULL', 'TRACE'].includes(changes.reporting)) lines.push('Full and Trace keep every step input and output value. ServiceNow advises them for debugging on non-production instances only; lower the level again when done.');
   if (note) lines.push(note);
   if (rerun) lines.push('', `Preview only; nothing written. To write: ${rerun}`);
