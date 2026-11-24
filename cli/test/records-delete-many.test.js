@@ -13,6 +13,7 @@ function fixture(size = 2) {
   const deletes = [];
   const reads = [];
   let data;
+  let meta = {};
   const app = {
     sdk: {
       aggregateCount: async () => rows.length,
@@ -25,9 +26,9 @@ function fixture(size = 2) {
       },
       delete: async (table, id) => { deletes.push(id); rows = rows.filter(r => r.sys_id !== id); },
     },
-    ok(value) { data = value; },
+    ok(value, options = {}) { data = value; meta = options; },
   };
-  return { app, deletes, reads, get data() { return data; },
+  return { app, deletes, reads, get data() { return data; }, get summary() { return meta.summary; }, get breadcrumbs() { return meta.breadcrumbs; },
     run: (args = {}) => handler({ table: 'incident', query: 'active=false', limit: 200, ...args }, app) };
 }
 
@@ -200,6 +201,8 @@ test('delete-many --preview-cascade never reports an empty, failed or mismatched
     [{ output: { result: [] } }, /returned no result/],
     [{ output: { result: [{ status: 500, errors: [{ message: 'boom' }] }] } }, /boom/],
     [{ counts: [['incident', 1], ['task_sla', 3]] }, /did not count 2 record\(s\) in incident/],
+    [{ output: { result: [{ status: 200, errors: [], executionResult: { output: { rowCount: 2, rows: [{}, {}], messages: ['lag'] } } }] } }, /listed 2 table\(s\)/],
+    [{ counts: [['incident', 2], ['', 3]] }, /unreadable/],
   ];
   for (const [options, message] of bad) {
     const f = cascade(2, options);
@@ -217,5 +220,7 @@ test('delete-many --preview-cascade exits nonzero when the job cannot be removed
     await f.run();
     assert.equal(f.data.cascade.job.status, 'delete failed: Denied');
     assert.equal(process.exitCode, 1);
+    assert.match(f.summary, /delete job DM0001001 \(a{32}\) left in sys_dm_delete: delete failed: Denied/);
+    assert.match(f.breadcrumbs.at(-1).cmd, /records get --table sys_dm_delete --sys-id a{32}/);
   } finally { process.exitCode = previous; }
 });
