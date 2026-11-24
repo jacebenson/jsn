@@ -1,0 +1,19 @@
+<h2>Task matrix</h2>
+<p>All <%= SnbenchCatalog.tasks.size %> tasks in the snbench 0.1.0 inventory are shown, grouped by category. Cells show passed attempts / attempts and task pass rate. Expand a cell for per-task cost, time and tokens. A dash means no attempts, not failure. <strong>Partial</strong> means fewer than <%= SnbenchCatalog::FULL_ATTEMPTS %> attempts, the reference replication target from the <a href="https://github.com/jacebenson/snbench#readme">benchmark's --attempts 3 example</a>; planned counts are not recorded in result files. Totals across columns are raw attempt counts only, include labeled controls, and are not an agent leaderboard score.</p>
+<div class="results-table-wrap"><table class="results-table snbench-matrix">
+<thead><tr><th scope="col">Task / category</th><% @groups.each do |key, runs| %><th scope="col"><%= key[1].presence || 'none' %> / <%= key[2].presence || 'none' %> / <%= key[3].presence || 'none' %><br><span class="badge"><%= key[0] %></span><br>tasks <%= key[5] %><br><small><%= key[6] %></small><%= ' Synthetic fixture' if runs.any? { |r| r.run_id == 'fixture-nop' } %></th><% end %><th scope="col">Total attempts passed / attempted (all shown tracks)</th></tr></thead>
+<tbody><% SnbenchCatalog.tasks.each do |task| %>
+  <% row_attempts = [] %>
+  <tr data-task-id="<%= task['id'] %>"><th scope="row"><%= task['id'] %><br><small><%= task['category'] %></small></th>
+  <% @groups.each do |key, runs| %>
+    <% attempts = runs.flat_map { |run| run.snbench_attempts.select { |a| a.task == task['id'] } }; row_attempts.concat(attempts) %>
+    <td><% if attempts.empty? %>-<% else %>
+      <% summary = SnbenchSummary.new(attempts) %>
+      <details><summary><%= attempts.count(&:passed) %>/<%= attempts.size %> (<%= number_to_percentage(summary.mean(:pass) * 100, precision: 1) %>)<%= ' · partial' if attempts.size < SnbenchCatalog::FULL_ATTEMPTS %></summary>
+      <p>Mean USD <%= summary.mean(:cost_usd)&.round(6) || 'unavailable' %>; mean seconds <%= summary.mean(:seconds)&.round(2) || 'unavailable' %>; mean tokens in/out <%= summary.mean(:input)&.round(1) || 'unavailable' %> / <%= summary.mean(:output)&.round(1) || 'unavailable' %>.</p>
+      <% runs.select { |r| r.snbench_attempts.any? { |a| a.task == task['id'] } }.each do |run| %><p><%= link_to run.run_id, "/snbench/#{run.run_id}" %></p><% end %></details>
+    <% end %></td>
+  <% end %><td><%= row_attempts.count(&:passed) %>/<%= row_attempts.size %></td></tr>
+<% end %></tbody>
+<tfoot><tr><th scope="row">Task-weighted column totals</th><% @groups.each do |key, runs| %><% summary = SnbenchSummary.new(runs.flat_map { |r| r.snbench_attempts.to_a }) %><td><%= summary.passed.round(2) %> / <%= summary.attempted %> tasks<br><%= number_to_percentage(summary.mean(:pass) * 100, precision: 1) %><br><%= runs.sum { |r| r.snbench_attempts.size } %> attempts</td><% end %><td><%= @runs.sum { |r| r.snbench_attempts.count(&:passed) } %>/<%= @attempt_count %> raw attempts</td></tr></tfoot>
+</table></div>
