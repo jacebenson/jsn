@@ -290,6 +290,7 @@ jsn records list --table incident --query "active=true"                       # 
 jsn records list --table incident --limit 10 --no-count                       # opt out of the total query
 jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
+jsn records export --table incident --query "priority=1" --out p1.xml         # unload XML, sys_ids kept
 jsn records list --table incident --limit 10 --csv                            # output CSV
 jsn columns show incident.priority                                            # dictionary entry + choices; names the table they come from
 
