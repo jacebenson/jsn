@@ -30,7 +30,7 @@ const NAMESPACES = ['crypto', ...Object.keys(CATALOGUE)];
 const SPEC_JSON = '{\n  "openapi" : "3.0.1",\n  "info" : { "title" : "Table API" }\n}';
 const SPEC_YAML = '---\nopenapi: "3.0.1"\ninfo:\n  title: "Table API"\n';
 
-function fixture({ services, spec } = {}) {
+function fixture({ services, spec, namespaces } = {}) {
   const commands = [];
   scrapiCmd(fn => fn).builder({ command(c) { commands.push(c); return this; } });
   const handler = name => commands.find(c => c.command.split(' ')[0] === name).handler;
@@ -45,7 +45,7 @@ function fixture({ services, spec } = {}) {
       request: async (url, opts) => {
         calls.push({ url, opts });
         const u = new URL(url);
-        if (u.pathname === '/api/now/doc/namespaces') return { result: NAMESPACES };
+        if (u.pathname === '/api/now/doc/namespaces') return namespaces ? namespaces() : { result: NAMESPACES };
         const ns = u.searchParams.get('namespace');
         if (services) return services(ns);
         return { result: ns ? (CATALOGUE[ns] ? { [ns]: CATALOGUE[ns] } : {}) : CATALOGUE };
@@ -83,7 +83,9 @@ test('search matches API name, route (which carries the namespace) and descripti
   assert.equal(f.calls[0].opts.method, 'GET');
   assert.deepEqual(f.data.records[0], { namespace: 'now', api: 'Table API', version: 'latest', method: 'GET', route: '/api/now/table/{tableName}', description: 'Retrieve records from a table' });
   assert.deepEqual(f.data.records.map(r => r.route), ['/api/now/table/{tableName}', '/api/now/table/{tableName}', '/api/now/v2/table/{tableName}']);
-  for (const [term, routes] of [['widget', ['/api/x_acme/generic/widget/{id}']], ['acme', ['/api/x_acme/generic/widget/{id}']], ['upload', ['/api/now/attachment/file']], ['crud', ['/api/now/table/{tableName}', '/api/now/table/{tableName}', '/api/now/v2/table/{tableName}']], ['nothing-here', []]]) {
+  assert.equal(f.meta.breadcrumbs[1].cmd, 'jsn rest /api/now/table/{tableName}');
+  for (const [term, routes] of [['widget', ['/api/x_acme/generic/widget/{id}']], ['acme', ['/api/x_acme/generic/widget/{id}']], ['upload', ['/api/now/attachment/file']], ['crud', ['/api/now/table/{tableName}', '/api/now/table/{tableName}', '/api/now/v2/table/{tableName}']], ['nothing-here', []],
+    ['attachment  upload', ['/api/now/attachment/file']], [['Files', 'UPLOAD'], ['/api/now/attachment/file']], ['table upload', []]]) {
     const g = fixture();
     await g.search({ term });
     assert.deepEqual(g.data.records.map(r => r.route), routes, term);
@@ -96,6 +98,7 @@ test('--namespace narrows the read and --method the rows', async () => {
   await f.search({ term: 'a', namespace: 'now', method: 'post' });
   assert.equal(f.calls[0].url, 'https://fixture.invalid/api/now/doc/services?namespace=now');
   assert.deepEqual(f.data.records.map(r => `${r.method} ${r.route}`), ['POST /api/now/table/{tableName}', 'POST /api/now/attachment/file']);
+  assert.equal(f.meta.breadcrumbs[1].cmd, 'jsn rest /api/now/table/{tableName} --method POST');
 });
 
 test('--limit bounds the rows and the total says how many matched', async () => {
@@ -106,6 +109,10 @@ test('--limit bounds the rows and the total says how many matched', async () => 
   assert.equal(f.data.total, 6);
   assert.match(f.meta.summary, /2 of 6 REST endpoints/);
   assert.match(f.meta.summary, /--limit/);
+  assert.deepEqual(f.data.pagination, { limit: 2, offset: 0, total: 6, hasMore: true });
+  const all = fixture();
+  await all.search({ term: 'api' });
+  assert.equal(all.data.pagination.hasMore, false);
 });
 
 test('an unknown namespace is a usage error naming the nearest real one, never zero matches', async () => {
@@ -132,10 +139,12 @@ test('invalid input is refused before any request', async () => {
 test('a missing, malformed or empty catalogue is never reported as no matches', async () => {
   for (const body of [{ result: [] }, {}, null, { result: 'x' }, { result: { now: { 'Table API': { versions: { v1: { resources: [{ httpMethod: 'GET' }] } } } } } }]) {
     const f = fixture({ services: () => body });
-    await assert.rejects(f.search({ term: 'table' }), (err) => err.code === 'malformed_response', JSON.stringify(body));
+    await assert.rejects(f.search({ term: 'table' }), (err) => err.code === 'api_error' && /Malformed REST API catalogue/.test(err.message), JSON.stringify(body));
   }
   const empty = fixture({ services: () => ({ result: {} }) });
-  await assert.rejects(empty.search({ term: 'table' }), /catalogue came back empty/);
+  await assert.rejects(empty.search({ term: 'table' }), (err) => err.code === 'api_error' && /catalogue came back empty/.test(err.message));
+  const noList = fixture({ services: () => ({ result: {} }), namespaces: () => ({ result: {} }) });
+  await assert.rejects(noList.search({ term: 'table', namespace: 'now' }), (err) => err.code === 'api_error' && /namespaces response/.test(err.message));
   const denied = fixture({ services: () => { throw errAPI(403, ''); } });
   await assert.rejects(denied.search({ term: 'table' }), (err) => err.status === 403);
 });
@@ -195,7 +204,7 @@ test('spec prints YAML verbatim, and --json wraps the document in the envelope',
 test('a spec body that is not an OpenAPI document is never printed as one', async () => {
   for (const [yaml, body] of [[false, '<html>login</html>'], [false, '{"result":{}}'], [true, '<html>login</html>'], [false, '']]) {
     const f = fixture({ spec: () => body });
-    await assert.rejects(f.spec({ api: 'Table API', yaml }), (err) => err.code === 'malformed_response', body);
+    await assert.rejects(f.spec({ api: 'Table API', yaml }), (err) => err.code === 'api_error' && /did not return an OpenAPI document/.test(err.message), body);
     assert.equal(f.out, '');
   }
 });
@@ -209,11 +218,12 @@ test('real CLI: search and spec over a loopback instance on a read-only profile'
     if (url.pathname === '/api/now/doc/namespaces') return res.end(JSON.stringify({ result: NAMESPACES }));
     if (url.pathname === '/api/now/doc/services') {
       const ns = url.searchParams.get('namespace');
-      const catalogue = { ...CATALOGUE, now: { ...CATALOGUE.now, 'Stale API': { apiName: 'now/stale', versions: {} } } };
+      const catalogue = { ...CATALOGUE, now: { ...CATALOGUE.now, 'Stale API': { apiName: 'now/stale', versions: {} }, 'Broken API': { apiName: 'now/broken', versions: {} } } };
       return res.end(JSON.stringify({ result: ns ? (catalogue[ns] ? { [ns]: catalogue[ns] } : {}) : catalogue }));
     }
     if (url.pathname === '/api/now/doc/oas_3') {
       if (/application\/json/.test(req.headers.accept || '')) { res.statusCode = 406; return res.end('{"error":{"message":"requested service can not respond in any media type specified in the Accept header","detail":null},"status":"failure"}'); }
+      if (url.searchParams.get('name') === 'Broken API') return res.end('<html>login</html>');
       if (url.searchParams.get('name') === 'Stale API') { res.statusCode = 404; return res.end('{"error":{"message":"Not Found","detail":"Version latest not found for now/Stale API"},"status":"failure"}'); }
       res.setHeader('Content-Type', 'application/octet-stream');
       return res.end(url.searchParams.get('format') === 'yaml' ? SPEC_YAML : SPEC_JSON);
@@ -238,6 +248,8 @@ test('real CLI: search and spec over a loopback instance on a read-only profile'
     assert.equal((await run(['scrapi', 'spec', 'Table API'])).stdout, `${SPEC_JSON}\n`);
     assert.equal((await run(['scrapi', 'spec', 'table api', '--yaml'])).stdout, SPEC_YAML);
     assert.equal(JSON.parse((await run(['scrapi', 'spec', 'Table API', '--json'])).stdout).data.spec.openapi, '3.0.1');
+    await assert.rejects(run(['scrapi', 'spec', 'Broken API', '--json']), (err) => JSON.parse(err.stdout).code === 'api_error' && /did not return an OpenAPI document/.test(JSON.parse(err.stdout).error));
+    assert.deepEqual(JSON.parse((await run(['scrapi', 'search', 'attachment', 'upload', '--json'])).stdout).data.records.map(r => r.route), ['/api/now/attachment/file']);
     await assert.rejects(run(['scrapi', 'spec', 'Stale API', '--json']), (err) => JSON.parse(err.stdout).error.includes('Version latest not found for now/Stale API'));
     await assert.rejects(run(['scrapi', 'spec', 'Generic API', '--json']), (err) => err.code === 2 && /"Generic API" --namespace x_acme, "Generic API" --namespace sn_udc/.test(JSON.parse(err.stdout).hint));
     await assert.rejects(run(['scrapi', 'spec', 'Generic API', '--format', 'styled']), (err) => /--namespace x_acme/.test(err.stderr) && /--namespace sn_udc/.test(err.stderr));

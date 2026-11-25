@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { formatRecordForDisplay, getStringField, isHexString } from '../helpers.js';
-import { errUsage, errUsageHint } from '../errors.js';
+import { errAPI, errUsage, errUsageHint } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 import { levenshtein } from '../query-parse.js';
 
@@ -23,7 +23,7 @@ const DOC = 'api/now/doc';
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const lower = v => typeof v === 'string' ? v.toLowerCase() : '';
-const malformed = message => Object.assign(new Error(message), { code: 'malformed_response' });
+const malformed = message => errAPI(200, message);
 const text = (value, label) => {
   if (typeof value !== 'string' || !value.trim()) throw errUsage(`${label} must not be empty.`);
   return value.trim();
@@ -36,9 +36,10 @@ async function readCatalogue(app, namespace) {
   const body = await app.sdk.request(`${base}/${DOC}/services${namespace ? `?${new URLSearchParams({ namespace })}` : ''}`, { method: 'GET', readOnly: true });
   if (!isObject(body?.result)) throw malformed('Malformed REST API catalogue response: expected a JSON envelope with a result object');
   if (Object.keys(body.result).length) return body.result;
-  if (!namespace) throw new Error('The REST API catalogue came back empty; this user may not have access to the REST API Explorer.');
+  if (!namespace) throw malformed('The REST API catalogue came back empty; this user may not have access to the REST API Explorer.');
   const names = await app.sdk.request(`${base}/${DOC}/namespaces`, { method: 'GET', readOnly: true });
-  const known = Array.isArray(names?.result) ? names.result.filter(n => typeof n === 'string') : [];
+  if (!Array.isArray(names?.result)) throw malformed('Malformed REST API namespaces response: expected a JSON envelope with a result list');
+  const known = names.result.filter(n => typeof n === 'string');
   if (known.includes(namespace)) throw errUsage(`Namespace "${namespace}" exists but publishes no REST APIs on this instance.`);
   const wanted = namespace.toLowerCase();
   const [nearest] = known.map(n => [n, (n.toLowerCase().includes(wanted) ? 0 : 1000) + levenshtein(wanted, n.toLowerCase())]).sort((a, b) => a[1] - b[1]);
@@ -46,18 +47,18 @@ async function readCatalogue(app, namespace) {
 }
 
 function searchRows(catalogue, term, method) {
-  const wanted = term.toLowerCase();
-  const has = v => lower(v).includes(wanted);
+  const words = term.toLowerCase().split(/\s+/);
   const rows = [];
   for (const { namespace, name, api } of catalogueApis(catalogue)) {
-    // A hit on the API itself matches every endpoint it serves. Every route and apiName
-    // starts with its namespace, so the namespace needs no match of its own.
-    const apiHit = has(name) || has(api.apiName) || has(api.description);
+    // Every word must appear in the API (title, apiName, description) or the endpoint (route, description).
+    // Every route and apiName starts with its namespace, so the namespace needs no field of its own.
+    const apiText = [name, api.apiName, api.description].map(lower).join('\n');
     for (const [version, entry] of Object.entries(isObject(api.versions) ? api.versions : {})) {
       for (const r of Array.isArray(entry?.resources) ? entry.resources : []) {
         if (!isObject(r) || typeof r.route !== 'string' || typeof r.httpMethod !== 'string') throw malformed(`Malformed REST API catalogue entry: ${namespace}/${name} ${version}`);
         if (method && r.httpMethod.toUpperCase() !== method) continue;
-        if (apiHit || has(r.route) || has(r.description)) rows.push({ namespace, api: name, version, method: r.httpMethod, route: `/api${r.route}`, description: typeof r.description === 'string' ? r.description : '' });
+        const fields = `${apiText}\n${lower(r.route)}\n${lower(r.description)}`;
+        if (words.every(w => fields.includes(w))) rows.push({ namespace, api: name, version, method: r.httpMethod, route: `/api${r.route}`, description: typeof r.description === 'string' ? r.description : '' });
       }
     }
   }
@@ -116,7 +117,7 @@ export function scrapiCmd(wrap) {
   return {
     command: 'scrapi [subcommand]',
     aliases: ['scripted-rest', 'rest-api'],
-    describe: 'Manage Scripted REST APIs (list/show operations, create full APIs with resources)',
+    describe: 'Manage Scripted REST APIs (list, show, create) and search every REST API and its OpenAPI spec',
     builder: (yargs) => {
       return yargs
         // ── list ──
@@ -268,16 +269,16 @@ export function scrapiCmd(wrap) {
         })
         // ── search (REST API Explorer catalogue) ──
         .command({
-          command: 'search <term>',
+          command: 'search <term..>',
           describe: 'Search every REST endpoint on the instance, out of the box and scripted, by namespace, API name, route or description',
           builder: (y) => y
-            .positional('term', { type: 'string', describe: 'Case-insensitive text to find' })
+            .positional('term', { type: 'string', describe: 'Case-insensitive words to find; every word must match' })
             .option('namespace', { alias: 'n', type: 'string', describe: 'Only this namespace (e.g. now); reads just that namespace' })
             .option('method', { alias: 'm', type: 'string', describe: `Only endpoints with this HTTP method (${METHODS.join(', ')})` })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max endpoints to show' })
             .strict(),
           handler: wrap(async (argv, app) => {
-            const term = text(argv.term, 'Search term');
+            const term = text([].concat(argv.term ?? []).join(' '), 'Search term');
             const namespace = argv.namespace === undefined ? undefined : text(argv.namespace, '--namespace');
             const method = argv.method === undefined ? undefined : String(argv.method).toUpperCase();
             if (method !== undefined && !METHODS.includes(method)) throw errUsage(`--method must be one of ${METHODS.join(', ')}.`);
@@ -287,14 +288,14 @@ export function scrapiCmd(wrap) {
             const records = rows.slice(0, argv.limit);
             const summary = `${records.length} of ${rows.length} REST endpoints matching "${term}"${rows.length > records.length ? '; raise --limit or narrow with --namespace or --method' : ''}`;
             const width = Math.min(60, Math.max(0, ...records.map(r => r.route.length)));
-            const data = { term, namespace: namespace ?? null, method: method ?? null, total: rows.length, count: records.length, records };
+            const data = { term, namespace: namespace ?? null, method: method ?? null, total: rows.length, count: records.length, records, pagination: { limit: argv.limit, offset: 0, total: rows.length, hasMore: rows.length > records.length } };
             Object.defineProperty(data, '_formatted', { value: [summary, '', ...records.map(r => `${r.method.padEnd(7)}${r.route.padEnd(width)}  ${r.namespace} · ${r.api} · ${r.version}`)].join('\n') });
             const first = records[0];
             app.ok(data, {
               summary,
               breadcrumbs: first ? [
                 { action: 'spec', cmd: `jsn scrapi spec "${first.api}" --namespace ${first.namespace}`, description: 'OpenAPI document for this API' },
-                { action: 'call', cmd: `jsn rest ${first.route}`, description: 'Call the endpoint (fill in any {placeholders})' },
+                { action: 'call', cmd: `jsn rest ${first.route}${first.method === 'GET' ? '' : ` --method ${first.method}`}`, description: 'Call the endpoint (fill in any {placeholders})' },
               ] : [],
             });
           }),

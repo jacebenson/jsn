@@ -56,14 +56,14 @@ failure with Business Rule evidence is not automatically an ACL failure.
 ## Find a REST API
 
 ```sh
-jsn scrapi search attachment --method POST
+jsn scrapi search attachment upload --method POST
 jsn scrapi search change --namespace sn_chg_rest --json
 jsn scrapi spec "Table API" > table-api.json
 jsn scrapi spec "Attachment API" --yaml > attachment-api.yaml
 ```
 
 `search` reads the catalogue the instance's REST API Explorer uses, out-of-the-box and scripted
-APIs alike, and matches case-insensitively on API name, route and descriptions. Each row's
+APIs alike; every word must appear, in any case, in the API name, route or descriptions. Each row's
 `route` is the path `jsn rest` takes. `--namespace` reads only that namespace, and an unknown one
 is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as the instance gives
 it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
