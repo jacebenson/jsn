@@ -67,7 +67,7 @@ export async function refreshActiveTransactions(sdk, { sleep = wait } = {}) {
     throw error;
   }
   const id = /var executionID = '([^']*)'/.exec(String(html))?.[1];
-  if (id === undefined) throw errAPI(200, 'The instance did not return the Active Transactions (All Nodes) refresh page. It needs the admin role.');
+  if (id === undefined) throw Object.assign(errAPI(200, 'The instance did not return the Active Transactions (All Nodes) refresh page. It needs the admin role.'), { fatal: true });
   if (!/^[0-9a-f]{32}$/.test(id)) return { execution_id: null, complete: false, nodes: [], warning: 'The instance could not ask the other nodes for their transactions (it reports a permissions problem), so only this node is listed.' };
   for (let poll = 0; ; poll++) {
     const params = new URLSearchParams({ sysparm_query: `parent=${id}`, sysparm_fields: 'name,state,parent', sysparm_display_value: 'all', sysparm_limit: '100' });
@@ -102,8 +102,10 @@ export async function checkVisible(sdk, refresh, rows) {
   return { ...refresh, complete: false, warning: 'The refreshed list was not visible to this session (it did not even hold this request), so an empty result proves nothing. Retry.' };
 }
 
-// A watch survives a refresh that fails now and then (the instance redirects one now and then), not a run of them.
+// A watch survives a refresh that fails now and then (the instance redirects one now and then), not a run of them,
+// and never retries what cannot succeed.
 const WATCH_FAILURES = 3;
+const FATAL = new Set(['usage_error', 'auth_error', 'forbidden']);
 
 export function watchOptions(argv = {}) {
   if (!argv.watch) {
@@ -120,15 +122,19 @@ export function watchOptions(argv = {}) {
 export async function watchActiveTransactions(sdk, argv, { emit, signal, sleep = wait, now = Date.now } = {}) {
   const { interval, timeout } = watchOptions(argv);
   const started = now(), deadline = timeout ? started + timeout * 1000 : Infinity;
-  let snapshots = 0, failures = 0;
+  let snapshots = 0, failures = 0, failed = 0;
+  // Ctrl-C while the refresh waits for nodes ends it there, with no snapshot the cancel cut short.
+  const settle = async ms => { await sleep(ms, signal); if (signal?.aborted) throw Object.assign(new Error('Watch cancelled.'), { code: 'cancelled' }); };
   while (!signal?.aborted) {
     try {
-      const result = await listActiveTransactions(sdk, argv, { sleep: ms => sleep(ms, signal) });
+      const result = await listActiveTransactions(sdk, argv, { sleep: settle });
       failures = 0;
       snapshots++;
       emit({ type: 'transactions_active', received_at: new Date(now()).toISOString(), ...result });
     } catch (error) {
-      if (++failures >= WATCH_FAILURES || error.code === 'usage_error') throw error;
+      if (signal?.aborted) break;
+      if (++failures >= WATCH_FAILURES || error.fatal === true || FATAL.has(error.code)) throw error;
+      failed++;
       emit({ type: 'refresh_failed', received_at: new Date(now()).toISOString(), message: error.message });
     }
     const pause = Math.min(interval * 1000, deadline - now());
@@ -136,7 +142,7 @@ export async function watchActiveTransactions(sdk, argv, { emit, signal, sleep =
     await sleep(pause, signal);
     if (now() >= deadline) break;
   }
-  const summary = { type: 'watch_summary', reason: signal?.aborted ? 'cancelled' : 'timeout', snapshots, duration_ms: now() - started };
+  const summary = { type: 'watch_summary', reason: signal?.aborted ? 'cancelled' : 'timeout', snapshots, failed_refreshes: failed, duration_ms: now() - started };
   emit(summary);
   return summary;
 }
@@ -145,7 +151,7 @@ export function formatWatchEvent(event) {
   const at = String(event.received_at || '').slice(11, 19);
   if (event.type === 'transactions_active') return `--- ${at} UTC: ${event.count} active${event.pagination.has_more ? ' (more exist)' : ''}\n${formatActiveTransactions(event).trimEnd()}`;
   if (event.type === 'refresh_failed') return `--- ${at} UTC: refresh failed, retrying: ${event.message}`;
-  return `watch ended (${event.reason}): ${event.snapshots} refresh(es), ${Math.round(event.duration_ms / 1000)}s`;
+  return `watch ended (${event.reason}): ${event.snapshots} refresh(es)${event.failed_refreshes ? `, ${event.failed_refreshes} failed` : ''}, ${Math.round(event.duration_ms / 1000)}s`;
 }
 
 const SESSION = /^[\w.:-]{1,128}$/;

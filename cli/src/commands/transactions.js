@@ -117,13 +117,14 @@ export function activeTransactionsCmd(wrap) {
       .option('user', { type: 'string', describe: 'Only this user name' })
       .option('type', { type: 'string', describe: 'Only this transaction type value, such as rest, form or scheduler' })
       .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Maximum transactions to return (1-100)' })
-      .option('watch', { type: 'boolean', default: false, describe: 'Refresh until Ctrl-C, printing the list each time; never writes' })
+      .option('watch', { type: 'boolean', default: false, describe: 'Refresh until Ctrl-C, printing the list each time' })
       .option('interval', { type: 'number', describe: 'Seconds between refreshes with --watch (2-300, default 5)' })
       .option('timeout', { type: 'number', describe: 'With --watch, stop after this many seconds (default 0, until interrupted)' })
       .epilogue([
         'Refreshes Active Transactions (All Nodes) the way its module does (loading_transactions.do), then reads v_cluster_transaction in the same session.',
         "Needs the admin role. jsn's own listing request is left out.",
         'With --watch, emits newline-delimited JSON events (type transactions_active, refresh_failed, watch_summary) with --json or when piped; three failed refreshes in a row end it.',
+        'Each refresh starts the module\'s own progress tracker (sys_execution_tracker rows), as opening the module does.',
         'Examples:',
         '  jsn transactions active',
         '  jsn transactions active --older-than 5m --type scheduler --json',
