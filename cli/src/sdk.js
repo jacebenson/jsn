@@ -3,7 +3,7 @@
 import { batchRead } from './sdk-batch.js';
 import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
-import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
+import { AppError, CodeAPI, CodeAuth, CodeNetwork, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
 import { assertCredentialTransport, assertCredentialDestination } from './auth/transport.js';
 import { canPrompt, getStringField } from './helpers.js';
 import { errMfaRequired, errMfaRejected, isTerminalAuthError } from './errors.js';
@@ -85,6 +85,37 @@ export function buildScriptFormBody({ script, csrf, scope, rollback = true, quot
   if (sandbox) formBody.set('sandbox', 'on');
   if (scriptlet) formBody.set('scriptlet', 'on');
   return formBody;
+}
+
+// How long the script's request stays open after jsn stops waiting, for the platform's answer to the cancel.
+const SCRIPT_CANCEL_WAIT = 15000;
+// A cancelled script's whole response is the platform's one line, even when it printed before (dev485581).
+const cancelledByPlatform = (output) => /^Transaction cancelled\b[^\n]*$/.test(output);
+
+// Resolves '' once the script's request settles, or why jsn stopped waiting first.
+function stopReason(run, ms, signal) {
+  let timer;
+  let onAbort;
+  return Promise.race([
+    run.then(() => '', () => ''),
+    new Promise(resolve => {
+      timer = setTimeout(resolve, ms, 'timeout');
+      onAbort = () => resolve('interrupt');
+      signal?.addEventListener('abort', onAbort, { once: true });
+    }),
+  ]).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); });
+}
+
+function scriptStoppedError(stop, timeout, cancel) {
+  const what = stop === 'timeout' ? `The background script was still running after ${Math.round(timeout / 1000)}s` : 'Interrupted while the background script was running';
+  const outcome = {
+    cancelled: `; it was cancelled on the instance (${cancel.output}).${stop === 'timeout' ? ' Re-run with --timeout <seconds> if it needs longer.' : ''}`,
+    not_confirmed: `; jsn asked the instance to cancel it, but the cancel was not confirmed (instance answered: ${cancel.message}). It may still be running until its transaction quota ends it.`,
+    failed: `; the cancel request failed (${cancel.message}), so it may still be running until its transaction quota ends it.`,
+  }[cancel.status];
+  const error = new AppError(stop === 'timeout' ? CodeNetwork : 'interrupted', what + outcome);
+  error.cancel = cancel;
+  return error;
 }
 
 export class SDKClient {
@@ -1117,6 +1148,11 @@ export class SDKClient {
    *   - quotaManagedTransaction (default true) → quota_managed_transaction
    *   - sandbox (default false) → sandbox (KittyScript, single expression)
    *   - scriptlet (default false) → scriptlet
+   *   - timeout (ms) and signal (AbortSignal): a caller that passes either
+   *     gets the cancel. When either stops the wait, the script is cancelled on
+   *     the instance through cancel_my_transaction.do in the same session, and
+   *     the error says whether the platform confirmed it (error.cancel.status).
+   *     A caller with neither keeps the client timeout and no cancel.
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
@@ -1140,16 +1176,26 @@ export class SDKClient {
       scriptlet: opts.scriptlet,
     });
 
-    const html = await this.rawRequest(endpoint, {
+    // Only callers that pass a timeout or a signal (jsn eval) get the cancel; others keep the plain request.
+    const cancellable = Boolean(opts.timeout || opts.signal);
+    const timeout = opts.timeout || this.timeout;
+    if (opts.signal?.aborted) throw new AppError('interrupted', 'Interrupted before the background script was sent; nothing ran on the instance.');
+    // A cancellable request outlives the deadline so it can carry the platform's answer to a cancel.
+    const run = this.rawRequest(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         ...(cookies ? { Cookie: cookies } : {}),
       },
       body: formBody.toString(),
+      ...(cancellable ? { timeout: timeout + SCRIPT_CANCEL_WAIT } : {}),
     });
+    const stop = cancellable && await stopReason(run, timeout, opts.signal);
+    if (stop) throw scriptStoppedError(stop, timeout, await this._cancelScript(cookies, run));
 
-    const output = this._extractScriptOutput(html);
+    const output = this._extractScriptOutput(await run);
+    // The platform ended it (transaction quota, or an admin's kill) before it finished.
+    if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
     if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
     return output;
@@ -1463,6 +1509,26 @@ export class SDKClient {
       return token;
     }
     throw errMfaRejected();
+  }
+
+  // One cancel_my_transaction.do in the script's session, as the UI's cancel does.
+  // Only the script's own request ending with the platform's cancellation line
+  // confirms it; an acknowledgement alone is not confirmation.
+  async _cancelScript(cookies, run) {
+    let message;
+    try {
+      const xml = await this.rawRequest(`${this.baseURL}/cancel_my_transaction.do?sysparm_output=xml`, {
+        method: 'GET', headers: cookies ? { Cookie: cookies } : {},
+      });
+      message = /<message text="([^"]*)"/.exec(xml)?.[1]?.trim();
+      if (!message) throw new Error('the instance gave no cancel message');
+    } catch (error) {
+      return { status: 'failed', message: error.message };
+    }
+    // The wait for the platform's answer is bounded on its own, whatever --timeout is.
+    const answer = new Promise(resolve => setTimeout(resolve, SCRIPT_CANCEL_WAIT, '').unref());
+    const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]));
+    return { status: cancelledByPlatform(output) ? 'cancelled' : 'not_confirmed', message, output };
   }
 
   async _getScriptsPageCSRF(cookies) {

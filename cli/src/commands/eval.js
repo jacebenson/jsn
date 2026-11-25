@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { runRepl } from '../eval-repl.js';
+import { guardExit, CodeUsage } from '../errors.js';
 
 // The whole command is a mutation surface (runs arbitrary server-side JS) —
 // declared as `['']` so the root `jsn eval` command are gated.
@@ -14,6 +15,7 @@ export function evalCmd(wrap) {
     builder: (yargs) => {
       return yargs
         .middleware(argv => {
+          if (!(Number.isInteger(argv.timeout) && argv.timeout >= 1 && argv.timeout <= 86400)) guardExit(argv, { code: CodeUsage, message: '--timeout must be a whole number of seconds from 1 to 86400' });
           if (!argv.repl) return;
           const conflicts = ['script', 'file', 'stdin'].filter(key => argv[key]).map(key => `--${key}`);
           if (conflicts.length) throw new Error(`--repl cannot be combined with ${conflicts.join(', ')}`);
@@ -28,9 +30,11 @@ export function evalCmd(wrap) {
         .option('rollback', { type: 'boolean', default: true, describe: 'Record rollback context (--no-rollback to skip)' })
         .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript evaluator, single expression only — no DB writes)' })
         .option('scriptlet', { type: 'boolean', default: false, describe: 'Run as scriptlet with global server-side objects' })
-        .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' });
+        .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' })
+        .option('timeout', { type: 'number', default: 30, describe: 'Seconds to wait for the script before jsn cancels it on the instance (outside --repl, Ctrl-C cancels it too)' });
     },
     handler: wrap(async (argv, app) => {
+      const timeout = argv.timeout * 1000;
       let script;
       let scopeSysId = app.mutationContext?.application_id || null;
 
@@ -80,6 +84,7 @@ export function evalCmd(wrap) {
               quotaManagedTransaction: argv.quotaManagedTransaction,
               sandbox: argv.sandbox,
               scriptlet: argv.scriptlet,
+              timeout,
             });
           },
         });
@@ -123,12 +128,28 @@ export function evalCmd(wrap) {
         : '';
       // Pass the resolved sys_id (not the name) — sys.scripts.do only
       // honors selectable scope values, which are sys_ids.
-      const output = await app.sdk.executeScript(script, scopeSysId || '', {
-        rollback: argv.rollback,
-        quotaManagedTransaction: argv.quotaManagedTransaction,
-        sandbox: argv.sandbox,
-        scriptlet: argv.scriptlet,
-      });
+      // Ctrl-C stops the script on the instance too; a second Ctrl-C exits at once.
+      const controller = new AbortController();
+      const interrupt = () => {
+        process.stderr.write('\nCancelling the background script on the instance...\n');
+        controller.abort();
+      };
+      process.once('SIGINT', interrupt);
+      process.once('SIGTERM', interrupt);
+      let output;
+      try {
+        output = await app.sdk.executeScript(script, scopeSysId || '', {
+          rollback: argv.rollback,
+          quotaManagedTransaction: argv.quotaManagedTransaction,
+          sandbox: argv.sandbox,
+          scriptlet: argv.scriptlet,
+          timeout,
+          signal: controller.signal,
+        });
+      } finally {
+        process.removeListener('SIGINT', interrupt);
+        process.removeListener('SIGTERM', interrupt);
+      }
       app.ok({
         script,
         output,
