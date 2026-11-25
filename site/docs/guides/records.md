@@ -198,6 +198,7 @@ This contract precedes implementation and does not declare those issues complete
 | Simple specialized commands | `src/commands/_simple.js` delegates to `_generic.js`; other modules also use factory | Preserve every name/alias/default column/readOnly flag, optional resolver, showFields, onShow, summaries, breadcrumbs, extraQuery and scopeValidation hooks |
 | Specialized rich commands | flows/actions/catalog/CMDB/users and others have custom implementations | Do not replace specialized operations wholesale; shared resolver changes require existing regression suite |
 | Form views | `src/commands/forms.js` independently reads views, sections, elements | No automatic form/related-list retrieval in current generic get or ticket show. Preserve generic presentation; form-aware presentation belongs to specialized views |
+| `records undelete` | `src/record-undelete.js`; SDK listStrict, executeScript (global) | Restores the newest `sys_audit_delete` copy of one record, found by table and original sys_id, through `GlideAuditDelete().undelete`, the Undelete Record action's own call, which has no REST API. Refuses with no script run when no copy is recorded, the copy does not match, the record exists, or a verified capture context's scope differs from the copy's; confirms like `delete`; the script checks admin, the copy and the absence again and prints a marker; the record is read back. Attachments and cascade-deleted records are not restored, and references other records held to it may stay cleared |
 
 ### Observable data and calls
 
