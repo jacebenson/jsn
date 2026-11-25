@@ -57,6 +57,26 @@ The npm trusted publisher for `publish-dev.yml` must authorize the repository's
 See [contribution rules](../../../AGENTS.md) and the workflow definitions under
 [.github/workflows](../../../.github/workflows/).
 
+## What ships in a release
+
+A release publishes everything merged to `main` since the previous tag. There is
+no release branch and no cherry-pick step, so the decision about what ships
+belongs at the merge button, not at release time.
+
+Before merging, answer one question: would this be fine on a user's machine
+tonight? If yes, merge. If no, leave the pull request open. An open pull request
+is the holding area, and a change that misses one release ships in the next one.
+Nothing needs a label or a tag to be picked up, because a tag records a release
+rather than an individual change.
+
+Merged something that turned out to be wrong? Revert it in a pull request and
+release again. Do not cherry-pick around it: `main` stays the single source of
+truth, and `git log <previous-tag>..<new-tag>` lists exactly what shipped.
+
+Do not let pull requests age. One that cannot merge within about a week should be
+closed and reopened when it is ready, because a stale pull request drifts from
+`main` and its CI results stop describing the current code.
+
 ## Shell tab-completion removed
 
 JSN no longer provides `jsn completion` or the hidden shell generation interface.
