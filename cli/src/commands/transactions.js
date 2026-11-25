@@ -110,7 +110,7 @@ declareCapabilities('transactions', { queryTable: 'syslog_transaction', mutation
 export function activeTransactionsCmd(wrap) {
   return {
     command: 'active',
-    describe: 'List transactions running now on every node, oldest first',
+    describe: 'List transactions running now on every node, oldest first; --watch keeps refreshing it',
     builder: (y) => y
       .strict()
       .option('older-than', { type: 'string', describe: 'Only transactions running at least this long: seconds, or 90s, 5m, 2h' })
