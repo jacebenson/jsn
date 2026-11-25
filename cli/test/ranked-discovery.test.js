@@ -14,6 +14,7 @@ import { ticketsCmd } from '../src/commands/tickets.js';
 import { recordsCmd } from '../src/commands/records.js';
 import { tablesCmd } from '../src/commands/_simple.js';
 import { evalCmd } from '../src/commands/eval.js';
+import { docsCmd } from '../src/commands/docs/docs.js';
 
 const home = mkdtempSync(join(tmpdir(), 'jsn-ranked-discovery-'));
 after(() => rmSync(home, { recursive: true, force: true }));
@@ -72,6 +73,8 @@ test('a command that runs itself stays an action beside its subcommands, which d
   assert.deepEqual(ranked(cli, 'undo script').map(result => result.invocation), ['jsn eval rollback <execution>']);
   const rollback = cli.commandRegistry({ details: true }).entries.find(entry => entry.path.join(' ') === 'eval rollback');
   assert.deepEqual(rollback.options.map(option => option.name), ['json', 'yes']);
+  const sync = yargs().command(docsCmd(fn => fn)).commandRegistry({ details: true }).entries.find(entry => entry.path.join(' ') === 'docs sync');
+  assert.ok(sync.options.some(option => option.name === 'release'), 'docs sync still offers --release');
 });
 
 function widget(flag = 'trace', example = 'amber diagnosis') {

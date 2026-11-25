@@ -78,7 +78,9 @@ export function docsCmd(wrapHandler) {
         app.ok({ releases, _formatted: releases.length ? releases.map(row => `${row.release}${row.default ? ' (default)' : ''}  ${row.revision || 'unknown'}  ${row.documents} documents  ${row.indexPath}`).join('\n') + '\n' : 'No local documentation families installed.\n' }, { summary: `${releases.length} local documentation release(s)` });
       }) })
       .command({ command: 'sync', describe: 'Clone or update a documentation family and its local index',
-        builder: y => y.option('embed', { type: 'boolean', default: true }).option('ingest', { type: 'boolean', default: true }),
+        // Declared here too so discover, which leaves a self-running parent's options off its children, still offers it.
+        builder: y => y.option('release', { type: 'string', describe: 'Documentation family (docs.release config, otherwise australia)' })
+          .option('embed', { type: 'boolean', default: true }).option('ingest', { type: 'boolean', default: true }),
         handler: wrap(async (argv, app) => {
           const { syncDocs } = await import('./sync.js');
           const release = resolveDocsRelease(argv.release, app.config);

@@ -348,8 +348,9 @@ export class LocalCLI {
       })),
     };
     // Opt-in action detail leaves the legacy command/group projection intact.
-    // Build every visible descendant, using the same option inheritance and
-    // signatures as dispatch. Hidden subtrees are never indexed.
+    // Build every visible descendant, using dispatch's signatures and option
+    // inheritance less a self-running parent's options (below), so every
+    // advertised invocation still dispatches. Hidden subtrees are never indexed.
     if (details) {
       registry.entries = [];
       const visit = (node, ancestors = [], aliases = []) => {

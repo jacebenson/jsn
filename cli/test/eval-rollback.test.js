@@ -131,7 +131,7 @@ test('eval rollback refuses a user without admin before starting anything', asyn
 test('eval rollback reports an unknown outcome when the processor gives no progress id', async () => {
   for (const answer of ['<xml answer=""/>', '<xml answer="null"/>', 'not xml <', '<!DOCTYPE x><xml answer="' + PROGRESS + '"/>', '<html>login</html>']) {
     const f = fixture({ answer });
-    await assert.rejects(f.run({ yes: true }), /returned no progress id, so its outcome is unknown/);
+    await assert.rejects(f.run({ yes: true }), error => error.code === 'api_error' && error.hint === `Check jsn records get --table sys_rollback_context --sys-id ${CTX}.` && /returned no progress id, so its outcome is unknown/.test(error.message));
     assert.equal(f.writes().length, 1);
     assert.deepEqual(f.calls.filter(c => c.kind === 'tracker'), []);
     assert.equal(f.ok, undefined);
@@ -160,7 +160,7 @@ test('eval rollback never reports success unless the tracker succeeded and the c
   ];
   for (const [options, message] of cases) {
     const f = fixture(options);
-    await assert.rejects(f.run({ yes: true }), message);
+    await assert.rejects(f.run({ yes: true }), error => error.code === 'api_error' && error.hint === `Check jsn records get --table sys_rollback_context --sys-id ${CTX}.` && message.test(error.message));
     assert.equal(f.ok, undefined);
   }
 });
@@ -169,7 +169,7 @@ test('eval rollback stops waiting at its deadline and says the rollback carries 
   t.mock.timers.enable({ apis: ['Date'] });
   const f = fixture({ trackers: Array.from({ length: 10 }, () => ({ sys_id: PROGRESS, state: '1' })) });
   await assert.rejects(runRollback(f.sdk, plan, { timeoutMs: 5000, pause: async ms => t.mock.timers.tick(ms) }),
-    /still running after 5s \(progress 4f1b.*\)\. It carries on in the background/);
+    error => error.code === 'api_error' && /still running after 5s \(progress 4f1b.*\)\. It carries on in the background/.test(error.message));
   assert.equal(f.calls.filter(c => c.kind === 'tracker').length, 4);
 });
 

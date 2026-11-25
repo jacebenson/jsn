@@ -3,7 +3,7 @@
 // processor with no REST API in front of it, so this calls it through xmlhttp.do as
 // scan.js calls its processor, then follows the execution tracker it returns.
 import { SaxesParser } from 'saxes';
-import { errAPI, errNotFound, errUsage } from './errors.js';
+import { AppError, CodeAPI, errAPI, errNotFound, errUsage } from './errors.js';
 import { isSysId } from './resolve-record.js';
 import { raw, requireId } from './scan.js';
 
@@ -59,10 +59,12 @@ export async function runRollback(sdk, plan, { timeoutMs = 120000, pause = ms =>
   const admin = await sdk.listStrict('sys_user_has_role', new URLSearchParams({ sysparm_query: 'user=javascript:gs.getUserID()^role.name=admin', sysparm_fields: 'sys_id', sysparm_limit: '1' }));
   if (!admin.length) throw errUsage('Rolling back needs the admin role, as the Rollback Script Execution action does. Nothing was rolled back.');
   const check = `jsn records get --table sys_rollback_context --sys-id ${contextId}`;
+  // From the POST on, the rollback may be running: every failure is an API error that says how to check it.
+  const unsure = (message, cause) => new AppError(CodeAPI, message, `Check ${check}.`, cause?.status || 0, cause);
   const progressId = decodeAnswer(await sdk.rawRequest(`${sdk.baseURL}/xmlhttp.do?${new URLSearchParams({ sysparm_processor: 'AJAXRollbackWorker', sysparm_name: 'start', sysparm_ajax_processor_context_id: contextId })}`, { method: 'POST' }));
-  if (!isSysId(progressId)) throw new Error(`Starting the rollback of ${number} returned no progress id, so its outcome is unknown. Check ${check} before retrying.`);
+  if (!isSysId(progressId)) throw unsure(`Starting the rollback of ${number} returned no progress id, so its outcome is unknown. Check ${check} before retrying.`);
   // Once started, the rollback runs whatever happens here, so a failed read must not invite a rerun.
-  const lost = error => new Error(`The rollback of ${number} started (progress ${progressId}); check ${check} and do not rerun it. Reading its outcome failed: ${error.message}`, { cause: error });
+  const lost = error => unsure(`The rollback of ${number} started (progress ${progressId}); check ${check} and do not rerun it. Reading its outcome failed: ${error.message}`, error);
   let status = 'pending', message;
   for (const deadline = Date.now() + timeoutMs; ; await pause(2000)) {
     let tracker = null;
@@ -72,12 +74,12 @@ export async function runRollback(sdk, plan, { timeoutMs = 120000, pause = ms =>
     if (tracker) {
       status = raw(tracker.sys_id) === progressId && TRACKER[raw(tracker.state)] || 'unknown';
       message = raw(tracker.message) || '';
-      if (status === 'unknown') throw new Error(`The rollback of ${number} has an unreadable execution tracker (progress ${progressId}). Check ${check} and do not rerun it.`);
+      if (status === 'unknown') throw unsure(`The rollback of ${number} has an unreadable execution tracker (progress ${progressId}). Check ${check} and do not rerun it.`);
       if (TERMINAL.has(status)) break;
     }
-    if (Date.now() > deadline) throw new Error(`The rollback of ${number} is still ${status} after ${timeoutMs / 1000}s (progress ${progressId}). It carries on in the background: check ${check} and do not rerun it.`);
+    if (Date.now() > deadline) throw unsure(`The rollback of ${number} is still ${status} after ${timeoutMs / 1000}s (progress ${progressId}). It carries on in the background: check ${check} and do not rerun it.`);
   }
   const after = await readContext(sdk, contextId).catch(error => { throw lost(error); });
-  if (status !== 'successful' || raw(after.state) !== 'rolled_back') throw new Error(`The rollback of ${number} ended ${status}${message ? ` (${message})` : ''} and the context reads ${display(after.state) || 'nothing'}, not Rolled back. Check ${check}.`);
+  if (status !== 'successful' || raw(after.state) !== 'rolled_back') throw unsure(`The rollback of ${number} ended ${status}${message ? ` (${message})` : ''} and the context reads ${display(after.state) || 'nothing'}, not Rolled back. Check ${check}.`);
   return { ...plan, rollback_context: { ...plan.rollback_context, state: 'rolled_back' }, progress_id: progressId, rolled_back: true };
 }
