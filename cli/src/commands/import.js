@@ -4,6 +4,7 @@ import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoad, activeTransformMaps, readImportSet, checkTransformable,
   transformImportSet, transformResult } from '../import-sets.js';
+import { detailCount } from './_detail-count.js';
 
 export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', ['imports', 'imp'],
   ['name', 'sys_target_table', 'state', 'sys_created_on'], wrap, {
@@ -20,13 +21,11 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
       const sysID = getStringField(record, 'sys_id') || '';
       if (!sysID) return;
       try {
-        const rp = new URLSearchParams();
-        rp.set('sysparm_query', `sys_import_set=${sysID}`);
-        rp.set('sysparm_limit', '0'); rp.set('sysparm_fields', 'sys_id');
-        const rows = await app.sdk.list('sys_import_set_row', rp);
-        console.log(`  Import rows: ${rows.length}`);
+        const count = await detailCount(app.sdk, 'sys_import_set_row', `sys_import_set=${sysID}`);
+        console.log(`  Import rows: ${count}`);
         console.log(`    → jsn records list --table sys_import_set_row --query "sys_import_set=${sysID}" --limit 200`);
-      } catch {
+      } catch (error) {
+        if (error.code === 'invalid_aggregate_count') throw error;
         console.log(`  Import rows: (unavailable)`);
       }
     },
