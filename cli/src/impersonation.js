@@ -27,7 +27,7 @@ export function impersonationRefusal(argv, caps = collectCapabilities()) {
   if (cap.noInstance) return 'it manages local state rather than reading the instance';
   // Writes the context guard cannot place on an ordinary table count as customization, captured in that user's update set.
   if (needsMutationContext(argv) && cap.mutationContext !== 'table') return 'it may write customization, which would be captured in that user\'s update set';
-  if (cap.noImpersonateSubcommands?.some(sub => sub === '' || sub === argv._?.[1])) return 'it would not run as that user: it reads through another profile or keeps running after the command returns';
+  if (cap.noImpersonateSubcommands?.some(sub => sub === '' || sub === argv._?.[1])) return 'it would not run as that user: it reads through another profile, keeps running after the command returns, or impersonates a user itself';
   return null;
 }
 

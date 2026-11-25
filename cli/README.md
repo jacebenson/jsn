@@ -83,14 +83,16 @@ and `next_offset` from one-row lookahead, not a total count. `show` preserves
 per-operation execution IDs; these are not shared run IDs and do not imply
 that outcomes belong to the request's last run. `explain` orders checks by log sequence then sys_id.
 
-`check` evaluates access live and saves nothing. It runs the Access Analyzer's
-own evaluation as a background script (`--operations`, default `read,write,delete`),
+`check` evaluates access live and saves no analysis. It runs the Access Analyzer's
+own evaluation as a background script without a rollback context (`--operations`,
+default `read,write,delete`),
 lists the active before-query business rules on the table, its parents and
 `global` (the `b4rules` filter), and reads the record as `--user` through
-`--impersonate`'s session. When ACLs allow the read but the read as the user
-returns nothing, it says a listed rule is the likely cause. It needs a profile
-that can run background scripts and impersonate, and each run leaves an
-impersonation entry in the instance's logs.
+`--impersonate`'s session. "Blocked by ACL" comes from the analyzer's ACL result
+alone, since its overall decision also counts query rules. When ACLs allow the
+read but the read as the user returns nothing, it says a listed rule is the
+likely cause. It needs a basic or OAuth profile that can run background scripts
+and impersonate, and each run leaves an impersonation entry in the instance's logs.
 Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.

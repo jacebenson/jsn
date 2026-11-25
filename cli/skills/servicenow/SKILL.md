@@ -36,6 +36,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Copy records between instances | `jsn records export`, then `jsn records import <file>` |
 | Load an import set | `jsn import load <table> --file rows.json\|csv` |
 | What a user can see | `--impersonate <user_name>` on a read |
+| Why a user cannot reach one record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
 | Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
 
 Every write in that table previews without `--yes`, and `--yes` on a delete needs

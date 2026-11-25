@@ -2,7 +2,7 @@
 // them? Three sources: the Access Analyzer's live ACL evaluation (a background script that saves
 // nothing), the active before-query business rules on the table and its parents (the b4rules
 // filter), and a read of the record as that user. Nothing missing or malformed reads as allowed.
-import { AppError, CodeAPI, errNotFound, errNotFoundHint, errUsage } from './errors.js';
+import { AppError, CodeAPI, errNotFound, errNotFoundHint, errUsage, errUsageHint } from './errors.js';
 import { findUser } from './impersonation.js';
 import { isSysId } from './resolve-record.js';
 
@@ -35,16 +35,17 @@ function evaluationScript(userSysId, { table, record, operations }) {
       targetResource: 'record', targetName: '${table}', targetRecord: '${record}', targetOperations: ${JSON.stringify(operations)}, shouldPersistResult: false }));
     out.error = r.error; out.errorMessage = r.errorMessage; out.ops = {};
     for (var op in r.securityDebug) {
-      var d = r.securityDebug[op], rules = [], acls = [];
+      var d = r.securityDebug[op], results = [], rules = [], acls = [];
       (d.debugLogs || []).forEach(function (l) {
         if (l.logType == 'BusinessRuleInfo') rules.push(String(l.sysId));
+        if (l.logType == 'SecurityRulesInfo') results.push(String(l.returnCodeDisplayValue));
         if (l.logType == 'SecurityRulesInfo') (l.acls || []).forEach(function (a) {
           acls.push({ sys_id: a.sysId, path: a.path, decision_type: a.aclDecisionType, roles: a.roles, checks: { applies_to: a.appliesToConditionResult,
             roles: a.rolesResult, condition: a.conditionResult, script: a.scriptResult, security_attribute: a.securityAttributeResult,
             reference: a.controlledByReference && a.controlledByReference.evalResult } });
         });
       });
-      out.ops[op] = { status: d.status, rules: rules, acls: acls };
+      out.ops[op] = { status: d.status, results: results, rules: rules, acls: acls };
     }
   }
   gs.print('${MARK}' + JSON.stringify(out));
@@ -52,17 +53,20 @@ function evaluationScript(userSysId, { table, record, operations }) {
 }
 
 function aclResult(checks) {
+  if (checks.applies_to === 'FALSE') return { result: 'not_applicable', failed_checks: [] };
   const failed = Object.keys(checks).filter(key => checks[key] === 'FALSE');
   if (failed.length) return { result: 'failed', failed_checks: failed };
   return { result: Object.values(checks).includes('TRUE') ? 'passed' : 'not_evaluated', failed_checks: [] };
 }
 
-function verdict(name, operations, visible, rules) {
-  const read = operations.find(op => op.operation === 'read');
-  if (!read) return visible ? `A read as ${name} returns this record.` : `A read as ${name} does not return this record.`;
-  if (read.allowed && visible) return `${name} can read this record.`;
-  if (!read.allowed && !visible) return `ACLs block ${name} from reading this record.`;
-  if (!read.allowed) return `The ACL evaluation blocks ${name} from reading this record, yet a read as ${name} returned it.`;
+// The analyzer's overall status also counts query rules, so ACL claims rest on its ACL result alone.
+function verdict(name, operations, read, rules) {
+  const acl = operations.find(op => op.operation === 'read');
+  if (!acl) return { returned: `A read as ${name} returns this record.`, not_returned: `A read as ${name} does not return this record.`, refused: `The instance refused a read as ${name}.` }[read];
+  if (acl.acl_blocked) return read === 'returned' ? `ACLs block ${name} from reading this record, yet a read as ${name} returned it.` : `ACLs block ${name} from reading this record.`;
+  if (read === 'returned') return `${name} can read this record.`;
+  // A query rule filters rows and never refuses, so a refusal points elsewhere.
+  if (read === 'refused') return `ACLs allow ${name} to read this record, but the instance refused a read as ${name}.`;
   return rules.length
     ? `ACLs allow ${name} to read this record, but a read as ${name} does not return it; a before-query rule listed is the likely cause.`
     : `ACLs allow ${name} to read this record, but a read as ${name} does not return it, and no active before-query rule is on these tables.`;
@@ -72,9 +76,10 @@ function verdict(name, operations, visible, rules) {
 export async function checkAccess(sdk, input, { asUser }) {
   const options = parseCheckOptions(input);
   const { table, record } = options;
+  if ((await sdk.authProvider?.getCredentials())?.auth_method === 'gck') throw errUsageHint('access-analyzer check cannot use a browser-session profile: it reads as --user on a UI session of its own.', 'Use a basic or OAuth profile: jsn --profile <name> access-analyzer check ...');
   const user = await findUser(sdk, `${isSysId(options.user) ? 'sys_id' : 'user_name'}=${options.user}`, options.user);
 
-  const output = await sdk.executeScript(evaluationScript(user.sys_id, options), 'global');
+  const output = await sdk.executeScript(evaluationScript(user.sys_id, options), 'global', { rollback: false });
   const line = String(output).match(/JSN_ACCESS_CHECK:(\{[^\r\n]*\})/);
   if (!line) throw malformed();
   let out;
@@ -87,8 +92,9 @@ export async function checkAccess(sdk, input, { asUser }) {
   const operations = options.operations.map(op => {
     const d = out.ops?.[op];
     if (!d || typeof d.status !== 'boolean' || !Array.isArray(d.acls) || !Array.isArray(d.rules)) throw malformed();
+    if (!Array.isArray(d.results) || !d.results.length || d.results.some(result => result !== 'passed' && result !== 'blocked')) throw malformed();
     if (d.acls.some(acl => !acl || !isSysId(acl.sys_id) || !acl.checks || typeof acl.checks !== 'object')) throw malformed();
-    return { operation: op, allowed: d.status, acls: d.acls.map(acl => ({ ...acl, ...aclResult(acl.checks) })) };
+    return { operation: op, allowed: d.status, acl_blocked: d.results.includes('blocked'), acls: d.acls.map(acl => ({ ...acl, ...aclResult(acl.checks) })) };
   });
 
   // A query rule on global runs for every table.
@@ -101,23 +107,22 @@ export async function checkAccess(sdk, input, { asUser }) {
   const rules = ruleRows.slice(0, RULE_LIMIT).map(row => ({ ...row, ran_in_evaluation: ran.has(row.sys_id) }));
 
   const rows = await asUser(user.sys_id, as => as.listStrict(table, new URLSearchParams({ sysparm_query: `sys_id=${record}`, sysparm_fields: 'sys_id', sysparm_limit: '1', sysparm_display_value: 'false' }))
-    // A refused read is the answer: the record is not visible to them.
-    .catch(error => { if (error?.status === 403) return []; throw error; }));
-  if (!Array.isArray(rows) || (rows.length && rows[0]?.sys_id !== record)) throw malformed();
-  const visible = rows.length === 1;
+    .catch(error => { if (error?.status === 403) return null; throw error; }));
+  if (rows !== null && (!Array.isArray(rows) || (rows.length && rows[0]?.sys_id !== record))) throw malformed();
+  const read = rows === null ? 'refused' : rows.length ? 'returned' : 'not_returned';
 
   return {
     user, table, record, tables: out.tables, operations,
     before_query_rules: rules, before_query_rules_more: ruleRows.length > RULE_LIMIT,
-    visible_as_user: visible,
-    verdict: verdict(user.user_name, operations, visible, rules),
+    read_as_user: read,
+    verdict: verdict(user.user_name, operations, read, rules),
   };
 }
 
 export function formatAccessCheck(data) {
-  const lines = [`Live access check for ${data.user.user_name} on ${data.table} ${data.record} (nothing saved)`];
+  const lines = [`Live access check for ${data.user.user_name} on ${data.table} ${data.record} (no analysis saved)`];
   for (const op of data.operations) {
-    lines.push(`${op.operation}: ${op.allowed ? 'allowed' : 'blocked'} by ACL`);
+    lines.push(`${op.operation}: ${op.acl_blocked ? 'blocked by ACL' : op.allowed ? 'allowed' : 'denied by the analyzer, though no ACL blocks it'}`);
     for (const acl of op.acls) {
       const roles = Array.isArray(acl.roles) && acl.roles.length ? `, roles ${acl.roles.join(', ')}` : '';
       const result = acl.result === 'failed' ? `failed on ${acl.failed_checks.join(', ')}` : acl.result.replace('_', ' ');
@@ -127,7 +132,7 @@ export function formatAccessCheck(data) {
   lines.push(`Active before-query rules on ${[...data.tables, 'global'].join(', ')}: ${data.before_query_rules.length ? '' : 'none'}`.trimEnd());
   for (const rule of data.before_query_rules) lines.push(`  ${rule.name} (${rule.collection}, order ${rule.order})${rule.ran_in_evaluation ? ', ran during the evaluation' : ''} [${rule.sys_id}]`);
   if (data.before_query_rules_more) lines.push(`  More than ${RULE_LIMIT}; see jsn b4rules list.`);
-  lines.push(`Read as ${data.user.user_name}: the record was ${data.visible_as_user ? '' : 'not '}returned`);
+  lines.push(`Read as ${data.user.user_name}: ${{ returned: 'the record was returned', not_returned: 'the record was not returned', refused: 'refused (HTTP 403)' }[data.read_as_user]}`);
   lines.push(data.verdict);
   return lines.join('\n');
 }

@@ -19,10 +19,12 @@ const acls = allowed => [
   { sys_id: id(40), path: 'record/incident/read', decision_type: 'DENY_UNLESS', roles: [], checks: checks('TRUE') },
   { sys_id: id(41), path: 'record/incident/read', decision_type: 'ALLOW_IF', roles: ['itil'], checks: allowed ? checks('TRUE') : checks('NOT_EVALUATED', { applies_to: 'TRUE', roles: 'FALSE' }) },
   { sys_id: id(42), path: 'record/incident/read', decision_type: 'ALLOW_IF', roles: [], checks: checks('NOT_EVALUATED') },
+  { sys_id: id(43), path: 'record/incident/read', decision_type: 'ALLOW_IF', roles: ['admin'], checks: checks('NOT_EVALUATED', { applies_to: 'FALSE' }) },
 ];
-const evaluation = ({ allowed = true, ops = ['read', 'write', 'delete'], ...rest } = {}) => ({
+// status is the analyzer's overall decision; results are its ACL verdicts, one SecurityRulesInfo entry each.
+const evaluation = ({ allowed = true, blocked = !allowed, ops = ['read', 'write', 'delete'], ...rest } = {}) => ({
   tables: ['incident', 'task'], error: 0, errorMessage: '',
-  ops: Object.fromEntries(ops.map(op => [op, { status: allowed, rules: [RULE], acls: acls(allowed) }])), ...rest,
+  ops: Object.fromEntries(ops.map(op => [op, { status: allowed, results: [blocked ? 'blocked' : 'passed'], rules: [RULE], acls: acls(!blocked) }])), ...rest,
 });
 const printed = body => `*** Script: JSN_ACCESS_CHECK:${typeof body === 'string' ? body : JSON.stringify(body)}`;
 
@@ -33,8 +35,8 @@ function fixture({ output = printed(evaluation()), users = [{ sys_id: USER, user
       calls.push({ table, params });
       return table === 'sys_user' ? users : rules;
     },
-    async executeScript(script, scope) {
-      calls.push({ script, scope });
+    async executeScript(script, scope, opts) {
+      calls.push({ script, scope, opts });
       return output;
     },
   };
@@ -50,7 +52,8 @@ test('evaluates live, lists before-query rules on the table and its parents, the
   assert.equal(f.calls[0].table, 'sys_user');
   assert.equal(f.calls[0].params.sysparm_query, 'user_name=abel.tuter');
   assert.equal(f.calls[1].scope, 'global');
-  for (const part of [`new GlideRecord('incident')`, `gr.get('${RECORD}')`, `entitySysId: '${USER}'`, `targetRecord: '${RECORD}'`, 'targetOperations: ["read","write","delete"]', 'shouldPersistResult: false']) assert.ok(f.calls[1].script.includes(part), part);
+  assert.equal(f.calls[1].opts.rollback, false, 'no rollback context is recorded');
+  for (const part of [`new GlideRecord('incident')`, `gr.get('${RECORD}')`, `entitySysId: '${USER}'`, `targetRecord: '${RECORD}'`, 'targetOperations: ["read","write","delete"]', 'shouldPersistResult: false', 'results.push(String(l.returnCodeDisplayValue))']) assert.ok(f.calls[1].script.includes(part), part);
   assert.equal(f.calls[2].table, 'sys_script');
   assert.equal(f.calls[2].params.get('sysparm_query'), 'when=before^action_query=true^active=true^collectionINincident,task,global^ORDERBYorder^ORDERBYname');
   assert.equal(f.calls[2].params.get('sysparm_limit'), '51');
@@ -61,7 +64,8 @@ test('evaluates live, lists before-query rules on the table and its parents, the
   assert.deepEqual(data.operations.map(op => [op.operation, op.allowed]), [['read', true], ['write', true], ['delete', true]]);
   assert.deepEqual(data.before_query_rules[0], { sys_id: RULE, name: 'incident query', collection: 'incident', order: '100', condition: '', ran_in_evaluation: true });
   const human = formatAccessCheck(data);
-  assert.match(human, /read: allowed by ACL/);
+  assert.equal(data.read_as_user, 'returned');
+  assert.match(human, /read: allowed\n/);
   assert.match(human, /incident query \(incident, order 100\), ran during the evaluation/);
   assert.match(human, /Read as abel\.tuter: the record was returned/);
 });
@@ -70,8 +74,9 @@ test('a blocked read names the ACL that failed and the check it failed on', asyn
   const f = fixture({ output: printed(evaluation({ allowed: false })), read: [] });
   const data = await checkAccess(f.sdk, input(), f);
   assert.equal(data.verdict, 'ACLs block abel.tuter from reading this record.');
-  assert.deepEqual(data.operations[0].acls.map(acl => [acl.result, acl.failed_checks]), [['passed', []], ['failed', ['roles']], ['not_evaluated', []]]);
+  assert.deepEqual(data.operations[0].acls.map(acl => [acl.result, acl.failed_checks]), [['passed', []], ['failed', ['roles']], ['not_evaluated', []], ['not_applicable', []]]);
   assert.match(formatAccessCheck(data), new RegExp(`ALLOW_IF record/incident/read, roles itil: failed on roles \\[${id(41)}\\]`));
+  assert.match(formatAccessCheck(data), new RegExp(`ALLOW_IF record/incident/read, roles admin: not applicable \\[${id(43)}\\]`));
 });
 
 test('ACLs that allow a read the user cannot make point at the before-query rules', async () => {
@@ -79,10 +84,21 @@ test('ACLs that allow a read the user cannot make point at the before-query rule
   assert.match(hidden.verdict, /ACLs allow abel\.tuter to read this record, but a read as abel\.tuter does not return it; a before-query rule listed is the likely cause\./);
   const none = fixture({ read: [], rules: [] });
   assert.match((await checkAccess(none.sdk, input(), none)).verdict, /no active before-query rule is on these tables/);
-  const refused = fixture({ read: Object.assign(new Error('Access forbidden (HTTP 403).'), { status: 403 }) });
-  assert.equal((await checkAccess(refused.sdk, input(), refused)).visible_as_user, false, 'a refused read means not visible');
+  // The analyzer's overall decision counts query rules; with every ACL passing it is no ACL block.
+  const denied = fixture({ output: printed(evaluation({ allowed: false, blocked: false })), read: [] });
+  const byRule = await checkAccess(denied.sdk, input(), denied);
+  assert.match(byRule.verdict, /^ACLs allow abel\.tuter to read this record, but .* a before-query rule listed is the likely cause\.$/);
+  assert.match(formatAccessCheck(byRule), /read: denied by the analyzer, though no ACL blocks it[\s\S]*incident query \(incident, order 100\), ran during the evaluation/);
+  const forbidden = () => Object.assign(new Error('Access forbidden (HTTP 403).'), { status: 403 });
+  const refused = fixture({ read: forbidden() });
+  const refusedData = await checkAccess(refused.sdk, input(), refused);
+  assert.equal(refusedData.read_as_user, 'refused');
+  assert.equal(refusedData.verdict, 'ACLs allow abel.tuter to read this record, but the instance refused a read as abel.tuter.', 'a refusal is not blamed on a query rule');
+  assert.match(formatAccessCheck(refusedData), /Read as abel\.tuter: refused \(HTTP 403\)/);
+  const refusedBlocked = fixture({ output: printed(evaluation({ allowed: false })), read: forbidden() });
+  assert.equal((await checkAccess(refusedBlocked.sdk, input(), refusedBlocked)).verdict, 'ACLs block abel.tuter from reading this record.');
   const contradicted = fixture({ output: printed(evaluation({ allowed: false })) });
-  assert.match((await checkAccess(contradicted.sdk, input(), contradicted)).verdict, /blocks abel\.tuter .* yet a read as abel\.tuter returned it/);
+  assert.equal((await checkAccess(contradicted.sdk, input(), contradicted)).verdict, 'ACLs block abel.tuter from reading this record, yet a read as abel.tuter returned it.');
   const write = fixture({ output: printed(evaluation({ ops: ['write'] })), read: [] });
   const data = await checkAccess(write.sdk, input({ operations: 'write' }), write);
   assert.ok(write.calls[1].script.includes('targetOperations: ["write"]'));
@@ -95,6 +111,10 @@ test('every invalid input rejects before any request', async () => {
     await assert.rejects(checkAccess(f.sdk, input(bad), f), { code: 'usage_error' }, JSON.stringify(bad));
   }
   assert.equal(f.calls.length + f.reads.length, 0);
+  const browser = fixture();
+  browser.sdk.authProvider = { getCredentials: async () => ({ auth_method: 'gck' }) };
+  await assert.rejects(checkAccess(browser.sdk, input(), browser), { code: 'usage_error', message: /browser-session profile/ });
+  assert.equal(browser.calls.length + browser.reads.length, 0, 'a browser-session profile is refused before any request');
 });
 
 test('a missing, refused or malformed answer is never reported as allowed', async () => {
@@ -108,8 +128,10 @@ test('a missing, refused or malformed answer is never reported as allowed', asyn
     [{ output: printed({ missing: 'analyzer' }) }, /Access Analyzer API not found/],
     [{ output: printed(evaluation({ error: 1, errorMessage: 'Invalid target' })) }, /could not evaluate access: Invalid target/],
     [{ output: printed(evaluation({ ops: ['read', 'write'] })) }, /no readable result/],
-    [{ output: printed({ ...evaluation(), ops: { read: { status: 'true', rules: [], acls: [] }, write: { status: true, rules: [], acls: [] }, delete: { status: true, rules: [], acls: [] } } }) }, /no readable result/],
-    [{ output: printed({ ...evaluation(), ops: { ...evaluation().ops, read: { status: true, rules: [], acls: [{ sys_id: 'x', checks: {} }] } } }) }, /no readable result/],
+    [{ output: printed({ ...evaluation(), ops: { ...evaluation().ops, read: { status: 'true', results: ['passed'], rules: [], acls: [] } } }) }, /no readable result/],
+    [{ output: printed({ ...evaluation(), ops: { ...evaluation().ops, read: { status: true, results: ['passed'], rules: [], acls: [{ sys_id: 'x', checks: {} }] } } }) }, /no readable result/],
+    [{ output: printed({ ...evaluation(), ops: { ...evaluation().ops, read: { status: true, results: [], rules: [], acls: [] } } }) }, /no readable result/],
+    [{ output: printed({ ...evaluation(), ops: { ...evaluation().ops, read: { status: true, results: ['unknown'], rules: [], acls: [] } } }) }, /no readable result/],
     [{ output: printed(evaluation({ tables: ['incident^ORsys_id!=x'] })) }, /no readable result/],
     [{ rules: [{ sys_id: 'not-a-sys-id' }] }, /no readable result/],
   ];
@@ -165,7 +187,7 @@ test('real CLI checks on a read-only profile through the impersonated session, a
     const envelope = JSON.parse((await run([...check, '--json'])).stdout);
     assert.equal(envelope.ok, true);
     assert.equal(envelope.data.verdict, 'ACLs block abel.tuter from reading this record.');
-    assert.equal(envelope.data.visible_as_user, false);
+    assert.equal(envelope.data.read_as_user, 'not_returned');
     const read = calls.filter(call => call.pathname === '/api/now/table/incident');
     assert.equal(read.length, 1);
     assert.equal(read[0].as, 'abel.tuter', 'the record is read as the user');
