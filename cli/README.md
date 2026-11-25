@@ -100,6 +100,21 @@ with a body replaces the notification's own `message_html`; an empty template
 body leaves it in play. Mail script names come from the body in use. A template
 that cannot be read is reported `unavailable`, never as the notification's own
 body, and plain-text notifications are `unsupported`.
+## Find a REST API
+
+```sh
+jsn scrapi search attachment upload --method POST
+jsn scrapi search change --namespace sn_chg_rest --json
+jsn scrapi spec "Table API" > table-api.json
+jsn scrapi spec "Attachment API" --yaml > attachment-api.yaml
+```
+
+`search` reads the catalogue the instance's REST API Explorer uses, out-of-the-box and scripted
+APIs alike; every word must appear, in any case, in the API name, route or descriptions. Each row's
+`route` is the path `jsn rest` takes. `--namespace` reads only that namespace, and an unknown one
+is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as the instance gives
+it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
+and their namespaces. Both are reads and work on read-only profiles.
 
 ## Choose output
 

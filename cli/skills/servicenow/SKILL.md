@@ -37,6 +37,9 @@ names the table they come from when they are inherited from a parent.
   refuses an input the table does not have, a missing mandatory input and a
   choice label where the value belongs, which the evaluator would otherwise
   answer with its default decision.
+- Finding a REST endpoint is `jsn scrapi search <words>`, which lists every API on
+  the instance, out of the box and scripted, with its method and route; then
+  `jsn scrapi spec "<API name>"` prints its OpenAPI document.
 
 For development:
 
