@@ -29,7 +29,7 @@ export function newestFamily(families) {
   return newest;
 }
 
-// shortcut: a timeout or network failure is not kept, so an unreachable instance is asked again
+// shortcut: a timeout or lost connection is not kept, so an unreachable instance is asked again
 // on the next search (each try bounded by 5 s); keep those too if that proves slow.
 async function daily(key, now, load) {
   const file = path.join(cacheDir(), 'docs-release-v1.json');
@@ -63,7 +63,8 @@ async function instanceFamily(app, now) {
     // No auth recovery, no prompt (sign-in or MFA code), and 5 s for each step including a login.
     const sdk = Object.assign(app.getSDKForProfile(instance, { username, authMethod: profile?.auth_method, profile }), { canInteract: () => false, timeout: 5000 });
     const rows = await sdk.listStrict('sys_properties', { sysparm_query: 'name=glide.war', sysparm_fields: 'value', sysparm_limit: '1' })
-      .catch(error => error?.code === CodeNetwork ? null : []);
+      // fetch reports a refused, unresolved or redirected connection as a bare TypeError.
+      .catch(error => error?.code === CodeNetwork || error instanceof TypeError ? null : []);
     // '' keeps an answer with no family (refused, empty or unrecognised) for the day.
     return rows && (familyFromWar(rows[0]?.value) ?? '');
   });

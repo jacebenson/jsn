@@ -89,7 +89,7 @@ test('a family the docs lack, or list before publishing, falls back to the newes
   assert.deepEqual(await chooseDocsRelease({}, f.app), { release: 'australia', source: 'fallback', note: 'the instance runs brazil; newest available' });
 });
 
-test('no profile, or a refused or unreadable glide.war, falls back to the newest family; only a timeout is asked again', async t => {
+test('no profile, or a refused or unreadable glide.war, falls back to the newest family; only a timeout or lost connection is asked again', async t => {
   const none = fixture(t, { releases: ['zurich', 'australia', 'brazil'], instance: '' });
   assert.deepEqual(await chooseDocsRelease({}, none.app), { release: 'brazil', source: 'fallback', note: 'no instance profile; newest available' });
   assert.equal(none.reads.length, 0);
@@ -99,10 +99,12 @@ test('no profile, or a refused or unreadable glide.war, falls back to the newest
     await chooseDocsRelease({}, f.app);
     assert.equal(f.reads.length, 1, 'an answer with no family is kept for the day');
   }
-  const offline = fixture(t, { war: Object.assign(new Error('Network error: Request timed out'), { code: 'network_error' }) });
-  assert.equal((await chooseDocsRelease({}, offline.app)).note, "could not read the instance's release; newest available");
-  await chooseDocsRelease({}, offline.app);
-  assert.equal(offline.reads.length, 2, 'a timeout is asked again on the next search');
+  for (const war of [Object.assign(new Error('Network error: Request timed out'), { code: 'network_error' }), new TypeError('fetch failed')]) {
+    const offline = fixture(t, { war });
+    assert.equal((await chooseDocsRelease({}, offline.app)).note, "could not read the instance's release; newest available");
+    await chooseDocsRelease({}, offline.app);
+    assert.equal(offline.reads.length, 2, `${war.message} is asked again on the next search`);
+  }
 });
 
 test('an unreachable or malformed families list falls back to australia, and is not cached', async t => {

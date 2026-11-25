@@ -119,7 +119,7 @@ export function docsCmd(wrapHandler) {
       const service = await documentationService(app.config, resolveDocsRelease(argv.release, app.config));
       const summary = 'Search ServiceNow documentation';
       app.ok({ command: 'docs', service,
-        _formatted: `jsn docs "search terms"\njsn docs --path <exact-path>\n\nService: ${service}\nChange documentation preferences in jsn setup → Defaults and documentation.\nNo ServiceNow connection is needed; with a profile selected and no release named, the instance's release is used. Hosted mode downloads no database.\n`,
+        _formatted: `jsn docs "search terms"\njsn docs --path <exact-path>\n\nService: ${service}\nChange documentation preferences in jsn setup → Defaults and documentation.\nNo ServiceNow connection is needed; with a profile selected and no release named, the instance's release is used when the documentation has it. Hosted mode downloads no database.\n`,
       }, { summary });
     }),
   };
