@@ -7,6 +7,12 @@ import { execFileSync } from 'node:child_process';
 import { prepareLinuxRemoteMidServer } from '../src/midserver-linux-remote.js';
 import { prepareWindowsRemoteMidServer } from '../src/midserver-windows-remote.js';
 
+test('Windows controllers refuse remote provisioning before transport or metadata writes', { skip: process.platform !== 'win32' }, t => {
+  const f = fixture(t);
+  assert.throws(() => prepareWindowsRemoteMidServer({ ...f, dryRun: true, run: () => assert.fail('unsupported controller must not contact target') }), /POSIX controller is required/);
+  assert.equal(fs.existsSync(path.dirname(f.directory)), false);
+});
+
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-remote-preflight-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -33,7 +39,9 @@ test('Linux target default and overrides are resolved and validated by read-only
   assert.throws(() => prepareLinuxRemoteMidServer({ ...f, run: () => assert.fail('invalid override must reject before transport'), remoteDirectory: 'relative', dryRun: true }), /absolute/);
   assert.equal(fs.existsSync(path.dirname(f.directory)), false);
 });
-test('Windows preflight validates target paths and parent ACLs, carries overrides on stdin and writes no controller metadata', t => {
+// Remote Windows provisioning requires a POSIX controller for private metadata.
+// The target platform is Windows; that does not make Windows a supported controller.
+test('Windows preflight validates target paths and parent ACLs, carries overrides on stdin and writes no controller metadata', { skip: process.platform === 'win32' }, t => {
   const f = fixture(t), remoteDirectory = 'C:\\Users\\fixture\\MID';
   let calls = 0;
   const run = (_command, _args, options) => {
