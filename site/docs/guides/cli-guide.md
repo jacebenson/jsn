@@ -280,6 +280,7 @@ jsn workflows list --table incident             # Legacy Workflow Editor, read-o
 jsn workflows show "Incident approval"          # Versions, activities, transitions, conditions, scripts
 jsn rules list --query "collection=incident"
 jsn tables audit incident --field work_notes   # Audited or not, and why (read-only)
+jsn tables audit x_case --exclude priority     # Preview; --yes writes no_audit and re-reads the status
 jsn updatesets set "My Feature"
 
 # Generic table access

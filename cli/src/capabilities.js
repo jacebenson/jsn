@@ -8,6 +8,9 @@
 //     // Subcommand verbs that mutate instance state. The mutation guard
 //     // (src/mutations.js) derives its command-path list from these.
 //     mutationSubcommands: ['create', 'update', 'delete'],
+//     // Options that turn a read subcommand into a mutation when given,
+//     // keyed by subcommand (`tables audit --off`).
+//     mutationOptions: { audit: ['on', 'off'] },
 //     // Omitted means conservative customization; operational skips capture
 //     // requirements, table follows sys_db_object ancestry to sys_metadata.
 //     mutationContext: 'table', table: 'sys_script',
@@ -142,6 +145,11 @@ export function mutationPaths(caps = collectCapabilities()) {
 /** Test hook: clear the registry between isolated buildCLI() runs. */
 export function _resetCapabilities() {
   REGISTRY.clear();
+}
+
+/** A read subcommand given one of its declared mutation options is a mutation. */
+export function hasMutationOption(argv, caps = collectCapabilities()) {
+  return caps.get(argv._?.[0])?.mutationOptions?.[argv._?.[1]]?.some(option => argv[option] !== undefined && argv[option] !== false) === true;
 }
 
 /** Declared local-only previews bypass instance access, including context headers. */

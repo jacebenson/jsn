@@ -810,6 +810,18 @@ their own rows for inherited columns: on dev485581 the `cmdb_ci_linux_server`
 chain has 552 rows, and 113 of its elements are defined on more than one table
 in the chain. See [Table audit status](domain-model.md#table-audit-status).
 
+### Options can make a read subcommand a mutation (2026-11-25)
+
+`tables audit` reads by default, and `--on`, `--off`, `--exclude`, `--include`
+and `--deletes` change auditing. A capability may declare
+`mutationOptions: { <subcommand>: [<option>, ...] }`, and `isMutationCommand`
+treats the subcommand as a mutation when any of those options is given, so the
+read-only profile, the mutation guard and capture context apply exactly as for a
+declared mutation subcommand, while the plain read stays a read. The flag form
+was chosen over a separate `tables audit-set` subcommand so the status and the
+switch share one command and one help page, as `isLocalPreview` already lets an
+option change a command's capability.
+
 ### One directory per owner at the repository root
 
 The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under

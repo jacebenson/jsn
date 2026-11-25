@@ -21,6 +21,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Turning table, field or delete auditing on or off is `jsn tables audit <table>
+  --on|--off|--exclude <field>|--include <field>|--deletes on|off`, not
+  `records update sys_dictionary` or `eval`. It previews without `--yes`.
 
 For development:
 

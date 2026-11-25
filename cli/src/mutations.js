@@ -8,7 +8,7 @@
 // create` (read-only bypass), and listed `restmethods`, a command that was
 // never registered. Derived data can't drift that way.
 
-import { mutationPaths, isLocalPreview } from './capabilities.js';
+import { mutationPaths, isLocalPreview, hasMutationOption } from './capabilities.js';
 
 /**
  * Back-compat export: the derived mutation path list, refreshed by
@@ -33,7 +33,8 @@ function currentPaths(paths) {
  * Prefix match: a command whose argv._ path begins with a mutation pattern
  * IS that mutation (trailing positionals like a sys_id or file path don't
  * change the intent). This lets positional mutation subcommands (e.g.
- * `attachments upload <file>`) be gated on read-only profiles.
+ * `attachments upload <file>`) be gated on read-only profiles. A declared
+ * mutation option (`tables audit --off`) makes its subcommand a mutation.
  *
  * @param {object} argv — yargs parsed argv with `_` array
  * @param {Array<string[]>} [paths] — mutation path patterns; defaults to
@@ -43,6 +44,7 @@ function currentPaths(paths) {
  */
 export function isMutationCommand(argv, paths) {
   if (isLocalPreview(argv)) return false;
+  if (hasMutationOption(argv)) return true;
   const cmd = argv._ || [];
   for (const pattern of currentPaths(paths)) {
     if (pattern.length > cmd.length) continue;
