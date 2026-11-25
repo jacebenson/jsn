@@ -57,10 +57,19 @@ skips embeddings. `docs rollback` is not a registered maintenance operation.
 ## Families and exact document reads
 
 Use `jsn docs "GlideRecord" --release brazil --limit 5` to select a family.
-Resolution is `--release`, then the global `docs.release` preference, then
-`australia`. Names contain 1–40 lowercase letters, digits, or dashes. The
-service decides which families are available. Search, read, and status JSON
-include the selected release.
+Resolution is `--release`, then the global `docs.release` preference, then the
+active profile's instance family when the documentation has it, then the newest
+family the documentation has. The instance family comes from its `glide.war`
+property, read without prompting, with a 5-second request timeout, and kept for
+a day per profile. A profile the instance refuses falls through for the day; a
+failed sign-in, missing credentials, a timeout or a lost connection is tried again on the next search. Families come round in letter order,
+so `australia` is newer than `zurich`. Names contain 1–40 lowercase letters,
+digits, or dashes. The service decides which families are available
+(`/api/docs/releases`, counting only families with a published revision, kept
+for a day); local documentation uses the installed
+families. Search, read, and status JSON include the selected release, and when
+neither option named it, `release_source` (`instance` or `fallback`) and
+`release_note`, which human output shows in brackets after the release.
 
 Copy an exact path from search into `jsn docs --path <exact-path>`.
 Numeric IDs can be pinned with `--revision <search-revision>` to reject a changed

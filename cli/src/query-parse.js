@@ -16,7 +16,7 @@ const CONNECTOR = /^(OR(?!DERBY)|NQ|EQ|AND)/;
 
 const raw = value => String(value && typeof value === 'object' ? value.value ?? '' : value ?? '');
 
-function levenshtein(a, b) {
+export function levenshtein(a, b) {
   const rows = Array.from({ length: a.length + 1 }, (_, i) => [i]);
   for (let j = 1; j <= b.length; j++) rows[0][j] = j;
   for (let i = 1; i <= a.length; i++) {

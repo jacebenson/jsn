@@ -174,13 +174,121 @@ describe('records watch subcommand', () => {
     assert.match(text, /unsubscribed \(max_events\)/, 'the stop reason is named');
   });
 
-  it('reports a usage error when neither --sys-id nor --identifier is given', async () => {
+  it('says when an update takes a record out of the query, and names withheld fields', async () => {
+    const server = await mockAmb({
+      onConnect: ({ json }) => json([
+        { channel: CHANNEL, id: 'evt-exit', data: { display_value: 'INC0010393', sys_id: SYS_ID, operation: 'update', action: 'exit', changes: ['priority'], record: { priority: { value: '4', display_value: '4 - Low' } } } },
+        { channel: CHANNEL, id: 'evt-stub', data: { metadata: { display_value: 'INC0010394', sys_id: SYS_ID, operation: 'update', action: 'change', changes: ['short_description'] }, record: { sys_id: SYS_ID, table: 'incident' } } },
+      ]),
+    });
+    const chunks = [];
+    globalThis.__watchInstanceUrl = server.baseUrl;
+    try {
+      const { watch } = await watchHandler();
+      await watch.handler(argvFor({ maxEvents: 2, state: 'never' }), fakeApp({ chunks, format: FormatStyled }));
+    } finally {
+      await server.close();
+    }
+    const text = chunks.join('');
+    assert.match(text, /INC0010393 updated \(no longer matches\) \u2014 priority: 4 - Low/);
+    assert.match(text, /INC0010394 updated \u2014 short_description\n/);
+    assert.doesNotMatch(text, /\? → \?/, 'no invented transitions');
+  });
+
+  it('reports a usage error when none of --sys-id, --identifier or --query is given', async () => {
     const { watch } = await watchHandler();
     await assert.rejects(
       watch.handler(argvFor({ 'sys-id': undefined }), fakeApp({ chunks: [] })),
-      /Supply exactly one of --sys-id or --identifier/,
+      /Supply exactly one of --sys-id, --identifier or --query/,
     );
   });
+
+  it('watches every record matching --query and reads each changed record by its own sys_id', async () => {
+    const query = 'priority=1^active=true';
+    const queryChannel = `/rw/default/incident/${Buffer.from(query).toString('base64').replace(/=/g, '-')}`;
+    const server = await mockAmb({
+      onConnect: ({ json }) => json([
+        { channel: queryChannel, id: 'evt-u', data: { sys_id: SYS_ID, display_value: 'INC0010001', operation: 'update' } },
+        { channel: queryChannel, id: 'evt-q', data: { sys_id: SYS_ID, display_value: 'INC0010001', operation: 'insert' } },
+      ]),
+    });
+    const chunks = [];
+    const reads = [];
+    globalThis.__watchInstanceUrl = server.baseUrl;
+    try {
+      const { watch } = await watchHandler();
+      const app = fakeApp({ chunks });
+      app.queryValidation = { table: 'incident', query, state: 'valid', diagnostics: [] };
+      const list = app.sdk.list;
+      app.sdk.list = async (table, params) => { reads.push(String(params?.get?.('sysparm_query'))); return list(table, params); };
+      // --timeout bounds the test if --operation were mis-mapped and dropped everything.
+      await watch.handler(argvFor({ 'sys-id': undefined, query, operation: 'insert', timeout: 5 }), app);
+    } finally {
+      await server.close();
+    }
+    const subscribe = server.calls.find(call => call.messages[0]?.channel === '/meta/subscribe');
+    assert.equal(subscribe.messages[0].subscription, queryChannel);
+    assert.deepEqual(reads, [`sys_id=${SYS_ID}`], 'no up-front record lookup; one state read for the changed record');
+    const lines = chunks.join('').split('\n').filter(Boolean).map(line => JSON.parse(line));
+    assert.equal(lines[0].query, query);
+    const changes = lines.filter(l => l.type === 'record_change');
+    assert.deepEqual(changes.map(e => e.event_id), ['evt-q'], '--operation insert drops the update');
+    assert.equal(changes[0].sys_id, SYS_ID);
+    assert.equal(changes[0].operation, 'created');
+    assert.equal(lines.at(-1).query, query);
+  });
+
+  it('reports a --query field it cannot verify before subscribing, then watches', async () => {
+    const query = 'prority=1';
+    const queryChannel = `/rw/default/incident/${Buffer.from(query).toString('base64').replace(/=/g, '-')}`;
+    const server = await mockAmb({
+      onConnect: ({ json }) => json([{ channel: queryChannel, id: 'evt-q', data: { sys_id: SYS_ID, display_value: 'INC0010001', operation: 'update' } }]),
+    });
+    const chunks = [];
+    globalThis.__watchInstanceUrl = server.baseUrl;
+    try {
+      const { watch } = await watchHandler();
+      const app = fakeApp({ chunks });
+      app.queryValidation = { table: 'incident', query, state: 'incomplete', limits: {}, diagnostics: [
+        { code: 'unknown_field', severity: 'warning', state: 'incomplete', term: query, field: 'prority', message: 'Field "prority" is not visible on incident; it may be ACL-hidden or unknown.' },
+      ] };
+      await watch.handler(argvFor({ 'sys-id': undefined, query, state: 'never', timeout: 5 }), app);
+    } finally {
+      await server.close();
+    }
+    const lines = chunks.join('').split('\n').filter(Boolean).map(line => JSON.parse(line));
+    assert.deepEqual(lines.map(l => l.type).slice(0, 2), ['query_validation', 'connecting']);
+    assert.equal(lines[0].state, 'incomplete');
+    assert.equal(lines[0].diagnostics[0].field, 'prority');
+    assert.match(lines[0].warnings[0], /Field "prority" is not visible on incident/);
+    assert.equal(lines.filter(l => l.type === 'record_change').length, 1);
+  });
+
+  for (const [label, overrides, pattern] of [
+    ['--query with --sys-id', { query: 'active=true' }, /cannot be combined/],
+    ['--query with --identifier', { 'sys-id': undefined, identifier: 'INC0010001', query: 'active=true' }, /cannot be combined/],
+    ['a blank --query', { 'sys-id': undefined, query: '  ' }, /--query needs an encoded query/],
+    ['a malformed --query', { 'sys-id': undefined, query: '=1' }, /Read refused/],
+    ['an empty --on-change', { 'on-change': ' , ' }, /--on-change needs at least one field/],
+  ]) {
+    it(`rejects ${label} before any lookup or AMB call`, async () => {
+      const { watch } = await watchHandler();
+      const app = fakeApp({ chunks: [] });
+      let reads = 0;
+      app.sdk.list = async () => { reads += 1; return []; };
+      app.sdk.ambSession = async () => { throw new Error('must not open AMB'); };
+      const originalFetch = globalThis.fetch;
+      let fetched = 0;
+      globalThis.fetch = async () => { fetched += 1; throw new Error('must not reach the network'); };
+      try {
+        await assert.rejects(watch.handler(argvFor(overrides), app), pattern);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+      assert.equal(reads, 0);
+      assert.equal(fetched, 0);
+    });
+  }
 
   it('turns an inaccessible record into an actionable not_found error before subscribing', async () => {
     const { watch } = await watchHandler();
@@ -230,6 +338,10 @@ describe('records watch CLI surface', () => {
     assert.match(help, /--no-reconnect/);
     assert.match(help, /newline-delimited JSON/i);
     assert.match(help, /does not replay missed events/);
+    assert.match(help, /--query/);
+    assert.match(help, /--operation .*\[string: insert, update, delete\]/);
+    assert.match(help, /--on-change/);
+    assert.doesNotMatch(help, /jsn auth login --browser/, 'basic and OAuth profiles also open the UI session AMB needs');
   });
 
   it('exits 2 with the identifier requirement for a missing record selector', () => {
@@ -240,6 +352,6 @@ describe('records watch CLI surface', () => {
     const envelope = JSON.parse(result.stdout);
     assert.equal(envelope.ok, false);
     assert.equal(envelope.code, 'usage_error');
-    assert.match(envelope.error, /Supply exactly one of --sys-id or --identifier/);
+    assert.match(envelope.error, /Supply exactly one of --sys-id, --identifier or --query/);
   });
 });

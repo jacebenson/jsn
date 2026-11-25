@@ -3,7 +3,7 @@ export const fieldBehaviorHelp = [
   'Investigate the observed symptom; there is no fixed priority order for every field problem.',
   'Query filtering: jsn b4rules list --query "collection=incident^active=true" --json',
   'Before-query rules use sys_script.when=before and the Boolean action_query=true.',
-  'Dictionary entry: jsn records list --table sys_dictionary --query "name=incident^element=caller_id" --json',
+  'Dictionary entry, found on a parent table when inherited, with its choices: jsn columns show incident.caller_id --json',
   'Inherited dictionary overrides: jsn records list --table sys_dictionary_override --query "name=incident^element=caller_id" --json',
   'Inspect base_table and inherited tables as needed; the dictionary entry is separate from its overrides.',
   'Access controls: jsn acls list --query "nameINincident,incident.*,incident.caller_id,*.caller_id,*,*.*" --json',

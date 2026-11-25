@@ -1,6 +1,8 @@
 import { buildProfileCommand } from '../record-profiles.js';
 import { getStringField } from '../helpers.js';
 import { withTableBehavior } from './table-behavior.js';
+import { describeNotification, deliverySummary } from '../notifications.js';
+import { withTableAudit } from './table-audit.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -76,7 +78,7 @@ export const uiActionsCmd = (wrap) => buildProfileCommand('uiactions', wrap);
 // this module's uiPoliciesCmd before uipoliciesCmd — so the factory version
 // was dead code shadowing nothing. Deleted; the re-export is the behavior.
 
-export const tablesCmd = (wrap) => withTableBehavior(buildProfileCommand('tables', wrap, {
+export const tablesCmd = (wrap) => withTableAudit(withTableBehavior(buildProfileCommand('tables', wrap, {
   async onShow(record, app) {
     const tableName = getStringField(record, 'name');
     const [count, extChain] = await Promise.all([
@@ -86,8 +88,11 @@ export const tablesCmd = (wrap) => withTableBehavior(buildProfileCommand('tables
     record._column_count = count;
     record._extension_info = { chain: extChain };
   },
-  extraSubcommands: [{ name: 'behavior', description: 'Read-only behavior inventory (dictionary, ACLs, rules, scripts, actions, policies, notifications, styles, views, flow triggers)' }],
-}), wrap);
+  extraSubcommands: [
+    { name: 'behavior', description: 'Read-only behavior inventory (dictionary, ACLs, rules, scripts, actions, policies, notifications, styles, views, flow triggers)' },
+    { name: 'audit', description: 'Read-only audit status (table, fields, inserts, deletes); reads are never audited' },
+  ],
+}), wrap), wrap);
 
 export { columnsCmd } from './columns.js';
 
@@ -127,6 +132,10 @@ export const assignmentsCmd = (wrap) => buildProfileCommand('assignments', wrap)
 export const emailCmd = (wrap) => buildProfileCommand('email', wrap);
 
 // ── Automation: Outbound ──
+export const notificationsCmd = (wrap) => buildProfileCommand('notifications', wrap, {
+  async onShow(record, app, argv) { record._delivery = await describeNotification(app.sdk, record, argv); },
+  showSummary: deliverySummary,
+});
 export { restmessageCmd } from './restmessage.js';
 export { soapmessagesCmd } from './soapmessages.js';
 

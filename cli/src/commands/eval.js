@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { runRepl } from '../eval-repl.js';
+import { guardExit, CodeUsage } from '../errors.js';
+import { previewRollback, runRollback } from '../eval-rollback.js';
 
 // The whole command is a mutation surface (runs arbitrary server-side JS) —
 // declared as `['']` so the root `jsn eval` command are gated.
@@ -10,10 +12,13 @@ declareCapabilities('eval', { transactionScopeOption: 'scope', mutationSubcomman
 export function evalCmd(wrap) {
   return {
     command: 'eval',
+    defaultPositionals: true, // a stray positional still reaches the handler's own error, as before rollback existed
     describe: 'Execute background scripts on the instance (--repl for interactive mode)',
     builder: (yargs) => {
       return yargs
+        .usage('Usage: jsn eval [rollback <execution>] [options]') // the subcommand is optional, unlike the adapter's default <command>
         .middleware(argv => {
+          if (!(Number.isInteger(argv.timeout) && argv.timeout >= 1 && argv.timeout <= 86400)) guardExit(argv, { code: CodeUsage, message: '--timeout must be a whole number of seconds from 1 to 86400' });
           if (!argv.repl) return;
           const conflicts = ['script', 'file', 'stdin'].filter(key => argv[key]).map(key => `--${key}`);
           if (conflicts.length) throw new Error(`--repl cannot be combined with ${conflicts.join(', ')}`);
@@ -28,9 +33,30 @@ export function evalCmd(wrap) {
         .option('rollback', { type: 'boolean', default: true, describe: 'Record rollback context (--no-rollback to skip)' })
         .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript evaluator, single expression only — no DB writes)' })
         .option('scriptlet', { type: 'boolean', default: false, describe: 'Run as scriptlet with global server-side objects' })
-        .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' });
+        .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' })
+        .option('timeout', { type: 'number', default: 30, describe: 'Seconds to wait for the script before jsn cancels it on the instance (outside --repl, Ctrl-C cancels it too)' })
+        .command({
+          command: 'rollback <execution>',
+          describe: 'Undo what a background script wrote, from its rollback context; preview by default',
+          builder: (y) => y
+            .positional('execution', { type: 'string', describe: 'Execution history sys_id, as jsn eval reports it' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Run the rollback' })
+            .epilogue('Without --yes, shows the operations its rollback context recorded, by table, without writes; --json adds the script.\nWith --yes, starts the platform rollback (AJAXRollbackWorker, as the Rollback Script Execution action does), waits up to two minutes, and succeeds only when the context reads Rolled back. Records changed by anything else since are left as they are. Needs admin.'),
+          handler: wrap(async (argv, app) => {
+            const plan = await previewRollback(app.sdk, argv.execution);
+            const { number } = plan.rollback_context;
+            if (!argv.yes) {
+              return app.ok({ ...plan, rolled_back: false }, {
+                summary: `Preview: rolling back ${number} (script run by ${plan.executed_by} at ${plan.started}) reverts ${plan.total} recorded operation(s): ${plan.operations.map(op => `${op.table} ${op.operation} ${op.count}`).join(', ')}`,
+                breadcrumbs: [{ action: 'rollback', cmd: `jsn eval rollback ${argv.execution} --yes`, description: 'Run this rollback' }],
+              });
+            }
+            app.ok(await runRollback(app.sdk, plan), { summary: `Rolled back ${number}: its context now reads Rolled back (${plan.total} operation(s) recorded; records changed since by anything else are left as they are)` });
+          }),
+        });
     },
     handler: wrap(async (argv, app) => {
+      const timeout = argv.timeout * 1000;
       let script;
       let scopeSysId = app.mutationContext?.application_id || null;
 
@@ -80,6 +106,7 @@ export function evalCmd(wrap) {
               quotaManagedTransaction: argv.quotaManagedTransaction,
               sandbox: argv.sandbox,
               scriptlet: argv.scriptlet,
+              timeout,
             });
           },
         });
@@ -123,24 +150,46 @@ export function evalCmd(wrap) {
         : '';
       // Pass the resolved sys_id (not the name) — sys.scripts.do only
       // honors selectable scope values, which are sys_ids.
-      const output = await app.sdk.executeScript(script, scopeSysId || '', {
-        rollback: argv.rollback,
-        quotaManagedTransaction: argv.quotaManagedTransaction,
-        sandbox: argv.sandbox,
-        scriptlet: argv.scriptlet,
-      });
+      // Ctrl-C stops the script on the instance too; a second Ctrl-C exits at once.
+      const controller = new AbortController();
+      const interrupt = () => {
+        process.stderr.write('\nCancelling the background script on the instance...\n');
+        controller.abort();
+      };
+      process.once('SIGINT', interrupt);
+      process.once('SIGTERM', interrupt);
+      let output;
+      let execution;
+      try {
+        ({ output, execution_id: execution } = await app.sdk.runBackgroundScript(script, scopeSysId || '', {
+          rollback: argv.rollback,
+          quotaManagedTransaction: argv.quotaManagedTransaction,
+          sandbox: argv.sandbox,
+          scriptlet: argv.scriptlet,
+          timeout,
+          signal: controller.signal,
+        }));
+      } finally {
+        process.removeListener('SIGINT', interrupt);
+        process.removeListener('SIGTERM', interrupt);
+      }
       app.ok({
         script,
         output,
         scope: scope || 'global',
         instance: app.getEffectiveInstance(),
+        execution,
       }, {
         summary: 'Script executed' + warning,
         breadcrumbs: [{
           action: 'eval',
           cmd: 'jsn eval --script \'...\'',
           description: 'Execute a background script on the ServiceNow instance',
-        }],
+        }, ...(execution && argv.rollback ? [{
+          action: 'rollback',
+          cmd: `jsn eval rollback ${execution}`,
+          description: 'Preview undoing what this script wrote',
+        }] : [])],
       });
     }),
   };
