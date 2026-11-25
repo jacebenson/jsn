@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { formatRecordForDisplay, getStringField, isHexString } from '../helpers.js';
-import { errAmbiguous, errUsage, errUsageHint } from '../errors.js';
+import { errUsage, errUsageHint } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 import { levenshtein } from '../query-parse.js';
 
@@ -320,7 +320,8 @@ export function scrapiCmd(wrap) {
               if (hits.length) break;
             }
             if (!hits.length) throw errUsageHint(`No REST API matches "${wanted}"${namespace ? ` in namespace ${namespace}` : ''}.`, `Run: jsn scrapi search ${JSON.stringify(wanted)}`);
-            if (hits.length > 1) throw errAmbiguous('REST APIs', [...hits.slice(0, 10).map(h => `"${h.name}" --namespace ${h.namespace}`), ...(hits.length > 10 ? [`${hits.length - 10} more`] : [])]);
+            // Not errAmbiguous: renderAppError drops its hint and its JSON envelope, which would hide the candidates.
+            if (hits.length > 1) throw errUsageHint(`${hits.length} REST APIs match "${wanted}".`, `Did you mean one of: ${[...hits.slice(0, 10).map(h => `"${h.name}" --namespace ${h.namespace}`), ...(hits.length > 10 ? [`${hits.length - 10} more`] : [])].join(', ')}?`);
             const [{ namespace: ns, name: api }] = hits;
             const format = argv.yaml ? 'yaml' : 'json';
             // oas_3 answers Accept: application/json with 406; it serves the document as octet-stream.

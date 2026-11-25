@@ -168,8 +168,8 @@ test('an exact title or apiName wins over names that only contain it', async () 
 
 test('an ambiguous or unknown spec name fails before the export, listing candidates with namespaces', async () => {
   const f = fixture();
-  await assert.rejects(f.spec({ api: 'Generic API' }), (err) => err.code === 'ambiguous' && /--namespace x_acme/.test(err.hint) && /--namespace sn_udc/.test(err.hint));
-  await assert.rejects(f.spec({ api: 'api' }), (err) => err.code === 'ambiguous' && /Table API/.test(err.hint) && /Attachment API/.test(err.hint));
+  await assert.rejects(f.spec({ api: 'Generic API' }), (err) => err.code === 'usage_error' && /^2 REST APIs match "Generic API"/.test(err.message) && /--namespace x_acme/.test(err.hint) && /--namespace sn_udc/.test(err.hint));
+  await assert.rejects(f.spec({ api: 'api' }), (err) => err.code === 'usage_error' && /Table API/.test(err.hint) && /Attachment API/.test(err.hint));
   await assert.rejects(f.spec({ api: 'no such thing' }), (err) => err.code === 'usage_error' && /No REST API matches "no such thing"/.test(err.message) && /jsn scrapi search/.test(err.hint));
   assert.equal(f.calls.filter(c => c.raw).length, 0);
   const g = fixture();
@@ -239,6 +239,8 @@ test('real CLI: search and spec over a loopback instance on a read-only profile'
     assert.equal((await run(['scrapi', 'spec', 'table api', '--yaml'])).stdout, SPEC_YAML);
     assert.equal(JSON.parse((await run(['scrapi', 'spec', 'Table API', '--json'])).stdout).data.spec.openapi, '3.0.1');
     await assert.rejects(run(['scrapi', 'spec', 'Stale API', '--json']), (err) => JSON.parse(err.stdout).error.includes('Version latest not found for now/Stale API'));
+    await assert.rejects(run(['scrapi', 'spec', 'Generic API', '--json']), (err) => err.code === 2 && /"Generic API" --namespace x_acme, "Generic API" --namespace sn_udc/.test(JSON.parse(err.stdout).hint));
+    await assert.rejects(run(['scrapi', 'spec', 'Generic API', '--format', 'styled']), (err) => /--namespace x_acme/.test(err.stderr) && /--namespace sn_udc/.test(err.stderr));
     await assert.rejects(run(['scrapi', 'search', 'table', '--namespace', 'nwo', '--json']), (err) => /--namespace now/.test(JSON.parse(err.stdout).hint));
     const before = calls.length;
     for (const args of [['search'], ['search', 'table', '--typo'], ['search', 'table', '--method', 'FETCH'], ['spec'], ['spec', 'x', '--typo']]) {
