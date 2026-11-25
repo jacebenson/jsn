@@ -297,6 +297,10 @@ jsn records import p1.xml                                                     # 
 jsn records list --table incident --limit 10 --csv                            # output CSV
 jsn columns show incident.priority                                            # dictionary entry + choices; names the table they come from
 
+# Import sets: load rows into a staging table; each row is transformed as it loads
+jsn import load u_staging --file rows.csv                                   # preview: checks columns and transform maps, sends nothing
+jsn import load u_staging --file rows.csv --yes                             # one row per request; prints inserted/updated/ignored/skipped/error
+
 # Attachment transfers (standalone, also discoverable via jsn attachments --help)
 jsn attachments list --sys-id <record-id> --json
 jsn attachments download <attachment-id> --out ./report.pdf
@@ -615,6 +619,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
 **Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users` (list/show/roles), `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 

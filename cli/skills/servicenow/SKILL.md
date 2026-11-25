@@ -29,6 +29,9 @@ names the table they come from when they are inherited from a parent.
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Loading rows into an import set staging table is `jsn import load <table>
+  --file rows.json|csv`, not `eval` or `records create` on the staging table.
+  It previews without `--yes`; with it, each row reports its transform outcome.
 - Copying records between instances as XML starts with `jsn records export`,
   which keeps sys_ids and refuses a query the instance would widen or truncate.
   `jsn records import <file>` loads that file into the target (admin; it skips
