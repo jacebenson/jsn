@@ -463,8 +463,9 @@ existing reference representation. No engine operation spawns another CLI.
 
 ## Record watch
 
-`jsn records watch` observes one record through an AMB record-watcher
-subscription instead of polling the table. `src/amb.js` owns the protocol
+`jsn records watch` observes one record, or every record matching an encoded
+query, through an AMB record-watcher subscription instead of polling the
+table. `src/amb.js` owns the protocol
 (ServiceNow's `/amb` endpoint speaks Bayeux/CometD long-polling, not
 socket.io, so no transport dependency is added) and event normalization;
 `src/record-watch.js` owns the observation session — bounds, cancellation,
@@ -476,6 +477,10 @@ record identity, operation and any change list or embedded record. A
 with `source: "fetched"`; it is never merged into the notification, and a
 failed read becomes `state_error` rather than changing the event. The
 default `auto` policy fetches only when the notification lacks detail.
+On a query channel the platform labels each event `entry`, `change` or
+`exit` (emitted as `match`), so a record leaving the query is reported.
+`--operation` and `--on-change` filter in `src/record-watch.js`, since AMB
+offers no server-side filter for either.
 
 A **gap** is the window between a dropped connection and a successful
 re-subscription. Record watchers are best-effort delivery: the platform does
@@ -485,10 +490,13 @@ Observation is bounded by `--timeout` seconds or `--max-events`; Ctrl+C
 unsubscribes and disconnects. Scheduling, retries across runs and user
 notification belong to the calling agent/runtime.
 
-AMB authorizes like a browser session: it needs session cookies and
-X-UserToken, not a bearer or Basic header. `SDKClient.ambSession()` supplies
-them from a gck credential or a warmed UI session, and fails with recovery
-guidance when the profile cannot produce one. Watch is read-only.
+AMB authorizes like a browser session: it reads session cookies and ignores
+a bearer or Basic header on its own. `SDKClient.ambSession()` supplies them
+from a gck credential or a warmed UI session (basic and OAuth profiles), and
+fails with recovery guidance when the profile cannot produce one. The
+platform sends a user who cannot read a record its notifications with the
+field values withheld; a query watch passes those through without `record`.
+Watch is read-only.
 
 ## Record command profiles
 

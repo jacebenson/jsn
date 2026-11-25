@@ -274,11 +274,63 @@ describe('watchRecord', () => {
     assert.equal(client.calls.stop, 1);
   });
 
+  it('watches every record matching a query and reads each one by its own sys_id', async () => {
+    const clock = fakeClock();
+    const query = 'priority=1^active=true';
+    const queryChannel = `/rw/default/incident/${Buffer.from(query).toString('base64').replace(/=/g, '-')}`;
+    const client = scriptedClient([after(clock, 10, [
+      bareMessage({ sys_id: SYS_ID, operation: 'insert' }),
+      { ...bareMessage({ sys_id: OTHER_ID }), channel: queryChannel },
+    ])]);
+    const statuses = [];
+    const events = [];
+    const fetched = [];
+    const summary = await watchRecord({
+      client, table: 'incident', query, maxEvents: 2, now: clock.now, sleep: clock.sleep,
+      fetchState: async event => { fetched.push(event.sys_id); return { sys_id: event.sys_id }; },
+      onStatus: status => statuses.push(status),
+      onEvent: event => events.push(event),
+    });
+    assert.deepEqual(client.calls.channels, [queryChannel]);
+    assert.deepEqual(events.map(e => e.sys_id), [SYS_ID, OTHER_ID], 'no record is dropped for not being the one sys_id');
+    assert.deepEqual(fetched, [SYS_ID, OTHER_ID]);
+    assert.equal(statuses[0].query, query);
+    assert.equal(statuses[0].sys_id, undefined);
+    assert.equal(summary.query, query);
+    assert.equal(summary.sys_id, undefined);
+    assert.equal(summary.events, 2);
+  });
+
+  it('drops events outside --operation and --on-change before reading or counting them', async () => {
+    const clock = fakeClock();
+    const client = scriptedClient([after(clock, 10, [
+      bareMessage({ operation: 'insert' }),
+      changeMessage({ changes: [{ field: 'short_description', value: 'x' }] }),
+      bareMessage({ operation: 'update', record: { work_notes: { value: 'n' } } }),
+      changeMessage({ operation: 'delete', changes: [{ field: 'state', value: '7' }] }),
+      bareMessage({ operation: 'update', record: { state: { value: '2', display_value: 'In Progress' }, sys_updated_by: { value: 'admin' } } }),
+      changeMessage({ changes: [{ field: 'assigned_to', value: 'user-1' }] }),
+    ])]);
+    let fetches = 0;
+    const events = [];
+    const summary = await watchRecord({
+      client, table: 'incident', query: 'active=true', operation: 'updated', onChange: ['state', 'assigned_to'],
+      maxEvents: 2, statePolicy: 'always', now: clock.now, sleep: clock.sleep,
+      fetchState: async () => { fetches += 1; return {}; },
+      onEvent: event => events.push(event),
+    });
+    assert.equal(events.length, 2);
+    assert.equal(events[0].record.state.value, '2', 'a live record map names the changed field');
+    assert.equal(events[1].changes[0].field, 'assigned_to');
+    assert.equal(fetches, 2, 'filtered events are never read');
+    assert.equal(summary.events, 2, 'filtered events do not count toward max-events');
+  });
+
   it('validates its bounds before opening a connection', async () => {
     const client = scriptedClient([]);
     await assert.rejects(watchRecord({ client, table: 'incident', sysID: SYS_ID, timeoutMs: -1 }), /negative/);
     await assert.rejects(watchRecord({ client, table: 'incident', sysID: SYS_ID, statePolicy: 'sometimes' }), /Unknown state policy/);
-    await assert.rejects(watchRecord({ client, table: 'incident' }), /sys_id/);
+    await assert.rejects(watchRecord({ client, table: 'incident' }), /sys_id or an encoded query/);
     assert.equal(client.calls.start, 0);
   });
 });

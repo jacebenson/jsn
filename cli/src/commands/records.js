@@ -221,10 +221,13 @@ export function recordsCmd(wrap) {
         })
         .command({
           command: 'watch',
-          describe: 'Stream change events for one record through ServiceNow AMB record watchers',
+          describe: 'Stream change events for one record, or every record matching a query, through ServiceNow AMB record watchers',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', describe: 'Record sys_id' })
+            .option('query', { type: 'string', describe: 'Encoded query: watch every matching record (e.g. "priority=1^active=true")' })
+            .option('operation', { type: 'string', choices: ['insert', 'update', 'delete'], describe: 'Only emit this kind of change' })
+            .option('on-change', { type: 'string', describe: 'Only emit changes to one of these comma-separated fields (e.g. "state,assigned_to")' })
             .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
             .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
             .option('timeout', { type: 'number', default: 0, describe: 'Stop after this many seconds (0 = until interrupted)' })
@@ -237,15 +240,27 @@ export function recordsCmd(wrap) {
               'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped.',
               'The notification is emitted as the event; a fetched record is attached separately as event.state (source: "fetched").',
               'Record watchers are best effort: after a reconnect the stream reports a gap and does not replay missed events.',
-              'Requires an interactive ServiceNow session (jsn auth login --browser). Not a durable queue or scheduler.',
+              'Needs a ServiceNow UI session, which jsn opens from basic, OAuth or browser (gck) profiles. Not a durable queue or scheduler.',
               'Example: jsn records watch --table incident --sys-id <sys_id> --timeout 300 --json',
               'Example: jsn records watch --table incident --identifier INC0010001 --identifier-field number --max-events 1 --json',
+              'Example: jsn records watch --table incident --query "priority=1^active=true" --operation update --on-change state,assigned_to --timeout 300 --json',
             ].join('\n')),
           handler: wrap(async (argv, app) => {
-            const lookup = recordLookup(argv);
-            const record = await resolveRecord(app.sdk, { ...lookup, fields: ['sys_id'] });
-            const sysID = unwrapSysId(record);
-            if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            const query = argv.query;
+            const onChange = argv['on-change'] === undefined ? [] : argv['on-change'].split(',').map(field => field.trim()).filter(Boolean);
+            if (argv['on-change'] !== undefined && !onChange.length) throw errUsage('--on-change needs at least one field name.');
+            let sysID = null;
+            if (query !== undefined) {
+              if (argv['sys-id'] !== undefined || argv.identifier !== undefined || argv.identifierField !== undefined) throw errUsage('--query watches every matching record; it cannot be combined with --sys-id, --identifier or --identifier-field.');
+              if (!query.trim()) throw errUsage('--query needs an encoded query, for example "priority=1^active=true".');
+              // A misspelt field must not silently widen or empty the channel.
+              await validateReadQuery(app, { table: argv.table, query, refresh: argv['refresh-metadata'] });
+            } else {
+              if (argv['sys-id'] === undefined && argv.identifier === undefined) throw errUsage('Supply exactly one of --sys-id, --identifier or --query.');
+              const record = await resolveRecord(app.sdk, { ...recordLookup(argv), fields: ['sys_id'] });
+              sysID = unwrapSysId(record);
+              if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            }
             const stateFields = argv.fields ? argv.fields.split(',').filter(Boolean) : null;
 
             const controller = new AbortController();
@@ -271,10 +286,13 @@ export function recordsCmd(wrap) {
               if (event.type === 'record_change') {
                 const id = event.display_value || event.sys_id;
                 const changes = (event.changes || [])
+                  .filter(c => c.value !== undefined || c.previous_value !== undefined || c.display_value !== undefined)
                   .map(c => `${c.field}: ${c.previous_value ?? '?'} → ${c.display_value ?? c.value ?? '?'}`)
                   .join(', ');
-                const detail = changes || describeRecord(event.record);
-                return `${event.received_at} ${event.table} ${id} ${event.operation}${detail ? ` — ${detail}` : ''}`;
+                // Field names alone when the platform withheld the values.
+                const detail = changes || describeRecord(event.record) || (event.changes || []).map(c => c.field).join(', ');
+                const moved = event.operation === 'updated' ? { entry: ' (now matches)', exit: ' (no longer matches)' }[event.match] || '' : '';
+                return `${event.received_at} ${event.table} ${id} ${event.operation}${moved}${detail ? ` — ${detail}` : ''}`;
               }
               if (event.type === 'unsubscribed') return `unsubscribed${event.reason ? ` (${event.reason})` : ''}`;
               if (event.type === 'gap') return `⚠ connection gap since ${event.since}: ${event.reason} (events in this window were not observed)`;
@@ -288,9 +306,11 @@ export function recordsCmd(wrap) {
             const onStatus = status => emit(status, formatEventLine(status));
             const onEvent = async event => emit(event, formatEventLine(event));
 
-            const fetchState = async () => {
+            const fetchState = async event => {
+              const id = sysID || event.sys_id;
+              if (!/^[\w-]+$/.test(id ?? '')) throw errUsage('The notification carried no usable sys_id, so the record was not read.');
               const params = new URLSearchParams({
-                sysparm_query: `sys_id=${sysID}`,
+                sysparm_query: `sys_id=${id}`,
                 sysparm_limit: '1',
                 sysparm_display_value: 'all',
               });
@@ -310,6 +330,9 @@ export function recordsCmd(wrap) {
                 client,
                 table: argv.table,
                 sysID,
+                query,
+                operation: { insert: 'created', update: 'updated', delete: 'deleted' }[argv.operation],
+                onChange,
                 timeoutMs: argv.timeout > 0 ? argv.timeout * 1000 : 0,
                 maxEvents: argv['max-events'] ?? argv.maxEvents,
                 signal: controller.signal,

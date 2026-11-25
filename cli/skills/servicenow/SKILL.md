@@ -47,7 +47,11 @@ so run it for a bounded window and report what arrived; schedules and user
 notifications belong to your runtime, not to the command. Use `--max-events 1`
 for a single-change check. A `gap` or `"complete": false` means events were
 missed — read the record's current state rather than assuming continuity.
-Watching needs a browser session (`jsn auth login --browser`).
+To watch every record matching a query, use `--query "<encoded query>"`
+instead of `--sys-id`; each event's `match` is `entry`, `change` or `exit`
+(`exit` means the record stopped matching or was deleted). Narrow it with
+`--operation insert|update|delete` and `--on-change <field,field>`. Basic,
+OAuth and browser profiles all work.
 
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
