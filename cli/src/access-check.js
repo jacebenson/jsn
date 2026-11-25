@@ -31,7 +31,8 @@ function evaluationScript(userSysId, { table, record, operations }) {
   else if (!gr.get('${record}')) out.missing = 'record';
   else if (typeof sn_access_analyzer == 'undefined' || !sn_access_analyzer.CrossScopeGetDebugLogsAPI) out.missing = 'analyzer';
   else {
-    out.tables = String(new GlideTableHierarchy('${table}').getTables()).split(',');
+    var h = new TableUtils('${table}').getTables(); out.tables = [];
+    for (var i = 0; i < h.size(); i++) out.tables.push(String(h.get(i)));
     var r = JSON.parse(new sn_access_analyzer.CrossScopeGetDebugLogsAPI().getDebugLogs({ entitySysId: '${userSysId}', entityType: 'User',
       targetResource: 'record', targetName: '${table}', targetRecord: '${record}', targetOperations: ${JSON.stringify(operations)}, shouldPersistResult: false }));
     out.error = r.error; out.errorMessage = r.errorMessage; out.ops = {};

@@ -53,7 +53,7 @@ test('evaluates live, lists before-query rules on the table and its parents, the
   assert.equal(f.calls[0].params.sysparm_query, 'user_name=abel.tuter');
   assert.equal(f.calls[1].scope, 'global');
   assert.equal(f.calls[1].opts.rollback, false, 'no rollback context is recorded');
-  for (const part of [`new GlideRecord('incident')`, `gr.get('${RECORD}')`, `entitySysId: '${USER}'`, `targetRecord: '${RECORD}'`, 'targetOperations: ["read","write","delete"]', 'shouldPersistResult: false', 'results.push(String(l.returnCodeDisplayValue))']) assert.ok(f.calls[1].script.includes(part), part);
+  for (const part of [`new GlideRecord('incident')`, `gr.get('${RECORD}')`, `entitySysId: '${USER}'`, `targetRecord: '${RECORD}'`, 'targetOperations: ["read","write","delete"]', 'shouldPersistResult: false', 'results.push(String(l.returnCodeDisplayValue))', `new TableUtils('incident').getTables()`]) assert.ok(f.calls[1].script.includes(part), part);
   assert.equal(f.calls[2].table, 'sys_script');
   assert.equal(f.calls[2].params.get('sysparm_query'), 'when=before^action_query=true^active=true^collectionINincident,task,global^ORDERBYorder^ORDERBYname');
   assert.equal(f.calls[2].params.get('sysparm_limit'), '51');
