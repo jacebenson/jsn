@@ -21,6 +21,11 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- The decision a decision table picks is
+  `jsn decisiontables evaluate <name> --input <name>=<value>`, not `eval`. It
+  refuses an input the table does not have, a missing mandatory input and a
+  choice label where the value belongs, which the evaluator would otherwise
+  answer with its default decision.
 
 For development:
 
