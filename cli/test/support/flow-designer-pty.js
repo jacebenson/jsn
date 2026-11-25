@@ -1,12 +1,13 @@
 // Disposable in-memory provider for real terminal prompts. Never contacts an instance.
 //
-// The flow side mirrors the LIVE contract established against dev354702:
+// The flow side mirrors the LIVE contract established against example:
 //   * POST /api/now/processflow/flow returns a flow whose triggerInstances is
 //     EMPTY — there is no default trigger to patch,
 //   * the trigger is INSERTED by the same snFlowDesigner flowPatch as the actions,
 //   * the instance (not the CLI) derives predicate metadata from the condition
 //     input, so the fake derives it here too and the read-back check proves it.
 import assert from 'node:assert/strict';
+import { readFlowPatch } from '../helpers/flow-patch-fixture.js';
 import { SDKClient } from '../../src/sdk.js';
 import cliAdapter from '../../src/cli-adapter.js';
 import { actionsCmd } from '../../src/commands/actions.js';
@@ -14,6 +15,7 @@ import { flowsCmd } from '../../src/commands/flows.js';
 import { OutputWriter } from '../../src/output.js';
 const ID = 'a'.repeat(32);
 const SCOPE = 'b'.repeat(32);
+const CAPTURE = '8'.repeat(32);
 const STEP = 'c'.repeat(32);
 const LOG_ID = '9'.repeat(32);
 const FLOW_ID = 'e'.repeat(32);
@@ -80,7 +82,7 @@ function inputEntries(segment) {
   }
   return entries;
 }
-function actionInputEntries(segment) {
+function _actionInputEntries(segment) {
   const entries = [];
   for (const match of segment.matchAll(/name: "([^"]+)", children: \[\], displayField: "[^"]*", scriptActive: false, parameter: \{[\s\S]*?\}, value: \{schemaless: false, schemalessValue: "", value: (""|"(?:\\.|[^"\\])*")\}/g)) {
     entries.push({ name: match[1], value: value(JSON.parse(match[2])) });
@@ -91,6 +93,8 @@ function actionInputEntries(segment) {
 sdk.request = async (url, options = {}) => {
   const path = new URL(url).pathname;
   const method = options.method || 'GET';
+  if (path.endsWith('/concoursepicker/updateset') && method === 'GET') return { result: { current: { sysId: CAPTURE, name: 'PTY Feature' } } };
+  if (path === `/api/now/table/sys_update_set/${CAPTURE}`) return { result: { sys_id: CAPTURE, name: 'PTY Feature', application: SCOPE, state: 'in progress' } };
   const body = options.body && JSON.parse(options.body);
   if (['POST', 'PUT', 'DELETE'].includes(method)) write(method, path, body);
   if (path === `/api/now/table/sys_scope/${SCOPE}`) return { result: { sys_id: SCOPE } };
@@ -158,7 +162,7 @@ sdk.request = async (url, options = {}) => {
         uiUniqueIdentifier: uiId,
         actionTypeSysId: requested,
         order: String(index + 1),
-        inputs: actionInputEntries(insert.split('uiUniqueIdentifier: "').slice(1)[index].split('inputs: [').slice(1).join('inputs: [')),
+        inputs: readFlowPatch(query).actions.insert[index].inputs,
       }));
     }
     return { data: { global: { snFlowDesigner: { flow: {
@@ -176,7 +180,9 @@ sdk.aggregateCount = async () => 1;
 const disp = (value_, display = value_) => ({ value: value_, display_value: display });
 sdk.list = async (table, params) => {
   const query = decodeURIComponent(String(params));
-  if (table === 'sys_user') return [];
+  if (table === 'sys_user') return params.get('sysparm_fields') === 'sys_id' ? [{ sys_id: 'd'.repeat(32) }] : [];
+  if (table === 'sys_update_set') return [{ sys_id: CAPTURE, name: 'PTY Feature', state: 'in progress', application: SCOPE }];
+  if (table === 'sys_user_preference') return [{ value: query.includes('apps.current_app') ? SCOPE : CAPTURE }];
   if (table === 'sys_hub_flow_version') return version ? [version] : [];
   if (table === 'sys_hub_flow') return [{ sys_id: FLOW_ID, name: 'Disposable flow', scope: SCOPE, active: false, status: 'draft' }];
   if (table === 'sys_db_object') {

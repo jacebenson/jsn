@@ -4,7 +4,7 @@ import { confirmDelete, getStringField } from '../helpers.js';
 import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
-declareCapabilities('attachments', { mutationSubcommands: ['upload', 'add'] });
+declareCapabilities('attachments', { mutationContext: 'operational', mutationSubcommands: ['upload', 'add'] });
 const identifier = value => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw errUsage('Supply a safe record or attachment sys_id.');
   return value;

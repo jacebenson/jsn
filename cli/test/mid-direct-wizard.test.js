@@ -1,13 +1,13 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import * as helpers from '../src/helpers.js';
-import * as prompts from '@inquirer/prompts';
+import * as prompts from '../src/prompts.js';
 import * as docker from '../src/midserver-install.js';
 import * as direct from '../src/midserver-direct.js';
 
 let events, choices, native, state, installed;
 mock.module('../src/helpers.js', { namedExports: { ...helpers, canPrompt: () => true } });
-mock.module('@inquirer/prompts', { namedExports: { ...prompts,
+mock.module('../src/prompts.js', { namedExports: { ...prompts,
   input: async () => { events.push('name'); return 'oct12'; },
   password: async opts => { assert.equal(opts.mask, '*'); events.push('password'); return 'disposable-only'; },
   select: async opts => { events.push('decision'); choices = opts.choices; return state === 'cancel' ? 'cancel' : state === 'prepared' ? 'prepare' : 'start'; },

@@ -116,6 +116,29 @@ describe('declared trigger inputs', () => {
     assert.equal(sdk.calls.length, 0);
   });
 
+  it('reads the definition\'s outputs and maps their human internal_type to the flow graph type', async () => {
+    const { readTriggerOutputDefinitions } = await import('../src/flow-triggers.js');
+    // Shape read live from sys_hub_trigger_output for Inbound Email
+    // (6f0180400b320300f4eb8bf637673ad4).
+    const sdk = sdkWith({
+      sys_hub_trigger_output: [
+        { sys_id: raw('03a0abaca71223008299b39f087901bf'), element: raw('inbound_email'), label: raw('Inbound Email'), internal_type: raw('Reference'), order: raw('100'), max_length: raw('32'), reference: dv('Email', 'Email') },
+        { sys_id: raw('3dfd0e450b022300f4eb8bf637673a29'), element: raw('body_text'), label: raw('Body Text'), internal_type: raw('String (Full UTF-8)'), order: raw('100'), max_length: raw('255'), reference: raw('') },
+        { sys_id: raw('1863e34453132300eb7c0a1806dc34ba'), element: raw('target_table_name'), label: raw('Target Table Name'), internal_type: raw('Table Name'), order: raw('100'), max_length: raw('255'), reference: raw('') },
+      ],
+    });
+    const outputs = await readTriggerOutputDefinitions(sdk, definitionId);
+    assert.equal(sdk.calls[0].table, 'sys_hub_trigger_output');
+    assert.equal(sdk.calls[0].params.includes(`sysparm_query=name=var__m_sys_hub_trigger_output_${definitionId}^ORDERBYorder`), true);
+    assert.deepEqual(outputs.map(output => output.name), ['inbound_email', 'body_text', 'target_table_name']);
+    // Values verified against the live trigger instance readback: the same
+    // output is `string_full_utf8` there while the dictionary row says
+    // "String (Full UTF-8)".
+    assert.deepEqual(outputs.map(output => output.type), ['reference', 'string_full_utf8', 'table_name']);
+    assert.equal(outputs[1].label, 'Body Text');
+    assert.equal(outputs[1].parameter.type, 'string_full_utf8');
+  });
+
   it('writes every declared input using the instance default and rejects undeclared names', async () => {
     const { buildTriggerInputs } = await import('../src/flow-triggers.js');
     const declared = [

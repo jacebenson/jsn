@@ -31,6 +31,7 @@ describe('Records Command Structure', () => {
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
     assert.ok(names.includes('inspect'));
+    assert.ok(names.includes('versions'));
   });
 
   it('uses optional [subcommand] so bare invocation shows help, not a yargs error', async () => {
@@ -161,5 +162,37 @@ describe('records list — cmdb_rel_ci', () => {
     assert.strictEqual(crumbs.length, 2);
     assert.ok(crumbs[0].cmd.includes('--ci c1'));
     assert.ok(crumbs[1].cmd.includes('--ci p1'));
+  });
+
+  it('surfaces missing_columns and warnings when ServiceNow omits non-existent requested columns', async () => {
+    const handler = await listHandler();
+    const app = makeApp([
+      {
+        sys_id: { display_value: 'dmn001', value: 'dmn001' },
+        number: { display_value: 'DMND0001640', value: 'DMND0001640' },
+        state: { display_value: 'Submitted', value: '2' },
+        description: { display_value: '', value: '' },
+      },
+    ]);
+    await handler({
+      app,
+      table: 'dmn_demand',
+      'sys-id': undefined,
+      query: undefined,
+      columns: 'number,state,description,state_label',
+      limit: 20,
+      offset: 0,
+      count: false,
+      _: ['list'],
+    });
+    const data = app.okCalls[0].data;
+    assert.deepStrictEqual(data.missing_columns, ['state_label']);
+    assert.ok(Array.isArray(data.warnings) && data.warnings.length === 1);
+    assert.match(data.warnings[0], /state_label/);
+    assert.match(data.warnings[0], /jsn columns --table dmn_demand/);
+    assert.strictEqual(data.records[0].number, 'DMND0001640');
+    assert.strictEqual(data.records[0].state, 'Submitted');
+    assert.strictEqual(data.records[0].description, '');
+    assert.strictEqual('state_label' in data.records[0], false, 'non-existent column must not be fabricated as empty string');
   });
 });

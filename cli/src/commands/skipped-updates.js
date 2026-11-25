@@ -1,6 +1,6 @@
+import { skippedUpdatesCmdDefinition } from '../command-families.js';
 import { checkbox, select, confirm } from '../prompts.js';
 import { canUsePicker, interactiveList, getStringField } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
 import { errUsage } from '../errors.js';
 import { discoverSkippedUpdates, reviewSkippedUpdate, prepareSkippedBatch, processSkippedBatch, raw, SKIP_TABLE } from '../skipped-updates.js';
 
@@ -27,7 +27,6 @@ export function renderSkippedPreview(preview) {
 }
 
 export function skippedUpdatesCmd(wrap, ui = {}) {
-  declareCapabilities('skipped-updates', { mutationSubcommands: ['process'] });
   const prompts = { checkbox, select, confirm, canUsePicker, interactiveList, ...ui };
   async function showReview(app, id) {
     const review = await reviewSkippedUpdate(app.sdk, id);
@@ -49,7 +48,7 @@ export function skippedUpdatesCmd(wrap, ui = {}) {
         { name: 'Return to base system, discard customization', value: 'revert' }] });
     return { ids, action, instance: app.getEffectiveInstance() };
   }
-  return { command: 'skipped-updates', describe: 'Review and process existing unresolved skipped updates across all upgrade history',
+  return { ...skippedUpdatesCmdDefinition,
     builder: y => y
       .command({ command: 'list', describe: 'Discover unresolved skips instance-wide, independent of new upgrades',
         builder: y => y.option('limit', { type: 'number', default: 100, describe: 'Page size, maximum 500' })

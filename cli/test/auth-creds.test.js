@@ -224,7 +224,7 @@ describe('hasLegacyCredentials', () => {
       config: { profiles: {}, activeProfile: null, defaultProfile: null },
       getEffectiveInstance() { return ''; },
     }, { credentialStore });
-    assert.strictEqual(mgr.hasLegacyCredentials('https://dev328604.service-now.com'), false);
+    assert.strictEqual(mgr.hasLegacyCredentials('https://example.service-now.com'), false);
   });
 
   it('returns false when bare key has creds but profile has no username', () => {

@@ -8,6 +8,7 @@ import { once } from 'node:events';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { authHubMenu } from '../src/commands/setup.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 
 const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
 
@@ -33,11 +34,11 @@ test('setup advertises every management action and browser-session files/stdin s
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const instance = `http://127.0.0.1:${server.address().port}`;
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
-  Object.assign(env, { XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '',
+  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1',
     JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1' });
   async function run(args, { input = '', expected = 0 } = {}) {
     const result = await new Promise(resolve => {
-      const child = execFile(process.execPath, [cli, ...args], { cwd: directory, env, timeout: 15000 },
+      const child = execFile(process.execPath, [...credentialFixtureArgs, cli, ...args], { cwd: directory, env, timeout: 15000 },
         (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr }));
       child.stdin.end(input);
     });
@@ -55,6 +56,7 @@ test('setup advertises every management action and browser-session files/stdin s
     assert.ok(help.includes(action.command));
   }
   assert.match(help, /--headers-file/); assert.match(help, /--wait-file/);
+  assert.match(help, /--configure-defaults/); assert.match(help, /--configure-docs/);
   assert.match(help, /SN_USERNAME and SN_PASSWORD/);
   const usage = JSON.parse((await run(['setup', '--json'], { expected: 2 })).stdout);
   assert.equal(usage.code, 'usage_error');

@@ -62,6 +62,9 @@ const PROBE_FAILURES = {
     message: 'The authenticated probe could not be initialized for this profile.',
     hint: 'Check the profile configuration and run: jsn auth status again',
   },
+  storage_blocked: {
+    message: 'Credential storage is blocked for this profile; the authenticated probe was not attempted.',
+  },
 };
 
 const PROBE_CLASSIFICATIONS = {
@@ -70,6 +73,7 @@ const PROBE_CLASSIFICATIONS = {
   malformed_credentials: 'malformed', permission_denied: 'permission_denied', unauthorized: 'unauthorized',
   network: 'network_error', unknown: 'unknown',
   missing_instance: 'unavailable', sdk_construction_failed: 'configuration_error',
+  storage_blocked: 'storage_blocked',
 };
 
 export function probeFailure(code, status = 'failed') {

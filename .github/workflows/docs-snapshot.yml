@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['cli/src/commands/docs/**', 'scripts/build-docs-snapshot.mjs', '.github/workflows/docs-snapshot.yml']
+    paths: ['cli/src/commands/docs/**', 'site/scripts/build-docs-snapshot.mjs', '.github/workflows/docs-snapshot.yml']
 permissions:
   contents: write
 concurrency:
@@ -37,7 +37,7 @@ jobs:
         run: |
           source_revision=$(git ls-remote https://github.com/ServiceNow/ServiceNowDocs refs/heads/australia | cut -f1)
           [[ "$source_revision" =~ ^[a-f0-9]{40}$ ]]
-          builder_revision=$(git log -1 --format=%H -- cli/src/commands/docs scripts/build-docs-snapshot.mjs .github/workflows/docs-snapshot.yml)
+          builder_revision=$(git log -1 --format=%H -- cli/src/commands/docs site/scripts/build-docs-snapshot.mjs .github/workflows/docs-snapshot.yml)
           artifact_tag="docs-index-1-${source_revision}-${builder_revision}"
           echo "revision=$source_revision" >> "$GITHUB_OUTPUT"
           echo "tag=$artifact_tag" >> "$GITHUB_OUTPUT"
@@ -56,7 +56,7 @@ jobs:
       - name: Record build state
         env:
           SOURCE_REVISION: ${{ steps.source.outputs.revision }}
-        run: node scripts/report-docs-build.mjs "$SOURCE_REVISION" building
+        run: node site/scripts/report-docs-build.mjs "$SOURCE_REVISION" building
       - name: Build isolated FTS5 index with existing ingestion
         if: steps.source.outputs.reused != 'true'
         env:
@@ -65,9 +65,9 @@ jobs:
         run: |
           git clone --depth 1 --branch australia --config core.longpaths=true https://github.com/ServiceNow/ServiceNowDocs "$RUNNER_TEMP/docs-source"
           test "$(git -C "$RUNNER_TEMP/docs-source" rev-parse HEAD)" = "$SOURCE_REVISION"
-          node scripts/build-docs-snapshot.mjs "$RUNNER_TEMP/docs-source/markdown" snapshot-output "$SOURCE_REVISION" "https://github.com/$GITHUB_REPOSITORY/releases/download/$ARTIFACT_TAG/"
+          node site/scripts/build-docs-snapshot.mjs "$RUNNER_TEMP/docs-source/markdown" snapshot-output "$SOURCE_REVISION" "https://github.com/$GITHUB_REPOSITORY/releases/download/$ARTIFACT_TAG/"
       - name: Verify artifact before publication
-        run: node scripts/verify-docs-snapshot.mjs snapshot-output
+        run: node site/scripts/verify-docs-snapshot.mjs snapshot-output
       - name: Publish immutable artifact before updating the stable manifest
         if: steps.source.outputs.reused != 'true'
         env:
@@ -90,7 +90,7 @@ jobs:
           fi
       - name: Promote stable Rails manifest
         if: env.DOCS_PUBLISHER_CONFIGURED == 'true'
-        run: node scripts/publish-docs-manifest.mjs snapshot-output/manifest.json
+        run: node site/scripts/publish-docs-manifest.mjs snapshot-output/manifest.json
       - name: Record promotion skipped without a publisher
         if: env.DOCS_PUBLISHER_CONFIGURED == 'false'
         run: |
@@ -104,4 +104,4 @@ jobs:
         if: failure() && steps.source.outputs.revision != ''
         env:
           SOURCE_REVISION: ${{ steps.source.outputs.revision }}
-        run: node scripts/report-docs-build.mjs "$SOURCE_REVISION" failed
+        run: node site/scripts/report-docs-build.mjs "$SOURCE_REVISION" failed

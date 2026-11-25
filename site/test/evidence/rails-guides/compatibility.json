@@ -1,0 +1,289 @@
+{
+  "guide_native_count": 6,
+  "servicenow_unseeded": "{\"error\":\"ServiceNow documentation unavailable (HTTP 503). Retry at https://jsn.jace.pro/documentation.\"}",
+  "filter_before": 29,
+  "inputs": [
+    {
+      "id": "feature-search",
+      "type": "search",
+      "placeholder": "Find a feature\u2026"
+    }
+  ],
+  "filter_after": 1,
+  "detail": {
+    "status": 200,
+    "title": "JSN \u00b7 A little less clicking."
+  },
+  "preserved_urls": [
+    {
+      "url": "/AUTH_LIFECYCLE/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/AUTH_LIFECYCLE.md"
+    },
+    {
+      "url": "/CODESEARCH_GRAPHQL/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/CODESEARCH_GRAPHQL/"
+    },
+    {
+      "url": "/DECISIONS/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/DECISIONS.md"
+    },
+    {
+      "url": "/FEATURE_MAP/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/FEATURE_MAP.md"
+    },
+    {
+      "url": "/STATE/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/STATE.md"
+    },
+    {
+      "url": "/TARGETED_DOCS/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/TARGETED_DOCS.md"
+    },
+    {
+      "url": "/TEST_AUDIT/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/TEST_AUDIT.md"
+    },
+    {
+      "url": "/TEST_AUDIT_CLI_SDK/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/TEST_AUDIT_CLI_SDK.md"
+    },
+    {
+      "url": "/TEST_AUDIT_REMAINING/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/TEST_AUDIT_REMAINING.md"
+    },
+    {
+      "url": "/UPDATESETS_DIFF/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/UPDATESETS_DIFF/"
+    },
+    {
+      "url": "/cli-guide/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/cli-guide/"
+    },
+    {
+      "url": "/command-audience-verification/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/command-audience-verification.md"
+    },
+    {
+      "url": "/command-discovery-parity/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/command-discovery-parity.md"
+    },
+    {
+      "url": "/customization-evidence-parity/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/customization-evidence-parity.md"
+    },
+    {
+      "url": "/docs-distribution-architecture/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/docs-distribution-architecture.md"
+    },
+    {
+      "url": "/docs/agents/",
+      "status": 200,
+      "location": null
+    },
+    {
+      "url": "/docs/install/",
+      "status": 200,
+      "location": null
+    },
+    {
+      "url": "/docs/output/",
+      "status": 200,
+      "location": null
+    },
+    {
+      "url": "/docs/safety/",
+      "status": 200,
+      "location": null
+    },
+    {
+      "url": "/docs/setup/",
+      "status": 200,
+      "location": null
+    },
+    {
+      "url": "/flow-designer-interactive/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/flow-designer-interactive/"
+    },
+    {
+      "url": "/flow-search/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/flow-search/"
+    },
+    {
+      "url": "/legacy-workflow-inspection/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/legacy-workflow-inspection/"
+    },
+    {
+      "url": "/mid-direct-install/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/mid-direct-install/"
+    },
+    {
+      "url": "/mid-remote-management/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/mid-remote-management/"
+    },
+    {
+      "url": "/mutation-history/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/mutation-history/"
+    },
+    {
+      "url": "/mutation-testing/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/mutation-testing.md"
+    },
+    {
+      "url": "/record-metadata/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/record-metadata/"
+    },
+    {
+      "url": "/record-watch/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/record-watch/"
+    },
+    {
+      "url": "/records-engine-contract/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/records-engine-contract.md"
+    },
+    {
+      "url": "/related-list-counts/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/related-list-counts/"
+    },
+    {
+      "url": "/safe-flow-edit/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/safe-flow-edit/"
+    },
+    {
+      "url": "/sdk-batch/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/sdk-batch/"
+    },
+    {
+      "url": "/setup-command-parity/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/setup-command-parity.md"
+    },
+    {
+      "url": "/skill-cli-parity/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/skill-cli-parity.md"
+    },
+    {
+      "url": "/skipped-updates/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/skipped-updates/"
+    },
+    {
+      "url": "/store-applications/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/store-applications/"
+    },
+    {
+      "url": "/update-set-transfer/",
+      "status": 301,
+      "location": "http://127.0.0.1:43987/docs/update-set-transfer/"
+    },
+    {
+      "url": "/verification/260-remote-mid/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/260-remote-mid.md"
+    },
+    {
+      "url": "/verification/317-metadata/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/317-metadata.md"
+    },
+    {
+      "url": "/verification/318-related-lists/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/318-related-lists.md"
+    },
+    {
+      "url": "/verification/321-records-regression/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/321-records-regression.md"
+    },
+    {
+      "url": "/verification/354-attachments/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/354-attachments.md"
+    },
+    {
+      "url": "/verification/docs-targeted/README/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/docs-targeted/README.md"
+    },
+    {
+      "url": "/verification/docs-targeted/VERIFICATION/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/docs-targeted/VERIFICATION.md"
+    },
+    {
+      "url": "/verification/docs-targeted/human-walkthrough/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/docs-targeted/human-walkthrough.html"
+    },
+    {
+      "url": "/verification/docs-targeted/json-comparison/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/docs-targeted/json-comparison.html"
+    },
+    {
+      "url": "/verification/docs-targeted/section-json/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/docs-targeted/section-json.html"
+    },
+    {
+      "url": "/verification/field-troubleshooting/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/field-troubleshooting.md"
+    },
+    {
+      "url": "/verification/issue-288/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/issue-288.md"
+    },
+    {
+      "url": "/verification/issue-298/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/issue-298.md"
+    },
+    {
+      "url": "/verification/mutation-history-pdi/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/mutation-history-pdi.md"
+    },
+    {
+      "url": "/verification/records-engine/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/records-engine.md"
+    },
+    {
+      "url": "/verification/sdk-batch-live-check/",
+      "status": 301,
+      "location": "https://github.com/jacebenson/jsn/blob/main/docs/verification/sdk-batch-live-check.md"
+    }
+  ]
+}

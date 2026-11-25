@@ -72,7 +72,7 @@ describe('CLI adapter production probes', () => {
   });
 
   it('parses boolean equals syntax in the real binary', () => {
-    const result = spawnSync(process.execPath, [CLI, 'version', '--json=false'], {
+    const result = spawnSync(process.execPath, [CLI, 'version', '--json=false', '--verbose'], {
       encoding: 'utf-8',
       cwd: path.resolve('.'),
       env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },

@@ -1,4 +1,5 @@
-import { configureGlobalDefaults, configureDocumentation } from '../setup-preferences.js';
+import { configureGlobalDefaults, configureDocumentation, connectionPreferences } from '../setup-preferences.js';
+import { saveConfig } from '../config.js';
 import { select } from '../prompts.js';
 import { loginWizard, loginProfile, showAuthStatus, switchProfile, modifyProfile, logoutProfile, removeConnection } from './auth.js';
 import { errUsageHint } from '../errors.js';
@@ -37,42 +38,13 @@ const setupHelp = () => [
   'Use --no-read-only, --no-confirm-deletes, --no-include-counts or --no-make-default for the opposite value.',
   'Use --json for structured output. Explicit flags avoid implicit pickers; ambiguous targets return an error.',
   'Discover all options with jsn auth <command> --help.',
+  'Configure settings directly: jsn setup --configure-defaults or jsn setup --configure-docs.',
 ].join('\n');
 
-/** The setup hub prompt; q and Escape resolve with no selected action. */
-export const authHubPrompt = async (...args) => {
-  const { createPrompt, useKeypress, usePagination, useState, isDownKey, isEnterKey, isUpKey } = await import('@inquirer/core');
-  return createPrompt((config, done) => {
-    const [active, setActive] = useState(0);
-    const choices = config.choices;
-
-    useKeypress((key) => {
-      if (key.name === 'q' || key.name === 'escape') {
-        done(undefined);
-        return;
-      }
-      if (isEnterKey(key)) {
-        done(choices[active].value);
-        return;
-      }
-      if (isUpKey(key) && active > 0) setActive(active - 1);
-      if (isDownKey(key) && active < choices.length - 1) setActive(active + 1);
-    });
-
-    const page = usePagination({
-      items: choices,
-      active,
-      // Pagination budgets terminal lines, including the section headings.
-      pageSize: choices.length + new Set(choices.map(choice => choice.section)).size * 2 - 1,
-      loop: false,
-      renderItem: ({ item, isActive }) => {
-        const index = choices.indexOf(item);
-        const heading = choices[index - 1]?.section !== item.section ? `${index ? '\n' : ''}  ${item.section}\n` : '';
-        return `${heading}${isActive ? '❯' : ' '} ${item.name}`;
-      },
-    });
-    return `${config.message}\n${page}\n\n↑↓ navigate • ⏎ select • q/Esc exit`;
-  })(...args);
+/** The setup hub shares searchable local menus; Escape leaves the hub. */
+export const authHubPrompt = async (config = {}, context = {}) => {
+  const { select, escapeResult } = await import('../prompts.js');
+  return select({ ...config, escapeValue: escapeResult(undefined) }, context);
 };
 
 /** Interactive hub: what do you want to do? Returns an action or undefined on exit. */
@@ -87,7 +59,7 @@ export async function authHubMenu({ promptFn = authHubPrompt, input, output, has
  */
 export async function dispatchSetupAction(app, argv, action) {
   if (action === 'add') {
-    return loginWizard(app, argv);
+    return loginWizard(app, argv, { concise: true });
   } else if (action === 'login') {
     return loginProfile(argv, app);
   } else if (action === 'status') {
@@ -119,11 +91,20 @@ export function setupCmd(wrap) {
   return {
     command: 'setup',
     describe: 'Set up JSN defaults and manage ServiceNow connections (interactive)',
-    builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' }).epilogue(setupHelp()),
+    summary: 'Connect to ServiceNow and manage profiles',
+    builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' })
+      .option('configure-defaults', { type: 'boolean', describe: 'Configure defaults for future connections without the hub' })
+      .option('configure-docs', { type: 'boolean', describe: 'Configure documentation without the hub' }).epilogue(setupHelp()),
     handler: wrap(async (argv, app) => {
       if (argv['docs-source']) {
         const { installDocumentation } = await import('./docs/install.js');
         app.ok(await installDocumentation(argv['docs-source']));
+        return;
+      }
+      if (argv['configure-defaults'] || argv['configure-docs']) {
+        if (argv['configure-defaults']) await configureGlobalDefaults(app.config, { documentation: false });
+        if (argv['configure-docs']) await configureDocumentation(app.config);
+        app.ok({ settings: true }, { summary: 'Settings saved; existing connections unchanged' });
         return;
       }
       const { canUsePicker } = await import('../helpers.js');
@@ -132,17 +113,18 @@ export function setupCmd(wrap) {
       }
       const profileNames = Object.keys(app.config.profiles || {});
       const firstSetup = !app.config.connectionDefaults;
-      if (firstSetup) await configureGlobalDefaults(app.config);
-      else if (!app.config.docs) await configureDocumentation(app.config);
+      if (firstSetup) {
+        app.config.connectionDefaults = connectionPreferences(app.config);
+        await saveConfig(app.config);
+      }
       if (profileNames.length === 0 && firstSetup) {
-        const result = await loginWizard(app, argv);
-        await showAuthStatus({ ...argv, profile: result.profileName }, app);
+        await loginWizard(app, argv, { concise: true });
         return;
       }
       const action = await authHubMenu({ hasProfiles: profileNames.length > 0 });
       if (action === undefined) return;
       const result = await dispatchSetupAction(app, argv, action);
-      if (!['status', 'advanced'].includes(action)) await showAuthStatus({ ...argv, profile: result?.profile || result?.profileName }, app);
+      if (!['add', 'status', 'advanced'].includes(action)) await showAuthStatus({ ...argv, profile: result?.profile || result?.profileName }, app);
     }),
   };
 }

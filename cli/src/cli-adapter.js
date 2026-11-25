@@ -1,8 +1,14 @@
 import { parseArgs } from 'node:util';
 import process from 'node:process';
+import { renderSubcommandHelp } from './help.js';
+import { resolveDocLink } from './docs-links.js';
 
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const names = (x) => typeof x === 'string' ? [x] : (x || []);
+// Query shorthand belongs only to commands that declare the query option.
+const optionSpec = (name, config = {}) => ({ ...config, name,
+  ...(name === 'query' ? { alias: [...new Set([...names(config.alias), 'q'])] } : {}),
+});
 
 /**
  * A repeatable option may be declared either way: `type: 'array'` (this
@@ -32,6 +38,12 @@ class CommandNode {
 
   build() {
     if (this.built) return;
+    if (this.definition.load) {
+      const definition = this.definition.load();
+      // Root identity is lightweight and authoritative. Implementations only
+      // supply builders/handlers; loading must not change token ownership.
+      this.definition = { ...definition, ...this.definition, load: undefined };
+    }
     this.built = true;
     if (typeof this.definition.builder === 'function') this.definition.builder(this.api());
   }
@@ -44,7 +56,7 @@ class CommandNode {
    * subcommand to layer a specialized handler over the base one (see
    * `requests show`). Appending instead of replacing left the base registration
    * first in the list and reachable by dispatch/help while the duplicate was
-   * invisible to the registry (child counts, inventory, completion).
+   * invisible to the registry (child counts, inventory).
    *
    * Registration order is preserved (the slot is replaced in place) and the
    * replaced node's aliases are carried over so layered commands keep resolving
@@ -88,12 +100,12 @@ class CommandNode {
         node.register(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
         return this;
       },
-      option(name, config = {}) { node.options.set(name, { ...config, name }); return this; },
+      option(name, config = {}) { node.options.set(name, optionSpec(name, config)); return this; },
       options(config = {}) { for (const [name, value] of Object.entries(config)) this.option(name, value); return this; },
       positional(name, config = {}) { node.positionals.set(name, { ...config, name }); return this; },
       demandCommand(count, message) { node.demand = { count, message }; return this; },
       middleware(fn) { node.middlewares.push(...(Array.isArray(fn) ? fn : [fn])); return this; },
-      strict() { return this; },
+      strict() { node.strict = true; return this; },
       check() { return this; },
       usage(value) { node.usageText = value; return this; },
       epilogue(value) { node.epilogueText = value; return this; },
@@ -111,14 +123,13 @@ export class LocalCLI {
     this.middlewares = [];
     this.failHandler = null;
     this.script = 'jsn';
-    this.completionCommand = '__completion';
   }
 
   scriptName(value) { this.script = value; return this; }
   usage(value) { this.root.usageText = value; return this; }
   epilogue(value) { this.root.epilogueText = value; return this; }
   middleware(fn) { this.middlewares.push(...(Array.isArray(fn) ? fn : [fn])); return this; }
-  option(name, config) { this.root.options.set(name, { ...config, name }); return this; }
+  option(name, config) { this.root.options.set(name, optionSpec(name, config)); return this; }
   options(config) { for (const [name, value] of Object.entries(config)) this.option(name, value); return this; }
   command(definition, builder, handler) {
     this.root.register(new CommandNode(typeof definition === 'string' ? { command: definition, builder, handler } : definition));
@@ -132,9 +143,21 @@ export class LocalCLI {
    */
   onParentDiscovery(fn) { this.parentDiscovery = fn; return this; }
   demandCommand(count, message) { this.root.demand = { count, message }; return this; }
-  completion(name, _description, handler) { this.completionCommand = name; this.completionHandler = handler; return this; }
   help() { this.helpEnabled = true; return this; }
-  version() { return this; }
+  /**
+   * `--version`: print the tool's version and exit.
+   *
+   * A command's own version comes from the package manifest, so the root flag
+   * has to be answered by the parser before dispatch. `.version(false)` (used
+   * by the previous `jsn --version` wiring) silently removed the flag, so the
+   * token was tolerated as an unknown option and the page fell through to the
+   * root help — a script or agent asking "what version is this?" got 2 KB of
+   * help text instead of a version string.
+   */
+  version(value = false) {
+    this.versionText = value === false ? undefined : String(value);
+    return this;
+  }
   strictCommands() { this.strictCmd = true; return this; }
   strictOptions() { return this; }
   fail(fn) { this.failHandler = fn; return this; }
@@ -145,10 +168,6 @@ export class LocalCLI {
       getCommandHandlers: () => Object.fromEntries(all.map((n) => [n.name, n.definition.handler])),
     }) };
   }
-  showCompletionScript() {
-    process.stdout.write(`###-begin-jsn-completions-###\n_jsn_yargs_completions() {\n  local completions=$(jsn --get-yargs-completions "$@")\n  COMPREPLY=( $(compgen -W "$completions" -- "\${COMP_WORDS[COMP_CWORD]}") )\n}\ncomplete -F _jsn_yargs_completions jsn\n###-end-jsn-completions-###\n`);
-  }
-
   _lookup(list, value) { return list.find((n) => n.name === value || n.aliases.includes(value)); }
   _knownOptions(nodes) {
     const map = new Map();
@@ -237,6 +256,14 @@ export class LocalCLI {
     catch (err) { this._fail(err.message, err); return { values: {}, positionals: [] }; }
     const argv = { _: path.map((n) => n.name) };
     for (const [key, value] of Object.entries(parsed.values)) {
+      if (opts.validate !== false && path.some(node => node.strict) && !Object.hasOwn(defs, key)) {
+        this._fail(`Unknown option: --${key}`);
+        return null;
+      }
+      if (opts.validate !== false && key === 'q' && !options.has('q')) {
+        this._fail('Option -q (--query) is not supported by this command.');
+        return null;
+      }
       const spec = this._specFor(options, key, value);
       if (this._assign(argv, key, value, spec, opts) === false) return null;
     }
@@ -284,12 +311,16 @@ export class LocalCLI {
    * discovery output are generated from, so neither can drift away from the
    * commands that actually exist. Builders run here (idempotently) because a
    * parent's children are only registered when its builder is invoked.
+   *
+   * `summaries: true` adds the command's short summary for the concise human
+   * help page. Machine discovery leaves it out, so the JSON schema and bytes
+   * stay unchanged.
    */
-  commandRegistry() {
-    const visible = (node) => node.name !== this.completionCommand && !node.definition.hidden;
+  commandRegistry({ summaries = false, shallow = false, details = false } = {}) {
+    const visible = (node) => !node.definition.hidden;
     const serialize = (node) => {
-      node.build();
-      return {
+      if (!shallow) node.build();
+      const entry = {
         name: node.name,
         command: node.definition.command || node.name,
         aliases: [...node.aliases],
@@ -303,8 +334,10 @@ export class LocalCLI {
           help: `jsn ${node.name} ${child.name} --help`,
         })),
       };
+      if (summaries) entry.summary = node.definition.summary || '';
+      return entry;
     };
-    return {
+    const registry = {
       commands: this.root.children.filter(visible).map(serialize),
       options: [...this.root.options.values()].map((spec) => ({
         name: spec.name,
@@ -314,12 +347,58 @@ export class LocalCLI {
         type: spec.type || 'boolean',
       })),
     };
+    // Opt-in action detail leaves the legacy command/group projection intact.
+    // Build every visible descendant, using dispatch's signatures and option
+    // inheritance less a self-running parent's options (below), so every
+    // advertised invocation still dispatches. Hidden subtrees are never indexed.
+    if (details) {
+      registry.entries = [];
+      const visit = (node, ancestors = [], aliases = []) => {
+        if (!visible(node)) return;
+        // Dispatch resolves names as literal tokens, not positional patterns.
+        // A positional-headed declaration cannot yield a fixed canonical path
+        // after placeholder substitution. Keep it only in the legacy projection.
+        if (positionSpec(node.name).length) return;
+        node.build();
+        const nodes = [...ancestors, node];
+        const path = nodes.map(value => value.name);
+        // A node that takes its own positionals (eval, docs) runs itself: it is an action, and
+        // its options are its own job's, so its children do not advertise them.
+        const bindings = this._optionConfig(nodes.filter(value => value === node || !value.definition.defaultPositionals));
+        const allOptions = [...new Set(bindings.values())];
+        const options = allOptions.filter(spec => !spec.hidden).map(spec => {
+          // An inherited alias can now belong to a different, hidden option.
+          // Advertise only tokens that still resolve to this visible spec.
+          const tokens = [...bindings].filter(([_name, bound]) => bound === spec).map(([name]) => name);
+          return { ...spec, token: tokens.includes(spec.name) ? spec.name : tokens[0],
+            alias: tokens.filter(name => name !== spec.name) };
+        });
+        const positions = positionSpec(node.definition.command || '').map(position => ({
+          ...position, ...node.positionals.get(position.name), name: position.name,
+        }));
+        registry.entries.push({
+          path, aliases: [...aliases, ...node.aliases],
+          description: node.definition.describe || '',
+          group: nodes[0].definition.describe || '',
+          table: nodes[0].definition.discovery?.table || '',
+          help: `jsn ${path.join(' ')} --help`,
+          parent: !node.definition.defaultPositionals && node.children.some(visible),
+          options, positions,
+          hiddenRequired: allOptions.some(spec => spec.hidden && spec.demandOption),
+          tasks: node.definition.discoveryTasks || [],
+          examples: node.definition.examples || [],
+        });
+        for (const child of node.children) visit(child, nodes, [...aliases, ...node.aliases]);
+      };
+      for (const node of this.root.children) visit(node);
+    }
+    return registry;
   }
 
   /** Structured child signatures for a parent node, built on demand. */
   subcommandsOf(node) {
     return node.children
-      .filter((child) => child.name !== this.completionCommand && !child.definition.hidden)
+      .filter((child) => !child.definition.hidden)
       .map((child) => {
         child.build();
         return {
@@ -331,42 +410,88 @@ export class LocalCLI {
       });
   }
 
+  /**
+   * Usage line for a command page, derived from the node's own declared
+   * command. Subcommand pages printed only the path (`Usage: jsn flows`,
+   * `Usage: jsn flows show`), which hid the positionals the command accepts and
+   * never mentioned options at all.
+   */
+  _usageLine(node, path, hasChildren) {
+    if (node.usageText) return node.usageText;
+    const declared = (node.definition.command || '').trim().split(/\s+/).slice(1)
+      .filter((token) => !(hasChildren && /^\[sub-?commands?\]$/i.test(token)));
+    const parts = [this.script, ...path, ...(hasChildren ? ['<command>'] : []), ...declared, '[options]'];
+    return `Usage: ${parts.join(' ')}`;
+  }
+
+  _commandRows(node) {
+    return node.children
+      .filter((child) => !child.definition.hidden)
+      .map((child) => ({
+        label: child.definition.command || child.name,
+        description: child.definition.describe || '',
+        note: child.aliases.length ? `[aliases: ${child.aliases.join(', ')}]` : '',
+      }));
+  }
+
+  /**
+   * Option rows carry the alias, type and default a user needs to type the
+   * command. The old line dropped all three and printed long aliases with a
+   * single dash (`-fields`), which is not a flag.
+   */
+  _optionRows(node) {
+    const rows = [];
+    for (const spec of node.options.values()) {
+      const aliases = names(spec.alias).map((alias) => (alias.length === 1 ? `-${alias}` : `--${alias}`));
+      const type = isArrayOption(spec) ? 'array' : spec.type;
+      const meta = [];
+      if (names(spec.choices).length) meta.push(`${type || 'string'}: ${names(spec.choices).join(', ')}`);
+      else if (type && type !== 'boolean') meta.push(type);
+      if (spec.default !== undefined && spec.default !== false && spec.default !== '') meta.push(`default: ${spec.default}`);
+      rows.push({
+        label: [`--${spec.name}`, ...aliases].join(', '),
+        description: spec.describe || spec.description || '',
+        note: meta.map((part) => `[${part}]`).join(' '),
+      });
+    }
+    return rows;
+  }
+
   _help(node, path = []) {
     if (!path.length && this.rootHelpRenderer) {
       process.stdout.write(this.rootHelpRenderer() + "\n");
       return;
     }
-    const lines = [node.usageText || `Usage: ${this.script} ${path.join(' ') || '<command>'}`];
-    if (node.definition.describe) lines.push(`\n${node.definition.describe}`);
-    const children = node.children.filter(n => n.name !== this.completionCommand && !n.definition.hidden);
-    if (children.length) lines.push('\nCommands:\n' + children.map((n) => `  ${n.definition.command}  ${n.definition.describe || ''}`).join('\n'));
-    if (node.options.size) lines.push('\nOptions:\n' + [...node.options].map(([name, s]) => `  --${name}${s.alias ? `, -${names(s.alias).join(', -')}` : ''}  ${s.describe || s.description || ''}`).join('\n'));
-    if (node.epilogueText) lines.push(`\n${node.epilogueText}`);
-    process.stdout.write(lines.join('\n') + '\n');
+    const commands = this._commandRows(node);
+    process.stdout.write(renderSubcommandHelp({
+      usage: this._usageLine(node, path, commands.length > 0),
+      description: node.definition.describe,
+      commands,
+      options: this._optionRows(node),
+      epilogue: this._docsEpilogue(node, path),
+    }));
+  }
+
+  /**
+   * Every help page names the maintained documentation for its command family.
+   * The family comes from the parser's canonical resolved path, so aliases
+   * (`jsn flow`) and nested commands (`jsn records list`) reach the same
+   * registered topic without a per-subcommand footer. A page whose authored
+   * epilogue already prints that URL keeps its own wording rather than repeating
+   * it, and a family with no migrated guide gains no invented URL.
+   */
+  _docsEpilogue(node, path) {
+    const base = node.epilogueText;
+    const link = path.length ? resolveDocLink(path[0]) : null;
+    if (!link || (base && base.includes(link))) return base;
+    const line = `Documentation: ${link}`;
+    return base ? `${base}\n${line}` : line;
   }
   async parse() {
-    if (this.args.includes('--get-yargs-completions')) {
-      const prefix = this.args.at(-1) || '';
-      let completionArgs = this.args.slice(this.args.indexOf('--get-yargs-completions') + 1, -1);
-      if (completionArgs[0] === this.script) completionArgs = completionArgs.slice(1);
-      const { path } = this._findPath(completionArgs);
-      const node = path.at(-1) || this.root;
-      node.build();
-      const argv = { _: path.map((n) => n.name) };
-      const completionFilter = (callback) => {
-        const values = [...node.children].filter((n) => n.name !== this.completionCommand && !n.definition.hidden)
-          .flatMap((n) => path.length ? [n.name] : [n.name, ...n.aliases]);
-        const opts = [...this._optionConfig(path)].map(([name]) => `--${name}`);
-        callback(null, [...new Set([...values, ...opts])]);
-      };
-      const finish = (values) => process.stdout.write([...new Set(values || [])]
-        .filter((x) => x.startsWith(prefix) || prefix.startsWith('-') && x.startsWith(prefix)).join('\n') + '\n');
-      if (this.completionHandler) {
-        this.completionHandler(prefix, argv, completionFilter, finish);
-      } else {
-        completionFilter((err, values) => finish(values));
-      }
-      return;
+    // Reject stale installed shell snippets instead of dispatching their words
+    // as ordinary commands (for example the `r` alias).
+    if (this.args.some(arg => arg.split('=')[0] === '--get-yargs-completions')) {
+      return this._fail('Unknown option: --get-yargs-completions');
     }
     if (this.args[0] === 'help') {
       const target = this._findPath(this.args.slice(1));
@@ -381,6 +506,13 @@ export class LocalCLI {
     const node = path.at(-1) || this.root;
     node.build();
     if (commandArgs.includes('--help') || commandArgs.includes('-h')) { this._help(node, path.map((n) => n.name)); return; }
+    // The root `--version` flag is answered here, before any command dispatch
+    // or demand-command failure, so `jsn --version` is a one-line answer.
+    if (this.versionText !== undefined && !path.length
+      && (commandArgs.includes('--version') || commandArgs.includes('-V'))) {
+      process.stdout.write(`${this.versionText}\n`);
+      return;
+    }
     const firstWord = this.args.find((arg, index) => !discoveryConsumed.has(index) && !arg.startsWith('-'));
     if (this.strictCmd && !path.length && firstWord && !this._lookup(this.root.children, firstWord)) {
       return this._fail(`Unknown command: ${firstWord}`);
@@ -412,6 +544,9 @@ export class LocalCLI {
     }
     for (const spec of specs) if (spec.demandOption && argv[spec.name] === undefined) return this._fail(`Missing required argument: --${spec.name}`);
     for (const pos of positions) if (pos.required && argv[pos.name] === undefined) return this._fail(`Missing required argument: ${pos.name}`);
+    if (path.some(commandNode => commandNode.strict) && positionalIndex < parsed.positionals.length) {
+      return this._fail(`Unexpected argument: ${parsed.positionals[positionalIndex]}`);
+    }
     for (const middleware of this.middlewares) await middleware(argv);
     for (const commandNode of path) for (const middleware of commandNode.middlewares) await middleware(argv);
     if (node.definition.handler) await node.definition.handler(argv);

@@ -34,7 +34,7 @@ test('audience is account scoped; legacy, admin, explicit instance and override 
   assert.equal(visibleCommandRegistry(registry, {}), registry);
 });
 
-test('selected profiles filter help, JSON, discover and completion without removing explicit commands', () => {
+test('selected profiles filter help, JSON and discover without removing explicit commands', () => {
   const home = mkdtempSync(path.join(tmpdir(), 'jsn-audience-'));
   mkdirSync(path.join(home, 'servicenow'));
   writeFileSync(path.join(home, 'servicenow/config.json'), JSON.stringify({ default_profile: 'limited', profiles: {
@@ -53,6 +53,7 @@ test('selected profiles filter help, JSON, discover and completion without remov
       const text = run(['--profile', 'limited', ...args]);
       assert.match(text, /jsn incidents/); assert.doesNotMatch(text, /jsn eval\s/);
     }
+    assert.match(run(['--profile', 'limited', '--all-commands', '--help']), /^ {2}eval\s{2,}/m);
     assert.doesNotMatch(run(['help']), /jsn eval\s/);
     const names = args => JSON.parse(run(args)).data.commands.map(command => command.name);
     assert(!names(['--profile', 'limited', '--json']).includes('eval'));
@@ -61,17 +62,13 @@ test('selected profiles filter help, JSON, discover and completion without remov
     assert(!names(['--profile', 'limited', 'discover', '--json']).includes('eval'));
     assert(names(['--profile', 'limited', 'discover', '--all-commands', '--json']).includes('eval'));
     assert.match(run(['--profile', 'limited', 'eval', '--help']), /Execute background/);
-    assert.doesNotMatch(run(['--profile', 'limited', '--get-yargs-completions', '']), /^eval$/m);
     // Self-update changes the local installation, not ServiceNow records. Its
     // canonical registration and update alias must be reachable for everyone.
     for (const name of ['limited', 'admin', 'readonly']) {
-      assert.match(run(['--profile', name, '--help']), /jsn upgrade/);
+      assert.match(run(['--profile', name, 'upgrade', '--help']), /Usage: jsn upgrade/);
       const entry = JSON.parse(run(['--profile', name, '--json'])).data.commands.find(c => c.name === 'upgrade');
       assert.ok(entry.aliases.includes('update'));
       assert.ok(names(['--profile', name, 'discover', 'update', '--json']).includes('upgrade'));
-      const completions = run(['--profile', name, '--get-yargs-completions', '']);
-      assert.match(completions, /^upgrade$/m);
-      assert.match(completions, /^update$/m);
       for (const command of ['upgrade', 'update']) {
         const result = JSON.parse(run(['--profile', name, command, '--dry-run', '--json']));
         assert.equal(result.data.dryRun, true);

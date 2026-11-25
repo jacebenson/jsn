@@ -116,7 +116,7 @@ describe('decision table inspection', () => {
       if (table === 'sys_decision_input') return [{ name: 'priority', label: 'Priority', source_table: 'task' }];
       if (table === 'sys_decision_question') return [{ condition: 'priority=1', answer: 'yes' }];
       return [];
-    } }, getEffectiveInstance: () => 'https://dev265639.service-now.com' };
+    } }, getEffectiveInstance: () => 'https://example.service-now.com' };
     const detail = await inspectDecisionTable(app, {
       sys_id: { value: 'dt1', display_value: 'Approval' },
       name: { value: 'Approval', display_value: 'Approval' },
@@ -124,7 +124,7 @@ describe('decision table inspection', () => {
     assert.equal(queries[0][1], 'model=dt1^ORDERBYorder');
     assert.equal(queries[1][1], 'decision_table=dt1^ORDERBYorder');
     assert.match(detail._formatted, /^Decision table: Approval\n/);
-    assert.match(detail._formatted, /https:\/\/dev265639\.service-now\.com\/now\/workflow-studio\/builder\?table=sys_decision&sysId=dt1/);
+    assert.match(detail._formatted, /https:\/\/example\.service-now\.com\/now\/workflow-studio\/builder\?table=sys_decision&sysId=dt1/);
     assert.doesNotMatch(detail._formatted, /\[object Object\]/);
   });
 
@@ -374,12 +374,12 @@ describe('decisiontables command wiring', () => {
     assert.equal(outputCalls, 0);
   });
 
-  it('registers list, inspection, and CRUD commands', () => {
+  it('registers list, inspection, evaluation, and CRUD commands', () => {
     const commands = [];
     const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
     const cmd = decisiontablesCmd((handler) => handler);
     cmd.builder(yargs);
-    assert.deepEqual(commands.map((c) => c.command), ['list', 'show <identifier>', 'create', 'update <identifier>', 'delete <identifier>']);
+    assert.deepEqual(commands.map((c) => c.command), ['list', 'show <identifier>', 'evaluate <identifier>', 'create', 'update <identifier>', 'delete <identifier>']);
   });
 
   it('uses the output wrapper for bare command guidance', () => {
@@ -389,6 +389,7 @@ describe('decisiontables command wiring', () => {
     assert.deepEqual(result.data.guidance, [
       'jsn decisiontables list',
       'jsn decisiontables show <name_or_sys_id>',
+      'jsn decisiontables evaluate <name_or_sys_id> --input <name>=<value>',
       "jsn decisiontables create --data '<json>' (or --data-file <path>)",
       "jsn decisiontables update <sys_id> --data '<json>' (or --data-file <path>)",
       'jsn decisiontables delete <name_or_sys_id>',

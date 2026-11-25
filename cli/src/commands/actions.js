@@ -4,6 +4,7 @@ import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { declareCapabilities } from '../capabilities.js';
 import { ACTION_TABLE, actionScope } from '../processflow-actions.js';
 import { errUsage } from '../errors.js';
+import { assertMutationScope } from '../intended-context.js';
 import { cancelled, pickDesignerRecord, designerScope, guidedActionCreate, guidedActionEdit, guidedActionTestInputs, interactiveDesigner, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
 
 const ACTION_COMMANDS = [
@@ -87,7 +88,7 @@ export const actionsCmd = wrap => {
       { action: 'list', cmd: 'jsn actions list', description: 'Back to actions' },
     ],
   });
-  declareCapabilities('actions', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'test'] });
+  declareCapabilities('actions', { transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test'], mutationSubcommands: ['create', 'update', 'edit', 'delete', 'test'] });
   // Retain the common wrap and output controller; domain failures get a
   // structured error envelope and nonzero exit, never a success-shaped dispatch.
   const run = handler => wrap(async (argv, app) => {
@@ -110,6 +111,7 @@ export const actionsCmd = wrap => {
           const guided = !hasDefinitionData(argv) ? await guidedActionCreate(argv, app) : undefined;
           const definition = guided?.definition ?? parseDataArg(argv);
           const scope = guided?.scope ?? await designerScope(argv, app);
+          assertMutationScope(app.mutationContext, scope, 'Action creation');
           const result = await app.sdk.createProcessFlowAction(scope, definition);
           app.ok(result, { summary: `Created and verified action ${result.sys_id}` });
         }),
@@ -152,9 +154,11 @@ export const actionsCmd = wrap => {
           if (!hasDefinitionData(argv) && !interactiveDesigner(argv, app)) throw errUsage('Provide --data-file or --data for the full action definition in noninteractive mode');
           const id = await actionID(argv, app);
           if (id === undefined) return;
+          const scope = await actionScope(app.sdk, id, app.mutationContext?.application_id ?? argv.scope);
+          assertMutationScope(app.mutationContext, scope, 'Action target');
           const definition = hasDefinitionData(argv) ? parseDataArg(argv)
-            : await guidedActionEdit(argv, app, await app.sdk.getProcessFlowAction(id, await actionScope(app.sdk, id, argv.scope)));
-          const result = await app.sdk.updateProcessFlowAction(id, argv.scope, definition);
+            : await guidedActionEdit(argv, app, await app.sdk.getProcessFlowAction(id, scope));
+          const result = await app.sdk.updateProcessFlowAction(id, scope, definition);
           app.ok(result, { summary: `Saved and verified action ${id}` });
         }),
       })
@@ -216,7 +220,8 @@ export const actionsCmd = wrap => {
         handler: run(async (argv, app) => {
           const id = await actionID(argv, app);
           if (id === undefined) return;
-          await actionScope(app.sdk, id, argv.scope);
+          const scope = await actionScope(app.sdk, id, app.mutationContext?.application_id ?? argv.scope);
+          assertMutationScope(app.mutationContext, scope, 'Action target');
           await confirmDesignerMutation(argv, app, `Delete action '${id}'`);
           await app.sdk.delete(ACTION_TABLE, id);
           // Verify the exact target is absent. Do not interpret a 403 as deletion.

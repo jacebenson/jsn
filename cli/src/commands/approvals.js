@@ -25,7 +25,7 @@ import { errUsage, errNotFound } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 
 // approve/reject/submit change approval state on records.
-declareCapabilities('approvals', { mutationSubcommands: ['approve', 'reject', 'submit'] });
+declareCapabilities('approvals', { queryTable: 'sysapproval_approver', mutationContext: 'operational', mutationSubcommands: ['approve', 'reject', 'submit'] });
 
 // Raw sysapproval_approver.state values (verified live).
 const APPROVAL_STATES = [
@@ -173,6 +173,7 @@ export function approvalsCmd(wrap) {
   return {
     command: 'approvals [subcommand]',
     describe: 'Manage approval requests (list, approve, reject, submit, history)',
+    summary: 'List, approve, or reject approval requests',
     builder: (yargs) => {
       return yargs
         .command({

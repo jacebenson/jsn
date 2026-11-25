@@ -1,3 +1,4 @@
+import { midserversCmdDefinition } from '../command-families.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -9,7 +10,6 @@ import { prepareWindowsRemoteMidServer, installWindowsRemoteMidServer, startWind
 import { prepareLinuxRemoteMidServer, installLinuxRemoteMidServer, startLinuxRemoteMidServer, stopLinuxRemoteMidServer, logsLinuxRemoteMidServer, removeLinuxRemoteMidServer } from '../midserver-linux-remote.js';
 import { downloadRemoteMidRecipe } from '../midserver-remote-recipe.js';
 import { FormatAuto } from '../output.js';
-import { declareCapabilities } from '../capabilities.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, normalizeMidName, validateMidCredentials } from '../midserver-install.js';
 import { detectDirectPlatform, followDirectLog, installDirectMidServer, readDirectInstallation, removeDirectInstallation, resolveDirectLogFile, runDirectInstallation } from '../midserver-direct.js';
@@ -20,7 +20,7 @@ const LIST_FIELDS = ['sys_id', 'name', 'status', 'host_name', 'ip_address', 'ver
 const DEFAULT_TIMEOUT = 120000;
 const DEFAULT_INTERVAL = 2000;
 
-declareCapabilities('midservers', { mutationSubcommands: ['add', 'remove', 'execute', 'start', 'stop', 'validate'] });
+
 
 function agentName(record) {
   const name = getStringField(record, 'name');
@@ -302,12 +302,7 @@ async function promptMidCredentials(app, argv) {
       const validation = await validateMidCredentials(app.getEffectiveInstance(), username, password);
       return { username, password, releaseName: validation.releaseName };
     } catch (error) {
-      const answer = await input({ message: `${error.message}. Press Enter to retry or Q to quit:` });
-      if (answer.trim().toLowerCase() === 'q') {
-        const quit = new Error('MID Server installation cancelled');
-        quit.code = 'cancelled';
-        throw quit;
-      }
+      await input({ message: `${error.message}. Press Enter to retry or Esc to cancel:` });
       username = argv.username || '';
     }
   }
@@ -422,9 +417,7 @@ async function showMidServerLogs(app, identifier, argv) {
 
 export function midserversCmd(wrap) {
   return {
-    command: 'midservers [subcommand]',
-    aliases: ['midserver', 'mid'],
-    describe: 'Manage ServiceNow MID Servers and run commands through them',
+    ...midserversCmdDefinition,
     builder: (y) => y
       .command(midDiagnosticsCommand('issues', wrap))
       .command(midDiagnosticsCommand('events', wrap))

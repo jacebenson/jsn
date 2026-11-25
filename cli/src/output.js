@@ -9,6 +9,7 @@ export const FormatMarkdown = 'markdown';
 export const FormatStyled = 'styled';
 export const FormatQuiet = 'quiet';
 export const FormatCSV = 'csv';
+export const FormatTSV = 'tsv';
 
 /**
  * Resolve a dotpath (`.data[0].number`, `data.records.0.sys_id`) against an
@@ -93,7 +94,10 @@ export class OutputWriter {
   constructor(opts = {}) {
     this.format = opts.format || FormatAuto;
     this.writer = opts.writer || process.stdout;
+    this.errorWriter = opts.errorWriter || process.stderr;
     this.jqFilter = opts.jqFilter || '';
+    this.verbose = opts.verbose === true;
+    this.raw = opts.raw === true;
   }
 
   getFormat() {
@@ -122,7 +126,20 @@ export class OutputWriter {
     return this.format;
   }
 
+  // Export callers can preflight exactly the extraction that ok() will emit,
+  // before creating a local file or performing another irreversible side effect.
+  validateExtraction(data, opts = {}) {
+    if (!this.jqFilter) return undefined;
+    const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [], ...(opts.context ? { context: opts.context } : {}) };
+    const value = resolvePath(envelope, this.jqFilter);
+    if (value === undefined) throw errExtractionNotFound(this.jqFilter);
+    return value;
+  }
+
   ok(data, opts = {}) {
+    if (!['json', 'quiet'].includes(this.effectiveFormat()) && !this.jqFilter) {
+      for (const warning of (data?.query_validation ? data.warnings : opts.meta?.warnings) || [] ) this.errorWriter.write(`Warning: ${warning}\n`);
+    }
     // --get extractor: resolve against the JSON envelope and print just that
     // value as JSON. Takes precedence over styling/table formats — a path
     // extract is inherently scriptable, not presentational.
@@ -132,10 +149,10 @@ export class OutputWriter {
     // typo looked like a successful empty result until the next tool in the
     // pipeline failed to parse it. Present null/false/0/"" still print as-is.
     if (this.jqFilter) {
-      const envelope = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
-      const value = resolvePath(envelope, this.jqFilter);
-      if (value === undefined) throw errExtractionNotFound(this.jqFilter);
-      this.writer.write(JSON.stringify(value, null, 2) + '\n');
+      const value = this.validateExtraction(data, opts);
+      const indent = this.verbose && !this.raw ? 2 : undefined;
+      const text = this.raw && typeof value === 'string' ? value : JSON.stringify(value, null, indent);
+      this.writer.write(text + '\n');
       return;
     }
 
@@ -149,6 +166,8 @@ export class OutputWriter {
         return this.writeQuiet(data);
       case FormatCSV:
         return this.writeCSV(data, opts);
+      case FormatTSV:
+        return this.writeDelimited(data, '\t', tsvEscape, 'TSV');
       case FormatStyled:
         return this.writeStyled(data, opts);
       default:
@@ -160,6 +179,7 @@ export class OutputWriter {
     const format = this.effectiveFormat();
     const e = error.code ? error : { code: 'unknown', message: String(error), hint: '' };
     const resp = { ok: false, error: e.message, code: e.code, hint: e.hint || '' };
+    if (e.query_validation) resp.query_validation = e.query_validation;
     if (e.resolution) resp.resolution = e.resolution;
     if (e.context) resp.context = e.context;
     if (e.status === 401 || e.status === 403) resp.status = e.status;
@@ -167,10 +187,13 @@ export class OutputWriter {
       resp.recovery = e.recovery;
       if (Object.hasOwn(e, 'profile')) resp.profile = e.profile;
     }
+    // Captured browser sessions cannot be renewed, so the machine envelope
+    // must carry the same recapture marker the in-process error exposes.
+    if (e.recapture_required) resp.recapture_required = true;
     switch (format) {
       case FormatJSON:
       case FormatQuiet:
-        this.writer.write(JSON.stringify(resp, null, 2) + '\n');
+        this.writer.write(JSON.stringify(resp, null, this.verbose ? 2 : undefined) + '\n');
         break;
       case FormatMarkdown:
         this.writer.write(`**Error (${e.code})**: ${e.message}\n`);
@@ -181,17 +204,48 @@ export class OutputWriter {
           this.writer.write(colorRed(`Error (${e.code}): ${e.message}\n`));
           if (e.hint) this.writer.write(colorYellow(`Hint: ${e.hint}\n`));
         } else {
-          this.writer.write(JSON.stringify(resp, null, 2) + '\n');
+          this.writer.write(JSON.stringify(resp, null, this.verbose ? 2 : undefined) + '\n');
         }
     }
   }
 
+  /**
+   * Write one item of an event stream (e.g. `records watch`).
+   *
+   * A stream cannot use the single-envelope `ok()`, so this method emits one
+   * compact JSON object per line — newline-delimited JSON, the shape agents
+   * and scripts can consume incrementally without buffering the whole run.
+   * Human formats print `opts.line` (domain-formatted by the command) and
+   * fall back to the JSON line when the command supplied none.
+   *
+   * `--get` stays meaningful: the path is resolved against each event, and
+   * a path that does not resolve emits `null` rather than aborting the
+   * stream mid-observation.
+   */
+  writeEvent(data, opts = {}) {
+    const format = this.effectiveFormat();
+    if (format === FormatStyled || format === FormatMarkdown) {
+      this.writer.write(`${opts.line ?? JSON.stringify(data)}\n`);
+      return;
+    }
+    if (this.jqFilter) {
+      const value = resolvePath(data, this.jqFilter);
+      this.writer.write(`${JSON.stringify(value === undefined ? null : value)}\n`);
+      return;
+    }
+    this.writer.write(`${JSON.stringify(data)}\n`);
+  }
+
   writeJSON(data, opts) {
-    const resp = { ok: true, data, summary: opts.summary || '', breadcrumbs: opts.breadcrumbs || [] };
+    const resp = { ok: true, data };
+    if (this.verbose) {
+      resp.summary = opts.summary || '';
+      resp.breadcrumbs = opts.breadcrumbs || [];
+    }
     if (opts.notice) resp.notice = opts.notice;
     if (opts.context) resp.context = opts.context;
     if (opts.meta) resp.meta = opts.meta;
-    this.writer.write(JSON.stringify(resp, null, 2) + '\n');
+    this.writer.write(JSON.stringify(resp, null, this.verbose ? 2 : undefined) + '\n');
   }
 
   writeQuiet(data) {
@@ -251,38 +305,59 @@ export class OutputWriter {
     }
   }
 
-  writeCSV(data, opts) {
-    if (opts.summary && isTTY(this.writer)) {
-      this.writer.write(opts.summary + '\n\n');
-    }
+  writeCSV(data, _opts) {
+    return this.writeDelimited(data, ',', csvEscape, 'CSV');
+  }
+
+  writeDelimited(data, delimiter, escape, label) {
+    // Delimited stdout contains only the table, even on a terminal. Pagination is
+    // diagnostic output, not an extra row that spreadsheet readers must skip.
     if (Array.isArray(data)) {
-      this.writeCSVTable(data);
+      this.writeDelimitedTable(data, delimiter, escape);
     } else if (data && typeof data === 'object' && Array.isArray(data.records)) {
-      this.writeCSVTable(data.records);
+      this.writeDelimitedTable(data.records, delimiter, escape);
+      const page = data.pagination;
+      if (page?.hasMore === true) {
+        const count = data.records.length;
+        const total = Number.isSafeInteger(page.total) && page.total >= 0
+          ? ` of ${page.total}` : '';
+        const unknown = total ? '' : '; total unknown';
+        // List commands advance the requested window, including short pages.
+        // Do not guess an offset when the envelope lacks that context.
+        const nextOffset = Number.isSafeInteger(page.offset) && page.offset >= 0
+          && Number.isSafeInteger(page.limit) && page.limit > 0
+          && Number.isSafeInteger(page.offset + page.limit)
+          ? `; next offset ${page.offset + page.limit}` : '';
+        this.errorWriter.write(`${label} pagination: returned ${count}${total} records${unknown}; more available${nextOffset}.\n`);
+      }
     } else {
-      this.writeCSVTable([data]);
+      this.writeDelimitedTable([data], delimiter, escape);
     }
   }
 
   writeCSVTable(rows) {
+    return this.writeDelimitedTable(rows, ',', csvEscape);
+  }
+
+  writeDelimitedTable(rows, delimiter, escape) {
     if (!Array.isArray(rows) || rows.length === 0) {
       this.writer.write('');
       return;
     }
     const columns = Object.keys(rows[0]);
-    this.writer.write(columns.map(csvEscape).join(',') + '\n');
+    this.writer.write(columns.map(escape).join(delimiter) + '\n');
     for (const row of rows) {
       const cells = columns.map((col) => {
         const val = row[col];
         if (val == null) return '';
         if (typeof val === 'object') {
-          if (val.display_value != null) return csvEscape(val.display_value);
-          if (val.value != null) return csvEscape(val.value);
-          return csvEscape(JSON.stringify(val));
+          if (val.display_value != null) return escape(val.display_value);
+          if (val.value != null) return escape(val.value);
+          return escape(JSON.stringify(val));
         }
-        return csvEscape(val);
+        return escape(val);
       });
-      this.writer.write(cells.join(',') + '\n');
+      this.writer.write(cells.join(delimiter) + '\n');
     }
   }
 
@@ -300,7 +375,7 @@ export class OutputWriter {
     // logic belongs in the command that owns the domain — output.js stays
     // generic. Other underscore-prefixed side-channel keys commands may
     // attach: `_context` ({instance_url, table} consumed by the record
-    // renderer), `_attachments`, `_variables` (record card sections), plus
+    // renderer), `_attachments`, `_variables`, `_choices`, `_variable_sets` (record card sections), plus
     // `records`/`columns`/`table`/`relationships` for the generic table and
     // record views below.
     const hasFormatted = data && typeof data === 'object' && data._formatted;
@@ -324,6 +399,12 @@ export class OutputWriter {
         // _formatted (e.g. cmdb show card) replaces the raw field dump —
         // the visual is the curated view; JSON/quiet keep full data.
         this.writeFormattedRecord(data, tableName);
+      }
+
+      if (Array.isArray(data.warnings) && data.warnings.length > 0 && !data._formatted) {
+        for (const w of data.warnings) {
+          this.writer.write(colorYellow(`⚠ ${w}\n`));
+        }
       }
 
       if (Array.isArray(data.records) && data.records.length > 0) {
@@ -385,7 +466,7 @@ export class OutputWriter {
         let val = getDisplayValue(row[col]);
         const width = colWidths[col] || 20;
 
-        if (j === 0 && instanceURL && table && row.sys_id) {
+        if (j === 0 && instanceURL && table && row.sys_id && isTTY(this.writer)) {
           const url = getTableURL(instanceURL, table, row.sys_id);
           val = hyperlink(val, url);
         }
@@ -515,6 +596,28 @@ export class OutputWriter {
       this.writer.write('\n');
     }
 
+    // Column choices (columns show): which table's sys_choice list applies.
+    if (data._choices && typeof data._choices === 'object') {
+      const c = data._choices;
+      const own = c.source === c.table;
+      const count = c.truncated ? `first ${c.choices.length}` : c.choices?.length;
+      const others = (c.searched || []).filter(name => name !== c.source).join(', ');
+      const title = c.error || c.choice_table ? '' : !c.source ? ` (none active found on ${others})`
+        : own ? ` (${count} on ${c.source})` : ` (${count} inherited from ${c.source}; none active on ${others})`;
+      this.writer.write(`─ Choices${title} ─\n`);
+      if (c.error) this.writer.write(`  Unavailable: ${c.error}\n`);
+      if (!c.error && !c.choice_table && !c.source) this.writer.write('  Row ACLs can hide sys_choice rows, so this does not prove the field has none.\n');
+      if (c.choice_table) {
+        const from = [c.choice_table, c.choice_field].filter(Boolean).join('.');
+        this.writer.write(`  Defined by the choice table ${from}${c.choice_field ? `: jsn columns show ${from}` : ''}\n`);
+      }
+      for (const row of c.choices || []) {
+        this.writer.write(`  value: ${row.value} | label: ${row.label} | sequence: ${row.sequence}${row.dependent_value ? ` | dependent_value: ${row.dependent_value}` : ''}${row.inactive ? ' | inactive: true' : ''}\n`);
+      }
+      if (c.truncated) this.writer.write(`  All: jsn records list --table sys_choice --query "name=${c.source}^element=${c.element}^language=en" --limit 1000\n`);
+      this.writer.write('\n');
+    }
+
     if (data._essential && typeof data._essential === 'object') {
       for (const [name, related] of Object.entries(data._essential)) {
         this.writer.write(`─ Essential: ${name} (${related.loaded} loaded${related.has_more ? ', more available' : ''}) ─\n`);
@@ -553,20 +656,29 @@ export class OutputWriter {
     }
 
     // ── Catalog Variables ──
+    const writeVariable = (v, indent) => {
+      const q = v.question || '';
+      const val = v.value || '';
+      if (val.includes('\n')) {
+        this.writer.write(`${indent}${q}:\n`);
+        for (const line of val.split('\n')) {
+          this.writer.write(`${indent}  ${line}\n`);
+        }
+      } else {
+        this.writer.write(`${indent}${q}:  ${val}\n`);
+      }
+    };
     if (data._variables && Array.isArray(data._variables) && data._variables.length > 0) {
       this.writer.write('─ Catalog Variables ─\n');
-      for (const v of data._variables) {
-        const q = v.question || '';
-        const val = v.value || '';
-        if (val.includes('\n')) {
-          this.writer.write(`  ${q}:\n`);
-          for (const line of val.split('\n')) {
-            this.writer.write(`    ${line}\n`);
-          }
-        } else {
-          this.writer.write(`  ${q}:  ${val}\n`);
-        }
-      }
+      for (const v of data._variables) writeVariable(v, '  ');
+      this.writer.write('\n');
+    }
+    for (const variableSet of Array.isArray(data._variable_sets) ? data._variable_sets : []) {
+      this.writer.write(`─ Variable set: ${variableSet.set} ─\n`);
+      variableSet.rows.forEach((row, index) => {
+        this.writer.write(`  Row ${index + 1}\n`);
+        for (const v of row) writeVariable(v, '    ');
+      });
       this.writer.write('\n');
     }
 
@@ -640,6 +752,11 @@ export function getDisplayValue(val) {
     return JSON.stringify(val);
   }
   return String(val);
+}
+
+// Backslash escapes keep each TSV record on one physical line, including headers.
+export function tsvEscape(val) {
+  return String(val ?? '').replace(/[\\\t\n\r]/g, ch => ({ '\\': '\\\\', '\t': '\\t', '\n': '\\n', '\r': '\\r' })[ch]);
 }
 
 /** Escape a single CSV field: quote when it contains a delimiter, quote, or newline. */

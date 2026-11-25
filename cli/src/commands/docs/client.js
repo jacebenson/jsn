@@ -1,5 +1,6 @@
 // Public documentation service. Deliberately independent of instance credentials.
 import { AppError } from '../../errors.js';
+import { selectDocument, SECTION_PROTOCOL } from './sections.js';
 
 export const DEFAULT_DOCS_URL = 'https://jsn.jace.pro';
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -39,39 +40,78 @@ async function request(endpoint, params, options = {}) {
     const code = response.status === 404 ? 'not_found' : response.status === 429 ? 'rate_limited' : response.status === 400 ? 'usage_error' : 'api_error';
     const message = typeof data?.error === 'string' ? data.error.slice(0, 300) : `Documentation service returned HTTP ${response.status}.`;
     const hint = response.status === 409 ? 'Search again for the current revision, or retrieve the document by its exact path.'
-      : response.status === 429 ? 'Wait before retrying.' : response.status >= 500 ? 'Try again later; the documentation service may be updating or unavailable.' : '';
+      : response.status === 429 ? 'Wait before retrying.' : response.status >= 500 ? 'Try again later; the documentation service may be updating or unavailable.' : typeof data?.hint === 'string' ? data.hint : '';
     throw new AppError(code, message, hint, response.status);
   }
+  if (options.release && data?.release !== undefined && data.release !== options.release) throw new AppError('api_error', `Documentation service returned release ${data.release}, expected ${options.release}.`);
   return { data, service };
 }
 function invalidResponse() {
   return new AppError('api_error', 'Unexpected documentation service response.', 'Check JSN_DOCS_URL and the documentation service version.');
 }
-export async function searchHostedDocs(options = {}) {
+export function searchInput(options = {}) {
   const query = String(options.query || '').trim();
   const limit = options.limit ?? 20, offset = options.offset ?? 0;
   if (!query || query.length > 200) throw new AppError('usage_error', 'Search query must contain 1–200 characters.');
   if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 10000) {
     throw new AppError('usage_error', 'Use --limit 1–50 and --offset 0–10000.');
   }
-  const { data, service } = await request('api/docs/search', { q: query, limit, offset, bundle: options.bundle }, options);
+  return { query, limit, offset };
+}
+export async function searchHostedDocs(options = {}) {
+  const { query, limit, offset } = searchInput(options);
+  const { data, service } = await request('api/docs/search', { q: query, limit, offset, bundle: options.bundle, release: options.release }, options);
   if (!data || !Array.isArray(data.results) || data.results.length > limit || data.count !== data.results.length ||
       !Number.isInteger(data.total) || data.total < data.count || typeof data.revision !== 'string' ||
       !data.results.every(row => row && Number.isInteger(row.id) && typeof row.path === 'string')) throw invalidResponse();
-  return { ...data, query, limit, offset, service };
+  // A service that predates release selection echoes no release of its own; when every
+  // row it returned is stamped with a different family, say so instead of relabelling it.
+  if (options.release && data.release === undefined) {
+    const stamped = new Set(data.results.map(row => row.release).filter(value => typeof value === 'string' && value));
+    if (stamped.size === 1 && !stamped.has(options.release)) {
+      throw new AppError('api_error', `Documentation service answered with ${[...stamped][0]} documents, expected ${options.release}.`,
+        'Update the documentation service to serve multiple releases, or omit --release.');
+    }
+  }
+  return { ...data, release: options.release ?? data.release, query, limit, offset, service };
 }
-export async function getHostedDoc(idOrPath, options = {}) {
+export function docInput(idOrPath, options = {}) {
   const identifier = String(idOrPath || '');
   if (!identifier) throw new AppError('usage_error', 'Provide a document ID or exact path.');
+  if ((options.outline && options.section !== undefined) || (options.section !== undefined && !String(options.section).trim())) throw new AppError('usage_error', 'Use either --outline or one nonempty --section.');
+  return identifier;
+}
+export async function getHostedDoc(idOrPath, options = {}) {
+  const identifier = docInput(idOrPath, options);
   const numeric = /^\d+$/.test(identifier);
   const { data, service } = await request(numeric ? `api/docs/${identifier}` : 'api/docs/document', {
-    ...(numeric ? {} : { path: identifier }), revision: options.revision,
+    ...(numeric ? {} : { path: identifier }), revision: options.revision, release: options.release,
+    outline: options.outline || undefined, section: options.section,
   }, options);
-  if (!data || !data.document || typeof data.document.body !== 'string' || typeof data.document.path !== 'string' || typeof data.revision !== 'string') throw invalidResponse();
-  return { ...data.document, revision: data.revision, service };
+  const targeted = options.outline || options.section !== undefined;
+  const native = data?.section_protocol === SECTION_PROTOCOL;
+  if (!data?.document || typeof data.document.path !== 'string' || typeof data.revision !== 'string' ||
+      (!(targeted && native && options.outline) && typeof data.document.body !== 'string')) throw invalidResponse();
+  if (options.revision && data.revision !== options.revision) throw new AppError('api_error', 'Documentation revision mismatch. Refresh the outline.');
+  if (options.release && data.document.release && data.document.release !== options.release) throw new AppError('api_error', `Documentation service returned release ${data.document.release}, expected ${options.release}.`);
+  let row = { ...data.document, release: options.release ?? data.release ?? data.document.release, revision: data.revision, service };
+  if (targeted) {
+    if (!native) row = selectDocument(row, options);
+    const mode = options.outline ? 'outline' : 'section';
+    if (row.retrieval?.protocol !== SECTION_PROTOCOL || row.retrieval?.mode !== mode ||
+        (options.outline ? !Array.isArray(row.outline) : !row.section || row.retrieval.subtree_complete !== true)) throw invalidResponse();
+    row.retrieval = { ...row.retrieval, execution: native ? 'service' : 'client-fallback', full_document_transferred: !native };
+  }
+  return row;
 }
 export async function getHostedDocsStatus(options = {}) {
-  const { data, service } = await request('api/docs/status', {}, options);
+  const { data, service } = await request('api/docs/status', { release: options.release }, options);
   if (!data || typeof data.state !== 'string') throw invalidResponse();
-  return { ...data, service };
+  return { ...data, release: options.release ?? data.release, service };
+}
+export async function listHostedReleases(options = {}) {
+  const { data } = await request('api/docs/releases', {}, options);
+  if (!Array.isArray(data?.releases)) throw invalidResponse();
+  // The registry lists a family before its first sync, with no revision and nothing to serve.
+  return data.releases.filter(row => typeof row?.release === 'string' && typeof row.revision === 'string' && row.revision).map(row => row.release);
 }

@@ -1,238 +1,175 @@
 # JSN: ServiceNow CLI
 
-A command-line interface for ServiceNow. Read and update records, manage flows, inspect platform data, and automate routine work from your terminal or AI agent.
+Read ServiceNow records, inspect platform metadata, search documentation, and make explicit changes from your terminal or AI agent.
 
-## Install
+[npm](https://www.npmjs.com/package/@jacebenson/jsn) · [GitHub](https://github.com/jacebenson/jsn) · [JSN docs](https://jsn.jace.pro/docs/install/)
 
-Supports the current Node.js LTS release. Supports macOS, Linux, and Windows.
+## Install and connect
 
-```bash
+Use the current [Node.js LTS release](https://nodejs.org/en/about/previous-releases) and npm on macOS, Linux, or Windows. Older Node.js release lines are not supported.
+
+```sh
 npm install -g @jacebenson/jsn
 jsn setup
 ```
 
-See the [setup guide](https://github.com/jacebenson/jsn/blob/main/docs/docs-setup.md) to connect an instance safely.
+Setup connects a named profile to your instance. Its default preset allows writes, so enable read-only mode before exploring. See [setup and authentication](https://jsn.jace.pro/docs/setup/).
 
-### Dev channel
+For unreleased changes, use `npm install -g @jacebenson/jsn@dev`; see [channels and updates](https://github.com/jacebenson/jsn/blob/main/site/docs/maintainers/releases.md).
 
-For the newest changes from `main`, including changes that may be unstable:
+## Read and discover
 
-```bash
-npm install -g @jacebenson/jsn@dev
+```sh
+jsn records list --table incident --query "active=true" --limit 5 --json
+jsn discover --table incident
+jsn columns show incident.priority    # dictionary entry and its choices, inherited from task
+jsn docs "GlideRecord" --limit 5
+jsn --help
 ```
 
-Dev builds check the dev channel for updates during normal use, at most once
-per day. Run `jsn version --check` to check immediately. To install the newest
-dev build, run `jsn upgrade` (alias: `jsn update`). It preserves your installed
-channel and skips installation when no newer version is available. Use
-`--dry-run` to print the npm command without network access or installation,
-`--force` to reinstall, or `--channel dev|latest` to switch channels explicitly.
-For example, `jsn upgrade --channel latest` returns to stable. npm installation
-permissions still apply; the command does not elevate privileges automatically.
+Instance reads use your selected profile; add `--profile <name>` to choose another. Documentation search uses the hosted service by default and needs no ServiceNow connection; with a profile selected and no release named, it reads the instance's release to choose the documentation family. Use `jsn <command> --help` for options or `jsn --all-commands --help` for the full reference.
 
-Pushes to `main` promote the commit to `dev` and publish a tested prerelease
-under npm's `dev` tag. Versions include the workflow run number and attempt
-(for example, `4.3.9-dev.123.1`); they do not move npm's stable `latest` tag.
-The npm trusted publisher for `publish-dev.yml` must authorize the repository's
-`dev` GitHub environment, alongside the production publishing configuration.
+## Why a user holds a role
 
-### Knowledge search
-
-Use `jsn knowledge search "VPN setup" --profile work` (alias `kb`) to search
-accessible articles, then `jsn knowledge show KB0000010 --profile work` to read
-one. Search supports bounded `--limit`/`--offset`, knowledge-base sys_ids with
-`--kb`, and `--language`. JSON preserves native HTML; human output uses Markdown.
-Hints preserve an explicitly selected profile/instance. The Knowledge API plugin
-(`sn_km_api`) must be available; access is evaluated by that API, with no fallback
-to direct table reads. Reads do not request view-count updates. See the
-[Knowledge API reference](https://www.servicenow.com/docs/r/yokohama/api-reference/rest-apis/knowledge-api.html).
-
-### Instance Scan
-
-`jsn scan` manages checks and suites and runs scans against an explicit target.
-Use `jsn scan --help` and each subcommand's `--help` to discover the options.
-
-```bash
-jsn scan checks list --profile dev
-jsn scan checks create --type table --data-file check.json --profile dev
-jsn scan checks activate <check-id> --profile dev
-jsn scan suites add-check <suite-id> --check <check-id> --profile dev
-jsn scan run --update-set "My change" --suite "My suite" --wait --profile dev
-jsn scan run --table sys_script_include --record <record-id> --profile dev
-jsn scan results <execution-id> --profile dev
+```sh
+jsn users roles <user> --profile <name>
+jsn users roles <user> --why --role <role>
+jsn users roles <user> --why --json
 ```
 
-Check types are `table`, `column`, `linter`, and `script`. Definitions are created
-inactive unless the payload explicitly sets `active: true`; activation never
-starts a scan. Both checks and suites support list/show/create/update/delete and
-activate/deactivate. Suites also support add-check/remove-check.
+`users roles` lists the user's `sys_user_has_role` rows, joined on raw sys_ids
+(`--limit` 1–1000, default 100, with `pagination.has_more`). Row ACLs can hide
+rows, so an empty list does not prove the user lacks a role. `--why` asks the
+platform's User Role Inheritance API, which needs `user_admin`, for every path
+to each role: a direct grant, a chain of contained roles, or a group. Groups
+appear by the name the platform prints; the API returns no sys_ids. A missing,
+denied or malformed reply is an error, never an empty answer.
 
-Runs require an update set, scope, record plus table, or explicit `--full`.
-Instance-wide scans may traverse many tables even when a check's script only
-examines a few records. Starting and cancelling a scan require confirmation;
-use `--force` only after approving that operation. `--wait --timeout 120` bounds
-the wait, not the scan's lifetime. A timed-out wait keeps the execution id and
-does not cancel or resubmit the scan. Use `status`, `results`, or `cancel` next.
+## Record version history
 
-Update-set scans examine current instance records, not the historical XML
-versions. Inactive records may be skipped. Script-only checks do not participate
-in record/update-set scans; use an explicitly instance-wide suite run to execute
-them. Execution success does not mean zero findings or complete test coverage:
-results report recorded check executions, finding counts, unreadable sources,
-and truncated lists separately. A result's rerun hint preserves the previous
-target combination and requires `--full` again for instance-wide scans.
-
-Every command returns next-step breadcrumbs in human and JSON output, retaining
-an explicitly selected profile or instance. `updatesets show` also offers a scan
-hint. Recommendation/generation of new checks is not part of this command;
-JSN contains no AI and does not infer missing business requirements.
-
-### CMDB search
-
-`jsn cmdb search "web" --profile work` searches names, FQDNs, IP addresses and
-serial numbers on `cmdb_ci`. Use `--class cmdb_ci_server` for an exact class
-match (excluding subclasses), and bounded `--limit`/`--offset` pagination.
-Search text is literal; encoded-query operators and query scripts are rejected.
-Existing `cmdb list --query` remains available for deliberate encoded queries.
-Results include show/relationship hints and preserve the selected connection.
-
-### Supported versions
-
-Only the current release and the two preceding releases in each channel are
-supported (three stable releases and three dev builds). For example, with
-stable `4.3.11`, versions `4.3.11`, `4.3.10`, and `4.3.9` are supported.
-Update to the newest version in your channel before reporting an issue.
-
-Publishing uses npm trusted publishing (OIDC) and advances the channel's dist-tag.
-CI/CD does not deprecate older versions or require an `NPM_TOKEN` secret. Older
-versions remain available; their availability does not extend the support window.
-
-The optional maintenance script `scripts/deprecate-old-versions.mjs` can preview
-older versions with `node scripts/deprecate-old-versions.mjs latest` (or `dev`).
-Applying deprecations with `--apply` requires npm authentication and
-`NODE_AUTH_TOKEN`; it is separate from publishing. The script requires the
-checkout's package version to match the channel's current npm tag.
-
-## Try it
-
-```bash
-jsn incidents list --query "active=true^priority=1"
-jsn records list --table incident --limit 10 --json
-jsn flows list
+```sh
+jsn records versions sys_script_include <sys_id>
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
 ```
 
-Run `jsn --help` for the command list. See the [CLI guide](https://github.com/jacebenson/jsn/blob/main/docs/cli-guide.md) for authentication, output formats, development, and examples. The [docs site](https://jacebenson.github.io/jsn/) has feature guides.
+Lists a record's `sys_update_version` history newest first (1 is the newest),
+and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+version N to the current version on raw values, line by line for scripts. Current
+means the version in state current, as the platform's Compare to Current uses; the
+live record is not read. Read-only. No versions does not mean unchanged: only
+records tracked by update sets have them.
+
+## Saved Access Analyzer evidence
+
+```sh
+jsn access-analyzer list --limit 20 --profile <name>
+jsn access-analyzer show <request-id> --json
+jsn access-analyzer explain <result-id> --format styled
+jsn access-analyzer show <request-id> --get data.request.user.value
+```
+
+These commands read saved `sn_access_analyzer_request`,
+`sn_access_analyzer_access_result`, and `sn_access_analyzer_debug_log` records.
+They never evaluate access or save an analysis. The Access Analyzer application
+and read permissions on its tables are required; denied or unavailable table
+reads fail rather than appearing as empty evidence. ACL-filtered empty reads
+cannot prove access or absence of saved data.
+
+IDs must be exact 32-character hexadecimal sys_ids. Each command supports
+`--limit` (1–200) and `--offset` (default 0). JSON includes `pagination.has_more`
+and `next_offset` from one-row lookahead, not a total count. `show` preserves
+per-operation execution IDs; these are not shared run IDs and do not imply
+that outcomes belong to the request's last run. `explain` orders checks by log sequence then sys_id.
+Raw reference values and display labels are retained in JSON; joins use raw IDs.
+Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
+failure with Business Rule evidence is not automatically an ACL failure.
+
+## Outbound email notifications
+
+```sh
+jsn notifications list --query "collection=incident^active=true"
+jsn notifications show "Incident opened and unassigned" --format styled
+jsn notifications show <sys_id> --get data._delivery
+```
+
+These commands read `sysevent_email_action` and never render or send email.
+`show` adds `_delivery`: what sends the notification (a record insert or update
+with its condition, an event, or a flow) and which body is used. A template
+with a body replaces the notification's own `message_html`; an empty template
+body leaves it in play. Mail script names come from the body in use. A template
+that cannot be read is reported `unavailable`, never as the notification's own
+body, and plain-text notifications are `unsupported`.
+## Find a REST API
+
+```sh
+jsn scrapi search attachment upload --method POST
+jsn scrapi search change --namespace sn_chg_rest --json
+jsn scrapi spec "Table API" > table-api.json
+jsn scrapi spec "Attachment API" --yaml > attachment-api.yaml
+```
+
+`search` reads the catalogue the instance's REST API Explorer uses, out-of-the-box and scripted
+APIs alike; every word must appear, in any case, in the API name, route or descriptions. Each row's
+`route` is the path `jsn rest` takes. `--namespace` reads only that namespace, and an unknown one
+is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as the instance gives
+it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
+and their namespaces. Both are reads and work on read-only profiles.
+
+## Choose output
+
+Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
+
+## Slow patterns
+
+```sh
+jsn perf slow --limit 10
+jsn perf slow --type scripts --order-by count --since 2026-11-01
+jsn perf slow show <sys_id> --json
+```
+
+`perf slow` reads the platform's Slow Pattern logs (`sys_pattern` and its
+subclasses for queries, scripts, transactions, events, mutexes and cache
+builds), ranked by total time, run count or average time. `show` finds the
+record's class itself and prints the full SQL and the stack trace that issued
+it. Both are read-only Table API reads and need read access to those tables,
+usually admin. `average` is in milliseconds and `total` is a duration; first
+and last seen times are UTC, and `--since` compares with them in UTC.
+`executable_sql` and `url` can hold literal values from live requests. An empty
+or ACL-filtered list does not prove nothing is slow. `--limit` (1–200) and
+`--offset` page the list; JSON has `pagination.has_more` from one-row lookahead.
+
+## Work safely
+
+Use `jsn auth modify <profile> --read-only` to block instance writes. ServiceNow roles and ACLs still decide what you can access. Help and discovery may show a compact command list for the connected account; this is not an access grant or an exhaustive capability check.
+
+Writes are not universally dry-run operations or confirmation prompts. Inspect each command's help, target profile, scope, and update set before changing anything. Use `--force` only for an approved operation. See [safety guidance](https://jsn.jace.pro/docs/safety/).
+
+To run a command as another user, add `--impersonate <user_name or sys_id>`: `jsn records list --table incident --impersonate abel.tuter` shows what that user sees. It needs the admin or impersonator role and runs on a private session that is switched back and logged out afterwards. A record write as that user asks first in a terminal; elsewhere it runs only with `--impersonate-writes`, once your user has approved it, and the usual write guards still apply. Customization writes, `eval` and `rest` writes are refused under `--impersonate`.
 
 ## AI agents
 
-JSN includes a skill for Claude Code, OpenCode, Hermes, Cursor, Copilot, and other agents. Use `jsn skill install --target all` to install it or `jsn skill show` to inspect it.
+Inspect the bundled skill with `jsn skill show`, then use `jsn skill install` to select your agent or `jsn skill install --target hermes` for Hermes. Reinstall after upgrading JSN; reinstalling replaces recorded copies, including local edits. See [agent installation](https://jsn.jace.pro/docs/agents/).
 
-## Development
+## Local prompt experiment
 
-```bash
-cd cli
-npm ci
-npm test
-```
+From the repository root, run `node cli/scripts/prompt-demo.mjs` in a terminal.
+It uses synthetic servers only. Nothing connects to ServiceNow or changes profiles.
+Type to filter, use arrows to move and Enter to select. Down past the last loaded
+server fetches another page. Escape cancels. Ctrl+C or Ctrl+D exits the prompt.
+The forms menu includes masked input, confirmation and a checklist. The editor
+menu uses your `$VISUAL` or `$EDITOR`, falling back to `vi`.
 
-## License
+From `cli/`, `npm ci` installs lint and test dependencies without Inquirer.
+Run `npm run test:pty` for the Linux Python 3 PTY checks. `npm test` also collects
+them. Mutation tooling is not part of normal installs. `npm run test:mutation`
+fetches pinned Stryker 10.1.1 on demand and uses `stryker.config.json`, retaining
+the offline mutation-safety tests. Its execution is separate from normal tests.
 
-MIT
+## Go deeper
 
-
-### Commands for the connected account
-
-Login and OAuth refresh check for the current account's `admin` role. Profiles
-without that role show a compact command list focused on tickets, generic
-records, people/groups, documentation, and connection management. If the role
-check is unavailable, the profile also uses compact help; this does not assert
-that the account lacks admin. Existing profiles keep full help until renewed.
-
-This applies to root help, root JSON, `discover`, and root shell completion.
-Use `jsn --all-commands --help` or `jsn discover --all-commands --json` to inspect
-every registered command. Explicit command paths remain available and ServiceNow
-ACLs decide access. Reauthenticate (or refresh OAuth) after roles change.
-
-### Ordering catalog items
-
-Use `jsn catalogitems search "laptop" --profile work`, then
-`jsn catalogitems describe <item-sys-id> --profile work` to inspect pricing and
-variable definitions through the native Service Catalog API. Create a JSON file
-mapping variable names to values, then preview with
-`jsn catalogitems order <item-sys-id> --variables-file variables.json --dry-run --profile work`.
-Omit `--dry-run` to submit after confirmation. `--quantity` defaults to one;
-`--requested-for` accepts a user sys_id subject to instance delegation rules.
-
-Orders use `order_now`, preserving catalog fulfillment rather than inserting an
-RITM directly. The command handles standard catalog items; record producers and
-order guides require separate workflows. Server rules validate mandatory and
-dynamic variables at submission; a preview does not validate those rules. Preview
-output lists variable names, not entered values. This operation requires a
-write-enabled profile (also for previews), but no development update set.
-Confirmation follows the existing profile policy; automation can supply `--force`
-only for an approved order. Timeout or incomplete response is an uncertain
-outcome: inspect requests before retrying. JSN does not automatically submit a
-second order. `create/list/show` retain their definition-management behavior.
-
-See the [Service Catalog API reference](https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html).
-
-## Domain configuration and browser sessions
-
-`jsn domains current` reports the selected profile's configured `X-Now-Domain`
-header. `domains set <name-or-id>` and `domains set clear` configure that header
-locally. Header effectiveness depends on the instance; clearing it does not
-reset the actual server session domain.
-
-With saved browser-session (`gck`) credentials, use these explicit commands:
-
-```bash
-jsn domains session-current --profile example --json
-jsn domains session-list --profile example --search '*Internal' --limit 20 --offset 0 --json
-jsn domains session-reset --profile example --json
-jsn domains session-list --profile example --json
-jsn domains session-set <domain-sys-id> --profile example --json
-```
-
-`session-list` returns one picker-visible page (`items`, `offset`, `limit`,
-`next_offset`). Search matches a name prefix, or a substring with a leading `*`.
-Visibility depends on the actual session domain. For cross-branch selection,
-explicitly reset to global, then list and select a domain from that result.
-Neither listing nor selecting silently resets the session. `session-current`
-reports both `configured_domain` and `session_domain`.
-
-**Session reset and selection may affect a browser sharing these credentials.**
-Both commands verify the resulting domain with a separate readback. They leave
-profile configuration unchanged and omit the configured domain header on picker
-requests. Save the original domain ID from `session-current` if you intend to
-restore it afterward. A failed readback can leave the session changed; inspect
-`session-current` before retrying. These commands do not call `touch-session`.
-Other authentication methods retain the existing profile configuration flow.
-
-## Documentation search
-
-```bash
-jsn docs "GlideRecord" --limit 5
-jsn docs --path "api-reference/c_GlideRecordClientSideAPI.md"
-```
-
-No ServiceNow connection is required. Hosted docs at `https://jsn.jace.pro` are
-the default and download no database. `jsn setup` asks once for defaults for new
-connections and whether to use hosted documentation. Decline hosted docs to let
-JSN start a local server, or decline that too and enter your own service base URL.
-Later changes live under **Defaults and documentation** in setup. Existing connections
-keep their saved settings.
-
-Local mode downloads the public documentation on first use and checks for updates
-daily while running. The server starts again automatically when needed. A first
-search can report that the index is still being prepared; later updates preserve
-the last working index if offline. Local storage lives under
-`~/.jsn/docs-service` (`JSN_DATA_HOME` overrides the parent directory).
-
-To host the same service yourself, run `jsn docs --serve --host 0.0.0.0 --port 3000`.
-It manages its own index; expose it through your normal HTTPS proxy. The hosted
-website and this server share one search engine. `JSN_DOCS_URL` temporarily
-overrides the saved choice without starting a local server.
-
-Exact paths remain stable across revisions. Numeric IDs can be pinned with
-`--revision <search-revision>`. Older `docs search`, `docs show` and `docs status`
-spellings remain compatible but are omitted from the everyday help menu.
+- [CLI guide and feature workflows](https://jsn.jace.pro/docs/cli-guide/)
+- [Documentation search and local hosting](https://jsn.jace.pro/docs/install/)
+- [Feature library](https://jsn.jace.pro/#features)
+- [Development and contributing](https://github.com/jacebenson/jsn#development-and-contributing)
+- [MIT license](https://github.com/jacebenson/jsn/blob/main/LICENSE)

@@ -151,7 +151,7 @@ test('missing upgrade resolution and installed scopes remain unclassified', asyn
   assert.equal(result.categories.unclassified.length, 3);
 });
 
-test('read-only data requests preserve OAuth refresh and session bootstrap while rejecting record mutations', async t => {
+test('read-only data requests refresh OAuth and bootstrap its session while still rejecting mutations', async t => {
   const { SDKClient } = await import('../src/sdk.js');
   const { AuthManager } = await import('../src/auth.js');
   let creds = { auth_method: 'oauth', access_token: 'expired-fixture', refresh_token: 'fixture', expires_at: 1 };
@@ -178,9 +178,11 @@ test('read-only data requests preserve OAuth refresh and session bootstrap while
     }
     assert.equal(req.method, 'GET');
     assert.equal(url.pathname, '/api/now/table/sys_metadata');
+    // Authentication refresh/bootstrap may POST, but the data read must use
+    // the complete default OAuth session pair and never mix it with Bearer.
+    assert.equal(req.headers.get('Authorization'), null);
     assert.equal(req.headers.get('Cookie'), 'JSESSIONID=fixture');
     assert.equal(req.headers.get('X-UserToken'), 'fixture-gck');
-    assert.equal(req.headers.get('Authorization'), null);
     return Response.json({ result: metadata });
   });
   const sdk = new SDKClient('https://mock.example', auth.createProfileProvider('https://mock.example', { authMethod: 'oauth' }));

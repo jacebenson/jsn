@@ -7,12 +7,11 @@ for publishing administration and are separate from ServiceNow/CLI credentials.
 
 ## Local development
 
-From the repository root, build the static JSN setup/reference pages once:
+From the repository root, prepare site assets/data (no npm install in `docs/`):
 
 ```sh
 npm --prefix cli ci
-npm --prefix docs ci
-node scripts/build-docs-site.mjs
+npm run docs
 cd site
 bin/bundle install
 bin/rails db:prepare
@@ -58,8 +57,23 @@ failed build leaves the last good index in place. The next run retries safely.
 Configuration:
 
 - `DOCS_STORAGE_DIR`: persistent docs storage (default `site/storage/docs`).
+- `DOCS_RELEASES`: comma-separated release families, newest first (for example
+  `australia,brazil,zurich,yokohama,xanadu,store`). The first entry is the
+  default served family. Every family except legacy `australia` stores its own index,
+  `snapshots/` and `status.json` under `DOCS_STORAGE_DIR/releases/<family>/`;
+  `australia` always keeps the original flat layout, even when it is not the
+  default or is removed from the registry. Changing the default never moves or
+  relabels existing corpora. The index's `meta.source_branch` identifies its
+  family; missing identity is accepted only for legacy flat Australia indexes.
+  Mismatched or unreadable identities fail instead of serving or republishing
+  another family's corpus. Legacy build rows without a release also belong to
+  Australia, not the configurable default. Per-family publication
+  state lives in `DOCS_STORAGE_DIR/releases.json`. Removing a family from this
+  list stops syncing it but does not delete its index, snapshots or archived
+  state.
 - `DOCS_SOURCE_URL`: public source clone URL (default ServiceNowDocs above).
-- `DOCS_SOURCE_BRANCH`: release branch (default `australia`).
+- `DOCS_SOURCE_BRANCH`: release branch used when `DOCS_RELEASES` is not set
+  (default `australia`). With a registry, each family's name is its branch.
 - `NODE_BIN`: optional Node executable for the Rails sync task.
 - `NODE`: optional Node executable for the shared search adapter.
 
@@ -72,11 +86,20 @@ than just one database.
 
 ```text
 GET /api/docs/search?q=GlideRecord&limit=20&offset=0
-GET /api/docs/search?q=GlideRecord&bundle=api
-GET /api/docs/document?path=some/path.md
-GET /api/docs/123?revision=<revision-from-search>
-GET /api/docs/status
+GET /api/docs/search?q=GlideRecord&bundle=api&release=brazil
+GET /api/docs/document?path=some/path.md&release=brazil
+GET /api/docs/123?revision=<revision-from-search>&release=brazil
+GET /api/docs/status?release=brazil
+GET /api/docs/releases
 ```
+
+`release` selects a documentation family; omitting it serves the default
+(first) family. Every response echoes the served `release` at the top level. An
+unknown family is a 400 whose message lists the valid families, and a malformed
+family name is also a 400 (never a 404). `GET /api/docs/releases` returns
+`releases` entries with `release`, `default`, `state`, `revision`, `documents`,
+`publishedAt` and `archivedAt`; archived families remain searchable and
+downloadable. A missing state file returns an empty list.
 
 Search returns `query`, `revision`, `total`, `count`, `limit`, `offset` and
 `results` (ID, path, title, bundle, type, release, snippet). Read returns
@@ -114,12 +137,13 @@ At `/admin`, review sync status and publish an HTTPS recording URL per feature.
 Direct MP4/WebM links render a native video player; hosted watch-page URLs open at
 the provider. Clear a URL to remove a video. The app does not upload video files.
 Feature and documentation pages remain public. The feature catalog comes from
-`docs/_data/showcases.js`, exported during the site build; Rails owns `/` and
-`/features`, while Eleventy builds the remaining static documentation URL tree.
+`site/data/showcases.js`, exported during asset preparation. Rails owns `/`,
+`/features`, and allowlisted Markdown guides at `/docs/`. No static HTML
+generator runs. See `site/docs/README.md` for the publication boundary and URL map.
 
 ## Tests
 
-After building the static docs, from `site/`:
+After preparing assets, from `site/`:
 
 ```sh
 RAILS_ENV=test bin/rails db:prepare
@@ -128,8 +152,44 @@ node --test test/sync-docs.test.mjs
 ```
 
 Tests cover public API/search/reads, input limits, revision mismatch, sanitized
-Markdown, account/session security, video publishing, preserved static docs, and
+Markdown, account/session security, video publishing, Markdown guides/legacy redirects, and
 Git fixture additions/edits/deletions, unchanged revisions, and failed publication.
+
+## snbench benchmark results
+
+`/snbench` publishes Jace Benson's ServiceNow tool benchmark. Filter by tool,
+model or track. A server-rendered SVG plots score against query-selected cost,
+output tokens or agent seconds. The ranked agent table reports PASS@1 with n,
+per-task cost, output tokens and turns. Resource totals sum attempts within task
+before averaging tasks; the secondary aggregate table reports per-attempt means.
+Efficiency means lowest reported USD per score point and does not validate prices.
+The primary matrix always shows the 34-task snbench 0.1.0
+inventory, grouped by category, with attempt counts, task pass rates and expandable
+per-task cost, time and token means. Row totals are raw attempt counts across
+explicitly labeled tracks, not agent scores. Column totals use task weighting.
+Partial flags use the README's three-attempt example as a reference target because
+result files do not declare planned replication counts. Follow a run for
+individual attempt checks, seconds, tokens, cost, turns and shell execution counts.
+Agent rows
+are separate from oracle/nop controls and from other benchmark/task digests and
+instance builds. Attempts are averaged within task, then tasks have equal weight.
+Repeated runs contribute attempts to the same task. Fractional tasks passed is
+the sum of those task means. Missing measurements are shown as unavailable.
+
+From `site/`, after `bin/rails db:prepare`:
+
+```sh
+bin/rails 'snbench:import[/absolute/path/to/snbench/results]'
+# Curated local sample, including a clearly labeled synthetic nop fixture:
+bin/rails snbench:import
+```
+
+Imports are transactional per run and immutable by `run_id`. Identical retries
+are no-ops; conflicting snapshots fail rather than overwrite published history.
+No public ingestion endpoint or automatic seed is added. See
+`test/fixtures/snbench/README.md` for sample provenance. Import measured results,
+not synthetic test controls, for publication. No production deployment is part
+of this feature.
 
 ## Deployment
 
@@ -142,9 +202,13 @@ this repository. The Docker image requires a separate deployment/build check.
 
 Legacy snapshot registry routes (`/docs-index/*`, `/internal/docs-builds`) remain
 for compatibility with earlier work and require a published snapshot manifest;
-they are not prerequisites for the public search/read service. Snapshot
-publication still uses `DOCS_PUBLISH_TOKEN`. The CLI release process remains
-independent from the Rails service.
+they are not prerequisites for the public search/read service. Release-aware
+clients use `/docs-index/releases/<family>/manifest.json`, `/download` and
+`/artifacts/<file>`; the legacy `/docs-index/manifest.json` and `/download` keep
+serving the default family. An unknown family on a snapshot route is a 404, and
+archived families stay downloadable. Snapshot publication still uses
+`DOCS_PUBLISH_TOKEN`. The CLI release process remains independent from the Rails
+service.
 
 ## Documentation presentation
 
@@ -167,11 +231,13 @@ the category rather than displaying an empty bundle/type separator.
 
 ## Staging and homepage introduction
 
-Keep the existing Eleventy deployment at `jsn.jace.pro` until the Rails site and
-recordings are ready. The Rails preview is intended for `jsn2.jace.pro` on Chonky
-through Coolify. Deploy it as a separate application/branch; do not repoint or
-restart the existing production app. Eleventy remains in the repository and
-currently builds the JSN setup/reference pages for the preview image too.
+This migration changes the image build, not any running application or hosting
+configuration. Production deployment requires a separate approval. For an isolated
+local preview without corpus syncing, run `site/bin/preview [PORT]` from any
+directory. It uses your installed Ruby/bundle (optional `PREVIEW_RUBY`), stores
+state under `site/tmp/preview`, and binds loopback. `site/bin/preview --test`
+prepares an isolated test database and runs the complete Rails suite.
+Markdown edits are visible on refresh without rebuilding or duplicating prose.
 
 The homepage reserves the main video area for the introductory walkthrough.
 Until footage has been recorded and edited, it deliberately says “Video coming
@@ -182,14 +248,20 @@ MP4/WebM links become a native player, while watch-page links open the recording
 ## Deployment change filters
 
 Keep the Docker build context at repository root and Dockerfile at `site/Dockerfile`.
-For Coolify automatic deployments, watch `site/**`, `docs/**`,
+For Coolify automatic deployments, watch `site/**`, `site/docs/**`,
 `cli/src/commands/docs/**`, `cli/package.json`, `cli/package-lock.json`, and
-`scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
+`site/scripts/build-docs-site.mjs`. Website CI uses the same application boundaries.
 Coolify watch paths are application settings and must be set when this branch is deployed.
 
 The Rails documentation adapter invokes `cli/src/commands/docs/index-worker.js`;
 search SQL and summaries belong to that shared Node engine. The CLI can also
-run its HTTP adapter directly with `jsn docs --serve`, using the same sync worker.
+run its JSON-only HTTP adapter directly with `node cli/src/commands/docs/server.js`
+from the repository root, using the same sync worker. Set `JSN_DOCS_HOST`,
+`JSN_DOCS_PORT`, and optionally `JSN_DOCS_RELEASE` to configure it. The CLI browser
+UI and `jsn docs --serve` have been removed; the Rails website remains independent.
+The website owns its Marked and DOMPurify copies under
+`site/app/assets/javascripts/vendor/`; its reader and guide renderer do not depend
+on the removed CLI public directory.
 
 ## Container database bootstrap
 

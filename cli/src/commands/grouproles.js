@@ -3,7 +3,7 @@ import { declareCapabilities } from '../capabilities.js';
 
 // add/remove write sys_group_has_role; the mutation guard (instance +
 // read-only profile) and the delete confirmation both key off this.
-declareCapabilities('grouproles', { mutationSubcommands: ['add', 'remove'] });
+declareCapabilities('grouproles', { queryTable: 'sys_group_has_role', mutationContext: 'operational', mutationSubcommands: ['add', 'remove'] });
 
 export function groupRolesCmd(wrap) {
   return {

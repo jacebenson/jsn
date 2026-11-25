@@ -2,8 +2,9 @@ import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic command builder for CRUD operations on a ServiceNow table
 // Used by incidents, changes, requests, tasks, and most dev subcommands
 
-import { getStringField, formatRecordForDisplay, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
+import { getStringField, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, resolveFieldsParam, confirmDelete, interactiveList, canPrompt, buildRecordPayload } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { validateReadQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { resolveSysId } from '../resolve-record.js';
 import { FormatAuto } from '../output.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -11,7 +12,7 @@ import { declareCapabilities } from '../capabilities.js';
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap, opts = {}) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
   // Root-level command only.
-  declareCapabilities(displayName, { mutationSubcommands: ['create', 'update', 'delete'] });
+  declareCapabilities(displayName, { queryTable: table, mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
   return {
     command: `${displayName} [subcommand]`,
     aliases: [table, alias],
@@ -30,6 +31,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             .option('offset', { alias: 'o', type: 'number', default: 0, describe: 'Offset for pagination' }),
           handler: wrap(async (argv, app) => {
             const query = argv.query || '';
+            const verdict = await validateReadQuery(app, { table, query, refresh: argv['refresh-metadata'] });
             const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
             const limit = argv.limit;
             const offset = argv.offset;
@@ -56,7 +58,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
                   count: 0,
                   columns: pickerColumns,
                   records: [],
-                  pagination: { limit, offset: 0 },
+                  pagination: { limit, offset: 0, hasMore: false },
                   context: { instance_url: app.getEffectiveInstance() },
                 }, {
                   summary: `0 ${table}(s)`,
@@ -88,7 +90,9 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const params = recordListParams({ limit, offset, fields, query: q });
 
             const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
-            const displayRecords = fields && !argv.displayValues && opts.listProjection !== 'full' ? records.map(r => formatRecordForDisplay(r, columns)) : records;
+            const missingColumns = fields ? findOmittedColumns(records, columns) : [];
+            const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
+            const displayRecords = fields && !argv.displayValues && opts.listProjection !== 'full' ? records.map(r => formatRecordForDisplay(r, presentColumns)) : records;
 
             const breadcrumbs = [
               { action: 'create', cmd: `jsn ${alias} create --description "..."`, description: `Create a new ${displayName}` },
@@ -114,9 +118,16 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               table,
               count: records.length,
               columns,
+              ...(missingColumns.length ? {
+                missing_columns: missingColumns,
+                warnings: [
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                ],
+              } : {}),
               records: displayRecords,
-              pagination: { limit, offset },
+              pagination: { limit, offset, hasMore: records.length === limit },
               context: { instance_url: app.getEffectiveInstance() },
+              ...queryDiagnostics(verdict),
             }, {
               summary: `${records.length} ${table}(s)`,
               breadcrumbs,
@@ -167,6 +178,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               throw new Error('short_description is required (use --description, -f short_description=..., or --data)');
             }
             const record = await createRecord(app.sdk, { table, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(record, {
               summary: `Created ${displayName} ${getStringField(record, 'number')}`,
               breadcrumbs: [
@@ -188,6 +200,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             const recordData = buildRecordPayload(argv);
             const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(updated, {
               summary: `Updated ${displayName} ${number}`,
               breadcrumbs: [
@@ -205,6 +218,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             await confirmDelete(app, argv, `Delete ${displayName} ${number}`);
             const sysID = await resolveSysId(app.sdk, { table, identifier: number, identifierField: argv.identifierField, displayValues: argv.displayValues ?? opts.referenceMode, matchField: opts.identifierField || 'number', resource: displayName });
             await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
+            invalidateAfterMutation(app, table);
             app.ok({ number, message: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} deleted` }, {
               summary: `Deleted ${displayName} ${number}`,
             });

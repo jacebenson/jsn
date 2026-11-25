@@ -4,8 +4,6 @@ import os from 'node:os';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { execSync } from 'node:child_process';
-
 import { globalConfigPath } from '../config.js';
 import { declareCapabilities } from '../capabilities.js';
 import { canUsePicker } from '../helpers.js';
@@ -22,15 +20,12 @@ const SKILL_REPO_PATH = path.join(
  * Resolve the user's real home directory, even when Hermes overrides $HOME.
  */
 function realHomeDir() {
-  // getent doesn't exist on Windows; os.homedir() is reliable there.
-  if (process.platform === 'win32') return os.homedir();
-
   try {
-    const result = execSync('getent passwd ' + process.env.USER + ' 2>/dev/null', { encoding: 'utf-8', timeout: 3000 });
-    const home = result.trim().split(':')[5];
+    // OS account data is independent of inherited USER/HOME and needs no shell.
+    const home = os.userInfo().homedir;
     if (home) return home;
   } catch {
-    // fall through
+    // Account lookup may be unavailable in minimal/container environments.
   }
   return os.homedir();
 }

@@ -3,11 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import Database from 'better-sqlite3';
+import Database, { requireFts5 } from '../../sqlite.js';
 import { docsReaderLease } from './locks.js';
+import { AppError } from '../../errors.js';
 
 const LEGACY_DOCS_DIR_NAME = 'servicenow-cli/docs';
 const DOCS_DIR_NAME = 'docs';
+export const DEFAULT_DOCS_RELEASE = 'australia'; // Bump when a new release family ships.
 
 function xdgCacheHome() {
   if (process.env.XDG_CACHE_HOME) return process.env.XDG_CACHE_HOME;
@@ -79,16 +81,29 @@ export function getDocsDbPath() {
   return path.join(getDocsCacheDir(), 'docs.db');
 }
 
-export function getDocsSourceDir() {
-  return path.join(getDocsCacheDir(), 'source');
+export function resolveDocsRelease(value, config = {}) {
+  const release = value ?? config.docs?.release ?? DEFAULT_DOCS_RELEASE;
+  if (typeof release !== 'string' || !/^[a-z0-9-]{1,40}$/.test(release)) {
+    throw new AppError('usage_error', 'Documentation release must contain 1–40 lowercase letters, digits or dashes.');
+  }
+  return release;
 }
 
-export function getDocsSourceMarkdownDir() {
-  return path.join(getDocsSourceDir(), 'markdown');
+export function resolveDocsDbPath(release = DEFAULT_DOCS_RELEASE) {
+  release = resolveDocsRelease(release);
+  return release === DEFAULT_DOCS_RELEASE ? getDocsDbPath() : path.join(jsnDataHome(), DOCS_DIR_NAME, 'releases', release, 'docs.db');
 }
 
-export function getDocsCommunityDir() {
-  return path.join(getDocsCacheDir(), 'community');
+export function getDocsSourceDir(release) {
+  return path.join(path.dirname(resolveDocsDbPath(release)), 'source');
+}
+
+export function getDocsSourceMarkdownDir(release) {
+  return path.join(getDocsSourceDir(release), 'markdown');
+}
+
+export function getDocsCommunityDir(release) {
+  return path.join(path.dirname(resolveDocsDbPath(release)), 'community');
 }
 
 export function ensureDocsCacheDir() {
@@ -103,40 +118,73 @@ export function ensureDocsCacheDir() {
  * { dir, prefix } so community content can live under a `community/` prefix
  * without colliding with the ServiceNowDocs markdown tree.
  */
+// The caller-selected lexical root is the authorization boundary, not whatever
+// realpath happens to point at. Reject aliases in *every* component (including
+// junctions on Windows), before using realpath to pin that boundary. Missing
+// optional roots remain optional; dangling links are not missing directories.
+export function resolveDocsRoot(dir) {
+  const absolute = path.resolve(dir);
+  const anchor = path.parse(absolute).root;
+  let current = anchor;
+  for (const component of absolute.slice(anchor.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    let stat;
+    try { stat = fs.lstatSync(current); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    if (stat.isSymbolicLink()) throw new Error(`Documentation source contains a symbolic link or junction alias: ${current}`);
+    if (!stat.isDirectory()) throw new Error(`Documentation source is not a directory: ${current}`);
+  }
+  const canonical = fs.realpathSync(absolute);
+  if (path.relative(absolute, canonical) !== '') throw new Error(`Documentation source resolves through an alias: ${absolute}`);
+  return canonical;
+}
+
+function containedDocsPath(root, file) {
+  const relative = path.relative(root, fs.realpathSync(file));
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Documentation source escapes its root: ${file}`);
+  }
+}
+
 export function* walkDocs(roots) {
   function* walk(dir, root, prefix) {
+    containedDocsPath(root, dir);
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         yield* walk(full, root, prefix);
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        containedDocsPath(root, full);
         const rel = prefix + path.relative(root, full).split(path.sep).join('/');
         yield { file: full, rel };
       }
     }
   }
-  for (const root of roots) {
-    if (!fs.existsSync(root.dir)) continue;
+  // Validate every root before yielding any document from any root.
+  const validated = roots.map(root => ({ ...root, dir: resolveDocsRoot(root.dir) }));
+  for (const root of validated) {
+    if (!root.dir) continue;
     yield* walk(root.dir, root.dir, root.prefix || '');
   }
 }
 
 export function defaultDocsRoots(opts = {}) {
-  const communityDir = opts.communityDir || getDocsCommunityDir();
+  const communityDir = opts.communityDir || getDocsCommunityDir(opts.release);
   return [
-    { dir: opts.docsDir || getDocsSourceMarkdownDir(), prefix: '' },
+    { dir: opts.docsDir || getDocsSourceMarkdownDir(opts.release), prefix: '' },
     { dir: communityDir, prefix: 'community/' },
   ];
 }
 
 export function openDocsDb(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const release = docsReaderLease(dbPath);
   let db;
   try {
     db = new Database(dbPath);
-  } catch (error) { release(); throw error; }
+    requireFts5(db);
+  } catch (error) { if (db) db.close(); release(); throw error; }
   const close = db.close.bind(db);
   db.close = () => { try { return close(); } finally { release(); } };
   try {
@@ -156,8 +204,8 @@ export function closeDocsDb(db) {
   }
 }
 
-export function docsDbExists() {
-  return fs.existsSync(getDocsDbPath());
+export function docsDbExists(release) {
+  return fs.existsSync(resolveDocsDbPath(release));
 }
 
 export function getSchemaVersion(db) {
@@ -175,6 +223,7 @@ export function setSchemaVersion(db, version) {
 }
 
 export function initDocsSchema(db) {
+  requireFts5(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS docs (
       id          INTEGER PRIMARY KEY,

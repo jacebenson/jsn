@@ -1,0 +1,3 @@
+# The bounded baseline pins this fixture's raw bytes, not parsed/normalized JSON.
+# Keep checkout bytes identical on Windows without weakening the SHA-256 gate.
+/cli/test/fixtures/bounded-baseline/fixture.json text eol=lf

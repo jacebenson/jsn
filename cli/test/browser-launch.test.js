@@ -106,7 +106,11 @@ it('fails account mismatches immediately and removes the temporary profile', asy
 
 it('times out with a useful verification reason and cleans up', async () => {
   readSession = async () => { throw Object.assign(new Error('Current-user API access unavailable'), { browserLoginPending: true }); };
-  await assert.rejects(launchBrowserSession(instance, { browser, spawnBrowser: spawnFixture, timeout: 30 }), /Timed out.*Current-user API access/);
+  // The deadline is set before the temporary profile is created and the browser
+  // is spawned, so it must leave room for that setup work. A 30ms budget was
+  // consumed by setup on windows-2022 and the loop never ran, dropping the
+  // verification reason from the error. See #443.
+  await assert.rejects(launchBrowserSession(instance, { browser, spawnBrowser: spawnFixture, timeout: 500 }), /Timed out.*Current-user API access/);
   assert.equal(killed || closedGracefully, true);
   assert.equal(fs.existsSync(directory), false);
 });

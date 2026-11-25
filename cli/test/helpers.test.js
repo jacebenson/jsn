@@ -62,6 +62,29 @@ describe('formatRecordForDisplay', () => {
   });
 });
 
+describe('findOmittedColumns', () => {
+  it('returns requested columns absent from every returned row', async () => {
+    const { findOmittedColumns } = await import('../src/helpers.js');
+    const rows = [
+      {
+        sys_id: { display_value: 'id1', value: 'id1' },
+        number: { display_value: 'DMND001', value: 'DMND001' },
+        description: { display_value: '', value: '' },
+      },
+    ];
+    assert.deepStrictEqual(
+      findOmittedColumns(rows, ['number', 'description', 'state_label']),
+      ['state_label']
+    );
+  });
+
+  it('returns empty array when records are empty or wildcard * is requested', async () => {
+    const { findOmittedColumns } = await import('../src/helpers.js');
+    assert.deepStrictEqual(findOmittedColumns([], ['number', 'state_label']), []);
+    assert.deepStrictEqual(findOmittedColumns([{ sys_id: '1' }], ['*']), []);
+  });
+});
+
 describe('truncateString', () => {
   it('returns short strings unchanged', async () => {
     const { truncateString } = await import('../src/helpers.js');
@@ -199,6 +222,76 @@ describe('verifyWriteBack', () => {
       assigned_to: { value: 'user456' },
     });
     assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('accepts a choice display label when the underlying value persisted', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          visible: { display_value: 'Leave alone', value: 'ignore' },
+          mandatory: { display_value: 'True', value: 'true' },
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'catalog_ui_policy_action', 'rec123', {
+      visible: 'Leave alone',
+      mandatory: 'True',
+    });
+    assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('accepts a display label regardless of label casing', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          mandatory: { display_value: 'True', value: 'true' },
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'catalog_ui_policy_action', 'rec123', {
+      mandatory: 'TRUE',
+    });
+    assert.strictEqual(mismatches.length, 0);
+  });
+
+  it('still reports a dropped choice write', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          mandatory: { display_value: 'False', value: 'false' },
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'catalog_ui_policy_action', 'rec123', {
+      mandatory: 'True',
+    });
+    assert.strictEqual(mismatches.length, 1);
+    assert.strictEqual(mismatches[0].field, 'mandatory');
+    assert.strictEqual(mismatches[0].sent, 'True');
+    assert.strictEqual(mismatches[0].got, 'false');
+  });
+
+  it('keeps case-sensitive comparison for text fields whose label equals the value', async () => {
+    const { verifyWriteBack } = await import('../src/helpers.js');
+    const app = {
+      sdk: {
+        list: async () => [{
+          sys_id: 'rec123',
+          short_description: { display_value: 'foo', value: 'foo' },
+        }],
+      },
+    };
+    const mismatches = await verifyWriteBack(app, 'incident', 'rec123', {
+      short_description: 'Foo',
+    });
+    assert.strictEqual(mismatches.length, 1);
+    assert.strictEqual(mismatches[0].got, 'foo');
   });
 
   it('skips sys_* fields (system-managed)', async () => {

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { flowsCmd } from '../src/commands/flows.js';
-import { OutputWriter, FormatJSON } from '../src/output.js';
+import { OutputWriter, FormatJSON, FormatStyled } from '../src/output.js';
 import { collectCapabilities, mutationPaths } from '../src/capabilities.js';
 
 function commandTree() {
@@ -10,6 +10,7 @@ function commandTree() {
   const yargs = {
     command(definition) { commands.push(definition); return this; },
     option() { return this; },
+    epilogue() { return this; },
   };
   flowsCmd(fn => fn).builder(yargs);
   return commands;
@@ -18,11 +19,12 @@ function commandTree() {
 function jsonApp(sdk, { requireInstance = () => {} } = {}) {
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   return {
     app: {
       sdk,
       output,
+      config: {},
       requireInstance,
       ok(data, opts) { this.output.ok(data, opts); },
       getEffectiveInstance: () => 'https://example.service-now.com',
@@ -53,14 +55,14 @@ function styledApp() {
 test('flows root summary uses the normal output envelope without a provider call', async () => {
   const { app, envelope } = jsonApp({});
   await flowsCmd(fn => fn).handler({}, app);
-  assert.deepEqual(envelope().data.commands, ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'delete [identifier]']);
+  assert.deepEqual(envelope().data.commands, ['schemas', 'catalog-variables [identifier]', 'search <term>', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'settings [identifier]', 'publish [identifier]', 'test [identifier]', 'clone [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']);
 });
 
 test('flows root renders every subcommand in a terminal, not just the summary', async () => {
   const { app, text } = styledApp();
   await flowsCmd(fn => fn).handler({}, app);
   const rendered = text();
-  for (const name of ['list', 'executions', 'show [identifier]', 'status [identifier]', 'publish [identifier]', 'test [identifier]', 'create', 'update [identifier]', 'doctor', 'delete [identifier]']) {
+  for (const name of ['schemas', 'catalog-variables [identifier]', 'search <term>', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'settings [identifier]', 'publish [identifier]', 'test [identifier]', 'clone [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']) {
     assert.ok(rendered.includes(name), `terminal output is missing ${name}`);
   }
   assert.match(rendered, /Available subcommands:/);
@@ -93,7 +95,62 @@ test('flows schemas returns live trigger catalog and only loads inputs for suppo
   assert.deepEqual(calls, ['sys_hub_trigger_definition', 'sys_hub_trigger_category', 'sys_hub_trigger_input']);
 });
 
-test('flows show handler emits the normal Output envelope and formatted data', async () => {
+function leaseSdk(id, { statuses, deleteResult = { deleteSuccess: true, id } }) {
+  const queries = [];
+  let reads = 0;
+  return {
+    queries,
+    sdk: {
+      list: async () => [{ sys_id: id }],
+      request: async (_url, options) => {
+        const { query } = JSON.parse(options.body); queries.push(query);
+        if (query.includes('delete:')) return { data: { global: { snFlowDesigner: { safeEdit: { deleteResult } } } } };
+        const status = statuses[Math.min(reads++, statuses.length - 1)];
+        return { data: { global: { snFlowDesigner: { safeEdit: { status } } } } };
+      },
+    },
+  };
+}
+
+test('flows unlock releases a stale session and reports before and after state', async () => {
+  const unlock = commandTree().find(command => command.command === 'unlock [identifier]');
+  assert.ok(unlock);
+  const id = 'a'.repeat(32);
+  const { sdk, queries } = leaseSdk(id, { statuses: [{ canUserEdit: true, currentEditor: null }, { canUserEdit: false, currentEditor: null }] });
+  const { app, envelope } = jsonApp(sdk);
+  await unlock.handler({ identifier: 'My flow', force: true }, app);
+  const result = envelope();
+  assert.equal(result.ok, true);
+  assert.match(result.summary, /Released this user's safe edit session on flow My flow/);
+  assert.equal(result.data.before.canUserEdit, true);
+  assert.equal(result.data.after.canUserEdit, false);
+  assert.equal(result.data.flow.id, id);
+  assert.equal(queries.length, 3);
+  assert.match(queries[1], /delete:/);
+});
+
+test('flows unlock reports a free flow without mutating it', async () => {
+  const unlock = commandTree().find(command => command.command === 'unlock [identifier]');
+  const id = 'b'.repeat(32);
+  const { sdk, queries } = leaseSdk(id, { statuses: [{ canUserEdit: false, currentEditor: null }] });
+  const { app, envelope } = jsonApp(sdk);
+  await unlock.handler({ identifier: 'Free flow', force: true }, app);
+  const result = envelope();
+  assert.equal(result.data.released, false);
+  assert.match(result.summary, /No safe edit session to release on flow Free flow/);
+  assert.equal(queries.length, 1);
+});
+
+test('flows unlock never mutates without confirmation in a noninteractive run', async () => {
+  const unlock = commandTree().find(command => command.command === 'unlock [identifier]');
+  const id = 'c'.repeat(32);
+  const { sdk, queries } = leaseSdk(id, { statuses: [{ canUserEdit: true, currentEditor: null }, { canUserEdit: false, currentEditor: null }] });
+  const { app } = jsonApp(sdk);
+  await assert.rejects(unlock.handler({ identifier: 'My flow', _: ['flows', 'unlock', 'My flow'] }, app), /confirmation/i);
+  assert.equal(queries.length, 0);
+});
+
+test('flows show handler emits the normal Output envelope and keeps the rendered view for terminals', async () => {
   const show = commandTree().find(command => command.command === 'show [identifier]');
   assert.ok(show);
   const id = 'a524f7ca9fa502100f8b65b23b0a1cdb';
@@ -103,7 +160,7 @@ test('flows show handler emits the normal Output envelope and formatted data', a
   inspection.catalogRecords = [{ sys_id: id, question_text: 'Permission type' }];
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   const app = {
     sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
     output,
@@ -114,7 +171,40 @@ test('flows show handler emits the normal Output envelope and formatted data', a
   const envelope = JSON.parse(serialized);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.summary, 'Flow: Production flow');
-  assert.match(envelope.data._formatted, /Permission type/);
+  // The rendered ASCII view is a terminal side channel, not data: JSON keeps the
+  // fields and drops the tree that every machine consumer had to ignore.
+  assert.equal('_formatted' in envelope.data, false);
+  // The raw ProcessFlow document duplicates the extracted steps byte for byte,
+  // so `show` returns it only on request.
+  assert.equal('payload' in envelope.data, false);
+
+  let styled = '';
+  const styledWriter = new Writable({ write(chunk, _encoding, callback) { styled += chunk.toString(); callback(); } });
+  await show.handler({ identifier: 'flow-1', depth: 2 }, {
+    ...app,
+    output: new OutputWriter({ format: FormatStyled, writer: styledWriter }),
+  });
+  assert.match(styled, /Production flow/);
+  assert.match(styled, /Permission type/);
+});
+
+test('flows show returns the raw ProcessFlow document only with --raw-payload', async () => {
+  const show = commandTree().find(command => command.command === 'show [identifier]');
+  const inspection = { flow: { name: 'Production flow', active: true, version: '2', type: 'Flow', sysID: 'flow-1' }, version: {}, payload: {
+    actionInstances: [{ order: 1, actionType: { fName: 'Log' }, inputs: [{ name: 'log_message', displayValue: 'hi' }] }],
+  }, triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [] };
+  let serialized = '';
+  const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
+  const output = new OutputWriter({ format: FormatJSON, writer });
+  const app = {
+    sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
+    output,
+    ok(data, opts) { this.output.ok(data, opts); },
+    getEffectiveInstance: () => 'https://example.service-now.com',
+  };
+  await show.handler({ identifier: 'flow-1', depth: 2, rawPayload: true }, app);
+  const envelope = JSON.parse(serialized);
+  assert.equal(envelope.data.payload.actionInstances.length, 1);
 });
 
 // The exact command boundary that failed live: a draft whose label cache is the
@@ -128,7 +218,7 @@ test('flows show renders a draft whose label cache is JSON null', async () => {
   }, triggerInstances: [], actionInstances: [], flowLogicInstances: [], subFlowInstances: [], flowInputs: [], flowOutputs: [], flowVariables: [] };
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   const app = {
     sdk: { inspectFlow: async () => inspection, inspectCustomAction: async () => null },
     output,
@@ -138,8 +228,16 @@ test('flows show renders a draft whose label cache is JSON null', async () => {
   await show.handler({ identifier: 'flow-null-cache', depth: 2 }, app);
   const envelope = JSON.parse(serialized);
   assert.equal(envelope.ok, true);
-  assert.match(envelope.data._formatted, /Log/);
-  assert.match(envelope.data._formatted, /nice!/);
+  assert.equal('_formatted' in envelope.data, false);
+
+  let styled = '';
+  const styledWriter = new Writable({ write(chunk, _encoding, callback) { styled += chunk.toString(); callback(); } });
+  await show.handler({ identifier: 'flow-null-cache', depth: 2 }, {
+    ...app,
+    output: new OutputWriter({ format: FormatStyled, writer: styledWriter }),
+  });
+  assert.match(styled, /Log/);
+  assert.match(styled, /nice!/);
 });
 
 test('flows list handler emits the normal JSON envelope for an interactive selection', async () => {
@@ -152,7 +250,7 @@ test('flows list handler emits the normal JSON envelope for an interactive selec
     catalogRecords: [{ sys_id: id, question_text: 'Permission type' }] };
   let serialized = '';
   const writer = new Writable({ write(chunk, _encoding, callback) { serialized += chunk.toString(); callback(); } });
-  const output = new OutputWriter({ format: FormatJSON, writer });
+  const output = new OutputWriter({ format: FormatJSON, writer, verbose: true });
   const app = {
     sdk: { aggregateCount: async () => 1, list: async () => [], inspectFlow: async () => inspection, inspectCustomAction: async () => null },
     output,
@@ -166,7 +264,7 @@ test('flows list handler emits the normal JSON envelope for an interactive selec
   assert.deepEqual(Object.keys(envelope), ['ok', 'data', 'summary', 'breadcrumbs']);
   assert.equal(envelope.ok, true);
   assert.equal(envelope.summary, 'Flow: Production flow');
-  assert.match(envelope.data._formatted, /Permission type/);
+  assert.equal('_formatted' in envelope.data, false);
   assert.equal('catalogRecords' in envelope.data, false);
 });
 
@@ -190,7 +288,7 @@ test('flows test is registered as a mutation, offers --record and requires confi
   const command = handler('test [identifier]');
   assert.ok(command);
   const options = [];
-  command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
+  command.builder({ option(name, definition) { options.push([name, definition]); return this; }, epilogue() { return this; } });
   assert.deepEqual(options.map(([name]) => name), ['record', 'force']);
   assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('test'), true);
 
@@ -210,7 +308,7 @@ test('flows update is a manifest mutation with confirmation and exact manifest o
   const command = handler('update [identifier]');
   assert.ok(command);
   const options = [];
-  command.builder({ option(name, definition) { options.push([name, definition]); return this; } });
+  command.builder({ option(name, definition) { options.push([name, definition]); return this; }, epilogue() { return this; } });
   assert.deepEqual(options.map(([name]) => name), ['data', 'data-file', 'preview', 'force']);
   assert.equal(collectCapabilities().get('flows').mutationSubcommands.includes('update'), true);
 

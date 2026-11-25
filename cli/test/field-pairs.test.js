@@ -14,6 +14,7 @@ import { incidentsCmd } from '../src/commands/incidents.js';
 import { ticketsCmd } from '../src/commands/tickets.js';
 import { captureSubcommands, findCommand, wrapHandler } from './support/command-test-helpers.js';
 import { makeApp } from './support/app-test-helpers.js';
+import { queryMetadataFixture } from './support/query-metadata-fixture.js';
 
 function command(module, name) {
   return findCommand(captureSubcommands(module(wrapHandler)), name);
@@ -110,7 +111,7 @@ describe('registered mutation commands accept field pairs', () => {
     const updates = [];
     const app = makeApp({ sdk: {
       aggregateCount: async () => 2,
-      list: async () => [{ sys_id: 'a' }, { sys_id: 'b' }],
+      list: async (table, params, opts) => queryMetadataFixture(table, params, opts) ?? [{ sys_id: 'a' }, { sys_id: 'b' }],
       update: async (table, id, body) => { updates.push({ table, id, body }); },
     } });
     const bulk = command(recordsCmd, 'bulk');
@@ -169,7 +170,7 @@ describe('repeated -f survives the real CLI parser', () => {
     const instance = `http://127.0.0.1:${server.address().port}`;
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SN_') && !key.startsWith('SERVICENOW_')));
     Object.assign(env, {
-      JSN_DATA_HOME: path.join(directory, 'data'), XDG_CONFIG_HOME: directory, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
+      HOME: directory, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', JSN_DATA_HOME: path.join(directory, 'data'), XDG_CONFIG_HOME: directory, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
       SN_USERNAME: 'probe', SN_PASSWORD: 'probe',
     });
 

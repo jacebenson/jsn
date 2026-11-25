@@ -6,6 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../../errors.js';
 import { configuredDocsService, docsServiceUrl } from './client.js';
 import os from 'node:os';
+import { resolveDocsDbPath } from './db.js';
 
 function storageDirectory() { return path.join(process.env.JSN_DATA_HOME || path.join(os.homedir(), '.jsn'), 'docs-service'); }
 async function healthy(state) {
@@ -17,7 +18,8 @@ async function healthy(state) {
     return response.ok && (await response.json()).service === 'jsn-docs';
   } catch { return false; }
 }
-export async function ensureLocalDocumentation({ storage = storageDirectory() } = {}) {
+export async function ensureLocalDocumentation({ storage = storageDirectory(), release } = {}) {
+  if (release) storage = path.dirname(resolveDocsDbPath(release));
   fs.mkdirSync(storage, { recursive: true, mode: 0o700 });
   const stateFile = path.join(storage, 'server.json'), lock = path.join(storage, 'server-start.lock');
   const state = () => { try { return JSON.parse(fs.readFileSync(stateFile, 'utf8')); } catch { return {}; } };
@@ -43,7 +45,7 @@ export async function ensureLocalDocumentation({ storage = storageDirectory() } 
     const log = fs.openSync(path.join(storage, 'server.log'), 'a', 0o600);
     try {
       child = fork(fileURLToPath(new URL('./server.js', import.meta.url)), [], { detached: true, execArgv: [],
-        env: { ...process.env, DOCS_STORAGE_DIR: storage, JSN_DOCS_HOST: '127.0.0.1', JSN_DOCS_PORT: '0' }, stdio: ['ignore', log, log, 'ipc'] });
+        env: { ...process.env, DOCS_STORAGE_DIR: storage, JSN_DOCS_RELEASE: release || '', JSN_DOCS_HOST: '127.0.0.1', JSN_DOCS_PORT: '0' }, stdio: ['ignore', log, log, 'ipc'] });
     } finally { fs.closeSync(log); }
     const next = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => { child.kill(); reject(new Error('Timed out starting the documentation server.')); }, 10_000);
@@ -61,8 +63,8 @@ export async function ensureLocalDocumentation({ storage = storageDirectory() } 
     throw new AppError('network_error', 'Could not start the local documentation service.', error.message);
   } finally { fs.rmSync(lock, { recursive: true, force: true }); }
 }
-export async function documentationService(config = {}) {
+export async function documentationService(config = {}, release) {
   if (process.env.JSN_DOCS_URL) return docsServiceUrl(process.env.JSN_DOCS_URL);
-  if (config.docs?.source === 'local') return (await ensureLocalDocumentation()).url;
+  if (config.docs?.source === 'local') return (await ensureLocalDocumentation({ release })).url;
   return configuredDocsService(config);
 }

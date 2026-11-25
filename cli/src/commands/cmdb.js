@@ -15,6 +15,9 @@ import {
   resolveFieldsParam,
 } from '../helpers.js';
 import { errNotFound, errUsage } from '../errors.js';
+import { declareCapabilities } from '../capabilities.js';
+declareCapabilities('cmdb', { queryTable: 'cmdb_ci' });
+
 import { cmdbSearchCmd } from './cmdb-search.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
@@ -454,7 +457,7 @@ export function cmdbCmd(wrap) {
               count: records.length,
               columns,
               records: displayRecords,
-              pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total } : {}) },
+              pagination: { limit: argv.limit, offset: argv.offset, ...(total != null ? { total, hasMore: argv.offset + argv.limit < total } : {}) },
               context: { instance_url: app.getEffectiveInstance() },
             }, {
               summary: `${records.length} CI(s) from cmdb_ci${total != null ? ` of ${total}` : ''}`,

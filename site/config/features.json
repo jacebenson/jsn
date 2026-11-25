@@ -13,6 +13,7 @@
         "what": "Toggle read-only, skip confirmations, include counts, domain"
       }
     ],
+    "docs": "guides/setup.md",
     "screens": [
       {
         "cmd": "jsn setup",
@@ -64,13 +65,14 @@
         "what": "Install for Hermes, Claude, Codex, Cursor, OpenCode, Copilot and more"
       }
     ],
+    "docs": "guides/agents.md",
     "demo": "skill",
     "group": "Automate",
     "canonicalSlug": "servicenow-agent-skill-installer",
     "seoTitle": "Agent skill installer",
     "seoDescription": "One command drops the full playbook into any AI agent — no MCP server to stand up.",
     "seoQuery": "What can JSN do for this ServiceNow workflow?",
-    "demoText": "? Where should the jsn skill be installed?\n❯◉ Hermes Agent\n ◯ GitHub Copilot\n ◯ VS Code (Copilot Instructions)\n ◯ Claude Code\n ◉ Cursor\n ◯ Agents (open standard)\n ◯ OpenCode\n\n~/.hermes/profiles/holly/skills/servicenow/SKILL.md\n(space to toggle, enter to confirm)\n"
+    "demoText": "? Where should the jsn skill be installed?\n❯◉ Hermes Agent\n ◯ GitHub Copilot\n ◯ VS Code (Copilot Instructions)\n ◯ Claude Code\n ◉ Cursor\n ◯ Agents (open standard)\n ◯ OpenCode\n\n~/.hermes/profiles/example/skills/servicenow/SKILL.md\n(space to toggle, enter to confirm)\n"
   },
   {
     "id": "docs-cli",
@@ -116,6 +118,7 @@
   },
   {
     "id": "read",
+    "docs": "guides/records.md",
     "title": "Read & query records",
     "tagline": "Any table, encoded queries, counts on every list.",
     "commands": [
@@ -256,13 +259,14 @@
         "what": "Flow structure with subflow expansion"
       }
     ],
+    "docs": "guides/flows.md",
     "demo": "flows",
     "group": "Automate",
     "canonicalSlug": "servicenow-flow-subflow-context",
     "seoTitle": "Flow subflow context",
     "seoDescription": "See the whole flow structure — triggers, actions, nested subflows.",
     "seoQuery": "What can JSN do for this ServiceNow workflow?",
-    "demoText": "Flow: Service Catalog item request\n\n  Status: Active | Version: 2\n  Sys ID: 30f3d26187e92300e0ef0cf888cb0b91\n  Link: https://dev227772.service-now.com/sys_hub_flow.do?sys_id=30f3d26187e92300e0ef0cf888cb0b91\n\n▶ TRIGGER\n──────────────────────────────────────────────────\n  Name: Service Catalog\n  Type: Service Catalog\n\n⚡ FLOW STRUCTURE\n──────────────────────────────────────────────────\n1. ↪ Requested Item Manager Approval\n   1. Ask For Approval\n     Record: {{subflow.requested_item}}\n     Table: Requested Item\n     Approval Field: approval\n     Journal Field: approval_history\n     Rules: ApprovesAnyU[{{subflow.requested_item.requested_for.manager}}]OrRejectsAnyU[{{subflow.requested_item.requested_for.manager}}]\n     Due Date: {\"action\":\"none\",\"date_type\":\"actual\",\"date\":\"{{}}\",\"duration\":1,\"duration_type\":\"days\",\"schedule\":\"\",\"schedule_label\":\"\"}\n"
+    "demoText": "Flow: Service Catalog item request\n\n  Status: Active | Version: 2\n  Sys ID: 30f3d26187e92300e0ef0cf888cb0b91\n  Link: https://example.service-now.com/sys_hub_flow.do?sys_id=30f3d26187e92300e0ef0cf888cb0b91\n\n▶ TRIGGER\n──────────────────────────────────────────────────\n  Name: Service Catalog\n  Type: Service Catalog\n\n⚡ FLOW STRUCTURE\n──────────────────────────────────────────────────\n1. ↪ Requested Item Manager Approval\n   1. Ask For Approval\n     Record: {{subflow.requested_item}}\n     Table: Requested Item\n     Approval Field: approval\n     Journal Field: approval_history\n     Rules: ApprovesAnyU[{{subflow.requested_item.requested_for.manager}}]OrRejectsAnyU[{{subflow.requested_item.requested_for.manager}}]\n     Due Date: {\"action\":\"none\",\"date_type\":\"actual\",\"date\":\"{{}}\",\"duration\":1,\"duration_type\":\"days\",\"schedule\":\"\",\"schedule_label\":\"\"}\n"
   },
   {
     "id": "catalog",
@@ -280,7 +284,7 @@
     "seoTitle": "Catalog variables",
     "seoDescription": "A request item with its variables resolved — plain REST doesn't do this.",
     "seoQuery": "What can JSN do for this ServiceNow workflow?",
-    "demoText": "Request RITM0010001\n\n\nRITM0010001 (Requested Item)\n\n─ Core ─\n  number:  RITM0010001\n  sys_id:  02dedb44839e8b10f7bfc670ceaad36c\n  sys_class_name:  Requested Item\n  state:  Open\n  active:  true\n  short_description:  Submit a nulledge knowledge speaking session\n  description:  \n  priority:  4 - Low\n  urgency:  3 - Low\n  impact:  3 - Low\n\n─ People ─\n  opened_by:  System Administrator\n\n─ Status ─\n  approval:  Approved\n  approval_set:  2026-07-20 18:47:16\n  escalation:  Normal\n  made_sla:  true\n\n─ Dates & Times ─\n  opened_at:  2026-07-20 18:47:11\n  sys_created_on:  2026-07-20 18:47:11\n  sys_updated_on:  2026-07-20 18:47:16\n  due_date:  2026-07-22 18:47:11\n  sla_due:  UNKNOWN\n  activity_due:  UNKNOWN\n\n─ System ─\n  sys_domain:  global\n  sys_domain_path:  /\n  sys_created_by:  admin\n  sys_updated_by:  system\n  sys_mod_count:  2\n\n─ Other ─\n  backordered:  false\n  billable:  false\n  business_duration:  \n  business_service:  \n  calendar_duration:  \n  cat_item:  Knowledge Speaking Session\n  close_notes:  \n  cmdb_ci:  \n  comments:  \n  comments_and_work_notes:  \n  company:  \n  configuration_item:  \n  contact_type:  \n  context:  \n  contract:  \n  correlation_display:  \n  correlation_id:  \n  delivery_plan:  DEFAULT\n  delivery_task:  \n  estimated_delivery:  \n  flow_context:  \n  follow_up:  \n  group_list:  \n  knowledge:  false\n  location:  \n  order:  \n  order_guide:  \n  parent:  \n  price:  $0.00\n  quantity:  1\n  reassignment_count:  0\n  recurring_frequency:  \n  recurring_price:  $0.00\n  request:  REQ0010001\n  requested_for:  System Administrator\n  route_reason:  \n  sc_catalog:  \n  service_offering:  \n  skills:  \n  stage:  Assess or Scope Task\n  task_effective_number:  RITM0010001\n  task_for:  \n  time_worked:  \n  universal_request:  \n  upon_approval:  Proceed to Next Task\n  upon_reject:  Cancel all future Tasks\n  user_input:  \n  work_notes:  \n  work_notes_list:  \n\n─ Catalog Variables ─\n  Topic:  Moveworks!  What is Slate?  He can tell you!\n  Speaker:  Teo\n\nLink:  https://dev227772.service-now.com/requested_item.do?sys_id=02dedb44839e8b10f7bfc670ceaad36c\n\n\n  → update: jsn req update RITM0010001 --data '{...}' — Update this request\n  → list: jsn req list — Back to all requests\n"
+    "demoText": "Request RITM0010001\n\n\nRITM0010001 (Requested Item)\n\n─ Core ─\n  number:  RITM0010001\n  sys_id:  02dedb44839e8b10f7bfc670ceaad36c\n  sys_class_name:  Requested Item\n  state:  Open\n  active:  true\n  short_description:  Submit a nulledge knowledge speaking session\n  description:  \n  priority:  4 - Low\n  urgency:  3 - Low\n  impact:  3 - Low\n\n─ People ─\n  opened_by:  System Administrator\n\n─ Status ─\n  approval:  Approved\n  approval_set:  2026-07-20 18:47:16\n  escalation:  Normal\n  made_sla:  true\n\n─ Dates & Times ─\n  opened_at:  2026-07-20 18:47:11\n  sys_created_on:  2026-07-20 18:47:11\n  sys_updated_on:  2026-07-20 18:47:16\n  due_date:  2026-07-22 18:47:11\n  sla_due:  UNKNOWN\n  activity_due:  UNKNOWN\n\n─ System ─\n  sys_domain:  global\n  sys_domain_path:  /\n  sys_created_by:  admin\n  sys_updated_by:  system\n  sys_mod_count:  2\n\n─ Other ─\n  backordered:  false\n  billable:  false\n  business_duration:  \n  business_service:  \n  calendar_duration:  \n  cat_item:  Knowledge Speaking Session\n  close_notes:  \n  cmdb_ci:  \n  comments:  \n  comments_and_work_notes:  \n  company:  \n  configuration_item:  \n  contact_type:  \n  context:  \n  contract:  \n  correlation_display:  \n  correlation_id:  \n  delivery_plan:  DEFAULT\n  delivery_task:  \n  estimated_delivery:  \n  flow_context:  \n  follow_up:  \n  group_list:  \n  knowledge:  false\n  location:  \n  order:  \n  order_guide:  \n  parent:  \n  price:  $0.00\n  quantity:  1\n  reassignment_count:  0\n  recurring_frequency:  \n  recurring_price:  $0.00\n  request:  REQ0010001\n  requested_for:  System Administrator\n  route_reason:  \n  sc_catalog:  \n  service_offering:  \n  skills:  \n  stage:  Assess or Scope Task\n  task_effective_number:  RITM0010001\n  task_for:  \n  time_worked:  \n  universal_request:  \n  upon_approval:  Proceed to Next Task\n  upon_reject:  Cancel all future Tasks\n  user_input:  \n  work_notes:  \n  work_notes_list:  \n\n─ Catalog Variables ─\n  Topic:  Moveworks!  What is Slate?  He can tell you!\n  Speaker:  Teo\n\nLink:  https://example.service-now.com/requested_item.do?sys_id=02dedb44839e8b10f7bfc670ceaad36c\n\n\n  → update: jsn req update RITM0010001 --data '{...}' — Update this request\n  → list: jsn req list — Back to all requests\n"
   },
   {
     "id": "updatesets",
@@ -300,13 +304,14 @@
         "what": "Export to XML via the fluent endpoint"
       }
     ],
+    "docs": "guides/updatesets.md",
     "demo": "updatesets",
     "group": "Change",
     "canonicalSlug": "servicenow-update-set-cli",
     "seoTitle": "Manage ServiceNow update sets from the CLI",
     "seoDescription": "Inspect, select, complete, and export ServiceNow update sets while making changes from the terminal.",
     "seoQuery": "How do I manage a ServiceNow update set from the command line?",
-    "demoText": "3 update set(s)\n\n\nname                            state       application           application.scope     \n------------------------------  ----------  --------------------  --------------------  \nHolly Export Test C             In prog...  test                  x_8821_test           \nHolly Export Test B             In prog...  test                  x_8821_test           \nHolly Export Test A             Complete    test                  x_8821_test\n"
+    "demoText": "3 update set(s)\n\n\nname                            state       application           application.scope\n------------------------------  ----------  --------------------  --------------------\nExample Export Test C             In prog...  test                  x_8821_test\nExample Export Test B             In prog...  test                  x_8821_test\nExample Export Test A             Complete    test                  x_8821_test\n"
   },
   {
     "id": "updatesets-complete",
@@ -513,6 +518,7 @@
         "what": "Restrict a search to an application scope"
       }
     ],
+    "docs": "features/servicenow-code-search-cli.md",
     "screens": [
       {
         "cmd": "jsn codesearch search GlideAjax --limit 5 --json",
@@ -563,6 +569,7 @@
   },
   {
     "id": "record-tools",
+    "docs": "guides/records.md",
     "title": "Record tools beyond CRUD",
     "tagline": "Work with attachments, aggregates, and table inspection alongside normal record queries.",
     "commands": [
@@ -633,6 +640,7 @@
   },
   {
     "id": "flow-operations",
+    "docs": "guides/flows.md",
     "title": "Flow operations and diagnostics",
     "tagline": "Inspect executions, check status, diagnose flows, and manage their lifecycle.",
     "commands": [
@@ -742,6 +750,7 @@
   },
   {
     "id": "metadata",
+    "docs": "guides/output.md",
     "title": "Schema and platform metadata",
     "tagline": "Inspect tables, columns, relationships, script includes, and instance properties.",
     "commands": [
@@ -776,6 +785,28 @@
     "canonicalSlug": "servicenow-schema-platform-metadata",
     "seoTitle": "Schema and platform metadata",
     "seoDescription": "Inspect tables, columns, relationships, script includes, and instance properties.",
+    "seoQuery": "What can JSN do for this ServiceNow workflow?",
+    "demoText": ""
+  },
+  {
+    "id": "upgrade-preparation",
+    "title": "Read-only upgrade preparation",
+    "tagline": "Collect platform and Store evidence for an AI-assisted upgrade briefing without changing the instance.",
+    "docs": "features/servicenow-upgrade-preparation.md",
+    "commands": [
+      {
+        "cmd": "jsn upgrade prep --profile production --format markdown",
+        "what": "Discover local targets, existing evidence and human review gaps"
+      },
+      {
+        "cmd": "jsn upgrade prep --profile production --related-profile test --get data.sources",
+        "what": "Read exact evidence references, including an explicitly related lower environment"
+      }
+    ],
+    "group": "Explore",
+    "canonicalSlug": "servicenow-upgrade-preparation",
+    "seoTitle": "Read-only upgrade preparation",
+    "seoDescription": "Collect platform and Store evidence for an AI-assisted upgrade briefing without changing the instance.",
     "seoQuery": "What can JSN do for this ServiceNow workflow?",
     "demoText": ""
   },

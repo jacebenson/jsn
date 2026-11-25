@@ -1,4 +1,4 @@
-import { declareCapabilities } from '../capabilities.js';
+import { customizationsCmdDefinition } from '../command-families.js';
 import { errUsageHint, errUsage } from '../errors.js';
 import { canUsePicker } from '../helpers.js';
 import { paginatedSearch } from '../paginated-search.js';
@@ -7,7 +7,7 @@ import { buildActionableReport, writeCustomizationHtml } from '../customizations
 import { customizationGuidance, formatCustomizationGuidance } from '../customization-guidance.js';
 
 // Only capture needs an instance. Saved reports never need network access.
-declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
+
 const listHint = { action: 'list', cmd: 'jsn customizations list', description: 'Browse saved customization captures' };
 const showHint = id => ({ action: 'show', cmd: `jsn customizations show ${id}`, description: 'Review this saved capture' });
 const compareHint = id => ({ action: 'compare', cmd: `jsn customizations compare ${id} OTHER_RUN_ID`, description: 'Compare captured metadata and evidence' });
@@ -30,8 +30,7 @@ function show(app, report, options = {}) {
 }
 export function customizationsCmd(wrap) {
   return {
-    command: 'customizations [subcommand]',
-    describe: 'Capture and compare read-only customization evidence locally',
+    ...customizationsCmdDefinition,
     builder: y => y
       .command({ command: 'capture', describe: 'Capture bounded read-only metadata and historical upgrade evidence',
         builder: b => b.option('label', { type: 'string', describe: 'Label for this capture' })

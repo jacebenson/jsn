@@ -1,14 +1,16 @@
 import fs from 'node:fs';
+import { assertMutationScope } from '../intended-context.js';
 import { getStringField, formatRecordForDisplay, interactiveList, assertSafeExactMatch, confirmDelete } from '../helpers.js';
 import { resolveRecord, unwrapSysId, isSysId } from '../resolve-record.js';
 import { inspectDecisionTable } from '../decision-table-inspection.js';
+import { evaluateDecisionTable } from '../decision-table-evaluate.js';
 import { DecisionTableCRUD } from '../decision-table-crud.js';
 import { declareCapabilities } from '../capabilities.js';
 
 export const decisiontablesCmd = (wrap) => {
   const name = 'decisiontables';
   const singular = 'decision table';
-  declareCapabilities(name, { mutationSubcommands: ['create', 'update', 'delete'] });
+  declareCapabilities(name, { queryTable: 'sys_decision', mutationSubcommands: ['create', 'update', 'delete'] });
 
   const readData = (argv) => {
     if (argv.dataFile) return fs.readFileSync(argv.dataFile, 'utf8');
@@ -19,6 +21,7 @@ export const decisiontablesCmd = (wrap) => {
     .option('data', { type: 'string', describe: 'Complete decision-table JSON payload' })
     .option('data-file', { type: 'string', describe: 'Read complete decision-table JSON payload from a file' });
   const resolveExecutionScope = async (app) => {
+    if (app.mutationContext?.verified) return app.mutationContext.application_id;
     const scope = app.context?.scope;
     if (!scope) return 'global';
     const scopeSysId = await app.sdk.resolveScope(scope);
@@ -32,6 +35,7 @@ export const decisiontablesCmd = (wrap) => {
     const records = await app.sdk.list('sys_decision', params);
     if (records.length === 0) throw new Error(`Decision table not found in active scope: ${identifier}`);
     if (records.length > 1) throw new Error(`Decision table ${field} is ambiguous in active scope: ${identifier}`);
+    assertMutationScope(app.mutationContext, records[0].sys_scope, 'Decision table target');
     return records[0];
   };
   const resolveDecisionTableForUpdate = async (app, identifier, scopeSysId) => {
@@ -42,6 +46,7 @@ export const decisiontablesCmd = (wrap) => {
     const records = await app.sdk.list('sys_decision', params);
     if (records.length === 0) throw new Error(`Decision table not found${scopeSysId === 'global' ? '' : ' in active scope'}: ${identifier}`);
     if (records.length > 1) throw new Error(`Decision table ${field} is ambiguous: ${identifier}`);
+    assertMutationScope(app.mutationContext, records[0].sys_scope, 'Decision table target');
     const id = unwrapSysId(records[0]);
     if (!isSysId(id)) throw new Error(`Decision table returned an invalid identifier: ${identifier}`);
     return id;
@@ -112,6 +117,16 @@ export const decisiontablesCmd = (wrap) => {
         }),
       })
       .command({
+        command: 'evaluate <identifier>', describe: 'Show the decision a decision table picks for the given inputs',
+        builder: (y) => y.strict().option('input', { type: 'string', array: true, describe: 'Decision input as name=value; repeatable. Choice inputs take the value, references a sys_id or number' })
+          .option('all-matches', { type: 'boolean', default: false, describe: 'Return every matching decision, not only the first' }),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          const data = await evaluateDecisionTable(app.sdk, argv.identifier, { inputs: argv.input, allMatches: argv.allMatches });
+          app.ok(data, { summary: data.matches.length ? `${data.matches.length} decision(s) from ${data.decision_table.name}` : 'No decision matched' });
+        }),
+      })
+      .command({
         command: 'create', describe: 'Create a decision table',
         builder: dataBuilder,
         handler: crud('create'),
@@ -165,6 +180,7 @@ export const decisiontablesCmd = (wrap) => {
         guidance: [
           `jsn ${name} list`,
           `jsn ${name} show <name_or_sys_id>`,
+          `jsn ${name} evaluate <name_or_sys_id> --input <name>=<value>`,
           `jsn ${name} create --data '<json>' (or --data-file <path>)`,
           `jsn ${name} update <sys_id> --data '<json>' (or --data-file <path>)`,
           `jsn ${name} delete <name_or_sys_id>`,

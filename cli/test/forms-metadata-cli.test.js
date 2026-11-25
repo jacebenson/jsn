@@ -46,18 +46,20 @@ test('forms show uses selected-profile HTTP metadata and output controller while
   t.after(async () => { await new Promise(resolve => server.close(resolve)); await fs.rm(directory, { recursive: true, force: true }); });
   const instance = `http://127.0.0.1:${server.address().port}`;
   const configDir = path.join(directory, 'servicenow');
-  await fs.mkdir(path.join(configDir, 'credentials'), { recursive: true });
+  await fs.mkdir(path.join(configDir, 'credentials'), { recursive: true, mode: 0o700 });
   await fs.writeFile(path.join(configDir, 'config.json'), JSON.stringify({ default_profile: 'wrong', profiles: {
     selected: { instance_url: instance, username: 'metadata-user', auth_method: 'basic', read_only: true },
     wrong: { instance_url: 'http://127.0.0.1:1', username: 'other-user', auth_method: 'basic' },
   } }));
-  await fs.writeFile(path.join(configDir, 'credentials', `${credKey(instance, 'metadata-user')}.json`), JSON.stringify({ auth_method: 'basic', username: 'metadata-user', password: 'local-fixture-password' }));
+  await fs.writeFile(path.join(configDir, 'credentials', `${credKey(instance, 'metadata-user')}.json`), JSON.stringify({ auth_method: 'basic', username: 'metadata-user', password: 'local-fixture-password' }), { mode: 0o600 });
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
-  Object.assign(env, { XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
+  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
   async function run(args) {
     requests.length = 0;
     const result = await execute(process.execPath, [cli, ...args, '--profile', 'selected'], { env, cwd: directory, timeout: 15000 });
     assert.ok(!result.stdout.includes('local-fixture-password'));
+    // Reading a plaintext-backed credential is silent; storage mode is reported
+    // by `jsn auth status`, and the warning belongs to the save that created it.
     assert.equal(result.stderr, '');
     return result.stdout;
   }

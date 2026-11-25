@@ -79,13 +79,18 @@ test('static native runner executes read-only Linux preflight without creating r
 test('static runner extracts a bounded vendor fixture, protects config, reads logs and removes only owned files', { skip: process.platform !== 'linux' || process.getuid?.() === 0 }, t => {
   const f = fixture(t), home = path.join(f.root, 'home'), archive = path.join(f.root, 'vendor.zip');
   fs.mkdirSync(home, { mode: 0o755 });
-  execFileSync('python3', ['-c', `import zipfile,sys
+  execFileSync('python3', ['-c', `import shutil,sys,zipfile,os
+# A long-lived stand-in for the vendor JVM binary. It must be a real ELF whose
+# behavior does not depend on argv[0]: distros that ship uutils/Rust coreutils
+# (one multicall binary) reject a renamed copy of /bin/sleep outright.
+shell = shutil.which('bash') or shutil.which('sh')
+if not shell: raise SystemExit('no POSIX shell available for the vendor fixture')
 with zipfile.ZipFile(sys.argv[1],'w') as z:
  z.writestr('agent/config.xml','<parameters/>')
  z.writestr('agent/conf/wrapper.conf','wrapper.java.command=jre/bin/java\\n#include ../conf/wrapper-override.conf')
  z.writestr('agent/conf/wrapper-override.conf','')
- z.writestr('agent/bin/mid.sh', 'SERVICE_MANAGEMENT_TOOL=initd\\n. bin/mid.shconf_override\\nmkdir -p work\\ncase "$1" in\\nstart) nohup bin/wrapper-linux-x86-64 120 >/dev/null 2>&1 </dev/null & echo $! > work/$APP_NAME.pid ;;\\nstop) kill "$(cat work/$APP_NAME.pid)" ;;\\nesac\\n')
- z.write('/bin/sleep','agent/bin/wrapper-linux-x86-64')
+ z.writestr('agent/bin/mid.sh', 'SERVICE_MANAGEMENT_TOOL=initd\\n. bin/mid.shconf_override\\nmkdir -p work\\ncase "$1" in\\nstart) nohup bin/wrapper-linux-x86-64 -c "sleep 120; :" >/dev/null 2>&1 </dev/null & echo $! > work/$APP_NAME.pid ;;\\nstop) kill "$(cat work/$APP_NAME.pid)" ;;\\nesac\\n')
+ z.write(os.path.realpath(shell),'agent/bin/wrapper-linux-x86-64')
  z.writestr('agent/jre/bin/java','fixture java')
  z.writestr('agent/logs/agent0.log','first\\nlast\\n')
  z.writestr('agent/logs/agent0.log.0.lck','not a log')

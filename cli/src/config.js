@@ -5,6 +5,13 @@ import path from 'node:path';
 import os from 'node:os';
 
 const APP_NAME = 'servicenow';
+// Persistence provenance is private: project JSON cannot forge it.
+const persistence = new WeakMap();
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const fields = ['instanceURL', 'defaultProfile', 'format', 'connectionDefaults', 'docs'];
+function snapshot(cfg) {
+  return structuredClone(Object.fromEntries([...fields, 'profiles'].map(key => [key, cfg[key]])));
+}
 
 export function globalConfigDir() {
   const xdg = process.env.XDG_CONFIG_HOME;
@@ -51,6 +58,7 @@ function loadFromFile(cfg, filePath, source) {
       if (fileCfg.connection_defaults && typeof fileCfg.connection_defaults === 'object') cfg.connectionDefaults = fileCfg.connection_defaults;
       if (fileCfg.docs && typeof fileCfg.docs === 'object') cfg.docs = fileCfg.docs;
     }
+    if (source === 'local' && Object.hasOwn(fileCfg, 'write_context')) cfg.writeContext = fileCfg.write_context;
     if (fileCfg.instance_url) {
       cfg.instanceURL = fileCfg.instance_url;
       cfg.sources.instance_url = source;
@@ -101,6 +109,13 @@ export function loadConfig(overrides = {}) {
   const cfg = createConfig();
 
   loadFromFile(cfg, globalConfigPath(), 'global');
+  const global = snapshot(cfg);
+  // Preserve provenance outside the serializable/user-controlled config shape.
+  // A project can select an origin, but cannot authorize ambient secrets for it.
+  Object.defineProperty(cfg, 'credentialTrust', { value: {
+    profiles: structuredClone(cfg.profiles),
+    origin: normalizeInstanceURL(getEffectiveInstance(cfg)),
+  } });
   loadFromFile(cfg, localConfigPath(), 'local');
   loadFromEnv(cfg);
 
@@ -120,37 +135,98 @@ export function loadConfig(overrides = {}) {
     }
   }
 
+  persistence.set(cfg, { global, effective: snapshot(cfg) });
   return cfg;
 }
 
-export function saveConfig(cfg) {
+export function isTrustedCredentialDestination(cfg, instance, explicitInstance = '', explicitProfile = '') {
+  const origin = normalizeInstanceURL(instance);
+  // Hand-built configs are a programmatic API, not project-file input.
+  if (!cfg?.credentialTrust) return true;
+  const selectedProfile = explicitProfile && Object.hasOwn(cfg.credentialTrust.profiles, explicitProfile)
+    ? cfg.credentialTrust.profiles[explicitProfile]?.instance_url : '';
+  // Bind ambient secrets to the global default, not every saved account.
+  // Only explicit process selectors may opt into another saved origin.
+  const binding = explicitInstance || selectedProfile || process.env.SERVICENOW_INSTANCE_URL || cfg.credentialTrust.origin;
+  return Boolean(binding) && normalizeInstanceURL(binding) === origin;
+}
+
+export function saveConfig(cfg, { approvedProfile = '', approveDefault = false } = {}) {
+  const state = persistence.get(cfg);
+  const next = state ? structuredClone(state.global) : snapshot(cfg);
+  const changedProfiles = new Set();
+  const changedFields = new Set();
+  const refuse = () => {
+    const error = new Error('Project configuration cannot be promoted to global trust. Edit the global profile outside this project, or explicitly approve the destination with auth login <URL>.');
+    error.code = 'usage_error';
+    throw error;
+  };
+  if (state) {
+    for (const name of new Set([...Object.keys(state.effective.profiles), ...Object.keys(cfg.profiles)])) {
+      if (name !== approvedProfile && same(cfg.profiles[name], state.effective.profiles[name])) continue;
+      // A changed project-derived profile must not be copied wholesale, even
+      // when the user only changed an innocuous preference on that profile.
+      if (name !== approvedProfile && cfg.profiles[name] !== undefined
+        && !same(state.effective.profiles[name], state.global.profiles[name])) refuse();
+      if (cfg.profiles[name] === undefined) delete next.profiles[name];
+      else next.profiles[name] = structuredClone(cfg.profiles[name]);
+      changedProfiles.add(name);
+    }
+    for (const key of fields) {
+      if (same(cfg[key], state.effective[key]) && !(approveDefault && ['instanceURL', 'defaultProfile'].includes(key))) continue;
+      // Removing a locally selected profile must not clear an unrelated global
+      // default. The caller explicitly removed that profile, not this one.
+      if (key === 'defaultProfile' && !cfg[key] && !approveDefault
+        && state.effective.defaultProfile !== state.global.defaultProfile) {
+        changedFields.add(key);
+        continue;
+      }
+      if (key === 'instanceURL' && !approveDefault && cfg[key]) {
+        // Switching is selection, not authorization of a project origin.
+        const name = cfg.defaultProfile;
+        if (name && (!same(cfg.profiles[name], next.profiles[name]) || !next.profiles[name])) refuse();
+      }
+      if (key === 'defaultProfile' && cfg[key] && !approveDefault
+        && (!next.profiles[cfg[key]] || !same(cfg.profiles[cfg[key]], next.profiles[cfg[key]]))) refuse();
+      next[key] = structuredClone(cfg[key]);
+      changedFields.add(key);
+    }
+  }
   const dir = globalConfigDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
   const payload = {
-    connection_defaults: cfg.connectionDefaults || undefined,
-    docs: cfg.docs || undefined,
-    instance_url: cfg.instanceURL || undefined,
-    profiles: Object.keys(cfg.profiles).length > 0 ? cfg.profiles : undefined,
-    default_profile: cfg.defaultProfile || undefined,
-    format: cfg.format || undefined,
+    connection_defaults: next.connectionDefaults || undefined,
+    docs: next.docs || undefined,
+    instance_url: next.instanceURL || undefined,
+    profiles: Object.keys(next.profiles).length > 0 ? next.profiles : undefined,
+    default_profile: next.defaultProfile || undefined,
+    format: next.format || undefined,
   };
   fs.writeFileSync(globalConfigPath(), JSON.stringify(payload, null, 2), { mode: 0o600 });
 
-  // Sync managed fields to local config if it exists, so profile operations
-  // (use, remove, create, auth login) aren't silently reverted on next load.
-  if (fs.existsSync(localConfigPath())) {
+  // Synchronize only authored changes. Never replace the project's entire
+  // profile map with the effective (or global) map.
+  if (state && fs.existsSync(localConfigPath())) {
     try {
-      const localData = JSON.parse(fs.readFileSync(localConfigPath(), 'utf-8'));
-      const merged = { ...localData };
-      if (payload.profiles !== undefined) merged.profiles = payload.profiles;
-      if (payload.default_profile !== undefined) merged.default_profile = payload.default_profile;
-      if (payload.instance_url !== undefined) merged.instance_url = payload.instance_url;
-      if (payload.format !== undefined) merged.format = payload.format;
-      fs.writeFileSync(localConfigPath(), JSON.stringify(merged, null, 2), { mode: 0o600 });
+      const local = JSON.parse(fs.readFileSync(localConfigPath(), 'utf-8'));
+      for (const name of changedProfiles) {
+        local.profiles ||= {};
+        if (next.profiles[name] === undefined) delete local.profiles[name];
+        else local.profiles[name] = next.profiles[name];
+      }
+      const keys = { instanceURL: 'instance_url', defaultProfile: 'default_profile', format: 'format' };
+      for (const key of changedFields) if (keys[key]) {
+        if (next[key]) local[keys[key]] = next[key];
+        else delete local[keys[key]];
+      }
+      if (changedProfiles.size || [...changedFields].some(key => keys[key])) {
+        fs.writeFileSync(localConfigPath(), JSON.stringify(local, null, 2), { mode: 0o600 });
+      }
     } catch {
-      // Local config unreadable — skip sync, global save already succeeded
+      // Local config unreadable — skip sync, global save already succeeded.
     }
   }
+  if (state) persistence.set(cfg, { global: next, effective: snapshot(cfg) });
 }
 
 export function saveLocalConfig(cfg) {

@@ -1,0 +1,70 @@
+<section class="shell results">
+  <p class="eyebrow">SANITIZED ACCEPTANCE RESULTS</p>
+  <h1>What the suite actually proved</h1>
+  <p class="results-lead">Every run below is a closed public projection of a JSN CLI acceptance run. Performance is observational, never a release gate. Selected-task verdicts, cleanup and publication are independent. Missing metadata is unknown, never inferred. Failed and blocked runs stay in history, not performance comparisons.</p>
+
+  <% if @latest %>
+    <article class="result-latest">
+      <p class="eyebrow">LATEST · <%= @latest.mode == 'readonly' ? 'READ-ONLY' : 'PDI ISOLATED TEST' %></p>
+      <h2><%= @latest.passed %> passed · <%= @latest.failed %> failed · <%= @latest.blocked %> blocked</h2>
+      <p>CLI <%= @latest.cli_version %> · revision <code><%= @latest.source_sha.first(7) %></code><%= ' · dirty source' if @latest.source_dirty %> · <%= @latest.selected_verdict %> selected tasks · cleanup <%= @latest.cleanup_state %> · publication readback unknown</p>
+      <p class="small"><%= @latest.received_at.utc.strftime('%Y-%m-%d %H:%M UTC') %> · sum of check durations <%= (@latest.duration_ms / 1000.0).round(1) %>s</p>
+      <p><a href="/results/<%= @latest.run_key %>">Inspect run →</a></p>
+    </article>
+  <% else %>
+    <p class="results-empty">No acceptance runs have been published yet.</p>
+  <% end %>
+
+  <form method="get" action="/results">
+    <label>Mode <select name="mode"><option value="">All</option><% %w[readonly pdi].each do |value| %><option <%= 'selected' if params[:mode] == value %>><%= value %></option><% end %></select></label>
+    <label>Target <select name="target"><option value="">All</option><% @targets.each do |value| %><option <%= 'selected' if params[:target] == value %>><%= value %></option><% end %></select></label>
+    <label>Taskset version <select name="taskset"><option value="">All</option><% @tasksets.each do |value| %><option <%= 'selected' if params[:taskset] == value %>><%= value %></option><% end %></select></label>
+    <label>ServiceNow family <select name="family"><option value="">All</option><% @families.each do |value| %><option <%= 'selected' if params[:family] == value %>><%= value %></option><% end %></select></label>
+    <label>Build <select name="build"><option value="">All</option><% @builds.each do |value| %><option <%= 'selected' if params[:build] == value %>><%= value %></option><% end %></select></label>
+    <button type="submit">Filter history</button> <a href="/results">Reset</a>
+  </form>
+  <p class="small"><a href="/benchmarks/bounded-reads-v1.json">Six-task bounded fixture contract (JSON)</a> · Offline only, separate from acceptance history. Output tokens and agent cost are not collected here.</p>
+  <h2>Run history</h2>
+  <% if @runs.empty? %>
+    <p class="results-empty">Nothing to show yet.</p>
+  <% else %>
+    <div class="results-table-wrap">
+      <table class="results-table">
+        <thead><tr><th>Received (UTC)</th><th>Mode</th><th>CLI</th><th>Rev</th><th>Passed</th><th>Failed</th><th>Blocked</th><th>Excluded</th><th>Not run</th><th>Duration</th><th>State</th></tr></thead>
+        <tbody>
+          <% @runs.each do |run| %>
+            <tr>
+              <td><a href="/results/<%= run.run_key %>"><%= run.received_at.utc.strftime('%Y-%m-%d %H:%M') %></a></td>
+              <td><%= run.mode == 'readonly' ? 'Read-only' : 'PDI' %></td>
+              <td><%= run.cli_version %></td>
+              <td><code><%= run.source_sha.first(7) %></code></td>
+              <td class="num pass"><%= run.passed %></td>
+              <td class="num fail"><%= run.failed %></td>
+              <td class="num block"><%= run.blocked %></td>
+              <td class="num"><%= run.excluded %></td>
+              <td class="num"><%= run.not_run %></td>
+              <td class="num"><%= (run.duration_ms / 1000.0).round(1) %>s</td>
+              <td><span class="badge <%= run.selected_verdict == 'passed' ? 'pass' : 'partial' %>"><%= run.selected_verdict %> selected tasks · <%= run.comparison_key ? 'eligible cohort' : 'not comparable' %></span></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+
+  <h2>Comparable timing history <span class="small">(exact latest cohort; no ranking)</span></h2>
+  <% if @timings.empty? %>
+    <p class="results-empty">No comparable timing history. A passing, nonzero execution with known taskset, selected IDs, target, environment and build is required. Historical failures remain above.</p>
+  <% else %>
+    <% max = @timings.map(&:duration_ms).max.to_f %>
+    <ul class="timing-list">
+      <% @timings.each do |run| %>
+        <li>
+          <span class="timing-date"><%= run.received_at.utc.strftime('%m-%d %H:%M') %></span>
+          <span class="timing-track"><span class="timing-bar" style="width: <%= max.zero? ? 0 : (run.duration_ms / max * 100).round(1) %>%"></span></span>
+          <span class="timing-value"><%= (run.duration_ms / 1000.0).round(1) %>s</span>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+</section>

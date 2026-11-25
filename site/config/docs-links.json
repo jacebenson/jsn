@@ -1,0 +1,15 @@
+{
+  "site": "https://jsn.jace.pro",
+  "root": "/docs/",
+  "commands": {
+    "codesearch": "/features/servicenow-code-search-cli/",
+    "docs": "/docs/cli-guide/#jsn-cli-guide",
+    "flows": "/docs/flows/#flow-definition-search",
+    "records": "/docs/records/#watching-a-servicenow-record",
+    "updatesets": "/docs/updatesets/#transfer-an-update-set",
+    "midservers": "/docs/midservers/#remote-mid-management-over-ssh",
+    "setup": "/docs/setup/#connect-an-instance",
+    "auth": "/docs/setup/#authentication-lifecycle-review",
+    "skill": "/docs/agents/#use-jsn-with-ai-agents"
+  }
+}

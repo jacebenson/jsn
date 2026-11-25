@@ -1,3 +1,4 @@
+import { PLAINTEXT_WARNING, credentialFixtureArgs } from './helpers/fake-keyring.js';
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -49,22 +50,28 @@ it('Basic and OAuth CLI workflows preserve credentials, settings, defaults, PKCE
   const instance = `http://127.0.0.1:${server.address().port}`;
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SN_') && !key.startsWith('SERVICENOW_')));
   Object.assign(env, {
-    XDG_CONFIG_HOME: directory, PATH: '', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
+    HOME: directory, XDG_CONFIG_HOME: directory, PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1',
     SN_USERNAME: 'basic-user', SN_PASSWORD: 'fixture-password',
   });
   async function run(args, expected = 0) {
     let output;
-    try { output = { ...await execute(process.execPath, [cli, ...args], { cwd: directory, env, timeout: 15000 }), code: 0 }; }
+    try { output = { ...await execute(process.execPath, [...credentialFixtureArgs, cli, ...args], { cwd: directory, env, timeout: 15000 }), code: 0 }; }
     catch (error) { output = error; }
     assert.equal(output.code, expected, output.stderr || output.message);
     assert.doesNotMatch(output.stdout, /fixture-password|fixture-oauth-secret|fixture-refresh-secret|fixture-provider-secret/);
     assert.doesNotMatch(output.stderr, /fixture-password|fixture-oauth-secret|fixture-refresh-secret|fixture-provider-secret/);
+    if (output.stderr.includes('Warning: plaintext')) assert.equal(output.stderr.split(PLAINTEXT_WARNING).length - 1, 1);
     return JSON.parse(output.stdout);
   }
   const readConfig = async () => JSON.parse(await fs.readFile(path.join(directory, 'servicenow/config.json'), 'utf8'));
   try {
     const basic = await run(['auth', 'login', instance, '--name', 'basic', '--basic', '--read-only', '--no-include-counts', '--confirm-deletes', '--make-default', '--json']);
     assert.equal(basic.data.username, 'basic-user');
+    const credentialDir = path.join(directory, 'servicenow/credentials');
+    if (process.platform !== 'win32') assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
+    for (const entry of await fs.readdir(credentialDir)) {
+      if (process.platform !== 'win32') assert.equal((await fs.stat(path.join(credentialDir, entry))).mode & 0o777, 0o600);
+    }
     let config = await readConfig();
     assert.equal(config.default_profile, 'basic');
     assert.equal(config.profiles.basic.read_only, true);
@@ -80,7 +87,7 @@ it('Basic and OAuth CLI workflows preserve credentials, settings, defaults, PKCE
     const missing = await run(['auth', 'modify', 'basic', '--json'], 2);
     assert.equal(missing.code, 'usage_error');
 
-    const authorization = await run(['auth', 'login', instance, '--name', 'oauth', '--oauth', '--print-url', '--json']);
+    const authorization = await run(['auth', 'login', instance, '--name', 'oauth', '--oauth', '--print-url', '--json', '--verbose']);
     const authURL = new URL(authorization.data.authorization_url);
     expectedChallenge = authURL.searchParams.get('code_challenge');
     assert.equal(authURL.searchParams.get('code_challenge_method'), 'S256');

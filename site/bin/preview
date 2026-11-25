@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Isolated local website; never starts the ServiceNow corpus sync worker.
+set -euo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+RUBY_BIN="${PREVIEW_RUBY:-ruby}"
+STATE="$ROOT/site/tmp/preview"
+mkdir -p "$STATE/docs"
+export BUNDLE_GEMFILE="$ROOT/site/Gemfile"
+export DOCS_SYNC_DISABLED=1 DOCS_STORAGE_DIR="$STATE/docs"
+export RAILS_ENV=development DATABASE_URL="sqlite3:$STATE/development.sqlite3"
+node "$ROOT/site/scripts/build-docs-site.mjs"
+cd "$ROOT/site"
+"$RUBY_BIN" bin/bundle check
+if [[ "${1:-}" == --test ]]; then
+  export RAILS_ENV=test DATABASE_URL="sqlite3:$STATE/test.sqlite3"
+  "$RUBY_BIN" bin/rails db:prepare
+  exec "$RUBY_BIN" bin/bundle exec "$RUBY_BIN" -Itest -e 'Dir["test/*_test.rb"].sort.each { |file| require_relative file }'
+fi
+if [[ $# -gt 1 ]] || [[ $# -eq 1 && ! "$1" =~ ^[0-9]+$ ]]; then
+  printf 'Usage: site/bin/preview [PORT] | site/bin/preview --test\n' >&2; exit 1
+fi
+PORT="${1:-$("$RUBY_BIN" -rsocket -e 's = TCPServer.new("127.0.0.1", 0); puts s.addr[1]; s.close')}"
+if (( PORT < 1024 || PORT > 65535 )); then printf 'Use an unprivileged port (1024–65535).\n' >&2; exit 1; fi
+"$RUBY_BIN" bin/rails db:prepare
+printf 'JSN guides: http://127.0.0.1:%s/docs/ (Ctrl-C to stop)\n' "$PORT"
+exec "$RUBY_BIN" bin/rails server -b 127.0.0.1 -p "$PORT" -P "$STATE/server-$PORT.pid"

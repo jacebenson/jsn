@@ -1,0 +1,14 @@
+{
+  "install": "guides/install.md",
+  "setup": "guides/setup.md",
+  "safety": "guides/safety.md",
+  "output": "guides/output.md",
+  "agents": "guides/agents.md",
+  "cli-guide": "guides/cli-guide.md",
+  "flows": "guides/flows.md",
+  "records": "guides/records.md",
+  "updatesets": "guides/updatesets.md",
+  "midservers": "guides/midservers.md",
+  "store": "guides/store.md",
+  "instance-inventory-comparison": "guides/instance-inventory-comparison.md"
+}

@@ -1,0 +1,27 @@
+Query record data using the GraphQL API framework
+api-reference/web-services/scripted-graph-ql.md
+Release: australia | Revision: 96d32129bb43ac72057be47de4ffd83cf128813c
+Service: https://jsn.jace.pro/
+
+Query record data using the GraphQL API framework  [lines 2–150]
+  s1:f62953e890ec930ebbeb256c:1
+  Benefits of GraphQL  [lines 10–19]
+    s1:f62953e890ec930ebbeb256c:2
+  What to know before you begin  [lines 20–30]
+    s1:f62953e890ec930ebbeb256c:3
+  GraphQL overview  [lines 31–55]
+    s1:f62953e890ec930ebbeb256c:4
+  Limitations  [lines 56–62]
+    s1:f62953e890ec930ebbeb256c:5
+  Introspection  [lines 63–66]
+    s1:f62953e890ec930ebbeb256c:6
+  Namespaces  [lines 67–98]
+    s1:f62953e890ec930ebbeb256c:7
+  Directives and global functions  [lines 99–132]
+    s1:f62953e890ec930ebbeb256c:8
+  Demo application  [lines 133–150]
+    s1:f62953e890ec930ebbeb256c:9
+
+Use --section '<ID>' with this --path. Selection includes preamble and ancestor introductions.
+Other sections and linked prerequisites may still matter.
+Retrieval: client-fallback; full document transferred: true

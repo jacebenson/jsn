@@ -83,6 +83,7 @@ export function buildRecordProfile(definition, wrap, hooks = {}) {
     ? buildTicketCommands(profile.table, profile.name, profile.aliases.find(alias => alias !== profile.table), profile.columns, {}, null, wrap, options)
     : buildDevCmd(profile.name, profile.table, profile.aliases, profile.columns, wrap, options);
   command.aliases = [...profile.aliases];
+  command.summary = profile.summary || '';
   command.recordProfile = profile;
   command.discovery.benefits.push(
     `Reference output: ${profile.output.references}; list projection: ${profile.output.listProjection}`,

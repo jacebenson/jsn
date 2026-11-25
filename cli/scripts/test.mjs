@@ -12,7 +12,7 @@ function collect(directory) {
     return entry.isFile() && entry.name.endsWith('.test.js') ? [filename] : [];
   });
 }
-// Fixture mutations must never enter the developer's personal history store.
+// Keep fixture local data separate from the developer's personal data.
 const dataHome = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-suite-data-'));
 try {
   const result = spawnSync(process.execPath, [

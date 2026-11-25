@@ -36,10 +36,6 @@ Thumbs.db
 .opencode
 opencode.json
 .agents/
-!.agents/
-!.agents/skills/
-!.agents/skills/verify/
-!.agents/skills/verify/**
 .verification/
 skills-lock.json
 test_modes.sh
@@ -48,6 +44,15 @@ test_modes.sh
 *.tmp
 *.bak
 tmp/
+.task-evidence/
+
+# Immutable acceptance producer staged by .github/scripts/acceptance/prepare.mjs
+# Generated harness dependencies retain upstream relative imports; never shipped.
+/cli/scripts/acceptance/bindings.mjs
+/cli/scripts/acceptance/run.mjs
+/cli/scripts/acceptance/session-adapter.mjs
+/cli/scripts/acceptance/support.mjs
+/cli/test/acceptance/
 
 # Build artifacts
 dist/

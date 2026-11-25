@@ -7,19 +7,20 @@ import { docsReaderLease } from './locks.js';
 import { errUsageHint } from '../../errors.js';
 import { createHash } from 'node:crypto';
 import { parseFrontmatter } from '../../frontmatter.js';
-import { withDocsDb, getDocsDbPath, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
+import { withDocsDb, resolveDocsDbPath, resolveDocsRoot, walkDocs, defaultDocsRoots, getDocsSourceDir } from './db.js';
 import { encodeText, phasesToBytes, docSurface, DEFAULT_DIM } from './hrr.js';
 
 export function refreshDocs(opts = {}) {
-  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir() : null);
+  const resource = opts.sourceResource || (!opts.roots ? getDocsSourceDir(opts.release) : null);
   if (resource) fs.mkdirSync(path.dirname(resource), { recursive: true });
   const release = resource && !opts.sourceLeaseHeld ? docsReaderLease(resource) : () => {};
   try { return refreshDocsLocked(opts); } finally { release(); }
 }
 function refreshDocsLocked(opts = {}) {
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
   const roots = opts.roots || defaultDocsRoots(opts);
 
+  for (const root of roots) resolveDocsRoot(root.dir);
   if (roots.some(root => (!root.prefix || opts.roots) && (!fs.existsSync(root.dir) || !fs.statSync(root.dir).isDirectory()))) {
     throw errUsageHint('Raw documentation source is missing; existing index retained.', 'Use jsn docs install --source snapshot to update a prebuilt index, or --source github to install raw source before refreshing.');
   }

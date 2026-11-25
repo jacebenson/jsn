@@ -4,15 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { docsInstallLease, docsHaveReaders } from './locks.js';
 import { spawnSync } from 'node:child_process';
-import { getDocsSourceDir, getDocsSourceMarkdownDir, getDocsDbPath, docsDbExists } from './db.js';
+import { getDocsSourceDir, getDocsSourceMarkdownDir, resolveDocsDbPath, resolveDocsRelease, withDocsDb, setMeta } from './db.js';
 import { ingestDocs } from './ingest.js';
 import { refreshDocs } from './refresh.js';
 
 const REPO_URL = 'https://github.com/ServiceNow/ServiceNowDocs';
-const BRANCH = 'australia';
 
 function git(args, cwd, stdio = 'inherit') {
-  const r = spawnSync('git', args, { cwd, stdio });
+  const r = spawnSync('git', args, { cwd, stdio: stdio === 'inherit' ? ['ignore', 2, 2] : stdio });
   if (r.error && r.error.code === 'ENOENT') {
     throw new Error('git is not installed. Install git to sync docs, or download the docs repo manually.');
   }
@@ -22,7 +21,7 @@ function git(args, cwd, stdio = 'inherit') {
 }
 
 export function syncDocs(opts = {}) {
-  const repoDir = opts.repoDir || getDocsSourceDir();
+  const repoDir = opts.repoDir || getDocsSourceDir(opts.release);
   fs.mkdirSync(path.dirname(repoDir), { recursive: true });
   const release = docsInstallLease(repoDir);
   try {
@@ -31,9 +30,10 @@ export function syncDocs(opts = {}) {
   } finally { release(); }
 }
 function syncDocsLocked(opts = {}) {
-  const repoDir = opts.repoDir || getDocsSourceDir();
-  const markdownDir = opts.markdownDir || getDocsSourceMarkdownDir();
-  const dbPath = opts.dbPath || getDocsDbPath();
+  const repoDir = opts.repoDir || getDocsSourceDir(opts.release);
+  const markdownDir = opts.markdownDir || getDocsSourceMarkdownDir(opts.release);
+  const dbPath = opts.dbPath || resolveDocsDbPath(opts.release);
+  const branch = resolveDocsRelease(opts.release);
   const embed = opts.embed !== false;
   const noIngest = opts.noIngest === true;
 
@@ -53,14 +53,16 @@ function syncDocsLocked(opts = {}) {
 
   if (!initialStatus.clone) {
     process.stderr.write(`Updating existing clone at ${repoDir} ...\n`);
-    git(['-C', repoDir, 'pull', '--ff-only'], repoDir, 'inherit');
+    git(['-C', repoDir, 'fetch', 'origin', branch], repoDir, 'inherit');
+    git(['-C', repoDir, 'checkout', branch], repoDir, 'inherit');
+    git(['-C', repoDir, 'merge', '--ff-only', 'FETCH_HEAD'], repoDir, 'inherit');
   } else {
     fs.mkdirSync(path.dirname(repoDir), { recursive: true });
-    process.stderr.write(`Cloning ${REPO_URL} (branch ${BRANCH}) into ${repoDir} ...\n`);
+    process.stderr.write(`Cloning ${REPO_URL} (branch ${branch}) into ${repoDir} ...\n`);
     git([
       'clone',
       '--depth', '1',
-      '--branch', BRANCH,
+      '--branch', branch,
       '--config', 'core.longpaths=true',
       REPO_URL,
       repoDir,
@@ -71,18 +73,25 @@ function syncDocsLocked(opts = {}) {
     throw new Error(`Expected markdown folder not found at ${markdownDir}.`);
   }
 
+  const revisionResult = spawnSync('git', ['-C', repoDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+  if (revisionResult.status !== 0) throw new Error('Could not read documentation source revision.');
+  const revision = revisionResult.stdout.trim();
+  const recordRevision = () => withDocsDb({ dbPath }, db => { setMeta(db, 'source_revision', revision); setMeta(db, 'source_branch', branch); });
+
   if (noIngest) {
     return { repoDir, markdownDir, dbPath, ingested: false, note: 'Run without --no-ingest to build the index.' };
   }
 
   // If the DB already exists, use incremental refresh. Otherwise, full ingest.
-  if (docsDbExists()) {
+  if (fs.existsSync(dbPath)) {
     process.stderr.write(`Docs DB found — running incremental refresh...\n`);
-    const result = refreshDocs({ docsDir: markdownDir, dbPath, sourceResource: repoDir, sourceLeaseHeld: true });
-    return { repoDir, markdownDir, dbPath, ingested: true, incremental: true, ...result };
+    const result = refreshDocs({ release: branch, docsDir: markdownDir, dbPath, sourceResource: repoDir, sourceLeaseHeld: true });
+    recordRevision();
+    return { repoDir, markdownDir, dbPath, revision, ingested: true, incremental: true, ...result };
   }
 
   process.stderr.write('No existing DB — running full ingest...\n');
-  const result = ingestDocs({ docsDir: markdownDir, dbPath, embed, sourceResource: repoDir, sourceLeaseHeld: true });
-  return { repoDir, markdownDir, dbPath, ingested: true, incremental: false, ...result };
+  const result = ingestDocs({ release: branch, docsDir: markdownDir, dbPath, embed, sourceResource: repoDir, sourceLeaseHeld: true });
+  recordRevision();
+  return { repoDir, markdownDir, dbPath, revision, ingested: true, incremental: false, ...result };
 }

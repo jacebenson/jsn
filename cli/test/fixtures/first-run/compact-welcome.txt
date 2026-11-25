@@ -1,0 +1,5 @@
+Welcome to jsn
+
+    jsn setup   connect to ServiceNow
+    jsn --help  every command and flag
+

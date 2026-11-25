@@ -103,7 +103,7 @@ function fakeApp({ answers = {}, selected = {} } = {}) {
 }
 function commands(factory) {
   const definitions = [];
-  factory(fn => fn).builder({ command(command) { definitions.push(command); return this; } });
+  factory(fn => fn).builder({ command(command) { definitions.push(command); return this; }, epilogue() { return this; } });
   return new Map(definitions.map(command => [command.command.split(' ')[0], command]));
 }
 async function human(operation) {

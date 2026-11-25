@@ -22,10 +22,12 @@ describe('capabilities registry', () => {
     const caps = collectCapabilities();
     // Spot-check a factory-built CRUD command
     assert.deepStrictEqual(caps.get('incidents'), {
+      queryTable: 'incident',
+      mutationContext: 'operational',
       mutationSubcommands: ['create', 'update', 'delete'],
     });
     // A read-only factory command declares no mutations
-    assert.deepStrictEqual(caps.get('sppages'), { mutationSubcommands: [] });
+    assert.deepStrictEqual(caps.get('sppages'), { mutationContext: 'table', table: 'sp_page', mutationSubcommands: [] });
     // No-instance commands declare themselves
     assert.deepStrictEqual(caps.get('auth'), { noInstance: true, skipContextHeader: true });
     assert.deepStrictEqual(caps.get('setup'), { noInstance: true, skipContextHeader: true });
@@ -33,7 +35,6 @@ describe('capabilities registry', () => {
     assert.deepStrictEqual(caps.get('docs'), { noInstance: true, skipDailyChecks: true });
     // Built-ins
     assert.deepStrictEqual(caps.get('help'), { noInstance: true, skipDailyChecks: true });
-    assert.deepStrictEqual(caps.get('completion'), { noInstance: true, skipDailyChecks: true });
   });
 
   it('marks the real catalogitems create as a mutation (regression: mutations.js registered catalog create-item)', () => {
@@ -60,13 +61,14 @@ describe('capabilities registry', () => {
     assert.ok('uipolicies' in handlers);
     const caps = collectCapabilities();
     assert.deepStrictEqual(caps.get('uipolicies'), {
+      mutationContext: 'table', table: 'sys_ui_policy',
       mutationSubcommands: ['create', 'update', 'delete'],
     });
   });
 
   it('derives noInstanceCommands with the exact legacy skip-list semantics', () => {
     const skip = noInstanceCommands();
-    for (const cmd of ['help', 'version', 'completion', 'setup', 'auth', 'skill', 'docs']) {
+    for (const cmd of ['help', 'version', 'setup', 'auth', 'skill', 'docs']) {
       assert.ok(skip.has(cmd), `expected ${cmd} in noInstance skip set`);
     }
     // And nothing instance-bound leaks in
@@ -82,7 +84,7 @@ describe('capabilities registry', () => {
 
   it('derives dailyCheckSkipCommands including offline customization reports', () => {
     const skip = dailyCheckSkipCommands();
-    assert.deepStrictEqual([...skip].sort(), ['completion', 'customizations', 'discover', 'docs', 'help', 'history', 'skill', 'update', 'upgrade', 'version']);
+    assert.deepStrictEqual([...skip].sort(), ['customizations', 'discover', 'docs', 'document', 'help', 'skill', 'subscriptions', 'update', 'upgrade', 'version']);
   });
 
   it('derives mutation paths for root CRUD commands', () => {

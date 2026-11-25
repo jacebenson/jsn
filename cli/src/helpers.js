@@ -5,7 +5,7 @@ import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 import { getActiveProfile } from './config.js';
-import { errConfirmationRequired } from './errors.js';
+import { errConfirmationRequired, isTerminalAuthError } from './errors.js';
 
 /**
  * Detect whether a human is actually available to answer interactive
@@ -186,6 +186,29 @@ function getRawValue(val) {
 }
 
 /**
+ * Does the value supplied in --data match what the API stored for a field?
+ *
+ * The Table API accepts both choice values and their display labels
+ * ("true" and "True", "ignore" and "Leave alone"), so a successful write
+ * must not be reported as dropped just because the caller supplied the
+ * label. Matches the raw value exactly, or the display label
+ * case-insensitively when the label differs from the raw value.
+ */
+function matchesPersisted(sent, val) {
+  if (val == null) return sent === '';
+  if (typeof val !== 'object') return String(val) === sent;
+
+  const raw = val.value == null ? null : String(val.value);
+  const display = val.display_value == null ? null : String(val.display_value);
+
+  if (raw != null && raw === sent) return true;
+  if (display && display !== raw) {
+    return display.toLowerCase() === sent.toLowerCase();
+  }
+  return false;
+}
+
+/**
  * Normalize a value the user supplied in --data for comparison against
  * what the API persisted. Objects like {"value": "<sys_id>"} are unwrapped.
  */
@@ -240,7 +263,7 @@ export async function verifyWriteBack(app, table, sysID, sentData) {
   for (const field of fields) {
     const sent = normalizeSupplied(sentData[field]);
     const got = getRawValue(persisted[field]);
-    if (sent !== got) {
+    if (!matchesPersisted(sent, persisted[field])) {
       mismatches.push({ field, sent, got });
     }
   }
@@ -273,6 +296,22 @@ export function formatRecordForDisplay(record, columns) {
     }
   }
   return result;
+}
+
+/**
+ * Identify requested columns that ServiceNow omitted from every returned row
+ * (because the field does not exist on the table or is blocked by ACLs).
+ * An existing empty column is still present as a key (`col in row === true`).
+ *
+ * @param {Array<object>} records — raw records from ServiceNow Table API
+ * @param {string[]} columns — requested column names
+ * @returns {string[]} columns absent from all returned records
+ */
+export function findOmittedColumns(records, columns) {
+  if (!Array.isArray(records) || records.length === 0 || !Array.isArray(columns) || columns.includes('*')) {
+    return [];
+  }
+  return columns.filter(col => col && col !== '*' && !records.some(r => r && typeof r === 'object' && col in r));
 }
 
 export function truncateString(str, maxLen) {
@@ -381,6 +420,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   try {
     totalCount = await app.sdk.aggregateCount(table, query || '');
   } catch (err) {
+    if (isTerminalAuthError(err)) throw err;
     countError = err;
   }
   if (totalCount === 0) return null; // measured empty
@@ -396,6 +436,7 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
       if (!Array.isArray(probe)) throw new Error('list returned a non-array result');
       if (probe.length === 0) return null; // the list itself confirms empty
     } catch (err) {
+      if (isTerminalAuthError(err)) throw err;
       // Both the count and the list failed — surface the failure instead of
       // reporting an empty result nobody measured.
       throw new Error(
@@ -407,30 +448,24 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
   async function serverSource(term, offset, { signal: _signal } = {}) {
-    try {
-      const params = new URLSearchParams();
-      params.set('sysparm_limit', String(limit));
-      params.set('sysparm_display_value', 'all');
-      if (pickerFields) params.set('sysparm_fields', pickerFields);
-      if (term) {
-        params.set('sysparm_query', `${baseQuery}${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
-      } else {
-        params.set('sysparm_query', baseQuery + 'ORDERBYDESCsys_updated_on');
-        params.set('sysparm_offset', String(offset));
-      }
-      const records = await app.sdk.list(table, params);
-      if (!Array.isArray(records)) {
-        console.error('SDK non-array:', typeof records);
-        return [];
-      }
-      return records.map(r => ({
-        name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
-        value: formatValue ? formatValue(r) : r,
-      }));
-    } catch (err) {
-      console.error('serverSource error:', err.message || err);
-      return [];
+    const params = new URLSearchParams();
+    params.set('sysparm_limit', String(limit));
+    params.set('sysparm_display_value', 'all');
+    if (pickerFields) params.set('sysparm_fields', pickerFields);
+    if (term) {
+      params.set('sysparm_query', `${baseQuery}${labelField}LIKE${term}^ORDERBYDESCsys_updated_on`);
+    } else {
+      params.set('sysparm_query', baseQuery + 'ORDERBYDESCsys_updated_on');
+      params.set('sysparm_offset', String(offset));
     }
+    // Only a successful empty page means exhausted. Let the picker render
+    // failures and retry this offset; preserve terminal auth errors unchanged.
+    const records = await app.sdk.list(table, params);
+    if (!Array.isArray(records)) throw new Error(`Could not list ${table}: list returned a non-array result`);
+    return records.map(r => ({
+      name: formatLabel ? formatLabel(r) : (getStringField(r, labelField) || getStringField(r, 'sys_id')),
+      value: formatValue ? formatValue(r) : r,
+    }));
   }
 
   const selected = await prompt({
