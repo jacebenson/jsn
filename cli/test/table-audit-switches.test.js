@@ -79,25 +79,38 @@ function stateSdk(tables, { sync = false, failCreate = false, ignoreUpdate = fal
   };
 }
 
-const command = withTableAudit({ builder: y => y }, fn => fn);
-let def;
-command.builder({ command(value) { def = value; return this; } });
-async function run(sdk, argv, app = {}) {
+// The audit command owns one read handler and a verb command per switch; this
+// harness keeps both so a test calls the same handler the CLI would.
+function auditCommands() {
+  const registered = new Map();
+  const fake = () => ({ positional() { return this; }, option() { return this; }, strict() { return this; }, epilogue() { return this; },
+    command(def) { registered.set(def.command, def); return this; } });
+  const command = withTableAudit({ builder: () => fake() }, fn => fn);
+  command.builder(fake());
+  registered.get('audit <table>').builder(fake());
+  return registered;
+}
+const commands = auditCommands();
+async function run(sdk, verb, argv, app = {}) {
   const out = {};
-  await def.handler({ _: ['tables', 'audit'], table: 'x_case', yes: false, ...argv }, { sdk, requireInstance() {}, output: { getFormat: () => 'json' }, ok(data, meta) { Object.assign(out, { data, meta }); }, ...app });
+  const path = verb ? ['tables', 'audit', verb] : ['tables', 'audit'];
+  await commands.get(verb === 'read' ? 'audit <table>' : `${verb} <table>${verb === 'exclude' || verb === 'include' ? ' <field>' : verb === 'deletes' ? ' <state>' : ''}`)
+    .handler({ _: path, table: 'x_case', yes: false, ...argv }, { sdk, requireInstance() {}, output: { getFormat: () => 'json' }, ok(data, meta) { Object.assign(out, { data, meta }); }, ...app });
   return out;
 }
 const exitCode = process.exitCode;
 afterEach(() => { process.exitCode = exitCode; });
 
-test('a switch makes tables audit a mutation: read-only profiles and capture context apply', () => {
+test('the audit verbs are mutations; reading the status is not', () => {
   tablesCmd(fn => fn);
-  const argv = extra => ({ _: ['tables', 'audit', 'x_case'], ...extra });
-  for (const extra of [{ on: true }, { off: true }, { exclude: 'priority' }, { include: 'priority' }, { deletes: 'off' }]) {
-    assert.equal(isMutationCommand(argv(extra)), true, JSON.stringify(extra));
-    assert.equal(needsMutationContext(argv(extra)), true, JSON.stringify(extra));
+  const argv = (verb, extra = {}) => ({ _: ['tables', 'audit', ...(verb ? [verb] : []), 'x_case'], ...extra });
+  for (const verb of ['enable', 'disable', 'exclude', 'include', 'deletes']) {
+    assert.equal(isMutationCommand(argv(verb)), true, verb);
+    assert.equal(needsMutationContext(argv(verb)), true, verb);
   }
-  for (const extra of [{}, { field: 'priority' }, { on: false }, { yes: true }]) assert.equal(isMutationCommand(argv(extra)), false, JSON.stringify(extra));
+  for (const extra of [{}, { field: 'priority' }, { yes: true }]) {
+    assert.equal(isMutationCommand(argv(null, extra)), false, JSON.stringify(extra));
+  }
   assert.equal(isMutationCommand({ _: ['tables', 'create'] }), true, 'the declared mutation subcommands still apply');
 });
 
@@ -105,42 +118,42 @@ test('previews by default and writes nothing until --yes', async () => {
   const tables = world();
   const sdk = stateSdk(tables);
   const own = tables.sys_dictionary[0];
-  const { data, meta } = await run(sdk, { off: true });
+  const { data, meta } = await run(sdk, 'disable');
   assert.equal(sdk.writes.length, 0);
   assert.equal(data.dry_run, true);
   assert.deepEqual(data.set, { audit: 'false' });
   assert.equal(data.target.sys_id, own.sys_id);
-  assert.equal(data.rerun, 'jsn tables audit x_case --off --yes');
+  assert.equal(data.rerun, 'jsn tables audit disable x_case --yes');
   assert.equal(meta.summary, 'Dry run: would turn table auditing off for x_case');
-  assert.equal((await run(sdk, { exclude: 'priority' })).data.rerun, 'jsn tables audit x_case --exclude priority --yes');
+  assert.equal((await run(sdk, 'exclude', {field: 'priority'})).data.rerun, 'jsn tables audit exclude x_case priority --yes');
   assert.equal(sdk.writes.length, 0);
 });
 
 test('rejected input writes nothing, and bad switches read nothing either', async () => {
-  for (const argv of [{ on: true, off: true }, { off: true, exclude: 'priority' }, { exclude: 'a^b' }, { include: '' }, { deletes: 'maybe' }]) {
+  for (const [verb, argv] of [['exclude', { field: 'a^b' }], ['include', { field: '' }], ['exclude', { field: 42 }], ['deletes', { state: 'maybe' }]]) {
     const sdk = stateSdk(world());
-    await assert.rejects(run(sdk, { ...argv, yes: true }), undefined, JSON.stringify(argv));
-    assert.equal(sdk.reads.length + sdk.writes.length, 0, JSON.stringify(argv));
+    await assert.rejects(run(sdk, verb, { ...argv, yes: true }), undefined, `${verb} ${JSON.stringify(argv)}`);
+    assert.equal(sdk.reads.length + sdk.writes.length, 0, `${verb} ${JSON.stringify(argv)}`);
   }
   const inherited = stateSdk(world());
-  await assert.rejects(run(inherited, { exclude: 'short_description', yes: true }), error => error.message === 'short_description is defined on x_task; changing it there changes every table that extends x_task. No change was made.' && /jsn tables audit x_task --exclude short_description/.test(error.hint));
+  await assert.rejects(run(inherited, 'exclude', {field: 'short_description', yes: true}), error => error.message === 'short_description is defined on x_task; changing it there changes every table that extends x_task. No change was made.' && /jsn tables audit exclude x_task short_description/.test(error.hint));
   const unknown = stateSdk(world());
-  await assert.rejects(run(unknown, { include: 'nope', yes: true }), /Field nope was not found on x_case or its parents/);
+  await assert.rejects(run(unknown, 'include', {field: 'nope', yes: true}), /Field nope was not found on x_case or its parents/);
   assert.equal(inherited.writes.length + unknown.writes.length, 0);
 });
 
 test('a state already in place writes nothing, even with --yes', async () => {
   const sdk = stateSdk(world());
-  assert.equal((await run(sdk, { on: true, yes: true })).meta.summary, 'No change: Table auditing is already on for x_case.');
-  assert.equal((await run(sdk, { include: 'priority', yes: true })).data.already, 'x_case.priority does not carry no_audit.');
-  assert.equal((await run(sdk, { deletes: 'on', yes: true })).data.already, 'x_case does not carry no_audit_delete.');
+  assert.equal((await run(sdk, 'enable', {yes: true})).meta.summary, 'No change: Table auditing is already on for x_case.');
+  assert.equal((await run(sdk, 'include', {field: 'priority', yes: true})).data.already, 'x_case.priority does not carry no_audit.');
+  assert.equal((await run(sdk, 'deletes', {state: 'on', yes: true})).data.already, 'x_case does not carry no_audit_delete.');
   assert.equal(sdk.writes.length, 0);
 });
 
-test('--off writes the collection row\'s Audit tick and the re-read confirms it', async () => {
+test('audit disable writes the collection row\'s Audit tick and the re-read confirms it', async () => {
   const tables = world();
   const sdk = stateSdk(tables);
-  const { data, meta } = await run(sdk, { off: true, yes: true });
+  const { data, meta } = await run(sdk, 'disable', {yes: true});
   assert.deepEqual(sdk.writes, [{ method: 'update', table: 'sys_dictionary', sysId: tables.sys_dictionary[0].sys_id, data: { audit: 'false' } }]);
   assert.equal(data.verified, true);
   assert.equal(data.status.audited, false);
@@ -156,7 +169,7 @@ test('--exclude adds no_audit to the string, then the attribute row, keeping oth
   Object.assign(tables.sys_dictionary[3], { attributes: 'no_audit=true' });
   tables.sys_schema_attribute_m2m.push({ sys_id: id('e'), schema: tables.sys_dictionary[3].sys_id, attribute: NO_AUDIT, value: 'true' });
   const sdk = stateSdk(tables);
-  const { data } = await run(sdk, { exclude: 'priority', yes: true, field: 'priority' });
+  const { data } = await run(sdk, 'exclude', {field: 'priority', yes: true});
   assert.deepEqual(sdk.writes, [
     { method: 'update', table: 'sys_dictionary', sysId: priority.sys_id, data: { attributes: 'ref_qual=a=b,no_audit=true' } },
     { method: 'create', table: 'sys_schema_attribute_m2m', data: { schema: priority.sys_id, attribute: NO_AUDIT, value: 'true' } },
@@ -169,7 +182,7 @@ test('--exclude adds no_audit to the string, then the attribute row, keeping oth
 test('a platform that syncs attribute rows itself gets no second row', async () => {
   const tables = world();
   const sdk = stateSdk(tables, { sync: true });
-  const { data } = await run(sdk, { exclude: 'priority', yes: true });
+  const { data } = await run(sdk, 'exclude', {field: 'priority', yes: true});
   assert.deepEqual(sdk.writes.map(write => write.method), ['update']);
   assert.equal(tables.sys_schema_attribute_m2m.length, 1);
   assert.equal(data.verified, true);
@@ -181,17 +194,17 @@ test('--include removes no_audit and its attribute row; in whitelist mode it add
   priority.attributes = 'no_audit=true';
   tables.sys_schema_attribute_m2m.push({ sys_id: id('d'), schema: priority.sys_id, attribute: NO_AUDIT, value: 'true' });
   const sdk = stateSdk(tables);
-  assert.equal((await run(sdk, { include: 'priority', yes: true })).data.verified, true);
+  assert.equal((await run(sdk, 'include', {field: 'priority', yes: true})).data.verified, true);
   assert.deepEqual(sdk.writes, [
     { method: 'update', table: 'sys_dictionary', sysId: priority.sys_id, data: { attributes: '' } },
     { method: 'delete', table: 'sys_schema_attribute_m2m', sysId: id('d') },
   ]);
   const whitelist = world([row('x_case', '', { audit: 'true', attributes: 'audit_type=whitelist' }), row('x_task', ''), row('x_case', 'priority')]);
   const listed = stateSdk(whitelist);
-  const { data } = await run(listed, { include: 'priority', yes: true, field: 'priority' });
+  const { data } = await run(listed, 'include', {field: 'priority', yes: true});
   assert.deepEqual(listed.writes, [{ method: 'update', table: 'sys_dictionary', sysId: whitelist.sys_dictionary[2].sys_id, data: { attributes: 'audit=true' } }]);
   assert.equal(data.status.field.audited, true);
-  const excluded = await run(stateSdk(whitelist), { exclude: 'priority' });
+  const excluded = await run(stateSdk(whitelist), 'exclude', {field: 'priority'});
   assert.deepEqual(excluded.data.set, { attributes: '' }, 'whitelist exclude removes audit=true');
 });
 
@@ -199,7 +212,7 @@ test('--deletes off adds no_audit_delete to the collection row and its attribute
   const tables = world();
   const own = tables.sys_dictionary[0];
   const sdk = stateSdk(tables);
-  const { data } = await run(sdk, { deletes: 'off', yes: true });
+  const { data } = await run(sdk, 'deletes', {state: 'off', yes: true});
   assert.deepEqual(sdk.writes, [
     { method: 'update', table: 'sys_dictionary', sysId: own.sys_id, data: { attributes: 'no_audit_delete=true' } },
     { method: 'create', table: 'sys_schema_attribute_m2m', data: { schema: own.sys_id, attribute: NO_AUDIT_DELETE, value: 'true' } },
@@ -209,23 +222,23 @@ test('--deletes off adds no_audit_delete to the collection row and its attribute
 });
 
 test('a failed write or a re-read that disagrees is reported and exits nonzero', async () => {
-  const failed = await run(stateSdk(world(), { failCreate: true }), { exclude: 'priority', yes: true });
+  const failed = await run(stateSdk(world(), { failCreate: true }), 'exclude', {field: 'priority', yes: true});
   assert.equal(failed.data.verified, false);
   assert.equal(failed.data.error, 'create denied');
   assert.deepEqual(failed.data.written.map(write => write.action), ['update']);
   assert.match(failed.meta.summary, /^Change incomplete or unverified: 1 write\(s\); failed: create denied/);
   assert.equal(process.exitCode, 1);
   process.exitCode = exitCode;
-  const ignored = await run(stateSdk(world(), { ignoreUpdate: true }), { off: true, yes: true });
+  const ignored = await run(stateSdk(world(), { ignoreUpdate: true }), 'disable', {yes: true});
   assert.equal(ignored.data.verified, false);
   assert.equal(ignored.data.status.audited, true);
   assert.equal(process.exitCode, 1);
   // A create that reports success but stores nothing leaves the string and the attribute rows disagreeing.
-  const dropped = await run(stateSdk(world(), { dropCreate: true }), { exclude: 'priority', yes: true });
+  const dropped = await run(stateSdk(world(), { dropCreate: true }), 'exclude', {field: 'priority', yes: true});
   assert.equal(dropped.data.error, undefined);
   assert.equal(dropped.data.verified, false);
   // With no attribute row to compare, the string alone decides.
-  const unchanged = await run(stateSdk({ ...world(), sys_schema_attribute: [] }, { ignoreUpdate: true }), { exclude: 'priority', yes: true });
+  const unchanged = await run(stateSdk({ ...world(), sys_schema_attribute: [] }, { ignoreUpdate: true }), 'exclude', {field: 'priority', yes: true});
   assert.deepEqual(unchanged.data.written.map(write => write.action), ['update']);
   assert.equal(unchanged.data.verified, false);
 });
@@ -237,7 +250,7 @@ test('attribute rows for another record are never deleted', async () => {
   Object.assign(other, { attributes: 'no_audit_delete=true' });
   tables.sys_schema_attribute_m2m.push({ sys_id: id('d'), schema: priority.sys_id, attribute: NO_AUDIT, value: 'true' }, { sys_id: id('e'), schema: other.sys_id, attribute: NO_AUDIT_DELETE, value: 'true' });
   const sdk = stateSdk(tables, { looseQuery: true });
-  const { data } = await run(sdk, { include: 'priority', yes: true });
+  const { data } = await run(sdk, 'include', {field: 'priority', yes: true});
   assert.deepEqual(sdk.writes.map(write => write.method), ['update']);
   assert.equal(tables.sys_schema_attribute_m2m.length, 2);
   assert.match(data.error, /another record or attribute/);
@@ -248,29 +261,29 @@ test('--deletes says when another rule still decides whether deletes are recorde
   const ignored = [{ name: 'glide.sys.audit_inserts', value: 'false' }, { name: 'glide.db.audit.ignore.delete', value: 'x_case' }];
   const tables = { ...world(), sys_properties: ignored };
   tables.sys_dictionary[0].attributes = 'no_audit_delete=true';
-  const done = await run(stateSdk(tables), { deletes: 'on', yes: true });
+  const done = await run(stateSdk(tables), 'deletes', {state: 'on', yes: true});
   assert.equal(done.data.verified, true);
   assert.match(done.meta.summary, /^Done: remove no_audit_delete from x_case; the re-read status agrees; deletes are still not recorded: x_case is listed in glide\.db\.audit\.ignore\.delete/);
-  const already = await run(stateSdk({ ...world(), sys_properties: ignored }), { deletes: 'on', yes: true });
+  const already = await run(stateSdk({ ...world(), sys_properties: ignored }), 'deletes', {state: 'on', yes: true});
   assert.match(already.meta.summary, /^No change: x_case does not carry no_audit_delete\.; deletes are still not recorded: /);
-  const plain = await run(stateSdk(world()), { deletes: 'off' });
+  const plain = await run(stateSdk(world()), 'deletes', {state: 'off'});
   assert.doesNotMatch(plain.meta.summary, /still/);
 });
 
 test('each switch has its own discovery task', () => {
   const registry = yargs().option('json', { type: 'boolean' }).command(tablesCmd(fn => fn)).commandRegistry({ details: true });
   const first = query => rankedDiscoveries(registry, { query })[0]?.invocation;
-  assert.equal(first('turn off auditing'), 'jsn tables audit <table> --off');
-  assert.equal(first('turn on auditing'), 'jsn tables audit <table> --on');
-  assert.equal(first('stop auditing a field'), 'jsn tables audit <table> --exclude <field>');
-  assert.equal(first('stop auditing deletes'), 'jsn tables audit <table> --deletes off');
+  assert.equal(first('turn off auditing'), 'jsn tables audit disable <table>');
+  assert.equal(first('turn on auditing'), 'jsn tables audit enable <table>');
+  assert.equal(first('stop auditing a field'), 'jsn tables audit exclude <table> <field>');
+  assert.equal(first('stop auditing deletes'), 'jsn tables audit deletes <table> <state>');
   assert.equal(first('is this table audited'), 'jsn tables audit <table> --json');
 });
 
 test('a record outside the verified scope is refused before the first write', async () => {
   const sdk = stateSdk(world());
   const app = { mutationContext: { verified: true, application_id: id('9') } };
-  await assert.rejects(run(sdk, { off: true, yes: true }, app), /scope is unknown or differs from verified intended scope/);
+  await assert.rejects(run(sdk, 'disable', {yes: true}, app), /scope is unknown or differs from verified intended scope/);
   assert.equal(sdk.writes.length, 0);
 });
 
@@ -300,15 +313,17 @@ test('real CLI: a switch is refused on a read-only profile, and needs capture co
   const jsn = args => promisify(execFile)(process.execPath, [...loopbackCredentialArgs, cli, ...args], { env, cwd: dir, timeout: 20000 });
   const refusal = async args => { try { await jsn(args); } catch (error) { return JSON.parse(error.stdout || error.stderr); } assert.fail(`expected ${args.join(' ')} to fail`); };
   try {
-    const readOnly = await refusal(['tables', 'audit', 'x_case', '--off', '--yes', '--json']);
+    const readOnly = await refusal(['tables', 'audit', 'disable', 'x_case', '--yes', '--json']);
     assert.equal(readOnly.code, 'read_only');
     assert.equal(calls.length, 0, 'the read-only refusal comes before any request');
+    const flagForm = await refusal(['tables', 'audit', 'x_case', '--off', '--json']);
+    assert.equal(flagForm.code, 'usage_error', 'a read takes no switch flags');
     assert.equal(JSON.parse((await jsn(['tables', 'audit', 'x_case', '--get', 'data.audited'])).stdout), true, 'a plain read still works on a read-only profile');
-    const writer = await refusal(['--profile', 'writer', 'tables', 'audit', 'x_case', '--exclude', 'priority', '--json']);
+    const writer = await refusal(['--profile', 'writer', 'tables', 'audit', 'exclude', 'x_case', 'priority', '--json']);
     assert.equal(writer.error, 'Noninteractive customization writes require intended scope and update set.', JSON.stringify(writer));
     // POSTs to /angular.do are the session login; no table record is written.
     assert.ok(calls.filter(call => call.pathname.startsWith('/api/')).every(call => call.method === 'GET'), JSON.stringify(calls));
-    assert.match((await jsn(['tables', 'audit', '--help'])).stdout, /One switch per run, previewed unless --yes/);
+    assert.match((await jsn(['tables', 'audit', '--help'])).stdout, /Changing audit settings is a separate verb/);
   } finally {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));

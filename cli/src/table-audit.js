@@ -148,18 +148,11 @@ export async function readTableAudit(sdk, table, { field } = {}) {
   return data;
 }
 
-export const AUDIT_SWITCHES = ['on', 'off', 'exclude', 'include', 'deletes'];
-
-// The one switch a run asks for, checked before any request; null for a plain read.
-export function auditSwitch(argv) {
-  const given = AUDIT_SWITCHES.filter(name => argv[name] !== undefined && argv[name] !== false);
-  if (!given.length) return null;
-  if (given.length > 1) throw errUsage(`Give one switch per run; got ${given.map(name => `--${name}`).join(' and ')}. No change was made.`);
-  const [name] = given;
-  const value = argv[name];
-  if (['exclude', 'include'].includes(name) && (typeof value !== 'string' || !NAME.test(value))) throw errUsage(`--${name} must be a column name (letters, digits and underscores).`);
-  if (name === 'deletes' && !['on', 'off'].includes(value)) throw errUsage('--deletes must be on or off.');
-  return { name, value };
+// Switch verbs are checked before any request; a bad value writes and reads nothing.
+export const FIELD_NAME = NAME;
+export function auditSwitchValue(value) {
+  if (typeof value !== 'string' || !NAME.test(value)) throw errUsage(`A field must be a column name (letters, digits and underscores); got ${JSON.stringify(value)}. No change was made.`);
+  return value;
 }
 
 const carries = (row, key) => key === 'audit' ? parseAttributes(raw(row, 'attributes')).audit === 'true' : key in parseAttributes(raw(row, 'attributes'));
@@ -181,7 +174,7 @@ export function planAuditChange(data, { name, value }) {
   const row = columns.get(value);
   if (!row) throw errUsage(`Field ${value} was not found on ${data.table} or its parents. No change was made.`);
   const owner = raw(row, 'name');
-  if (owner !== data.table) throw errUsageHint(`${value} is defined on ${owner}; changing it there changes every table that extends ${owner}. No change was made.`, `To change it for all of them: jsn tables audit ${owner} --${name} ${value}`);
+  if (owner !== data.table) throw errUsageHint(`${value} is defined on ${owner}; changing it there changes every table that extends ${owner}. No change was made.`, `To change it for all of them: jsn tables audit ${name} ${owner} ${value}`);
   const whitelist = data.mode === 'whitelist';
   return attribute(row, whitelist ? 'audit' : 'no_audit', (name === 'include') === whitelist);
 }

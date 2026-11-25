@@ -770,14 +770,16 @@ whitelist mode.
 
 ### Audit switches
 
-One switch per run changes one `sys_dictionary` row: `--on` and `--off` set the
-collection row's `audit`; `--deletes off|on` adds or removes `no_audit_delete`
-on it; `--exclude` and `--include` add or remove the column's `no_audit`, or in
-whitelist mode remove or add its `audit=true`. Two switches, a bad field name
-or a bad `--deletes` value are refused before the first request; an unknown or
-inherited field is refused after the status read and before the first write.
-`--deletes` changes only `no_audit_delete`; when the ignore list or the `sys_`
-rule still decides, the summary says so.
+The read is `jsn tables audit <table> [--field <name>]`. Each change is its own
+verb under it, so the read stays a read and the mutation guard sees a real path:
+`audit enable|disable <table>` set the collection row's `audit`, `audit deletes
+<table> on|off` adds or removes `no_audit_delete`, and `audit exclude|include
+<table> <field>` add or remove the column's `no_audit` or, in whitelist mode,
+remove or add its `audit=true`. One verb per run; a bad field name or state is
+refused before the first request, and an unknown or inherited field is refused
+after the status read and before the first write. `audit deletes` changes only
+`no_audit_delete`; when the ignore list or the `sys_` rule still decides, the
+summary says so.
 
 - **Own rows only**: a column whose nearest row is on an ancestor is refused,
   naming the ancestor, because changing it there changes every table that

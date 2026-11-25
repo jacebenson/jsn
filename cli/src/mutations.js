@@ -8,7 +8,7 @@
 // create` (read-only bypass), and listed `restmethods`, a command that was
 // never registered. Derived data can't drift that way.
 
-import { mutationPaths, isLocalPreview, hasMutationOption } from './capabilities.js';
+import { mutationPaths, isLocalPreview } from './capabilities.js';
 
 /**
  * Back-compat export: the derived mutation path list, refreshed by
@@ -44,7 +44,6 @@ function currentPaths(paths) {
  */
 export function isMutationCommand(argv, paths) {
   if (isLocalPreview(argv)) return false;
-  if (hasMutationOption(argv)) return true;
   const cmd = argv._ || [];
   for (const pattern of currentPaths(paths)) {
     if (pattern.length > cmd.length) continue;
