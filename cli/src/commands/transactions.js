@@ -104,7 +104,34 @@ function formatTopTransactions(groups) {
 }
 
 import { declareCapabilities } from '../capabilities.js';
+import { listActiveTransactions, formatActiveTransactions } from '../active-transactions.js';
 declareCapabilities('transactions', { queryTable: 'syslog_transaction' });
+
+export function activeTransactionsCmd(wrap) {
+  return {
+    command: 'active',
+    describe: 'List transactions running now on every node, oldest first',
+    builder: (y) => y
+      .strict()
+      .option('older-than', { type: 'string', describe: 'Only transactions running at least this long: seconds, or 90s, 5m, 2h' })
+      .option('user', { type: 'string', describe: 'Only this user name' })
+      .option('type', { type: 'string', describe: 'Only this transaction type value, such as rest, form or scheduler' })
+      .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Maximum transactions to return (1-100)' })
+      .epilogue([
+        'Refreshes Active Transactions (All Nodes) the way its module does (loading_transactions.do), then reads v_cluster_transaction in the same session.',
+        "Needs the admin role. jsn's own listing request is left out.",
+        'Examples:',
+        '  jsn transactions active',
+        '  jsn transactions active --older-than 5m --type scheduler --json',
+      ].join('\n')),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      const data = { ...await listActiveTransactions(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
+      Object.defineProperty(data, '_formatted', { value: formatActiveTransactions(data), enumerable: false });
+      app.ok(data, { summary: `Active transactions: ${data.count}${data.pagination.has_more ? ' (more exist)' : ''}${data.refresh.complete ? '' : '; refresh incomplete'}` });
+    }),
+  };
+}
 
 export function topTransactionsCmd(wrap) {
   return {
@@ -151,8 +178,9 @@ export function transactionsCmd(wrap) {
     command: 'transactions',
     describe: 'Summarize syslog_transaction response times by transaction type',
     builder: (y) => y
-      .option('query', { type: 'string', describe: 'Encoded query; date-only sys_created_on equality expands to the full day' })
-      .option('order-by', { type: 'string', describe: 'Stats API order-by fields' }),
+      .command(activeTransactionsCmd(wrap))
+      .option('query', { type: 'string', global: false, describe: 'Encoded query; date-only sys_created_on equality expands to the full day' })
+      .option('order-by', { type: 'string', global: false, describe: 'Stats API order-by fields' }),
     handler: wrap(async (argv, app) => {
       app.requireInstance();
       const query = normalizeTransactionQuery(argv.query);

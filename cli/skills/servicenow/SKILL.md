@@ -29,6 +29,8 @@ names the table they come from when they are inherited from a parent.
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- What is running on the instance now, on every node, is
+  `jsn transactions active` (`--older-than 5m`, `--user`, `--type`), not `eval`.
 - Loading rows into an import set staging table is `jsn import load <table>
   --file rows.json|csv`, not `eval` or `records create` on the staging table.
   It previews without `--yes`; with it, each row reports its transform outcome.
