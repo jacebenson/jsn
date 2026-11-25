@@ -71,7 +71,9 @@ export async function refreshActiveTransactions(sdk, { sleep = wait } = {}) {
     if (trackers.length && pending.length && poll < SETTLE_POLLS) { await sleep(1000); continue; }
     const nodes = trackers.map(row => ({ name: text(row.name), state: text(row.state) }));
     if (!trackers.length) return { execution_id: id, complete: false, nodes, warning: 'The refresh progress was not readable, so some nodes may be missing.' };
-    if (pending.length) return { execution_id: id, complete: false, nodes, warning: `${pending.length} node(s) did not report in time and may be missing.` };
+    // Only Successful (2) means the node's transactions are in the list; pending, failed, cancelled or blank may be missing.
+    const missing = trackers.filter(row => raw(row.state) !== '2');
+    if (missing.length) return { execution_id: id, complete: false, nodes, warning: `${missing.length} node(s) did not report and may be missing (${missing.map(row => `${text(row.name)}: ${text(row.state) || 'no state'}`).join('; ')}).` };
     return { execution_id: id, complete: true, nodes };
   }
 }
@@ -83,7 +85,16 @@ export async function listActiveTransactions(sdk, argv = {}, opts = {}) {
   const params = new URLSearchParams({ sysparm_query: query, sysparm_fields: ACTIVE_FIELDS, sysparm_display_value: 'all', sysparm_limit: String(options.limit + 1) });
   const rows = rowsOf(await sdk.listStrict(ACTIVE_TABLE, params, { stateful: true }), ACTIVE_TABLE);
   const records = rows.slice(0, options.limit);
-  return { table: ACTIVE_TABLE, query, refresh, records, count: records.length, pagination: { limit: options.limit, has_more: rows.length > options.limit } };
+  return { table: ACTIVE_TABLE, query, refresh: await checkVisible(sdk, refresh, rows), records, count: records.length, pagination: { limit: options.limit, has_more: rows.length > options.limit } };
+}
+
+// The refreshed rows are visible only in the refreshing session. An empty read proves nothing unless that
+// session can see its own refresh request, which the list always holds.
+export async function checkVisible(sdk, refresh, rows) {
+  if (rows.length) return refresh;
+  const params = new URLSearchParams({ sysparm_query: 'session_idSAMEASsnapshot_id', sysparm_fields: 'session_id', sysparm_limit: '1' });
+  if (rowsOf(await sdk.listStrict(ACTIVE_TABLE, params, { stateful: true }), ACTIVE_TABLE).length) return refresh;
+  return { ...refresh, complete: false, warning: 'The refreshed list was not visible to this session (it did not even hold this request), so an empty result proves nothing. Retry.' };
 }
 
 const seconds = value => {
@@ -110,6 +121,6 @@ export function formatActiveTransactions(result) {
     if (text(row.query)) lines.push(`        sql: ${cell(text(row.query).replace(/\s+/g, ' '), 160).trimEnd()}`);
   }
   if (!result.records.length) lines.push('(no active transactions)');
-  if (result.pagination.has_more) lines.push(`(oldest ${result.count} shown; raise --limit for more)`);
+  if (result.pagination.has_more) lines.push(`(oldest ${result.count} shown; ${result.pagination.limit < 100 ? 'raise --limit for more' : 'narrow with --older-than, --user or --type'})`);
   return `${lines.join('\n')}\n`;
 }

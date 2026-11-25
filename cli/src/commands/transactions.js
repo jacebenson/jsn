@@ -128,7 +128,7 @@ export function activeTransactionsCmd(wrap) {
       app.requireInstance();
       const data = { ...await listActiveTransactions(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
       Object.defineProperty(data, '_formatted', { value: formatActiveTransactions(data), enumerable: false });
-      app.ok(data, { summary: `Active transactions: ${data.count}${data.pagination.has_more ? ' (more exist)' : ''}` });
+      app.ok(data, { summary: `Active transactions: ${data.count}${data.pagination.has_more ? ' (more exist)' : ''}${data.refresh.complete ? '' : '; refresh incomplete'}` });
     }),
   };
 }

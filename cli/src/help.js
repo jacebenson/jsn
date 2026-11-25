@@ -150,7 +150,7 @@ const DATA_COMMANDS = [
   { name: 'properties', alias: 'prop', desc: 'System properties' },
 
   { name: 'records', desc: 'Generic Table API (any table)' },
-  { name: 'transactions', desc: 'Client transaction timings' },
+  { name: 'transactions', desc: 'Transaction timings, and transactions running now' },
   { name: 'snippets', desc: 'Saved query snippets' },
 ];
 

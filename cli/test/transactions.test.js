@@ -183,8 +183,34 @@ describe('transactions active', () => {
     const stuck = await listActiveTransactions(activeSdk({ trackers: [pending] }), {}, { sleep: async () => { sleeps++; } });
     assert.equal(sleeps, 35);
     assert.equal(stuck.refresh.complete, false);
-    assert.match(stuck.refresh.warning, /1 node\(s\) did not report/);
+    assert.match(stuck.refresh.warning, /1 node\(s\) did not report and may be missing \(Node B: Running\)/);
     assert.equal(stuck.records.length, 1);
+    sleeps = 0;
+    const failed = await listActiveTransactions(activeSdk({ trackers: [[{ ...pending[0], state: pair('3', 'Failed') }, { ...pending[0], name: pair('Node C'), state: pair('') }]] }), {}, { sleep: async () => { sleeps++; } });
+    assert.equal(sleeps, 0);
+    assert.equal(failed.refresh.complete, false);
+    assert.match(failed.refresh.warning, /2 node\(s\) did not report and may be missing \(Node B: Failed; Node C: no state\)/);
+  });
+
+  it('never calls an empty list complete unless the session can see its own refresh', async () => {
+    const { listActiveTransactions } = await import('../src/active-transactions.js');
+    const unseen = activeSdk({ rows: [] });
+    const blind = await listActiveTransactions(unseen, { user: 'nobody' }, { sleep: async () => {} });
+    assert.equal(blind.refresh.complete, false);
+    assert.match(blind.refresh.warning, /not visible to this session/);
+    const own = unseen.calls[3];
+    assert.equal(own.params.get('sysparm_query'), 'session_idSAMEASsnapshot_id');
+    assert.equal(own.params.get('sysparm_limit'), '1');
+    assert.deepEqual(own.opts, { stateful: true });
+    const seen = activeSdk({ rows: [] });
+    const list = seen.listStrict;
+    seen.listStrict = async (table, params, opts) => { const rows = await list(table, params, opts); return params.get('sysparm_query') === 'session_idSAMEASsnapshot_id' ? [{ session_id: pair('mine') }] : rows; };
+    const empty = await listActiveTransactions(seen, { user: 'nobody' }, { sleep: async () => {} });
+    assert.equal(empty.refresh.complete, true);
+    assert.equal(empty.count, 0);
+    const busy = activeSdk();
+    await listActiveTransactions(busy, {}, { sleep: async () => {} });
+    assert.equal(busy.calls.length, 3);
   });
 
   it('never reports a refused, partial or malformed refresh as a complete listing', async () => {
@@ -205,22 +231,24 @@ describe('transactions active', () => {
 
   it('formats one line a transaction with its business rule, SQL and uncancelable mark', async () => {
     const { formatActiveTransactions } = await import('../src/active-transactions.js');
-    const text = formatActiveTransactions({ refresh: { warning: 'Only this node.' }, count: 1, pagination: { has_more: true }, records: [activeRow(1, { business_rule: pair('Properties change'), query: pair('SELECT  a\n FROM b'), uncancelable: pair('true'), age: pair('1970-01-01 04:02:09', '4 Hours 2 Minutes') })] });
+    const text = formatActiveTransactions({ refresh: { warning: 'Only this node.' }, count: 1, pagination: { limit: 1, has_more: true }, records: [activeRow(1, { business_rule: pair('Properties change'), query: pair('SELECT  a\n FROM b'), uncancelable: pair('true'), age: pair('1970-01-01 04:02:09', '4 Hours 2 Minutes') })] });
     assert.match(text, /^Warning: Only this node\.\nAGE\s+USER\s+TYPE\s+NODE\s+SQLS\s+DB\s+BR\s+ACL\s+SESSION\s+URL\n4h02m\s+admin\s+REST\s+node001\s+12\s+2s\s+0s\s+0s\s+S1\s+\/api\/now\/table\/t1 {2}\(uncancelable\)\n/);
     assert.match(text, /\n {8}business rule: Properties change\n {8}sql: SELECT a FROM b\n/);
     assert.match(text, /oldest 1 shown; raise --limit/);
+    assert.match(formatActiveTransactions({ refresh: {}, count: 100, pagination: { limit: 100, has_more: true }, records: [] }), /oldest 100 shown; narrow with --older-than, --user or --type\)/);
     assert.match(formatActiveTransactions({ refresh: {}, count: 0, pagination: {}, records: [] }), /\(no active transactions\)/);
   });
 
   it('runs through the real CLI on a read-only profile in one session, and rejects bad input with no request', async () => {
     const calls = [];
+    let state = '2';
     const server = createServer((req, res) => {
       const url = new URL(req.url, 'http://fixture.invalid');
       calls.push({ method: req.method, pathname: url.pathname, query: url.searchParams.get('sysparm_query'), cookie: req.headers.cookie || '' });
       if (url.pathname === '/angular.do') { res.setHeader('Set-Cookie', 'JSESSIONID=fixture-session; Path=/'); res.setHeader('Content-Type', 'application/json'); res.end('{"result":{}}'); return; }
       if (url.pathname === '/loading_transactions.do') { res.setHeader('Content-Type', 'text/html'); res.end(`<script>var executionID = '${EXEC}';</script>`); return; }
       const table = url.pathname.split('/').pop();
-      const result = table === 'sys_execution_tracker' ? [{ parent: pair(EXEC), name: pair('Node A'), state: pair('2', 'Successful') }] : table === 'v_cluster_transaction' ? [activeRow(1)] : [];
+      const result = table === 'sys_execution_tracker' ? [{ parent: pair(EXEC), name: pair('Node A'), state: pair(state) }] : table === 'v_cluster_transaction' ? [activeRow(1)] : [];
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ result }));
     });
@@ -245,9 +273,11 @@ describe('transactions active', () => {
       assert.match(human.stdout, /AGE\s+USER[\s\S]*1m25s\s+admin\s+REST/);
       const before = calls.length;
       for (const args of [['--limit', '0'], ['--older-than', 'soon'], ['--user', 'a^ORuser=b'], ['--query', 'type=rest'], ['--typo']]) {
-        await assert.rejects(run(['transactions', 'active', ...args, '--json']), undefined, JSON.stringify(args));
+        await assert.rejects(run(['transactions', 'active', ...args, '--json']), { code: 2 }, JSON.stringify(args));
       }
       assert.equal(calls.length, before);
+      state = '3';
+      assert.equal(JSON.parse((await run(['transactions', 'active', '--json', '--verbose'])).stdout).summary, 'Active transactions: 1; refresh incomplete');
       assert.ok(calls.every(call => call.method === 'GET' || call.pathname === '/angular.do'));
     } finally {
       server.closeAllConnections();
