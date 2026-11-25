@@ -312,7 +312,7 @@ describe('transactions kill', () => {
   });
 
   it('refuses bad, missing, own and uncancelable sessions, and previews without --yes, sending nothing', async () => {
-    const { killTransaction } = await import('../src/active-transactions.js');
+    const { killTransaction, formatKillTransaction } = await import('../src/active-transactions.js');
     for (const session of ['', "S1'", "S1');gs.print('x", 'a^ORsession_id=b', 'x'.repeat(129)]) {
       const sdk = killSdk();
       await assert.rejects(killTransaction(sdk, { session, yes: true, 'expect-transaction': 't1' }), { code: 'usage_error' }, session);
@@ -338,6 +338,7 @@ describe('transactions kill', () => {
     const preview = killSdk();
     const result = await killTransaction(preview, { session: 'S1' });
     assert.deepEqual(result.rerun, ['jsn transactions kill S1 --yes --expect-transaction t1']);
+    assert.match(formatKillTransaction(result), /^Would send Kill to session S1 on node001:\n[\s\S]*To send it, run:\n {2}jsn transactions kill S1 --yes --expect-transaction t1\n$/);
     assert.equal(result.dry_run, true);
     assert.equal(result.method, 'kill');
     assert.equal('snapshot_id' in result.transactions[0], false);
@@ -374,9 +375,14 @@ describe('transactions kill', () => {
   it('kills only the previewed transaction when the worker session name runs on two nodes', async () => {
     const { killTransaction, formatKillTransaction } = await import('../src/active-transactions.js');
     const rows = [activeRow(1, { transaction_id: pair(tx('c1')), snapshot_id: pair('ME') }), activeRow(1, { transaction_id: pair(tx('c2')), node_id: pair('app2.example:node002'), uncancelable: pair('true'), snapshot_id: pair('ME') })];
-    const preview = await killTransaction(killSdk({ reads: [rows] }), { session: 'S1', force: true });
+    const listing = killSdk({ reads: [rows] });
+    const preview = await killTransaction(listing, { session: 'S1' });
+    assert.equal(scripts(listing).length, 0);
     assert.deepEqual(preview.rerun, [`jsn transactions kill S1 --yes --expect-transaction ${tx('c1')}`, `jsn transactions kill S1 --yes --expect-transaction ${tx('c2')} --force`]);
-    assert.match(formatKillTransaction(preview), new RegExp(`To send it, run:\\n  jsn transactions kill S1 --yes --expect-transaction ${tx('c1')}\\n  jsn transactions kill S1 --yes --expect-transaction ${tx('c2')} --force\\n$`));
+    assert.match(formatKillTransaction(preview), new RegExp(`^Session S1 is running 2 transactions:\\n[\\s\\S]*Each command kills one of them; run only the one you mean:\\n  jsn transactions kill S1 --yes --expect-transaction ${tx('c1')}  # node001 /api/now/table/t1\\n  jsn transactions kill S1 --yes --expect-transaction ${tx('c2')} --force  # node002 /api/now/table/t1\\n$`));
+    const partial = killSdk({ reads: [rows.slice(0, 1)], pages: ["var executionID = 'null';"] });
+    await assert.rejects(killTransaction(partial, { session: 'S1', yes: true, 'expect-transaction': tx('c2') }), /Transaction c20+ was not listed, but the list may be incomplete: .*only this node/);
+    assert.equal(scripts(partial).length, 0);
     const sdk = killSdk({ reads: [rows, [rows[1]]] });
     const result = await killTransaction(sdk, { session: 'S1', yes: true, 'expect-transaction': tx('c1') }, { sleep: async () => {} });
     assert.equal(scripts(sdk).length, 1);

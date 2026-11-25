@@ -157,7 +157,7 @@ export function killTransactionCmd(wrap) {
       const data = { ...await killTransaction(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
       Object.defineProperty(data, '_formatted', { value: formatKillTransaction(data), enumerable: false });
       const verb = data.method === 'forceKill' ? 'Force Kill' : 'Kill';
-      app.ok(data, { summary: data.dry_run ? `Dry run: ${verb} would go to session ${data.session}` : data.ended ? `${verb} sent; session ${data.session}'s transaction ended` : `${verb} sent; transaction not confirmed ended` });
+      app.ok(data, { summary: data.dry_run ? `Dry run: ${data.rerun.length} transaction(s) in session ${data.session}; nothing sent` : data.ended ? `${verb} sent; session ${data.session}'s transaction ended` : `${verb} sent; transaction not confirmed ended` });
       if (!data.dry_run && !data.ended) process.exitCode = 1;
     }),
   };

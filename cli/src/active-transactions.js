@@ -138,11 +138,11 @@ export async function killTransaction(sdk, argv = {}, { sleep = wait, ...opts } 
   // The listing request runs in jsn's own session, which v_cluster_transaction names as snapshot_id.
   if (listed.some(row => raw(row.snapshot_id) === session)) throw errUsage('That is the session jsn is using to list transactions. It will not kill its own request.');
   const rows = transaction ? listed.filter(row => raw(row.transaction_id) === transaction) : listed;
-  if (!rows.length) throw errNotFound(`Transaction in session ${session} (it may have finished; preview again)`, transaction);
+  if (!rows.length) throw refresh.complete ? errNotFound(`Transaction in session ${session} (it may have finished; preview again)`, transaction) : errAPI(200, `Transaction ${transaction} was not listed, but the list may be incomplete: ${refresh.warning}`);
   const nodes = [...new Set(rows.map(row => raw(row.node_id)))];
   if (nodes.some(node => !/^[\w.:-]{1,255}$/.test(node))) throw Object.assign(new Error('Malformed node_id in v_cluster_transaction'), { code: 'malformed_response' });
   const uncancelable = rows.some(row => raw(row.uncancelable) === 'true');
-  if (uncancelable && !force) throw errUsage('This is an uncancelable system transaction, so Kill refuses it. --force sends Force Kill, which can stop system work part way through.');
+  if (uncancelable && !force && yes) throw errUsage('This is an uncancelable system transaction, so Kill refuses it. --force sends Force Kill, which can stop system work part way through.');
   const method = uncancelable ? 'forceKill' : 'kill';
   const target = { session, method, nodes, refresh, transactions: rows.map(withoutSnapshot) };
   if (!yes) return { ...target, dry_run: true, rerun: rows.map(row => `jsn transactions kill ${session} --yes --expect-transaction ${raw(row.transaction_id)}${raw(row.uncancelable) === 'true' ? ' --force' : ''}`) };
@@ -204,7 +204,12 @@ export function formatKillTransaction(result) {
   const node = result.nodes.map(id => id.split(':').pop()).join(', ');
   const verb = result.method === 'forceKill' ? 'Force Kill' : 'Kill';
   const rows = list => formatActiveTransactions({ refresh: {}, records: list, count: list.length, pagination: {} });
-  if (result.dry_run) return `Would send ${verb} to session ${result.session} on ${node}:\n${rows(result.transactions)}To send it, run:\n${result.rerun.map(cmd => `  ${cmd}\n`).join('')}`;
+  if (result.dry_run && result.rerun.length > 1) {
+    // Worker names repeat on every node: one command a transaction, labelled, so nobody runs them all.
+    const label = row => `  # ${text(row.node_id).split(':').pop()} ${text(row.url).replace(/\s+/g, ' ').slice(0, 80)}`;
+    return `Session ${result.session} is running ${result.rerun.length} transactions:\n${rows(result.transactions)}Each command kills one of them; run only the one you mean:\n${result.rerun.map((cmd, i) => `  ${cmd}${label(result.transactions[i])}\n`).join('')}`;
+  }
+  if (result.dry_run) return `Would send ${verb} to session ${result.session} on ${node}:\n${rows(result.transactions)}To send it, run:\n  ${result.rerun[0]}\n`;
   const lines = [`${verb} sent to session ${result.session} on ${node}.`];
   if (result.ended) lines.push('Ended: the transaction is no longer running.');
   else if (result.still_running.length) lines.push(`Still running after ${KILL_POLLS} re-reads, 2 seconds apart. It stops at its next cancellation check, which some work never reaches; check with jsn transactions active.`, rows(result.still_running).trimEnd());
