@@ -73,6 +73,25 @@ body, and plain-text notifications are `unsupported`.
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
 
+## Slow patterns
+
+```sh
+jsn perf slow --limit 10
+jsn perf slow --type scripts --order-by count --since 2026-11-01
+jsn perf slow show <sys_id> --json
+```
+
+`perf slow` reads the platform's Slow Pattern logs (`sys_pattern` and its
+subclasses for queries, scripts, transactions, events, mutexes and cache
+builds), ranked by total time, run count or average time. `show` finds the
+record's class itself and prints the full SQL and the stack trace that issued
+it. Both are read-only Table API reads and need read access to those tables,
+usually admin. `average` is in milliseconds and `total` is a duration; first
+and last seen times are UTC, and `--since` compares with them in UTC.
+`executable_sql` and `url` can hold literal values from live requests. An empty
+or ACL-filtered list does not prove nothing is slow. `--limit` (1–200) and
+`--offset` page the list; JSON has `pagination.has_more` from one-row lookahead.
+
 ## Work safely
 
 Use `jsn auth modify <profile> --read-only` to block instance writes. ServiceNow roles and ACLs still decide what you can access. Help and discovery may show a compact command list for the connected account; this is not an access grant or an exhaustive capability check.
