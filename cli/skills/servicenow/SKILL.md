@@ -21,6 +21,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Undoing what a background script wrote is `jsn eval rollback <execution>`, with
+  the execution id `jsn eval` reports, not a second script. It previews without
+  `--yes`; the platform keeps rollback contexts for 10 days.
 
 For development:
 

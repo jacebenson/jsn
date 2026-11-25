@@ -1119,6 +1119,11 @@ export class SDKClient {
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
+    return (await this.runBackgroundScript(script, scope, opts)).output;
+  }
+
+  /** executeScript, also returning the sys_script_execution_history id the page links to (null when absent). */
+  async runBackgroundScript(script, scope, opts = {}) {
     // Step 1: Warm up the session by hitting any REST API — this makes
     // ServiceNow issue session cookies for subsequent UI page requests.
     // We capture cookies to forward them (Node.js fetch() has no built-in cookie jar).
@@ -1151,7 +1156,7 @@ export class SDKClient {
     const output = this._extractScriptOutput(html);
     const scriptError = detectScriptError(output);
     if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
-    return output;
+    return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
   }
 
   /**
