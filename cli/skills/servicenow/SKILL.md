@@ -4,53 +4,48 @@ description: Use the jsn CLI for ServiceNow development, administration, and dat
 license: MIT
 metadata:
   author: jacebenson
-  version: "4.3.14"
+  version: "4.3.15"
   repository: https://github.com/jacebenson/jsn
 ---
 
 # ServiceNow with JSN
 
 Discover commands with `jsn --help`, `jsn discover "search words"`, and
-`jsn <command> --help`.
-A choice field's valid values are in `jsn columns show <table>.<column>`, which
-names the table they come from when they are inherited from a parent.
+`jsn <command> --help`. Help is the reference; this file is the shortcuts.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
-- Prefer purpose-built or records commands over `eval`. Explain the need and get
-  approval before using eval; avoid bypassing ServiceNow protections.
-- Undoing what a background script wrote is `jsn eval rollback <execution>`, with
-  the execution id `jsn eval` reports, not a second script. It previews without
-  `--yes`; the platform keeps execution history for 7 days.
+- `eval` is the last resort. Explain why it is needed and get approval; never
+  bypass ServiceNow protections to get an answer.
 - Honor delete confirmations. Get approval for destructive work and Global +
   Default mutations; use `--force` only for the approved operation.
-- Restoring a deleted record is `jsn records undelete --table <t> --sys-id <id>`,
-  not `eval`. It brings back the newest copy in Deleted Records with its sys_id;
-  attachments and records its delete cascaded to stay deleted.
-- Deleting several records by filter is `jsn records delete-many`, not `eval`.
-  It previews without `--yes`, and a real delete requires the exact
-  `--expect-count` from that preview.
-- Loading rows into an import set staging table is `jsn import load <table>
-  --file rows.json|csv`, not `eval` or `records create` on the staging table.
-  It previews without `--yes`; with it, each row reports its transform outcome.
-- Copying records between instances as XML starts with `jsn records export`,
-  which keeps sys_ids and refuses a query the instance would widen or truncate.
-  `jsn records import <file>` loads that file into the target (admin; it skips
-  business rules and overwrites matching sys_ids). It previews without `--yes`
-  and re-reads every record afterwards, exiting nonzero unless each one landed.
-- Why a user holds a role is `jsn users roles <user> --why --role <name>`, not
-  `eval` or raw REST: every path (direct, contained role, group) from the
-  platform's User Role Inheritance API, which needs `user_admin`.
-  Add `--preview-cascade` to see the records in other tables the delete would
-  cascade to before asking for approval. It is a write: it creates and deletes
-  one Data Management delete job (admin), and leaves its count rows behind.
-- The decision a decision table picks is
-  `jsn decisiontables evaluate <name> --input <name>=<value>`, not `eval`. It
-  refuses an input the table does not have, a missing mandatory input and a
-  choice label where the value belongs, which the evaluator would otherwise
-  answer with its default decision.
-- Finding a REST endpoint is `jsn scrapi search <words>`, which lists every API on
-  the instance, out of the box and scripted, with its method and route; then
-  `jsn scrapi spec "<API name>"` prints its OpenAPI document.
+
+## Before you reach for eval
+
+| You want | Use |
+| --- | --- |
+| A choice field's values | `jsn columns show <table>.<column>` |
+| A REST endpoint, or its spec | `jsn scrapi search <words>`, `jsn scrapi spec "<API>"` |
+| Why a user holds a role | `jsn users roles <user> --why --role <name>` |
+| What the platform logged as slow | `jsn perf slow`, `jsn perf slow show <sys_id>` |
+| A decision table's outcome | `jsn decisiontables evaluate <name> --input k=v` |
+| Delete by filter | `jsn records delete-many` (needs the previewed `--expect-count`) |
+| Undo a delete | `jsn records undelete --table <t> --sys-id <id>` |
+| Undo a background script | `jsn eval rollback <execution>` |
+| An earlier version of a record | `jsn records versions <table> <sys_id> [--diff N]` |
+| Watch a record or a query | `jsn records watch --table <t> --sys-id <id>` or `--query` |
+| Copy records between instances | `jsn records export`, then `jsn records import <file>` |
+| Load an import set | `jsn import load <table> --file rows.json\|csv` |
+| What a user can see | `--impersonate <user_name>` on a read |
+| Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
+
+Every write in that table previews without `--yes`, and `--yes` on a delete needs
+the count its preview printed. Cascade previews and impersonated writes are
+writes too: `--preview-cascade` creates and deletes one Data Management job, and
+writing as another user needs the human's approval plus `--impersonate-writes`.
+
+Watching streams newline-delimited JSON (`record_change`, `gap`,
+`watch_summary`). Run it for a bounded window and report what arrived; a `gap` or
+`"complete": false` means events were missed, so re-read the record.
 
 For development:
 
@@ -69,42 +64,6 @@ For development:
 5. Ask whether anything else belongs in the update set. If the user confirms
    it is finished, complete it with notes.
 
-Tracking a record: when the user asks to track, watch or be told about changes
-to an incident, task, change request or other record, use
-`jsn records watch --table <table> --sys-id <id> --timeout <seconds> --json`.
-It streams newline-delimited JSON (`record_change`, `gap`, `watch_summary`),
-so run it for a bounded window and report what arrived; schedules and user
-notifications belong to your runtime, not to the command. Use `--max-events 1`
-for a single-change check. A `gap` or `"complete": false` means events were
-missed — read the record's current state rather than assuming continuity.
-To watch every record matching a query, use `--query "<encoded query>"`
-instead of `--sys-id`; each event's `match` is `entry`, `change` or `exit`
-(`exit` means the record stopped matching or was deleted). Narrow it with
-`--operation insert|update|delete` and `--on-change <field,field>`. Basic,
-OAuth and browser profiles all work.
-
-Configuration history: to see what an earlier version of a script, rule or other
-update-set-tracked record held, or which update set captured it last, use
-`jsn records versions <table> <sys_id> [--diff N]`. It reads saved versions,
-not the live record; no versions does not mean unchanged.
-
-Checking what a user can see: add `--impersonate <user_name>` to a read, for
-example `jsn records list --table incident --impersonate abel.tuter --json`,
-instead of an eval with `gs.getSession().impersonate`. It needs the admin or
-impersonator role. A record write as that user stops with
-`confirmation_required` before any request; ask the human, then re-run with
-`--impersonate-writes`. Customization writes, `eval` and `rest` writes are
-refused under `--impersonate`; make those as the profile's own user.
-
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.
-
-Slow queries and scripts: to see what the platform logged as slow, use
-`jsn perf slow [--type queries|scripts|transactions|events|mutex|cache]`, ranked
-by total time, then `jsn perf slow show <sys_id>` for the full SQL and the stack
-trace naming the code that issued it. Both are reads; an empty list does not
-prove nothing is slow.
-
-Search documentation with `jsn docs "query"` or read with `jsn docs --path <path>`.
-Documentation source and defaults for future connections are configured in `jsn setup`.
