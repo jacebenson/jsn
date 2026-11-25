@@ -31,7 +31,7 @@ export function evalCmd(wrap) {
         .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript evaluator, single expression only — no DB writes)' })
         .option('scriptlet', { type: 'boolean', default: false, describe: 'Run as scriptlet with global server-side objects' })
         .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' })
-        .option('timeout', { type: 'number', default: 30, describe: 'Seconds to wait for the script before jsn cancels it on the instance (Ctrl-C cancels it too)' });
+        .option('timeout', { type: 'number', default: 30, describe: 'Seconds to wait for the script before jsn cancels it on the instance (outside --repl, Ctrl-C cancels it too)' });
     },
     handler: wrap(async (argv, app) => {
       const timeout = argv.timeout * 1000;

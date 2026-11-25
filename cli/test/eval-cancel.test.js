@@ -153,6 +153,11 @@ describe('eval cancels its background script when it stops waiting', () => {
     assert.strictEqual(calls.cancels.length, 0);
   });
 
+  it('a script that prints the platform\'s words among its own output still succeeds', async () => {
+    const { client } = scriptClient({ run: async () => '<PRE>*** Script: 2 rows\nTransaction cancelled - cancelled by user request\nstep 3</PRE>', cancel: () => assert.fail('no cancel') });
+    assert.strictEqual(await client.executeScript('gs.print(rows)', '', { timeout: 1000 }), '*** Script: 2 rows\nTransaction cancelled - cancelled by user request\nstep 3');
+  });
+
   it('honours a longer per-call timeout', async () => {
     const { client, calls } = scriptClient({ run: () => new Promise(resolve => setTimeout(resolve, 60, '<PRE>*** Script: slow</PRE>')), cancel: () => assert.fail('no cancel') });
     assert.strictEqual(await client.executeScript('gs.sleep(60)', '', { timeout: 1000 }), '*** Script: slow');
@@ -187,7 +192,7 @@ describe('jsn eval --timeout and Ctrl-C', () => {
   }
 
   it('waits 30 seconds by default', () => {
-    assert.match(cli(['eval', '--help']).stdout, /--timeout +Seconds to wait for the script before jsn cancels it on the instance\s+\(Ctrl-C cancels it too\) \[number\] \[default: 30\]/);
+    assert.match(cli(['eval', '--help']).stdout, /--timeout +Seconds to wait for the script before jsn cancels it on the instance\s+\(outside --repl, Ctrl-C cancels it too\) \[number\] \[default: 30\]/);
   });
 
   it('Ctrl-C while the script runs aborts the signal given to executeScript, and the handler is removed after', async () => {

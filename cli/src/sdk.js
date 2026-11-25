@@ -89,6 +89,8 @@ export function buildScriptFormBody({ script, csrf, scope, rollback = true, quot
 
 // How long the script's request stays open after jsn stops waiting, for the platform's answer to the cancel.
 const SCRIPT_CANCEL_WAIT = 15000;
+// A cancelled script's whole response is the platform's one line, even when it printed before (dev485581).
+const cancelledByPlatform = (output) => /^Transaction cancelled\b[^\n]*$/.test(output);
 
 // Resolves '' once the script's request settles, or why jsn stopped waiting first.
 function stopReason(run, ms, signal) {
@@ -1193,7 +1195,7 @@ export class SDKClient {
 
     const output = this._extractScriptOutput(await run);
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
-    if (/^Transaction cancelled\b/m.test(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output.trim()}`);
+    if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
     if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
     return output;
@@ -1493,7 +1495,7 @@ export class SDKClient {
     // The wait for the platform's answer is bounded on its own, whatever --timeout is.
     const answer = new Promise(resolve => setTimeout(resolve, SCRIPT_CANCEL_WAIT, '').unref());
     const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]));
-    return { status: /^Transaction cancelled\b/m.test(output) ? 'cancelled' : 'not_confirmed', message, output };
+    return { status: cancelledByPlatform(output) ? 'cancelled' : 'not_confirmed', message, output };
   }
 
   async _getScriptsPageCSRF(cookies) {
