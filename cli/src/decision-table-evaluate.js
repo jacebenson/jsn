@@ -43,9 +43,9 @@ async function childRows(sdk, table, parentField, parentId, fields) {
 async function checkInputs(sdk, inputs, given) {
   const byName = new Map(inputs.map((row) => [raw(row, 'element'), row]));
   const unknown = [...given.keys()].filter((name) => !byName.has(name));
-  if (unknown.length) throw errUsage(`Unknown decision input(s): ${unknown.join(', ')}. This table's inputs: ${[...byName.keys()].join(', ') || 'none'}. Names are case-sensitive.`);
-  const missing = inputs.filter((row) => raw(row, 'mandatory') === 'true' && raw(row, 'active') !== 'false' && !given.has(raw(row, 'element'))).map((row) => raw(row, 'element'));
-  if (missing.length) throw errUsage(`Missing mandatory decision input(s): ${missing.join(', ')}. Pass --input name=value (name= sends an empty value).`);
+  if (unknown.length) throw errUsage(`Unknown decision input(s): ${unknown.join(', ')}. This table's inputs: ${[...byName.keys()].join(', ') || 'none readable'}. Names are case-sensitive.`);
+  const missing = inputs.filter((row) => raw(row, 'mandatory') === 'true' && raw(row, 'active') !== 'false' && !given.get(raw(row, 'element'))).map((row) => raw(row, 'element'));
+  if (missing.length) throw errUsage(`Missing mandatory decision input(s): ${missing.join(', ')}. Pass --input name=value with a value for each.`);
   const values = {};
   const resolvedFrom = {};
   for (const [name, value] of given) {
@@ -66,8 +66,10 @@ async function checkInputs(sdk, inputs, given) {
     if (type === 'reference' && !isSysId(value)) {
       const table = raw(row, 'reference');
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) throw errUsage(`Input ${name} is a reference with no readable target table; pass a sys_id.`);
-      const record = await resolveRecord(sdk, { table, identifier: value, identifierField: 'number', resource: `${table} record`, fields: ['number'], displayValue: 'false', partial: false });
-      if (raw(record, 'number') !== value || !isSysId(unwrapSysId(record))) throw errUsage(`Input ${name}: no ${table} record numbered ${value}; pass a sys_id.`);
+      const notNumbered = () => errUsage(`Input ${name}: no ${table} record numbered ${value}; pass a sys_id.`);
+      const record = await resolveRecord(sdk, { table, identifier: value, identifierField: 'number', resource: `${table} record`, fields: ['number'], displayValue: 'false', partial: false })
+        .catch((error) => { throw ['not_found', 'ambiguous'].includes(error?.code) ? notNumbered() : error; });
+      if (raw(record, 'number') !== value || !isSysId(unwrapSysId(record))) throw notNumbered();
       values[name] = unwrapSysId(record);
       resolvedFrom[name] = value;
     }
@@ -76,7 +78,7 @@ async function checkInputs(sdk, inputs, given) {
 }
 
 function answerOf(answers, multi) {
-  if (!Array.isArray(answers) || answers.some((item) => !item || typeof item !== 'object')) throw malformed('a decision answer is not a list of values');
+  if (!Array.isArray(answers) || !answers.length || answers.some((item) => !item || typeof item !== 'object')) throw malformed('a decision answer is not a list of values');
   if (multi) return { elements: Object.fromEntries(answers.map((item) => [raw(item, 'name'), { value: raw(item, 'value'), display_value: raw(item, 'displayValue') }])) };
   return { value: raw(answers[0], 'value'), display_value: raw(answers[0], 'displayValue') };
 }
@@ -105,6 +107,7 @@ export async function evaluateDecisionTable(sdk, identifier, { inputs: specs, al
     childRows(sdk, 'sys_decision_question', 'decision_table', sysId, 'label,order,active,default_answer'),
     multi ? childRows(sdk, 'sys_decision_multi_result_element', 'model', sysId, 'element') : [],
   ]);
+  if (multi && !elements.length) throw denied('No answer elements of this multi-result table are readable.');
   const { values, resolvedFrom } = await checkInputs(sdk, inputs, given);
   const body = { testInputs: values, isFirstMatch: !allMatches, includeDelta: false, isMultiResultTable: multi, ...(multi ? { answerElementNames: elements.map((row) => raw(row, 'element')) } : {}) };
   let response;

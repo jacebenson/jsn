@@ -68,13 +68,13 @@ test('parses repeatable name=value inputs and refuses malformed ones before any 
 
 test('evaluates by name, resolves a reference number and reports the default decision with value and display value', async () => {
   const sdk = fixtureSdk();
-  const data = await evaluateDecisionTable(sdk, 'Normal Change Policy', { inputs: ['change_request=CHG0000008', 'manager_approved=false', 'instance_type=test', 'reason='] });
+  const data = await evaluateDecisionTable(sdk, 'Normal Change Policy', { inputs: ['change_request=CHG0000008', 'manager_approved=false', 'instance_type=test', 'reason=x'] });
   const [post] = posts(sdk);
   assert.equal(post.url, `${sdk.baseURL}${EVALUATE_PATH}?decisionTableId=${T}`);
-  assert.deepEqual(post.body, { testInputs: { change_request: C, manager_approved: 'false', instance_type: 'test', reason: '' }, isFirstMatch: true, includeDelta: false, isMultiResultTable: false });
+  assert.deepEqual(post.body, { testInputs: { change_request: C, manager_approved: 'false', instance_type: 'test', reason: 'x' }, isFirstMatch: true, includeDelta: false, isMultiResultTable: false });
   assert.deepEqual(JSON.parse(JSON.stringify(data)), {
     decision_table: { sys_id: T, name: 'Normal Change Policy' },
-    inputs: { change_request: C, manager_approved: 'false', instance_type: 'test', reason: '' },
+    inputs: { change_request: C, manager_approved: 'false', instance_type: 'test', reason: 'x' },
     resolved_from: { change_request: 'CHG0000008' },
     all_matches: false,
     matches: [{ sys_id: D2, label: 'Fallback', order: '200', default: true, answer: { value: A1, display_value: 'Manager approval' } }],
@@ -98,16 +98,20 @@ test('a multi-result table sends its answer element names and reports each eleme
   assert.deepEqual(posts(sdk)[0].body, { testInputs: { plugin_active: 'true' }, isFirstMatch: true, includeDelta: false, isMultiResultTable: true, answerElementNames: ['use_releaseops'] });
   assert.deepEqual(data.matches[0].answer, { elements: { use_releaseops: { value: 'true', display_value: 'true' } } });
   assert.match(data._formatted, /Use it: use_releaseops: true/);
+  const unreadable = fixtureSdk({ data: { ...tables(), sys_decision_multi_result_element: [] } });
+  await assert.rejects(evaluateDecisionTable(unreadable, 'Migration', { inputs: ['plugin_active=true'] }), /No answer elements of this multi-result table are readable/);
+  assert.equal(posts(unreadable).length, 0);
 });
 
 test('every input the evaluator would silently answer with its default is refused before evaluating', async () => {
   const cases = [
     [['reasn=x'], /Unknown decision input\(s\): reasn\. This table's inputs: change_request, manager_approved, instance_type, reason, retired/],
     [['manager_approved=true'], /Missing mandatory decision input\(s\): reason/],
+    [['reason='], /Missing mandatory decision input\(s\): reason/],
     [[...valid, 'instance_type=Testing'], /no choice "Testing" \("Testing" is the label of value "test"\)\. Choices: test, prod/],
     [[...valid, 'instance_type=qa'], /no choice "qa"\. Choices: test, prod/],
     [[...valid, 'manager_approved=yes'], /manager_approved is True\/False; pass true or false, not "yes"/],
-    [[...valid, 'change_request=CHG9999999'], /not found/i],
+    [[...valid, 'change_request=CHG9999999'], /no change_request record numbered CHG9999999; pass a sys_id/],
     [[...valid, 'change_request=CHG1^ORactive=true'], /query characters/],
   ];
   for (const [inputs, message] of cases) {
@@ -159,7 +163,7 @@ test('denied, missing-plugin and malformed evaluator responses are never reporte
   await assert.rejects(evaluateDecisionTable(fixtureSdk({ evaluate: fail(403, 'Access forbidden (HTTP 403).') }), T, { inputs: valid }), /decision_table_reader/);
   await assert.rejects(evaluateDecisionTable(fixtureSdk({ evaluate: fail(400, 'Requested URI does not represent any resource') }), T, { inputs: valid }), /sn_decision_table/);
   await assert.rejects(evaluateDecisionTable(fixtureSdk({ evaluate: fail(500, 'boom') }), T, { inputs: valid }), /boom/);
-  for (const body of [null, {}, { result: [] }, { result: { [D1]: 'x' } }, { result: { 'not-an-id': [] } }]) {
+  for (const body of [null, {}, { result: [] }, { result: { [D1]: 'x' } }, { result: { 'not-an-id': [] } }, { result: { [D1]: [] } }]) {
     await assert.rejects(evaluateDecisionTable(fixtureSdk({ evaluate: () => body }), T, { inputs: valid }), /Malformed decision table evaluation/, JSON.stringify(body));
   }
 });
