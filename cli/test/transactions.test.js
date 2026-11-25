@@ -276,7 +276,7 @@ describe('transactions active', () => {
         await assert.rejects(run(['transactions', 'active', ...args, '--json']), { code: 2 }, JSON.stringify(args));
       }
       assert.equal(calls.length, before);
-      const refused = await run(['transactions', 'kill', 'S1', '--yes', '--json']).then(() => null, error => error);
+      const refused = await run(['transactions', 'kill', 'S1', '--yes', '--expect-transaction', 't1', '--json']).then(() => null, error => error);
       assert.match(`${refused.stdout}${refused.stderr}`, /read-only/);
       assert.equal(calls.length, before);
       state = '3';
@@ -315,23 +315,33 @@ describe('transactions kill', () => {
     const { killTransaction } = await import('../src/active-transactions.js');
     for (const session of ['', "S1'", "S1');gs.print('x", 'a^ORsession_id=b', 'x'.repeat(129)]) {
       const sdk = killSdk();
-      await assert.rejects(killTransaction(sdk, { session, yes: true }), { code: 'usage_error' }, session);
+      await assert.rejects(killTransaction(sdk, { session, yes: true, 'expect-transaction': 't1' }), { code: 'usage_error' }, session);
       assert.equal(sdk.calls.length, 0, session);
     }
     const missing = killSdk({ reads: [[]] });
-    await assert.rejects(killTransaction(missing, { session: 'S9', yes: true }), /not found: S9/);
+    await assert.rejects(killTransaction(missing, { session: 'S9', yes: true, 'expect-transaction': 't9' }), /not found: S9/);
     const unseen = killSdk({ reads: [[]], own: [] });
-    await assert.rejects(killTransaction(unseen, { session: 'S9', yes: true }), /S9 was not listed, but the list may be incomplete: The refreshed list was not visible/);
+    await assert.rejects(killTransaction(unseen, { session: 'S9', yes: true, 'expect-transaction': 't9' }), /S9 was not listed, but the list may be incomplete: The refreshed list was not visible/);
     const own = killSdk({ reads: [[activeRow(1, { session_id: pair('ME'), snapshot_id: pair('ME') })]] });
-    await assert.rejects(killTransaction(own, { session: 'ME', yes: true }), /its own request/);
+    await assert.rejects(killTransaction(own, { session: 'ME', yes: true, 'expect-transaction': 't1' }), /its own request/);
     const stuck = killSdk({ reads: [[activeRow(1, { uncancelable: pair('true'), snapshot_id: pair('ME') })]] });
-    await assert.rejects(killTransaction(stuck, { session: 'S1', yes: true }), /uncancelable[\s\S]*--force sends Force Kill/);
+    await assert.rejects(killTransaction(stuck, { session: 'S1', yes: true, 'expect-transaction': 't1' }), /uncancelable[\s\S]*--force sends Force Kill/);
+    for (const argv of [{ yes: true }, { yes: true, 'expect-transaction': '' }, { yes: true, 'expect-transaction': "t1'" }, { 'expect-transaction': 'a^b' }]) {
+      const sdk = killSdk();
+      await assert.rejects(killTransaction(sdk, { session: 'S1', ...argv }), { code: 'usage_error' }, JSON.stringify(argv));
+      assert.equal(sdk.calls.length, 0, JSON.stringify(argv));
+    }
+    const finished = killSdk();
+    await assert.rejects(killTransaction(finished, { session: 'S1', yes: true, 'expect-transaction': 't9' }), /it may have finished; preview again\) not found: t9/);
+    const other = killSdk({ reads: [[activeRow(2, { snapshot_id: pair('ME') })]] });
+    await assert.rejects(killTransaction(other, { session: 'S1', yes: true, 'expect-transaction': 't2' }), /not found: S1/);
     const preview = killSdk();
     const result = await killTransaction(preview, { session: 'S1' });
+    assert.deepEqual(result.rerun, ['jsn transactions kill S1 --yes --expect-transaction t1']);
     assert.equal(result.dry_run, true);
     assert.equal(result.method, 'kill');
     assert.equal('snapshot_id' in result.transactions[0], false);
-    for (const sdk of [missing, unseen, own, stuck, preview]) assert.equal(scripts(sdk).length, 0);
+    for (const sdk of [missing, unseen, own, stuck, finished, other, preview]) assert.equal(scripts(sdk).length, 0);
     assert.equal(preview.calls.find(call => call.table === 'v_cluster_transaction').query, 'session_id=S1');
   });
 
@@ -339,7 +349,7 @@ describe('transactions kill', () => {
     const { killTransaction } = await import('../src/active-transactions.js');
     const sdk = killSdk({ reads: [[activeRow(1, { transaction_id: pair(tx('a1')), snapshot_id: pair('ME') })], []] });
     let sleeps = 0;
-    const result = await killTransaction(sdk, { session: 'S1', yes: true }, { sleep: async () => { sleeps++; } });
+    const result = await killTransaction(sdk, { session: 'S1', yes: true, 'expect-transaction': tx('a1') }, { sleep: async () => { sleeps++; } });
     const [sent] = scripts(sdk);
     assert.equal(sent.scope, 'global');
     assert.match(sent.script, /var session = 'S1', nodes = \["app1\.example:node001"\]/);
@@ -355,10 +365,24 @@ describe('transactions kill', () => {
   it('sends Force Kill for an uncancelable transaction only with --force', async () => {
     const { killTransaction } = await import('../src/active-transactions.js');
     const sdk = killSdk({ reads: [[activeRow(1, { uncancelable: pair('true'), snapshot_id: pair('ME') })], []] });
-    const result = await killTransaction(sdk, { session: 'S1', yes: true, force: true }, { sleep: async () => {} });
+    const result = await killTransaction(sdk, { session: 'S1', yes: true, 'expect-transaction': 't1', force: true }, { sleep: async () => {} });
     assert.equal(result.method, 'forceKill');
     assert.match(scripts(sdk)[0].script, /GlideTransactionManager\.forceKill\(session\)[\s\S]*GlideTransactionManager\.forceKill\('/);
     assert.doesNotMatch(scripts(sdk)[0].script, /\.kill\(/);
+  });
+
+  it('kills only the previewed transaction when the worker session name runs on two nodes', async () => {
+    const { killTransaction, formatKillTransaction } = await import('../src/active-transactions.js');
+    const rows = [activeRow(1, { transaction_id: pair(tx('c1')), snapshot_id: pair('ME') }), activeRow(1, { transaction_id: pair(tx('c2')), node_id: pair('app2.example:node002'), uncancelable: pair('true'), snapshot_id: pair('ME') })];
+    const preview = await killTransaction(killSdk({ reads: [rows] }), { session: 'S1', force: true });
+    assert.deepEqual(preview.rerun, [`jsn transactions kill S1 --yes --expect-transaction ${tx('c1')}`, `jsn transactions kill S1 --yes --expect-transaction ${tx('c2')} --force`]);
+    assert.match(formatKillTransaction(preview), new RegExp(`To send it, run:\\n  jsn transactions kill S1 --yes --expect-transaction ${tx('c1')}\\n  jsn transactions kill S1 --yes --expect-transaction ${tx('c2')} --force\\n$`));
+    const sdk = killSdk({ reads: [rows, [rows[1]]] });
+    const result = await killTransaction(sdk, { session: 'S1', yes: true, 'expect-transaction': tx('c1') }, { sleep: async () => {} });
+    assert.equal(scripts(sdk).length, 1);
+    assert.match(scripts(sdk)[0].script, /nodes = \["app1\.example:node001"\]/);
+    assert.equal(result.method, 'kill');
+    assert.equal(result.ended, true);
   });
 
   it('never reports a kill as done while the transaction is listed, the refresh is partial, or the script did not confirm', async () => {
@@ -366,26 +390,26 @@ describe('transactions kill', () => {
     const { killTransactionCmd } = await import('../src/commands/transactions.js');
     const row = activeRow(1, { transaction_id: pair(tx('b2')), snapshot_id: pair('ME') });
     let sleeps = 0;
-    const alive = await killTransaction(killSdk({ reads: [[row]], cancellations: [] }), { session: 'S1', yes: true }, { sleep: async () => { sleeps++; } });
+    const alive = await killTransaction(killSdk({ reads: [[row]], cancellations: [] }), { session: 'S1', yes: true, 'expect-transaction': tx('b2') }, { sleep: async () => { sleeps++; } });
     assert.equal(alive.ended, false);
     assert.equal(sleeps, 5);
     assert.equal(alive.still_running.length, 1);
-    assert.match(formatKillTransaction(alive), /Still running after 10 seconds[\s\S]*No cancellation logged/);
-    const partial = await killTransaction(killSdk({ reads: [[row], []], pages: [`var executionID = '${EXEC}';`, "var executionID = 'null';"] }), { session: 'S1', yes: true }, { sleep: async () => {} });
+    assert.match(formatKillTransaction(alive), /Still running after 5 re-reads, 2 seconds apart[\s\S]*No cancellation logged/);
+    const partial = await killTransaction(killSdk({ reads: [[row], []], pages: [`var executionID = '${EXEC}';`, "var executionID = 'null';"] }), { session: 'S1', yes: true, 'expect-transaction': tx('b2') }, { sleep: async () => {} });
     assert.equal(partial.ended, false);
     assert.match(formatKillTransaction(partial), /Not confirmed: .*only this node/);
-    const blind = await killTransaction(killSdk({ reads: [[row], []], own: [] }), { session: 'S1', yes: true }, { sleep: async () => {} });
+    const blind = await killTransaction(killSdk({ reads: [[row], []], own: [] }), { session: 'S1', yes: true, 'expect-transaction': tx('b2') }, { sleep: async () => {} });
     assert.equal(blind.ended, false);
     assert.match(formatKillTransaction(blind), /Not confirmed: The refreshed list was not visible/);
     const silent = killSdk({ reads: [[row]], output: '' });
-    await assert.rejects(killTransaction(silent, { session: 'S1', yes: true }), /no confirmation that it ran/);
+    await assert.rejects(killTransaction(silent, { session: 'S1', yes: true, 'expect-transaction': tx('b2') }), /no confirmation that it ran/);
     assert.equal(silent.calls.filter(call => call.table === 'syslog_cancellation').length, 0);
     const app = buildApp(killSdk({ reads: [[row]], cancellations: [] }));
     const previous = process.exitCode;
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
       let settled = false;
-      const run = killTransactionCmd(fn => fn).handler({ session: 'S1', yes: true, app }, app).finally(() => { settled = true; });
+      const run = killTransactionCmd(fn => fn).handler({ session: 'S1', yes: true, 'expect-transaction': tx('b2'), app }, app).finally(() => { settled = true; });
       while (!settled) { await new Promise(resolve => setImmediate(resolve)); mock.timers.tick(2000); }
       await run;
       assert.equal(process.exitCode, 1);

@@ -140,15 +140,17 @@ export function killTransactionCmd(wrap) {
     builder: (y) => y
       .strict()
       .positional('session', { type: 'string', describe: 'session_id from jsn transactions active' })
-      .option('yes', { type: 'boolean', default: false, describe: 'Send the kill; without it, show what would be killed' })
+      .option('yes', { type: 'boolean', default: false, describe: 'Send the kill (requires --expect-transaction); without it, show what would be killed' })
+      .option('expect-transaction', { type: 'string', describe: 'Required with --yes: the transaction_id the preview showed' })
       .epilogue([
         'Kill is meant for background processes such as scheduled jobs, not for users\' requests.',
         'It needs the admin role, and security_admin elevation when High Security Settings are on.',
         'An uncancelable system transaction is refused unless --force, which sends Force Kill instead.',
-        "jsn will not kill its own listing session. After sending, it re-reads the transactions for up to 10 seconds and the cancellation log, and exits 1 unless the transaction has ended.",
+        'Worker sessions are reused and repeat on every node, so --yes needs the transaction_id from the preview; the preview prints the command.',
+        "jsn will not kill its own listing session. After sending, it re-reads the transactions up to 5 times, 2 seconds apart, and the cancellation log, and exits 1 unless the transaction has ended.",
         'Examples:',
         '  jsn transactions kill glide.scheduler.worker.3',
-        '  jsn transactions kill glide.scheduler.worker.3 --yes',
+        '  jsn transactions kill glide.scheduler.worker.3 --yes --expect-transaction 4ba972c9c3f0d71068353eec05013113',
       ].join('\n')),
     handler: wrap(async (argv, app) => {
       app.requireInstance();

@@ -24,7 +24,8 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - What is running on the instance now, on every node, is
   `jsn transactions active` (`--older-than 5m`, `--user`, `--type`), not `eval`.
   Stopping a runaway background job is `jsn transactions kill <session>`: it
-  previews, `--yes` sends the platform's Kill, and it is not for users' requests.
+  previews, `--yes` with the `--expect-transaction` from that preview sends the
+  platform's Kill, and it is not for users' requests.
 
 For development:
 
