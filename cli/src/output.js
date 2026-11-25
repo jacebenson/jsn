@@ -375,7 +375,7 @@ export class OutputWriter {
     // logic belongs in the command that owns the domain — output.js stays
     // generic. Other underscore-prefixed side-channel keys commands may
     // attach: `_context` ({instance_url, table} consumed by the record
-    // renderer), `_attachments`, `_variables`, `_choices` (record card sections), plus
+    // renderer), `_attachments`, `_variables`, `_choices`, `_variable_sets` (record card sections), plus
     // `records`/`columns`/`table`/`relationships` for the generic table and
     // record views below.
     const hasFormatted = data && typeof data === 'object' && data._formatted;
@@ -656,20 +656,29 @@ export class OutputWriter {
     }
 
     // ── Catalog Variables ──
+    const writeVariable = (v, indent) => {
+      const q = v.question || '';
+      const val = v.value || '';
+      if (val.includes('\n')) {
+        this.writer.write(`${indent}${q}:\n`);
+        for (const line of val.split('\n')) {
+          this.writer.write(`${indent}  ${line}\n`);
+        }
+      } else {
+        this.writer.write(`${indent}${q}:  ${val}\n`);
+      }
+    };
     if (data._variables && Array.isArray(data._variables) && data._variables.length > 0) {
       this.writer.write('─ Catalog Variables ─\n');
-      for (const v of data._variables) {
-        const q = v.question || '';
-        const val = v.value || '';
-        if (val.includes('\n')) {
-          this.writer.write(`  ${q}:\n`);
-          for (const line of val.split('\n')) {
-            this.writer.write(`    ${line}\n`);
-          }
-        } else {
-          this.writer.write(`  ${q}:  ${val}\n`);
-        }
-      }
+      for (const v of data._variables) writeVariable(v, '  ');
+      this.writer.write('\n');
+    }
+    for (const variableSet of Array.isArray(data._variable_sets) ? data._variable_sets : []) {
+      this.writer.write(`─ Variable set: ${variableSet.set} ─\n`);
+      variableSet.rows.forEach((row, index) => {
+        this.writer.write(`  Row ${index + 1}\n`);
+        for (const v of row) writeVariable(v, '    ');
+      });
       this.writer.write('\n');
     }
 

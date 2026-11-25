@@ -23,7 +23,7 @@ test('factory, ticket and rich-request show commands expose related options and 
     const y = { option(name) { options.push(name); return y; } };
     show.builder(y);
     for (const option of ['related', 'view', 'related-limit']) assert.ok(options.includes(option));
-    const calls = [], sdk = { list: async () => [{ sys_id: 'raw-id', name: 'Named', number: 'INC001' }], fetchAttachments: async () => [], fetchCatalogVariables: async () => ({ variables: [], truncated: false }) };
+    const calls = [], sdk = { list: async () => [{ sys_id: 'raw-id', name: 'Named', number: 'INC001' }], fetchAttachments: async () => [], fetchCatalogVariables: async () => ({ variables: [], truncated: false }), fetchMultiRowVariables: async () => ({ sets: [], truncated: false }) };
     let output;
     const app = { sdk, _relatedListReaderSDK: sdk, relatedListReader: { read: async request => { calls.push(request); return { nonempty: [], coverage: { state: 'observed' } }; } },
       getEffectiveInstance: () => 'https://fixture.invalid', ok: data => { output = data; } };
