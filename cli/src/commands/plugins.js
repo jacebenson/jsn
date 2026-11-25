@@ -1,7 +1,7 @@
 import { declareCapabilities } from '../capabilities.js';
 import { inventoryCompareCommand } from '../instance-inventory.js';
 
-declareCapabilities('plugins', { skipContextHeader: true });
+declareCapabilities('plugins', { skipContextHeader: true, noImpersonateSubcommands: ['compare'] });
 export const pluginsCmd = wrap => ({
   command: 'plugins', describe: 'Inspect platform plugin differences across instances',
   builder: p => p.command(inventoryCompareCommand(wrap, 'plugins')),

@@ -4,26 +4,49 @@ description: Use the jsn CLI for ServiceNow development, administration, and dat
 license: MIT
 metadata:
   author: jacebenson
-  version: "4.3.14"
+  version: "4.3.15"
   repository: https://github.com/jacebenson/jsn
 ---
 
 # ServiceNow with JSN
 
 Discover commands with `jsn --help`, `jsn discover "search words"`, and
-`jsn <command> --help`.
+`jsn <command> --help`. Help is the reference; this file is the shortcuts.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
-- Prefer purpose-built or records commands over `eval`. Explain the need and get
-  approval before using eval; avoid bypassing ServiceNow protections.
+- `eval` is the last resort. Explain why it is needed and get approval; never
+  bypass ServiceNow protections to get an answer.
 - Honor delete confirmations. Get approval for destructive work and Global +
   Default mutations; use `--force` only for the approved operation.
-- Deleting several records by filter is `jsn records delete-many`, not `eval`.
-  It previews without `--yes`, and a real delete requires the exact
-  `--expect-count` from that preview.
-- Turning table, field or delete auditing on or off is `jsn tables audit <table>
-  --on|--off|--exclude <field>|--include <field>|--deletes on|off`, not
-  `records update sys_dictionary` or `eval`. It previews without `--yes`.
+
+## Before you reach for eval
+
+| You want | Use |
+| --- | --- |
+| A choice field's values | `jsn columns show <table>.<column>` |
+| A REST endpoint, or its spec | `jsn scrapi search <words>`, `jsn scrapi spec "<API>"` |
+| Why a user holds a role | `jsn users roles <user> --why --role <name>` |
+| What the platform logged as slow | `jsn perf slow`, `jsn perf slow show <sys_id>` |
+| A decision table's outcome | `jsn decisiontables evaluate <name> --input k=v` |
+| Delete by filter | `jsn records delete-many` (needs the previewed `--expect-count`) |
+| Stop auditing a field, or deletes | `jsn tables audit <table> --exclude <field>` or `--deletes off` |
+| Undo a delete | `jsn records undelete --table <t> --sys-id <id>` |
+| Undo a background script | `jsn eval rollback <execution>` |
+| An earlier version of a record | `jsn records versions <table> <sys_id> [--diff N]` |
+| Watch a record or a query | `jsn records watch --table <t> --sys-id <id>` or `--query` |
+| Copy records between instances | `jsn records export`, then `jsn records import <file>` |
+| Load an import set | `jsn import load <table> --file rows.json\|csv` |
+| What a user can see | `--impersonate <user_name>` on a read |
+| Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
+
+Every write in that table previews without `--yes`, and `--yes` on a delete needs
+the count its preview printed. Cascade previews and impersonated writes are
+writes too: `--preview-cascade` creates and deletes one Data Management job, and
+writing as another user needs the human's approval plus `--impersonate-writes`.
+
+Watching streams newline-delimited JSON (`record_change`, `gap`,
+`watch_summary`). Run it for a bounded window and report what arrived; a `gap` or
+`"complete": false` means events were missed, so re-read the record.
 
 For development:
 
@@ -42,19 +65,6 @@ For development:
 5. Ask whether anything else belongs in the update set. If the user confirms
    it is finished, complete it with notes.
 
-Tracking a record: when the user asks to track, watch or be told about changes
-to an incident, task, change request or other record, use
-`jsn records watch --table <table> --sys-id <id> --timeout <seconds> --json`.
-It streams newline-delimited JSON (`record_change`, `gap`, `watch_summary`),
-so run it for a bounded window and report what arrived; schedules and user
-notifications belong to your runtime, not to the command. Use `--max-events 1`
-for a single-change check. A `gap` or `"complete": false` means events were
-missed — read the record's current state rather than assuming continuity.
-Watching needs a browser session (`jsn auth login --browser`).
-
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.
-
-Search documentation with `jsn docs "query"` or read with `jsn docs --path <path>`.
-Documentation source and defaults for future connections are configured in `jsn setup`.

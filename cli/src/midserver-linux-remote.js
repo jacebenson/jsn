@@ -4,6 +4,7 @@ import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { validateRemoteTarget } from './midserver-remote.js';
+import { validateMidInstallDirectory } from './midserver-setup.js';
 import { buildMidZipUrl } from './midserver-direct.js';
 
 const FILE = '.jsn-mid-linux-remote.json';
@@ -57,13 +58,24 @@ action=p['action']; d=p.get('remoteDirectory')
 if action=='prepare':
  home=os.path.expanduser('~'); ancestors(home)
  if os.lstat(home).st_uid!=os.getuid(): fail()
- d=os.path.join(home,'.jsn-mid',p['owner'])
- if os.path.lexists(d): fail()
- result(dict(remoteDirectory=d,platform='linux-x64',elevated=False,requiresElevation=False,runtime='user-background',freeBytes=shutil.disk_usage(home).free,python=platform.python_version()))
+ d=p.get('remoteDirectory') or os.path.join(home,'.servicenow','mids',p['instance'],p['name'])
+ if not os.path.isabs(d) or os.path.normpath(d)!=d or d=='/' or os.path.lexists(d): fail()
+ ancestor=os.path.dirname(d)
+ while not os.path.lexists(ancestor): ancestor=os.path.dirname(ancestor)
+ ancestors(ancestor)
+ if os.lstat(ancestor).st_uid!=os.getuid(): fail()
+ if os.path.exists(os.path.dirname(d)): private(os.path.dirname(d))
+ result(dict(remoteDirectory=d,platform='linux-x64',elevated=False,requiresElevation=False,runtime='user-background',freeBytes=shutil.disk_usage(ancestor).free,python=platform.python_version()))
 elif action=='install':
  if os.path.lexists(d): fail()
  parent=os.path.dirname(d)
- if not os.path.exists(parent): os.mkdir(parent,0o700)
+ nearest=parent
+ while not os.path.exists(nearest): nearest=os.path.dirname(nearest)
+ ancestors(nearest)
+ if os.lstat(nearest).st_uid!=os.getuid(): fail()
+ if shutil.disk_usage(nearest).free<3*1024**3: fail()
+ os.umask(0o077)
+ if not os.path.exists(parent): os.makedirs(parent,mode=0o700)
  private(parent); ancestors(parent)
  if shutil.disk_usage(parent).free<3*1024**3: fail()
  os.mkdir(d,0o700); os.umask(0o077)
@@ -162,19 +174,24 @@ function load(directory) {
   const dir = fs.lstatSync(directory), file = fs.lstatSync(path.join(directory, FILE));
   if (!dir.isDirectory() || dir.isSymbolicLink() || !file.isFile() || file.isSymbolicLink() || (dir.mode & 0o077) || (file.mode & 0o077)) throw new Error('Linux MID metadata must be private');
   const m = JSON.parse(fs.readFileSync(path.join(directory, FILE), 'utf8')); validateRemoteTarget(m.target);
-  if (m.version !== 1 || !/^[a-f0-9-]{36}$/.test(m.owner) || !m.remoteDirectory?.startsWith('/') || m.remoteDirectory !== path.posix.normalize(m.remoteDirectory) || !m.remoteDirectory.endsWith(`/.jsn-mid/${m.owner}`)) throw new Error('Invalid Linux MID ownership metadata');
+  if (m.version !== 1 || !/^[a-f0-9-]{36}$/.test(m.owner) || !m.remoteDirectory?.startsWith('/') || m.remoteDirectory !== path.posix.normalize(m.remoteDirectory) || m.remoteDirectory === '/') throw new Error('Invalid Linux MID ownership metadata');
   return m;
 }
-export function prepareLinuxRemoteMidServer({ target, instanceURL, name, directory, platform = process.platform, ...options }) {
+export function prepareLinuxRemoteMidServer({ target, instanceURL, name, directory, remoteDirectory, dryRun = false, platform = process.platform, ...options }) {
   if (platform === 'win32') throw new Error('A POSIX controller is required for private local metadata');
   validateRemoteTarget(target);
+  validateMidInstallDirectory(directory);
   const url = new URL(instanceURL);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name || '')) throw new Error('Valid HTTPS origin and MID name required');
   if (fs.existsSync(directory)) throw new Error('Local deployment directory exists; no adoption');
   const owner = randomUUID();
-  const report = remote(target, { action: 'prepare', owner }, options);
-  if (report.platform !== 'linux-x64' || report.requiresElevation !== false || report.freeBytes < 3 * 1024 ** 3 || !report.remoteDirectory?.endsWith(`/.jsn-mid/${owner}`)) throw new Error('Linux preflight failed');
+  if (remoteDirectory && (!path.posix.isAbsolute(remoteDirectory) || path.posix.normalize(remoteDirectory) !== remoteDirectory || remoteDirectory === '/' || [...remoteDirectory].some(char => char.codePointAt(0) < 32))) throw new Error('Use an absolute normalized Linux target directory');
+  const instance = url.hostname.replace(/\.service-now\.com$|\.servicenowservices\.com$/i, '').replace(/[^A-Za-z0-9._-]/g, '_');
+  const report = remote(target, { action: 'prepare', owner, instance, name, remoteDirectory }, options);
+  if (report.platform !== 'linux-x64' || report.requiresElevation !== false || report.freeBytes < 3 * 1024 ** 3 || !path.posix.isAbsolute(report.remoteDirectory || '') || (remoteDirectory && report.remoteDirectory !== remoteDirectory)) throw new Error('Linux preflight failed');
   const m = { version: 1, target, owner, instanceURL: url.origin, name, ...report, state: 'prepared' };
+  if (dryRun) return m;
+  fs.mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
   fs.mkdirSync(directory, { mode: 0o700 }); fs.chmodSync(directory, 0o700); save(directory, m); return m;
 }
 export function installLinuxRemoteMidServer({ directory, releaseName, username, password, ...options }) {

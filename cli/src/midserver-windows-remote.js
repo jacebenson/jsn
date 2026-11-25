@@ -4,6 +4,7 @@ import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { validateRemoteTarget } from './midserver-remote.js';
+import { validateMidInstallDirectory } from './midserver-setup.js';
 import { buildMidZipUrl } from './midserver-direct.js';
 
 const FILE = '.jsn-mid-windows-remote.json';
@@ -64,27 +65,42 @@ function load(directory) {
   if (!dir.isDirectory() || dir.isSymbolicLink() || !file.isFile() || file.isSymbolicLink() || (dir.mode & 0o077) || (file.mode & 0o077)) throw new Error('Windows MID local metadata must be private');
   const m = JSON.parse(fs.readFileSync(path.join(directory, FILE), 'utf8'));
   validateRemoteTarget(m.target);
-  if (m.version !== 1 || !/^[a-f0-9-]{36}$/.test(m.owner) || m.serviceName !== `jsn-mid-${m.owner}` || !/^[A-Z]:\\[A-Za-z0-9 _.-]+(?:\\[A-Za-z0-9 _.-]+)*$/i.test(m.remoteDirectory) || !m.remoteDirectory.endsWith(`\\${m.owner}`)) throw new Error('Invalid Windows MID ownership metadata');
+  if (m.version !== 1 || !/^[a-f0-9-]{36}$/.test(m.owner) || m.serviceName !== `jsn-mid-${m.owner}` || !/^[A-Z]:\\[A-Za-z0-9 _.-]+(?:\\[A-Za-z0-9 _.-]+)*$/i.test(m.remoteDirectory) || path.win32.parse(m.remoteDirectory).root === m.remoteDirectory) throw new Error('Invalid Windows MID ownership metadata');
   return m;
 }
 
-export function prepareWindowsRemoteMidServer({ target, instanceURL, name, directory, platform = process.platform, ...options }) {
+export function prepareWindowsRemoteMidServer({ target, instanceURL, name, directory, remoteDirectory, dryRun = false, platform = process.platform, ...options }) {
   if (platform === 'win32') throw new Error('A POSIX controller is required for private local metadata');
   validateRemoteTarget(target);
+  validateMidInstallDirectory(directory);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name || '')) throw new Error('Invalid MID name');
   const url = new URL(instanceURL);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Use an HTTPS instance origin');
   if (fs.existsSync(directory)) throw new Error('Local deployment directory already exists; no adoption or overwrite');
+  if (remoteDirectory && (!/^[A-Z]:\\[A-Za-z0-9 _.-]+(?:\\[A-Za-z0-9 _.-]+)*$/i.test(remoteDirectory) || path.win32.normalize(remoteDirectory) !== remoteDirectory)) throw new Error('Use an absolute normalized Windows target directory');
+  const instance = url.hostname.replace(/\.service-now\.com$|\.servicenowservices\.com$/i, '').replace(/[^A-Za-z0-9._-]/g, '_');
   const owner = randomUUID(); const serviceName = `jsn-mid-${owner}`;
   const probe = remote(target, `Assert-Admin
 if ([Environment]::Is64BitOperatingSystem -ne $true) { throw 'x64 Windows required' }
-$base=Join-Path $env:ProgramData 'jsn-mid'
-$remoteDirectory=Join-Path $base $p.owner
+$base=Join-Path $env:USERPROFILE ('.servicenow\\mids\\' + $p.instance)
+$remoteDirectory=if ($p.remoteDirectory) { $p.remoteDirectory } else { Join-Path $base $p.name }
+$nearest=Split-Path -Parent $remoteDirectory
+while (!(Test-Path -LiteralPath $nearest)) { $nearest=Split-Path -Parent $nearest }
+$ancestor=Get-Item -LiteralPath $nearest
+while ($ancestor) { if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse ancestor forbidden' }; $ancestor=$ancestor.Parent }
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$trusted=@($sid,'S-1-5-18','S-1-5-32-544','S-1-3-0')
+$write=[Security.AccessControl.FileSystemRights]'Write,Delete,DeleteSubdirectoriesAndFiles,ChangePermissions,TakeOwnership'
+foreach ($rule in (Get-Acl -LiteralPath $nearest).Access) {
+ if ($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band $write) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $trusted) { throw 'Target parent permits writes by another principal' }
+}
 if (Test-Path -LiteralPath $remoteDirectory) { throw 'Deployment directory exists' }
 if (Get-Service -Name $p.serviceName -ErrorAction SilentlyContinue) { throw 'Service already exists' }
-Result @{remoteDirectory=$remoteDirectory; elevated=$true; platform='windows-x64'}`, { owner, serviceName }, options);
-  if (!probe.elevated || probe.platform !== 'windows-x64' || !probe.remoteDirectory?.endsWith(`\\${owner}`)) throw new Error('Windows preflight failed');
+Result @{remoteDirectory=$remoteDirectory; elevated=$true; platform='windows-x64'}`, { owner, serviceName, remoteDirectory, instance, name }, options);
+  if (!probe.elevated || probe.platform !== 'windows-x64' || !path.win32.isAbsolute(probe.remoteDirectory || '') || (remoteDirectory && probe.remoteDirectory !== remoteDirectory)) throw new Error('Windows preflight failed');
   const metadata = { version: 1, target, owner, serviceName, instanceURL: url.origin, name, remoteDirectory: probe.remoteDirectory, state: 'prepared', runtimeAccount: 'NT AUTHORITY\\LocalService' };
+  if (dryRun) return metadata;
+  fs.mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
   fs.mkdirSync(directory, { mode: 0o700 }); fs.chmodSync(directory, 0o700); save(directory, metadata);
   return metadata;
 }
@@ -94,9 +110,11 @@ if (Get-Service -Name $p.serviceName -ErrorAction SilentlyContinue) { throw 'Ser
 if (Test-Path -LiteralPath $p.remoteDirectory) { throw 'Directory already exists; no adoption' }
 $phase='reserve-directory'
 $parent=Split-Path -Parent $p.remoteDirectory
-if (!(Test-Path -LiteralPath $parent)) { $null=New-Item -ItemType Directory -Path $parent }
-$ancestor=Get-Item -LiteralPath $parent
+$nearest=$parent
+while (!(Test-Path -LiteralPath $nearest)) { $nearest=Split-Path -Parent $nearest }
+$ancestor=Get-Item -LiteralPath $nearest
 while ($ancestor) { if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse ancestor forbidden' }; $ancestor=$ancestor.Parent }
+if (!(Test-Path -LiteralPath $parent)) { $null=New-Item -ItemType Directory -Path $parent }
 $null=New-Item -ItemType Directory -Path $p.remoteDirectory
 $phase='protect-directory'
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User

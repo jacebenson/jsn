@@ -416,8 +416,10 @@ The CLI's migration to these endpoints is separate from implementing this servic
 ### JSN docs commands consume the hosted REST API
 
 Replace CLI-local docs indexing and serving with `docs search`, `docs show`, and
-remote `docs status`. These commands use the public service without instance
-credentials, login, local index initialization, or dataset downloads. Preserve
+remote `docs status`. These commands use the public service without login, local
+index initialization, or dataset downloads. With no release named, they read the
+selected profile's `glide.war` to choose the family, never prompting, and fall back
+to the newest family the service lists when they cannot. Preserve
 JSON envelopes, full Markdown bodies, `--get`, styled previews and pagination.
 Use `JSN_DOCS_URL` for a local or alternate deployment. The default production
 host still requires deployment of the Rails service before those APIs work.
@@ -668,14 +670,18 @@ gap; missed events are neither replayed nor claimed. Observation is bounded by
 `--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
 and user notification stay with the calling agent.
 
-Only a single-record subscription ships. Filtered table subscriptions are
-deferred until platform support and access behavior are validated on a live
-instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
-ack, cross-session delivery and the notification shape: the platform sends a
-`record` map of changed fields plus `sys_*` audit fields, not a `changes`
-array, and it omits `table`/`sys_id` (the subscription supplies them). Human
-output renders those changed fields. ACL denial with a non-admin identity,
-create/delete payloads and a real reconnect gap remain unverified.
+A watch subscribes to one record (`sys_id=<id>`) or to an encoded query
+(`--query`), which the read validator checks before subscribing. Live
+verification on 2026-11-04 confirmed the handshake, subscribe ack,
+cross-session delivery and a notification shape with a `record` map of
+changed fields plus `sys_*` audit fields and no `table`/`sys_id` (the
+subscription supplies them). On 2026-11-25 a basic profile's session
+subscribed to a query channel and received insert, update and delete
+payloads carrying `sys_id`, the changed field names and `entry`/`change`/
+`exit`, including `exit` when an update took a record out of the query. A
+user without read access got the same events with values withheld, and a
+mid-stream `500` was reported as a gap. A query event that arrives without a
+`sys_id` carries a `warning`, since a query channel has none to fill in.
 
 ### Table behavior mirrors the platform's Configurations inventory (2026-11-04)
 
@@ -895,7 +901,8 @@ Update this file when a durable project fact changes. Do not turn it into a dail
 ## Targeted documentation retrieval
 
 The document reader supports `--outline` and `--section` alongside `--path`.
-Full-document reads remain the default. No ServiceNow connection is needed.
+Full-document reads remain the default. No ServiceNow connection is needed, though a
+selected profile chooses the family when no release is named.
 
 ```sh
 node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --json

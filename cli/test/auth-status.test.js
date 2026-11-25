@@ -162,6 +162,42 @@ it('auth status passes each profile instance and identity to every auth path', a
     ]);
   });
 
+it('auth status primes every selected profile credential in one call before reading fields', async () => {
+    const { authCmd } = await import('../src/commands/auth.js');
+    const profiles = {
+      first: { instance_url: 'https://first.example.com', username: 'alice', auth_method: 'oauth' },
+      second: { instance_url: 'https://second.example.com', auth_method: 'basic' },
+    };
+    const primes = [];
+    let loadsAfterPrime = 0;
+    let primed = false;
+    const app = {
+      ...mockApp,
+      config: { ...mockApp.config, profiles },
+      auth: {
+        ...mockApp.auth,
+        primeCredentials: (identities) => { primes.push(identities); primed = true; },
+        isAuthenticatedFor: () => { if (primed) loadsAfterPrime++; return true; },
+        getLastSeen: () => { if (primed) loadsAfterPrime++; return null; },
+        getAuthState: () => { if (primed) loadsAfterPrime++; return { auth_method: 'oauth', auth_source: 'file', state: 'available' }; },
+        hasLegacyCredentials: () => { if (primed) loadsAfterPrime++; return false; },
+        probeCurrentUser: async () => ({ status: 'succeeded' }),
+      },
+      ok: () => {},
+    };
+    const subcommands = [];
+    const cmd = authCmd((fn) => async (argv) => fn(argv, argv.app));
+    const mockYargs = { command: (c, ...rest) => { subcommands.push({ def: typeof c === 'string' ? c : c.command, handler: typeof c === 'object' ? c.handler : rest[1] }); return mockYargs; } };
+    cmd.builder(mockYargs);
+    await subcommands.find(s => s.def === 'status').handler({ app, local: true, _: ['status'] });
+    // One warm-up serves both profiles; every later read is a cache hit.
+    assert.deepStrictEqual(primes, [[
+      { instance: 'https://first.example.com', username: 'alice' },
+      { instance: 'https://second.example.com', username: undefined },
+    ]]);
+    assert.ok(loadsAfterPrime >= 6, 'status still reads every field through the credential store');
+  });
+
 it('auth status focuses diagnostics with --profile while preserving profile fields', async () => {
     const { authCmd } = await import('../src/commands/auth.js');
     const output = [];

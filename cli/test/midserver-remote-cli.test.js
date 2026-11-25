@@ -13,7 +13,8 @@ const trace = [];
 let passwordPrompts = 0;
 function operations(prefix, suffix) {
   return Object.fromEntries(['prepare', 'install', 'start', 'stop', 'logs', 'remove'].map(action => [`${action}${suffix}`, options => {
-    trace.push({ runtime: prefix, action, options });
+    trace.push({ runtime: prefix, action: options.dryRun ? 'preflight' : action, options });
+    if (action === 'prepare') return { remoteDirectory: options.remoteDirectory || (prefix === 'windows' ? 'C:\\MID\\fixture' : '/home/fixture/mid') };
     return action === 'logs' ? `${prefix} fixture log` : { state: action === 'remove' ? 'removed' : 'running' };
   }]));
 }
@@ -27,6 +28,12 @@ mock.module('../src/midserver-remote.js', { namedExports: { ...operations('docke
 mock.module('../src/midserver-windows-remote.js', { namedExports: operations('windows', 'WindowsRemoteMidServer') });
 mock.module('../src/midserver-linux-remote.js', { namedExports: operations('linux', 'LinuxRemoteMidServer') });
 mock.module('../src/midserver-remote-recipe.js', { namedExports: { downloadRemoteMidRecipe: async () => Buffer.from('fixture-tar') } });
+mock.module('../src/midserver-setup.js', { namedExports: {
+  ...(await import('../src/midserver-setup.js')), diagnoseMidAccount: async () => ({ userSysId: 'a'.repeat(32) }),
+} });
+mock.module('../src/midserver-locations.js', { namedExports: {
+  ...(await import('../src/midserver-locations.js')), registerMidInstallationDirectory: () => {}, assertMidInstallationLocationAvailable: () => {}, forgetMidInstallationDirectory: () => {},
+} });
 const { midserversCmd } = await import('../src/commands/midservers.js');
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -69,7 +76,7 @@ test('remote direct dispatch defaults to Windows and selects Linux only explicit
     const f = fixture(t); let calls = 0;
     f.app.sdk.list = async () => ++calls === 1 ? [] : [{ name: 'owned-mid', status: 'Up', validated: 'false' }];
     await command('add').handler({ ssh: 'test-target', name: 'owned-mid', username: 'fixture-user', installMethod: 'direct', nativePlatform, directory: f.directory, waitTimeout: 10, waitInterval: 500 }, f.app);
-    assert.deepEqual(trace.map(value => [value.runtime, value.action]), ['prepare', 'install', 'start'].map(action => [nativePlatform || 'windows', action]));
+    assert.deepEqual(trace.map(value => [value.runtime, value.action]), ['preflight', 'prepare', 'install', 'start'].map(action => [nativePlatform || 'windows', action]));
     assert.equal(f.results[0].registration, 'up');
     assert.equal(f.results[0].validated, false);
     assert.equal(f.results[0].installation, nativePlatform === 'linux' ? 'remote-linux-background' : 'remote-windows-service');

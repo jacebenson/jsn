@@ -3,6 +3,7 @@ import { assertMutationScope } from '../intended-context.js';
 import { getStringField, formatRecordForDisplay, interactiveList, assertSafeExactMatch, confirmDelete } from '../helpers.js';
 import { resolveRecord, unwrapSysId, isSysId } from '../resolve-record.js';
 import { inspectDecisionTable } from '../decision-table-inspection.js';
+import { evaluateDecisionTable } from '../decision-table-evaluate.js';
 import { DecisionTableCRUD } from '../decision-table-crud.js';
 import { declareCapabilities } from '../capabilities.js';
 
@@ -116,6 +117,16 @@ export const decisiontablesCmd = (wrap) => {
         }),
       })
       .command({
+        command: 'evaluate <identifier>', describe: 'Show the decision a decision table picks for the given inputs',
+        builder: (y) => y.strict().option('input', { type: 'string', array: true, describe: 'Decision input as name=value; repeatable. Choice inputs take the value, references a sys_id or number' })
+          .option('all-matches', { type: 'boolean', default: false, describe: 'Return every matching decision, not only the first' }),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          const data = await evaluateDecisionTable(app.sdk, argv.identifier, { inputs: argv.input, allMatches: argv.allMatches });
+          app.ok(data, { summary: data.matches.length ? `${data.matches.length} decision(s) from ${data.decision_table.name}` : 'No decision matched' });
+        }),
+      })
+      .command({
         command: 'create', describe: 'Create a decision table',
         builder: dataBuilder,
         handler: crud('create'),
@@ -138,7 +149,10 @@ export const decisiontablesCmd = (wrap) => {
           try {
             const [inputs, answers, questions, conditions] = await Promise.all([
               app.sdk.list('sys_decision_input', new URLSearchParams({ sysparm_query: `model=${id}`, sysparm_limit: '1000', sysparm_fields: 'sys_id,name,element' })),
-              app.sdk.list('sys_decision_multi_result_element', new URLSearchParams({ sysparm_query: `decision_table=${id}`, sysparm_limit: '1000', sysparm_fields: 'sys_id,name,element' })),
+              // Answer elements point at their decision table through `model`;
+              // `decision_table` is not a field on this table, so the platform
+              // drops the term and returns every element on the instance.
+              app.sdk.list('sys_decision_multi_result_element', new URLSearchParams({ sysparm_query: `model=${id}`, sysparm_limit: '1000', sysparm_fields: 'sys_id,name,element' })),
               app.sdk.list('sys_decision_question', new URLSearchParams({ sysparm_query: `decision_table=${id}`, sysparm_limit: '1' })),
               app.sdk.list('sn_decision_table_decision_condition', new URLSearchParams({ sysparm_query: `decision_table=${id}`, sysparm_limit: '1' })),
             ]);
@@ -169,6 +183,7 @@ export const decisiontablesCmd = (wrap) => {
         guidance: [
           `jsn ${name} list`,
           `jsn ${name} show <name_or_sys_id>`,
+          `jsn ${name} evaluate <name_or_sys_id> --input <name>=<value>`,
           `jsn ${name} create --data '<json>' (or --data-file <path>)`,
           `jsn ${name} update <sys_id> --data '<json>' (or --data-file <path>)`,
           `jsn ${name} delete <name_or_sys_id>`,

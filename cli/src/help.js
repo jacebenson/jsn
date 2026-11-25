@@ -88,6 +88,7 @@ const AUTOMATION_COMMANDS = [
   { name: 'email', desc: 'Inbound email actions' },
 
   { divider: '── Outbound ──' },
+  { name: 'notifications', alias: 'notification', desc: 'Outbound email notifications (read-only)' },
   { name: 'restmessage', alias: 'rm', desc: 'REST Messages (sys_rest_message)' },
   { name: 'soapmessages', desc: 'SOAP Messages' },
 ];
@@ -150,7 +151,7 @@ const DATA_COMMANDS = [
   { name: 'properties', alias: 'prop', desc: 'System properties' },
 
   { name: 'records', desc: 'Generic Table API (any table)' },
-  { name: 'transactions', desc: 'Client transaction timings' },
+  { name: 'transactions', desc: 'Transaction timings; list and kill running transactions' },
   { name: 'snippets', desc: 'Saved query snippets' },
 ];
 
@@ -174,7 +175,7 @@ const DEVELOPER_COMMANDS = [
   { name: 'docs', desc: 'Local ServiceNow documentation search' },
   { name: 'document', desc: 'Read-only instance configuration documentation' },
   { name: 'diff', desc: 'Compare records across configured profiles' },
-  { name: 'perf', desc: 'Read-only performance capture and comparison' },
+  { name: 'perf', desc: 'Read-only performance capture, comparison and slow patterns' },
   { name: 'skill', desc: 'AI agent skill file (show, fetch, install)' },
   { name: 'version', desc: 'Version info (--check for npm updates)' },
 ];

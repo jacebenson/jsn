@@ -351,7 +351,8 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
       sdk: {
         list: async (table) => { calls.push(`list:${table}`); return [record]; },
         fetchAttachments: async () => { calls.push('attachments'); return [{ file_name: 'a.txt' }]; },
-        fetchCatalogVariables: async () => { calls.push('variables'); return [{ question: 'q', value: 'v' }]; },
+        fetchCatalogVariables: async () => { calls.push('variables'); return { variables: [{ question: 'q', value: 'v' }], truncated: false }; },
+        fetchMultiRowVariables: async () => { calls.push('variable sets'); return { sets: [], truncated: false }; },
       },
       getEffectiveInstance: () => 'https://example.service-now.com',
       ok: (data, opts) => envelopes.push({ data, opts }),
@@ -360,7 +361,7 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
       .command(requestsCmd(wrapHandler))
       .middleware((argv) => { argv.app = app; })
       .parse();
-    assert.deepEqual(calls, ['list:sc_req_item', 'attachments', 'variables']);
+    assert.deepEqual(calls, ['list:sc_req_item', 'attachments', 'variables', 'variable sets']);
     assert.equal(envelopes.length, 1);
     assert.deepEqual(envelopes[0].data._attachments, [{ file_name: 'a.txt' }]);
     assert.deepEqual(envelopes[0].data._variables, [{ question: 'q', value: 'v' }]);

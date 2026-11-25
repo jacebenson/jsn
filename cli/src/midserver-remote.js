@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { validateMidInstallDirectory } from './midserver-setup.js';
 
 const FILE = '.jsn-mid-remote.json';
 const PREFIX = 'io.jsn.mid';
@@ -84,9 +85,11 @@ export function prepareRemoteMidServer({ target, instanceURL, name, directory, p
   const url = new URL(instanceURL);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Use an HTTPS instance origin without credentials');
   if (fs.existsSync(directory)) throw new Error('Remote MID local directory already exists; refusing to overwrite or adopt');
+  validateMidInstallDirectory(directory);
   const owner = randomUUID();
   const project = `jsn-mid-${owner}`;
   const metadata = { version: 1, target, instanceURL: url.origin, name, owner, project, container: project, image: `${project}:local`, volume: `${project}-export`, network: `${project}-network`, engineId: probe(target, options), state: 'prepared' };
+  fs.mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
   fs.mkdirSync(directory, { recursive: false, mode: 0o700 });
   fs.chmodSync(directory, 0o700);
   save(directory, metadata);

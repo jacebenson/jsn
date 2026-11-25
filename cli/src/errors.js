@@ -1,5 +1,7 @@
 // Structured error types with code, message, and optional hint.
 
+import { elevationHint } from './security-authoring.js';
+
 export const CodeUsage = 'usage_error';
 export const CodeNotFound = 'not_found';
 export const CodeAuth = 'auth_error';
@@ -103,7 +105,7 @@ export function errNetwork(cause) {
   );
 }
 
-export function errAPI(status, msg) {
+export function errAPI(status, msg, context = {}) {
   // Authentication/authorization bodies can echo credentials. Never render them.
   if (status === 401) {
     const error = new AppError(CodeAuth, 'Authentication rejected for the active profile (HTTP 401).', 'Run: jsn auth login', 401);
@@ -111,8 +113,10 @@ export function errAPI(status, msg) {
     return error;
   }
   if (status === 403) {
+    const base = 'This is an authorization/ACL/role problem, not a login problem. Check access to this endpoint.';
+    const elevation = context.mutation ? elevationHint(context.authMethod) : '';
     return new AppError(CodeForbidden, 'Access forbidden (HTTP 403).',
-      'This is an authorization/ACL/role problem, not a login problem. Check access to this endpoint.', 403);
+      elevation ? `${base} ${elevation}` : base, 403);
   }
   let hint = 'Check the API documentation for this endpoint.';
   if (status >= 500) {

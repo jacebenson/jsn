@@ -14,6 +14,8 @@ import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, normalizeMidName, validateMidCredentials } from '../midserver-install.js';
 import { detectDirectPlatform, followDirectLog, installDirectMidServer, readDirectInstallation, removeDirectInstallation, resolveDirectLogFile, runDirectInstallation } from '../midserver-direct.js';
 
+import { diagnoseMidAccount, validateMidInstallDirectory } from '../midserver-setup.js';
+import { assertMidInstallationLocationAvailable, registerMidInstallationDirectory, resolveMidInstallationDirectory, forgetMidInstallationDirectory } from '../midserver-locations.js';
 const AGENT_TABLE = 'ecc_agent';
 const QUEUE_TABLE = 'ecc_queue';
 const LIST_FIELDS = ['sys_id', 'name', 'status', 'host_name', 'ip_address', 'version', 'validated', 'last_heartbeat', 'sys_updated_on'];
@@ -278,6 +280,15 @@ export function assertMidServerReady(record) {
   }
 }
 
+export async function chooseMidInstallDirectory(app, argv, name, { prompt = input, interactive = canPrompt() && app.output.getFormat() === FormatAuto, homeDirectory } = {}) {
+  const proposed = argv.directory || midInstallDirectory(app.getEffectiveInstance(), name);
+  const directory = interactive ? await prompt({ message: argv.ssh ? 'Local remote-ownership metadata directory:' : 'MID installation directory:', default: proposed, validate: candidate => { try { validateMidInstallDirectory(candidate); return true; } catch (error) { return error.message; } } }) : proposed;
+  const resolved = validateMidInstallDirectory(directory);
+  assertMidInstallationLocationAvailable(app.getEffectiveInstance(), name, resolved, { target: argv.ssh || '', homeDirectory });
+  process.stderr.write(`${argv.ssh ? 'Local MID ownership metadata' : 'MID installation'} directory: ${resolved}\n`);
+  return resolved;
+}
+
 async function promptMidCredentials(app, argv) {
   if (argv.passwordStdin) {
     if (!argv.username) throw new Error('--password-stdin requires --username');
@@ -352,7 +363,7 @@ function removeLocalMidServer(instanceURL, name, directory) {
 }
 
 function remoteDirectory(app, argv, name) {
-  const directory = argv.directory || midInstallDirectory(app.getEffectiveInstance(), name);
+  const directory = resolveMidInstallationDirectory(app.getEffectiveInstance(), name, { directory: argv.directory, target: argv.ssh || '' });
   const file = ['.jsn-mid-windows-remote.json', '.jsn-mid-linux-remote.json', '.jsn-mid-remote.json'].find(name => fs.existsSync(path.join(directory, name)));
   if (!file) throw new Error('No owned remote MID metadata found');
   const metadata = JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8'));
@@ -376,8 +387,8 @@ async function showMidServerLogs(app, identifier, argv) {
     const text = (nativeRemote(directory)?.logs || logsRemoteMidServer)({ directory, tail: argv.tail });
     return app.ok({ target: argv.ssh, text, _formatted: text }, { summary: 'Remote MID logs' });
   }
-  const installDir = argv.directory || midInstallDirectory(app.getEffectiveInstance(), identifier);
-  const direct = readDirectInstallation(app.getEffectiveInstance(), identifier, argv.directory);
+  const installDir = resolveMidInstallationDirectory(app.getEffectiveInstance(), identifier, { directory: argv.directory });
+  const direct = readDirectInstallation(app.getEffectiveInstance(), identifier, installDir);
   if (direct) {
     if (!Number.isInteger(argv.tail) || argv.tail < 1 || argv.tail > 10000) throw new Error('Use --tail between 1 and 10000');
     const logfile = resolveDirectLogFile(installDir);
@@ -474,11 +485,11 @@ export function midserversCmd(wrap) {
           .option('ssh', { type: 'string', describe: 'Configured SSH alias for the remote MID target' }),
         handler: wrap(async (argv, app) => {
           if (argv.ssh) { const directory = remoteDirectory(app, argv, argv.identifier); return app.ok((nativeRemote(directory)?.start || startRemoteMidServer)({ directory }), { summary: 'Remote MID start command completed' }); }
-          const metadata = readDirectInstallation(app.getEffectiveInstance(), argv.identifier, argv.directory);
+          const directory = resolveMidInstallationDirectory(app.getEffectiveInstance(), argv.identifier, { directory: argv.directory });
+          const metadata = readDirectInstallation(app.getEffectiveInstance(), argv.identifier, directory);
           if (!metadata) throw new Error('No owned direct MID installation found');
-          if (metadata.state !== 'prepared') throw new Error('MID is already started or has an uncertain runtime state; stop it first');
-          const result = runDirectInstallation(metadata, 'start');
-          app.ok(result, { summary: result.platform === 'windows' ? 'Windows MID console exited; no service was registered' : 'MID start command completed; registration and manual validation must be checked in ServiceNow' });
+          const result = await runDirectInstallation(metadata, 'start');
+          app.ok(result, { summary: result.platform === 'windows' ? (result.interrupted ? `Windows MID console stopped after ${result.interrupted}; owned runtime exit verified; ready to start again` : 'Windows MID console exited; owned runtime exit verified; no service was registered') : 'MID start command completed; registration and manual validation must be checked in ServiceNow' });
         }),
       })
       .command({
@@ -488,7 +499,8 @@ export function midserversCmd(wrap) {
           .option('ssh', { type: 'string', describe: 'Configured SSH alias for the remote MID target' }),
         handler: wrap(async (argv, app) => {
           if (argv.ssh) { const directory = remoteDirectory(app, argv, argv.identifier); return app.ok((nativeRemote(directory)?.stop || stopRemoteMidServer)({ directory }), { summary: 'Remote MID stop command completed' }); }
-          const metadata = readDirectInstallation(app.getEffectiveInstance(), argv.identifier, argv.directory);
+          const directory = resolveMidInstallationDirectory(app.getEffectiveInstance(), argv.identifier, { directory: argv.directory });
+          const metadata = readDirectInstallation(app.getEffectiveInstance(), argv.identifier, directory);
           if (!metadata) throw new Error('No owned direct MID installation found');
           app.ok(runDirectInstallation(metadata, 'stop'), { summary: 'Owned native MID stop command completed' });
         }),
@@ -503,27 +515,44 @@ export function midserversCmd(wrap) {
           .option('ssh', { type: 'string', describe: 'Install MID on a configured SSH target (Docker, native Windows service or Linux background process)' })
           .option('native-platform', { type: 'string', choices: ['windows', 'linux'], default: 'windows', describe: 'Remote direct ZIP platform (Linux uses a user background process and needs Python 3)' })
           .option('install-method', { type: 'string', choices: ['docker', 'direct'], describe: 'Installation method (prompted when omitted)' })
-          .option('directory', { type: 'string', describe: 'Installation directory (must not exist for direct ZIP)' })
+          .option('directory', { type: 'string', describe: 'Local install directory, or controller metadata directory with --ssh (must not exist)' })
+          .option('remote-directory', { type: 'string', describe: 'Absolute native runtime directory on the SSH target; resolved and validated there before writing' })
           .option('wait-timeout', { type: 'number', default: 300000, describe: 'How long to wait for the MID Server to report Up' })
           .option('wait-interval', { type: 'number', default: 3000, describe: 'MID Server status polling interval in milliseconds' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
+          if (!argv.ssh && (argv.remoteDirectory || argv['remote-directory'])) throw new Error('--remote-directory requires --ssh and --install-method direct');
           if (argv.ssh) {
             if (!argv.name) throw new Error('Remote installation requires --name');
             const name = normalizeMidName(argv.name);
             const existing = await app.sdk.list(AGENT_TABLE, new URLSearchParams({ sysparm_query: `name=${name}`, sysparm_limit: '1', sysparm_fields: 'sys_id' }));
             if (existing.length) throw new Error('MID name already exists; refusing to adopt an existing MID');
-            const credentials = await promptMidCredentials(app, argv);
-            const directory = argv.directory || midInstallDirectory(app.getEffectiveInstance(), name);
-            fs.mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
+            const directory = await chooseMidInstallDirectory(app, argv, name);
             const native = (argv.installMethod || argv['install-method']) === 'direct';
+            if (!native && (argv.remoteDirectory || argv['remote-directory'])) throw new Error('--remote-directory applies only to native SSH installs; remote Docker uses owned named volumes, not a target compose directory');
+            const prepare = argv.nativePlatform === 'linux' ? prepareLinuxRemoteMidServer : prepareWindowsRemoteMidServer;
+            let targetDirectory;
+            if (native) {
+              const options = { target: argv.ssh, instanceURL: app.getEffectiveInstance(), name, directory, dryRun: true };
+              let report = prepare({ ...options, remoteDirectory: argv.remoteDirectory || argv['remote-directory'] });
+              if (!report?.remoteDirectory) throw new Error('Remote preflight returned no target directory; no files written');
+              targetDirectory = report.remoteDirectory;
+              if (canPrompt() && app.output.getFormat() === FormatAuto) targetDirectory = await input({ message: `MID runtime directory on SSH target ${argv.ssh}:`, default: targetDirectory });
+              if (targetDirectory !== report.remoteDirectory) report = prepare({ ...options, remoteDirectory: targetDirectory });
+              if (report.remoteDirectory !== targetDirectory) throw new Error('Remote target directory validation mismatch');
+              process.stderr.write(`Remote MID runtime directory (${argv.ssh}): ${targetDirectory}\n`);
+            } else {
+              process.stderr.write(`Remote Docker target ${argv.ssh}: owned named export volume; no target filesystem directory or bind mount. --directory is controller metadata only.\n`);
+            }
+            const credentials = await promptMidCredentials(app, argv);
+            await diagnoseMidAccount(app.sdk, app.getEffectiveInstance(), credentials.username);
             let installation;
             if (native) {
               const linux = argv.nativePlatform === 'linux';
-              const prepare = linux ? prepareLinuxRemoteMidServer : prepareWindowsRemoteMidServer;
               const install = linux ? installLinuxRemoteMidServer : installWindowsRemoteMidServer;
               const start = linux ? startLinuxRemoteMidServer : startWindowsRemoteMidServer;
-              prepare({ target: argv.ssh, instanceURL: app.getEffectiveInstance(), name, directory });
+              const prepared = prepare({ target: argv.ssh, instanceURL: app.getEffectiveInstance(), name, directory, remoteDirectory: targetDirectory });
+              if (prepared?.remoteDirectory) process.stderr.write(`Remote MID installation directory (${argv.ssh}): ${prepared.remoteDirectory}\n`);
               install({ directory, releaseName: credentials.releaseName, username: credentials.username, password: credentials.password });
               installation = start({ directory });
             } else {
@@ -531,17 +560,21 @@ export function midserversCmd(wrap) {
               const context = await downloadRemoteMidRecipe(credentials.releaseName);
               installation = installRemoteMidServer({ directory, context, username: credentials.username, password: credentials.password });
             }
+            registerMidInstallationDirectory(app.getEffectiveInstance(), name, directory, { target: argv.ssh });
             const kind = native ? (argv.nativePlatform === 'linux' ? 'remote-linux-background' : 'remote-windows-service') : 'remote-docker';
             let record;
             try { record = await waitForMidServerUp(app, name, Math.max(1, argv.waitTimeout), Math.max(500, argv.waitInterval)); }
             catch { return app.ok({ installation: kind, target: argv.ssh, directory, name, registration: 'pending' }, { summary: 'Remote MID started; registration is pending. Runtime and ownership metadata retained for logs or explicit teardown.' }); }
             return app.ok({ installation: kind, target: argv.ssh, directory, name, registration: 'up', validated: queueValue(record.validated) === 'true', record, runtime_state: installation.state }, { summary: 'Remote MID is Up; validation is a separate explicit operation' });
           }
-          const credentials = await promptMidCredentials(app, argv);
           const name = argv.name || (await input({
             message: 'MID Server name:',
             validate: value => value.trim() ? true : 'MID Server name is required',
           })).trim();
+          normalizeMidName(name);
+          const directory = await chooseMidInstallDirectory(app, argv, name);
+          const credentials = await promptMidCredentials(app, argv);
+          await diagnoseMidAccount(app.sdk, app.getEffectiveInstance(), credentials.username);
           const dockerStatus = detectDocker();
           const dockerAvailable = dockerStatus.available;
           const installMethod = argv['install-method'] || await select({
@@ -581,9 +614,10 @@ export function midserversCmd(wrap) {
             const existing = await app.sdk.list(AGENT_TABLE, new URLSearchParams({ sysparm_query: `name=${shortName}`, sysparm_fields: 'sys_id,name', sysparm_limit: '1' }));
             if (existing.length) throw new Error(`MID '${shortName}' already exists in ServiceNow; choose a new name. Existing runtime and record were not changed.`);
             const installation = await installDirectMidServer({
-              instanceURL: app.getEffectiveInstance(), ...credentials, name, directory: argv.directory,
+              instanceURL: app.getEffectiveInstance(), ...credentials, name, directory,
               runNow: decision === 'start', onProgress: directProgress(app),
             });
+            registerMidInstallationDirectory(app.getEffectiveInstance(), name, installation.installDir);
             if (installation.state === 'prepared') {
               app.ok(installation, { summary: `Prepared native MID '${installation.name}' in ${installation.installDir}; not started or registered. Start with jsn midservers start ${installation.name}${argv.directory ? ' --directory ' + JSON.stringify(installation.installDir) : ''}. Windows start runs in the foreground console; no service is installed.` });
               return;
@@ -614,9 +648,10 @@ export function midserversCmd(wrap) {
             password: credentials.password,
             name,
             releaseName: credentials.releaseName,
-            directory: argv.directory,
+            directory,
             runNow: false,
           });
+          registerMidInstallationDirectory(app.getEffectiveInstance(), name, installation.installDir);
           if (installMethod === 'sudo') {
             defaultRun('sudo', ['systemctl', 'start', 'docker']);
             defaultRun('sudo', ['docker', 'compose', '--env-file', path.join(installation.installDir, '.env'), '-f', installation.composePath, 'up', '-d'], { cwd: installation.installDir });
@@ -655,6 +690,8 @@ export function midserversCmd(wrap) {
             const directory = remoteDirectory(app, argv, argv.identifier);
             await confirmDelete(app, argv, `Remove owned MID '${argv.identifier}' from SSH target '${argv.ssh}' and delete its MID record`);
             const removed = (nativeRemote(directory)?.remove || removeRemoteMidServer)({ directory });
+            if (removed.state !== 'removed') throw new Error('Remote teardown unverified; record and location mapping retained');
+            forgetMidInstallationDirectory(app.getEffectiveInstance(), argv.identifier, { target: argv.ssh, directory });
             const records = await app.sdk.list(AGENT_TABLE, new URLSearchParams({ sysparm_query: `name=${argv.identifier}`, sysparm_limit: '2', sysparm_fields: 'sys_id,name' }));
             if (records.length > 1) throw new Error('Remote runtime removed; multiple MID records match. Inspect records before deleting any.');
             if (records.length) await app.sdk.delete(AGENT_TABLE, unwrapSysId(records[0]));
@@ -666,8 +703,8 @@ export function midserversCmd(wrap) {
               record = await resolveMidServer(app.sdk, argv.identifier);
             } catch (error) {
               if (error.code !== 'not_found') throw error;
-              const localDir = argv.directory || midInstallDirectory(app.getEffectiveInstance(), argv.identifier);
-              if (!readDirectInstallation(app.getEffectiveInstance(), argv.identifier, argv.directory) && !fs.existsSync(path.join(localDir, 'docker-compose.yaml'))) throw error;
+              const localDir = resolveMidInstallationDirectory(app.getEffectiveInstance(), argv.identifier, { directory: argv.directory });
+              if (!readDirectInstallation(app.getEffectiveInstance(), argv.identifier, localDir) && !fs.existsSync(path.join(localDir, 'docker-compose.yaml'))) throw error;
               record = null;
             }
           } else {
@@ -693,8 +730,10 @@ export function midserversCmd(wrap) {
           const sysId = record ? unwrapSysId(record) : null;
           const name = getStringField(record, 'name') || argv.identifier || sysId;
           await confirmDelete(app, argv, `Remove MID Server '${name}'`);
-          const direct = readDirectInstallation(app.getEffectiveInstance(), name, argv.directory);
-          const localRemoved = removeLocalMidServer(app.getEffectiveInstance(), name, argv.directory);
+          const directory = resolveMidInstallationDirectory(app.getEffectiveInstance(), name, { directory: argv.directory });
+          const direct = readDirectInstallation(app.getEffectiveInstance(), name, directory);
+          const localRemoved = removeLocalMidServer(app.getEffectiveInstance(), name, directory);
+          if (localRemoved) forgetMidInstallationDirectory(app.getEffectiveInstance(), name, { directory });
           if (record) await app.sdk.delete(AGENT_TABLE, sysId);
           app.ok({ name, sys_id: sysId, deleted: Boolean(record), local_compose_removed: localRemoved && !direct, local_installation_removed: localRemoved, local_installation_type: direct ? 'direct' : 'docker' }, { summary: `Removed MID Server '${name}'${localRemoved ? ' and its owned local runtime' : ''}` });
         }),

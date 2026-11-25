@@ -128,10 +128,21 @@ public static class JsnCredentialNative {
 try {
     $stage = 'request_decode'
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
-    if ($request.target -isnot [string] -or !$request.target.StartsWith('servicenow-cli:') -or
-        $request.target.Length -gt 32767 -or $request.target.Contains([char]0)) {
+    # Validate every target in the decode stage, before any native call: a
+    # single-target operation names one target, read_many names a bounded list.
+    $targets = @()
+    if ($request.operation -in @('read', 'write', 'delete')) { $targets = @($request.target) }
+    elseif ($request.operation -eq 'read_many') { $targets = @($request.targets) }
+    if ($targets.Count -lt 1 -or $targets.Count -gt 200) {
         Reply 'error' 'native' $null
         exit 0
+    }
+    foreach ($target in $targets) {
+        if ($target -isnot [string] -or !$target.StartsWith('servicenow-cli:') -or
+            $target.Length -gt 32767 -or $target.Contains([char]0)) {
+            Reply 'error' 'native' $null
+            exit 0
+        }
     }
     switch ($request.operation) {
         'write' {
@@ -148,6 +159,25 @@ try {
             if ($result.Error -eq 0) { Reply 'ok' $null $result.Value }
             elseif ($result.Error -eq 1168) { Reply 'missing' $null $null }
             else { Reply 'error' 'native' $null }
+        }
+        # Several identities per launch: a status invocation needs every profile's
+        # entry, and each separate launch pays PowerShell start plus Add-Type.
+        # Values stay on stdin/stdout; only literal stage labels can reach errors.
+        # Targets were validated during request_decode.
+        'read_many' {
+            $stage = 'native_read'
+            $values = @()
+            foreach ($target in $targets) {
+                $read = [JsnCredentialNative]::ReadCredential($target)
+                $value = $null
+                if ($read.Error -eq 0) { $value = $read.Value }
+                elseif ($read.Error -ne 1168) { Reply 'error' 'native' $null; exit 0 }
+                # Ordered array, not a hashtable: hashtable keys are
+                # case-insensitive and would merge two distinct identities.
+                $values += @{ target = $target; value = $value }
+            }
+            [Console]::Out.Write((@{ status = 'ok'; reason = $null; values = $values; stage = $stage } |
+                ConvertTo-Json -Compress -Depth 4))
         }
         'delete' {
             $stage = 'native_delete'

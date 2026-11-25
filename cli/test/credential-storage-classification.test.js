@@ -6,8 +6,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { resetWindowsCredentialCache } from '../src/auth/windows-credential-store.js';
 import {
-  loadCredentials, saveCredentials, credKey,
+  loadCredentials, saveCredentials, credKey, primeCredentialReads,
 } from '../src/auth/credential-store.js';
 import {
   installWin32CredentialFixture, restoreWin32CredentialFixture, seedSecureEntry, readSecureEntries,
@@ -33,6 +34,7 @@ after(() => {
 });
 
 beforeEach(() => {
+  resetWindowsCredentialCache();
   savedEnv = { ...process.env };
   root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-classification-'));
   process.env.XDG_CONFIG_HOME = root;
@@ -137,6 +139,14 @@ test('an oversized entry fails before any secure write and preserves the origina
   });
   assert.deepEqual(fs.readFileSync(target), original);
   assert.deepEqual(readSecureEntries(), {}, 'no entry may be written for a rejected oversized value');
+});
+
+test('a valid primary credential never consults an unreadable legacy target, even after failed priming', () => {
+  const key = credKey(instance);
+  seedSecureEntry(key, { auth_method: 'oauth', access_token: freshToken });
+  process.env.JSN_TEST_SECURE_FAIL = 'legacy-unreadable';
+  primeCredentialReads([{ instance }]);
+  assert.equal(loadCredentials(instance).access_token, freshToken);
 });
 
 test('a malformed secure entry classifies as malformed_secure_entry without the PowerShell diagnosis', () => {

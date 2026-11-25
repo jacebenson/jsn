@@ -75,6 +75,22 @@ edit the parent's environment, drop secrets or discard execution-policy settings
 PowerShell 7 children retain their inherited module path. The native CI lane
 launches production discovery from a real PowerShell 7 parent.
 
+Each launch costs a PowerShell process plus the Add-Type compilation of the
+native wrapper, so one command must not pay that per credential read. Reads are
+cached for the lifetime of the process, and a command that inspects several
+identities (`auth status`) primes them through one `read_many` request instead of
+one launch per profile field. Writes and deletes clear the transport's read cache
+before the native call (including other spellings of case-insensitive Windows
+target names). A write is never cached, and failed readback clears observations:
+a cached value must never mask material this process changed or a verification
+that failed. The bounded cache is memory only, never persisted, scoped to the
+process transport, and holds raw credential JSON so callers cannot corrupt it by
+mutating a returned object. Batch responses are fully validated before any new
+observations are cached; result completeness does not depend on cache capacity.
+`read_many` keeps targets ordered and echoes each requested spelling exactly.
+Legacy fallback remains lazy if priming fails: an unreadable fallback cannot
+mask a valid primary entry.
+
 Loopback CLI workflow fixtures explicitly preload a synthetic credential process
 transport. PATH removal alone is not a portable storage fixture. The transport
 reports empty secure reads/idempotent deletion and refuses secure writes, so
@@ -463,8 +479,9 @@ existing reference representation. No engine operation spawns another CLI.
 
 ## Record watch
 
-`jsn records watch` observes one record through an AMB record-watcher
-subscription instead of polling the table. `src/amb.js` owns the protocol
+`jsn records watch` observes one record, or every record matching an encoded
+query, through an AMB record-watcher subscription instead of polling the
+table. `src/amb.js` owns the protocol
 (ServiceNow's `/amb` endpoint speaks Bayeux/CometD long-polling, not
 socket.io, so no transport dependency is added) and event normalization;
 `src/record-watch.js` owns the observation session — bounds, cancellation,
@@ -476,6 +493,10 @@ record identity, operation and any change list or embedded record. A
 with `source: "fetched"`; it is never merged into the notification, and a
 failed read becomes `state_error` rather than changing the event. The
 default `auto` policy fetches only when the notification lacks detail.
+On a query channel the platform labels each event `entry`, `change` or
+`exit` (emitted as `match`), so a record leaving the query is reported.
+`--operation` and `--on-change` filter in `src/record-watch.js`, since AMB
+offers no server-side filter for either.
 
 A **gap** is the window between a dropped connection and a successful
 re-subscription. Record watchers are best-effort delivery: the platform does
@@ -485,10 +506,13 @@ Observation is bounded by `--timeout` seconds or `--max-events`; Ctrl+C
 unsubscribes and disconnects. Scheduling, retries across runs and user
 notification belong to the calling agent/runtime.
 
-AMB authorizes like a browser session: it needs session cookies and
-X-UserToken, not a bearer or Basic header. `SDKClient.ambSession()` supplies
-them from a gck credential or a warmed UI session, and fails with recovery
-guidance when the profile cannot produce one. Watch is read-only.
+AMB authorizes like a browser session: it reads session cookies and ignores
+a bearer or Basic header on its own. `SDKClient.ambSession()` supplies them
+from a gck credential or a warmed UI session (basic and OAuth profiles), and
+fails with recovery guidance when the profile cannot produce one. The
+platform sends a user who cannot read a record its notifications with the
+field values withheld; a query watch passes those through without `record`.
+Watch is read-only.
 
 ## Record command profiles
 
@@ -930,6 +954,10 @@ Dispatch is not success; log and artifact readback are required.
 ## Flow execution
 
 `src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.
+
+`src/flow-execution.js` owns one run's detail for `flows executions show`. It reads the context, its definition, the context's Error rows in `sys_flow_log` and the action and step instances named in each row's `action` path, all by raw sys_id. `step_data.recorded` is false when the run's reporting level was Off, and `step_data.values_recorded` is true only for Full and Trace (null when the run does not say which level), because the flow log survives at any level and step inputs and outputs do not.
+
+`src/flow-settings.js` owns `flows settings`. It reads the definition's `sys_flow_execution_setting` row by raw `source` and `source_type` with a two-row lookahead, refuses duplicates and foreign rows, and writes only the fields whose value changes. A failed read-back after a write is reported as unverified, never thrown away, because the write already happened.
 
 ---
 
