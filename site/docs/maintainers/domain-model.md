@@ -730,8 +730,10 @@ chain, every `sys_dictionary` row of the table and its ancestors, and three
   unless its collection row carries `no_audit_delete`, it is listed in
   `glide.db.audit.ignore.delete` (a set property replaces the documented
   default list), or it is a `sys_` table missing from
-  `glide.ui.audit_deleted_tables`.
+  `glide.ui.audit_deleted_tables` (its documented default list while unset).
 - **Reads** are never audited.
+- **Properties**: an empty `sys_properties` read is refused, never taken as
+  "unset, defaults apply"; the Table API filters rows a non-admin cannot read.
 - **Attribute sources**: verdicts follow the `attributes` string. Attribute
   rows exist only for `no_audit` and `no_audit_delete` (`audit` and
   `audit_type` have no `sys_schema_attribute` record on dev485581, so they are

@@ -29,7 +29,7 @@ function world(over = {}) {
     sys_schema_attribute: [{ sys_id: NO_AUDIT, name: 'no_audit' }, { sys_id: NO_AUDIT_DELETE, name: 'no_audit_delete' }],
     sys_schema_attribute_m2m: [],
     sys_dictionary: [row('x_case', '', { audit: 'true' }), row('x_task', ''), row('x_task', 'short_description')],
-    sys_properties: [],
+    sys_properties: [{ name: 'glide.sys.audit_inserts', value: 'false' }],
     ...over,
   };
 }
@@ -56,7 +56,7 @@ test('reads the hierarchy, attribute rows, dictionary and properties with bounde
   assert.equal(data.audited, true);
   assert.equal(data.mode, 'all');
   assert.deepEqual(data.ancestors, ['x_task']);
-  assert.deepEqual(data.inserts, { audited: false, property: { name: 'glide.sys.audit_inserts', value: null, default: true }, reason: 'glide.sys.audit_inserts is not set (default false); inserts are not audited on any table.' });
+  assert.deepEqual(data.inserts, { audited: false, property: { name: 'glide.sys.audit_inserts', value: 'false', default: false }, reason: 'glide.sys.audit_inserts is false; inserts are not audited on any table.' });
   assert.deepEqual(data.updates, { audited: true });
   assert.deepEqual(data.reads, { audited: false });
   assert.equal(data.deletes.recorded, true);
@@ -108,18 +108,22 @@ test('field verdicts: system, encrypted, no_audit by presence, nearest row and w
 test('inserts follow glide.sys.audit_inserts only on an audited table', async () => {
   const inserts = { sys_properties: [{ name: 'glide.sys.audit_inserts', value: 'true' }] };
   assert.equal((await readTableAudit(fixtureSdk(world(inserts)), 'x_case')).inserts.audited, true);
+  const unset = await readTableAudit(fixtureSdk(world({ sys_properties: [{ name: 'glide.db.audit.ignore.delete', value: 'x_log' }] })), 'x_case');
+  assert.deepEqual(unset.inserts, { audited: false, property: { name: 'glide.sys.audit_inserts', value: null, default: true }, reason: 'glide.sys.audit_inserts is not set (default false); inserts are not audited on any table.' });
   const off = await readTableAudit(fixtureSdk(world({ ...inserts, sys_dictionary: [row('x_case', ''), row('x_task', '')] })), 'x_case');
   assert.deepEqual(off.inserts, { audited: false, property: { name: 'glide.sys.audit_inserts', value: 'true', default: false }, reason: 'Table auditing is off for x_case.' });
 });
 
 test('deletes: no_audit_delete, the ignore list and its default, and the sys_ table rule', async () => {
-  const deletes = async (table, over = {}) => (await readTableAudit(fixtureSdk(world({ sys_db_object: hierarchy(table), sys_dictionary: [row(table, '', over.collection)], sys_properties: over.properties || [] })), table)).deletes;
-  assert.deepEqual(await deletes('x_case', { collection: { attributes: 'no_audit_delete=true' } }), { recorded: false, reason: 'x_case carries the no_audit_delete attribute.', no_audit_delete: true, ignore_delete: { value: null, default: true }, audit_deleted_tables: null });
+  const deletes = async (table, over = {}) => (await readTableAudit(fixtureSdk(world({ sys_db_object: hierarchy(table), sys_dictionary: [row(table, '', over.collection)], sys_properties: over.properties || world().sys_properties })), table)).deletes;
+  assert.deepEqual(await deletes('x_case', { collection: { attributes: 'no_audit_delete=true' } }), { recorded: false, reason: 'x_case carries the no_audit_delete attribute.', no_audit_delete: true, ignore_delete: { value: null, default: true }, audit_deleted_tables: { value: null, default: true } });
   assert.equal((await deletes('sc_cart')).reason, 'sc_cart is listed in glide.db.audit.ignore.delete (its default list; no sys_properties row).');
   const replaced = { properties: [{ name: 'glide.db.audit.ignore.delete', value: 'x_case, x_log' }] };
   assert.equal((await deletes('sc_cart', replaced)).recorded, true, 'setting the property replaces the default list');
   assert.equal((await deletes('x_case', replaced)).reason, 'x_case is listed in glide.db.audit.ignore.delete.');
-  assert.equal((await deletes('sys_x')).reason, 'sys_x is a sys_ table not listed in glide.ui.audit_deleted_tables.');
+  assert.equal((await deletes('sys_x')).reason, 'sys_x is a sys_ table not listed in glide.ui.audit_deleted_tables (its default list; no sys_properties row).');
+  assert.equal((await deletes('sys_user')).recorded, true, 'sys_user is on the documented default list');
+  assert.equal((await deletes('sys_user', { properties: [{ name: 'glide.ui.audit_deleted_tables', value: 'sys_x' }] })).reason, 'sys_user is a sys_ table not listed in glide.ui.audit_deleted_tables.');
   assert.equal((await deletes('sys_x', { properties: [{ name: 'glide.ui.audit_deleted_tables', value: 'sys_user,sys_x' }] })).recorded, true);
   assert.equal((await deletes('x_case')).reason, 'Deleted x_case records are kept in sys_audit_delete, even though table auditing is off.');
 });
@@ -156,12 +160,22 @@ test('missing, denied, malformed and oversized reads are never reported as statu
   await assert.rejects(readTableAudit(fixtureSdk(world({ sys_db_object: [] })), 'x_case'), /Table hierarchy not found/);
   await assert.rejects(readTableAudit(fixtureSdk(world({ sys_dictionary: denied })), 'x_case'), /Forbidden/);
   await assert.rejects(readTableAudit(fixtureSdk(world({ sys_properties: denied })), 'x_case'), /Forbidden/);
+  await assert.rejects(readTableAudit(fixtureSdk(world({ sys_properties: [] })), 'x_case'), /No audit properties were readable in sys_properties/, 'an empty, ACL-filtered read is not proof the defaults apply');
   await assert.rejects(readTableAudit(fixtureSdk(world({ sys_schema_attribute_m2m: [null] })), 'x_case'), error => error.code === 'malformed_response');
   await assert.rejects(readTableAudit(fixtureSdk(world({ sys_dictionary: Array.from({ length: 2001 }, (_, i) => row('x_task', `f${i}`)) })), 'x_case'), /More than 2000 sys_dictionary rows/);
   await assert.rejects(readTableAudit(fixtureSdk(world({ sys_dictionary: [row('x_task', '')] })), 'x_case'), /No readable collection row for x_case/);
   const noDefinitions = fixtureSdk(world({ sys_schema_attribute: [] }));
   assert.deepEqual((await readTableAudit(noDefinitions, 'x_case')).attribute_rows.string_only, ['no_audit', 'audit', 'audit_type', 'no_audit_delete']);
   assert.ok(!noDefinitions.calls.some(call => call.table === 'sys_schema_attribute_m2m'), 'no attribute ids, no unfiltered m2m read');
+});
+
+test('a table name typed in another case is judged under the instance\'s spelling', async () => {
+  const chain = hierarchy('x_case', 'x_task');
+  const sdk = fixtureSdk(world({ sys_db_object: params => chain(params.get('sysparm_query') === 'name=X_Case' ? new URLSearchParams({ sysparm_query: 'name=x_case' }) : params) }));
+  const data = await readTableAudit(sdk, 'X_Case');
+  assert.equal(data.table, 'x_case');
+  assert.equal(data.audited, true);
+  assert.equal(sdk.calls.find(call => call.table === 'sys_dictionary').params.sysparm_query, 'nameINx_case,x_task');
 });
 
 test('parseAttributes treats a bare key as true and keeps values with =', () => {

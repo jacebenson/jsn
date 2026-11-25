@@ -13,6 +13,8 @@ const AUDITED_SYS_FIELDS = ['sys_class_name', 'sys_domain_id'];
 const PROPERTIES = ['glide.sys.audit_inserts', 'glide.db.audit.ignore.delete', 'glide.ui.audit_deleted_tables'];
 // The documented value of glide.db.audit.ignore.delete while no sys_properties row exists.
 export const DEFAULT_IGNORE_DELETE = ['sys_mutex', 'sys_db_cache', 'sys_lucene_block', 'sys_lucene_file', 'sys_lucene_directory', 'sys_user_preference', 'sys_audit', 'sc_cart', 'sc_cart_item', 'sys_trigger', 'wf_context', 'wf_activity', 'wf_condition', 'wf_executing', 'wf_history', 'wf_log', 'wf_transition', 'wf_transition_history', 'cmdb_ci_windows_service', 'cmdb_sam_sw_install', 'cmdb_software_instance', 'cmdb_sam_sw_usage', 'sam_sw_counter_detail'];
+// The documented value of glide.ui.audit_deleted_tables while no sys_properties row exists.
+export const DEFAULT_AUDIT_DELETED_TABLES = ['sys_user', 'sys_user_group', 'sys_user_role', 'sys_user_has_role', 'sys_user_grmember', 'sys_group_has_role', 'sys_security_acl_role'];
 export const EXEMPT = [
   'sys_* fields except sys_class_name and sys_domain_id',
   'encrypted fields',
@@ -63,6 +65,7 @@ export async function readTableAudit(sdk, table, { field } = {}) {
   if (typeof table !== 'string' || !NAME.test(table)) throw errUsage('Provide a table name (letters, digits and underscores).');
   if (field !== undefined && (typeof field !== 'string' || !NAME.test(field))) throw errUsage('--field must be a column name (letters, digits and underscores).');
   const names = (await loadHierarchy(sdk, table)).map(node => node.name);
+  table = names[0]; // The instance matches a name in any case; judge it under the instance's spelling.
   const chain = `nameIN${names.join(',')}`;
   const definitions = await read(sdk, 'sys_schema_attribute', `nameIN${AUDIT_ATTRIBUTES.join(',')}`, 'sys_id,name');
   const attributeName = new Map(definitions.map(row => [raw(row, 'sys_id'), raw(row, 'name')]).filter(([, name]) => AUDIT_ATTRIBUTES.includes(name)));
@@ -70,6 +73,8 @@ export async function readTableAudit(sdk, table, { field } = {}) {
   // Every row in the chain: CMDB child tables carry their own rows for inherited columns.
   const rows = (await read(sdk, 'sys_dictionary', chain, 'sys_id,name,element,internal_type,audit,attributes')).filter(row => names.includes(raw(row, 'name')));
   const properties = new Map((await read(sdk, 'sys_properties', `nameIN${PROPERTIES.join(',')}`, 'name,value')).map(row => [raw(row, 'name'), raw(row, 'value')]));
+  // A stock instance carries glide.sys.audit_inserts; none at all is an ACL-filtered read, not proof the defaults apply.
+  if (!properties.size) throw errUsage('No audit properties were readable in sys_properties (reading them needs admin); audit status was not computed.');
 
   const linked = new Map(links.filter(link => attributeName.has(raw(link, 'attribute'))).map(link => [`${raw(link, 'schema')}:${attributeName.get(raw(link, 'attribute'))}`, raw(link, 'value')]));
   const disagreements = [];
@@ -94,10 +99,10 @@ export async function readTableAudit(sdk, table, { field } = {}) {
   const audited = raw(own, 'audit') === 'true';
   const insertsValue = properties.get('glide.sys.audit_inserts');
   const ignoreDelete = properties.has('glide.db.audit.ignore.delete') ? list(properties.get('glide.db.audit.ignore.delete')) : DEFAULT_IGNORE_DELETE;
-  const deletedTables = list(properties.get('glide.ui.audit_deleted_tables'));
+  const deletedTables = properties.has('glide.ui.audit_deleted_tables') ? list(properties.get('glide.ui.audit_deleted_tables')) : DEFAULT_AUDIT_DELETED_TABLES;
   const deletes = 'no_audit_delete' in ownAttributes ? { recorded: false, reason: `${table} carries the no_audit_delete attribute.` }
     : ignoreDelete.includes(table) ? { recorded: false, reason: `${table} is listed in glide.db.audit.ignore.delete${properties.has('glide.db.audit.ignore.delete') ? '' : ' (its default list; no sys_properties row)'}.` }
-      : table.startsWith('sys_') && !deletedTables.includes(table) ? { recorded: false, reason: `${table} is a sys_ table not listed in glide.ui.audit_deleted_tables.` }
+      : table.startsWith('sys_') && !deletedTables.includes(table) ? { recorded: false, reason: `${table} is a sys_ table not listed in glide.ui.audit_deleted_tables${properties.has('glide.ui.audit_deleted_tables') ? '' : ' (its default list; no sys_properties row)'}.` }
         : { recorded: true, reason: `Deleted ${table} records are kept in sys_audit_delete${audited ? '' : ', even though table auditing is off'}.` };
   const data = {
     table,
@@ -114,7 +119,7 @@ export async function readTableAudit(sdk, table, { field } = {}) {
       ...deletes,
       no_audit_delete: 'no_audit_delete' in ownAttributes,
       ignore_delete: { value: properties.get('glide.db.audit.ignore.delete') ?? null, default: !properties.has('glide.db.audit.ignore.delete') },
-      audit_deleted_tables: properties.get('glide.ui.audit_deleted_tables') ?? null,
+      audit_deleted_tables: { value: properties.get('glide.ui.audit_deleted_tables') ?? null, default: !properties.has('glide.ui.audit_deleted_tables') },
     },
     reads: { audited: false },
     excluded_fields: columnList.filter(row => 'no_audit' in parseAttributes(raw(row, 'attributes'))).map(entry),
