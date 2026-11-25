@@ -188,6 +188,27 @@ describe('decision table inspection', () => {
     assert.equal(calls.filter(([table]) => table === 'change_request').length, 0);
   });
 
+  it('reads a reference input table from its raw value, not its label', async () => {
+    const calls = [];
+    const app = { sdk: {
+      list: async (table, params) => {
+        calls.push([table, params.get('sysparm_query')]);
+        if (table === 'sys_decision_input') return [{ element: { value: 'change_request', display_value: 'change_request' }, label: { value: 'Change Request', display_value: 'Change Request' }, internal_type: { value: 'reference', display_value: 'Reference' }, reference: { value: 'change_request', display_value: 'Change Request' } }];
+        const condition = 'change_request=46cb2f54a9fe198101d4b2a2a5d7ab72^change_request.state=-3^EQ';
+        if (table === 'sys_decision_question') return [{ condition: { value: condition, display_value: condition } }];
+        if (table === 'sys_choice') return [{ value: '-3', label: 'Assess' }];
+        return [];
+      },
+      get: async (table, id) => { calls.push([table, id]); return { number: 'CHG0000008' }; },
+    } };
+    const detail = await inspectDecisionTable(app, { sys_id: 'dt1', name: 'Normal Change Policy' });
+    assert.deepEqual(calls.filter(([table]) => table === 'change_request'), [['change_request', '46cb2f54a9fe198101d4b2a2a5d7ab72']]);
+    const choiceQueries = calls.filter(([table]) => table === 'sys_choice').map(([, query]) => query);
+    assert.ok(choiceQueries.includes('name=change_request^element=state^language=en'));
+    assert.ok(choiceQueries.every((query) => query.startsWith('name=change_request^')));
+    assert.match(detail.matrix[0].values[0], /CHG0000008/);
+  });
+
   it('preserves wrapped multi-answer JSON and renders answer elements readably', async () => {
     const answer = {
       multipleAnswerRecord: 'mar1',

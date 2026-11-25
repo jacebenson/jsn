@@ -156,6 +156,9 @@ function assertSafeReferenceId(value) {
   }
 }
 
+// Table fields come back with display_value=all, and their display value is the table's label.
+const tableField = (input, field) => valueParts(input?.[field]).technical;
+
 function assertSafeReferenceTable(value) {
   if (!/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/.test(value)) {
     throw new Error('Unsafe reference table for lookup: contains invalid ServiceNow identifier characters. Refusing to fetch a reference record.');
@@ -172,7 +175,7 @@ export async function inspectDecisionTable(app, table) {
   const references = new Map();
   for (const input of inputs) {
     const name = inputName(input);
-    const referenceTable = getStringField(input, 'reference') || getStringField(input, 'reference_table');
+    const referenceTable = tableField(input, 'reference') || tableField(input, 'reference_table');
     if (!name) continue;
     if (referenceTable) {
       assertSafeReferenceTable(referenceTable);
@@ -216,7 +219,7 @@ export async function inspectDecisionTable(app, table) {
   }
   for (const input of inputs) {
     const name = inputName(input);
-    const sourceTable = getStringField(input, 'table') || getStringField(input, 'source_table') || getStringField(input, 'reference_table') || getStringField(input, 'reference');
+    const sourceTable = tableField(input, 'table') || tableField(input, 'source_table') || tableField(input, 'reference_table') || tableField(input, 'reference');
     if (!name || !sourceTable) continue;
     assertSafeReferenceTable(sourceTable);
     const fields = new Set();
