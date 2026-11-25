@@ -22,6 +22,7 @@ For unreleased changes, use `npm install -g @jacebenson/jsn@dev`; see [channels 
 ```sh
 jsn records list --table incident --query "active=true" --limit 5 --json
 jsn discover --table incident
+jsn columns show incident.priority    # dictionary entry and its choices, inherited from task
 jsn docs "GlideRecord" --limit 5
 jsn --help
 ```
