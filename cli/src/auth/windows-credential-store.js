@@ -48,12 +48,51 @@ function failure(reason, stage) {
   return error;
 }
 
-// A process boundary injectable for offline tests; production never accepts a
-// script/executable override from configuration or credential content.
-export function windowsCredentialOperation(operation, key, value, run = execFileSync) {
-  if (!['read', 'write', 'delete'].includes(operation)) throw failure(reasons.native);
-  if (operation === 'write' && Buffer.byteLength(value, 'utf8') > 2560) throw failure(reasons.oversized);
-  const input = JSON.stringify({ operation, target: `servicenow-cli:${key}`, username: key, value });
+/**
+ * Every Windows Credential Manager operation costs one PowerShell launch: a process startup
+ * and compilation cost, dominated by process start and the
+ * Add-Type compilation of the native wrapper. One command asks for the same
+ * identity repeatedly — `auth status` reads each profile four or five times —
+ * so reads are cached for this process only.
+ *
+ * The cache holds raw credential JSON, never mutable parsed objects, so a caller
+ * that mutates its copy cannot corrupt a later read. Writes and deletes through
+ * this module invalidate the identity before the native operation, so a failed
+ * write can never leave a stale value readable, and every write readback is a
+ * fresh native read. Nothing is persisted: the cache dies with the process.
+ */
+const READ_CACHE_LIMIT = 256;
+let readCaches = new WeakMap();
+function cacheFor(run) {
+  if (!readCaches.has(run)) readCaches.set(run, new Map());
+  return readCaches.get(run);
+}
+function cacheRead(readCache, key, value) {
+  if (readCache.size >= READ_CACHE_LIMIT && !readCache.has(key)) {
+    readCache.delete(readCache.keys().next().value);
+  }
+  readCache.set(key, value);
+}
+function invalidateRead(_key, run) {
+  // Credential Manager targets are case-insensitive. Clear all observations on
+  // mutation rather than approximating Windows Unicode comparison in JS.
+  cacheFor(run).clear();
+}
+// Tests and callers that observed a value the vault did not confirm drop it.
+export function invalidateWindowsCredential(key, run = execFileSync) { invalidateRead(key, run); }
+// Tests may start from a known cache; production never calls this.
+export function resetWindowsCredentialCache() { readCaches = new WeakMap(); }
+
+const MAX_BATCH = 64;
+const target = (key) => `servicenow-cli:${key}`;
+
+/**
+ * One PowerShell launch, with the documented host discovery rule: only an
+ * unavailable host (ENOENT) or an explicitly unsupported host/version may try
+ * the other executable. Policy, capability and native denial never retry.
+ */
+function invoke(request, run) {
+  const input = JSON.stringify(request);
   let command;
   try {
     // Trusted installed code only. Command text is identical for every request;
@@ -73,7 +112,7 @@ export function windowsCredentialOperation(operation, key, value, run = execFile
     let output;
     try {
       output = run(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', command], {
-        input, env, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
+        input, env, encoding: 'utf8', timeout: 20000, maxBuffer: 4 * 1024 * 1024,
         windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (error) {
@@ -88,15 +127,80 @@ export function windowsCredentialOperation(operation, key, value, run = execFile
     // Only an explicit unsupported host/version (or ENOENT above) permits
     // discovery of another host. Never retry policy/capability/native denial.
     if (response?.status === 'error' && response.reason === 'unsupported') continue;
-    if (response?.status === 'missing' && operation !== 'write') return null;
-    if (response?.status !== 'ok') throw failure(reasons[response?.reason] || reasons.native, response?.stage);
-    if (operation === 'read') {
-      if (typeof response.value !== 'string') throw failure(reasons.native);
-      return response.value;
-    }
-    return true;
+    return response;
   }
   throw failure(reasons.unsupported);
+}
+
+// A process boundary injectable for offline tests; production never accepts a
+// script/executable override from configuration or credential content.
+export function windowsCredentialOperation(operation, key, value, run = execFileSync) {
+  if (!['read', 'write', 'delete'].includes(operation)) throw failure(reasons.native);
+  if (operation === 'write' && Buffer.byteLength(value, 'utf8') > 2560) throw failure(reasons.oversized);
+  // Invalidate before the native call: a write that lands but fails readback, or
+  // a delete that partially succeeds, must not leave a cached value readable.
+  const readCache = cacheFor(run);
+  if (operation !== 'read') invalidateRead(key, run);
+  else if (readCache.has(key)) return readCache.get(key);
+  const response = invoke({ operation, target: target(key), username: key, value }, run);
+  if (response?.status === 'missing' && operation !== 'write') {
+    if (operation === 'read') cacheRead(readCache, key, null);
+    return null;
+  }
+  if (response?.status !== 'ok') throw failure(reasons[response?.reason] || reasons.native, response?.stage);
+  if (operation === 'read') {
+    if (typeof response.value !== 'string') throw failure(reasons.native);
+    cacheRead(readCache, key, response.value);
+    return response.value;
+  }
+  // A write is never cached: the caller's verified readback must hit the vault.
+  return true;
+}
+
+/**
+ * Read several identities, launching PowerShell at most once for the misses.
+ * Cached identities cost nothing; a single miss reuses the plain read protocol.
+ * Returns a Map keyed by identity with the stored value or null when absent.
+ */
+export function windowsCredentialRead(keys, run = execFileSync) {
+  const result = new Map();
+  if (!Array.isArray(keys)) throw failure(reasons.native);
+  const unique = [...new Set(keys)];
+  if (!unique.length) return result;
+  for (const key of unique) {
+    if (typeof key !== 'string' || !key) throw failure(reasons.native);
+  }
+  const readCache = cacheFor(run);
+  for (const key of unique) if (readCache.has(key)) result.set(key, readCache.get(key));
+  const pending = unique.filter(key => !result.has(key));
+  // Validate every response before publishing any observation to the cache.
+  // Keep results separately so cache eviction cannot turn a large read into
+  // fabricated misses, including requests larger than READ_CACHE_LIMIT.
+  const observations = new Map();
+  for (let start = 0; start < pending.length; start += MAX_BATCH) {
+    const chunk = pending.slice(start, start + MAX_BATCH);
+    const single = chunk.length === 1;
+    const response = invoke(single
+      ? { operation: 'read', target: target(chunk[0]), username: chunk[0] }
+      : { operation: 'read_many', targets: chunk.map(target) }, run);
+    if (single && response?.status === 'missing') {
+      observations.set(chunk[0], null);
+      continue;
+    }
+    if (response?.status !== 'ok') throw failure(reasons[response?.reason] || reasons.native, response?.stage);
+    if (single && typeof response.value !== 'string') throw failure(reasons.native);
+    const values = single ? [{ target: target(chunk[0]), value: response.value }] : response.values;
+    if (!Array.isArray(values) || values.length !== chunk.length) throw failure(reasons.native);
+    for (let index = 0; index < chunk.length; index++) {
+      const entry = values[index];
+      if (!entry || entry.target !== target(chunk[index])) throw failure(reasons.native);
+      if (entry.value !== null && typeof entry.value !== 'string') throw failure(reasons.native);
+      observations.set(chunk[index], entry.value);
+    }
+  }
+  for (const [key, value] of observations) cacheRead(readCache, key, value);
+  for (const key of unique) result.set(key, observations.has(key) ? observations.get(key) : result.get(key));
+  return new Map(unique.map(key => [key, result.get(key)]));
 }
 
 // Go v1 used normalizeURL(instance), not the sanitized file name. Only

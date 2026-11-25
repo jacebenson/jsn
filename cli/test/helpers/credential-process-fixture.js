@@ -14,6 +14,9 @@ childProcess.execFileSync = function(command, args, options) {
   if (name === 'powershell.exe' || name === 'pwsh.exe') {
     const request = JSON.parse(options.input);
     if (request.operation === 'read' || request.operation === 'delete') return '{"status":"missing"}';
+    if (request.operation === 'read_many') {
+      return JSON.stringify({ status: 'ok', values: request.targets.map(target => ({ target, value: null })) });
+    }
     throw new Error('Synthetic secure-store writes unavailable');
   }
   return original.call(this, command, args, options);

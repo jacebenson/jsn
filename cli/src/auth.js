@@ -137,6 +137,15 @@ export class AuthManager {
     return this.credentialStore.load(instance, username);
   }
 
+  /**
+   * Warm the secure store for several identities at once. Windows launches a
+   * PowerShell process per read, so a command that inspects many profiles must
+   * not pay that per profile field. Stores without a prime seam are unaffected.
+   */
+  primeCredentials(identities) {
+    this.credentialStore.prime?.(identities);
+  }
+
   saveCredentials(instance, credentials, username) {
     return this.credentialStore.save(instance, credentials, username);
   }

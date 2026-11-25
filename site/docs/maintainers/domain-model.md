@@ -75,6 +75,22 @@ edit the parent's environment, drop secrets or discard execution-policy settings
 PowerShell 7 children retain their inherited module path. The native CI lane
 launches production discovery from a real PowerShell 7 parent.
 
+Each launch costs a PowerShell process plus the Add-Type compilation of the
+native wrapper, so one command must not pay that per credential read. Reads are
+cached for the lifetime of the process, and a command that inspects several
+identities (`auth status`) primes them through one `read_many` request instead of
+one launch per profile field. Writes and deletes clear the transport's read cache
+before the native call (including other spellings of case-insensitive Windows
+target names). A write is never cached, and failed readback clears observations:
+a cached value must never mask material this process changed or a verification
+that failed. The bounded cache is memory only, never persisted, scoped to the
+process transport, and holds raw credential JSON so callers cannot corrupt it by
+mutating a returned object. Batch responses are fully validated before any new
+observations are cached; result completeness does not depend on cache capacity.
+`read_many` keeps targets ordered and echoes each requested spelling exactly.
+Legacy fallback remains lazy if priming fails: an unreadable fallback cannot
+mask a valid primary entry.
+
 Loopback CLI workflow fixtures explicitly preload a synthetic credential process
 transport. PATH removal alone is not a portable storage fixture. The transport
 reports empty secure reads/idempotent deletion and refuses secure writes, so

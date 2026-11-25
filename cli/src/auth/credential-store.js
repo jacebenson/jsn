@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { globalConfigDir } from '../config.js';
-import { windowsCredentialOperation, legacyWindowsKey, STORAGE_CLASSIFICATIONS, STORAGE_RECOVERY } from './windows-credential-store.js';
+import { windowsCredentialOperation, windowsCredentialRead, invalidateWindowsCredential, legacyWindowsKey, STORAGE_CLASSIFICATIONS, STORAGE_RECOVERY } from './windows-credential-store.js';
 
 // ─── Credential key helpers ───
 
@@ -189,18 +189,27 @@ export function removePrivateState(kind, key) {
 
 // ─── Keyring via secret-tool (libsecret, same backend as Go's go-keyring) ───
 
+/**
+ * Preserve lazy legacy fallback: an unreadable legacy identity must not mask a
+ * valid primary credential. Successful status priming still warms both reads.
+ */
+function windowsLookup(key, legacyKey) {
+  return windowsCredentialOperation('read', key)
+    ?? (legacyKey && legacyKey !== key ? windowsCredentialOperation('read', legacyKey) : null);
+}
+
 function keyringLookup(key, legacyKey) {
   let result;
   try {
     // execFileSync with an arg array — no shell, so `key` can never
     // break out into command injection (issue #143 finding #2).
     result = process.platform === 'win32'
-      ? (windowsCredentialOperation('read', key) ?? (legacyKey ? windowsCredentialOperation('read', legacyKey) : null))
+      ? windowsLookup(key, legacyKey)
       : execFileSync(
-      'secret-tool',
-      ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
-      { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
-    );
+        'secret-tool',
+        ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
+        { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
+      );
   } catch (error) {
     // Preserve the existing process-local plaintext opt-in. Without it, a
     // Windows backend failure is a refusal, not a missing entry.
@@ -226,6 +235,35 @@ function keyringLookup(key, legacyKey) {
     created_at: parsed.created_at || parsed.CreatedAt || 0,
     auth_source: parsed.auth_method === 'gck' ? 'gck' : 'keyring',
   };
+}
+
+/**
+ * Warm the Windows credential read for every identity a command is about to ask
+ * for, in one PowerShell launch instead of one per field. `auth status` reads
+ * each profile four or five times; unprimed that is a multi-second launch per
+ * read on a managed Windows image.
+ *
+ * Nothing is required of other platforms, where a read is a few milliseconds.
+ * A failed prime is not reported here: the following real read re-runs the
+ * documented guards and raises its own actionable error.
+ *
+ * `run` is the injectable process boundary used by offline tests only.
+ */
+export function primeCredentialReads(identities = [], run) {
+  if (process.platform !== 'win32') return;
+  const keys = new Set();
+  for (const identity of identities) {
+    const instance = identity?.instance;
+    if (!instance) continue;
+    const username = identity.username;
+    keys.add(username ? credKey(instance, username) : credKey(instance));
+    if (!username) keys.add(legacyWindowsKey(instance));
+  }
+  if (!keys.size) return;
+  try {
+    if (run) windowsCredentialRead([...keys], run);
+    else windowsCredentialRead([...keys]);
+  } catch { /* reported by the next real read */ }
 }
 
 function keyringStore(key, creds) {
@@ -254,7 +292,11 @@ function storeVerified(key, creds) {
     let parsed;
     try { parsed = typeof readback === 'string' ? JSON.parse(readback) : null; }
     catch { parsed = null; }
-    return parsed && isDeepStrictEqual(parsed, JSON.parse(value)) ? 'ok' : 'readback_failed';
+    if (parsed && isDeepStrictEqual(parsed, JSON.parse(value))) return 'ok';
+    // The vault does not hold what this process wrote: drop the observation so
+    // the next read reports the vault, not this attempt's readback.
+    invalidateWindowsCredential(key);
+    return 'readback_failed';
   }
   if (!keyringStore(key, creds)) return 'unavailable';
   try {
@@ -368,5 +410,6 @@ export const defaultCredentialStore = {
   load: loadCredentials,
   save: saveCredentials,
   delete: deleteCredentials,
+  prime: primeCredentialReads,
 };
 

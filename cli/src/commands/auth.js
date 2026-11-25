@@ -926,6 +926,12 @@ export async function showAuthStatus(argv, app) {
   const selectedProfiles = argv.profile
     ? configuredProfiles.filter(([name]) => name === argv.profile)
     : configuredProfiles;
+  // Every profile below is read four or five times through local credential
+  // storage. Warm them all in one secure-store launch first: on Windows each
+  // read would otherwise be a PowerShell process (seconds, not milliseconds).
+  app.auth.primeCredentials?.(selectedProfiles.map(([, profile]) => ({
+    instance: profile.instance_url, username: profile.username,
+  })));
   for (const [name, profile] of selectedProfiles) {
     const instance = profile.instance_url;
     const authOptions = { authMethod: profile.auth_method, username: profile.username };
