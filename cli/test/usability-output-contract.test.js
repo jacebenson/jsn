@@ -351,7 +351,7 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
       sdk: {
         list: async (table) => { calls.push(`list:${table}`); return [record]; },
         fetchAttachments: async () => { calls.push('attachments'); return [{ file_name: 'a.txt' }]; },
-        fetchCatalogVariables: async () => { calls.push('variables'); return [{ question: 'q', value: 'v' }]; },
+        fetchCatalogVariables: async () => { calls.push('variables'); return { variables: [{ question: 'q', value: 'v' }], truncated: false }; },
       },
       getEffectiveInstance: () => 'https://example.service-now.com',
       ok: (data, opts) => envelopes.push({ data, opts }),
