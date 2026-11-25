@@ -71,6 +71,7 @@ const OPERATION_NAMES = {
 
 /** Normalize one raw change entry; the platform has used several shapes. */
 function normalizeChange(change) {
+  if (typeof change === 'string') return change ? { field: change } : null;
   if (Array.isArray(change)) {
     const [field, previous, value] = change;
     return { field: String(field ?? ''), previous_value: previous ?? null, value: value ?? null };
@@ -104,10 +105,13 @@ export function normalizeRecordWatcherEvent(message, expected = {}, receivedAt =
     try { data = JSON.parse(data); } catch { data = null; }
   }
   if (!data || typeof data !== 'object') data = {};
-  const record = data.record && typeof data.record === 'object' ? data.record : null;
+  // A user who cannot read the record gets its notification under `metadata`, with `record` cut to sys_id and table.
+  if (data.metadata && typeof data.metadata === 'object') data = { ...data.metadata, ...data };
+  const raw = data.record && typeof data.record === 'object' ? data.record : null;
+  const record = raw && Object.keys(raw).some(key => key !== 'sys_id' && key !== 'table') ? raw : null;
   const channelTable = channel.split('/')[3] || null;
-  const table = data.table || record?.table || expected.table || channelTable;
-  const sysID = data.sys_id || record?.sys_id || expected.sysID || null;
+  const table = data.table || raw?.table || expected.table || channelTable;
+  const sysID = data.sys_id || raw?.sys_id || expected.sysID || null;
   const rawOperation = String(data.operation || data.op || data.action || '').toLowerCase();
   const operation = OPERATION_NAMES[rawOperation] || (rawOperation ? 'changed' : 'unknown');
   const changes = Array.isArray(data.changes)
@@ -125,6 +129,9 @@ export function normalizeRecordWatcherEvent(message, expected = {}, receivedAt =
     received_at: receivedAt,
   };
   if (rawOperation) event.action = rawOperation;
+  // entry, change or exit: whether the record entered the channel's query, changed inside it, or left it.
+  const match = String(data.action || '').toLowerCase();
+  if (['entry', 'change', 'exit'].includes(match)) event.match = match;
   if (displayValue != null) event.display_value = displayValue;
   if (message?.id != null) event.event_id = message.id;
   if (changes.length) event.changes = changes;

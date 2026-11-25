@@ -6,19 +6,59 @@ Watch records, understand the record-engine contract and batch SDK reads without
 
 ## Watching a ServiceNow record
 
-`jsn records watch` streams changes to one record through ServiceNow's
-Asynchronous Message Bus (AMB) record watcher, instead of polling the table
-with repeated reads.
+`jsn records watch` streams changes to one record, or to every record matching
+an encoded query, through ServiceNow's Asynchronous Message Bus (AMB) record
+watcher, instead of polling the table with repeated reads.
 
 ```bash
 jsn records watch --table incident --sys-id 0123456789abcdef0123456789abcdef --timeout 300 --json
 jsn records watch --table incident --identifier INC0010001 --identifier-field number --max-events 1 --json
+jsn records watch --table incident --query "priority=1^active=true" --timeout 300 --json
 ```
 
 Use it when a person asks an agent to *track* an incident, change, task or
 other record: "tell me when this changes", "watch this", "let me know when it
 is assigned". You do not need to know the transport name — record watching is
 the right tool for "keep an eye on this record".
+
+## Watching every record that matches a query
+
+`--query` subscribes to the query itself, so one watch covers every record
+that matches it now or comes to match it later. The query is validated like
+`records list --query` before anything subscribes, because the platform
+drops a condition it cannot parse and a misspelt field would silently widen
+the watch. A query that is demonstrably invalid is refused. One `jsn` cannot
+fully verify, such as a field it cannot see in the dictionary, still
+subscribes, but first emits a `query_validation` event naming the field. `--query` cannot be combined with `--sys-id` or `--identifier`.
+
+Each `record_change` carries `match`, the platform's word for how the change
+relates to the query:
+
+| change | `operation` | `match` |
+|--------|-------------|---------|
+| a matching record is inserted | `created` | `entry` |
+| a matching record is updated and still matches | `updated` | `change` |
+| an update makes a record match | `updated` | `entry` |
+| an update makes a record stop matching | `updated` | `exit` |
+| a matching record is deleted | `deleted` | `exit` |
+
+Changes to records outside the query, before and after, send nothing. Human
+output marks the two crossings: `updated (now matches)` and
+`updated (no longer matches)`.
+
+Two filters narrow the stream. AMB has no server-side filter for either, so
+`jsn` applies them to each notification, before any state read and before the
+event counts toward `--max-events`:
+
+- `--operation insert|update|delete` keeps one kind of change. An update that
+  leaves the query is an `update`.
+- `--on-change state,assigned_to` keeps changes naming at least one of the
+  fields. Inserts name every field they set; deletes name none, so
+  `--on-change` drops them.
+
+```bash
+jsn records watch --table incident --query "priority=1^active=true" --operation update --on-change state,assigned_to --timeout 300 --json
+```
 
 ## What it emits
 
@@ -48,15 +88,20 @@ the changed fields, for example
 
 `operation` is `created`, `updated`, `deleted`, `changed` or `unknown`.
 The `action` field keeps the platform's raw word (`update`, `insert`, …).
+`match` (`entry`, `change` or `exit`) is present when the platform sends it;
+see the query table above.
 
 `record` is the platform's record-watcher payload: a map of field name to
 `{value, display_value}` for the fields that changed, plus `sys_*` audit
-fields (`sys_updated_on`, `sys_mod_count`, `sys_updated_by`, …). A live
-instance does **not** send a `changes` array, and it does not put `table` or
+fields (`sys_updated_on`, `sys_mod_count`, `sys_updated_by`, …). The
+instance checked on 2026-11-04 sent no `changes` array and put no `table` or
 `sys_id` in the notification; `jsn` fills those from the subscription, which
-is why a single-record watch is always scoped by `sys_id=<id>`. `changes` is
-normalized if an instance ever sends it, but the current platform shape is
-`record`.
+is why a single-record watch is always scoped by `sys_id=<id>`. A PDI checked
+on 2026-11-25 also sent `sys_id`, `match` (as `action`) and `changes` as a
+list of field names, which `jsn` emits as `{"field": "priority"}` entries
+with no values. A query watch has no `sys_id` to fill in, so on an instance
+that sends the older shape each event carries a `warning` and only its
+`display_value` says which record changed.
 
 The notification carries current values only. There is no previous value in
 it, so output never invents a before → after transition.
@@ -93,17 +138,28 @@ as a complete history. Use a table query for the current state after a gap.
 
 ## Authentication and access
 
-AMB authorizes like a browser session: it needs the session cookies and
-`X-UserToken` of a logged-in UI session, not a bearer or Basic header alone.
-`jsn` supplies that from a browser-session (`gck`) profile, or by warming a
-UI session for a basic/OAuth profile.
+AMB authorizes like a browser session: it reads the session cookies of a
+logged-in session and ignores a bearer or Basic header sent on its own.
+`jsn` supplies that session from a browser-session (`gck`) profile, or by
+opening a UI session for a basic or OAuth profile. A basic profile was
+verified on 2026-11-25: the handshake reported `session.logged.in` and query
+and single-record watches delivered events.
 
-- Recommended: `jsn auth login --browser`, then `--profile <name>`.
 - A bearer-token-only identity, an SSO instance that refuses the session
   login flow, or an instance with no `/amb` endpoint fails with an actionable
   error and recovery hint rather than retrying.
-- The subscription respects the authenticated user's ACLs: an inaccessible or
-  missing record fails with `not_found` before any subscription is opened.
+- A single-record watch reads the record first: an inaccessible or missing
+  record fails with `not_found` before any subscription is opened.
+- A query watch has no record to read first, and the platform does not hold
+  back notifications from a user who cannot read the record. On 2026-11-25 a
+  user with no roles, who could not read the watched incidents through the
+  Table API, received every change on the channel: `sys_id`, the display
+  value (the incident number), `operation`, `match` and the changed field
+  names, with the field values withheld. The same user received full values
+  for an incident they could read as its caller, and the same trimmed events
+  on a single-record channel. `jsn` emits such an event
+  with `changes` and no `record`; a state read (`--state always`) returns
+  `state.record: null` when ACLs hide the record.
 - Watching is read-only and works on read-only profiles. It declares no
   mutation capability and requires no update set.
 - If the session expires mid-watch, the run ends with `auth_error` and
@@ -115,9 +171,8 @@ UI session for a basic/OAuth profile.
 - Record watchers exist on current ServiceNow releases; AMB is a platform
   service that administrators may restrict. If `/amb` is disabled or proxied
   away, the command reports `AMB endpoint not found (HTTP 404)`.
-- One record per invocation in this release. Filtered table subscriptions are
-  not exposed yet — the channel query is `sys_id=<id>` — until table-level
-  access behavior is validated on a live instance.
+- One channel per invocation: one record (`sys_id=<id>`) or one encoded
+  query. Query watches deliver entry, change and exit as described above.
 ## Verification status
 
 Live-verified on `example.service-now.com` on 2026-11-04 with an admin OAuth
@@ -135,10 +190,29 @@ profile, watching one incident:
 - SIGINT during a watch unsubscribed, disconnected, and printed
   `watch_summary` with `reason: "cancelled"` and exit status 0.
 
-Still unverified: ACL/role denial (the only available profile is an admin,
-and admins bypass record ACLs), create and delete notification payloads,
-reconnect/gap behavior against a real dropped connection, and filtered
-table-level subscriptions. Unit and mock coverage lives in
+Live-verified on a PDI on 2026-11-25 with a basic profile, watching the
+query `short_descriptionSTARTSWITH<tag>^priority=1` while disposable
+incidents were inserted, updated and deleted through the Table API:
+
+- Inserting a matching incident sent `insert`/`entry` with every field set;
+  inserting one outside the query sent nothing.
+- An update that kept the incident in the query sent `update`/`change`; an
+  update that raised another into it sent `update`/`entry`; an update that
+  lowered the first out of it sent `update`/`exit`. Later updates to the
+  incident outside the query sent nothing.
+- Deleting a matching incident sent `delete`/`exit` with an empty `changes`
+  list and no `record`; deleting one outside the query sent nothing.
+- A second session impersonating a user with no roles received the same
+  events, trimmed as described under Authentication and access.
+- `--operation update --on-change priority` emitted exactly the entry and the
+  exit, and the summary reported `complete: true`.
+- A four-minute watch on the shared PDI saw one load-balancer `500` on a
+  long-poll; the stream reported a `gap`, re-subscribed and finished with
+  `complete: false`.
+
+Still unverified: watches much longer than four minutes, where other AMB
+clients rotate their session to stay ahead of an idle reaper. Unit and mock
+coverage lives in
 `cli/test/amb.test.js`, `cli/test/record-watch.test.js` and
 `cli/test/records-watch.test.js`; the opt-in live harness is
 `cli/test/amb-live.test.js`.

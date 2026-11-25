@@ -670,14 +670,18 @@ gap; missed events are neither replayed nor claimed. Observation is bounded by
 `--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
 and user notification stay with the calling agent.
 
-Only a single-record subscription ships. Filtered table subscriptions are
-deferred until platform support and access behavior are validated on a live
-instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
-ack, cross-session delivery and the notification shape: the platform sends a
-`record` map of changed fields plus `sys_*` audit fields, not a `changes`
-array, and it omits `table`/`sys_id` (the subscription supplies them). Human
-output renders those changed fields. ACL denial with a non-admin identity,
-create/delete payloads and a real reconnect gap remain unverified.
+A watch subscribes to one record (`sys_id=<id>`) or to an encoded query
+(`--query`), which the read validator checks before subscribing. Live
+verification on 2026-11-04 confirmed the handshake, subscribe ack,
+cross-session delivery and a notification shape with a `record` map of
+changed fields plus `sys_*` audit fields and no `table`/`sys_id` (the
+subscription supplies them). On 2026-11-25 a basic profile's session
+subscribed to a query channel and received insert, update and delete
+payloads carrying `sys_id`, the changed field names and `entry`/`change`/
+`exit`, including `exit` when an update took a record out of the query. A
+user without read access got the same events with values withheld, and a
+mid-stream `500` was reported as a gap. A query event that arrives without a
+`sys_id` carries a `warning`, since a query channel has none to fill in.
 
 ### Table behavior mirrors the platform's Configurations inventory (2026-11-04)
 
