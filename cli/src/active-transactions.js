@@ -1,4 +1,4 @@
-import { errAPI, errUsage } from './errors.js';
+import { errAPI, errNotFound, errUsage } from './errors.js';
 
 // The 'Active Transactions (All Nodes)' module: loading_transactions.do refreshes
 // v_cluster_transaction for this session from every node, then the list is read in
@@ -97,6 +97,81 @@ export async function checkVisible(sdk, refresh, rows) {
   return { ...refresh, complete: false, warning: 'The refreshed list was not visible to this session (it did not even hold this request), so an empty result proves nothing. Retry.' };
 }
 
+const SESSION = /^[\w.:-]{1,128}$/;
+// Kill takes effect at the transaction's next cancellation check, so re-read a few times, two seconds apart.
+const KILL_POLLS = 5;
+const withoutSnapshot = ({ snapshot_id: _snapshot, ...row }) => row;
+
+export function killOptions(argv = {}) {
+  const session = String(argv.session ?? '').trim();
+  if (!SESSION.test(session)) throw errUsage('kill takes a session_id from jsn transactions active, such as glide.scheduler.worker.3.');
+  const transaction = argv['expect-transaction'] == null ? null : String(argv['expect-transaction']).trim();
+  if (transaction !== null && !SESSION.test(transaction)) throw errUsage('--expect-transaction takes the transaction_id the preview showed.');
+  // Worker sessions are reused by the next job and repeat on every node, so a kill names the transaction it saw.
+  if (argv.yes === true && !transaction) throw errUsage('--yes needs --expect-transaction <transaction_id> from the preview, so the kill reaches the transaction you saw and nothing else.');
+  return { session, transaction, yes: argv.yes === true, force: argv.force === true };
+}
+
+async function sessionTransactions(sdk, session, opts) {
+  const refresh = await refreshActiveTransactions(sdk, opts);
+  const params = new URLSearchParams({ sysparm_query: `session_id=${session}`, sysparm_fields: `${ACTIVE_FIELDS},snapshot_id`, sysparm_display_value: 'all', sysparm_limit: '20' });
+  const rows = rowsOf(await sdk.listStrict(ACTIVE_TABLE, params, { stateful: true }), ACTIVE_TABLE).filter(row => raw(row.session_id) === session);
+  return { refresh: await checkVisible(sdk, refresh, rows), rows };
+}
+
+// The Kill UI action on v_cluster_transaction and TransactionKillAjax.forceKillCluster (Force Kill):
+// the transaction's own node kills it directly, any other node is sent the same call as a cluster message.
+export const killScript = (session, nodes, method) => `(function() {
+  if (!gs.hasRole('admin')) throw new Error('Admin role required');
+  var session = '${session}', nodes = ${JSON.stringify(nodes)}, here = String(GlideClusterSynchronizer.getSystemID());
+  for (var i = 0; i < nodes.length; i++) {
+    if (nodes[i] == here) GlideTransactionManager.${method}(session);
+    else GlideClusterMessage.postScript("GlideTransactionManager.${method}('" + session + "');", nodes[i]);
+  }
+  gs.print('JSN_TRANSACTION_KILL:sent');
+})();`;
+
+export async function killTransaction(sdk, argv = {}, { sleep = wait, ...opts } = {}) {
+  const { session, transaction, yes, force } = killOptions(argv);
+  const { refresh, rows: listed } = await sessionTransactions(sdk, session, { sleep, ...opts });
+  if (!listed.length) throw refresh.complete ? errNotFound('Active transaction for session', session) : errAPI(200, `Session ${session} was not listed, but the list may be incomplete: ${refresh.warning}`);
+  // The listing request runs in jsn's own session, which v_cluster_transaction names as snapshot_id.
+  if (listed.some(row => raw(row.snapshot_id) === session)) throw errUsage('That is the session jsn is using to list transactions. It will not kill its own request.');
+  const rows = transaction ? listed.filter(row => raw(row.transaction_id) === transaction) : listed;
+  if (!rows.length) throw refresh.complete ? errNotFound(`Transaction in session ${session} (it may have finished; preview again)`, transaction) : errAPI(200, `Transaction ${transaction} was not listed, but the list may be incomplete: ${refresh.warning}`);
+  const nodes = [...new Set(rows.map(row => raw(row.node_id)))];
+  if (nodes.some(node => !/^[\w.:-]{1,255}$/.test(node))) throw Object.assign(new Error('Malformed node_id in v_cluster_transaction'), { code: 'malformed_response' });
+  const uncancelable = rows.some(row => raw(row.uncancelable) === 'true');
+  if (uncancelable && !force && yes) throw errUsage('This is an uncancelable system transaction, so Kill refuses it. --force sends Force Kill, which can stop system work part way through.');
+  const method = uncancelable ? 'forceKill' : 'kill';
+  const target = { session, method, nodes, refresh, transactions: rows.map(withoutSnapshot) };
+  if (!yes) return { ...target, dry_run: true, rerun: rows.map(row => `jsn transactions kill ${session} --yes --expect-transaction ${raw(row.transaction_id)}${raw(row.uncancelable) === 'true' ? ' --force' : ''}`) };
+  const output = await sdk.executeScript(killScript(session, nodes, method), 'global');
+  if (!String(output).includes('JSN_TRANSACTION_KILL:sent')) throw errAPI(200, 'The kill script returned no confirmation that it ran. Check jsn transactions active before retrying.');
+  const key = row => raw(row.transaction_id) || raw(row.session_id);
+  const ids = new Set(rows.map(key));
+  let running = rows, check = refresh;
+  for (let poll = 0; poll < KILL_POLLS && (running.length || !check.complete); poll++) {
+    await sleep(2000);
+    const next = await sessionTransactions(sdk, session, { sleep, ...opts });
+    check = next.refresh;
+    running = next.rows.filter(row => ids.has(key(row)));
+  }
+  // Absent from a partial refresh proves nothing: the node that runs it may not have answered.
+  const result = { ...target, dry_run: false, sent: true, ended: !running.length && check.complete === true, check, still_running: running.map(withoutSnapshot), cancellations: [] };
+  const txIds = [...ids].filter(id => /^[0-9a-f]{32}$/i.test(id));
+  if (txIds.length) {
+    try {
+      const params = new URLSearchParams({ sysparm_query: `transaction_idIN${txIds.join(',')}`, sysparm_fields: 'cancel_reason,cancel_requested_time,node_id,session,transaction_id,url', sysparm_limit: '20' });
+      result.cancellations = rowsOf(await sdk.listStrict('syslog_cancellation', params), 'syslog_cancellation');
+    } catch (error) {
+      result.cancellations = null;
+      result.cancellation_error = error.message;
+    }
+  }
+  return result;
+}
+
 const seconds = value => {
   const ms = Date.parse(`${raw(value).replace(' ', 'T')}Z`);
   return Number.isFinite(ms) ? Math.round(ms / 1000) : null;
@@ -122,5 +197,25 @@ export function formatActiveTransactions(result) {
   }
   if (!result.records.length) lines.push('(no active transactions)');
   if (result.pagination.has_more) lines.push(`(oldest ${result.count} shown; ${result.pagination.limit < 100 ? 'raise --limit for more' : 'narrow with --older-than, --user or --type'})`);
+  return `${lines.join('\n')}\n`;
+}
+
+export function formatKillTransaction(result) {
+  const node = result.nodes.map(id => id.split(':').pop()).join(', ');
+  const verb = result.method === 'forceKill' ? 'Force Kill' : 'Kill';
+  const rows = list => formatActiveTransactions({ refresh: {}, records: list, count: list.length, pagination: {} });
+  if (result.dry_run && result.rerun.length > 1) {
+    // Worker names repeat on every node: one command a transaction, labelled, so nobody runs them all.
+    const label = row => `  # ${text(row.node_id).split(':').pop()} ${text(row.url).replace(/\s+/g, ' ').slice(0, 80)}`;
+    return `Session ${result.session} is running ${result.rerun.length} transactions:\n${rows(result.transactions)}Each command kills one of them; run only the one you mean:\n${result.rerun.map((cmd, i) => `  ${cmd}${label(result.transactions[i])}\n`).join('')}`;
+  }
+  if (result.dry_run) return `Would send ${verb} to session ${result.session} on ${node}:\n${rows(result.transactions)}To send it, run:\n  ${result.rerun[0]}\n`;
+  const lines = [`${verb} sent to session ${result.session} on ${node}.`];
+  if (result.ended) lines.push('Ended: the transaction is no longer running.');
+  else if (result.still_running.length) lines.push(`Still running after ${KILL_POLLS} re-reads, 2 seconds apart. It stops at its next cancellation check, which some work never reaches; check with jsn transactions active.`, rows(result.still_running).trimEnd());
+  else lines.push(`Not confirmed: ${result.check.warning || 'the last refresh was incomplete.'}`);
+  if (result.cancellations === null) lines.push(`Cancellation log not readable: ${result.cancellation_error}`);
+  for (const row of result.cancellations || []) lines.push(`Cancellation logged: ${text(row.cancel_reason) || '(no reason)'} at ${text(row.cancel_requested_time)}`);
+  if (result.cancellations?.length === 0) lines.push('No cancellation logged (the platform does not log every cancellation).');
   return `${lines.join('\n')}\n`;
 }

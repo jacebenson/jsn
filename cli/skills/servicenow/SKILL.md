@@ -31,6 +31,9 @@ names the table they come from when they are inherited from a parent.
   `--expect-count` from that preview.
 - What is running on the instance now, on every node, is
   `jsn transactions active` (`--older-than 5m`, `--user`, `--type`), not `eval`.
+  Stopping a runaway background job is `jsn transactions kill <session>`: it
+  previews, `--yes` with the `--expect-transaction` from that preview sends the
+  platform's Kill, and it is not for users' requests.
 - Loading rows into an import set staging table is `jsn import load <table>
   --file rows.json|csv`, not `eval` or `records create` on the staging table.
   It previews without `--yes`; with it, each row reports its transform outcome.
