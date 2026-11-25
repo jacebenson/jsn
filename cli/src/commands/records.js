@@ -851,6 +851,33 @@ export function recordsCmd(wrap) {
             app.ok(data, { summary: `${data.count} version(s) of ${data.record.update_name}${data.diff ? `; version ${data.diff.version} vs current: ${data.diff.status}` : ''}` });
           }),
         })
+        .command({
+          command: 'journal <table> <identifier>',
+          describe: 'Read a record\'s comments and work notes as entries (read-only)',
+          discoveryTasks: [{
+            phrases: ['work notes', 'record comments', 'what did the last work note say', 'journal entries', 'comment history'],
+            args: ['--json'], description: 'List sys_journal_field entries for one record, newest first',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id or number', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. number' })
+            .option('comments', { type: 'boolean', describe: 'Only comments' })
+            .option('work-notes', { type: 'boolean', describe: 'Only work notes' })
+            .option('element', { type: 'string', describe: 'Only this journal element, e.g. approval_history' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max entries, newest first (1-200)' })
+            .epilogue('Entries come from sys_journal_field by element_id, so entries the platform stored under another name (incident notes also appear under name=task) are included. Times are UTC as the Table API returns them, not the caller\'s time zone; the record\'s rendered comments/work_notes string cannot be queried.\nExample: jsn records journal incident INC0010001 --identifier-field number --work-notes --limit 5'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const selected = [argv.comments, argv.workNotes, argv.element].filter(Boolean).length;
+            if (selected > 1) throw errUsage('Choose one of --comments, --work-notes or --element.');
+            const element = argv.element || (argv.comments ? 'comments' : argv.workNotes ? 'work_notes' : undefined);
+            const { recordJournal, formatJournal } = await import('../records/journal.js');
+            const data = await recordJournal(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, element, limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatJournal(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} journal entr${data.count === 1 ? 'y' : 'ies'} for ${argv.table} ${argv.identifier}` });
+          }),
+        })
 
     },
     // Parent discovery through the output controller: the subcommand list is
