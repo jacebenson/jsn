@@ -63,6 +63,24 @@ test('CLI release flag beats config, config beats default, and search/read/statu
     assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /in brazil/);
   }
 });
+test('CLI with no release or profile uses the newest family the service lists, says why, and lists once a day', t => {
+  const f = fixture(t);
+  f.scenario({ releases: ['zurich', 'australia', 'brazil'] });
+  const result = success(f.run(['record']));
+  assert.equal(result.release, 'brazil');
+  assert.equal(result.release_source, 'fallback');
+  assert.equal(result.release_note, 'no instance profile; newest available');
+  assert.equal(f.requests().at(-1).searchParams.get('release'), 'brazil');
+  for (const args of [['--path', 'record.md'], ['status']]) {
+    assert.equal(success(f.run(args)).release, 'brazil');
+    assert.equal(f.requests().at(-1).searchParams.get('release'), 'brazil');
+  }
+  for (const args of [['record'], ['--path', 'record.md'], ['status']]) {
+    const styled = f.run([...args, '--styled'], false);
+    assert.equal(styled.status, 0, styled.stderr); assert.match(styled.stdout, /brazil \(no instance profile; newest available\)/);
+  }
+  assert.equal(f.requests().filter(url => url.pathname === '/api/docs/releases').length, 1);
+});
 test('CLI validates shape before network and preserves server 400 message and hint', t => {
   const f = fixture(t);
   for (const release of ['Brazil', '../escape', '', 'a'.repeat(41)]) {

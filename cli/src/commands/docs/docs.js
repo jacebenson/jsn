@@ -7,17 +7,22 @@ import { docLink } from '../../docs-links.js';
 import { AppError } from '../../errors.js';
 import { resolveDocsRelease } from './db.js';
 import { listDocsReleases } from './releases.js';
+import { chooseDocsRelease } from './instance-release.js';
 
 
 
 function presented(data, text) {
   return Object.defineProperty(data, '_formatted', { value: text, enumerable: false });
 }
+// The release, and why when nothing named it: "brazil (the instance's release)".
+const label = (release, choice) => choice.note ? `${release} (${choice.note})` : release;
+const why = choice => ({ release_source: choice.source, release_note: choice.note });
 
 async function search(argv, app) {
   const query = Array.isArray(argv.query) ? argv.query.join(' ') : argv.query;
-  const result = await searchHostedDocs({ query, limit: argv.limit, offset: argv.offset, bundle: argv.bundle, release: resolveDocsRelease(argv.release, app.config), serviceUrl: await documentationService(app.config, resolveDocsRelease(argv.release, app.config)) });
-  const summary = `${result.count} of ${result.total} result(s) for "${result.query}" in ${result.release}`;
+  const choice = await chooseDocsRelease(argv, app);
+  const result = await searchHostedDocs({ query, limit: argv.limit, offset: argv.offset, bundle: argv.bundle, release: choice.release, serviceUrl: await documentationService(app.config, choice.release) });
+  const summary = `${result.count} of ${result.total} result(s) for "${result.query}" in ${label(result.release, choice)}`;
   const lines = [summary, ''];
   for (const row of result.results) {
     lines.push(`[${row.id}] ${row.title || row.path}`, `  ${row.path}`);
@@ -29,14 +34,15 @@ async function search(argv, app) {
   if (result.count && next < result.total && next <= 10000) lines.push(`… ${result.total - next} more results (use --offset ${next} for the next page)`);
   if (!result.count) lines.push('No matching documents. Try fewer words or a different term.');
   if (result.count) lines.push('Read with "jsn docs --path <exact-path>"; IDs can be pinned with --revision.');
-  app.ok({ ...result, _formatted: lines.join('\n') + '\n' }, { summary });
+  app.ok({ ...result, ...why(choice), _formatted: lines.join('\n') + '\n' }, { summary });
 }
 async function read(argv, app) {
   const maxLines = argv.lines ?? 80;
   if (!Number.isInteger(maxLines) || maxLines < 1 || maxLines > 10000) throw new AppError('usage_error', 'Use --lines 1–10000.');
-  const row = await getHostedDoc(argv.path || argv['id-or-path'], { outline: argv.outline, section: argv.section, revision: argv.revision, release: resolveDocsRelease(argv.release, app.config), serviceUrl: await documentationService(app.config, resolveDocsRelease(argv.release, app.config)) });
+  const choice = await chooseDocsRelease(argv, app);
+  const row = Object.assign(await getHostedDoc(argv.path || argv['id-or-path'], { outline: argv.outline, section: argv.section, revision: argv.revision, release: choice.release, serviceUrl: await documentationService(app.config, choice.release) }), why(choice));
   const title = row.title || row.path;
-  const provenance = `${row.path}\nRelease: ${row.release} | Revision: ${row.revision}\nService: ${row.service}`;
+  const provenance = `${row.path}\nRelease: ${label(row.release, choice)} | Revision: ${row.revision}\nService: ${row.service}`;
   if (row.outline) {
     const text = row.outline.map(h => `${'  '.repeat(h.ancestors.length)}${h.title}  [lines ${h.start_line}–${h.end_line}]\n${'  '.repeat(h.ancestors.length)}  ${h.id}`).join('\n');
     return app.ok(presented(row, `${title}\n${provenance}\n\n${text || 'No selectable headings.'}\n\nUse --section '<ID>' with this --path. Selection includes preamble and ancestor introductions.\nOther sections and linked prerequisites may still matter.\nRetrieval: ${row.retrieval.execution}; full document transferred: ${row.retrieval.full_document_transferred}\n`));
@@ -63,7 +69,7 @@ export function docsCmd(wrapHandler) {
       .usage('Usage: jsn docs "search terms" [options]')
       .epilogue(`Documentation for this command: ${docLink('docs')}`)
       .positional('query', { type: 'string', describe: 'Search words (up to 200 characters)' })
-      .option('release', { type: 'string', describe: 'Documentation family (docs.release config, otherwise australia)' })
+      .option('release', { type: 'string', describe: "Documentation family (docs.release config, else the instance's family if the docs have it, else the newest they have)" })
 
       .option('limit', { type: 'number', default: 20, describe: 'Results per page (1–50)' })
       .option('offset', { type: 'number', default: 0, describe: 'Result offset (0–10000)' })
@@ -97,8 +103,9 @@ export function docsCmd(wrapHandler) {
       .command({ command: 'search <query..>', hidden: true, handler: wrap(search) })
       .command({ command: 'show <id-or-path>', hidden: true, handler: wrap(read) })
       .command({ command: 'status', hidden: true, handler: wrap(async (argv, app) => {
-        const data = await getHostedDocsStatus({ release: resolveDocsRelease(argv.release, app.config), serviceUrl: await documentationService(app.config, resolveDocsRelease(argv.release, app.config)) });
-        app.ok(data, { summary: `Documentation service: ${data.state} in ${data.release}` });
+        const choice = await chooseDocsRelease(argv, app);
+        const data = { ...await getHostedDocsStatus({ release: choice.release, serviceUrl: await documentationService(app.config, choice.release) }), ...why(choice) };
+        app.ok(data, { summary: `Documentation service: ${data.state} in ${label(data.release, choice)}` });
       }) }),
     handler: wrap(async (argv, app) => {
 

@@ -6,6 +6,7 @@ globalThis.fetch = async input => {
   const scenario = JSON.parse(fs.readFileSync(process.env.DOCS_TEST_SCENARIO, 'utf8'));
   if (scenario.offline) throw new Error('offline fixture');
   if (scenario.status) return Response.json({ error: scenario.error, hint: scenario.hint }, { status: scenario.status });
+  if (url.pathname === '/api/docs/releases') return Response.json({ releases: (scenario.releases || ['australia']).map(release => ({ release })) });
   if (url.pathname.endsWith('manifest.json')) {
     if (scenario.legacy && url.pathname.includes('/releases/')) return Response.json({}, { status: 404 });
     return Response.json(scenario.manifest);

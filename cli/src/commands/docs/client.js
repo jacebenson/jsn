@@ -101,3 +101,8 @@ export async function getHostedDocsStatus(options = {}) {
   if (!data || typeof data.state !== 'string') throw invalidResponse();
   return { ...data, release: options.release ?? data.release, service };
 }
+export async function listHostedReleases(options = {}) {
+  const { data } = await request('api/docs/releases', {}, options);
+  if (!Array.isArray(data?.releases)) throw invalidResponse();
+  return data.releases.map(row => row?.release);
+}
