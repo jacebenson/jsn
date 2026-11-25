@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { prepareFlowClone, cloneFlow } from '../flow-clone.js';
 import { canUsePicker } from '../helpers.js';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
+import { showFlowExecution, formatFlowExecution } from '../flow-execution.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { docLink } from '../docs-links.js';
 import { inspectFlow } from '../flow-inspection.js';
@@ -43,7 +44,7 @@ const FLOW_COMMANDS = [
   { name: 'catalog-variables [identifier]', description: 'List a catalog item\'s variables for a service_catalog trigger' },
   { name: 'search <term>', description: 'Download, decode and search a private local flow cache (--refresh to rebuild)' },
   { name: 'list', description: 'List flows' },
-  { name: 'executions', description: 'Show flow executions from sys_flow_context' },
+  { name: 'executions', description: 'List flow executions from sys_flow_context; executions show <context> for one run' },
   { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
   { name: 'status [identifier]', description: 'Check whether a flow is actually able to run' },
   { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
@@ -219,6 +220,19 @@ Documentation: ${docLink('flows')}`),
           aliases: ['runs', 'contexts'],
           describe: 'Show Flow Designer executions from sys_flow_context',
           builder: (y) => y
+            .usage('Usage: jsn flows executions [show <context>] [options]')
+            .command({
+              command: 'show <context>',
+              describe: 'Show one execution: its version, reporting level and the failed step from sys_flow_log',
+              builder: sub => sub.strict().positional('context', { type: 'string', describe: 'Execution sys_id (sys_flow_context)' }),
+              handler: wrap(async (argv, app) => {
+                app.requireInstance();
+                const data = await showFlowExecution(app.sdk, argv.context);
+                Object.defineProperty(data, '_formatted', { value: formatFlowExecution(data), enumerable: false });
+                const { values_recorded: values, reporting } = data.step_data;
+                app.ok(data, { summary: `${data.execution.name}: ${data.execution.state_label}; ${data.failed_steps.length} failed step(s) from ${data.log.count} Error row(s) in the flow log; reporting ${reporting ?? 'unknown'}, ${values ? 'inputs and outputs kept' : values === false ? 'no inputs or outputs kept' : 'inputs and outputs unknown'}` });
+              }),
+            })
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "state=WAITING" or "source_record=<sys_id>")' })
             .option('record', { type: 'string', describe: 'Only executions for this source record sys_id' })
             .option('since', { type: 'string', describe: 'Only contexts created on or after this timestamp' })

@@ -55,6 +55,7 @@ existing subcommand, including retained aliases.
 | `flows` | Output-controller command summary | JSON envelope instead of raw console output; no default mutation | Root output-envelope test and help checks |
 | `flows list`, `ls` | Existing flow picker and inspection | Existing query/fields/depth and JSON behavior retained | Existing command/output tests |
 | `flows executions`, `runs`, `contexts` | Existing executions report | Existing filtering/aggregation behavior unchanged; read-only | Existing execution/context tests |
+| `flows executions show <context>` | One run's version, reporting level and failed step from `sys_flow_log` | Exact sys_id only, rejected before any request; read-only, bounded reads joined on raw sys_ids | `flow-execution-show.test.js` unit and loopback CLI tests |
 | `flows show`, `get` | Omitted identifier picks a flow | Explicit name/ID inspection unchanged | Handler cancellation, binary usage and existing inspection tests |
 | `flows status` | Pick flow and read readiness | Explicit identifier and diagnostic contract retained | Handler cancellation; existing status tests |
 | `flows publish`, `activate` | Pick flow, or action with `--action`; explicitly confirm activation | Requires explicit force or existing profile skip-confirmations when prompts unavailable; lifecycle unchanged | PTY refusal; existing lifecycle/version readback tests with force |
