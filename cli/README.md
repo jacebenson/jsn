@@ -22,11 +22,43 @@ For unreleased changes, use `npm install -g @jacebenson/jsn@dev`; see [channels 
 ```sh
 jsn records list --table incident --query "active=true" --limit 5 --json
 jsn discover --table incident
+jsn columns show incident.priority    # dictionary entry and its choices, inherited from task
 jsn docs "GlideRecord" --limit 5
 jsn --help
 ```
 
-Instance reads use your selected profile; add `--profile <name>` to choose another. Documentation search needs no ServiceNow connection and uses the hosted service by default. Use `jsn <command> --help` for options or `jsn --all-commands --help` for the full reference.
+Instance reads use your selected profile; add `--profile <name>` to choose another. Documentation search uses the hosted service by default and needs no ServiceNow connection; with a profile selected and no release named, it reads the instance's release to choose the documentation family. Use `jsn <command> --help` for options or `jsn --all-commands --help` for the full reference.
+
+## Why a user holds a role
+
+```sh
+jsn users roles <user> --profile <name>
+jsn users roles <user> --why --role <role>
+jsn users roles <user> --why --json
+```
+
+`users roles` lists the user's `sys_user_has_role` rows, joined on raw sys_ids
+(`--limit` 1–1000, default 100, with `pagination.has_more`). Row ACLs can hide
+rows, so an empty list does not prove the user lacks a role. `--why` asks the
+platform's User Role Inheritance API, which needs `user_admin`, for every path
+to each role: a direct grant, a chain of contained roles, or a group. Groups
+appear by the name the platform prints; the API returns no sys_ids. A missing,
+denied or malformed reply is an error, never an empty answer.
+
+## Record version history
+
+```sh
+jsn records versions sys_script_include <sys_id>
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
+```
+
+Lists a record's `sys_update_version` history newest first (1 is the newest),
+and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+version N to the current version on raw values, line by line for scripts. Current
+means the version in state current, as the platform's Compare to Current uses; the
+live record is not read. Read-only. No versions does not mean unchanged: only
+records tracked by update sets have them.
 
 ## Saved Access Analyzer evidence
 
@@ -53,9 +85,44 @@ Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
 
+## Outbound email notifications
+
+```sh
+jsn notifications list --query "collection=incident^active=true"
+jsn notifications show "Incident opened and unassigned" --format styled
+jsn notifications show <sys_id> --get data._delivery
+```
+
+These commands read `sysevent_email_action` and never render or send email.
+`show` adds `_delivery`: what sends the notification (a record insert or update
+with its condition, an event, or a flow) and which body is used. A template
+with a body replaces the notification's own `message_html`; an empty template
+body leaves it in play. Mail script names come from the body in use. A template
+that cannot be read is reported `unavailable`, never as the notification's own
+body, and plain-text notifications are `unsupported`.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
+
+## Slow patterns
+
+```sh
+jsn perf slow --limit 10
+jsn perf slow --type scripts --order-by count --since 2026-11-01
+jsn perf slow show <sys_id> --json
+```
+
+`perf slow` reads the platform's Slow Pattern logs (`sys_pattern` and its
+subclasses for queries, scripts, transactions, events, mutexes and cache
+builds), ranked by total time, run count or average time. `show` finds the
+record's class itself and prints the full SQL and the stack trace that issued
+it. Both are read-only Table API reads and need read access to those tables,
+usually admin. `average` is in milliseconds and `total` is a duration; first
+and last seen times are UTC, and `--since` compares with them in UTC.
+`executable_sql` and `url` can hold literal values from live requests. An empty
+or ACL-filtered list does not prove nothing is slow. `--limit` (1–200) and
+`--offset` page the list; JSON has `pagination.has_more` from one-row lookahead.
 
 ## Work safely
 

@@ -1,6 +1,8 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg } from '../helpers.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
+import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
 import { declareCapabilities } from '../capabilities.js';
+import { errUsage } from '../errors.js';
 
 declareCapabilities('users', { queryTable: 'sys_user', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
@@ -63,6 +65,31 @@ export function usersCmd(wrap) {
             const id = argv.identifier;
             const record = await resolveRecord(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
             app.ok(record, { summary: `User ${id}` });
+          }),
+        })
+        .command({
+          command: 'roles <identifier>',
+          describe: 'List a user\'s roles; --why shows how each is granted (direct, contained role, group)',
+          builder: (y) => y
+            .option('why', { type: 'boolean', describe: 'Show every path to each role from the User Role Inheritance API (needs user_admin)' })
+            .option('role', { alias: 'r', type: 'string', describe: 'Only this role (name or sys_id)' })
+            .option('limit', { alias: 'l', type: 'number', describe: 'Max role rows without --why (1-1000, default 100)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const id = argv.identifier;
+            if (argv.why && argv.limit !== undefined) throw errUsage('--limit applies to the role list; --why always shows every path.');
+            if (argv.why) {
+              const data = await explainUserRoles(app.sdk, id, { role: argv.role });
+              Object.defineProperty(data, '_formatted', { value: formatUserRoleWhy(data, quoteShellArg(id)), enumerable: false });
+              return app.ok(data, { summary: `${data.count} role(s), ${data.path_count} path(s) for ${data.user.user_name}` });
+            }
+            const data = await listUserRoles(app.sdk, id, { role: argv.role, limit: argv.limit });
+            const who = `${data.user.user_name}${data.role ? ` (role ${data.role.name})` : ''}`;
+            app.ok(data, {
+              summary: data.count ? `${data.count} role row(s) for ${who}${data.pagination.has_more ? ', more available (raise --limit or narrow with --role)' : ''}`
+                : `No visible role rows for ${who}; row ACLs can hide rows, so this does not prove the user lacks a role (--why asks the platform)`,
+              breadcrumbs: [{ action: 'why', cmd: `jsn users roles ${quoteShellArg(id)} --why${argv.role ? ` --role ${quoteShellArg(argv.role)}` : ''}`, description: 'How each role is granted' }],
+            });
           }),
         })
         .command({
@@ -133,6 +160,7 @@ export function usersCmd(wrap) {
       console.log('Available subcommands:');
       console.log('  list                  List users');
       console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
+      console.log('  roles <identifier>    List a user\'s roles; --why shows how each is granted');
       console.log('  create                Create a new user');
       console.log('  update <identifier>   Update a user');
       console.log('  delete <identifier>   Delete a user');

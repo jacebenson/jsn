@@ -31,6 +31,7 @@ describe('Records Command Structure', () => {
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
     assert.ok(names.includes('inspect'));
+    assert.ok(names.includes('versions'));
   });
 
   it('uses optional [subcommand] so bare invocation shows help, not a yargs error', async () => {
