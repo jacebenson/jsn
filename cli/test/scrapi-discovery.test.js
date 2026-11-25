@@ -109,7 +109,7 @@ test('--limit bounds the rows and the total says how many matched', async () => 
   assert.equal(f.data.total, 6);
   assert.match(f.meta.summary, /2 of 6 REST endpoints/);
   assert.match(f.meta.summary, /--limit/);
-  assert.deepEqual(f.data.pagination, { limit: 2, offset: 0, total: 6, hasMore: true });
+  assert.deepEqual(f.data.pagination, { limit: 2, total: 6, hasMore: true });
   const all = fixture();
   await all.search({ term: 'api' });
   assert.equal(all.data.pagination.hasMore, false);
@@ -243,6 +243,8 @@ test('real CLI: search and spec over a loopback instance on a read-only profile'
     assert.equal(search.ok, true);
     assert.equal(search.data.total, 3);
     assert.equal((await run(['scrapi', 'search', 'table', '--get', 'data.records.0.route'])).stdout.trim(), '"/api/now/table/{tableName}"');
+    const csv = await run(['scrapi', 'search', 'table', '--format', 'csv', '--limit', '1']);
+    assert.match(csv.stderr, /returned 1 of 3 records; more available\.$/m);
     const human = (await run(['scrapi', 'search', 'upload', '--format', 'styled'])).stdout;
     assert.match(human, /POST\s+\/api\/now\/attachment\/file\s+now · Attachment API · latest/);
     assert.equal((await run(['scrapi', 'spec', 'Table API'])).stdout, `${SPEC_JSON}\n`);

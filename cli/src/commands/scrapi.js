@@ -288,7 +288,7 @@ export function scrapiCmd(wrap) {
             const records = rows.slice(0, argv.limit);
             const summary = `${records.length} of ${rows.length} REST endpoints matching "${term}"${rows.length > records.length ? '; raise --limit or narrow with --namespace or --method' : ''}`;
             const width = Math.min(60, Math.max(0, ...records.map(r => r.route.length)));
-            const data = { term, namespace: namespace ?? null, method: method ?? null, total: rows.length, count: records.length, records, pagination: { limit: argv.limit, offset: 0, total: rows.length, hasMore: rows.length > records.length } };
+            const data = { term, namespace: namespace ?? null, method: method ?? null, total: rows.length, count: records.length, records, pagination: { limit: argv.limit, total: rows.length, hasMore: rows.length > records.length } };
             Object.defineProperty(data, '_formatted', { value: [summary, '', ...records.map(r => `${r.method.padEnd(7)}${r.route.padEnd(width)}  ${r.namespace} · ${r.api} · ${r.version}`)].join('\n') });
             const first = records[0];
             app.ok(data, {
