@@ -28,6 +28,9 @@ names the table they come from when they are inherited from a parent.
   `--expect-count` from that preview.
 - Copying records between instances as XML starts with `jsn records export`,
   which keeps sys_ids and refuses a query the instance would widen or truncate.
+  `jsn records import <file>` loads that file into the target (admin; it skips
+  business rules and overwrites matching sys_ids). It previews without `--yes`
+  and re-reads every record afterwards, exiting nonzero unless each one landed.
 - Why a user holds a role is `jsn users roles <user> --why --role <name>`, not
   `eval` or raw REST: every path (direct, contained role, group) from the
   platform's User Role Inheritance API, which needs `user_admin`.
