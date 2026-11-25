@@ -124,3 +124,19 @@ test('deferred declarations match the implementations they load, before and afte
   assert.equal(folded(collectCapabilities()), before);
   assert.deepEqual(mutationPaths().map(path => path.join(' ')).sort(), pathsBefore);
 });
+
+// A deferred family's mutations must be declared eagerly. If they are not, the
+// guard reads an incomplete registry at buildCLI() and a read-only profile runs
+// the write: this happened when `tables audit` verbs were declared only in the
+// family factory.
+test('a deferred family declares its mutations before it loads', async () => {
+  const { buildCLI } = await import('../src/cli.js');
+  const { isMutationCommand, refreshMutationCommands } = await import('../src/mutations.js');
+  buildCLI();
+  refreshMutationCommands();
+  for (const verb of ['enable', 'disable', 'exclude', 'include', 'deletes']) {
+    assert.equal(isMutationCommand({ _: ['tables', 'audit', verb, 'x_case'] }), true,
+      `tables audit ${verb} must be a mutation before the tables family loads`);
+  }
+  assert.equal(isMutationCommand({ _: ['tables', 'audit', 'x_case'] }), false, 'the audit read stays a read');
+});

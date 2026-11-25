@@ -2,6 +2,7 @@
 // objects: aliases, root help and mutation policy never depend on loading a handler.
 import { createRequire } from 'node:module';
 import { declareCapabilities } from './capabilities.js';
+import { AUDIT_MUTATION_PATHS } from './audit-verbs.js';
 import { profileCommandCapabilities, profileCommandDefinition } from './profile-command-definitions.js';
 import profiles from './record-command-profiles.js';
 
@@ -80,10 +81,11 @@ export const perfCmd = wrap => ({ ...perfCmdDefinition, load: () => require('./c
  * A family whose identity and capabilities derive from its record profile.
  * `module`/`exportName` locate the implementation factory that loads on use.
  */
-function profileFamily(name, module, exportName) {
+function profileFamily(name, module, exportName, extra = {}) {
+  const capabilities = profileCommandCapabilities(profiles[name]);
   return {
     definition: profileCommandDefinition(name),
-    capabilities: profileCommandCapabilities(profiles[name]),
+    capabilities: { ...capabilities, ...extra, mutationSubcommands: [...new Set([...(capabilities.mutationSubcommands || []), ...(extra.mutationSubcommands || [])])] },
     module, exportName,
   };
 }
@@ -105,7 +107,9 @@ const deferredFamilies = {
   rules: profileFamily("rules", "./commands/_simple.js", "rulesCmd"),
   clientscripts: profileFamily("clientscripts", "./commands/_simple.js", "clientScriptsCmd"),
   uiactions: profileFamily("uiactions", "./commands/_simple.js", "uiActionsCmd"),
-  tables: profileFamily("tables", "./commands/_simple.js", "tablesCmd"),
+  tables: profileFamily("tables", "./commands/_simple.js", "tablesCmd", {
+    mutationSubcommands: AUDIT_MUTATION_PATHS,
+  }),
   sppages: profileFamily("sppages", "./commands/_simple.js", "spPagesCmd"),
   spwidgets: profileFamily("spwidgets", "./commands/_simple.js", "spWidgetsCmd"),
   uipages: profileFamily("uipages", "./commands/_simple.js", "uiPagesCmd"),

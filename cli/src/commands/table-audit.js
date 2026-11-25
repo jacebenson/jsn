@@ -7,6 +7,7 @@ import { readTableAudit, formatTableAudit, planAuditChange, applyAuditChange, au
 import { FormatAuto, FormatStyled } from '../output.js';
 import { collectCapabilities, declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope } from '../intended-context.js';
+import { AUDIT_VERBS } from '../audit-verbs.js';
 import { quoteShellArg } from '../helpers.js';
 import { errUsage } from '../errors.js';
 
@@ -45,23 +46,23 @@ async function changeAudit(app, argv, data, change) {
 // and a change is `tables audit enable <table>`. They are declared in
 // capabilities as two-token mutation paths, which the guard already supports.
 const SWITCHES = [
-  { verb: 'enable', name: 'on', value: true,
+  { verb: AUDIT_VERBS[0], name: 'on', value: true,
     describe: "Turn table auditing on (the table collection row's Audit tick)",
     phrases: ['turn on auditing', 'enable table auditing'],
     task: 'Preview turning table auditing on; --yes writes it' },
-  { verb: 'disable', name: 'off', value: true,
+  { verb: AUDIT_VERBS[1], name: 'off', value: true,
     describe: 'Turn table auditing off',
     phrases: ['turn off auditing', 'disable table auditing'],
     task: 'Preview turning table auditing off; --yes writes it' },
-  { verb: 'exclude', name: 'exclude', field: true,
+  { verb: AUDIT_VERBS[2], name: 'exclude', field: true,
     describe: 'Stop auditing a field: add no_audit (whitelist mode: remove audit=true)',
     phrases: ['stop auditing a field', 'exclude field from audit'],
     task: 'Preview excluding a field from auditing; --yes writes it' },
-  { verb: 'include', name: 'include', field: true,
+  { verb: AUDIT_VERBS[3], name: 'include', field: true,
     describe: 'Audit a field again: remove no_audit (whitelist mode: add audit=true)',
     phrases: ['audit a field again', 'include field in audit'],
     task: 'Preview auditing a field again; --yes writes it' },
-  { verb: 'deletes', name: 'deletes', state: true,
+  { verb: AUDIT_VERBS[4], name: 'deletes', state: true,
     describe: 'Remove (on) or add (off) no_audit_delete, which stops deletes reaching sys_audit_delete',
     phrases: ['stop auditing deletes', 'stop recording deletes'],
     task: 'Preview adding no_audit_delete; --yes writes it' },

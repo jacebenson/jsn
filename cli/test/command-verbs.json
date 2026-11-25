@@ -65,7 +65,6 @@
     "evidence",
     "execute",
     "executions",
-    "explain",
     "export",
     "fetch",
     "flows",
@@ -199,10 +198,26 @@
     "watch",
     "workflows"
   ],
-  "approved": {},
+  "approved": {
+    "enable": {
+      "why": "audit enable is the state-changing counterpart of the audit read; list/show only read saved evidence, and update would hide which table attribute changes."
+    },
+    "disable": {
+      "why": "audit disable mirrors audit enable; delete would suggest removing the table, and update would hide the switch from a read-only profile's blocked paths."
+    },
+    "exclude": {
+      "why": "audit exclude stops auditing one field; update writes a record payload, while this edits a dictionary attribute and needs its own path to be refused on read-only profiles."
+    },
+    "include": {
+      "why": "audit include reverses audit exclude; create would imply a new dictionary row, which it never makes."
+    },
+    "deletes": {
+      "why": "audit deletes toggles no_audit_delete; update would blur it with the table Audit tick that audit enable and audit disable already own."
+    }
+  },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 424,
+    "total": 429,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -277,7 +292,7 @@
       "spwidgets": 2,
       "store": 7,
       "subscriptions": 4,
-      "tables": 7,
+      "tables": 12,
       "tasks": 5,
       "tickets": 5,
       "tower": 0,
