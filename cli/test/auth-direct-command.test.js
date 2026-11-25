@@ -47,6 +47,12 @@ test('records commands authenticate directly across methods and output modes wit
         : { error: secrets[4] }));
       return;
     }
+    if (url.pathname === '/api/now/table/sys_user') {
+      // Only session recovery verifies the re-established identity; ordinary
+      // commands never run an auth-status preflight.
+      response.end(JSON.stringify({ result: [{ user_name: 'selected-user' }] }));
+      return;
+    }
     // Session bootstrap is allowed; there is no diagnostic sys_user lookup.
     if (url.pathname === '/angular.do') { response.end('{}'); return; }
     if (url.pathname === '/api/now/table/sys_scope') { response.end('{"result":[]}'); return; }
@@ -56,15 +62,15 @@ test('records commands authenticate directly across methods and output modes wit
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const instance = `http://127.0.0.1:${server.address().port}`;
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(SN_|SERVICENOW_)/i.test(key)));
-  Object.assign(env, { XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, JSN_DATA_HOME: path.join(directory, 'data'),
-    PATH: '', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
+  Object.assign(env, { HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory, JSN_DATA_HOME: path.join(directory, 'data'),
+    PATH: '', JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1' });
   const configDir = path.join(directory, 'servicenow');
   const credentialDir = path.join(configDir, 'credentials');
-  await fs.mkdir(credentialDir, { recursive: true });
+  await fs.mkdir(credentialDir, { recursive: true, mode: 0o700 });
   const selectedFile = path.join(credentialDir, `${credKey(instance, 'selected-user')}.json`);
   const siblingFile = path.join(credentialDir, `${credKey(instance, 'other-user')}.json`);
   const sibling = JSON.stringify({ auth_method: 'oauth', access_token: 'other-access', refresh_token: 'other-refresh' });
-  await fs.writeFile(siblingFile, sibling);
+  await fs.writeFile(siblingFile, sibling, { mode: 0o600 });
   const credentials = method => ({ auth_method: method, username: 'selected-user',
     ...(method === 'basic' ? { password: secrets[0] } : { access_token: method === 'gck' ? secrets[3] : secrets[1] }),
     ...(method === 'oauth' ? { refresh_token: secrets[2] } : {}),
@@ -75,28 +81,47 @@ test('records commands authenticate directly across methods and output modes wit
       selected: { instance_url: instance, username: 'selected-user', auth_method: method, reauth: 'auto' },
       other: { instance_url: instance, username: 'other-user', auth_method: 'oauth' },
     } }));
-    if (creds) await fs.writeFile(selectedFile, JSON.stringify(creds));
+    if (creds) await fs.writeFile(selectedFile, JSON.stringify(creds), { mode: 0o600 });
     else await fs.rm(selectedFile, { force: true });
   }
-  async function run(args, expected = 0) {
+  async function run(args, expected = 0, { allowVerification = false } = {}) {
     let result;
     try { result = { ...await execute(process.execPath, [cli, ...args], { cwd: directory, env, timeout: 15000 }), code: 0 }; }
     catch (error) { result = error; }
     assert.equal(result.code, expected, result.stderr || result.message);
     for (const secret of secrets) assert.ok(!(result.stdout + result.stderr).includes(secret));
     assert.equal(await fs.readFile(siblingFile, 'utf8'), sibling, 'another identity must remain untouched');
-    assert.ok(!requests.some(request => request.path.includes('sys_user')), 'ordinary commands must not perform auth-status probes');
+    const probes = requests.filter(request => request.path.includes('sys_user')).length;
+    // A recovery may verify the rebuilt session exactly once; no other
+    // sys_user lookup is allowed on an ordinary command.
+    assert.ok(allowVerification ? probes <= 1 : probes === 0, 'ordinary commands must not perform auth-status probes');
     return result;
   }
   const recordCalls = () => requests.filter(request => request.path.endsWith('/incident')).length;
   const refreshCalls = () => requests.filter(request => request.path === '/oauth_token.do').length;
   const command = format => ['records', 'get', '--profile', 'selected', '--table', 'incident', '--sys-id', 'record-1', format];
+  await t.test('default policy refuses an existing plaintext fixture without credential dispatch', async () => {
+    await seed('oauth', credentials('oauth'));
+    const original = await fs.readFile(selectedFile);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(credentialDir)).mode & 0o777, 0o700);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(selectedFile)).mode & 0o777, 0o600);
+    env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '0';
+    try {
+      const result = await run(command('--json'), 1);
+      assert.match(result.stderr, /Existing plaintext credentials are preserved/);
+      assert.doesNotMatch(result.stderr, /Warning: plaintext/);
+      assert.equal(requests.length, 0);
+      assert.deepEqual(await fs.readFile(selectedFile), original);
+    } finally { env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '1'; }
+  });
   for (const format of ['--json', '--styled']) {
     for (const method of ['basic', 'oauth', 'gck']) {
       await t.test(`${method} valid / ${format}`, async () => {
         await seed(method, credentials(method));
         const result = await run(command(format));
         assert.match(result.stdout, /INC001/);
+        // Reading plaintext-backed credentials is silent; auth status reports the mode.
+        assert.equal(result.stderr, '');
         assert.equal(recordCalls(), 1); assert.equal(refreshCalls(), 0);
       });
       await t.test(`${method} missing / ${format}`, async () => {
@@ -114,7 +139,7 @@ test('records commands authenticate directly across methods and output modes wit
       });
       await t.test(`${method} rejected / ${format}`, async () => {
         await seed(method, credentials(method)); reject = true;
-        const result = await run(command(format), 1);
+        const result = await run(command(format), 1, { allowVerification: method === 'oauth' });
         if (format === '--json') {
           const error = JSON.parse(result.stdout);
           assert.equal(error.code, 'auth_error'); assert.equal(error.profile, 'selected');
@@ -131,8 +156,9 @@ test('records commands authenticate directly across methods and output modes wit
     });
     await t.test(`OAuth rejection recovers within the same command / ${format}`, async () => {
       await seed('oauth', credentials('oauth')); requireFresh = true;
-      assert.match((await run(command(format))).stdout, /INC001/);
+      assert.match((await run(command(format), 0, { allowVerification: true })).stdout, /INC001/);
       assert.equal(recordCalls(), 2); assert.equal(refreshCalls(), 1);
+      assert.equal(requests.filter(request => request.path === '/api/now/table/sys_user').length, 1);
     });
     await t.test(`expired OAuth without renewal is actionable / ${format}`, async () => {
       await seed('oauth', { ...credentials('oauth'), expires_at: 1, refresh_token: undefined });

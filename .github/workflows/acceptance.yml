@@ -1,0 +1,107 @@
+name: Live acceptance results
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Both vendors or one configured instance environment'
+        type: choice
+        options: [both, pdi, vendor-1, vendor-2]
+        default: both
+      mode:
+        description: 'readonly or approved disposable PDI mutation suite'
+        type: choice
+        options: [readonly, pdi]
+        default: readonly
+      disposable_approved:
+        description: 'I authorize writes on the protected disposable PDI target'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: acceptance
+  cancel-in-progress: false
+jobs:
+  selection:
+    if: github.repository == 'jacebenson/jsn' && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.ref_type == 'tag' && inputs.mode != 'pdi'))
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.select.outputs.targets }}
+      sha: ${{ steps.select.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      - id: select
+        env:
+          MANUAL_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'both' }}
+          MODE: ${{ inputs.mode || 'readonly' }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { selectTargets } from './.github/scripts/acceptance/config.mjs';
+          const targets = selectTargets(process.env.MANUAL_TARGET);
+          if (process.env.MODE === 'pdi' && (targets.length !== 1 || targets[0] !== 'pdi')) throw Error('PDI mode requires explicit single PDI');
+          const sha = process.env.CANDIDATE_SHA;
+          if (!/^[a-f0-9]{40}$/.test(sha)) throw Error('Invalid candidate SHA');
+          execFileSync('git', ['merge-base', '--is-ancestor', sha, `origin/${process.env.DEFAULT_BRANCH}`]);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `targets=${JSON.stringify(targets)}\nsha=${sha}\n`);
+          NODE
+  vendor-1:
+    needs: selection
+    if: contains(fromJSON(needs.selection.outputs.targets), 'vendor-1')
+    uses: ./.github/workflows/acceptance-target.yml
+    with:
+      target: vendor-1
+      sha: ${{ needs.selection.outputs.sha }}
+    secrets: inherit
+  vendor-2:
+    needs: selection
+    if: contains(fromJSON(needs.selection.outputs.targets), 'vendor-2')
+    uses: ./.github/workflows/acceptance-target.yml
+    with:
+      target: vendor-2
+      sha: ${{ needs.selection.outputs.sha }}
+    secrets: inherit
+  pdi:
+    needs: selection
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON(needs.selection.outputs.targets), 'pdi')
+    uses: ./.github/workflows/acceptance-target.yml
+    with:
+      target: pdi
+      sha: ${{ needs.selection.outputs.sha }}
+      mode: ${{ inputs.mode || 'readonly' }}
+      approved: ${{ inputs.disposable_approved && 'true' || 'false' }}
+    secrets: inherit
+  delivery:
+    name: Acceptance delivery gate, not scenario pass gate
+    needs: [selection, vendor-1, vendor-2, pdi]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require one verified execution and unique delivered run keys
+        env:
+          V1: ${{ needs.vendor-1.outputs.delivered }}
+          V2: ${{ needs.vendor-2.outputs.delivered }}
+          PDI: ${{ needs.pdi.outputs.delivered }}
+          K1: ${{ needs.vendor-1.outputs.run_key }}
+          K2: ${{ needs.vendor-2.outputs.run_key }}
+          KP: ${{ needs.pdi.outputs.run_key }}
+        run: |
+          node --input-type=module <<'NODE'
+          const delivered = [[process.env.V1, process.env.K1], [process.env.V2, process.env.K2], [process.env.PDI, process.env.KP]].filter(([ok]) => ok === 'true');
+          if (delivered.some(([, key]) => !/^acceptance_[a-f0-9]{32}$/.test(key || ''))) throw Error('Delivered target lacks a genuine run key');
+          const keys = [process.env.K1, process.env.K2, process.env.KP].filter(Boolean);
+          if (new Set(keys).size !== keys.length) throw Error('Run key collision across targets');
+          if (!delivered.length) throw Error('No target delivered authenticated acceptance checks with exact publication readback');
+          console.log('Delivery verified. Scenario pass/fail verdicts remain in target summaries and public results.');
+          NODE

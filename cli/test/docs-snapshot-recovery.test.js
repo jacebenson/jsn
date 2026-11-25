@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import Database from 'better-sqlite3';
+import Database from '../src/sqlite.js';
 import { buildSnapshot, installSnapshot, docsSnapshotStatus } from '../src/commands/docs/snapshot.js';
 import { getDocsDbPath, getDocsSourceMarkdownDir, openDocsDb, closeDocsDb } from '../src/commands/docs/db.js';
 import { ingestDocs } from '../src/commands/docs/ingest.js';

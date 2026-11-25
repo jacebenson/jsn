@@ -1,0 +1,70 @@
+<section class="shell results" data-payload-digest="<%= @run.payload_digest %>" data-run-key="<%= @run.run_key %>">
+  <p><a href="/results" class="back">← All acceptance runs</a></p>
+  <p class="eyebrow"><%= @run.mode == 'readonly' ? 'READ-ONLY RUN' : 'PDI ISOLATED TEST RUN' %></p>
+  <h1>Acceptance run</h1>
+  <p>Published scenario test results. Publication and workflow delivery are separate from the test verdicts below. A successful delivery does not mean passing tests.</p>
+  <p class="results-lead">Sanitized projection only. Revision <code><%= @run.source_sha %></code><%= ' · source tree was dirty' if @run.source_dirty %> · CLI <%= @run.cli_version %> · Node <%= @run.node_version %> · <%= @run.platform %></p>
+
+  <div class="result-stats">
+    <div class="stat"><span class="stat-num"><%= @run.passed %></span><span class="stat-label">passed</span></div>
+    <div class="stat fail"><span class="stat-num"><%= @run.failed %></span><span class="stat-label">failed</span></div>
+    <div class="stat block"><span class="stat-num"><%= @run.blocked %></span><span class="stat-label">blocked</span></div>
+    <div class="stat"><span class="stat-num"><%= @run.excluded %></span><span class="stat-label">excluded</span></div>
+    <div class="stat"><span class="stat-num"><%= @run.not_run %></span><span class="stat-label">not run</span></div>
+    <div class="stat"><span class="stat-num"><%= (@run.duration_ms / 1000.0).round(1) %>s</span><span class="stat-label">total</span></div>
+  </div>
+
+  <dl class="result-meta">
+    <% if @local_metadata %>
+      <dt>Target label</dt><dd><%= @local_metadata.dig('provenance', 'target') %></dd>
+      <dt>Artifact / harness</dt><dd><%= @local_metadata.dig('provenance', 'artifactKind') %> / <code><%= @local_metadata.dig('provenance', 'harnessSHA') %></code></dd>
+      <% if (release = @local_metadata['release']) %>
+        <dt>Platform release</dt><dd><% %w[family version build patch hotfix].each do |field| %><%= field %>: <%= release[field] || 'unavailable' %> · <% end %></dd>
+        <dt>Metadata source</dt><dd><%= release['source'] %> · <%= release['reason'] %></dd>
+      <% end %>
+    <% end %>
+    <dt>Received</dt><dd><%= @run.received_at.utc.strftime('%Y-%m-%d %H:%M UTC') %></dd>
+    <dt>Selection</dt><dd><%= @run.selection_full ? 'full-product run' : 'explicit subset' %> · <%= @run.selected_count %> scenarios selected</dd>
+    <dt>Selected-task verdict</dt><dd><%= @run.selected_verdict %></dd>
+    <dt>Cleanup</dt><dd><%= @run.cleanup_state %></dd>
+    <dt>Publication</dt><dd>Stored by this server; runner readback verification unknown. Receipt is not a CI roundtrip acknowledgement.</dd>
+    <dt>Taskset version</dt><dd><%= @run.taskset_version %></dd>
+    <dt>Measurements</dt><dd>Durations are sums of check timings, not runner end-to-end time. Stdout/stderr bytes, actual output tokens and provider request counts: unavailable for this acceptance record. Agent tokens and cost: not collected.</dd>
+    <dt>Timing comparison</dt><dd><%= @run.comparison_key ? 'Eligible for exact-cohort comparison only' : 'Not comparable: missing metadata, unsuccessful or zero execution' %></dd>
+    <dt>Developer detail</dt><dd><details><summary>Static product coverage (not selected-task verdict)</summary>partial/full coverage flag: <%= @run.complete %> · <%= @run.missing_count %> unmet static obligations</details></dd>
+    <% if @performance %>
+      <dt>Performance capture</dt>
+      <dd>before <%= @performance.dig('coverage', 'before') %> · after <%= @performance.dig('coverage', 'after') %> · compare <%= @performance.dig('coverage', 'compare') %> · list <%= @performance.dig('coverage', 'list') %> (observational, not a release gate)</dd>
+    <% end %>
+  </dl>
+
+  <h2>Checks</h2>
+  <div class="results-table-wrap">
+    <table class="results-table results-checks" data-sortable-checks>
+      <thead><tr>
+        <% [['Check', 'checkName'], ['Status', 'status'], ['Duration', 'duration']].each do |label, key| %>
+          <th scope="col" aria-sort="none"><button type="button" class="check-sort" data-sort-key="<%= key %>"><%= label %><span data-sort-indicator aria-hidden="true"> ↕</span></button></th>
+        <% end %>
+      </tr></thead>
+      <tbody>
+        <% @checks.each do |check| %>
+          <% tone = check.status == 'passed' ? 'pass' : check.status.start_with?('blocked') ? 'block' : check.status.start_with?('excluded', 'not-run') ? 'muted' : 'fail' %>
+          <tr data-check-name="<%= acceptance_scenario_name(check.check_id) %>" data-status="<%= check.status %>" data-duration="<%= check.duration_ms %>">
+            <td>
+              <strong><%= acceptance_scenario_name(check.check_id) %></strong>
+              <details><summary>Technical ID</summary><code><%= check.check_id %></code></details>
+            </td>
+            <td>
+              <span class="badge <%= tone %>"><%= acceptance_status_explanation(check.status) %></span>
+              <% if (issue_url = acceptance_related_issue(check)) %>
+                <p><%= link_to 'Related UX applicability issue #435', issue_url %></p>
+              <% end %>
+            </td>
+            <td class="num"><%= (check.duration_ms / 1000.0).round(2) %>s</td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</section>
+<script src="/assets/acceptance-results.js?v=<%= File.mtime(Rails.root.join('static/assets/acceptance-results.js')).to_i %>" defer></script>

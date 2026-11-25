@@ -1,12 +1,12 @@
 import test, { mock, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as helpers from '../src/helpers.js';
-import * as prompts from '@inquirer/prompts';
+import * as prompts from '../src/prompts.js';
 import { yargs } from '../src/cli-adapter.js';
 
 let interactive, answer, confirmed, promptCalls, currentID;
 mock.module('../src/helpers.js', { namedExports: { ...helpers, canPrompt: () => interactive } });
-mock.module('@inquirer/prompts', { namedExports: { ...prompts,
+mock.module('../src/prompts.js', { namedExports: { ...prompts,
   editor: async () => { promptCalls.push('notes'); if (answer instanceof Error) throw answer; return answer; },
   confirm: async options => { promptCalls.push(options); if (confirmed instanceof Error) throw confirmed; return confirmed; },
 } });

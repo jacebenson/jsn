@@ -98,3 +98,57 @@ export async function setCurrentApplication(sdk, _userSysID, scopeSysID) {
 export async function setCurrentUpdateSet(sdk, _userSysID, updateSetSysID) {
   await selectContext(sdk, 'updateset', { sysId: updateSetSysID }, updateSetSysID);
 }
+
+/**
+ * Read the update set this authenticated session will actually capture into.
+ *
+ * `sys_user_preference:user=<user>^name=sys_update_set` is the persisted
+ * choice; this endpoint reports the session's effective picker selection. They
+ * are different sources and can disagree in a freshly-warmed session, so the
+ * preference alone must not be treated as the provider's capture context.
+ */
+export async function readEffectiveUpdateSet(sdk) {
+  const endpoint = `${sdk.baseURL}/api/now/ui/concoursepicker/updateset`;
+  const response = await sdk.request(endpoint, { method: 'GET', readOnly: true });
+  const current = response?.result?.current;
+  if (!current || typeof current !== 'object') {
+    throw new Error('Invalid update-set picker response: expected result.current.');
+  }
+  const sysId = typeof current.sysId === 'string' ? current.sysId : '';
+  return {
+    sys_id: sysId,
+    name: typeof current.name === 'string' ? current.name : '',
+    label: current.displayValue || current.name || sysId,
+  };
+}
+
+/**
+ * Read the application this authenticated session has selected.
+ *
+ * The platform stores the Global selection as the *absence* of the
+ * `apps.current_app` preference, so that preference alone can never prove
+ * Global. This endpoint reports the session's effective picker selection; a
+ * response without a readable `result.current` proves nothing and must never
+ * be interpreted as Global.
+ */
+export async function readEffectiveApplication(sdk) {
+  const endpoint = `${sdk.baseURL}/api/now/ui/concoursepicker/application`;
+  const response = await sdk.request(endpoint, { method: 'GET', readOnly: true });
+  const current = response?.result?.current;
+  if (typeof current !== 'string' || !current) {
+    throw new Error('Invalid application picker response: expected result.current.');
+  }
+  return { sys_id: current };
+}
+
+/** Verify capture consistency without ever changing the session. */
+export async function alignUpdateSetCapture(sdk, intended) {
+  const effective = await readEffectiveUpdateSet(sdk);
+  const report = { intended: intended || null, effective, aligned: false, action: 'refused' };
+  if (!intended?.sys_id || effective.sys_id !== intended.sys_id) {
+    const error = new Error('Effective capture set differs from the persisted selection or is unknown. No context was switched; select it explicitly with jsn updatesets set.');
+    error.capture_context = report;
+    throw error;
+  }
+  return { ...report, aligned: true, action: 'none' };
+}

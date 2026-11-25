@@ -1,20 +1,18 @@
-FROM node:lts-bookworm-slim AS docs
+FROM node:lts-bookworm-slim AS assets
 WORKDIR /app
-COPY docs/package*.json docs/
-RUN npm --prefix docs ci
-COPY docs/ docs/
-COPY scripts/build-docs-site.mjs scripts/
-RUN mkdir -p site/tmp && node scripts/build-docs-site.mjs
+COPY site/data/ site/data/
+COPY site/static/ site/static/
+COPY site/config/ site/config/
+COPY site/scripts/build-docs-site.mjs site/scripts/
+RUN node site/scripts/build-docs-site.mjs
 
 FROM node:lts-bookworm-slim AS indexer
 WORKDIR /app
-RUN apt-get update && apt-get install --no-install-recommends -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/cli
 COPY cli/package.json cli/package-lock.json ./
-RUN node --input-type=commonjs -e "const fs = require('node:fs'); const p = JSON.parse(fs.readFileSync('package.json')); p.allowScripts = {'better-sqlite3@13.0.3': true}; fs.writeFileSync('package.json', JSON.stringify(p));" \
-    && npm ci --omit=dev \
-    && node --input-type=module -e "import Database from 'better-sqlite3'; const db = new Database(':memory:'); db.close();"
+RUN npm ci --omit=dev --ignore-scripts
 COPY cli/src/ src/
+RUN node --input-type=module -e "import Database, { requireFts5 } from './src/sqlite.js'; const db = new Database(':memory:'); requireFts5(db); db.close();"
 
 FROM ruby:3.4-slim AS service
 WORKDIR /app/site
@@ -26,9 +24,13 @@ COPY --from=indexer /app/cli/package.json /app/cli/package.json
 COPY --from=indexer /app/cli/node_modules /app/cli/node_modules
 COPY --from=indexer /app/cli/src /app/cli/src
 COPY site/ ./
-COPY --from=docs /app/site/public ./public
-COPY --from=docs /app/site/config/features.json ./config/features.json
-COPY --from=docs /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json
+# Docs are copied for source-link validation, not publication: only the
+# guides/features allowlists in config and MarkdownGuide can render a route,
+# so maintainer and evidence Markdown stay non-public and the negative tests
+# assert their URLs still 404.
+COPY --from=assets /app/site/public ./public
+COPY --from=assets /app/site/config/features.json ./config/features.json
+COPY --from=assets /app/site/tmp/preserved-urls.json ./tmp/preserved-urls.json
 ENV RAILS_ENV=production PORT=3000
 RUN groupadd --system jsn && useradd --system --create-home --gid jsn jsn && chown -R jsn:jsn /app/site
 USER jsn

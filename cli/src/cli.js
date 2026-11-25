@@ -1,3 +1,4 @@
+import { accessAnalyzerCmd, flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
 import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
@@ -10,9 +11,11 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
-import { skippedUpdatesCmd } from './commands/skipped-updates.js';
-import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, contextHeaderSkipCommands } from './capabilities.js';
-import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
+import { impersonationRefusal, confirmImpersonatedWrite, runImpersonated } from './impersonation.js';
+import { maybeShowHome } from './welcome.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
+import { guardExit, exitWithError, AppError, CodeUsage, errUsageHint } from './errors.js';
+import { writesCustomization } from './mutation-context.js';
 import { formatCommandList } from './helpers.js';
 
 // Command modules
@@ -34,15 +37,16 @@ import { groupsCmd } from './commands/groups.js';
 import { groupMembersCmd } from './commands/groupmembers.js';
 import { groupRolesCmd } from './commands/grouproles.js';
 import { ticketsCmd } from './commands/tickets.js';
+import { casesCmd } from './commands/cases.js';
 import { transactionsCmd } from './commands/transactions.js';
 
 import { platformCmd } from './commands/platform.js';
 import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
 import { upgradeCmd } from './commands/upgrade.js';
+import { documentCmd } from './commands/document.js';
 import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
-import { docsCmd } from './commands/docs/docs.js';
 
 // Table and platform commands registered at root level for progressive disclosure
 import {
@@ -58,11 +62,10 @@ import {
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   assignmentsCmd,
   emailCmd,
-  restmessageCmd, soapmessagesCmd,
+  notificationsCmd, restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/_simple.js';
 import { decisiontablesCmd } from './commands/decisiontables.js';
-import { flowsCmd } from './commands/flows.js';
 import { formsCmd } from './commands/forms.js';
 import { listsCmd } from './commands/lists.js';
 import { updateSetsCmd } from './commands/updatesets.js';
@@ -75,11 +78,10 @@ import { scrapiCmd } from './commands/scrapi.js';
 import { b4rulesCmd } from './commands/b4rules.js';
 import { atfCmd } from './commands/atf.js';
 import { scanCmd } from './commands/scan.js';
+import { storeCmd } from './commands/store.js';
+import { pluginsCmd } from './commands/plugins.js';
+import { compareCmd } from './commands/compare.js';
 import { approvalsCmd } from './commands/approvals.js';
-import { historyCmd } from './commands/history.js';
-import { perfCmd } from './commands/perf.js';
-import { customizationsCmd } from './commands/customizations.js';
-import { midserversCmd } from './commands/midservers.js';
 import { diffCmd } from './commands/diff.js';
 import { graphqlCmd } from './commands/graphql.js';
 
@@ -96,10 +98,11 @@ import { graphqlCmd } from './commands/graphql.js';
  *
  * Precedence is the middleware's, unchanged: the shortcut flags beat `--format`,
  * and among the shortcuts the one applied last wins
- * (csv > markdown > styled > quiet > json).
+ * (tsv > csv > markdown > styled > quiet > json).
  */
 export function resolveRequestedFormat(argv) {
   if (!argv) return '';
+  if (argv.tsv) return 'tsv';
   if (argv.csv) return 'csv';
   if (argv.markdown) return 'markdown';
   if (argv.styled) return 'styled';
@@ -115,6 +118,8 @@ export function resolveRequestedFormat(argv) {
  */
 const DISCOVERY_OWNED_ELSEWHERE = new Set(['auth', 'perf', 'skill', 'groupmembers', 'grouproles']);
 
+import { validateReadQuery, assertWriteQuery } from './query-validate.js';
+
 function wrap(handler) {
   return async (argv) => {
     try {
@@ -123,8 +128,23 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
-      await app.guardMutationContext(argv);
-      await handler(argv, app);
+      if (argv.impersonate !== undefined) await confirmImpersonatedWrite(app, argv);
+      const caps = collectCapabilities().get(argv._?.[0]) || {};
+      app.queryValidation = null;
+      if (((typeof argv.query === 'string' && argv.query.trim()) || caps.filteredMutationSubcommands?.includes(argv._?.[1]))
+        && !caps.noInstance && caps.encodedQuery !== false) {
+        const target = typeof caps.queryTable === 'function' ? caps.queryTable(argv) : caps.queryTable || caps.table || argv.table;
+        const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
+        app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
+      }
+      if (argv.impersonate === undefined) {
+        await app.guardMutationContext(argv);
+        await handler(argv, app);
+      } else {
+        // A record write to a sys_metadata table is customization; ancestry is read as the real user, since the target may not read sys_db_object.
+        if (await writesCustomization(app.sdk, argv)) throw errUsageHint(`"jsn ${argv._.join(' ')}" cannot run with --impersonate: it writes customization, which would be captured in that user's update set.`, 'Make customization changes as yourself; --impersonate writes ordinary records.');
+        await runImpersonated(app, argv.impersonate.trim(), () => handler(argv, app));
+      }
     } catch (err) {
       // All error rendering goes through the unified renderer in
       // src/errors.js — exit codes, stream choice, and the JSON envelope
@@ -138,9 +158,6 @@ function wrap(handler) {
 export function buildCLI() {
   const cfg = loadConfig();
   const app = new App(cfg);
-  // Root command names for the completion filter — captured from the yargs
-  // registry after the chain below finishes registering all commands.
-  let rootCommands = [];
 
   const cliInstance = yargs(hideBin(process.argv))
     .scriptName('jsn')
@@ -152,9 +169,12 @@ export function buildCLI() {
       },
     ])
     .options({
+      'refresh-metadata': { type: 'boolean', describe: 'Refresh query metadata instead of reusing the five-minute cache' },
       'all-commands': { type: 'boolean', describe: 'Show the full command list, including admin and developer tools' },
-      reason: { type: 'string', describe: 'Optional non-sensitive reason saved in local mutation history' },
 
+      'expect-scope': { type: 'string', description: 'Intended customization scope, exact scope/name or sys_id' },
+      'expect-update-set': { type: 'string', description: 'Intended in-progress capture set, exact name or sys_id' },
+      'expect-domain': { type: 'string', description: 'Intended domain; refuses writes when effective domain cannot be proven' },
       force: {
         type: 'boolean',
         description: 'Approve Global + Default mutation context only after user approval; delete commands also use this for their separate confirmation',
@@ -171,8 +191,8 @@ export function buildCLI() {
       },
       format: {
         type: 'string',
-        description: 'Output format: auto, json, markdown, styled, quiet, csv',
-        choices: ['auto', 'json', 'markdown', 'styled', 'quiet', 'csv'],
+        description: 'Output format: auto, json, markdown, styled, quiet, csv, tsv',
+        choices: ['auto', 'json', 'markdown', 'styled', 'quiet', 'csv', 'tsv'],
       },
       json: {
         type: 'boolean',
@@ -180,17 +200,27 @@ export function buildCLI() {
       },
       csv: {
         type: 'boolean',
-        description: 'Output in CSV format (shortcut for --format=csv)',
+        description: 'CSV output for compact, flat record lists',
+      },
+      tsv: {
+        type: 'boolean',
+        description: 'TSV output for compact, tab-separated record lists',
       },
       get: {
+        alias: 'select',
         type: 'string',
         description: 'Extract a JSON path from the output envelope (e.g. --get "data.records.0.number"); no jq needed',
       },
       quiet: {
         type: 'boolean',
         description: 'Output only data, no envelope (shortcut for --format=quiet)',
-        alias: 'q',
+        alias: 'S',
       },
+      verbose: { type: 'boolean', description: 'Keep machine-output coaching and pretty-print JSON' },
+      raw: { type: 'boolean', description: 'Print extracted strings without JSON quotes' },
+      'include-reference-links': { type: 'boolean', description: 'Include Table API reference links on reads' },
+      impersonate: { type: 'string', description: 'Run this command as another user (user_name or sys_id) on a private session' },
+      'impersonate-writes': { type: 'boolean', description: 'Allow a write under --impersonate once your user has approved it' },
       styled: {
         type: 'boolean',
         description: 'Force styled output even when piped',
@@ -205,6 +235,8 @@ export function buildCLI() {
       // resolveRequestedFormat so the parse-time failure path applies the
       // identical policy instead of approximating it from raw tokens.
       (argv) => {
+        app.output.verbose = argv.verbose === true;
+        app.output.raw = argv.raw === true;
         const requested = resolveRequestedFormat(argv);
         if (requested) {
           argv.format = requested;
@@ -212,6 +244,10 @@ export function buildCLI() {
         }
         if (argv.get) {
           app.output.setJqFilter(argv.get);
+          if (!requested || requested === 'auto') {
+            app.output.setFormat('json');
+            argv.format = 'json';
+          }
         }
       },
       // --profile / --instance resolve through the SESSION (src/session.js).
@@ -230,6 +266,7 @@ export function buildCLI() {
           }
           app._authArgv = argv;
           applySession(app, session);
+          if (app.sdk) app.sdk.includeReferenceLinks = argv.includeReferenceLinks === true;
         } catch (err) {
           guardExit(argv, { code: err.code || 'usage', message: err.message, hint: err.hint });
         }
@@ -259,6 +296,10 @@ export function buildCLI() {
             });
           }
         }
+      },
+      (argv) => {
+        const refusal = argv.impersonate === undefined ? null : impersonationRefusal(argv);
+        if (refusal) guardExit(argv, { code: 'usage', message: `"jsn ${argv._.join(' ')}" cannot run with --impersonate: ${refusal}.`, hint: 'Impersonation runs one instance command as another user, for example: jsn records list --table incident --impersonate abel.tuter' });
       },
     ])
     .middleware(async (argv) => {
@@ -336,10 +377,7 @@ export function buildCLI() {
         }
       }
 
-      // Print context header for interactive terminals
-      if (!contextHeaderSkipCommands().has(cmd)) {
-        await argv.app.printContextHeader(argv);
-      }
+      // Reads never probe or print runtime context. Writes use the guard result.
     })
     // CONFIGURATION
     .command(setupCmd(wrap))
@@ -353,8 +391,11 @@ export function buildCLI() {
     .command(requestsCmd(wrap))
     .command(tasksCmd(wrap))
     .command(catalogCmd(wrap))
+    .command(casesCmd(wrap))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
+    .command(workflowsCmd(wrap))
+    .command(accessAnalyzerCmd(wrap))
     .command(actionsCmd(wrap))
     .command(scriptactionsCmd(wrap))
     .command(scheduledjobsCmd(wrap))
@@ -368,6 +409,7 @@ export function buildCLI() {
     .command(scrapiCmd(wrap))
     .command(emailCmd(wrap))
     // AUTOMATION — Outbound
+    .command(notificationsCmd(wrap))
     .command(restmessageCmd(wrap))
     .command(soapmessagesCmd(wrap))
     // ACCESS
@@ -426,10 +468,13 @@ export function buildCLI() {
     // DEVELOPER
     .command(atfCmd(wrap))
     .command(scanCmd(wrap))
+    .command(storeCmd(wrap))
+    .command(pluginsCmd(wrap))
+    .command(compareCmd(wrap))
+    .command(subscriptionsCmd(wrap))
     .command(approvalsCmd(wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
-    .command(historyCmd(wrap))
     .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
     .command(diffCmd(wrap))
@@ -440,66 +485,9 @@ export function buildCLI() {
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
     .command(upgradeCmd(wrap))
-    .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry(), app.config, argv)))
+    .command(documentCmd(wrap))
+    .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry({ details: true }), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
-    // Completion plumbing under a hidden command name, so the explicit
-    // 'completion' command below owns the UX. (#176)
-    // The custom filter fixes two yargs behaviors:
-    // 1. Under strictCommands(), yargs' default completion handler aborts
-    //    when the current word isn't an exact command match. Delegating to
-    //    completionFilter (the default generator) sidesteps that.
-    // 2. When the current word is an exact ALIAS (e.g. "inc" for incidents),
-    //    yargs descends into that command's subcommands, so a still-being-
-    //    typed "jsn inc<TAB>" offers subcommands that can't match the prefix.
-    //    When completing the FIRST word, merge in the root command list — the
-    //    shell's compgen prefix-filters the final list anyway.
-    .completion('__completion', false, (current, argv, completionFilter, done) => {
-      completionFilter((err, completions) => {
-        let out = completions || [];
-        const depth = (argv._ || []).length;
-        if (current && !current.startsWith('-') && depth === 0) {
-          out = [...new Set([...out, ...rootCommands])];
-        }
-        const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
-        const visible = visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(options), options);
-        if (!depth) {
-          const names = new Set(visible.commands.flatMap(command => [command.name, ...command.aliases]));
-          out = out.filter(value => value.startsWith('-') || names.has(value));
-        }
-        done([...new Set(out)]);
-      });
-    })
-    // User-facing completion command with a real help page (install docs).
-    // yargs' built-in completion command prints the script even for --help,
-    // which is why the plumbing above uses the hidden '__completion' name.
-    .command({
-      command: 'completion',
-      describe: 'Generate shell completion script',
-      builder: (y) => y
-        .usage('Usage: jsn completion > <file for your shell>')
-        .epilogue([
-          'Install for your shell:',
-          '',
-          '  # bash (auto-loaded if the bash-completion package is installed)',
-          '  jsn completion > ~/.local/share/bash-completion/jsn',
-          '',
-          '  # bash (simple)',
-          '  jsn completion >> ~/.bashrc',
-          '',
-          '  # fish',
-          '  jsn completion > ~/.config/fish/completions/jsn.fish',
-          '',
-          '  # zsh — the generated script is bash-style, load via bashcompinit.',
-          '  # Add to ~/.zshrc:',
-          '  autoload -U +X bashcompinit && bashcompinit',
-          '  source <(jsn completion)',
-          '',
-          'Restart your shell (or source the file) after installing.',
-        ].join('\n')),
-      handler: () => {
-        cliInstance.showCompletionScript();
-      },
-    })
     .onParentDiscovery((argv, { path, subcommands }) => {
       // Reached only for a parent command that declares no default handler of
       // its own (attachments, docs community, and any future parent) —
@@ -528,8 +516,9 @@ export function buildCLI() {
       })(argv);
     })
     .epilogue(renderTips())
+    .option('version', { type: 'boolean', alias: 'V', describe: 'Show the jsn version' })
     .help('help', 'Show help')
-    .version(false)
+    .version(getVersion())
     .strictCommands()
     .strictOptions(false)
     .fail((msg, err) => {
@@ -541,6 +530,8 @@ export function buildCLI() {
       // negation) instead of re-scanning raw argv — one policy, one answer for
       // this command line no matter which layer rejects it.
       const formatArgv = cliInstance.parseGlobalOptions(raw);
+      app.output.verbose = formatArgv?.verbose === true;
+      app.output.raw = formatArgv?.raw === true;
       const requestedFormat = resolveRequestedFormat(formatArgv);
       if (msg === 'You must specify a command') {
         const hasLoneProfile = raw.some((a, i, arr) => {
@@ -581,7 +572,15 @@ export function buildCLI() {
           }
           process.exit(0);
         }
-        process.stdout.write(renderHelp(loadConfig(formatArgv), visibleCommandRegistry(cliInstance.commandRegistry(), loadConfig(formatArgv), formatArgv)) + '\n');
+        // Human terminals always get the compact local home. Machine and
+        // non-interactive discovery retain their existing reference output.
+        const config = loadConfig(formatArgv);
+        const welcome = maybeShowHome({ argv: formatArgv, requestedFormat, cfg: config });
+        if (!welcome) {
+          const registry = visibleCommandRegistry(
+            cliInstance.commandRegistry({ summaries: true, shallow: true }), config, formatArgv);
+          process.stdout.write(renderHelp(config, registry, { full: formatArgv?.allCommands === true }) + '\n');
+        }
         process.exit(0);
       }
       // Every other failure here (unknown command, missing required argument,
@@ -604,12 +603,10 @@ export function buildCLI() {
   cliInstance.rootHelpRenderer = () => {
     const options = cliInstance.parseGlobalOptions(process.argv.slice(2));
     const config = loadConfig(options);
-    return renderHelp(config, visibleCommandRegistry(cliInstance.commandRegistry(), config, options));
+    const registry = visibleCommandRegistry(
+      cliInstance.commandRegistry({ summaries: true, shallow: true }), config, options);
+    return renderHelp(config, registry, { full: options?.allCommands === true });
   };
-
-  // Snapshot the root command names (plus aliases) for the completion
-  // filter. Done before any parse — command builders mutate the registry.
-  rootCommands = cliInstance.getInternalMethods().getCommandInstance().getCommands();
 
   // The capability registry is fully populated now that every command
   // factory has run — generate the mutation guard's path list.
@@ -622,3 +619,4 @@ export function buildCLI() {
 export const cli = buildCLI();
 
 export { cancelBackgroundChecks } from './commands/version.js';
+export { impersonating } from './impersonation.js';

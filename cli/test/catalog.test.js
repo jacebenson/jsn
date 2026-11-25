@@ -112,6 +112,8 @@ function buildEnrichSdk(overrides = {}) {
     { name: 'disk', question_text: 'Disk', type: '5', mandatory: 'true', variable_set: { display_value: 'Standard Set', value: 'vs1' } },
   ];
   return {
+    baseURL: overrides.baseURL ?? 'https://x.service-now.com',
+    request: overrides.request,
     list: async (table) => {
       if (table === 'sc_cat_item') return [item];
       if (table === 'item_option_new') return variables;
@@ -204,28 +206,73 @@ describe('enrichCatalogItem', () => {
     assert.strictEqual(data2.execution_plan, 'Legacy Plan');
   });
 
-  it('groups variables into standalone + sets with count', async () => {
+  it('returns every answerable question with its name, type and flags when the catalog API is unavailable', async () => {
     const sdk = buildEnrichSdk();
-    const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
-    assert.strictEqual(data.variables.count, 3);
-    assert.deepStrictEqual(data.variables.standalone, [
-      { label: 'CPU', type: '6', mandatory: true },
+    const { data, source } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
+    assert.strictEqual(source, 'item_option_new');
+    assert.strictEqual(data.variables_source, 'item_option_new');
+    assert.strictEqual(data.variables_reported, false);
+    assert.deepStrictEqual(data.variables, [
+      { name: 'cpu', label: 'CPU', type: 6, friendly_type: 'single_line_text', mandatory: true, instance_supplied: false },
+      { name: 'ram', label: 'RAM', type: 5, friendly_type: 'select_box', mandatory: false, instance_supplied: false },
+      { name: 'disk', label: 'Disk', type: 5, friendly_type: 'select_box', mandatory: true, instance_supplied: false },
     ]);
-    assert.deepStrictEqual(data.variables.sets, [
-      {
-        name: 'Standard Set',
-        variables: [
-          { label: 'RAM', type: '5', mandatory: false },
-          { label: 'Disk', type: '5', mandatory: true },
-        ],
-      },
-    ]);
+    assert.deepStrictEqual(data.required_variables, ['cpu', 'disk']);
   });
 
-  it('omits the variables block when the item has no variables', async () => {
+  it('drops layout entries from the definition fallback', async () => {
+    const sdk = buildEnrichSdk({ variables: [
+      { name: 'note', question_text: '', type: '32', mandatory: 'false' },
+      { name: 'help_block', question_text: 'Help', type: '23', mandatory: 'false' },
+      { name: 'cpu', question_text: 'CPU', type: '6', mandatory: 'true' },
+    ] });
+    const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
+    assert.deepStrictEqual(data.variables.map(v => v.name), ['cpu']);
+  });
+
+  it('asks for the form order and does not reorder what the platform returned', async () => {
+    const sdk = buildEnrichSdk({ variables: [
+      { name: 'disk', question_text: 'Disk', type: '5', mandatory: 'false', order: '300' },
+      { name: 'cpu', question_text: 'CPU', type: '6', mandatory: 'true', order: '100' },
+      { name: 'note', question_text: '', type: '32', mandatory: 'false' },
+    ] });
+    const orig = sdk.list;
+    let query = '';
+    sdk.list = async (table, params) => { if (table === 'item_option_new') query = params.get('sysparm_query'); return orig(table, params); };
+    const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
+    assert.match(query, /ORDERBYorder/, 'the fallback asks the platform for the form order');
+    assert.deepStrictEqual(data.variables.map(v => v.name), ['disk', 'cpu'], 'order is the platform\'s answer, not a local guess');
+  });
+
+  it('prefers the catalog API payload, which is what a submission must answer', async () => {
+    const sdk = buildEnrichSdk({ request: async () => ({ result: { sys_id: 'abc123', variables: [
+      { name: '', label: 'Options', type: 0, friendly_type: 'container_start', mandatory: false, children: [
+        { name: 'agree', label: 'I agree', type: 7, friendly_type: 'check_box', mandatory: true },
+      ] },
+      { name: 'note', label: '<p>Read</p>', type: 32, friendly_type: 'rich_text_label', mandatory: false },
+      { name: 'requested_for', label: 'Requested for', type: 31, friendly_type: 'requested_for', mandatory: true },
+    ] } }) });
+    const { data, source } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
+    assert.strictEqual(source, 'catalog_api');
+    assert.deepStrictEqual(data.variables.map(v => v.name), ['agree', 'requested_for']);
+    assert.deepStrictEqual(data.required_variables, ['agree']);
+    assert.deepStrictEqual(data.instance_supplied_variables, ['requested_for']);
+    assert.strictEqual(data.variables_reported, true);
+  });
+
+  it('keeps the definition view when the catalog API throws, and says so', async () => {
+    const sdk = buildEnrichSdk({ request: async () => { throw Object.assign(new Error('Cannot convert null to an object.'), { status: 500 }); } });
+    const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
+    assert.strictEqual(data.variables_source, 'item_option_new');
+    assert.strictEqual(data.variables_api_error, 'Cannot convert null to an object.');
+    assert.deepStrictEqual(data.variables.map(v => v.name), ['cpu', 'ram', 'disk']);
+  });
+
+  it('omits the variables block when the item has no questions', async () => {
     const sdk = buildEnrichSdk({ variables: [] });
     const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://x.service-now.com', sysID: 'abc123' });
-    assert.strictEqual(data.variables, undefined);
+    assert.deepStrictEqual(data.variables, []);
+    assert.deepStrictEqual(data.required_variables, []);
   });
 
   it('throws Not found when the item does not exist', async () => {
@@ -238,7 +285,7 @@ describe('enrichCatalogItem', () => {
 });
 
 describe('buildCatalogFormatted', () => {
-  it('renders details, flow, workflow and grouped variables', () => {
+  it('renders details, flow, workflow and questions with their payload names', () => {
     const data = {
       name: 'Test Item',
       short_description: 'A test item',
@@ -249,26 +296,42 @@ describe('buildCatalogFormatted', () => {
       flow_cmd: 'jsn flows show abc123',
       workflow: 'Fulfillment WF',
       execution_plan: 'Standard Plan',
+      required_variables: ['cpu', 'disk'],
+      instance_supplied_variables: [],
     };
-    const standalone = [{ name: 'cpu', question_text: 'CPU', type: '6', mandatory: 'true' }];
-    const sets = [{ name: 'Standard Set', variables: [{ name: 'ram', question_text: 'RAM', type: '5', mandatory: 'false' }] }];
-    const out = buildCatalogFormatted(data, standalone, sets, 2);
+    const variables = [
+      { name: 'cpu', label: 'CPU', type: 6, friendly_type: null, mandatory: true, instance_supplied: false },
+      { name: 'disk', label: 'Disk', type: 5, friendly_type: 'select_box', mandatory: true, instance_supplied: false },
+    ];
+    const out = buildCatalogFormatted(data, variables, 'item_option_new');
     assert.match(out, /Test Item \(sc_cat_item\)/);
     assert.match(out, /─ Details ─/);
     assert.match(out, /short_description: {2}A test item/);
     assert.match(out, /─ Flow ─\n {2}Provision Server\n {2}→ jsn flows show abc123/);
     assert.match(out, /─ Workflow ─\n {2}Fulfillment WF/);
-    assert.match(out, /─ Catalog Variables ─/);
-    assert.match(out, / {2}CPU: {2}6 \(mandatory\)/);
-    assert.match(out, / {2}\[Standard Set\]\n {4}RAM: {2}5/);
+    assert.match(out, /─ Catalog Questions \(item_option_new\) ─/);
+    assert.match(out, / {2}cpu {2}CPU {2}\[6\] {2}\(required\)/);
+    assert.match(out, / {2}disk {2}Disk {2}\[select_box\] {2}\(required\)/);
+    assert.match(out, / {2}required: {2}cpu, disk/);
   });
 
-  it('skips optional sections when absent', () => {
-    const out = buildCatalogFormatted({ name: 'Bare', active: 'true' }, [], [], 0);
+  it('marks instance-supplied questions separately from required ones', () => {
+    const out = buildCatalogFormatted({ name: 'Desk phone', active: 'true', required_variables: ['justification'], instance_supplied_variables: ['requested_for'] }, [
+      { name: 'requested_for', label: 'Requested for', type: 31, friendly_type: 'requested_for', mandatory: true, instance_supplied: true },
+      { name: 'justification', label: 'Business justification', type: 2, friendly_type: 'multi_line_text', mandatory: true, instance_supplied: false },
+    ], 'catalog_api');
+    assert.match(out, /─ Catalog Questions \(catalog API\) ─/);
+    assert.match(out, / {2}requested_for {2}Requested for {2}\[requested_for\] {2}\(required, instance-supplied\)/);
+    assert.match(out, / {2}instance-supplied: {2}requested_for/);
+  });
+
+  it('skips optional sections when absent and reports a failed catalog API read', () => {
+    const out = buildCatalogFormatted({ name: 'Bare', active: 'true', variables_api_error: 'HTTP 500' }, [], 'item_option_new');
     assert.match(out, /Bare \(sc_cat_item\)/);
     assert.doesNotMatch(out, /─ Flow ─/);
     assert.doesNotMatch(out, /─ Workflow ─/);
-    assert.doesNotMatch(out, /─ Catalog Variables ─/);
+    assert.doesNotMatch(out, /─ Catalog Questions ─/);
+    assert.match(out, /─ Catalog API ─\n {2}unavailable: {2}HTTP 500/);
   });
 });
 
@@ -287,11 +350,10 @@ describe('catalog show handler', () => {
     const { data, opts } = app.lastOk;
     assert.strictEqual(data.name, 'Test Item');
     assert.strictEqual(data.flow, 'Provision Server');
-    assert.strictEqual(data.variables.count, 3);
-    assert.deepStrictEqual(opts.breadcrumbs, [
-      { action: 'list', cmd: 'jsn catalogitems list', description: 'Back to all catalog items' },
-    ]);
-    assert.match(opts.summary, /Test Item — 3 variable\(s\)/);
+    assert.strictEqual(data.variables.length, 3);
+    assert.deepStrictEqual(data.required_variables, ['cpu', 'disk']);
+    assert.deepStrictEqual(opts.breadcrumbs.map(b => b.action), ['list', 'order']);
+    assert.match(opts.summary, /Test Item — 3 question\(s\) from item_option_new/);
     // _formatted is non-enumerable so JSON output stays clean
     assert.strictEqual(Object.keys(data).includes('_formatted'), false);
     assert.match(data._formatted, /Test Item \(sc_cat_item\)/);

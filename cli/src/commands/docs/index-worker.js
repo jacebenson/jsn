@@ -6,7 +6,7 @@ try {
   for await (const line of readline.createInterface({ input: process.stdin, crlfDelay: Infinity })) {
     try {
       const { operation, arguments: args = {} } = JSON.parse(line);
-      if (operation !== 'summary') index ||= new DocumentationIndex(process.env.DOCS_STORAGE_DIR);
+      if (operation !== 'summary') index ||= new DocumentationIndex(process.env.DOCS_STORAGE_DIR, process.env.JSN_DOCS_RELEASE || undefined);
       const value = operation === 'summary' ? documentationSummary(args) : operation === 'revision' ? index.revision()
         : operation === 'search' ? index.search(args) : operation === 'document' ? index.document(args) : null;
       process.stdout.write(JSON.stringify({ value }) + '\n');

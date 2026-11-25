@@ -1,0 +1,27 @@
+Doc 1341: Query record data using the GraphQL API framework in australia
+api-reference/web-services/scripted-graph-ql.md
+Release: australia | Revision: 96d32129bb43ac72057be47de4ffd83cf128813c
+Service: https://jsn.jace.pro/
+Complete selected subtree: Limitations
+Preamble and ancestor introductions included. Sibling sections and linked prerequisites are not automatically included; read the full document when needed.
+Other sections to check: Benefits of GraphQL; What to know before you begin; GraphQL overview; Introspection; Namespaces; Directives and global functions; Demo application.
+Use --outline to retrieve their IDs.
+Semantic answer completeness: unknown. Retrieval: client-fallback.
+
+
+# Query record data using the GraphQL API framework
+
+Create a custom GraphQL API to query record data from a component or a third-party system.
+
+For example, you can create a component that displays the cases associated with an SLA. You can use the Next Experience UI Framework to develop the component you need, and access case data from the platform by creating a GraphQL schema that defines data in the Case table.
+
+To learn more about developing components, see [Developing components for Workspace](https://raw.githubusercontent.com/ServiceNow/ServiceNowDocs/australia/markdown/application-development/custom-components.md).
+
+## Limitations
+
+The following GraphQL features aren't supported:
+
+-   Subscription operations
+-   Custom scalar types
+
+

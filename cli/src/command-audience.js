@@ -5,8 +5,8 @@ const BASIC_COMMANDS = new Set([
   'knowledge',
   'groups', 'groupmembers', 'grouproles', 'users', 'setup', 'auth', 'skill',
   'cmdb',
-  'version', 'upgrade', 'docs', 'history', 'discover', 'completion',
-  'catalogitems',
+  'version', 'upgrade', 'docs', 'history', 'discover',
+  'catalogitems', 'cases',
 ]);
 
 export async function detectCommandAudience(sdk, username, instanceURL = sdk?.baseURL) {
@@ -34,5 +34,7 @@ export function commandAudience(config, { instance, allCommands = false } = {}) 
 
 export function visibleCommandRegistry(registry, config, options = {}) {
   if (commandAudience(config, options) !== 'basic') return registry;
-  return { ...registry, commands: registry.commands.filter(command => BASIC_COMMANDS.has(command.name)) };
+  return { ...registry, commands: registry.commands.filter(command => BASIC_COMMANDS.has(command.name)),
+    ...(registry.entries ? { entries: registry.entries.filter(entry => BASIC_COMMANDS.has(entry.path[0])) } : {}),
+  };
 }

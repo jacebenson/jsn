@@ -1,8 +1,32 @@
 // Structured error types with code, message, and optional hint.
 
+import { elevationHint } from './security-authoring.js';
+
 export const CodeUsage = 'usage_error';
 export const CodeNotFound = 'not_found';
 export const CodeAuth = 'auth_error';
+export const CodeMfaRequired = 'mfa_required';
+export const CodeMfaRejected = 'mfa_code_rejected';
+
+// These errors are terminal for the invocation and precede operation dispatch.
+export function errMfaRequired() {
+  const error = new AppError(CodeMfaRequired,
+    'Multi-factor authentication requires a six-digit authenticator code.',
+    'Re-run in an interactive terminal without --json/--get, or explicitly configure OAuth or a browser session with jsn auth login. JSN never stores TOTP seeds or generates codes.');
+  error.notSent = true;
+  return error;
+}
+
+export function errMfaRejected() {
+  const error = new AppError(CodeMfaRejected, 'MFA verification could not establish the selected authenticated session.',
+    'The challenge failed, expired, or could not be verified. Re-run the command to start a new challenge.');
+  error.notSent = true;
+  return error;
+}
+
+export function isTerminalAuthError(error) {
+  return error?.name === 'PromptCancelled' || error?.code === CodeMfaRequired || error?.code === CodeMfaRejected;
+}
 export const CodeForbidden = 'forbidden';
 export const CodeRateLimit = 'rate_limited';
 export const CodeNetwork = 'network_error';
@@ -54,6 +78,11 @@ export function errAuth(msg) {
   return new AppError(CodeAuth, msg, 'Run: jsn auth login');
 }
 
+/** Authentication failure with domain-specific recovery guidance. */
+export function errAuthHint(msg, hint) {
+  return new AppError(CodeAuth, msg, hint);
+}
+
 export function errForbidden(msg) {
   return new AppError(CodeForbidden, msg, '', 403);
 }
@@ -76,7 +105,7 @@ export function errNetwork(cause) {
   );
 }
 
-export function errAPI(status, msg) {
+export function errAPI(status, msg, context = {}) {
   // Authentication/authorization bodies can echo credentials. Never render them.
   if (status === 401) {
     const error = new AppError(CodeAuth, 'Authentication rejected for the active profile (HTTP 401).', 'Run: jsn auth login', 401);
@@ -84,8 +113,10 @@ export function errAPI(status, msg) {
     return error;
   }
   if (status === 403) {
+    const base = 'This is an authorization/ACL/role problem, not a login problem. Check access to this endpoint.';
+    const elevation = context.mutation ? elevationHint(context.authMethod) : '';
     return new AppError(CodeForbidden, 'Access forbidden (HTTP 403).',
-      'This is an authorization/ACL/role problem, not a login problem. Check access to this endpoint.', 403);
+      elevation ? `${base} ${elevation}` : base, 403);
   }
   let hint = 'Check the API documentation for this endpoint.';
   if (status >= 500) {
@@ -232,7 +263,7 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
   if (err.name === 'PromptCancelled') return { stream: 'stderr', text: 'Cancelled.\n', exitCode: 0 };
   const code = err.code || 'unknown';
 
-  if (code === CodeAuth) {
+  if (code === CodeAuth || code === CodeMfaRequired || code === CodeMfaRejected) {
     if (resolveJsonMode(app, argv) && app) return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
     let text = `Error (auth): ${err.message}\n`;
     if (err.hint) text += `\nHint: ${err.hint}\n`;
@@ -265,9 +296,11 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
 
   if (code === CodeNotFound) {
     let text = `Error (${code}): ${err.message}\n`;
-    if (identifier) {
-      text += `\nHint: The identifier "${identifier}" was not found. Check the name or sys_id.\n`;
-    }
+    // A command that knows why the identifier missed says so; the generic line
+    // is only the fallback (it used to replace every command-specific hint, and
+    // interpolated the subcommand name as if it were the identifier).
+    if (err.hint) text += `\nHint: ${err.hint}\n`;
+    else if (identifier) text += `\nHint: The identifier "${identifier}" was not found. Check the name or sys_id.\n`;
     return { stream: 'stderr', text, exitCode: 1 };
   }
 
@@ -300,6 +333,10 @@ export function renderAppError(err, { app = null, argv = null, identifier = '' }
     let text = `Error (usage): ${err.message}\n`;
     if (err.hint) text += `\nHint: ${err.hint}\n`;
     return { stream: 'stderr', text, exitCode: 2 };
+  }
+
+  if (code === CodeAPI && resolveJsonMode(app, argv) && app) {
+    return { stream: 'stdout', text: null, exitCode: 1, appErr: true };
   }
 
   if (code === 'system_error') {

@@ -3,7 +3,7 @@ import { requireCurrentUserSysId, setCurrentApplication } from '../context.js';
 import { declareCapabilities } from '../capabilities.js';
 import { unwrapSysId } from '../resolve-record.js';
 
-declareCapabilities('scopes', { mutationSubcommands: ['create', 'set'], mutationContextExemptSubcommands: ['create', 'set'] });
+declareCapabilities('scopes', { queryTable: 'sys_scope', mutationSubcommands: ['create', 'set'], mutationContextExemptSubcommands: ['set'] });
 
 /**
  * Resolve a scope identifier to a single sys_scope record.

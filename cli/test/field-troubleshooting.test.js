@@ -17,7 +17,7 @@ test('fixed factory filters remain present for literal user AND clauses, orderin
     const list = captureCommands(factory(fn => fn)).find(c => c.command === 'list');
     const calls = [];
     await list.handler({ query: 'collection=sys_user^active=true', limit: 5 }, {
-      sdk: { list: async (table, params) => { calls.push([table, params.get('sysparm_query')]); return []; } },
+      sdk: { list: async (table, params) => { if (table !== 'sys_db_object' && table !== 'sys_dictionary') calls.push([table, params.get('sysparm_query')]); return []; } },
       output: { getFormat: () => 'json' }, getEffectiveInstance: () => 'https://fixture.invalid', ok() {},
     });
     assert.deepEqual(calls, [['sys_script', `${expected}^collection=sys_user^active=true^ORDERBYDESCsys_updated_on`]]);

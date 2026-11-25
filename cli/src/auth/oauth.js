@@ -1,40 +1,16 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
-import { globalConfigDir } from '../config.js';
-import { credKey } from './credential-store.js';
-
-// ─── PKCE state persistence (shared with Go version) ───
-
-function pkceStatePath(instance, username) {
-  const dir = path.join(globalConfigDir(), 'pkce');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // A known profile identity gets its own pending-login slot. Keep the bare
-  // instance slot for legacy/no-profile flows, where no identity exists yet.
-  const filename = credKey(instance, username) + '.json';
-  return path.join(dir, filename);
-}
+import { credKey, writePrivateState, readPrivateState, removePrivateState } from './credential-store.js';
 
 export function savePKCEState(instance, pkce, username) {
-  const filePath = pkceStatePath(instance, username);
-  fs.writeFileSync(filePath, JSON.stringify(pkce, null, 2), { mode: 0o600 });
+  writePrivateState('pkce', credKey(instance, username), pkce);
 }
 
 export function loadPKCEState(instance, username) {
-  try {
-    const data = fs.readFileSync(pkceStatePath(instance, username), 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
+  return readPrivateState('pkce', credKey(instance, username));
 }
 
 export function removePKCEState(instance, username) {
-  try {
-    fs.unlinkSync(pkceStatePath(instance, username));
-  } catch {
-    // ignore
-  }
+  removePrivateState('pkce', credKey(instance, username));
 }
 
 const DEFAULT_OAUTH_CLIENT_ID = '543e5655f77746a28228c6009a599dfb';

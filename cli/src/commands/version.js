@@ -59,7 +59,11 @@ export function versionCmd(wrap) {
         alias: 'c',
         type: 'boolean',
         describe: 'Check npm registry for newer version',
-      }),
+      })
+      .epilogue('Update jsn with the upgrade command:\n'
+        + '  jsn upgrade                   Update within the current channel\n'
+        + '  jsn upgrade --channel latest  Switch to stable\n'
+        + '  jsn upgrade --channel dev     Switch to dev'),
     handler: wrap(async (argv, app) => {
       const version = getVersion();
 

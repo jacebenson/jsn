@@ -57,7 +57,12 @@ import { errUsage } from './errors.js';
  */
 export function resolveSession(argv = {}, config) {
   const cfg = config || {};
-  const profiles = cfg.profiles || {};
+  const profiles = { ...(cfg.profiles || {}) };
+  // Explicitly selecting a globally saved profile must not select a project
+  // shadow with the same name and a different destination.
+  if (argv.profile && cfg.credentialTrust?.profiles[argv.profile]) {
+    profiles[argv.profile] = cfg.credentialTrust.profiles[argv.profile];
+  }
 
   // --profile selects the active profile for this run. Unknown names are
   // surfaced as data (unknownProfile) — the caller (cli.js middleware)

@@ -97,10 +97,40 @@ Profile 4        Not configured   Available    Not checked  Read/write  Confirm 
 
 * selected profile
 
+Profile protections (ACCESS / DELETES):
+  Read-only: blocks mutation commands, including writes, deletes and raw REST even with GET.
+  Read/write: permits profile operations, subject to each command's guards.
+  Confirm: guarded deletes require confirmation; --force bypasses this prompt, not read-only.
+  No prompt: profile skips standard delete confirmation; command-specific safeguards still apply.
+ACCESS is a JSN profile setting, not ServiceNow ACL authorization.
+CREDENTIALS describes local availability; only CONNECTION Verified confirms the status probe succeeded.
+
 prod: jsn auth login --profile prod
 
 Show users and instance URLs: jsn auth status --details
 `;
+
+describe('auth status reports credential storage mode', () => {
+  it('names profiles whose credentials live in the portable plaintext file', async () => {
+    const { renderAuthStatus } = await import('../src/commands/auth.js');
+    const out = renderAuthStatus({ profiles: [
+      { name: 'pdi', authenticated: true, auth_source: 'file', diagnostics: { auth_method: 'basic', auth_source: 'file', state: 'available' } },
+      { name: 'prod', authenticated: true, auth_source: 'keyring', diagnostics: { auth_method: 'oauth', auth_source: 'keyring', state: 'available' } },
+    ] }, '2 profiles');
+    assert.match(out, /Credential storage:/);
+    assert.match(out, /pdi: portable plaintext file/);
+    assert.match(out, /jsn auth login --profile/);
+    assert.doesNotMatch(out, /prod: portable plaintext file/);
+  });
+
+  it('says nothing when every profile uses the OS credential store', async () => {
+    const { renderAuthStatus } = await import('../src/commands/auth.js');
+    const out = renderAuthStatus({ profiles: [
+      { name: 'prod', authenticated: true, auth_source: 'keyring', diagnostics: { auth_method: 'oauth', auth_source: 'keyring', state: 'available' } },
+    ] }, '1 profile');
+    assert.doesNotMatch(out, /Credential storage:/);
+  });
+});
 
 describe('auth status styled output (visual pin)', () => {
   it('renders the profiles envelope byte-identically via OutputWriter', async () => {

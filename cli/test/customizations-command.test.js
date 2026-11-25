@@ -6,9 +6,10 @@ import path from 'node:path';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 const exec = promisify(execFile);
 
-test('actual CLI capture permits authentication bootstrap but only GET table reads; saved review is offline', async () => {
+test('actual CLI capture performs only GET table reads and keeps the saved review offline', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-customization-cli-'));
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -34,8 +35,8 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const instance = `http://127.0.0.1:${server.address().port}`;
-  const env = { ...process.env, XDG_CONFIG_HOME: path.join(dir, 'config'), XDG_CACHE_HOME: path.join(dir, 'cache'), JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture' };
-  const run = args => exec(process.execPath, [path.resolve('bin/jsn.js'), 'customizations', ...args], { env, cwd: dir });
+  const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: path.join(dir, 'config'), XDG_CACHE_HOME: path.join(dir, 'cache'), JSN_DATA_HOME: path.join(dir, 'data'), JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_PROMPTS: '1', JSN_NO_HEADER: '1', SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture' });
+  const run = args => exec(process.execPath, [...loopbackCredentialArgs, path.resolve('bin/jsn.js'), 'customizations', ...args], { env, cwd: dir });
   try {
     const first = JSON.parse((await run(['capture', '--instance', instance, '--customer-scope', 'x_acme_ours', '--json'])).stdout);
     assert.equal(first.ok, true);
@@ -88,6 +89,8 @@ test('actual CLI capture permits authentication bootstrap but only GET table rea
     assert.deepEqual(compare.data.interpretation, guidance);
     assert.match(compare.data._formatted, /not proven creation\/deletion/);
     assert.ok(requests.some(req => req.url.includes('/api/now/table/sys_metadata')));
+    // Basic explicitly checks for MFA before table reads. Auth POSTs remain
+    // allowed, but every data request must still be read-only.
     assert.ok(requests.some(req => req.method === 'POST' && req.url.startsWith('/angular.do?')));
     assert.ok(requests.filter(req => req.url.startsWith('/api/now/table/')).every(req => req.method === 'GET'));
     assert.ok(requests.every(req => req.method === 'GET' || (req.method === 'POST' && req.url.startsWith('/angular.do?'))));

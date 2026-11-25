@@ -187,30 +187,34 @@ describe('#3 parent commands are machine-readable and never silently succeed', (
     // Capability-conditioned hiding (domains) is the ONLY allowed omission, so
     // compare with the capability present and then confirm the omission itself.
     const config = { activeProfile: 'p', profiles: { p: { domain_separation: true } } };
-    const help = renderHelp(config, registry);
-    const missing = registry.commands.filter((command) => !help.includes(`jsn ${command.name}`));
+    const help = renderHelp(config, registry, { full: true });
+    const commandRows = help.split('\n').filter((line) => /^ {2}\S/.test(line));
+    const missing = registry.commands.filter((command) => !commandRows.some((line) => line.trimStart().startsWith(`${command.name} `)));
     assert.deepEqual(missing.map((command) => command.name), [],
       'root help dropped a registered command (it must land in a group or MORE)');
-    const hidden = registry.commands.filter((command) => !renderHelp({}, registry).includes(`jsn ${command.name}`));
+    const hiddenHelp = renderHelp({}, registry, { full: true });
+    const hiddenRows = hiddenHelp.split('\n').filter((line) => /^ {2}\S/.test(line));
+    const hidden = registry.commands.filter((command) => !hiddenRows.some((line) => line.trimStart().startsWith(`${command.name} `)));
     assert.deepEqual(hidden.map((command) => command.name), ['domains'],
       'only the capability-conditioned command may be omitted');
   });
 
   it('capability-conditioned hiding is preserved (domains)', () => {
     const { registry } = buildRegistry();
-    const withoutDS = renderHelp({ activeProfile: 'p', profiles: { p: {} } }, registry);
-    assert.ok(!withoutDS.includes('jsn domains'), 'domains must stay hidden without the plugin');
-    const withDS = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: true } } }, registry);
-    assert.ok(withDS.includes('jsn domains'), 'domains must appear when the profile has it');
+    const withoutDS = renderHelp({ activeProfile: 'p', profiles: { p: {} } }, registry, { full: true });
+    assert.ok(!/^\s{2}domains\s/m.test(withoutDS), 'domains must stay hidden without the plugin');
+    const withDS = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: true } } }, registry, { full: true });
+    assert.ok(/^\s{2}domains\s/m.test(withDS), 'domains must appear when the profile has it');
   });
 
   it('global flags are generated from the registry (--get and --csv were missing)', () => {
     const { registry } = buildRegistry();
-    const help = renderHelp({}, registry);
+    const help = renderHelp({}, registry, { full: true });
     for (const flag of ['--instance', '--profile', '--format', '--json', '--csv', '--get', '--quiet', '--styled', '--markdown', '--help']) {
       assert.ok(help.includes(flag), `root help is missing ${flag}`);
     }
-    assert.match(help, /--format\s+.*\[string: auto, json, markdown, styled, quiet, csv\]/);
+    assert.match(help, /--format\s+Output format/);
+    assert.match(help, /\[string: auto, json, markdown, styled, quiet, csv, tsv\]/);
   });
 
   it('explicit --help stays human readable (no JSON envelope)', () => {
@@ -311,13 +315,13 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
     const paths = [];
     const walk = (node, prefix) => {
       node.build();
-      for (const child of node.children.filter((c) => c.name !== '__completion')) {
+      for (const child of node.children) {
         const full = `${prefix}${child.name}`;
         paths.push(full);
         walk(child, `${full} `);
       }
     };
-    for (const root of cli.root.children.filter((c) => c.name !== '__completion')) {
+    for (const root of cli.root.children) {
       paths.push(root.name);
       walk(root, `${root.name} `);
     }
@@ -347,7 +351,8 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
       sdk: {
         list: async (table) => { calls.push(`list:${table}`); return [record]; },
         fetchAttachments: async () => { calls.push('attachments'); return [{ file_name: 'a.txt' }]; },
-        fetchCatalogVariables: async () => { calls.push('variables'); return [{ question: 'q', value: 'v' }]; },
+        fetchCatalogVariables: async () => { calls.push('variables'); return { variables: [{ question: 'q', value: 'v' }], truncated: false }; },
+        fetchMultiRowVariables: async () => { calls.push('variable sets'); return { sets: [], truncated: false }; },
       },
       getEffectiveInstance: () => 'https://example.service-now.com',
       ok: (data, opts) => envelopes.push({ data, opts }),
@@ -356,7 +361,7 @@ describe('#6 a re-registered command replaces the earlier definition', () => {
       .command(requestsCmd(wrapHandler))
       .middleware((argv) => { argv.app = app; })
       .parse();
-    assert.deepEqual(calls, ['list:sc_req_item', 'attachments', 'variables']);
+    assert.deepEqual(calls, ['list:sc_req_item', 'attachments', 'variables', 'variable sets']);
     assert.equal(envelopes.length, 1);
     assert.deepEqual(envelopes[0].data._attachments, [{ file_name: 'a.txt' }]);
     assert.deepEqual(envelopes[0].data._variables, [{ question: 'q', value: 'v' }]);
@@ -413,7 +418,7 @@ describe('#264 follow-up: parse-time and handler-time failures agree on formatti
   it('the adapter resolves global flags with the parser, not a raw token scan', () => {
     const cli = yargs([]).options({
       json: { type: 'boolean' },
-      quiet: { type: 'boolean', alias: 'q' },
+      quiet: { type: 'boolean', alias: 'S' },
       csv: { type: 'boolean' },
       markdown: { type: 'boolean' },
       styled: { type: 'boolean' },
@@ -431,7 +436,7 @@ describe('#264 follow-up: parse-time and handler-time failures agree on formatti
     assert.equal(resolve(['--json', '--no-json', '--styled']), 'styled', '--no-json negates');
     assert.equal(resolve(['--json=false']), '', 'a negated boolean is not a request');
     assert.equal(resolve(['--format', 'json']), 'json');
-    assert.equal(resolve(['-q']), 'quiet');
+    assert.equal(resolve(['-S']), 'quiet');
 
     // A value error is the failure being rendered; it must not abort resolution.
     const bad = cli.parseGlobalOptions(['records', 'list', '--table', 'incident', '--format', 'xml', '--json']);
@@ -561,7 +566,7 @@ describe('#264 follow-up: a command token has exactly one owner', () => {
     const tokens = [];
     const walk = (node, prefix) => {
       node.build();
-      for (const child of node.children.filter((c) => c.name !== '__completion')) {
+      for (const child of node.children) {
         tokens.push(prefix + child.name);
         for (const alias of child.aliases) tokens.push(prefix + alias);
         walk(child, `${prefix}${child.name} `);

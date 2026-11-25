@@ -197,6 +197,7 @@ describe('Config - saveConfig', () => {
     const cfg = loadConfig({});
     cfg.instanceURL = 'https://test.service-now.com';
     cfg.defaultProfile = 'test';
+    cfg.profiles.test = { instance_url: cfg.instanceURL };
     saveConfig(cfg);
 
     const cfg2 = loadConfig({});

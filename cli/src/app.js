@@ -7,18 +7,16 @@
 // setEffectiveInstance() are thin session-backed shims kept for the many
 // command handlers that already call them.
 
-import { appendMutation } from './mutation-history.js';
 import { AuthManager } from './auth.js';
 import { createAuthRecovery } from './auth-recovery.js';
 import { SDKClient } from './sdk.js';
-import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled, hyperlink } from './output.js';
-import { saveConfig } from './config.js';
+import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
+import { saveConfig, isTrustedCredentialDestination } from './config.js';
 import { resolveSession, applySession, contextFromSession, requireSessionInstance } from './session.js';
-import { getCurrentUser, getCurrentApplication, getCurrentUpdateSet } from './context.js';
 import { errUsage, errAuth } from './errors.js';
-import { canPrompt } from './helpers.js';
+import { canPrompt, canUsePicker } from './helpers.js';
+import { queryDiagnostics, invalidateAfterMutation } from './query-validate.js';
 import { guardMutationContext } from './mutation-context.js';
-import process from 'node:process';
 
 
 export class App {
@@ -43,6 +41,9 @@ export class App {
       getUsername: () => this.session?.username || null,
       getEffectiveInstance: () => this.session?.instance || '',
       getAuthMethod: () => this.session?.profile?.auth_method || null,
+      isTrustedCredentialDestination: instance => isTrustedCredentialDestination(this.config, instance,
+        this._authArgv?.instance || this._sessionArgv?.instance || (this.session?.profileExplicit ? '' : this.session?.override),
+        this.session?.profileExplicit ? this.session.profileName : ''),
     });
 
     if (this.session.instance) {
@@ -59,9 +60,12 @@ export class App {
       username: session?.username, authMethod: session?.profile?.auth_method,
     }), {
       domain: session?.domain || '',
+      includeReferenceLinks: this._authArgv?.includeReferenceLinks === true,
+      username: session?.username || '',
       recovery: createAuthRecovery({ app: this, session }),
-      onMutation: event => this.recordMutation(instance, session?.profileName, event),
+      canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
+    this.sdk.afterMetadataMutation = table => invalidateAfterMutation(this, table);
   }
 
   /** Build a profile-scoped SDK without leaking auth construction to commands. */
@@ -69,19 +73,9 @@ export class App {
     const profile = options.profile || {};
     return new SDKClient(instance, this.auth.createProfileProvider(instance, options), {
       domain: options.domain ?? profile.domain ?? '',
-      onMutation: event => this.recordMutation(instance, options.profileName || null, event),
+      username: options.username || '',
+      canInteract: () => canUsePicker(this, this._authArgv || {}),
     });
-  }
-
-  recordMutation(instance, profile, event) {
-    if (!this._authArgv) return;
-    try { appendMutation({ ...event, instance, profile, reason: this._authArgv.reason }); }
-    catch {
-      if (!this._historyWarningShown) {
-        process.stderr.write('Warning: local mutation history could not be saved. The remote result is unchanged.\n');
-        this._historyWarningShown = true;
-      }
-    }
   }
 
   loadContext() {
@@ -92,74 +86,18 @@ export class App {
     return this.session?.instance || '';
   }
 
-  async printContextHeader(_argv = {}) {
-    if (!this.getEffectiveInstance() || !this.sdk) return;
-    if (process.env.JSN_NO_HEADER) return;
-    if (this.output.getFormat() === FormatJSON || this.output.getFormat() === FormatQuiet) return;
-
-    let userDisplayName = 'Unknown';
-    let userSysID = '';
-
-    try {
-      const user = await getCurrentUser(this.sdk);
-      if (user) {
-        userDisplayName = user.name || user.user_name;
-        userSysID = user.sys_id;
-        this.context.username = userDisplayName;
-      }
-    } catch {
-      // ignore
-    }
-
-    let displayUserName = userDisplayName;
-    if (displayUserName.length > 10) {
-      displayUserName = displayUserName.slice(0, 6) + '...';
-    }
-
-    // Both lookups depend on the user, but not on one another.
-    const [application, selectedUpdateSet] = userSysID ? await Promise.all([
-      getCurrentApplication(this.sdk, userSysID, { unknownWhenMissing: true }).catch(() => null),
-      getCurrentUpdateSet(this.sdk, userSysID).catch(() => null),
-    ]) : [null, null];
-    const scope = application?.scope || 'unknown';
-    const updateSet = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
-      ? selectedUpdateSet.name : 'unknown';
-    const updateSetSysID = selectedUpdateSet?.name && selectedUpdateSet.name !== '-'
-      ? selectedUpdateSet.sys_id : '';
-    this.context.scope = scope;
-    this.context.updateSet = updateSet;
-
-    const instance = this.getEffectiveInstance();
-    const instanceLink = instance;
-    const userLink = `${instance}/sys_user_list.do?sysparm_query=sys_id=${userSysID}`;
-    const scopeLink = `${instance}/sys_scope.do?sysparm_query=scope=${scope}`;
-    const updateSetLink = updateSetSysID
-      ? `${instance}/sys_update_set.do?sys_id=${updateSetSysID}`
-      : `${instance}/sys_update_set_list.do`;
-
-    const scopeFormatted = `[${scope}]`;
-
-    // Read-only profiles get a lock badge on every command run, so the
-    // armed safety is always visible (not just in `auth status`).
-    const roBadge = this.session?.readOnly === true ? ' 🔒' : '';
-
-    process.stderr.write('# Use `jsn scopes` to change scope, `jsn updatesets set` to change updateset\n');
-    process.stderr.write('PROFILE   USER      [SCOPE]           UPDATE SET\n');
-
-    const profileStr = `${hyperlink(String(this.context.profileName).padEnd(9), instanceLink)}${roBadge}`;
-    const userStr = hyperlink(String(displayUserName).padEnd(9), userLink);
-    const scopeStr = hyperlink(String(scopeFormatted).padEnd(17), scopeLink);
-    const updateSetStr = hyperlink(String(updateSet), updateSetLink);
-
-    process.stderr.write(`${profileStr} ${userStr} ${scopeStr} ${updateSetStr}\n\n`);
-
-  }
+  // Retained for SDK consumers. Automatic context banners are retired.
+  async printContextHeader() {}
 
   async guardMutationContext(argv) {
     this.mutationContext = await guardMutationContext(this, argv);
+    if (this.sdk) this.sdk.mutationContext = this.mutationContext;
   }
 
   ok(data, opts = {}) {
+    const diagnostics = queryDiagnostics(this.queryValidation);
+    if (diagnostics.query_validation && data && typeof data === 'object' && !Array.isArray(data)) data = Object.assign(data, diagnostics);
+    else if (diagnostics.query_validation) opts = { ...opts, meta: { ...opts.meta, ...diagnostics } };
     this.output.ok(data, this.mutationContext ? { ...opts, context: { ...opts.context, mutation: this.mutationContext } } : opts);
   }
 

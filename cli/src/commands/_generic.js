@@ -2,8 +2,9 @@ import { constrainQuery, constrainedQueryHelp } from '../constrained-query.js';
 import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
 // Generic table-based CRUD command builder
 
-import { formatRecordForDisplay, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
+import { formatRecordForDisplay, findOmittedColumns, getStringField, buildRecordPayload, confirmDelete, interactiveList, canPrompt } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
+import { validateReadQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
 import { FormatAuto } from '../output.js';
@@ -99,6 +100,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const readOnly = opts.readOnly || false;
   // Capability declaration: the readOnly flag drives the mutation registry.
   declareCapabilities(name, {
+    mutationContext: 'table', table,
     mutationSubcommands: readOnly ? [] : ['create', 'update', 'delete'],
   });
   const scopeValidation = opts.scopeValidation || false;
@@ -134,6 +136,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
           const constrainedQuery = constrainQuery(query, extraQuery);
+          const verdict = await validateReadQuery(app, { table, query, refresh: argv['refresh-metadata'] });
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
           const limit = argv.limit;
 
@@ -171,12 +174,21 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
           const q = `${constrainedQuery}${constrainedQuery ? '^' : ''}ORDERBYDESCsys_updated_on`;
           const params = recordListParams({ limit, fields: ['sys_id', ...columns], query: q });
           const records = await listRecords(app.sdk, { table, params, displayValues: argv.displayValues ?? opts.referenceMode });
+          const missingColumns = findOmittedColumns(records, columns);
+          const presentColumns = missingColumns.length ? columns.filter(c => !missingColumns.includes(c)) : columns;
           app.ok({
             table,
             count: records.length,
             columns,
-            records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, columns)),
+            ...(missingColumns.length ? {
+              missing_columns: missingColumns,
+              warnings: [
+                `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+              ],
+            } : {}),
+            records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, presentColumns)),
             context: { instance_url: app.getEffectiveInstance() },
+            ...queryDiagnostics(verdict),
           }, {
             summary: `${records.length} ${name}(s)`,
             breadcrumbs: buildHints(name, singular, readOnly),
@@ -184,9 +196,9 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         }),
       })
       .command({
-        command: opts.resolveIdentifier ? 'show [identifier]' : 'show <identifier>',
+        command: opts.resolveIdentifier && !opts.identifierRequired ? 'show [identifier]' : 'show <identifier>',
         aliases: ['get'],
-        describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
+        describe: opts.showDescribe || `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
         builder: y => {
           const command = relatedListOptions(recordOptions(y));
           return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true,
@@ -223,18 +235,23 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         .command({
           command: 'create',
           describe: `Create a new ${singular}`,
-          builder: (y) => recordOptions(y, false)
-            .option('data', { type: 'string', describe: 'JSON fields' })
-            .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
-            .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
-            .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' }),
+          builder: (y) => {
+            const command = recordOptions(y, false)
+              .option('data', { type: 'string', describe: 'JSON fields' })
+              .option('data-file', { type: 'string', describe: 'Read JSON payload from file' })
+              .option('data-stdin', { type: 'boolean', describe: 'Read JSON payload from stdin' })
+              .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' });
+            return opts.createHelp ? command.epilogue(opts.createHelp) : command;
+          },
           handler: wrap(async (argv, app) => {
             const recordData = buildRecordPayload(argv);
             const record = await createRecord(app.sdk, { table, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(record, {
               summary: `Created ${singular}`,
               breadcrumbs: [
                 { action: 'show', cmd: `jsn ${name} show ${getStringField(record, 'name') || getStringField(record, 'sys_id')}`, description: `View the new ${singular}` },
+                ...(opts.createBreadcrumbs || []),
               ],
             });
           }),
@@ -257,6 +274,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             const sysID = unwrapSysId(record);
             const recordData = buildRecordPayload(argv);
             const updated = await updateRecord(app.sdk, { table, record: { sys_id: sysID }, data: recordData });
+            invalidateAfterMutation(app, table);
             app.ok(updated, { summary: `Updated ${singular} ${id}` });
           }),
         })
@@ -277,6 +295,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             await confirmDelete(app, argv, `Delete ${singular} '${recordName}'`);
 
             await deleteRecord(app.sdk, { table, record: { sys_id: sysID } });
+            invalidateAfterMutation(app, table);
             app.ok({ name: recordName, sys_id: sysID, deleted: true }, { summary: `Deleted ${singular} '${recordName}'` });
           }),
         });
@@ -310,6 +329,9 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         console.log('  create      Create a new record');
         console.log('  update      Update a record');
         console.log('  delete      Delete a record');
+      }
+      for (const sub of opts.extraSubcommands || []) {
+        console.log(`  ${sub.name.padEnd(12)}${sub.description}`);
       }
       console.log(`\nRun "jsn ${name} <command> --help" for details.`);
     },

@@ -1,0 +1,58 @@
+[
+  {
+    "label": "baseline-json",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --json",
+    "exit": 0,
+    "characters": 12924,
+    "bytes": 13028
+  },
+  {
+    "label": "baseline-human",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --lines 10 --styled",
+    "exit": 0,
+    "characters": 842,
+    "bytes": 942
+  },
+  {
+    "label": "branch-json",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --json",
+    "exit": 0,
+    "characters": 8366,
+    "bytes": 8368
+  },
+  {
+    "label": "branch-full-human",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --lines 200 --styled",
+    "exit": 0,
+    "characters": 8124,
+    "bytes": 8126
+  },
+  {
+    "label": "branch-outline-human",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --outline --styled",
+    "exit": 0,
+    "characters": 1077,
+    "bytes": 1095
+  },
+  {
+    "label": "branch-outline-json",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --outline --json",
+    "exit": 0,
+    "characters": 2124,
+    "bytes": 2124
+  },
+  {
+    "label": "branch-section-human",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --section s1:f62953e890ec930ebbeb256c:5 --styled",
+    "exit": 0,
+    "characters": 1449,
+    "bytes": 1449
+  },
+  {
+    "label": "branch-section-json",
+    "command": "JSN_DOCS_URL=https://jsn.jace.pro node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --section s1:f62953e890ec930ebbeb256c:5 --json",
+    "exit": 0,
+    "characters": 2425,
+    "bytes": 2425
+  }
+]

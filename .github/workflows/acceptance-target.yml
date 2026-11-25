@@ -1,0 +1,97 @@
+name: Acceptance target delivery
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      mode:
+        type: string
+        default: readonly
+      approved:
+        type: string
+        default: 'false'
+    secrets:
+      JSN_OAUTH_TOKEN:
+        required: false
+      JSN_OAUTH_REFRESH_TOKEN:
+        required: false
+      JSN_ACCEPTANCE_INGEST_TOKEN:
+        required: false
+    outputs:
+      delivered:
+        value: ${{ jobs.acceptance.outputs.delivered }}
+      run_key:
+        value: ${{ jobs.acceptance.outputs.run_key }}
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    name: ${{ inputs.target }} execution, test verdict and publication
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: true # Peer failure must not override the explicit delivery gate.
+    environment: ${{ inputs.target }}
+    outputs:
+      delivered: ${{ steps.execute.outputs.delivered }}
+      run_key: ${{ steps.execute.outputs.run_key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 'lts/*'
+      - run: npm --prefix cli ci --ignore-scripts
+      - name: Stage immutable existing producer
+        run: node .github/scripts/acceptance/prepare.mjs
+      - id: protection
+        name: Reverify mutation approval and required reviewers
+        env:
+          MODE: ${{ inputs.mode }}
+          APPROVED: ${{ inputs.approved }}
+          TARGET: ${{ inputs.target }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ "$MODE" = pdi ] && { [ "$APPROVED" != true ] || [ "$TARGET" != pdi ] || [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; }; then
+            echo '::error::PDI mutations require explicit disposable approval and protected environment review'
+            exit 1
+          fi
+          if [ "$MODE" = pdi ]; then
+            protected=$(gh api repos/jacebenson/jsn/environments/pdi --jq 'any(.protection_rules[]; .type == "required_reviewers" and (.reviewers | length) > 0)')
+            if [ "$protected" != true ]; then
+              echo '::error::Disposable PDI lane requires an environment with required reviewers'
+              exit 1
+            fi
+          fi
+          echo "verified=${protected:-false}" >> "$GITHUB_OUTPUT"
+      - id: execute
+        name: Deliver honest results, independent of scenario verdict
+        env:
+          ACCEPTANCE_TARGET: ${{ inputs.target }}
+          JSN_VERIFY_ENABLED: ${{ vars.JSN_VERIFY_ENABLED }}
+          SERVICENOW_INSTANCE_URL: ${{ vars.JSN_INSTANCE_URL }}
+          SERVICENOW_OAUTH_TOKEN: ${{ secrets.JSN_OAUTH_TOKEN }}
+          SERVICENOW_OAUTH_REFRESH_TOKEN: ${{ secrets.JSN_OAUTH_REFRESH_TOKEN }}
+          SERVICENOW_OAUTH_CLIENT_ID: ${{ vars.JSN_OAUTH_CLIENT_ID }}
+          ACCEPTANCE_REVIEWERS_VERIFIED: ${{ steps.protection.outputs.verified }}
+          JSN_ACCEPTANCE_INGEST_TOKEN: ${{ secrets.JSN_ACCEPTANCE_INGEST_TOKEN }}
+          JSN_ACCEPTANCE_INGEST_URL: ${{ vars.JSN_ACCEPTANCE_INGEST_URL }}
+          ACCEPTANCE_MODE: ${{ inputs.mode }}
+          ACCEPTANCE_DISPOSABLE_APPROVED: ${{ inputs.approved }}
+        run: node .github/scripts/acceptance/ci.mjs
+      - name: Preserve validated closed projection
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-public-${{ inputs.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: acceptance-public.json
+          if-no-files-found: ignore
+          retention-days: 14

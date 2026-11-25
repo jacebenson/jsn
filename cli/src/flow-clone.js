@@ -1,0 +1,425 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { readFlowSafeEditStatus, flowSafeEditRequest } from './flow-safe-edit.js';
+import { createVerifiedFlowVersion } from './flow-versioning.js';
+import { isDeepStrictEqual } from 'node:util';
+import { AppError, CodeAPI, errUsage } from './errors.js';
+import { assertSafeExactMatch } from './helpers.js';
+import { resolveRecord, unwrapSysId, isSysId } from './resolve-record.js';
+import { readProcessFlow, readCurrentUpdateSet } from './flow-create.js';
+import { readEffectiveUpdateSet } from './context.js';
+import { verifyCopyCapture } from './flow-clone-capture.js';
+
+const raw = value => value && typeof value === 'object' && 'value' in value ? value.value : value;
+const collections = ['triggerInstances', 'actionInstances', 'inputs', 'outputs'];
+// Native copy handles allocation. Unknown graph contracts must be rejected BEFORE
+// asking it to allocate, not reconstructed through the create-manifest adapter.
+const unsupported = ['flowLogicInstances', 'subFlowInstances', 'flowVariables', 'flowCatalogVariables', 'stages', 'connection_configurations', 'deletedFlowLogicInstances', 'nonCriticalErrors'];
+const contextual = ['id', 'name', 'copiedFrom', 'internalName', 'flowCatalogVariableModelId', 'versionRecordId', 'version', 'created', 'updated', 'updatedBy', 'security', 'canWriteProtection', 'userCanRead', 'isFlowEntitled', 'userHasRolesAssignedToFlow'];
+const preserved = ['masterSnapshotId', 'deleted', 'description', 'scope', 'scopeDisplayName', 'scopeName', 'scopeLogo', 'scopeProtectionPolicyReadOnly', 'status', 'active', 'protection', 'type', 'annotation', 'natlang', 'category', 'remoteTriggerSysId', 'access', 'serviceCatalogCallable', 'clientCallable', 'runAs', 'domainName', 'domainId', 'compilerBuild', 'runWithRoles', 'allowHighSecurityRoles', 'pharmacy', 'startingIndexOfErrorHandlingInstances', 'flowPriority', 'attributes', 'authoredOnReleaseVersion', 'generationSource', 'displayNameAfterPreview', 'substatus', 'flowEngineVersion', 'masterSnapshot', 'labelCacheAsJsonString', 'latestSnapshot', 'snapshot', 'isPublished', 'savedAsJson', 'jsonSnapshot'];
+const triggerKeys = ['id', 'flowSysId', 'remoteSysId', 'name', 'inputs', 'outputs', 'displayText', 'deleted', 'metadata', 'comment', 'type', 'triggerDefinitionId', 'publishedVersion', 'userCanRead', 'triggerType', 'hasDynamicOutputs'];
+const actionKeys = ['id', 'flowSysId', 'order', 'displayText', 'uiUniqueIdentifier', 'deleted', 'metadata', 'parent', 'comment', 'generationSource', 'uiComponentIndex', 'actionTypeSysId', 'inputs', 'actionType', 'parentActionTypeId', 'compiledSnapshot', 'aliasIds', 'internalName', 'name', 'type', 'snapshot'];
+const pill = /^\{\{([a-f0-9]{32}|[a-f0-9-]{36})(\.[A-Za-z0-9_.]+)\}\}$/;
+export const flowCloneDigest = value => {
+  const canonical = item => Array.isArray(item) ? item.map(canonical) : item && typeof item === 'object'
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, canonical(item[key])])) : item;
+  return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+};
+function refuse(message) { throw errUsage(`${message}. No clone allocated.`); }
+function empty(value) { return Array.isArray(value) ? value.length === 0 : value && typeof value === 'object' && Object.keys(value).length === 0; }
+function knownKeys(value, allowed, path) {
+  const unknown = Object.keys(value).filter(key => !allowed.includes(key));
+  if (unknown.length) refuse(`Unverified provider fields at ${path}: ${unknown.join(', ')}`);
+}
+function variableEntries(items) { return items.flatMap(item => [item, ...variableEntries(item.children || [])]); }
+function owned(source) {
+  return [...source.triggerInstances, ...source.actionInstances, ...variableEntries(source.inputs), ...variableEntries(source.outputs)];
+}
+function validateValues(value, path = 'definition') {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) return value.forEach((item, index) => validateValues(item, `${path}[${index}]`));
+  // A complete typed value pill is a known reference. Embedded pills, scripts
+  // containing pills and opaque binding encodings are not safe to certify.
+  if (typeof value.value === 'string' && value.value.includes('{{')) {
+    if (value.scriptActive || !pill.test(value.value)) refuse(`Unsupported embedded/script binding at ${path}`);
+  }
+  for (const [key, child] of Object.entries(value)) validateValues(child, `${path}.${key}`);
+}
+export function validateCloneSource(source) { return validateCloneDefinition(source, true); }
+
+function validateCloneDefinition(source, requireSavedVersion) {
+  if (!source || source.type !== 'flow' || !isSysId(source.id)) refuse('A readable Flow definition is required');
+  if (source.active !== false || source.status !== 'draft' || source.deleted !== false) refuse('Only inactive, nondeleted Draft sources are supported');
+  if (source.security?.can_read !== true || source.security?.can_write !== true) refuse('Source must explicitly permit read and write');
+  for (const field of ['scope', 'domainId', 'domainName', 'access', 'protection', 'runAs', 'runWithRoles', 'description']) {
+    if (!Object.hasOwn(source, field)) refuse(`Source security/property inventory is missing ${field}`);
+  }
+  knownKeys(source, [...collections, ...unsupported, ...contextual, ...preserved], 'flow');
+  for (const key of unsupported) if (source[key] !== undefined && !empty(source[key])) refuse(`Clone verification does not yet support nonempty ${key}`);
+  if (source.startingIndexOfErrorHandlingInstances !== -1) refuse('Error-handler graph cloning is not yet verified');
+  for (const key of collections) if (!Array.isArray(source[key])) refuse(`Unreadable ${key}`);
+  if (source.triggerInstances.length !== 1) refuse('Exactly one record trigger is required');
+  for (const trigger of source.triggerInstances) {
+    knownKeys(trigger, triggerKeys, 'trigger');
+    if (!['record_create', 'record_update', 'record_create_or_update'].includes(trigger.type) || trigger.deleted !== false) refuse('Unsupported trigger lifecycle/family');
+    if (trigger.remoteSysId) refuse('Remote trigger cloning is not verified');
+  }
+  for (const action of source.actionInstances) {
+    knownKeys(action, actionKeys, 'action');
+    if (action.parent || action.compiledSnapshot || action.snapshot || action.aliasIds?.length || action.deleted !== false) refuse('Nested/runtime/aliased action cloning is not verified');
+    if (!isSysId(action.actionTypeSysId) || action.actionType?.state !== 'published') refuse('Action must reference a published reusable definition');
+  }
+  if (source.masterSnapshotId || source.latestSnapshot || source.masterSnapshot || source.snapshot || source.isPublished || source.jsonSnapshot) refuse('Source has runtime snapshot state');
+  for (const item of [...source.triggerInstances, ...source.actionInstances]) {
+    if (!isSysId(item.id) || item.flowSysId !== source.id) refuse('Component identity/ownership is incomplete');
+  }
+  if (!isSysId(source.versionRecordId) && (requireSavedVersion || ![undefined, null, ''].includes(source.versionRecordId))) refuse('Source has no readable saved version pointer');
+  const identities = new Set([source.id]);
+  for (const item of owned(source)) {
+    if (!item.id) continue; // nested anonymous schema children have no identity
+    if (!isSysId(item.id) || identities.has(item.id)) refuse('Ambiguous owned component identity');
+    identities.add(item.id);
+    if (item.flowSysId !== undefined && item.flowSysId !== source.id) refuse('Invalid component ownership');
+    if (item.uiUniqueIdentifier) {
+      if (identities.has(item.uiUniqueIdentifier)) refuse('Duplicate UI identity');
+      identities.add(item.uiUniqueIdentifier);
+    }
+  }
+  if (!isSysId(source.flowCatalogVariableModelId) || identities.has(source.flowCatalogVariableModelId)) refuse('Missing or reused catalog model identity');
+  validateValues(source);
+  return { collections, unsupported, preserved, contextual };
+}
+
+// The editor save re-materializes a provider label on mapping-provider variables
+// that lacked one. Accept only the exact type label the provider would derive;
+// a different, missing or foreign value still fails structural comparison.
+function normalizeProviderLabels(source, destination) {
+  const pairs = (a = [], b = [], visit) => a.forEach((item, index) => b[index] && visit(item, b[index]));
+  const variables = (a, b) => pairs(a, b, (from, to) => {
+    // Definition GETs use type_label; the save serializer uses typeLabel.
+    if (from.attributes && !Object.hasOwn(from.attributes, 'uiTypeLabel') && to.attributes &&
+        Object.hasOwn(to.attributes, 'uiTypeLabel') && to.attributes.uiTypeLabel === (to.type_label ?? to.typeLabel)) {
+      delete to.attributes.uiTypeLabel;
+    }
+    variables(from.children, to.children);
+  });
+  variables(source.inputs, destination.inputs);
+  variables(source.outputs, destination.outputs);
+  pairs(source.triggerInstances, destination.triggerInstances, (from, to) => { variables(from.inputs, to.inputs); variables(from.outputs, to.outputs); });
+  pairs(source.actionInstances, destination.actionInstances, (from, to) => { variables(from.inputs, to.inputs); variables(from.outputs, to.outputs); });
+  return destination;
+}
+
+function nativeCloneComparable(source, destination) {
+  const result = normalizeProviderLabels(source, structuredClone(destination));
+  for (const [index, action] of result.actionInstances.entries()) {
+    const original = source.actionInstances[index];
+    const definitionId = a => a.actionType?.id ?? a.actionType?.fId;
+    const definitionState = a => a.actionType?.state ?? a.actionType?.fState;
+    if (action.compiledSnapshot && action.compiledSnapshot !== original?.compiledSnapshot) {
+      if (!original || original.compiledSnapshot !== '' || action.snapshot || action.parent || action.aliasIds?.length ||
+          definitionId(original) !== original.actionTypeSysId || definitionState(original) !== 'published' ||
+          definitionState(action) !== 'published' || !isSysId(action.actionTypeSysId) ||
+          action.actionTypeSysId !== original.actionTypeSysId || definitionId(action) !== action.actionTypeSysId ||
+          action.compiledSnapshot !== action.actionTypeSysId) throw new Error('Unverified native action snapshot derivation');
+      action.compiledSnapshot = original.compiledSnapshot;
+    }
+  }
+  return result;
+}
+
+// Identity maps apply only to owned identity/ownership paths and complete typed
+// input pills. User scripts, conditions, arbitrary keys and literal IDs stay exact.
+export function verifyClonedFlow(source, destination, name) {
+  return verifyCloneGraph(source, destination, name, true);
+}
+
+// Private provisional contract: only the destination pointer may be absent, and
+// only while native save/version creation is still pending. Source stays strict.
+function verifyCloneGraph(source, destination, name, requireSavedVersion) {
+  validateCloneSource(source);
+  // The native editor preserves flow-local UI identifiers and, for a flat
+  // published reusable action, materializes compiledSnapshot as that definition
+  // identity. This is destination-only: runtime-bearing sources still refuse.
+  const comparable = nativeCloneComparable(source, destination);
+  try { validateCloneDefinition(comparable, requireSavedVersion); }
+  catch (cause) { throw new Error(`Destination definition invalid: ${cause.message.replace(/\. No clone allocated\.$/, '')}`, { cause }); }
+  if (destination.name !== name || destination.scope !== source.scope || destination.copiedFrom !== source.id) throw new Error('Clone identity/name/scope/provenance mismatch');
+  const before = owned(source), after = owned(destination);
+  if (before.length !== after.length) throw new Error('Clone owned component count changed');
+  const old = new Set([source.id, source.flowCatalogVariableModelId, ...before.flatMap(item => [item.id, item.uiUniqueIdentifier]).filter(Boolean)]);
+  const fresh = new Set();
+  const mapping = new Map();
+  function allocate(a, b) {
+    if (!a) { if (b) throw new Error('Unexpected owned identity'); return; }
+    if (!b || old.has(b) || fresh.has(b)) throw new Error('Clone reused or omitted an owned identity');
+    fresh.add(b); mapping.set(a, b);
+  }
+  allocate(source.id, destination.id);
+  allocate(source.flowCatalogVariableModelId, destination.flowCatalogVariableModelId);
+  before.forEach((item, index) => {
+    allocate(item.id, after[index].id);
+    if (item.uiUniqueIdentifier && item.uiUniqueIdentifier === after[index].uiUniqueIdentifier) mapping.set(item.uiUniqueIdentifier, item.uiUniqueIdentifier);
+    else allocate(item.uiUniqueIdentifier, after[index].uiUniqueIdentifier);
+  });
+  const ref = value => mapping.get(value) || value;
+  function values(value) {
+    if (Array.isArray(value)) return value.map(values);
+    if (!value || typeof value !== 'object') return value;
+    const result = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, values(child)]));
+    if (!value.scriptActive && typeof value.value === 'string' && pill.test(value.value)) {
+      result.value = value.value.replace(pill, (_all, id, path) => `{{${ref(id)}${path}}}`);
+      if (value.displayValue === value.value) result.displayValue = result.value;
+    }
+    return result;
+  }
+  function component(item) {
+    const result = values(item);
+    for (const key of ['id', 'uiUniqueIdentifier', 'flowSysId']) if (Object.hasOwn(item, key)) result[key] = ref(item[key]);
+    if (item.children) result.children = item.children.map(component);
+    return result;
+  }
+  for (const key of collections) {
+    if (!isDeepStrictEqual(source[key].map(component), comparable[key])) throw new Error(`Clone changed or miswired ${key}`);
+  }
+  for (const key of [...preserved, ...unsupported]) if (!isDeepStrictEqual(source[key], destination[key])) throw new Error(`Clone did not preserve ${key}`);
+  return { verified: true, identity_count: mapping.size, inventory: { preserved, regenerated: ['id', 'flowCatalogVariableModelId', 'component.id'], flow_local_ui_identity: 'preserved or remapped with typed references', derived: ['flat published action compiledSnapshot linked to unchanged reusable definition'], contextual, unsupported_nonempty: unsupported } };
+}
+
+async function readSavedCloneVersion(sdk, flow) {
+  const rows = await sdk.list('sys_hub_flow_version', new URLSearchParams({ sysparm_query: `sys_id=${flow.versionRecordId}^flow=${flow.id}`, sysparm_limit: '2', sysparm_fields: 'sys_id,flow,payload' }));
+  if (!Array.isArray(rows) || rows.length !== 1 || raw(rows[0].flow) !== flow.id || raw(rows[0].sys_id) !== flow.versionRecordId) throw new Error('Exact saved version is not readable');
+  const payload = JSON.parse(raw(rows[0].payload));
+  if (payload?.id !== flow.id || payload.name !== flow.name || payload.scope !== flow.scope) throw new Error('Saved version identity/name/scope mismatch');
+  // Independently link each saved component/value to the current definition.
+  // Parameter schemas differ between native serialized and GET forms; the full
+  // serialized schemas are compared source-to-destination below, not flattened.
+  const valueTree = values => (values || []).map(value => ({ name: value.name, value: value.value, scriptActive: value.scriptActive, children: valueTree(value.children) }));
+  for (const key of collections) {
+    if (!Array.isArray(payload[key]) || payload[key].length !== flow[key].length) throw new Error(`Saved version has incomplete ${key}`);
+    payload[key].forEach((item, index) => {
+      const current = flow[key][index];
+      if (item.id !== current.id || item.flowSysId !== current.flowSysId || !isDeepStrictEqual(valueTree(item.inputs), valueTree(current.inputs))) throw new Error(`Saved version has stale identity/input values in ${key}`);
+    });
+  }
+  return payload;
+}
+
+export function verifyClonedVersions(source, destination) {
+  destination = nativeCloneComparable(source, destination);
+  // Version serialization records the compiler engine version. A freshly saved
+  // draft is uncompiled (0); requiring the source's compiled value would demand
+  // a compilation this workflow never performs. Only that exact draft state is
+  // accepted - any other engine version still fails the structural comparison.
+  if (destination.engineVersion === 0 && Number.isInteger(source.engineVersion) && source.engineVersion > 0) {
+    destination.engineVersion = source.engineVersion;
+  }
+  const ownedIds = new Set([source.id, source.flowCatalogVariableModelId, ...collections.flatMap(key => source[key].map(item => item.id)).filter(Boolean)]);
+  for (const key of collections) for (const item of destination[key]) {
+    if (item.id && ownedIds.has(item.id)) throw new Error('Saved version reused an owned database identity');
+  }
+  const mapping = new Map([[source.id, destination.id], [source.flowCatalogVariableModelId, destination.flowCatalogVariableModelId]]);
+  for (const key of collections) {
+    const before = key === 'inputs' || key === 'outputs' ? variableEntries(source[key]) : source[key];
+    const after = key === 'inputs' || key === 'outputs' ? variableEntries(destination[key]) : destination[key];
+    if (before.length !== after.length) throw new Error(`Saved version changed ${key}`);
+    before.forEach((item, index) => { for (const field of ['id', 'uiUniqueIdentifier']) if (item[field]) mapping.set(item[field], after[index][field]); });
+  }
+  function translate(value) {
+    if (Array.isArray(value)) return value.map(translate);
+    if (!value || typeof value !== 'object') return value;
+    const result = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, translate(child)]));
+    if (!value.scriptActive && typeof value.value === 'string' && pill.test(value.value)) {
+      result.value = value.value.replace(pill, (_all, id, path) => `{{${mapping.get(id) || id}${path}}}`);
+      if (value.displayValue === value.value) result.displayValue = result.value;
+    }
+    return result;
+  }
+  function component(item) {
+    const result = translate(item);
+    for (const field of ['id', 'uiUniqueIdentifier', 'flowSysId']) if (item[field]) result[field] = mapping.get(item[field]) || item[field];
+    if (item.children) result.children = item.children.map(component);
+    return result;
+  }
+  const expected = translate(source);
+  for (const key of collections) expected[key] = source[key].map(component);
+  // These are version-level provenance/permission fields, never graph content.
+  const omitted = new Set(contextual);
+  const stable = value => {
+    const result = structuredClone(Object.fromEntries(Object.entries(value).filter(([key]) => !omitted.has(key))));
+    // Native version serialization omits this mapper on these two fixed record
+    // trigger outputs; current ProcessFlow schemas agree. Never strip mapper
+    // metadata from action inputs, authored schemas, or arbitrary outputs.
+    for (const trigger of result.triggerInstances || []) for (const output of trigger.outputs || []) {
+      if (((output.name === 'current' && output.type === 'document_id') || (output.name === 'table_name' && output.type === 'table_name')) &&
+          output.parameter?.name === output.name && output.parameter?.type === output.type &&
+          output.parameter?.attributes?.element_mapping_provider === 'com.glide.flow_design.action.data.FlowDesignVariableMapper') {
+        delete output.parameter.attributes.element_mapping_provider;
+      }
+    }
+    return result;
+  };
+  const before = stable(expected), after = stable(destination);
+  // Measured native save omission: triggerInstances[].inputs[].parameter's
+  // own empty choice lists only. Validate both parameter shapes and their input
+  // names; never walk defaults, values, children, or unknown provider payloads.
+  for (const [index, trigger] of before.triggerInstances.entries()) {
+    for (const [inputIndex, input] of trigger.inputs.entries()) {
+      const saved = after.triggerInstances?.[index]?.inputs?.[inputIndex];
+      const parameter = input.parameter, savedParameter = saved?.parameter;
+      if (!parameter || !savedParameter || typeof input.name !== 'string' ||
+          input.name !== saved.name || parameter.name !== input.name || savedParameter.name !== input.name ||
+          typeof parameter.type !== 'string' || parameter.type !== savedParameter.type ||
+          !Array.isArray(parameter.children) || !Array.isArray(savedParameter.children)) continue;
+      for (const field of ['choices', 'defaultChoices']) {
+        if (Array.isArray(parameter[field]) && parameter[field].length === 0 && !Object.hasOwn(savedParameter, field)) delete parameter[field];
+      }
+    }
+  }
+  if (!isDeepStrictEqual(before, after)) throw new Error('Saved version content/schema was not preserved under the explicit identity map');
+  return true;
+}
+
+// Full native save: preserve every readable field, including typed schemas and
+// unknown nested provider metadata. The shipped editor removes only reusable
+// action inputs/steps (not instance inputs), and emits label_cache separately.
+export function serializeNativeClone(flow) {
+  const body = structuredClone(flow);
+  body.deletedActions = [];
+  body.deletedTriggers = [];
+  body.label_cache = JSON.parse(body.labelCacheAsJsonString || '[]');
+  body.aliasOverride = { aliasOverrideMappings: [] };
+  body.clientSessionId = randomUUID();
+  for (const action of body.actionInstances) {
+    delete action.actionType.inputs;
+    delete action.actionType.steps;
+  }
+  return body;
+}
+
+async function ownedCloneLease(sdk, instance, id) {
+  const user = await sdk.getCurrentUser({ touchLastSeen: false });
+  const rows = await sdk.list('sys_hub_flow_safe_edit', new URLSearchParams({ sysparm_query: `flow=${id}`, sysparm_limit: '2', sysparm_fields: 'sys_id,flow,user' }));
+  const status = await readFlowSafeEditStatus(sdk, instance, id);
+  if (!isSysId(user?.sys_id) || !Array.isArray(rows) || rows.length !== 1 ||
+      !isSysId(raw(rows[0].sys_id)) || raw(rows[0].flow) !== id || raw(rows[0].user) !== user.sys_id ||
+      status.canUserEdit !== true || status.currentEditor) throw new Error('Native clone lease ownership is unconfirmed; no save or release attempted');
+  return raw(rows[0].sys_id);
+}
+
+// Call only for a positively acknowledged allocation owned by this invocation,
+// or an explicitly approved recovery of that exact retained allocation.
+export async function completeNativeClone(sdk, instance, source, flow, name) {
+  verifyCloneGraph(source, flow, name, false);
+  const leaseId = await ownedCloneLease(sdk, instance, flow.id);
+  let failure, completed;
+  try {
+    const response = await sdk.request(`${instance}/api/now/processflow/flow?sysparm_transaction_scope=${encodeURIComponent(flow.scope)}`, {
+      method: 'PUT', body: JSON.stringify(serializeNativeClone(flow)),
+    });
+    if (response?.error || response?.result?.error || response?.result?.errors?.length) throw new Error('Native save returned flow errors');
+    completed = await readProcessFlow(sdk, instance, flow.id, flow.scope);
+    verifyCloneGraph(source, completed, name, false);
+    await createVerifiedFlowVersion(sdk, { instance, flowId: flow.id, scope: flow.scope, type: 'Save', annotation: '' });
+    completed = await readProcessFlow(sdk, instance, flow.id, flow.scope);
+    verifyClonedFlow(source, completed, name);
+    // The update-set XML for this record is generated from the parent write, so it
+    // still carries the pre-version record pointer. Re-saving the identical owned
+    // graph once after version creation makes the exact parent capture reference
+    // the current saved version; it creates no new version and changes no content.
+    const refresh = await sdk.request(`${instance}/api/now/processflow/flow?sysparm_transaction_scope=${encodeURIComponent(flow.scope)}`, {
+      method: 'PUT', body: JSON.stringify(serializeNativeClone(completed)),
+    });
+    if (refresh?.error || refresh?.result?.error || refresh?.result?.errors?.length) throw new Error('Native capture-refresh save returned flow errors');
+    completed = await readProcessFlow(sdk, instance, flow.id, flow.scope);
+    verifyClonedFlow(source, completed, name);
+  } catch (error) { failure = error; }
+  // Recheck exact lease identity/user before release, including failure paths.
+  // Never acquire/take over another session and never delete the flow itself.
+  try {
+    if (await ownedCloneLease(sdk, instance, flow.id) !== leaseId) throw new Error('Native clone lease changed; release refused');
+    const { deleteResult } = await flowSafeEditRequest(sdk, instance, flow.id, 'delete');
+    if (deleteResult?.deleteSuccess !== true || deleteResult.id !== flow.id) throw new Error('Native clone release was not acknowledged');
+    const status = await readFlowSafeEditStatus(sdk, instance, flow.id);
+    const leases = await sdk.list('sys_hub_flow_safe_edit', new URLSearchParams({ sysparm_query: `flow=${flow.id}`, sysparm_limit: '2', sysparm_fields: 'sys_id' }));
+    if (status.canUserEdit || status.currentEditor || !Array.isArray(leases) || leases.length) throw new Error('Native clone release readback failed');
+  } catch (error) { throw new Error(`${failure ? `${failure.message}; ` : ''}Clone ${flow.id} lease release failed: ${error.message}`, { cause: error }); }
+  if (failure) throw failure;
+  return completed;
+}
+
+async function assertUnusedName(sdk, scope, name) {
+  const rows = await sdk.list('sys_hub_flow', new URLSearchParams({ sysparm_query: `name=${name}^sys_scope=${scope}`, sysparm_limit: '1', sysparm_fields: 'sys_id,name,sys_scope' }));
+  if (!Array.isArray(rows)) refuse('Collision lookup was unreadable');
+  if (rows.length) refuse(`A flow named ${JSON.stringify(name)} already exists in the source scope; no overwrite`);
+}
+export async function prepareFlowClone(sdk, instance, identifier, options = {}) {
+  try {
+    assertSafeExactMatch(identifier);
+    const record = await resolveRecord(sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow', fields: ['sys_scope', 'name', 'active', 'status'] });
+    const id = unwrapSysId(record), scope = raw(record.sys_scope);
+    if (!isSysId(id) || !(scope === 'global' || isSysId(scope))) refuse('Unreadable native source scope or identity');
+    const source = await readProcessFlow(sdk, instance, id, scope);
+    if (source.id !== id || source.scope !== scope) refuse('Source definition identity/scope mismatch');
+    validateCloneSource(source);
+    if (!options.name && !options.interactive) refuse('--name is required for automation');
+    const name = options.name ?? `${source.name} copy`;
+    if (typeof name !== 'string' || !name.trim()) refuse('--name must be nonempty');
+    assertSafeExactMatch(name);
+    await assertUnusedName(sdk, scope, name);
+    const saved_version = await readSavedCloneVersion(sdk, source);
+    return { source, scope, name, source_digest: flowCloneDigest(source), saved_version, version_digest: flowCloneDigest(saved_version) };
+  } catch (cause) {
+    if (cause instanceof AppError) throw cause;
+    throw new AppError(CodeAPI, `Clone preflight failed: ${cause.message}`, 'No clone allocated.', 0, cause);
+  }
+}
+
+export async function cloneFlow(sdk, instance, plan, { capturePolls = 21, pollDelay = 250 } = {}) {
+  let id, stage = 'preflight';
+  let allocationAttempted = false;
+  try {
+    validateCloneSource(plan.source);
+    if (flowCloneDigest(plan.source) !== plan.source_digest) refuse('Clone plan changed');
+    await assertUnusedName(sdk, plan.scope, plan.name);
+    const current = await readCurrentUpdateSet(sdk), effective = await readEffectiveUpdateSet(sdk);
+    const setId = raw(current?.sys_id || current?.sysId);
+    if (!isSysId(setId) || raw(current?.state) !== 'in progress' || raw(current?.name) === 'Default' || effective.sys_id !== setId) refuse('Select a named in-progress update set and align the effective session before cloning');
+    // No session context writes. Caller selection must already be aligned.
+    const sourceBefore = await readProcessFlow(sdk, instance, plan.source.id, plan.scope);
+    if (flowCloneDigest(sourceBefore) !== plan.source_digest) refuse('Source changed after confirmation');
+    if (flowCloneDigest(plan.saved_version) !== plan.version_digest || flowCloneDigest(await readSavedCloneVersion(sdk, sourceBefore)) !== plan.version_digest) refuse('Source saved version changed after confirmation');
+    stage = 'native_copy'; allocationAttempted = true;
+    // Source-confirmed Designer contract. Exactly one allocation, no fallbacks.
+    const response = await sdk.request(`${instance}/api/now/processflow/flow/${plan.source.id}/copy?sysparm_transaction_scope=${encodeURIComponent(plan.scope)}`, { method: 'POST', body: JSON.stringify({ name: plan.name, scope: plan.scope }) });
+    const allocated = response?.result?.data;
+    if (!isSysId(allocated) || allocated === plan.source.id) throw new Error('Provider returned no fresh clone identity');
+    id = allocated;
+    stage = 'definition_readback';
+    let flow = await readProcessFlow(sdk, instance, id, plan.scope);
+    const graph = verifyCloneGraph(plan.source, flow, plan.name, false);
+    stage = 'native_save_version_release';
+    flow = await completeNativeClone(sdk, instance, plan.source, flow, plan.name);
+    stage = 'saved_version';
+    if (!isSysId(flow.versionRecordId) || flow.versionRecordId === plan.source.versionRecordId) throw new Error('No fresh saved version pointer');
+    const savedVersion = await readSavedCloneVersion(sdk, flow);
+    verifyClonedVersions(plan.saved_version, savedVersion);
+    stage = 'update_set_capture';
+    let captures;
+    for (let attempt = 0; attempt < capturePolls; attempt++) {
+      const rows = await sdk.list('sys_update_xml', new URLSearchParams({ sysparm_query: `update_set=${setId}^name=sys_hub_flow_${id}`, sysparm_limit: '2', sysparm_fields: 'sys_id,name,update_set,action,payload' }));
+      if (!Array.isArray(rows)) throw new Error('Unreadable update-set capture');
+      if (rows.length === 1 && raw(rows[0].name) === `sys_hub_flow_${id}` && raw(rows[0].update_set) === setId && raw(rows[0].action) === 'INSERT_OR_UPDATE' && verifyCopyCapture(raw(rows[0].payload), id, flow.versionRecordId)) { captures = rows; break; }
+      if (attempt + 1 < capturePolls) await new Promise(resolve => setTimeout(resolve, pollDelay));
+    }
+    if (!captures) throw new Error('Exact new parent/version XML capture not verified within bounded read polling');
+    stage = 'source_and_context_preservation';
+    const sourceAfter = await readProcessFlow(sdk, instance, plan.source.id, plan.scope);
+    if (flowCloneDigest(sourceAfter) !== plan.source_digest) throw new Error('Source digest changed during clone');
+    const finalSet = await readCurrentUpdateSet(sdk), finalEffective = await readEffectiveUpdateSet(sdk);
+    if (!isDeepStrictEqual(current, finalSet) || !isDeepStrictEqual(effective, finalEffective)) throw new Error('Capture context changed during clone');
+    return { flow, source: { id: plan.source.id, unchanged: true, before_digest: plan.source_digest, after_digest: flowCloneDigest(sourceAfter) }, graph, version: { id: flow.versionRecordId, flow: id }, capture: { update_set: setId, parent: id, version: flow.versionRecordId, records: captures.map(row => raw(row.sys_id)) }, context_unchanged: true, published: false, activated: false, executed: false };
+  } catch (cause) {
+    if (!allocationAttempted && cause instanceof AppError) throw cause;
+    throw new AppError(CodeAPI, `Flow clone ${id ? `allocated ${id}, verification failed` : allocationAttempted ? 'allocation outcome uncertain' : 'failed before allocation'} at ${stage}: ${cause.message}`, `${id ? `Inspect flows show ${id}.` : allocationAttempted ? `Reconcile source ${plan.source.id} and name ${JSON.stringify(plan.name)} before retrying.` : 'No clone allocated.'} No automatic retry, cleanup, publish or execution.`, 0, cause);
+  }
+}

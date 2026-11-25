@@ -22,7 +22,8 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
   const profiles = Array.isArray(result.profiles) ? result.profiles : [];
   if (!profiles.length) return 'No profiles configured.\nRun: jsn auth login <instance> --browser\n';
   const methods = { oauth: 'OAuth', basic: 'Basic', gck: 'Browser session' };
-  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid' };
+  const states = { available: 'Available', missing: 'Missing', expired: 'Expired', refreshable: 'Refresh required', malformed: 'Invalid',
+    blocked: 'Storage blocked', unavailable: 'Storage unavailable' };
   const headings = ['PROFILE', 'AUTH', 'CREDENTIALS', 'CONNECTION', 'ACCESS', 'DELETES', 'COUNTS'];
   if (details) headings.push('USER', 'INSTANCE');
   const notes = [];
@@ -32,14 +33,15 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
     const label = profile.name || `Profile ${index + 1}`;
     const connection = profile.verified === true ? 'Verified'
       : probe.code === 'account_mismatch' ? 'User mismatch'
-      : profile.verified === false ? 'Failed' : 'Not checked';
+      : profile.verified === false ? 'Failed'
+      : probe.code === 'storage_blocked' ? 'Not attempted' : 'Not checked';
     const row = [
       `${label}${profile.active ? ' *' : ''}${profile.default ? ' (default)' : ''}`,
       methods[diagnostics.auth_method] || 'Not configured',
       states[diagnostics.state] || (profile.authenticated ? 'Available' : 'Missing'),
       connection,
-      profile.read_only ? 'Read-only' : 'Read/write',
-      profile.skip_confirmations ? 'No prompt' : 'Confirm',
+      profile.read_only === true ? 'Read-only' : 'Read/write',
+      profile.skip_confirmations === true ? 'No prompt' : 'Confirm',
       profile.include_counts === false ? 'Off' : 'On',
     ];
     if (details) {
@@ -47,7 +49,13 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
       row.push(`${user}${profile.verified_as && profile.verified_as !== user ? ` (session: ${profile.verified_as})` : ''}`, profile.instance || 'Not configured');
     }
     if (profile.verified !== true && probe.message) notes.push(`${label}: ${probe.message}`);
-    if (profile.name && profile.verified !== true) {
+    if (profile.storage) {
+      const status = profile.storage.status === 'blocked' ? 'storage blocked' : 'storage unavailable';
+      // JSON keeps the fixed `<name>` placeholder; human output shows the
+      // concrete recovery command for this profile.
+      const recovery = profile.name ? profile.storage.recovery.replaceAll('<name>', profile.name) : profile.storage.recovery;
+      notes.push(`${label}: credentials ${status} (${profile.storage.classification}). ${recovery}`);
+    } else if (profile.name && profile.verified !== true) {
       const command = `jsn auth ${diagnostics.state === 'refreshable' ? 'refresh' : 'login'} --profile ${quoteShellArg(profile.name)}`;
       const hint = ['missing', 'expired', 'refreshable', 'malformed'].includes(diagnostics.state)
         || ['unauthorized', 'invalid_browser_session', 'refresh_failed', 'account_mismatch'].includes(probe.code)
@@ -60,6 +68,24 @@ export function renderAuthStatus(result, summary, { details = false } = {}) {
   const formatRow = row => row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd();
   const lines = [summary || `${profiles.length} profiles`, '', formatRow(headings), ...rows.map(formatRow)];
   if (profiles.some(profile => profile.active)) lines.push('', '* selected profile');
+  lines.push('', 'Profile protections (ACCESS / DELETES):');
+  if (profiles.some(profile => profile.read_only === true)) lines.push('  Read-only: blocks mutation commands, including writes, deletes and raw REST even with GET.');
+  if (profiles.some(profile => profile.read_only !== true)) lines.push('  Read/write: permits profile operations, subject to each command\'s guards.');
+  if (profiles.some(profile => profile.skip_confirmations !== true)) lines.push('  Confirm: guarded deletes require confirmation; --force bypasses this prompt, not read-only.');
+  if (profiles.some(profile => profile.skip_confirmations === true)) lines.push('  No prompt: profile skips standard delete confirmation; command-specific safeguards still apply.');
+  // Storage mode is a standing property of a profile, so it belongs in status
+  // rather than in a warning repeated on every command that reads credentials.
+  const plaintextProfiles = profiles.filter(profile => profile.auth_source === 'file' || profile.diagnostics?.auth_source === 'file');
+  if (plaintextProfiles.length) {
+    lines.push('', 'Credential storage:');
+    for (const profile of plaintextProfiles) {
+      const label = profile.name || 'profile';
+      lines.push(`  ${label}: portable plaintext file; backups and copies can expose it.`
+        + ` Move it to the OS credential store: jsn auth login --profile ${quoteShellArg(label)}`);
+    }
+  }
+  lines.push('ACCESS is a JSN profile setting, not ServiceNow ACL authorization.',
+    'CREDENTIALS describes local availability; only CONNECTION Verified confirms the status probe succeeded.');
   if (profiles.some(profile => profile.diagnostics?.probe?.code === 'not_requested')) lines.push('', 'Connection not checked (--local).');
   if (notes.length) lines.push('', ...notes);
   if (!details) lines.push('', 'Show users and instance URLs: jsn auth status --details');
@@ -299,7 +325,7 @@ async function readBrowserSessionFile(file) {
 }
 
 /** Collect human answers, then call the same login operation as auth login. */
-export async function loginWizard(app, argv = {}) {
+export async function loginWizard(app, argv = {}, { concise = false } = {}) {
   const { input, select, confirm, password } = await import('../prompts.js');
   const explicitInstance = resolveWizardInstance(app, argv);
   const instance = resolveInstanceArg(explicitInstance || await input({
@@ -322,19 +348,21 @@ export async function loginWizard(app, argv = {}) {
   const request = { ...argv, profile: undefined, instance, name: name.trim() };
   if (method === 'browser') request.browser = true;
   if (method === 'oauth') request.oauth = true;
+  const settings = await chooseConnectionPreferences(app.config, profileSettingValues(argv), { confirm });
   if (method === 'basic') {
     request.basic = true;
     const username = await input({ message: 'Username:', validate: value => value.trim() ? true : 'A username is required' });
     request._basicCredentials = { username: username.trim(), password: await password({ message: 'Password:' }) };
   }
-  const settings = await chooseConnectionPreferences(app.config, profileSettingValues(argv), { confirm });
   request['read-only'] = settings.read_only;
   request['skip-confirmations'] = settings.skip_confirmations;
   request['include-counts'] = settings.include_counts;
-  request.makeDefault = argv.makeDefault ?? await confirm({
-    message: 'Use this profile by default?', default: !app.config.defaultProfile,
-  });
-  const result = await loginProfile(request, app);
+  request.makeDefault = argv.makeDefault ?? (Object.keys(app.config.profiles || {}).length === 0 && !app.config.defaultProfile
+    ? true : await confirm({ message: 'Use this profile by default?', default: !app.config.defaultProfile }));
+  const result = await loginProfile(request, app, { concise });
+  if (result.authenticated && !concise) {
+    process.stdout.write(`Connection preset: ${settings.read_only ? 'read-only' : 'writes allowed'} · deletes ${settings.skip_confirmations ? 'without confirmation' : 'ask first'} · totals ${settings.include_counts ? 'on' : 'off'}\nChange with: jsn auth modify ${result.profile} --read-only\n`);
+  }
   return { instanceURL: instance, profileName: result.profile, loggedIn: result.authenticated };
 }
 
@@ -550,7 +578,7 @@ function canLogoutBareProfile(app, instance, target, explicitlySelected) {
   return sameInstance.length <= 1;
 }
 
-export async function loginProfile(argv, app) {
+export async function loginProfile(argv, app, { concise = false } = {}) {
   argv = profileSettingValues(argv);
   validateLoginSelectors(argv);
   if (argv.name !== undefined) {
@@ -593,9 +621,21 @@ export async function loginProfile(argv, app) {
 Examples:
   jsn auth login https://dev12345.service-now.com
   jsn auth login dev373698
-  jsn auth login --basic https://dev328604.service-now.com
+  jsn auth login --basic https://example.service-now.com
 
 Find your instance URL in your browser's address bar when logged into ServiceNow.`);
+    }
+  }
+
+  // A profile name selects an account; it does not approve a project-supplied
+  // replacement origin. Only a literal destination (also supplied by setup's
+  // destination prompt) may authorize a new global trust binding.
+  const literalDestination = !argv.profile && argv.instance && !app.config.profiles?.[argv.instance];
+  const trustedProfiles = app.config.credentialTrust?.profiles;
+  if (trustedProfiles && !literalDestination) {
+    const trustedOrigin = selectedProfileName ? trustedProfiles[selectedProfileName]?.instance_url : app.config.credentialTrust.origin;
+    if (!trustedOrigin || normalizeInstanceURL(trustedOrigin) !== normalizeInstanceURL(instanceURL)) {
+      throw errUsage('Project login destination is not globally trusted. Approve it explicitly with auth login <URL>.');
     }
   }
 
@@ -606,10 +646,13 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
   const target = argv.name ? { name: argv.name, profile: null }
     : resolveTargetProfile({ ...argv, profile: selectedProfileName }, app.config, instanceURL);
-  const targetProfile = target.profile;
+  const savedTarget = trustedProfiles?.[target.name];
+  const targetProfile = trustedProfiles
+    ? savedTarget && normalizeInstanceURL(savedTarget.instance_url) === normalizeInstanceURL(instanceURL) ? savedTarget : null
+    : target.profile;
   validateLoginSelectors(argv, targetProfile);
   let targetUsername = targetProfile?.username || '';
-  const methodConfig = argv.name ? { profiles: {} } : app.config;
+  const methodConfig = { profiles: argv.name ? {} : trustedProfiles || app.config.profiles };
   const useBasic = shouldUseBasicAuth(argv, methodConfig, instanceURL, targetProfile);
   const useGck = shouldUseGckAuth(argv, methodConfig, instanceURL, targetProfile);
   const interactive = canUsePicker(app, argv);
@@ -622,9 +665,10 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
   const preliminary = argv.printUrl && !argv.waitFile;
   const explicitPreferences = ['read-only', 'skip-confirmations', 'include-counts'].every(flag => typeof argv[flag] === 'boolean');
+  const preferenceProfile = trustedProfiles ? trustedProfiles[target.name] || {} : targetProfile || {};
   const preferences = !targetProfile && interactive && !preliminary && !explicitPreferences
     ? await chooseConnectionPreferences(app.config, argv, { confirm: (await import('../prompts.js')).confirm })
-    : await configureProfileOptions({ ...targetProfile, ...connectionPreferences(app.config, targetProfile || {}, argv) }, argv);
+    : await configureProfileOptions({ ...preferenceProfile, ...connectionPreferences(app.config, preferenceProfile, argv) }, argv);
   let setDefault = argv.makeDefault === true;
   if (!targetProfile && argv.makeDefault === undefined && interactive && !preliminary) {
     const { confirm } = await import('../prompts.js');
@@ -738,7 +782,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
 
   app.config.profiles[profileName] = {
-    ...(app.config.profiles[profileName] || {}),
+    ...(trustedProfiles ? trustedProfiles[profileName] || {} : app.config.profiles[profileName] || {}),
     instance_url: instanceURL,
     auth_method: useGck ? 'gck' : useBasic ? 'basic' : 'oauth',
     username: username || undefined,
@@ -780,7 +824,7 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   }
 
   const { saveConfig } = await import('../config.js');
-  saveConfig(app.config);
+  saveConfig(app.config, { approvedProfile: profileName, approveDefault: setDefault });
   syncSession(app);
 
   const result = {
@@ -808,7 +852,12 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
       description: 'Set these at login; --skip-confirmations disables delete prompts',
     },
   ] : [];
-  app.ok(result, { summary, breadcrumbs });
+  if (concise && canUsePicker(app, argv)) {
+    const next = setDefault ? 'jsn incidents list' : `jsn --profile ${quoteShellArg(profileName)} incidents list`;
+    app.ok(result, { summary: `${summary}\nNext: ${next}`, breadcrumbs: [] });
+  } else {
+    app.ok(result, { summary, breadcrumbs });
+  }
   return result;
 }
 
@@ -864,6 +913,8 @@ Examples:
 }
 
 export async function showAuthStatus(argv, app) {
+  if (argv.context && !argv.profile) argv = { ...argv, profile: app.session?.profileName || app.config.activeProfile || app.config.defaultProfile };
+  if (argv.context && !app.config.profiles?.[argv.profile]) throw errUsage('Select a configured profile for auth status --context.');
   const configuredDefault = app.config.profiles?.[app.config.defaultProfile];
   const defaultInstance = configuredDefault?.instance_url || app.config.instanceURL || '';
 
@@ -879,10 +930,31 @@ export async function showAuthStatus(argv, app) {
     const instance = profile.instance_url;
     const authOptions = { authMethod: profile.auth_method, username: profile.username };
     const identityOptions = { username: profile.username, authMethod: profile.auth_method };
-    const isAuth = app.auth.isAuthenticatedFor(instance, identityOptions);
-    const lastSeen = app.auth.getLastSeen(instance, identityOptions);
-    const authState = app.auth.getAuthState(instance, authOptions);
-    const legacy = !isAuth && app.auth.hasLegacyCredentials(instance, identityOptions) ? true : undefined;
+    // One profile's storage refusal must not abort the report for the others.
+    // Catch exactly credential_storage_error; anything else is still a bug.
+    let storage;
+    const recordStorage = (error) => {
+      if (error?.code !== 'credential_storage_error') throw error;
+      const classification = error.classification || 'secure_storage_unavailable';
+      const status = classification === 'plaintext_requires_recovery' ? 'blocked' : 'unavailable';
+      storage ||= {
+        status,
+        classification,
+        ...(error.storageStage ? { stage: error.storageStage } : {}),
+        recovery: error.recovery || `Run \`jsn auth login --profile ${name}\` to sign in again.`,
+      };
+      return status;
+    };
+    const attempt = (read, fallback) => {
+      try { return read(); } catch (error) { recordStorage(error); return fallback; }
+    };
+    let isAuth = attempt(() => app.auth.isAuthenticatedFor(instance, identityOptions), false) === true;
+    const lastSeen = attempt(() => app.auth.getLastSeen(instance, identityOptions), null);
+    const authState = attempt(() => app.auth.getAuthState(instance, authOptions), null)
+      || { auth_method: profile.auth_method || 'unconfigured', auth_source: 'unavailable', state: storage?.status || 'unavailable' };
+    if (authState.storage) storage ||= authState.storage;
+    if (storage) isAuth = false;
+    const legacy = !isAuth && attempt(() => app.auth.hasLegacyCredentials(instance, identityOptions), false) ? true : undefined;
     // Keep the established status field contract: unauthenticated
     // profiles omit auth_source, except legacy credentials retain
     // their historical `legacy` marker. getAuthState remains the
@@ -893,8 +965,16 @@ export async function showAuthStatus(argv, app) {
     let verified = null;
     let verifiedAt = null;
     let probe;
+    let runtimeContext = argv.context ? { verified: false, status: 'not_attempted' } : undefined;
     if (argv.local) {
       probe = { status: 'not_attempted', code: 'not_requested', classification: 'not_checked' };
+    } else if (storage) {
+      // Blocked/unavailable storage is not a connection result, and it must
+      // not build an SDK or contact the instance.
+      probe = {
+        status: 'not_attempted', code: 'storage_blocked', classification: 'storage_blocked',
+        message: 'Credential storage is blocked; the connection probe was not attempted.',
+      };
     } else if (!instance) {
       probe = app.auth.probeUnavailable?.('missing_instance') || { status: 'not_attempted', code: 'missing_instance', classification: 'unavailable' };
     } else {
@@ -912,8 +992,17 @@ export async function showAuthStatus(argv, app) {
         if (probe.status === 'succeeded' && user?.user_name) {
           verified = true;
           verifiedAt = user.user_name;
+          if (argv.context) {
+            try {
+              const { readWriteContext } = await import('../intended-context.js');
+              runtimeContext = { ...await readWriteContext(sdk), verified: true };
+              runtimeContext.domain.requested = profile.domain || null;
+              if (runtimeContext.user.user_name !== user.user_name) throw new Error('Context account mismatch');
+            } catch { runtimeContext = { verified: false, status: 'unavailable' }; }
+          }
           if (profile.username && profile.username !== user.user_name) {
             verified = false;
+            if (runtimeContext) runtimeContext = { verified: false, status: 'account_mismatch' };
             probe = {
               status: 'failed', code: 'account_mismatch', classification: 'account_mismatch',
               message: 'The session account does not match the configured profile account.',
@@ -936,6 +1025,7 @@ export async function showAuthStatus(argv, app) {
 
     profiles.push({
       name,
+      ...(runtimeContext ? { context: runtimeContext } : {}),
       instance,
       username: profile.username || undefined,
       active: name === (app.session?.profileName || app.config.activeProfile || app.config.defaultProfile),
@@ -957,12 +1047,20 @@ export async function showAuthStatus(argv, app) {
         state: authState.state,
         probe,
       },
+      ...(storage ? { storage } : {}),
     });
+  }
+
+  // The global flag describes the selected profile; a storage refusal there
+  // is reported, not thrown, so the report still includes every profile.
+  let authenticated = false;
+  try { authenticated = app.auth.isAuthenticated() === true; } catch (error) {
+    if (error?.code !== 'credential_storage_error') throw error;
   }
 
   const result = {
     default_instance: defaultInstance,
-    authenticated: app.auth.isAuthenticated(),
+    authenticated,
     environment_auth: envToken ? true : undefined,
     profiles,
   };
@@ -970,8 +1068,12 @@ export async function showAuthStatus(argv, app) {
   const summary = `${profiles.length} ${profiles.length === 1 ? 'profile' : 'profiles'}`;
   // Ship the styled view as _formatted (see renderAuthStatus); the
   // OutputWriter prints it verbatim and suppresses the summary.
-  result._formatted = renderAuthStatus(result, summary, { details: argv.details === true });
-  if (!argv.details) {
+  result._formatted = renderAuthStatus(result, summary, { details: argv.details === true || argv.context === true });
+  if (argv.context) result._formatted += profiles.map(p => {
+    const c = p.context;
+    return `\n${p.name}: ${c?.verified ? `user ${c.user.user_name}; scope ${c.scope}; update set ${c.update_set.name} (${c.update_set.sys_id}); domain unverified${c.domain.requested ? `, requested ${c.domain.requested}` : ''}` : `context ${c?.status || 'unavailable'}`}`;
+  }).join('');
+  if (!argv.details && !argv.context) {
     delete result.default_instance;
     result.profiles = profiles.map(({ instance: _instance, username: _username, verified_as: _verifiedAs, ...visible }) => visible);
   }
@@ -1175,8 +1277,16 @@ export function authCmd(wrap) {
         .command({
           command: 'status',
           describe: 'Show authentication status (use --details for users and instance URLs)',
+          discoveryTasks: [{
+            phrases: ['current update set', 'selected scope', 'capture context', 'current capture context', 'current scope', 'current application scope', 'active scope', 'selected application scope', 'active update set', 'selected update set', 'capture set', 'which scope am I in'],
+            args: ['--context', '--json'],
+            description: 'Read the selected profile context, including scope and current capture update set; does not select or change them',
+          }],
+          examples: [{ args: ['--context', '--json'], description: 'Inspect the selected scope and capture update set' }],
           builder: sub => sub.option('local', {
             type: 'boolean', describe: 'Show saved credential state without contacting any instance',
+          }).option('context', {
+            type: 'boolean', describe: 'Full context for selected/default profile, including live user, scope, capture set and domain verification limits; --local makes no requests',
           }).option('details', {
             type: 'boolean', describe: 'Include users and instance URLs in status output',
           }),

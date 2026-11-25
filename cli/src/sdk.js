@@ -1,13 +1,36 @@
 // ServiceNow REST API client
 
 import { batchRead } from './sdk-batch.js';
+import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
-import { AppError, CodeAPI, CodeAuth, errAuth, errAPI, errNetwork, errUsage } from './errors.js';
-import { getStringField } from './helpers.js';
+import { AppError, CodeAPI, CodeAuth, CodeNetwork, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
+import { assertCredentialTransport, assertCredentialDestination } from './auth/transport.js';
+import { canPrompt, getStringField } from './helpers.js';
+import { errMfaRequired, errMfaRejected, isTerminalAuthError } from './errors.js';
+import { buildMfaVerificationBody, extractMfaFormTokens, normalizeTotpCode, parseLoginStatus } from './auth/mfa.js';
 import { getAction, getStepTypes, createAction, updateAction, testAction } from './processflow-actions.js';
 import { readSkippedBaseline, revertSkippedUpdate } from './skipped-update-provider.js';
+import {
+  MAX_SESSION_REPLAYS, canReplayAfterRecovery, classifyAuthRejection, safeRequestLabel, sniffLoginBody,
+} from './session-recovery.js';
+import {
+  previewUpdateSet as previewRetrievedUpdateSet,
+  commitUpdateSet as commitRetrievedUpdateSet,
+  listPreviewProblems,
+} from './update-set-apply.js';
 
 const DEFAULT_TIMEOUT = 30000;
+
+/**
+ * Node reports every network-layer problem as "fetch failed" and hides the
+ * reason in `cause`. That message cannot tell a reset from a proxy rejection or
+ * a timeout, so the code is appended when one is available.
+ */
+function describeTransportError(error) {
+  const base = error?.message || String(error);
+  const code = error?.cause?.code || error?.code;
+  return code && !base.includes(code) ? `${base} (${code})` : base;
+}
 
 function collectSetCookies(cookieJar, response) {
   const values = response.headers.getSetCookie?.() || [];
@@ -27,6 +50,26 @@ function serializeCookies(cookieJar) {
   return [...cookieJar].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
+// Endpoint capability, not authentication policy: these REST surfaces can use
+// header-only auth. OAuth now prefers the existing UI session even here because
+// tables with ws_access=false reject Bearer while allowing the same user's UI
+// session. JSN_ALWAYS_WARM_SESSION=0 opts OAuth out only on these paths;
+// stateful:true, required UI endpoints and value 1 retain session precedence.
+// Basic/TOTP, supplied token and GCK policies remain unchanged. Internal OAuth
+// bootstrap must bypass warming to avoid recursion. See site/docs/guides/setup.md.
+const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch', '/api/now/import/'];
+
+export function needsUiSession(url, { stateful = false, forceSession = false } = {}) {
+  if (stateful || forceSession) return true;
+  let pathname;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return true;
+  }
+  return !STATELESS_REST_PREFIXES.some(prefix => pathname.startsWith(prefix));
+}
+
 // Build the sys.scripts.do POST body for background script execution.
 // Extracted for testability (issue #177): maps script-mode options to the
 // form fields on ServiceNow's Script Background form. Defaults preserve the
@@ -44,20 +87,66 @@ export function buildScriptFormBody({ script, csrf, scope, rollback = true, quot
   return formBody;
 }
 
+// How long the script's request stays open after jsn stops waiting, for the platform's answer to the cancel.
+const SCRIPT_CANCEL_WAIT = 15000;
+// A cancelled script's whole response is the platform's one line, even when it printed before (dev485581).
+const cancelledByPlatform = (output) => /^Transaction cancelled\b[^\n]*$/.test(output);
+
+// Resolves '' once the script's request settles, or why jsn stopped waiting first.
+function stopReason(run, ms, signal) {
+  let timer;
+  let onAbort;
+  return Promise.race([
+    run.then(() => '', () => ''),
+    new Promise(resolve => {
+      timer = setTimeout(resolve, ms, 'timeout');
+      onAbort = () => resolve('interrupt');
+      signal?.addEventListener('abort', onAbort, { once: true });
+    }),
+  ]).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); });
+}
+
+function scriptStoppedError(stop, timeout, cancel) {
+  const what = stop === 'timeout' ? `The background script was still running after ${Math.round(timeout / 1000)}s` : 'Interrupted while the background script was running';
+  const outcome = {
+    cancelled: `; it was cancelled on the instance (${cancel.output}).${stop === 'timeout' ? ' Re-run with --timeout <seconds> if it needs longer.' : ''}`,
+    not_confirmed: `; jsn asked the instance to cancel it, but the cancel was not confirmed (instance answered: ${cancel.message}). It may still be running until its transaction quota ends it.`,
+    failed: `; the cancel request failed (${cancel.message}), so it may still be running until its transaction quota ends it.`,
+  }[cancel.status];
+  const error = new AppError(stop === 'timeout' ? CodeNetwork : 'interrupted', what + outcome);
+  error.cancel = cancel;
+  return error;
+}
+
 export class SDKClient {
   constructor(baseURL, authProvider, opts = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
     this.authProvider = authProvider;
     this.recovery = opts.recovery;
-    this.onMutation = opts.onMutation;
     this.timeout = opts.timeout || DEFAULT_TIMEOUT;
     this.domain = opts.domain || '';
+    this.includeReferenceLinks = opts.includeReferenceLinks === true;
+    // Expected identity, used only to reject a recovery that lands on a
+    // different account. Never serialized.
+    this.username = opts.username || '';
     this.oauthCookies = null;
     this._sessionPromise = null;
     this.sessionUserToken = '';
+    this._sessionFailure = null;
+    this._mfaRecognized = false;
+    this.canInteract = opts.canInteract || canPrompt;
+    this.promptMfaCode = opts.promptMfaCode || (async config => {
+      const { mfaCode } = await import('./prompts.js');
+      return mfaCode(config);
+    });
+    // Session state is versioned so concurrent requests can tell "my headers
+    // are from the session that was just replaced" apart from "this rejection
+    // is new". One recovery is in flight per client at a time.
+    this._sessionGeneration = 0;
+    this._recoveryPromise = null;
   }
 
-  async _setAuth(req, { skipOAuthSession = false } = {}) {
+  async _setAuth(req, { skipOAuthSession = false, basicSession = false, preferOAuthSession = false, oauthHeaderOnly = false } = {}) {
     if (!this.authProvider) {
       throw errAuth('No authentication configured');
     }
@@ -71,27 +160,42 @@ export class SDKClient {
     if (!creds) {
       throw errAuth('No valid credentials');
     }
+    // Remember the credential family so a later 403 can explain whether this
+    // session could carry a role elevation at all.
+    this._authMethod = creds.auth_method;
     switch (creds.auth_method) {
       case 'basic':
-        if (!skipOAuthSession) {
+        // Basic credentials may demand a login challenge even on stateless
+        // REST. Only explicit internal bootstrap requests bypass this gate.
+        if (this._sessionFailure) throw this._sessionFailure;
+        if (!skipOAuthSession || basicSession || this._mfaRecognized) {
           const cookies = await this._warmSession();
-          if (cookies) {
+          // Stateless REST historically uses Basic. A non-challenge UI
+          // bootstrap (even one minting guest cookies/tokens) must not replace
+          // working REST credentials. Only verified MFA overrides that policy.
+          if (cookies && (!skipOAuthSession || this._mfaRecognized)) {
             req.headers.set('Cookie', cookies);
             if (this.sessionUserToken) req.headers.set('X-UserToken', this.sessionUserToken);
             break;
           }
         }
+        if (this._mfaRecognized) throw errMfaRejected();
         req.headers.set('Authorization', 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`).toString('base64'));
         break;
       case 'token':
       case 'oauth':
-        if (!skipOAuthSession) {
+        if (!skipOAuthSession || creds.auth_method === 'oauth' && preferOAuthSession) {
           const cookies = await this._warmSession();
           if (cookies && this.sessionUserToken) {
+            if (creds.auth_method === 'oauth') req.headers.delete('Authorization');
             req.headers.set('Cookie', cookies);
             req.headers.set('X-UserToken', this.sessionUserToken);
             break;
           }
+        }
+        if (creds.auth_method === 'oauth' && oauthHeaderOnly) {
+          req.headers.delete('Cookie');
+          req.headers.delete('X-UserToken');
         }
         req.headers.set('Authorization', `Bearer ${creds.access_token}`);
         break;
@@ -107,65 +211,48 @@ export class SDKClient {
   // Keep the timeout alive through body consumption for text/JSON requests.
   // Raw-response callers retain their existing timeout boundary at headers.
   async _withAuthenticatedRequest(endpoint, opts, settings, consume = (response) => response) {
-    const url = new URL(endpoint);
-    const match = url.pathname.match(/^\/api\/now\/table\/([^/]+)(?:\/([^/]+))?\/?$/);
-    const operation = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }[(opts.method || 'GET').toUpperCase()];
-    const event = match && operation && this.onMutation ? {
-      table: decodeURIComponent(match[1]), sys_id: match[2] ? decodeURIComponent(match[2]) : null, operation,
-    } : null;
-    let result;
-    try {
-      result = await this._performAuthenticatedRequest(endpoint, opts, settings, async response => {
-        if (event) event.http_status = response.status;
-        const value = await consume(response);
-        if (event && value instanceof Response && response.ok && operation === 'create') {
-          try { event.sys_id = (await response.clone().json())?.result?.sys_id || null; } catch { /* ID remains unknown. */ }
-        }
-        return value;
-      });
-    } catch (error) {
-      if (event) await this._reportMutation({ ...event, outcome: error.status >= 400 && error.status < 500 && error.status !== 408
-        ? 'failed' : 'unknown', http_status: error.status || null });
-      throw error;
-    }
-    if (event) {
-      let body = result;
-      if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = null; } }
-      const id = body?.result?.sys_id;
-      if (typeof id === 'string') event.sys_id = id;
-      else if (typeof id?.value === 'string') event.sys_id = id.value;
-      await this._reportMutation({ ...event, outcome: event.http_status >= 400
-        ? (event.http_status < 500 && event.http_status !== 408 ? 'failed' : 'unknown')
-        : (event.sys_id ? 'succeeded' : 'unknown') });
-    }
-    return result;
-  }
-
-  async _reportMutation(event) {
-    // History failures must never change the outcome of a completed remote write.
-    try { await this.onMutation(event); } catch { /* App callback reports local storage failures. */ }
+    return this._performAuthenticatedRequest(endpoint, opts, settings, consume);
   }
 
   async _performAuthenticatedRequest(endpoint, opts, {
     timeout = this.timeout, prepare, skipOAuthSession = false, normalizeErrors = false,
+    allowMutationReplay = false, stateful = false,
   }, consume = (response) => response) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    assertCredentialDestination(endpoint, this.baseURL);
+    const method = String(opts.method || 'GET').toUpperCase();
+    for (let attempt = 0; attempt <= MAX_SESSION_REPLAYS; attempt++) {
+      // Headers for this attempt belong to the session as it is right now.
+      const generation = this._sessionGeneration;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      let timer;
       let rejection;
       try {
-        const req = new Request(endpoint, { ...opts, signal: controller.signal });
+        const req = new Request(endpoint, { ...opts, redirect: 'error', signal: controller.signal });
         if (prepare) prepare(req);
-        await this._setAuth(req, { skipOAuthSession });
+        // Endpoint requirements and Basic challenge gates are unchanged. OAuth
+        // additionally prefers the UI session on otherwise stateless REST unless
+        // explicitly opted out. Internal bootstrap bypasses both to avoid recursion.
+        const skipSession = skipOAuthSession || !needsUiSession(endpoint, {
+          stateful,
+          forceSession: process.env.JSN_ALWAYS_WARM_SESSION === '1',
+        });
+        await this._setAuth(req, {
+          skipOAuthSession: skipSession,
+          basicSession: !skipOAuthSession,
+          preferOAuthSession: !skipOAuthSession && process.env.JSN_ALWAYS_WARM_SESSION !== '0',
+          oauthHeaderOnly: !skipOAuthSession && skipSession && process.env.JSN_ALWAYS_WARM_SESSION === '0',
+        });
+        timer = setTimeout(() => controller.abort(), timeout);
         const response = await fetch(req);
-        if (!skipOAuthSession && response.status === 401 && this.recovery) {
-          // Only a definitive HTTP rejection permits replay, including POST.
-          // Do not consume/echo the provider's potentially sensitive body.
-          rejection = { status: response.status, method: req.method, url: req.url };
-          await response.body?.cancel();
-        } else {
-          return await consume(response);
+        if (!skipOAuthSession && this.recovery) {
+          // A 401 is definitive; only then is the body sniffed for a login
+          // page. Provider bodies are cancelled, never echoed.
+          rejection = classifyAuthRejection(response, {
+            bodyText: response.status === 401 ? '' : await sniffLoginBody(response),
+          });
         }
+        if (!rejection) return await consume(response);
+        await response.body?.cancel?.();
       } catch (err) {
         if (normalizeErrors) {
           if (err.name === 'AbortError') throw errNetwork(new Error('Request timed out'));
@@ -177,22 +264,135 @@ export class SDKClient {
       } finally {
         clearTimeout(timer);
       }
+      if (attempt >= MAX_SESSION_REPLAYS) throw this._authFailure(rejection);
+      // A write or stateful processor is only replayed when the rejection
+      // provably happened before execution.
+      if (!canReplayAfterRecovery(rejection, { method, stateful, allowMutationReplay })) {
+        throw this._unsafeReplayError(rejection, endpoint, method);
+      }
       // Browser renewal has its own existing hard timeout. Never leave a
       // request timeout running while waiting for the human to authenticate.
-      if (attempt === 0 && await this.recovery.recover(rejection)) {
-        this.oauthCookies = null;
-        this.sessionUserToken = '';
-        continue;
-      }
-      throw this.recovery.error || errAPI(401, '');
+      await this._recoverSession(rejection, generation);
     }
   }
 
+  _authFailure(rejection) {
+    // The provider's error carries the actionable profile-specific guidance.
+    return this.recovery?.error || errAuth(`Authentication rejected${rejection?.status ? ` (HTTP ${rejection.status})` : ''}.`);
+  }
+
+  // Replace the cached session as one unit: cookies, user token and the
+  // in-flight warm-up promise cannot be mixed with a newly established one.
+  _invalidateSession() {
+    this.oauthCookies = null;
+    this.sessionUserToken = '';
+    this._sessionPromise = null;
+    this._sessionGeneration += 1;
+  }
+
+  /**
+   * Recover at most once for a rejection observed at `generation`.
+   * Concurrent callers share the same attempt; a caller whose session was
+   * already rotated by another request just replays with the new headers.
+   */
+  async _recoverSession(rejection, generation) {
+    if (generation !== this._sessionGeneration) return true;
+    if (!this._recoveryPromise) {
+      this._recoveryPromise = (async () => {
+        const recovered = await this.recovery.recover(rejection);
+        if (!recovered) throw this._authFailure(rejection);
+        this._invalidateSession();
+        await this._verifyRecoveredSession();
+      })().finally(() => { this._recoveryPromise = null; });
+    }
+    await this._recoveryPromise;
+    return true;
+  }
+
+  /**
+   * Prove the fresh credentials actually work over the session path the failed
+   * operation needs — a cookie/CSRF session, not just a bearer probe — and
+   * that they still belong to the selected identity.
+   */
+  async _verifyRecoveredSession() {
+    assertCredentialTransport(this.baseURL);
+    const params = new URLSearchParams({
+      sysparm_query: 'user_name=javascript:gs.getUserName()',
+      sysparm_fields: 'user_name', sysparm_limit: '1', sysparm_display_value: 'false',
+    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+    try {
+      const req = new Request(`${this.baseURL}/api/now/table/sys_user?${params}`, {
+        method: 'GET', headers: { Accept: 'application/json' }, redirect: 'manual', signal: controller.signal,
+      });
+      await this._setAuth(req);
+      const response = await fetch(req);
+      if (!response.ok) throw this._recoveryFailure('the re-established session was rejected');
+      const payload = await response.json().catch(() => null);
+      const record = Array.isArray(payload?.result) ? payload.result[0] : null;
+      const field = record?.user_name;
+      const verified = field && typeof field === 'object' ? (field.value ?? field.display_value) : field;
+      if (!verified) throw this._recoveryFailure('the re-established session did not identify a user');
+      if (this.username && String(verified) !== String(this.username)) {
+        // Identity is not leaked; the selected profile is the only useful fact.
+        throw this._recoveryFailure('the re-established session belongs to a different account');
+      }
+      return verified;
+    } catch (error) {
+      if (error?.code) throw error;
+      if (error?.name === 'AbortError') throw this._recoveryFailure('the session verification timed out');
+      throw this._recoveryFailure('the re-established session could not be verified');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  _recoveryFailure(reason) {
+    const error = errAuth(`Session recovery failed: ${reason}.`);
+    const base = this.recovery?.error;
+    if (base) {
+      error.profile = base.profile ?? null;
+      if (base.recovery) error.recovery = base.recovery;
+      if (base.hint) error.hint = base.hint;
+    }
+    return error;
+  }
+
+  _unsafeReplayError(rejection, endpoint, method) {
+    const where = `${method} ${safeRequestLabel(endpoint)}`;
+    const error = errAuth(
+      `The session for this request expired (${rejection.kind === 'http_401' ? 'HTTP 401' : 'login page returned'}), `
+      + `but JSN cannot prove the ${where} request never executed, so it was not replayed.`,
+    );
+    const base = this.recovery?.error;
+    if (base) {
+      error.profile = base.profile ?? null;
+      if (base.recovery) error.recovery = base.recovery;
+      error.hint = `Confirm the operation did not run, then sign in and re-run it${base.recovery ? `: ${base.recovery}` : '.'}`;
+    } else {
+      error.hint = 'Confirm the operation did not run, then sign in and re-run it.';
+    }
+    return error;
+  }
+
+  // A 403 on a mutation is the only case where elevation guidance helps:
+  // reads rarely need it, and a read error should stay terse.
+  _forbiddenContext(opts = {}) {
+    return {
+      authMethod: this._authMethod || '',
+      mutation: String(opts.method || 'GET').toUpperCase() !== 'GET',
+    };
+  }
+
   async request(endpoint, opts = {}) {
-    const { timeout = this.timeout, readOnly = false, touchLastSeen, domain = this.domain, ...requestOptions } = opts;
+    // Some provider mutations are GET-shaped. Keep this local replay policy
+    // out of fetch options rather than treating their HTTP method as read-only.
+    const { timeout = this.timeout, readOnly = false, stateful = false, touchLastSeen, domain = this.domain, responseMetadata, ...requestOptions } = opts;
     if (readOnly && (requestOptions.method || 'GET').toUpperCase() !== 'GET') throw new Error('Read-only SDK requests require GET');
     return this._withAuthenticatedRequest(endpoint, requestOptions, {
       timeout,
+      stateful,
       normalizeErrors: true,
       prepare: (req) => {
         req.headers.set('Accept', 'application/json');
@@ -203,7 +403,14 @@ export class SDKClient {
       },
     }, async (resp) => {
       const body = await resp.text();
-      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText, this._forbiddenContext(requestOptions));
+      if (responseMetadata) {
+        // Invocation-local receipt, never a cache: only accept a complete safe
+        // integer from this exact successful response (not an empty header).
+        const count = resp.headers.get('X-Total-Count');
+        responseMetadata.total = count !== null && /^\d+$/.test(count) && Number.isSafeInteger(Number(count))
+          ? Number(count) : undefined;
+      }
       if (resp.status === 204 || body === '') return null;
 
       // Preserve read-only credential-write suppression and the existing empty-body behavior.
@@ -224,12 +431,14 @@ export class SDKClient {
 
   // Public raw-response seam for callers that must inspect non-2xx bodies.
   async fetchResponse(endpoint, opts = {}) {
-    return this._fetchWithAuth(endpoint, opts);
+    const { timeout = this.timeout, stateful = false, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, { timeout, stateful });
   }
 
   async rawRequest(endpoint, opts = {}) {
-    return this._withAuthenticatedRequest(endpoint, opts, {
-      normalizeErrors: true,
+    const { timeout = this.timeout, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
+      timeout, normalizeErrors: true,
       prepare: (req) => {
         if (opts.body && typeof opts.body === 'string') {
           req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
@@ -237,7 +446,7 @@ export class SDKClient {
       },
     }, async (resp) => {
       const body = await resp.text();
-      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText, this._forbiddenContext(opts));
       return body;
     });
   }
@@ -256,7 +465,7 @@ export class SDKClient {
   }
 
   async list(table, params = {}, opts = {}) {
-    const query = new URLSearchParams(params).toString();
+    const query = tableReadParams(params, this).toString();
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
     const result = await this.request(endpoint, { method: 'GET', ...opts });
     return result?.result || [];
@@ -267,7 +476,7 @@ export class SDKClient {
   // table. Capture paths use this so an unexpected body becomes an unavailable
   // source instead of a complete-looking empty inventory.
   async listStrict(table, params = {}, opts = {}) {
-    const query = new URLSearchParams(params).toString();
+    const query = tableReadParams(params, this).toString();
     const endpoint = `${this.baseURL}/api/now/table/${table}${query ? '?' + query : ''}`;
     const response = await this.request(endpoint, { method: 'GET', ...opts });
     if (!response || typeof response !== 'object' || !Array.isArray(response.result)) {
@@ -284,27 +493,41 @@ export class SDKClient {
     return result?.result || null;
   }
 
+  async _guardTableMutation(table, id, data) {
+    const context = this.mutationContext;
+    if (!context?.verified || context.table !== table) return;
+    const { assertMutationScope } = await import('./intended-context.js');
+    if (id) assertMutationScope(context, (await this.get(table, id))?.sys_scope, 'Record target');
+    if (data && Object.hasOwn(data, 'sys_scope')) assertMutationScope(context, data.sys_scope, 'Record payload');
+  }
+
   async create(table, data) {
+    await this._guardTableMutation(table, null, data);
     const endpoint = `${this.baseURL}/api/now/table/${table}`;
     const result = await this.request(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (['sys_db_object', 'sys_dictionary', 'sys_dictionary_override'].includes(table)) this.afterMetadataMutation?.(table);
     return result?.result || null;
   }
 
   async update(table, sysID, data) {
+    await this._guardTableMutation(table, sysID, data);
     const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
     const result = await this.request(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    if (['sys_db_object', 'sys_dictionary', 'sys_dictionary_override'].includes(table)) this.afterMetadataMutation?.(table);
     return result?.result || null;
   }
 
   async delete(table, sysID) {
+    await this._guardTableMutation(table, sysID);
     const endpoint = `${this.baseURL}/api/now/table/${table}/${sysID}`;
     await this.request(endpoint, { method: 'DELETE' });
+    if (['sys_db_object', 'sys_dictionary', 'sys_dictionary_override'].includes(table)) this.afterMetadataMutation?.(table);
   }
 
   // Flow Designer actions use full Process Flow documents, not table CRUD.
@@ -768,15 +991,41 @@ export class SDKClient {
     });
   }
 
-  /** Load through the native XML upload processor, then verify the exact envelope. */
+  /**
+   * Load through the native XML upload processor, then verify the exact envelope.
+   *
+   * Loading is the step that changes the instance, and it is not transactional
+   * with the HTTP response that reports it: `sys_upload.do` can commit the
+   * retrieved update set and still fail in transport. Treating any later error
+   * as "the import failed" made agents retry a load that had already happened,
+   * so every failure path now re-reads for the set before deciding, and a
+   * second attempt at the same XML reports what is already there instead of
+   * dead-ending.
+   */
   async importUpdateSet(xml, inspection, filename = 'update-set.xml') {
     const { sys_id: id, remote_sys_id: sourceID } = inspection;
     const params = new URLSearchParams({
       sysparm_query: `sys_id=${id}^ORremote_sys_id=${sourceID}`,
       sysparm_fields: 'sys_id,name,state', sysparm_limit: '2', sysparm_display_value: 'false',
     });
-    if ((await this.list('sys_remote_update_set', params)).length) {
-      throw errUsage('This retrieved update set already exists on the target; refusing to overwrite it. Inspect it before retrying.');
+    const existing = await this.list('sys_remote_update_set', params);
+    if (existing.length > 1) {
+      throw errUsage('More than one retrieved update set matches this XML identity; refusing to guess. Inspect Retrieved Update Sets before retrying.');
+    }
+    if (existing.length === 1) {
+      const name = getStringField(existing[0], 'name');
+      // Same XML, already loaded: an interrupted or retried attempt lands here.
+      // Reporting the existing set is the useful answer; refusing to overwrite
+      // it is only right when the identity collides with different content.
+      if (name === inspection.name) {
+        const sysID = getStringField(existing[0], 'sys_id');
+        const state = getStringField(existing[0], 'state');
+        return {
+          sys_id: sysID, state, count: inspection.count, already_loaded: true, members_verified: false,
+          link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${sysID}`,
+        };
+      }
+      throw errUsage(`A retrieved update set for this XML identity already exists on the target as "${name}"; refusing to overwrite it. Inspect it before retrying.`);
     }
     // Native INSERT_OR_UPDATE must not move/overwrite a member belonging to another set.
     for (let offset = 0; offset < inspection.members.length; offset += 50) {
@@ -799,17 +1048,24 @@ export class SDKClient {
     form.set('sysparm_upload_prefix', '');
     form.set('sysparm_referring_url', 'sys_remote_update_set_list.do');
     form.set('attachFile', new Blob([xml], { type: 'application/xml' }), filename);
-    let outcome = 'unknown';
+    // A verification disagreement is knowledge about the instance, not a lost
+    // response: the upload landed and its contents are wrong. Those must stay
+    // failures, so they are tagged and exempted from post-error reconciliation.
+    const mismatch = (message) => {
+      const error = new Error(message);
+      error.verificationMismatch = true;
+      return error;
+    };
     try {
       await this.rawRequest(`${this.baseURL}/sys_upload.do`, { method: 'POST', body: form,
         headers: { ...(cookies ? { Cookie: cookies } : {}), 'X-UserToken': csrf, Referer: formURL },
       });
       const records = await this.list('sys_remote_update_set', params);
-      if (records.length !== 1) throw new Error('Could not identify exactly one uploaded retrieved update set');
+      if (records.length !== 1) throw mismatch('Could not identify exactly one uploaded retrieved update set');
       const record = records[0];
       const importedID = getStringField(record, 'sys_id');
       const state = getStringField(record, 'state');
-      if (state !== 'loaded' || getStringField(record, 'name') !== inspection.name) throw new Error('Uploaded update set name/state did not match the loaded export');
+      if (state !== 'loaded' || getStringField(record, 'name') !== inspection.name) throw mismatch('Uploaded update set name/state did not match the loaded export');
       const members = [];
       for (let offset = 0; ; offset += 500) {
         const page = await this.list('sys_update_xml', new URLSearchParams({
@@ -817,21 +1073,76 @@ export class SDKClient {
           sysparm_offset: String(offset), sysparm_display_value: 'false', sysparm_fields: 'sys_id,name,action',
         }));
         members.push(...page);
-        if (members.length > inspection.count) throw new Error('Uploaded update set contains unexpected extra members');
+        if (members.length > inspection.count) throw mismatch('Uploaded update set contains unexpected extra members');
         if (page.length < 500) break;
       }
       const actual = new Map(members.map(member => [getStringField(member, 'sys_id'), member]));
       if (actual.size !== inspection.count || inspection.members.some(expected => {
         const member = actual.get(expected.sys_id);
         return !member || getStringField(member, 'name') !== expected.name || getStringField(member, 'action') !== expected.action;
-      })) throw new Error('Uploaded update set members did not match the XML export');
-      outcome = 'succeeded';
+      })) throw mismatch('Uploaded update set members did not match the XML export');
       return { sys_id: importedID, state, count: members.length, link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${importedID}` };
     } catch (error) {
-      throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying. No automatic retry was attempted.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
-    } finally {
-      if (this.onMutation) await this._reportMutation({ table: 'sys_remote_update_set', sys_id: id, operation: 'create', outcome });
+      if (error.verificationMismatch) {
+        throw new AppError(CodeAPI, `XML import could not be verified: ${error.message}. It may have partially loaded; inspect Retrieved Update Sets before retrying.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
+      }
+      // The upload may have landed even though a request threw. Re-read for the
+      // exact identity before declaring failure; an agent told "failed" retries
+      // a load that already happened.
+      const landed = await this.#findImportedSet(params, inspection).catch(() => null);
+      if (landed) return landed;
+      throw new AppError(CodeAPI, `XML import could not be verified: ${describeTransportError(error)}. It may have partially loaded, and no matching retrieved update set is visible yet.`, 'Inspect Retrieved Update Sets before retrying.', 0, error);
     }
+  }
+
+  /**
+   * Find the retrieved update set this XML would have created, and report it as
+   * a successful load. Returns null when nothing matching is readable, so the
+   * caller can report the original failure.
+   */
+  async #findImportedSet(params, inspection) {
+    const records = await this.list('sys_remote_update_set', params);
+    if (records.length !== 1) return null;
+    const record = records[0];
+    if (getStringField(record, 'name') !== inspection.name) return null;
+    const sysID = getStringField(record, 'sys_id');
+    const members = await this.list('sys_update_xml', new URLSearchParams({
+      sysparm_query: `remote_update_set=${sysID}`, sysparm_fields: 'sys_id', sysparm_limit: String(inspection.count + 1),
+    }));
+    return {
+      sys_id: sysID,
+      state: getStringField(record, 'state'),
+      count: members.length,
+      link: `${this.baseURL}/sys_remote_update_set.do?sys_id=${sysID}`,
+      recovered_after_error: true,
+      members_match_inspection: members.length === inspection.count,
+    };
+  }
+
+  /**
+   * Preview a loaded retrieved update set through the CICD Update Set API and
+   * wait for its progress tracker. Does not commit and does not resolve
+   * preview problems.
+   * @param {string} sysID - sys_remote_update_set sys_id
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async previewUpdateSet(sysID, opts = {}) {
+    return previewRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /**
+   * Commit a previewed retrieved update set through the CICD Update Set API and
+   * wait for its progress tracker.
+   * @param {string} sysID - sys_remote_update_set sys_id
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async commitUpdateSet(sysID, opts = {}) {
+    return commitRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /** Read sys_update_preview_problem rows for a retrieved update set. */
+  async listUpdateSetPreviewProblems(sysID, opts = {}) {
+    return listPreviewProblems(this, sysID, opts);
   }
 
   /**
@@ -849,9 +1160,19 @@ export class SDKClient {
    *   - quotaManagedTransaction (default true) → quota_managed_transaction
    *   - sandbox (default false) → sandbox (KittyScript, single expression)
    *   - scriptlet (default false) → scriptlet
+   *   - timeout (ms) and signal (AbortSignal): a caller that passes either
+   *     gets the cancel. When either stops the wait, the script is cancelled on
+   *     the instance through cancel_my_transaction.do in the same session, and
+   *     the error says whether the platform confirmed it (error.cancel.status).
+   *     A caller with neither keeps the client timeout and no cancel.
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
+    return (await this.runBackgroundScript(script, scope, opts)).output;
+  }
+
+  /** executeScript, also returning the sys_script_execution_history id the page links to (null when absent). */
+  async runBackgroundScript(script, scope, opts = {}) {
     // Step 1: Warm up the session by hitting any REST API — this makes
     // ServiceNow issue session cookies for subsequent UI page requests.
     // We capture cookies to forward them (Node.js fetch() has no built-in cookie jar).
@@ -872,19 +1193,31 @@ export class SDKClient {
       scriptlet: opts.scriptlet,
     });
 
-    const html = await this.rawRequest(endpoint, {
+    // Only callers that pass a timeout or a signal (jsn eval) get the cancel; others keep the plain request.
+    const cancellable = Boolean(opts.timeout || opts.signal);
+    const timeout = opts.timeout || this.timeout;
+    if (opts.signal?.aborted) throw new AppError('interrupted', 'Interrupted before the background script was sent; nothing ran on the instance.');
+    // A cancellable request outlives the deadline so it can carry the platform's answer to a cancel.
+    const run = this.rawRequest(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         ...(cookies ? { Cookie: cookies } : {}),
       },
       body: formBody.toString(),
+      ...(cancellable ? { timeout: timeout + SCRIPT_CANCEL_WAIT } : {}),
     });
+    const stop = cancellable && await stopReason(run, timeout, opts.signal);
+    if (stop) throw scriptStoppedError(stop, timeout, await this._cancelScript(cookies, run));
 
+    // The response body is needed twice: for the output and for the execution id.
+    const html = await run;
     const output = this._extractScriptOutput(html);
+    // The platform ended it (transaction quota, or an admin's kill) before it finished.
+    if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
     if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
-    return output;
+    return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
   }
 
   /**
@@ -940,30 +1273,37 @@ export class SDKClient {
 
   /**
    * Fetch catalog variables for a request item (RITM).
+   * sc_item_option has no request_item column; answers link to the RITM through sc_item_option_mtom.
    * @param {string} ritmSysID - Sys ID of the request item
-   * @returns {Promise<Array<{question: string, value: string}>>}
+   * @param {number} [limit=100] - Most answers to return; one more is read to detect truncation
+   * @returns {Promise<{variables: Array<{question: string, value: string}>, truncated: boolean}>}
    */
-  async fetchCatalogVariables(ritmSysID) {
+  async fetchCatalogVariables(ritmSysID, limit = 100) {
     const params = new URLSearchParams();
     params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'item_option_new,value');
-    params.set('sysparm_query', `request_item=${ritmSysID}`);
-    params.set('sysparm_limit', '100');
+    params.set('sysparm_fields', 'request_item,sc_item_option.item_option_new,sc_item_option.value,sc_item_option.item_option_new.variable_set.type');
+    params.set('sysparm_query', `request_item=${ritmSysID}^ORDERBYsc_item_option.order`);
+    params.set('sysparm_limit', String(limit + 1));
 
-    const optRecords = await this.list('sc_item_option', params);
+    const links = await this.listStrict('sc_item_option_mtom', params);
     const variables = [];
 
-    for (const opt of optRecords) {
+    for (const link of links.slice(0, limit)) {
+      if (link?.request_item?.value !== ritmSysID) throw new Error(`sc_item_option_mtom returned an answer for another requested item (${link?.request_item?.value || 'none'}), so the RITM filter was not applied`);
+      // Multi-row set columns also get an empty answer here; fetchMultiRowVariables reads their rows.
+      if (link['sc_item_option.item_option_new.variable_set.type']?.value === 'one_to_many') continue;
+      const questionField = link['sc_item_option.item_option_new'];
+      const valueField = link['sc_item_option.value'];
       let question = '';
-      if (opt.item_option_new && typeof opt.item_option_new === 'object') {
-        question = opt.item_option_new.display_value || '';
+      if (questionField && typeof questionField === 'object') {
+        question = questionField.display_value || '';
       }
 
       let value = '';
-      if (opt.value && typeof opt.value === 'object') {
-        value = opt.value.display_value || opt.value.value || '';
-      } else if (typeof opt.value === 'string') {
-        value = opt.value;
+      if (valueField && typeof valueField === 'object') {
+        value = valueField.display_value || valueField.value || '';
+      } else if (typeof valueField === 'string') {
+        value = valueField;
       }
 
       if (question) {
@@ -971,13 +1311,78 @@ export class SDKClient {
       }
     }
 
-    return variables;
+    return { variables, truncated: links.length > limit };
+  }
+
+  /**
+   * Fetch multi-row variable set answers for a request item, grouped by set, then row.
+   * @param {string} ritmSysID - Sys ID of the request item
+   * @param {number} [limit=500] - Most answers (cells) to return; one more is read to detect truncation
+   * @returns {Promise<{sets: Array<{set: string, rows: Array<Array<{question: string, value: string}>>}>, truncated: boolean}>}
+   */
+  async fetchMultiRowVariables(ritmSysID, limit = 500) {
+    const params = new URLSearchParams();
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'parent_id,variable_set,row_index,item_option_new,value');
+    params.set('sysparm_query', `parent_id=${ritmSysID}^parent_table_name=sc_req_item^ORDERBYvariable_set^ORDERBYrow_index^ORDERBYitem_option_new.order`);
+    params.set('sysparm_limit', String(limit + 1));
+
+    const answers = await this.listStrict('sc_multi_row_question_answer', params);
+    const sets = new Map();
+    for (const answer of answers.slice(0, limit)) {
+      if (answer?.parent_id?.value !== ritmSysID) throw new Error(`sc_multi_row_question_answer returned an answer for another record (${answer?.parent_id?.value || 'none'}), so the RITM filter was not applied`);
+      const setID = answer.variable_set?.value || '';
+      if (!sets.has(setID)) sets.set(setID, { set: answer.variable_set?.display_value || setID, rows: new Map() });
+      const rows = sets.get(setID).rows, rowID = answer.row_index?.value ?? '';
+      if (!rows.has(rowID)) rows.set(rowID, []);
+      rows.get(rowID).push({ question: answer.item_option_new?.display_value || '', value: answer.value?.display_value || answer.value?.value || '' });
+    }
+    return { sets: [...sets.values()].map(({ set, rows }) => ({ set, rows: [...rows.values()] })), truncated: answers.length > limit };
+  }
+
+  /**
+   * Session material for channels that authorize like a browser (AMB).
+   *
+   * AMB does not accept bearer/basic headers on subscribe; it needs the
+   * cookies and X-UserToken of a UI session. gck credentials already carry
+   * them; basic/oauth profiles obtain them by warming the same session the
+   * SDK uses for UI calls. A bearer-token profile that cannot warm a session
+   * is an actionable error, never a silent fallback.
+   */
+  async ambSession() {
+    assertCredentialTransport(this.baseURL);
+    if (!this.authProvider) throw errAuth('No authentication configured');
+    const creds = await this.authProvider.getCredentials();
+    if (!creds) throw errAuth('No valid credentials');
+    if (creds.auth_method === 'gck') {
+      if (!creds.cookies) {
+        throw errAuthHint('This gck credential has no session cookies, so AMB cannot open a channel.',
+          'Re-import the browser session: jsn auth login --browser');
+      }
+      return { cookies: creds.cookies, userToken: creds.access_token || '', authMethod: 'gck' };
+    }
+    if (creds.auth_method === 'basic' || creds.auth_method === 'token' || creds.auth_method === 'oauth') {
+      const cookies = await this._warmSession();
+      if (!cookies) {
+        throw errAuthHint(
+          `${creds.auth_method} credentials could not open a UI session, which AMB requires.`,
+          'Record watching needs a browser session. Run "jsn auth login --browser" and use that profile, or ask an administrator whether AMB is enabled for this account.',
+        );
+      }
+      return { cookies, userToken: this.sessionUserToken || '', authMethod: creds.auth_method };
+    }
+    throw errAuthHint(`Authentication method "${creds.auth_method}" cannot open an AMB session.`,
+      'Use a browser-session (gck) profile: jsn auth login --browser');
   }
 
   async _warmSession() {
+    if (this._sessionFailure) throw this._sessionFailure;
     if (this.oauthCookies) return this.oauthCookies;
     if (!this._sessionPromise) {
-      this._sessionPromise = this._initializeSession().finally(() => {
+      this._sessionPromise = this._initializeSession().catch(error => {
+        if (isTerminalAuthError(error)) this._sessionFailure = error;
+        throw error;
+      }).finally(() => {
         this._sessionPromise = null;
       });
     }
@@ -985,18 +1390,21 @@ export class SDKClient {
   }
 
   async _initializeSession() {
+    assertCredentialTransport(this.baseURL);
+    let challenged = false;
     try {
       const creds = await this.authProvider.getCredentials();
       if (creds.auth_method === 'oauth') {
         const cookieJar = new Map();
         const login = `${this.baseURL}/angular.do?sysparm_type=get_user`;
-        collectSetCookies(cookieJar, await fetch(new Request(login, { method: 'POST' })));
+        collectSetCookies(cookieJar, await fetch(new Request(login, { method: 'POST', redirect: 'error' })));
         const scopeEndpoint = `${this.baseURL}/api/now/table/sys_scope?sysparm_fields=sys_id%2Csys_class_name&sysparm_limit=1`;
         collectSetCookies(cookieJar, await this._fetchWithAuth(scopeEndpoint, {
           method: 'GET',
           headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
         const finalLogin = await fetch(new Request(login, {
+          redirect: 'error',
           method: 'POST',
           headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
         }));
@@ -1008,7 +1416,7 @@ export class SDKClient {
       }
       const endpoint = `${this.baseURL}/angular.do`;
       const cookieJar = new Map();
-      const loginResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=view_form.login`, {
+      const loginStatus = await this._mfaExchange('/angular.do?sysparm_type=view_form.login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -1017,8 +1425,17 @@ export class SDKClient {
           user_name: creds.username,
           user_password: creds.password,
         }).toString(),
-      });
-      collectSetCookies(cookieJar, loginResp);
+      }, cookieJar, async response => parseLoginStatus(await response.text()));
+      challenged = loginStatus?.status === 'mfa_code_required';
+      if (challenged) {
+        this._mfaRecognized = true;
+        const token = await this._completeMfaChallenge(cookieJar, creds.username);
+        if (!serializeCookies(cookieJar)) throw errMfaRejected();
+        this.sessionUserToken = token;
+        this.oauthCookies = serializeCookies(cookieJar);
+        return this.oauthCookies;
+      }
+      if (this._mfaRecognized) throw errMfaRejected();
       const refreshResp = await this._fetchWithAuth(`${endpoint}?sysparm_type=get_user`, {
         method: 'POST',
         headers: serializeCookies(cookieJar) ? { Cookie: serializeCookies(cookieJar) } : {},
@@ -1028,9 +1445,109 @@ export class SDKClient {
       const cookies = serializeCookies(cookieJar);
       this.oauthCookies = cookies;
       return cookies;
-    } catch {
+    } catch (error) {
+      if (challenged || this._mfaRecognized) throw isTerminalAuthError(error) ? error : errMfaRejected();
       return '';
     }
+  }
+
+  // Each network exchange, including its body, has a deadline independent of
+  // human code entry. The race also bounds streams that do not honor abort.
+  async _mfaExchange(path, options, cookieJar, consume = response => response) {
+    assertCredentialTransport(this.baseURL);
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(errMfaRejected());
+      }, this.timeout);
+    });
+    try {
+      return await Promise.race([deadline, (async () => {
+        const response = await fetch(new Request(`${this.baseURL}${path}`, {
+          ...options, redirect: 'manual', signal: controller.signal,
+          headers: { ...options.headers, Cookie: serializeCookies(cookieJar) },
+        }));
+        collectSetCookies(cookieJar, response);
+        try {
+          return await consume(response);
+        } finally {
+          if (!response.bodyUsed) await response.body?.cancel?.();
+        }
+      })()]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async _completeMfaChallenge(cookieJar, username) {
+    if (!this.canInteract()) throw errMfaRequired();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const code = normalizeTotpCode(await this.promptMfaCode({
+        message: attempt === 1 ? 'Enter the 6-digit authenticator code:' : `Code rejected. Enter a new code (${attempt}/3):`,
+      }));
+      if (!code) continue;
+      const tokens = await this._mfaExchange('/validate_multifactor_auth_code.do', { method: 'GET' }, cookieJar, async response => {
+        if (!response.ok) throw errMfaRejected();
+        return extractMfaFormTokens(await response.text());
+      });
+      if (!tokens.csrf || !tokens.processNonce) throw errMfaRejected();
+      const accepted = await this._mfaExchange('/validate_mfa_code.do', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: buildMfaVerificationBody({ ...tokens, code }).toString(),
+      }, cookieJar, response => {
+        if (response.headers.get('x-mfa_token') === 'invalid') return false;
+        const location = response.headers.get('location') || '';
+        const destination = new URL(location, this.baseURL);
+        if (response.status !== 302 || !location || destination.origin !== new URL(this.baseURL).origin
+          || /login|logout|expired|multifactor|validate_mfa/i.test(destination.pathname)) throw errMfaRejected();
+        return true;
+      });
+      if (!accepted) continue;
+      const token = await this._mfaExchange('/angular.do?sysparm_type=get_user', { method: 'POST' }, cookieJar, async response => {
+        const body = await response.text();
+        const token = response.headers.get('x-usertoken-response');
+        if (!response.ok || !token || /\bguest\b|login\.do|session_expired/i.test(body)) throw errMfaRejected();
+        return token;
+      });
+      // A token is not identity proof. Use the same cookie/CSRF session and
+      // compare the authenticated current user with the selected Basic user.
+      const params = new URLSearchParams({ sysparm_query: 'user_name=javascript:gs.getUserName()',
+        sysparm_fields: 'user_name', sysparm_limit: '1', sysparm_display_value: 'false' });
+      await this._mfaExchange(`/api/now/table/sys_user?${params}`, {
+        method: 'GET', headers: { Accept: 'application/json', 'X-UserToken': token },
+      }, cookieJar, async response => {
+        if (!response.ok) throw errMfaRejected();
+        const payload = await response.json();
+        const field = Array.isArray(payload?.result) && payload.result.length === 1 ? payload.result[0]?.user_name : null;
+        const identity = typeof field === 'object' && field ? field.value : field;
+        if (!username || identity !== username || identity === 'guest'
+          || (this.username && identity !== this.username)) throw errMfaRejected();
+      });
+      return token;
+    }
+    throw errMfaRejected();
+  }
+
+  // One cancel_my_transaction.do in the script's session, as the UI's cancel does.
+  // Only the script's own request ending with the platform's cancellation line
+  // confirms it; an acknowledgement alone is not confirmation.
+  async _cancelScript(cookies, run) {
+    let message;
+    try {
+      const xml = await this.rawRequest(`${this.baseURL}/cancel_my_transaction.do?sysparm_output=xml`, {
+        method: 'GET', headers: cookies ? { Cookie: cookies } : {},
+      });
+      message = /<message text="([^"]*)"/.exec(xml)?.[1]?.trim();
+      if (!message) throw new Error('the instance gave no cancel message');
+    } catch (error) {
+      return { status: 'failed', message: error.message };
+    }
+    // The wait for the platform's answer is bounded on its own, whatever --timeout is.
+    const answer = new Promise(resolve => setTimeout(resolve, SCRIPT_CANCEL_WAIT, '').unref());
+    const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]));
+    return { status: cancelledByPlatform(output) ? 'cancelled' : 'not_confirmed', message, output };
   }
 
   async _getScriptsPageCSRF(cookies) {

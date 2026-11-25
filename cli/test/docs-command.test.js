@@ -44,8 +44,8 @@ function cli(args, env) {
     child.on('exit', status => resolve({ status, stdout, stderr }));
   });
 }
-test('docs exposes hosted search, show and status, without local index commands', () => {
-  assert.deepEqual(captureCommands(docsCmd(handler => handler)).map(command => command.command), ['install', 'search <query..>', 'show <id-or-path>', 'status']);
+test('docs exposes release discovery and sync alongside hosted compatibility commands', () => {
+  assert.deepEqual(captureCommands(docsCmd(handler => handler)).map(command => command.command), ['releases', 'sync', 'install', 'search <query..>', 'show <id-or-path>', 'status']);
 });
 test('hosted client sends only public API requests and preserves pagination, paths and revisions', async t => {
   const fixtureServer = await fixture(t);
@@ -59,6 +59,7 @@ test('hosted client sends only public API requests and preserves pagination, pat
   assert.equal(fixtureServer.requests.at(-1).query.revision, 'rev123');
   assert.equal((await getHostedDocsStatus(fixtureServer)).state, 'ready');
   assert.ok(fixtureServer.requests.every(request => !request.authorization));
+  assert.ok(fixtureServer.requests.every(request => !('release' in request.query)));
 });
 test('hosted client reports unavailable, rate-limited, stale, missing and malformed responses cleanly', async t => {
   const options = await fixture(t);

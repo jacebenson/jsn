@@ -1,5 +1,6 @@
-import { describe, it } from 'node:test';
+import { before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFlowPatch, persistFlowPatch } from './helpers/flow-patch-fixture.js';
 
 const TRIGGER_DEFINITION = 'a45d9180c32222002841b63b12d3aea7';
 const FLOW_ID = '4748b85793ff87d087b0f14fdd03d6bd';
@@ -27,6 +28,13 @@ const DECLARED_INPUTS = [
   { sys_id: '707dd180c32222002841b63b12d3aecb', element: 'condition', label: 'Condition', internal_type: 'conditions', mandatory: 'false', order: '100', max_length: '4000', default_value: '', attributes: 'modelDependent=trigger_inputs', choice: '' },
 ];
 
+// Declared outputs exactly as sys_hub_trigger_output reports them for the
+// record trigger: element + human internal_type + the flow graph type they map to.
+const DECLARED_OUTPUTS = [
+  { sys_id: '5f1e1980c32222002841b63b12d3ae11', element: 'table_name', label: 'Table Name', internal_type: 'Table Name', order: '100', max_length: '255', reference: '' },
+  { sys_id: '5f1e1980c32222002841b63b12d3ae12', element: 'current', label: 'Record', internal_type: 'Document ID', order: '100', max_length: '255', reference: '' },
+];
+
 const actionSchema = [
   { id: 'i1', name: 'log_level', type: 'choice', defaultValue: 'info', choices: ['info', 'warn', 'error'], mandatory: false },
   { id: 'i2', name: 'log_message', type: 'string', mandatory: true },
@@ -47,6 +55,11 @@ function displayListMap() {
     }),
     sys_db_object: [{ name: { value: 'ticket', display_value: 'ticket' }, label: { value: 'Ticket', display_value: 'Ticket' }, super_class: { value: '1521b6f78c5103100a22deb6dd2b4e61', display_value: 'Task' } }],
     sys_dictionary: [{ element: { value: 'number', display_value: 'number' } }],
+    sys_hub_trigger_output: DECLARED_OUTPUTS.map(row => {
+      const out = {};
+      for (const [key, value] of Object.entries(row)) out[key] = { value, display_value: value };
+      return out;
+    }),
     sys_hub_action_type_definition: [{ sys_id: { value: ACTION_ID }, name: { value: 'Log', display_value: 'Log' }, active: { value: 'true' } }],
   };
 }
@@ -72,7 +85,7 @@ function makeSdk(overrides = {}) {
         state.flowReads += 1;
         return { result: { data: overrides.readback || createdDefinition() } };
       }
-      if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: actionSchema } };
+      if (options.method === 'GET' && endpoint.includes('/action/action_types/')) return { result: { inputs: overrides.actionSchema || actionSchema } };
       if (endpoint === 'https://example.service-now.com/api/now/graphql') {
         if (overrides.graphql) return overrides.graphql;
         return { data: { global: { snFlowDesigner: { flow: {
@@ -112,8 +125,8 @@ function createdDefinition() {
     actionInstances: [{
       id: 'action-123', uiUniqueIdentifier: 'generated-1', actionTypeSysId: ACTION_ID, order: '1',
       inputs: [
-        { name: 'log_level', value: wrapped('info') },
-        { name: 'log_message', value: wrapped(manifest.actions[0].inputs.log_message) },
+        { id: 'i1', name: 'log_level', children: [], displayField: '', scriptActive: false, parameter: { id: 'i1', name: 'log_level', type: 'choice', mandatory: false, defaultValue: 'info', choices: ['info', 'warn', 'error'], attributes: '' }, value: wrapped('info'), displayValue: wrapped('info') },
+        { id: 'i2', name: 'log_message', children: [], displayField: '', scriptActive: false, parameter: { id: 'i2', name: 'log_message', type: 'string', mandatory: true, attributes: '' }, value: wrapped(manifest.actions[0].inputs.log_message), displayValue: wrapped(manifest.actions[0].inputs.log_message) },
       ],
     }],
   };
@@ -139,8 +152,104 @@ describe('flow creation manifest', () => {
     assert.throws(() => validateFlowManifest({ ...manifest, trigger: { ...manifest.trigger, table: '  ' } }), /table must not be empty/i);
     assert.throws(() => validateFlowManifest({ ...manifest, trigger: { ...manifest.trigger, inputs: [] } }), /inputs must be an object/i);
     assert.throws(() => validateFlowManifest({ ...manifest, trigger: { ...manifest.trigger, unexpected: 1 } }), /trigger field "unexpected" is unsupported/i);
-    assert.throws(() => validateFlowManifest({ ...manifest, logic: [] }), /Flow Logic.*unsupported/i);
+    assert.throws(() => validateFlowManifest({ ...manifest, logic: [{ type: 'unknown', order: 2 }] }), /Unsupported flow logic type/i);
     assert.throws(() => validateFlowManifest({ ...manifest, actions: [{ type: 'Log', inputs: 'bad' }] }), /inputs.*object/i);
+  });
+});
+
+describe('flow creation preflight', () => {
+  it('rejects duplicate Catch pairing without parent, patch or Autosave writes', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      logic: [{ order: 2, type: 'try' }, { order: 3, type: 'catch', connectedToOrder: 2 }, { order: 4, type: 'catch', connectedToOrder: 2 }],
+      errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] },
+    }, { ...options, idFactory: (() => { let n = 0; return () => `pair-${++n}`; })() }), error => {
+      assert.match(error.message, /Ambiguous Catch pair/);
+      assert.doesNotMatch(error.message, /orphan|partial/i);
+      return true;
+    });
+    assert.deepEqual(sdk.calls.filter(c => c.kind === 'request' && c.options.method === 'POST'), []);
+  });
+  it('rejects unsupported error-action inputs without parent, patch or Autosave writes', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest, errorHandling: { actions: [{ type: 'Log', inputs: { not_in_schema: 'bad' } }] },
+    }, { ...options, idFactory: (() => { let n = 0; return () => `preflight-${++n}`; })() }), error => {
+      assert.match(error.message, /Unsupported input "not_in_schema"/);
+      assert.doesNotMatch(error.message, /orphan|partial/i);
+      return true;
+    });
+    assert.deepEqual(sdk.calls.filter(c => c.kind === 'request' && c.options.method === 'POST'), []);
+  });
+});
+
+describe('flow creation provider-normalized input readback', () => {
+  it('accepts scalar saved values and provider choice display labels, then Autosaves', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const readback = createdDefinition();
+    for (const input of readback.actionInstances[0].inputs) {
+      input.value = input.value.value;
+      input.displayValue = input.name === 'log_level' ? 'Info' : input.displayValue.value;
+      input.parameter.attributes = { element_mapping_provider: 'provider.Mapper' };
+    }
+    const sdk = makeSdk({ readback, actionSchema: actionSchema.map(field => ({
+      ...field, attributes: 'element_mapping_provider=provider.Mapper', uiDisplayType: null,
+    })) });
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', manifest, {
+      ...options, idFactory: () => 'generated-1',
+    });
+    assert.equal(result.flow.id, FLOW_ID);
+    assert.equal(result.flow.active, false);
+    assert.equal(result.version.sys_id, 'version-1');
+    assert.equal(sdk.calls.filter(c => c.kind === 'request' && c.endpoint.includes('/versioning/create_version?')).length, 1);
+  });
+});
+
+describe('flow creation trigger-output data pills', () => {
+  function flowPatchQuery(sdk) {
+    const post = sdk.calls.find(call => call.kind === 'request' && call.options?.method === 'POST' && call.endpoint.endsWith('/graphql'));
+    assert.ok(post, 'expected a flowPatch mutation');
+    return JSON.parse(post.options.body).query;
+  }
+
+  it('registers a trigger output that an action input references', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const pill = '{{Created or Updated_1.table_name}}';
+    const readback = createdDefinition();
+    readback.actionInstances[0].inputs[1].value = wrapped(pill);
+    readback.actionInstances[0].inputs[1].displayValue = wrapped(pill);
+    readback.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Created or Updated_1.table_name', label: 'Trigger - Created or Updated➛Table Name',
+      type: 'table_name', base_type: 'table_name', usedInstances: {},
+    }]);
+    const sdk = makeSdk({ readback });
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      actions: [{ type: 'Log', inputs: { log_level: 'info', log_message: pill } }],
+    }, { ...options, idFactory: () => 'generated-1' });
+    assert.equal(result.flow.id, FLOW_ID);
+
+    const outputsRead = sdk.calls.find(call => call.kind === 'list' && call.table === 'sys_hub_trigger_output');
+    assert.ok(outputsRead, 'the trigger definition outputs must be read before the actions are patched');
+    assert.match(outputsRead.params, /var__m_sys_hub_trigger_output_/);
+
+    const query = flowPatchQuery(sdk);
+    assert.match(query, /labelCache: \{insert: \[\{name: "Created or Updated_1\.table_name", usedInstances: \[/);
+    assert.match(query, /label: "Trigger - Created or Updated➛Table Name"/);
+    assert.match(query, /type: "table_name"/);
+  });
+
+  it('refuses a trigger pill the definition does not declare, with no content write', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      actions: [{ type: 'Log', inputs: { log_level: 'info', log_message: '{{Created or Updated_1.not_an_output}}' } }],
+    }, { ...options, idFactory: () => 'generated-1' }), /no label_cache entry for data pill \{\{Created or Updated_1\.not_an_output\}\}/);
+    assert.deepEqual(sdk.calls.filter(call => call.kind === 'request' && call.options.method === 'POST'), [], 'an unresolvable trigger pill must not create the flow');
   });
 });
 
@@ -149,11 +258,11 @@ describe('flow creation request shapes', () => {
     const { flowsCmd } = await import('../src/commands/flows.js');
     const commands = [];
     const root = flowsCmd((handler) => handler);
-    root.builder({ command(definition) { commands.push(definition); return this; } });
+    root.builder({ command(definition) { commands.push(definition); return this; }, epilogue() { return this; } });
     const create = commands.find(command => command.command === 'create');
     assert.ok(create);
     const options2 = [];
-    create.builder({ option(name) { options2.push(name); return this; } });
+    create.builder({ option(name) { options2.push(name); return this; }, epilogue() { return this; } });
     assert.deepEqual(options2, ['data', 'data-file', 'scope']);
   });
 
@@ -300,7 +409,7 @@ describe('flow update request shapes', () => {
     ] }],
   };
 
-  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition) {
+  function updateSdk(afterDefinition, baseDefinitionForRead = baseDefinition, extra = {}) {
     const calls = [];
     let versionReads = 0;
     let editLease = false;
@@ -313,10 +422,19 @@ describe('flow update request shapes', () => {
         if (table === 'sys_update_xml') return [{ sys_id: 'xml-update-1', payload: flowId }];
         if (table === 'sys_db_object') return [{ name: { value: 'ticket' }, label: { value: 'Ticket' }, super_class: { value: '' } }];
         if (table === 'sys_dictionary') return [];
+        if (table === 'stage_set_table') return extra.stageSetId ? [{ set: { value: extra.stageSetId } }] : [];
+        if (table === 'stage_set') return extra.stageSetId ? [{ sys_id: extra.stageSetId }] : [];
+        if (table === 'stage_set_entry') return extra.stageEntries || [];
         return [];
       },
       async request(endpoint, options = {}) {
         calls.push({ endpoint, options });
+        if (options.method === 'PUT' && endpoint.includes('/stages?')) {
+          const payload = JSON.parse(options.body);
+          const data = {};
+          for (const key of Object.keys(payload)) data[key] = { id: `db-${key}` };
+          return { result: { data } };
+        }
         const query = options.body && JSON.parse(options.body).query;
         if (query?.includes('safeEdit(')) {
           const isUpsert = query.includes('upsert:');
@@ -328,10 +446,15 @@ describe('flow update request shapes', () => {
               : { status: { canUserEdit: editLease, currentEditor: null } };
           return { data: { global: { snFlowDesigner: { safeEdit } } } };
         }
-        if (options.method === 'GET') return { result: { data: calls.some(call => call.options?.method === 'POST' && !JSON.parse(call.options.body).query?.includes('safeEdit(')) ? afterDefinition : baseDefinitionForRead } };
+        if (options.method === 'GET') {
+          if (endpoint.includes('/action/action_types/')) return { result: { inputs: actionSchema } };
+          return { result: { data: calls.some(call => call.options?.method === 'POST' && !JSON.parse(call.options.body).query?.includes('safeEdit(')) ? (typeof afterDefinition === 'function' ? afterDefinition(baseDefinitionForRead, readFlowPatch(JSON.parse(calls.find(c => c.options?.body && JSON.parse(c.options.body).query?.includes('flowPatch:')).options.body).query)) : afterDefinition) : baseDefinitionForRead } };
+        }
         if (endpoint.includes('/versioning/create_version')) return { result: { sys_id: 'version-update-1' } };
         assert.ok(editLease, 'does not have safe edit record for existing flow');
-        return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId] } } } } } };
+        const patch = readFlowPatch(query);
+        const identities = key => (patch[key]?.insert || []).map(s => ({ sysId: `db-${s.uiUniqueIdentifier}`, uiUniqueIdentifier: s.uiUniqueIdentifier }));
+        return { data: { global: { snFlowDesigner: { flow: { triggerInstances: { updates: [triggerId] }, actions: { updates: [actionId], inserts: identities('actions') }, flowLogics: { inserts: identities('flowLogics') } } } } } };
       },
     };
   }
@@ -398,7 +521,7 @@ describe('flow update request shapes', () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     for (const field of ['triggerInstances', 'flowVariables', 'flowLogicInstances', 'subFlowInstances']) {
       const before = structuredClone(baseDefinition);
-      if (field !== 'triggerInstances') before[field] = [{ id: 'keep', opaque: { a: 1 } }];
+      if (field !== 'triggerInstances') before[field] = [{ id: 'keep', uiUniqueIdentifier: 'keep-ui', order: '9', definitionId: 'af4e1945c3e232002841b63b12d3ae3e', opaque: { a: 1 } }];
       const after = structuredClone(before);
       after.actionInstances[0].inputs[1].value = wrapped('new message');
       after[field] = [];
@@ -507,6 +630,88 @@ describe('flow update request shapes', () => {
     assert.ok(query.includes(`metadata: ${JSON.stringify(JSON.stringify(before.triggerInstances[0].metadata))}`));
   });
 
+  it('reconciles the warmed session with the persisted set before the first content write', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    const seen = [];
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+      ensureCapture: async intended => {
+        seen.push({ intended, writesSoFar: sdk.calls.filter(call => call.options.method && call.options.method !== 'GET').length });
+        return { intended, effective: { sys_id: 'update-set-1', name: 'Feature' }, aligned: true, action: 'selected' };
+      },
+    });
+    assert.deepEqual(seen, [{ intended: { name: 'Feature', sys_id: 'update-set-1' }, writesSoFar: 0 }]);
+    assert.equal(result.capture_context.aligned, true);
+    assert.equal(result.capture_context.action, 'selected');
+    const posts = sdk.calls.filter(call => call.options.method && call.options.method !== 'GET');
+    assert.ok(posts.length > 0, 'the content write still runs once the capture context is aligned');
+  });
+
+  it('refuses the content write when the capture context cannot be aligned', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, {
+      readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }),
+      ensureCapture: async () => { throw new Error('selection was not applied'); },
+    }), error => error.message.includes('before any content write') && error.message.includes('selection was not applied'));
+    assert.equal(sdk.calls.filter(call => call.options.method && call.options.method !== 'GET').length, 0);
+  });
+
+  it('does not touch the session capture context for a preview', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition);
+    let called = false;
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'preview message' } }],
+    }, {
+      preview: true,
+      ensureCapture: async () => { called = true; },
+    });
+    assert.equal(result.preview, true);
+    assert.equal(called, false);
+  });
+
+  it('reports other matching sets without treating historical captures as proof of routing', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const after = structuredClone(baseDefinition);
+    after.actionInstances[0].inputs[1].value = wrapped('new message');
+    const sdk = updateSdk(after);
+    const list = sdk.list;
+    sdk.list = async (table, params) => {
+      if (table !== 'sys_update_xml') return list(table, params);
+      const query = params.get('sysparm_query');
+      if (query === 'update_set=update-set-1') return [];
+      if (query === `nameLIKE${flowId}`) {
+        return [{
+          sys_id: 'xml-old',
+          name: { value: `sys_hub_flow_${flowId}`, display_value: `sys_hub_flow_${flowId}` },
+          action: 'INSERT_OR_UPDATE',
+          update_set: { value: 'previous-set', display_value: 'Previous Feature' },
+          sys_created_on: { value: '2026-10-29 10:00:00', display_value: '2026-10-29 10:00:00' },
+        }];
+      }
+      return [];
+    };
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }],
+    }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    assert.equal(result.update_set_capture.status, 'missing');
+    assert.deepEqual(result.update_set_capture.elsewhere.update_sets.map(set => set.sys_id), ['previous-set']);
+    assert.match(result.update_set_capture.diagnosis, /historical captures/);
+    assert.match(result.update_set_capture.diagnosis, /do not prove this save was routed elsewhere/);
+    assert.match(result.update_set_capture.diagnosis, /asynchronous; re-check the intended set/);
+    assert.match(result.update_set_capture.diagnosis, /Previous Feature/);
+  });
+
   it('updates only requested trigger/action values, preserves omitted fields, versions, and captures', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const afterDefinition = structuredClone(baseDefinition);
@@ -595,7 +800,7 @@ describe('flow update request shapes', () => {
 
   it('rejects unsupported fields, ambiguous actions, and protected targets before mutation', async () => {
     const { validateFlowUpdateManifest, updateFlowFromManifest } = await import('../src/flow-create.js');
-    assert.throws(() => validateFlowUpdateManifest({ logic: [] }), /unsupported/i);
+    assert.throws(() => validateFlowUpdateManifest({ unsupportedField: {} }), /unsupported/i);
     assert.throws(() => validateFlowUpdateManifest({ actions: [{ inputs: { x: 'y' } }] }), /order and type/i);
     assert.throws(() => validateFlowUpdateManifest({ actions: [{ order: 1, type: 'Log', uiUniqueIdentifier: 'caller-id', inputs: { x: 'y' } }] }), /unsupported.*field|caller-supplied identities/i);
     const ambiguousDefinition = structuredClone(baseDefinition);
@@ -668,7 +873,140 @@ describe('flow update request shapes', () => {
     assert.equal(sdk.calls.filter(call => call.options?.method === 'POST').length, 0, 'an unsupported family must not be written');
   });
 
-  // A read-back that does not carry the requested value is a failure: no Autosave.
+  // The canvas draws a pill from its label_cache entry's `label`; ProcessFlow
+  // exposes that cache as `labelCacheAsJsonString`, not as a `label_cache` array.
+  function labelDefinition() {
+    const definition = structuredClone(baseDefinition);
+    definition.triggerInstances[0].name = 'Service Catalog';
+    definition.actionInstances[0].name = 'Log';
+    definition.triggerInstances[0].inputs[0] = {
+      ...definition.triggerInstances[0].inputs[0],
+      parameter: { name: 'table', label: 'Table', type: 'table_name' },
+    };
+    definition.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Service Catalog_1.request_item',
+      label: 'Trigger - Service Catalog➛Request Item',
+      type: 'reference',
+      base_type: 'reference',
+      usedInstances: { 'other-action-ui': ['record'] },
+    }]);
+    return definition;
+  }
+
+  function labelCacheQuery(sdk) {
+    const post = sdk.calls.find(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected a flowPatch mutation');
+    return JSON.parse(post.options.body).query;
+  }
+
+  it('binds an existing data pill through labelCacheAsJsonString and keeps its label', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.request_item}}');
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Service Catalog_1.request_item',
+      label: 'Trigger - Service Catalog➛Request Item',
+      type: 'reference',
+      base_type: 'reference',
+      usedInstances: { 'other-action-ui': ['record'], 'action-ui-123': ['log_message'] },
+    }]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.request_item}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{update: \[/);
+    assert.match(query, /name: "Service Catalog_1\.request_item"/);
+    assert.match(query, /label: "Trigger - Service Catalog➛Request Item"/);
+    assert.match(query, /type: "reference"/);
+    assert.match(query, /usedInstances: \[\{uiUniqueIdentifier: "other-action-ui", inputName: "record"\}, \{uiUniqueIdentifier: "action-ui-123", inputName: "log_message"\}\]/, 'the new instance is merged in, not replacing the old ones');
+  });
+
+  it('resolves a pill this flow never registered into a captioned insert', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.table}}');
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Service Catalog_1.table',
+      label: 'Trigger - Service Catalog➛Table',
+      type: 'table_name',
+      base_type: 'table_name',
+      usedInstances: { 'action-ui-123': ['log_message'] },
+    }]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.table}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{insert: \[/);
+    assert.match(query, /name: "Service Catalog_1\.table"/);
+    assert.match(query, /label: "Trigger - Service Catalog➛Table"/);
+    assert.match(query, /type: "table_name"/);
+  });
+
+  it('registers every pill in one input value, not just the first', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    const both = '{{Service Catalog_1.request_item}} / {{Service Catalog_1.table}}';
+    after.actionInstances[0].inputs[1].value = wrapped(both);
+    after.labelCacheAsJsonString = JSON.stringify([
+      { name: 'Service Catalog_1.request_item', label: 'Trigger - Service Catalog➛Request Item', type: 'reference', base_type: 'reference', usedInstances: { 'other-action-ui': ['record'], 'action-ui-123': ['log_message'] } },
+      { name: 'Service Catalog_1.table', label: 'Trigger - Service Catalog➛Table', type: 'table_name', base_type: 'table_name', usedInstances: { 'action-ui-123': ['log_message'] } },
+    ]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: both } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{[\s\S]*name: "Service Catalog_1\.request_item"/);
+    assert.match(query, /labelCache: \{[\s\S]*name: "Service Catalog_1\.table"/);
+  });
+
+  it('repairs a registered pill whose label is empty instead of passing it through', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    definition.labelCacheAsJsonString = JSON.stringify([{ name: 'Service Catalog_1.table', label: '', type: 'table_name', usedInstances: {} }]);
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.table}}');
+    after.labelCacheAsJsonString = JSON.stringify([{ name: 'Service Catalog_1.table', label: 'Trigger - Service Catalog➛Table', type: 'table_name', base_type: 'table_name', usedInstances: { 'action-ui-123': ['log_message'] } }]);
+    const sdk = updateSdk(after, definition);
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.table}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const query = labelCacheQuery(sdk);
+    assert.match(query, /labelCache: \{update: \[/);
+    assert.match(query, /label: "Trigger - Service Catalog➛Table"/);
+  });
+
+  it('fails when the provider acknowledges the patch but drops the pill caption', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const after = structuredClone(definition);
+    after.actionInstances[0].inputs[1].value = wrapped('{{Service Catalog_1.table}}');
+    const sdk = updateSdk(after, definition);
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Service Catalog_1.table}}' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }),
+      /did not persist data pill Service Catalog_1\.table/,
+    );
+  });
+
+  it('refuses a pill no step produces instead of writing a captionless entry', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    const sdk = updateSdk(definition, definition);
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: '{{Nope_1.thing}}' } }] }),
+      /no label_cache entry for data pill \{\{Nope_1\.thing\}\}.*registered pills: Service Catalog_1\.request_item/,
+    );
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 0, 'an unresolvable pill must not be written');
+  });
+
+  it('resolves pill labels from trigger inputs, action outputs, and steps this manifest inserts', async () => {
+    const { resolvePillBinding } = await import('../src/flow-create.js');
+    const definition = labelDefinition();
+    definition.actionInstances[0].outputs = [{ name: 'result', parameter: { name: 'result', label: 'Result', type: 'string' } }];
+    assert.equal(resolvePillBinding(definition, 'Service Catalog_1.table', flowId, []).label, 'Trigger - Service Catalog➛Table');
+    assert.equal(resolvePillBinding(definition, 'action-ui-123.result', flowId, []).label, '1 - Log➛Result');
+    const pending = [{ name: 'Log', order: '2', uiUniqueIdentifier: 'inserted-action-ui', inputs: [{ name: 'log_message', parameter: { name: 'log_message', label: 'Message', type: 'string' } }] }];
+    assert.equal(resolvePillBinding(definition, 'inserted-action-ui.log_message', flowId, [], pending).label, '2 - Log➛Message');
+    assert.throws(() => resolvePillBinding(definition, 'Nope_1.thing', flowId, []), /no label_cache entry for data pill/);
+  });
+
   it('refuses a wrong saved action input and writes no Autosave version', async () => {
     const { updateFlowFromManifest } = await import('../src/flow-create.js');
     const afterDefinition = structuredClone(baseDefinition);
@@ -677,5 +1015,418 @@ describe('flow update request shapes', () => {
     await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { actions: [{ order: 1, type: 'Log', inputs: { log_message: 'new message' } }] }, { readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }), /log_message did not match the requested value/);
     assert.equal(sdk.calls.filter(call => call.endpoint.includes('/versioning/create_version')).length, 0, 'no Autosave after a failed read-back');
     assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && !JSON.parse(call.options.body).query?.includes('safeEdit(')).length, 1);
+  });
+
+  // Stage templates: `order` arrives display-formatted ("1,000"), system stages
+  // (Request Cancelled / Completed) sort ahead of the ordinary ones, and the
+  // stage rows are registered over REST before the GraphQL patch references them.
+  const STAGE_SET_ID = 'b'.repeat(32);
+  const stageEntries = () => ([
+    { name: { value: 'Request Cancelled', display_value: 'Request Cancelled' }, value: { value: 'Request Cancelled', display_value: 'Request Cancelled' }, order: { value: '1,000', display_value: '1,000' }, ola: { value: '1970-01-01 00:00:00', display_value: '0 Seconds' } },
+    { name: { value: 'Completed', display_value: 'Completed' }, value: { value: 'complete', display_value: 'complete' }, order: { value: '1,100', display_value: '1,100' }, ola: { value: '1970-01-01 00:00:00', display_value: '0 Seconds' } },
+    { name: { value: 'Request Approved', display_value: 'Request Approved' }, value: { value: 'request_approved', display_value: 'request_approved' }, order: { value: '90', display_value: '90' }, ola: { value: '1970-01-01 00:00:00', display_value: '0 Seconds' } },
+    { name: { value: 'Waiting for Approval', display_value: 'Waiting for Approval' }, value: { value: 'waiting_for_approval', display_value: 'waiting_for_approval' }, order: { value: '100', display_value: '100' }, ola: { value: '1970-01-02 00:00:00', display_value: '1 Day' } },
+  ]);
+
+  it('resolves a stage template by name into ordered stages with parsed durations', async () => {
+    const { resolveStageTemplate } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition, baseDefinition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    const stages = await resolveStageTemplate(sdk, 'Requested Item');
+    assert.deepEqual(stages.map(stage => stage.label), ['Request Cancelled', 'Completed', 'Request Approved', 'Waiting for Approval']);
+    assert.deepEqual(stages.map(stage => stage.order), [0, 1, 2, 3], 'the thousands separator in order must not collapse to 1');
+    assert.equal(stages[0].system, true);
+    assert.equal(stages[2].system, false);
+    assert.equal(stages[3].duration, '1970-01-02 00:00:00', 'the ola duration is carried, not replaced by the default');
+  });
+
+  it('refuses a stage template identifier that would rewrite the lookup query', async () => {
+    const { resolveStageTemplate } = await import('../src/flow-create.js');
+    const sdk = updateSdk(baseDefinition, baseDefinition);
+    await assert.rejects(resolveStageTemplate(sdk, 'Requested^Item'), /query separator/);
+    await assert.rejects(resolveStageTemplate(sdk, '   '), /must not be empty/);
+  });
+
+  it('registers stage rows over REST before referencing them in the flow patch', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    const after = structuredClone(definition);
+    after.stages = {
+      'stage-0': { stageId: 'stage-0', label: 'Request Cancelled', order: 0, componentIndexes: [] },
+      'stage-1': { stageId: 'stage-1', label: 'Completed', order: 1, componentIndexes: [] },
+      'stage-2': { stageId: 'stage-2', label: 'Request Approved', order: 2, componentIndexes: [] },
+      'stage-3': { stageId: 'stage-3', label: 'Waiting for Approval', order: 3, componentIndexes: [] },
+    };
+    let counter = 0;
+    const sdk = updateSdk(after, definition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { stageTemplate: 'Requested Item' }, { idFactory: () => `stage-${counter++}`, readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) });
+    const put = sdk.calls.find(call => call.options.method === 'PUT' && call.endpoint.includes('/stages?'));
+    assert.ok(put, 'expected the stage pre-registration PUT');
+    assert.deepEqual(Object.keys(JSON.parse(put.options.body)), ['stage-0', 'stage-1', 'stage-2', 'stage-3']);
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.match(JSON.parse(post.options.body).query, /stages: \{insert: \[/);
+  });
+
+  it('fails the update when stage registration does not confirm every stage', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    const sdk = updateSdk(definition, definition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    const request = sdk.request;
+    sdk.request = async (endpoint, options = {}) => {
+      if (options.method === 'PUT' && endpoint.includes('/stages?')) return { result: { data: {} } };
+      return request(endpoint, options);
+    };
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { stageTemplate: 'Requested Item' }, { idFactory: () => 'stage-x', readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }),
+      /stage registration did not confirm/,
+    );
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:')).length, 0, 'no flow patch after an unconfirmed stage registration');
+  });
+
+  it('refuses to insert stages into a flow that already has stages', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    definition.stages = { 'old-1': { stageId: 'old-1', label: 'Triage', order: 0, componentIndexes: [] } };
+    const sdk = updateSdk(definition, definition, { stageSetId: STAGE_SET_ID, stageEntries: stageEntries() });
+    await assert.rejects(
+      updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { stageTemplate: 'Requested Item' }, { idFactory: () => 'stage-x', readUpdateSet: async () => ({ name: 'Feature', sys_id: 'update-set-1' }) }),
+      /already has 1 stage\(s\) \(Triage\); inserting stages replaces the flow's stage list/,
+    );
+    assert.equal(sdk.calls.filter(call => call.options?.method === 'PUT').length, 0, 'no stage registration for a refused manifest');
+  });
+
+  it('refuses a manifest that names both stages and a stage template', async () => {
+    const { validateFlowUpdateManifest } = await import('../src/flow-create.js');
+    assert.throws(() => validateFlowUpdateManifest({ stages: [{ label: 'One' }], stageTemplate: 'Requested Item' }), /not both/);
+    assert.throws(() => validateFlowUpdateManifest({ stageTemplate: '  ' }), /non-empty string/);
+  });
+
+  it('validates errorHandling manifest and orchestrates Top Level Try/Catch with error pill bindings', async () => {
+    const { validateFlowUpdateManifest, validateErrorHandling, updateFlowFromManifest } = await import('../src/flow-create.js');
+    assert.throws(() => validateErrorHandling('not-an-object'), /must be an object/);
+    assert.throws(() => validateErrorHandling({ actions: 'not-an-array' }), /must be an array/);
+    assert.throws(() => validateErrorHandling({ actions: [{}] }), /requires type/);
+    validateErrorHandling({ actions: [{ type: 'Log' }] });
+    validateFlowUpdateManifest({ errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'x' } }] } });
+    assert.throws(() => validateFlowUpdateManifest({ errorHandling: { actions: 'not-an-array' } }), /must be an array/);
+
+    const definition = structuredClone(baseDefinition);
+    definition.labelCacheAsJsonString = '[]';
+    const after = structuredClone(definition);
+    let counter = 100;
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'gen-id-101.__status__.message',
+      label: '2 - Error Handler➛Error Status➛Message',
+      type: 'string',
+      base_type: 'string',
+      usedInstances: { 'gen-id-102': ['log_message'] },
+    }]);
+    const sdk = updateSdk(persistFlowPatch, definition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      errorHandling: {
+        actions: [
+          {
+            type: 'Log',
+            inputs: {
+              log_message: 'Flow Error: {{error.message}}',
+            },
+          },
+        ],
+      },
+    }, { idFactory: () => `gen-id-${counter++}` });
+
+    assert.ok(result.changes.some(c => c.type === 'Top Level Try'));
+    assert.ok(result.changes.some(c => c.type === 'Top Level Catch'));
+    assert.ok(result.changes.some(c => c.component === 'errorAction' && c.type === 'Log'));
+
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected flowPatch mutation');
+    const query = JSON.parse(post.options.body).query;
+    assert.match(query, /definitionId: "e9060aa2c3013010ace8b740ad40dd51"/, 'Top Level Try included');
+    assert.match(query, /definitionId: "35d60003e6022010a5e40cdd1254dd23"/, 'Top Level Catch included');
+    assert.match(query, /parent: "gen-id-101"/, 'Error action parented to Catch block');
+    assert.match(query, /parent: "gen-id-100"/, 'Existing actions reparented to Try block');
+    assert.match(query, /labelCache: \{insert: \[.*gen-id-101\.__status__\.message.*\]\}/, 'Error message pill bound to labelCache');
+    assert.match(query, /value: "Flow Error: \{\{gen-id-101\.__status__\.message\}\}"/, 'Inserted error action input names the Catch pill');
+    assert.doesNotMatch(query, /\{\{error\.message\}\}/, 'friendly error token never reaches the instance');
+  });
+
+  it('orchestrates inner Try and Catch flow logic with parented actions and status pill bindings', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const definition = structuredClone(baseDefinition);
+    definition.labelCacheAsJsonString = '[]';
+    const after = structuredClone(definition);
+    let counter = 200;
+    after.labelCacheAsJsonString = JSON.stringify([{
+      name: 'gen-id-201.__status__.message',
+      label: '4 - Catch➛Error Status➛Message',
+      type: 'string',
+      base_type: 'string',
+      usedInstances: { 'gen-id-203': ['log_message'] },
+    }]);
+    const sdk = updateSdk(persistFlowPatch, definition);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, {
+      logic: [
+        { order: 2, type: 'try' },
+        { order: 4, type: 'catch', connectedToOrder: 2 },
+      ],
+      actions: [
+        { order: 3, type: 'Log', parentOrder: 2, inputs: { log_message: 'inside try' } },
+        { order: 5, type: 'Log', parent: 4, inputs: { log_message: 'inside catch: {{step_4.__status__.message}}' } },
+      ],
+    }, { idFactory: () => `gen-id-${counter++}` });
+
+    assert.ok(result.changes.some(c => c.type === 'Try' && c.order === 2));
+    assert.ok(result.changes.some(c => c.type === 'Catch' && c.order === 4));
+    assert.ok(result.changes.some(c => c.type === 'Log' && c.order === 3));
+    assert.ok(result.changes.some(c => c.type === 'Log' && c.order === 5));
+
+    const post = sdk.calls.find(call => call.options.method === 'POST' && call.endpoint.endsWith('/graphql') && JSON.parse(call.options.body).query?.includes('flowPatch:'));
+    assert.ok(post, 'expected flowPatch mutation');
+    const query = JSON.parse(post.options.body).query;
+    assert.match(query, /definitionId: "07223332de022010ec58424b73829721"/, 'Try definition included');
+    assert.match(query, /definitionId: "35d60003e6022010a5e40cdd1254dd21"/, 'Catch definition included');
+    assert.match(query, /connectedTo: "gen-id-200"/, 'Catch connected to Try');
+    assert.match(query, /parent: "gen-id-200"/, 'Step 3 parented to Try block');
+    assert.match(query, /parent: "gen-id-201"/, 'Step 5 parented to Catch block');
+    assert.match(query, /labelCache: \{insert: \[.*gen-id-201\.__status__\.message.*\]\}/, 'Catch status pill bound to labelCache');
+    assert.match(query, /value: "inside catch: \{\{gen-id-201\.__status__\.message\}\}"/, 'Inserted action input names the Catch pill');
+    assert.doesNotMatch(query, /\{\{step_4/, 'order token never reaches the instance');
+  });
+
+  it('resolves existing, new and forward step identities independent of manifest ordering', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const cases = [
+      { name: 'forward Catch then Try and existing action move', manifest: { logic: [{ order: 4, type: 'catch', connectedToOrder: 2 }, { order: 2, type: 'try' }], actions: [{ order: 1, type: 'Log', parentOrder: 2, inputs: { log_message: 'moved' } }, { order: 5, type: 'Log', parentOrder: 4, inputs: { log_message: '{{step_4.__status__.message}}' } }] } },
+      { name: 'If referencing a new earlier action', manifest: { actions: [{ order: 2, type: 'Log', inputs: { log_message: 'new' } }], logic: [{ order: 3, type: 'if', condition: '{{step_2.log_message}}=new' }] } },
+      { name: 'If referencing a forward action', manifest: { logic: [{ order: 2, type: 'if', condition: '{{step_3.log_message}}=new' }], actions: [{ order: 3, type: 'Log', inputs: { log_message: 'new' } }] } },
+      { name: 'Else If connected to If with a parented child', manifest: { logic: [{ order: 2, type: 'if', condition: '{{step_3.log_message}}=new' }, { order: 4, type: 'else if', connectedToOrder: 2 }], actions: [{ order: 3, type: 'Log', parentOrder: 4, inputs: { log_message: 'new' } }] } },
+    ];
+    for (const c of cases) {
+      const sdk = updateSdk(persistFlowPatch);
+      const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, c.manifest);
+      const query = sdk.calls.map(c => c.options.body && JSON.parse(c.options.body).query).find(q => q?.includes('flowPatch:'));
+      assert.doesNotMatch(query, /\{\{step_/, c.name);
+      const patch = readFlowPatch(query);
+      const logicByOrder = new Map(result.processflow.flowLogicInstances.map(l => [String(l.order), l]));
+      if (c.name.startsWith('forward Catch')) {
+        assert.equal(logicByOrder.get('4').connectedTo, logicByOrder.get('2').uiUniqueIdentifier);
+        assert.equal(result.processflow.actionInstances[0].parent, logicByOrder.get('2').uiUniqueIdentifier);
+        assert.equal(patch.actions.insert[0].parent, logicByOrder.get('4').uiUniqueIdentifier);
+      } else {
+        const action = result.processflow.actionInstances.find(a => a.order === String(c.manifest.actions[0].order));
+        assert.equal(patch.flowLogics.insert[0].inputs[1].value.value, `{{${action.uiUniqueIdentifier}.log_message}}=new`);
+      }
+    }
+  });
+
+  it('resolves children under existing logic UI identities and verifies requested reparenting exactly', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.flowLogicInstances = [{ id: 'try-id', uiUniqueIdentifier: 'try-ui', definitionId: '07223332de022010ec58424b73829721', order: '2' }, { id: 'catch-id', uiUniqueIdentifier: 'catch-ui', definitionId: '35d60003e6022010a5e40cdd1254dd21', order: '4', connectedTo: 'try-ui' }];
+    const manifest = { actions: [{ order: 1, type: 'Log', parentOrder: 4, inputs: { log_message: 'moved' } }, { order: 5, type: 'Log', parentOrder: 2, inputs: { log_message: 'new' } }] };
+    const sdk = updateSdk(persistFlowPatch, before);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, manifest);
+    assert.equal(result.processflow.actionInstances[0].parent, 'catch-ui');
+    assert.equal(result.processflow.actionInstances[1].parent, 'try-ui');
+    const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'try-ui'; return d; }, before);
+    await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /parent.*requested/);
+    assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);
+  });
+
+  it('previews deletion and reuse of an existing logic order but rejects deleted references', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const before = structuredClone(baseDefinition);
+    before.flowLogicInstances = [{ id: 'old-logic', uiUniqueIdentifier: 'old-ui', definitionId: '07223332de022010ec58424b73829721', order: '2', parent: '', parentUiId: '', inputs: [] }];
+    const replacement = { deleteSteps: ['old-ui'], actions: [{ order: 2, type: 'Log', inputs: { log_message: 'replacement' } }] };
+    const sdk = updateSdk(persistFlowPatch, before);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, replacement, { preview: true });
+    assert.equal(result.preview, true);
+    assert.ok(result.changes.some(c => c.input === 'delete' && c.before === 'old-logic'));
+    assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
+    for (const reference of [
+      { actions: [{ order: 3, type: 'Log', parent: 'old-ui', inputs: { log_message: 'bad' } }] },
+      { actions: [{ order: 3, type: 'Log', inputs: { log_message: '{{step_2.__status__.message}}' } }] },
+      { actions: [{ order: 3, type: 'Log', inputs: { log_message: '{{old-ui.__status__.message}}' } }] },
+    ]) {
+      const bad = updateSdk(persistFlowPatch, before);
+      await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, { deleteSteps: ['old-ui'], ...reference }, { preview: true }), /Absent|deleted/i);
+      assert.equal(bad.calls.filter(c => c.options.method !== 'GET').length, 0);
+    }
+  });
+
+  it('rejects absent, wrong-type, ambiguous and conflicting logic links before any write', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    for (const manifest of [
+      { logic: [{ order: 2, type: 'catch', connectedToOrder: 99 }] },
+      { logic: [{ order: 2, type: 'catch', connectedToOrder: 1 }] },
+      { logic: [{ order: 2, type: 'if' }, { order: 3, type: 'catch', connectedToOrder: 2 }] },
+      { logic: [{ order: 2, type: 'try' }, { order: 3, type: 'catch' }] },
+      { logic: [{ order: 2, type: 'try' }, { order: 3, type: 'try' }], actions: [{ order: 1, type: 'Log', parent: 2, parentOrder: 3, inputs: { log_message: 'bad' } }] },
+      { logic: [{ order: 2, type: 'try', parentOrder: 3 }, { order: 3, type: 'try', parentOrder: 2 }] },
+      { logic: [{ order: 2, type: 'try', uiUniqueIdentifier: {} }] },
+      { logic: [], flowLogics: [] },
+      { actions: [{ order: 2, type: 'Log', parentOrder: 1, inputs: { log_message: 'bad' } }] },
+    ]) {
+      const sdk = updateSdk(persistFlowPatch);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, manifest));
+      assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0, JSON.stringify(manifest));
+    }
+  });
+
+  it('rejects dropped or altered error handling before Autosave through the public updater', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const changes = {
+      actionMode: d => { d.actionInstances[1].inputs[1].value.schemaless = true; return d; },
+      actionPayload: d => { d.actionInstances[1].inputs[1].value.schemalessValue = 'evil'; return d; },
+      actionSchema: d => { d.actionInstances[1].inputs[1].parameter.type = 'integer'; return d; },
+      catchMode: d => { d.flowLogicInstances[1].inputs[0].value.schemaless = true; return d; },
+      unchanged: () => structuredClone(baseDefinition),
+      missingAction: d => { d.actionInstances.pop(); return d; },
+      actionIdentity: d => { d.actionInstances[1].id = 'wrong'; return d; },
+      logicIdentity: d => { d.flowLogicInstances[1].id = 'wrong'; return d; },
+      actionType: d => { d.actionInstances[1].actionTypeSysId = 'wrong'; return d; },
+      actionOrder: d => { d.actionInstances[1].order = '99'; return d; },
+      actionParent: d => { d.actionInstances[1].parent = 'wrong'; return d; },
+      actionInput: d => { d.actionInstances[1].inputs[1].value.value = 'wrong'; return d; },
+      missingLogic: d => { d.flowLogicInstances.pop(); return d; },
+      logicDefinition: d => { d.flowLogicInstances[1].definitionId = 'wrong'; return d; },
+      logicConnection: d => { d.flowLogicInstances[1].connectedTo = 'wrong'; return d; },
+      logicInput: d => { d.flowLogicInstances[1].inputs[0].value.value = 'false'; return d; },
+      mainParent: d => { d.actionInstances[0].parent = 'wrong'; return d; },
+    };
+    for (const [name, mutate] of Object.entries(changes)) {
+      const sdk = updateSdk((before, patch) => mutate(persistFlowPatch(before, patch)));
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] } }), /persist|requested|preserv/i, name);
+      assert.equal(sdk.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0, name);
+    }
+  });
+
+  it('reconciles Catch children idempotently and preserves omitted content and unrelated parents', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const manifest = { errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] } };
+    const firstSdk = updateSdk(persistFlowPatch);
+    const first = await updateFlowFromManifest(firstSdk, 'https://example.service-now.com', flowId, manifest);
+    const before = first.processflow;
+    const omitted = structuredClone(before.actionInstances[1]);
+    omitted.id = 'omitted-id'; omitted.uiUniqueIdentifier = 'omitted-ui'; omitted.order = '4';
+    before.actionInstances.push(omitted);
+    before.actionInstances[0].parent = 'unrelated-parent';
+    before.actionInstances[0].parentUiId = 'unrelated-parent';
+    const sdk = updateSdk(persistFlowPatch, before);
+    const result = await updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, manifest);
+    assert.deepEqual(result.processflow, before);
+    const query = sdk.calls.map(c => c.options.body && JSON.parse(c.options.body).query).find(q => q?.includes('flowPatch:'));
+    const patch = readFlowPatch(query);
+    assert.equal(patch.actions.insert, undefined, 'rerun updates existing child rather than inserting a colliding step');
+    const overlapping = updateSdk(persistFlowPatch, before);
+    const combined = await updateFlowFromManifest(overlapping, 'https://example.service-now.com', flowId, { ...manifest, actions: [{ order: Number(before.actionInstances[1].order), type: 'Log', inputs: { log_level: 'warn' } }] });
+    assert.equal(combined.processflow.actionInstances[1].inputs[0].value.value, 'warn');
+    assert.equal(combined.processflow.actionInstances[1].inputs[1].value.value, 'error');
+    const bad = updateSdk((b, p) => { const d = persistFlowPatch(b, p); d.actionInstances[0].parent = 'wrong'; return d; }, before);
+    await assert.rejects(updateFlowFromManifest(bad, 'https://example.service-now.com', flowId, manifest), /omitted action/);
+    assert.equal(bad.calls.filter(c => c.endpoint.includes('/versioning/create_version')).length, 0);
+  });
+
+  it('rejects combined main action and surviving Catch order before leases or writes', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    const eh = { errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] } };
+    const first = await updateFlowFromManifest(updateSdk(persistFlowPatch), 'https://example.service-now.com', flowId, eh);
+    const sdk = updateSdk(persistFlowPatch, first.processflow);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { ...eh, actions: [{ order: 2, type: 'Log', inputs: { log_message: 'main' } }] }));
+    assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
+  });
+
+  it('rejects malformed nested error inputs, identities, aliases and ambiguous Catch children before writes', async () => {
+    const { updateFlowFromManifest } = await import('../src/flow-create.js');
+    for (const manifest of [
+      { errorHandling: { actions: [{ type: 'Log', inputs: [] }] } },
+      { errorHandling: { actions: [{ type: 'Log', uiUniqueIdentifier: 'bad' }] } },
+      { errorHandling: {}, errorHandler: {} },
+    ]) {
+      const sdk = updateSdk(persistFlowPatch);
+      await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, manifest));
+      assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
+    }
+    const first = await updateFlowFromManifest(updateSdk(persistFlowPatch), 'https://example.service-now.com', flowId, { errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'x' } }] } });
+    const before = first.processflow;
+    before.actionInstances.push({ ...structuredClone(before.actionInstances[1]), id: 'duplicate', uiUniqueIdentifier: 'duplicate' });
+    const sdk = updateSdk(persistFlowPatch, before);
+    await assert.rejects(updateFlowFromManifest(sdk, 'https://example.service-now.com', flowId, { errorHandling: { actions: [{ type: 'Log' }] } }), /Ambiguous/);
+    assert.equal(sdk.calls.filter(c => c.options.method !== 'GET').length, 0);
+  });
+});
+
+
+describe('error handling create persistence', () => {
+  let createFlowFromManifest;
+  before(async () => { ({ createFlowFromManifest } = await import('../src/flow-create.js')); });
+  function createSdk(mutate = d => d) {
+    const overrides = {};
+    const sdk = makeSdk(overrides);
+    const request = sdk.request.bind(sdk);
+    sdk.request = async (endpoint, options = {}) => {
+      const query = options.body && JSON.parse(options.body).query;
+      if (query?.includes('flowPatch:')) {
+        const patch = readFlowPatch(query);
+        const before = createdDefinition();
+        before.actionInstances = [];
+        overrides.readback = mutate(persistFlowPatch(before, patch));
+        overrides.graphql = { data: { global: { snFlowDesigner: { flow: {
+          triggerInstances: { inserts: [{ sysId: TRIGGER_ID }] },
+          actions: { inserts: patch.actions.insert.map(a => ({ sysId: `db-${a.uiUniqueIdentifier}`, uiUniqueIdentifier: a.uiUniqueIdentifier })) },
+          flowLogics: { inserts: (patch.flowLogics?.insert || []).map(l => ({ sysId: `db-${l.uiUniqueIdentifier}`, uiUniqueIdentifier: l.uiUniqueIdentifier })) },
+        } } } } };
+      }
+      return request(endpoint, options);
+    };
+    return sdk;
+  }
+  it('verifies Set Flow Variables assignments through public create before Autosave', async () => {
+    for (const mutate of [
+      d => { delete d.flowLogicInstances[0].flowVariables; return d; },
+      d => { d.flowLogicInstances[0].flowVariables[0].value.value = 'wrong'; return d; },
+      d => { d.flowLogicInstances[0].flowVariables[0].value.schemaless = true; return d; },
+    ]) {
+      const sdk = createSdk(mutate);
+      let n = 0;
+      await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, logic: [{ order: 2, type: 'set flow variables', values: { message: '42' } }] }, { ...options, idFactory: () => `generated-${++n}` }));
+      assert.equal(sdk.calls.filter(c => c.endpoint?.includes('/versioning/create_version')).length, 0);
+    }
+    const sdk = createSdk();
+    let n = 0;
+    const r = await createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, logic: [{ order: 2, type: 'set flow variables', values: { message: '{{step_1.log_message}}' } }] }, { ...options, idFactory: () => `generated-${++n}` });
+    assert.equal(r.processflow.flowLogicInstances[0].flowVariables[0].value.value, `{{${r.processflow.actionInstances[0].uiUniqueIdentifier}.log_message}}`);
+  });
+  it('creates persisted Try/Catch, main/error children and friendly error pills without publishing', async () => {
+    const sdk = createSdk();
+    let n = 0;
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'Error {{error.message}}' } }] } }, { ...options, idFactory: () => `generated-${++n}` });
+    const [topTry, topCatch] = result.processflow.flowLogicInstances;
+    assert.equal(topCatch.connectedTo, topTry.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[0].parent, topTry.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[1].parent, topCatch.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[1].inputs[1].value.value, `Error {{${topCatch.uiUniqueIdentifier}.__status__.message}}`);
+    assert.ok(result.version);
+    assert.equal(result.lifecycle.published, false);
+    assert.ok(!result.lifecycle.deferred.includes('error handling'));
+  });
+  it('creates inner Try/Catch and parented actions using the same provider-shaped lifecycle', async () => {
+    const sdk = createSdk();
+    let n = 0;
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, actions: [{ ...manifest.actions[0], order: 3, parentOrder: 2 }, { type: 'Log', order: 5, parentOrder: 4, inputs: { log_message: '{{step_4.__status__.message}}' } }], logic: [{ order: 4, type: 'catch', connectedToOrder: 2 }, { order: 2, type: 'try' }] }, { ...options, idFactory: () => `inner-${++n}` });
+    const [topCatch, topTry] = result.processflow.flowLogicInstances;
+    assert.equal(topCatch.connectedTo, topTry.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[0].parent, topTry.uiUniqueIdentifier);
+    assert.equal(result.processflow.actionInstances[1].parent, topCatch.uiUniqueIdentifier);
+    assert.equal(result.lifecycle.published, false);
+  });
+
+  it('does not Autosave create when error logic or child payload was dropped or altered', async () => {
+    for (const mutate of [d => { d.actionInstances[0].inputs[1].value.schemaless = true; return d; }, d => { d.actionInstances[1].inputs[1].value.schemalessValue = 'evil'; return d; }, d => { d.actionInstances[1].inputs[1].parameter.type = 'integer'; return d; }, d => { d.flowLogicInstances[1].inputs[0].value.schemaless = true; return d; }, d => { d.flowLogicInstances = []; return d; }, d => { d.actionInstances[1].parent = 'wrong'; return d; }, d => { d.flowLogicInstances[1].connectedTo = 'wrong'; return d; }]) {
+      const sdk = createSdk(mutate);
+      let n = 0;
+      await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', { ...manifest, errorHandling: { actions: [{ type: 'Log', inputs: { log_message: 'error' } }] } }, { ...options, idFactory: () => `generated-${++n}` }), /persist|requested/);
+      assert.equal(sdk.calls.filter(c => c.endpoint?.includes('/versioning/create_version')).length, 0);
+    }
   });
 });

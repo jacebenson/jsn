@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const python = spawnSync('python3', ['--version']);
 const driver = String.raw`
@@ -55,7 +56,7 @@ print('Eight real CLI cancellation paths passed; configuration unchanged.')
 test('Esc exits auth menus and nested modify prompts without saving changes', {
   skip: process.platform === 'win32' || python.status !== 0,
 }, () => {
-  const result = spawnSync('python3', ['-c', driver, process.execPath, new URL('../bin/jsn.js', import.meta.url).pathname], {
+  const result = spawnSync('python3', ['-c', driver, process.execPath, fileURLToPath(new URL('../bin/jsn.js', import.meta.url))], {
     encoding: 'utf8', timeout: 60000,
   });
   assert.equal(result.status, 0, result.stderr + result.stdout);

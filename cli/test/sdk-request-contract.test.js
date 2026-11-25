@@ -23,7 +23,11 @@ test('request variants retain distinct headers, bootstrap policy and response sh
   assert.equal(requests[1].headers.get('Content-Type'), 'application/x-www-form-urlencoded');
   assert.equal(requests[1].headers.get('X-Now-Domain'), null);
   assert.equal(requests[2].headers.get('Accept'), null);
-  assert.deepEqual(authOptions, [{ skipOAuthSession: false }, { skipOAuthSession: false }, { skipOAuthSession: true }]);
+  assert.deepEqual(authOptions, [
+    { skipOAuthSession: false, basicSession: true, preferOAuthSession: true, oauthHeaderOnly: false },
+    { skipOAuthSession: false, basicSession: true, preferOAuthSession: true, oauthHeaderOnly: false },
+    { skipOAuthSession: false, basicSession: true, preferOAuthSession: true, oauthHeaderOnly: false },
+  ]);
 });
 
 test('text and JSON requests reject API errors while raw responses remain inspectable', async (t) => {
@@ -55,6 +59,17 @@ test('JSON and text timeouts include consuming the body, raw-response timers end
   await sdk.fetchResponse('https://example.invalid');
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.deepEqual(signals.map((signal) => signal.aborted), [true, true, false]);
+});
+
+test('rawRequest takes a per-call timeout for long bodies such as an XML export', async (t) => {
+  const sdk = client();
+  sdk._setAuth = async () => {};
+  t.mock.method(globalThis, 'fetch', async (request) => ({ ok: true, status: 200, text: () => new Promise((resolve, reject) => {
+    setTimeout(() => resolve('<unload/>'), 60);
+    request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true });
+  }) }));
+  await assert.rejects(sdk.rawRequest('https://example.invalid'), /Request timed out/);
+  assert.equal(await sdk.rawRequest('https://example.invalid', { timeout: 500 }), '<unload/>');
 });
 
 test('raw responses preserve unnormalized transport errors', async (t) => {

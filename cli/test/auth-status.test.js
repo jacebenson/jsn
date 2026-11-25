@@ -74,8 +74,12 @@ it('auth status authentication checks never refresh or persist credentials', asy
       save: () => { saves++; },
       delete: () => {},
     } });
-    assert.strictEqual(manager.isAuthenticated(), false);
-    assert.strictEqual(manager.isAuthenticatedFor('https://readonly-status.example.com', { authMethod: 'oauth', username: 'alice' }), false);
+    // A token inside the refresh window with a refresh token is refreshable, and
+    // a refreshable profile can make authenticated calls (it refreshes at point
+    // of use). The contract this test protects is that STATUS does not refresh or
+    // persist credentials — not that a usable profile reports as unauthenticated.
+    assert.strictEqual(manager.isAuthenticated(), true);
+    assert.strictEqual(manager.isAuthenticatedFor('https://readonly-status.example.com', { authMethod: 'oauth', username: 'alice' }), true);
     assert.strictEqual(saves, 0);
     assert.ok(loads > 0);
   });

@@ -1,0 +1,25 @@
+<div class="result-stats" aria-label="Benchmark sample">
+  <% [[SnbenchCatalog.tasks.size, 'tasks in inventory'], [@runs.reject { |run| run.run_id == 'fixture-nop' }.map(&:tool).compact.uniq.size, 'measured tools shown'], [@runs.map(&:model).compact.uniq.size, 'models shown'], [@runs.size, 'runs ingested (filtered)']].each do |value, label| %><div class="stat"><span class="stat-num"><%= value %></span><span class="stat-label"><%= label %></span></div><% end %>
+</div>
+<p>On narrow screens, scroll the chart and tables sideways to see every configuration.</p>
+<h2>Score and resource use</h2>
+<form method="get" action="/snbench"><% %w[tool model track].each do |key| %><input type="hidden" name="<%= key %>" value="<%= params[key] %>"><% end %><label>X axis <select name="metric"><% @x_metrics.each do |key, label| %><option value="<%= key %>" <%= 'selected' if key == @x_metric %>><%= label %></option><% end %></select></label> <button type="submit">Update chart</button></form>
+<p>Agent configurations only. Points separate task digests and instance builds. No lines imply a learning trajectory. The current measured sample has one attempt per task per run; n is distinct tasks, not a confidence interval. Repeated attempts use task-weighted pass rate, not a best-of-k score. Resource totals sum attempts within task, then average tasks. Partial coverage is not directly comparable.</p>
+<% agents = @entries.select { |e| e.key[0] == 'agent' }; points = agents.select { |e| e.per_task_total(@x_metric.to_sym) }; max_x = points.map { |e| e.per_task_total(@x_metric.to_sym) }.max.to_f; max_x = 1 if max_x.zero? %>
+<% efficient = agents.select { |e| cost = e.per_task_total(:cost_usd); cost && cost.positive? && e.score.positive? }.min_by { |e| e.per_task_total(:cost_usd) / e.score } %>
+<p>Most efficient means lowest reported USD per score point among shown agent entries with known cost. Zero reported cost is not a verified market price. <% if efficient %>Most efficient: <%= efficient.label %>.<% end %></p>
+<% if points.any? %>
+<div class="results-table-wrap"><svg viewBox="0 0 1000 <%= 420 + points.size * 24 %>" role="img" aria-labelledby="snbench-chart-title" style="min-width:700px;width:100%;font:14px sans-serif">
+<title id="snbench-chart-title">snbench score versus <%= @x_metrics[@x_metric] %></title>
+<% [0,25,50,75,100].each do |score| %><% y = 340 - score * 2.8 %><line x1="65" x2="760" y1="<%= y %>" y2="<%= y %>" stroke="#a6b5ae"/><text x="15" y="<%= y + 5 %>" fill="currentColor"><%= score %>%</text><% end %>
+<text x="65" y="25" fill="currentColor">snbench score</text><text x="65" y="365" fill="currentColor">0</text><text x="700" y="365" fill="currentColor"><%= max_x.round(6) %></text><text x="250" y="390" fill="currentColor"><%= @x_metrics[@x_metric] %></text>
+<% points.each_with_index do |entry, index| %><% x = 65 + entry.per_task_total(@x_metric.to_sym) / max_x * 695; y = 340 - entry.score * 2.8 %>
+<circle cx="<%= x %>" cy="<%= y %>" r="<%= entry == efficient ? 8 : 5 %>" fill="<%= entry == efficient ? '#a34c13' : '#174e38' %>"><title><%= entry.label %>: <%= entry.score.round(1) %>%, <%= entry.per_task_total(@x_metric.to_sym).round(6) %></title></circle>
+<text x="<%= x + 10 %>" y="<%= y - 10 - index * 15 %>" fill="currentColor"><%= index + 1 %>. <%= entry.key[1] %>/<%= entry.key[2].to_s.split('/').last %></text>
+<text x="65" y="<%= 420 + index * 24 %>" fill="currentColor"><%= index + 1 %>. <%= entry.label %> · n=<%= entry.summary.attempted %><%= ' · most efficient' if entry == efficient %></text>
+<% end %></svg></div>
+<% else %><p>No agent entries have measurements for this axis.</p><% end %>
+<h2>Ranked agent configurations</h2>
+<div class="results-table-wrap"><table class="results-table snbench-ranked"><thead><tr><th>MODEL / CONFIG</th><th>PASS@1</th><th>AVG COST (per task)</th><th>OUT TOK</th><th>STEPS</th></tr></thead><tbody>
+<% agents.each do |entry| %><tr><td><%= entry.label %> <span class="badge">agent</span><br><small>tasks <%= entry.key[5] %> · <%= entry.summary.attempted %>/34 tasks covered</small><% entry.runs.each do |run| %><p><%= link_to run.run_id, "/snbench/#{run.run_id}" %></p><% end %></td><td><%= number_to_percentage(entry.score, precision: 1) %> (n=<%= entry.summary.attempted %>)<br><%= entry.runs.sum { |r| r.snbench_attempts.size } %> attempts</td><td><%= entry.per_task_total(:cost_usd)&.round(6) || 'unavailable' %></td><td><%= entry.per_task_total(:output)&.round(1) || 'unavailable' %></td><td><%= entry.per_task_total(:turns)&.round(1) || 'unavailable' %></td></tr><% end %>
+</tbody></table></div><p>STEPS is recorded agent turns per task. PASS@1 is the task-weighted attempt pass rate. No confidence interval is claimed. Oracle and nop controls appear below, never in this ranking.</p>

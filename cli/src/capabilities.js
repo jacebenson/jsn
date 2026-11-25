@@ -8,6 +8,11 @@
 //     // Subcommand verbs that mutate instance state. The mutation guard
 //     // (src/mutations.js) derives its command-path list from these.
 //     mutationSubcommands: ['create', 'update', 'delete'],
+//     // Omitted means conservative customization; operational skips capture
+//     // requirements, table follows sys_db_object ancestry to sys_metadata.
+//     mutationContext: 'table', table: 'sys_script',
+//     // Only declared flags are transaction overrides, not creation fields.
+//     transactionScopeOption: 'scope',
 //     // Command runs without a configured instance (joins the middleware
 //     // skip-list for the instance guard).
 //     noInstance: true,
@@ -20,6 +25,10 @@
 //     mutationContextExemptSubcommands: ['create', 'set'],
 //     // REST methods that are reads (read-only profile policy is separate).
 //     mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'],
+//     // Subcommands --impersonate refuses because they would not run as the
+//     // target user: they read through another profile, or keep running after
+//     // the command returns. '' refuses the whole command.
+//     noImpersonateSubcommands: ['watch'],
 //   }
 //
 // cli.js derives every skip-list and the mutation guard's path list from
@@ -31,9 +40,9 @@
 // Note: yargs strips custom properties off command modules when it
 // registers them (only original/description/handler/builder survive in
 // getCommandHandlers()), so declarations live in this module-level map,
-// keyed by root command name. Declaration happens when the command module
-// factory runs — i.e. during cli.js's registration chain — so the registry
-// is complete once buildCLI() returns.
+// keyed by root command name. Eager factories declare during registration;
+// lazy families declare in command-families.js, never in a deferred factory.
+// The registry is complete once buildCLI() returns, before path resolution.
 
 const REGISTRY = new Map();
 
@@ -53,7 +62,7 @@ export function declareCapabilities(name, caps) {
 /**
  * The collected capability registry: root command name → capabilities.
  * Includes the implicit declarations for yargs built-ins ('help') and the
- * shell plumbing ('completion') which have no factory to declare from.
+ * local commands which have no factory to declare from.
  *
  * @returns {Map<string, object>}
  */
@@ -61,14 +70,13 @@ export function collectCapabilities() {
   const caps = new Map(REGISTRY);
   if (!caps.has('help')) caps.set('help', { noInstance: true, skipDailyChecks: true });
   if (!caps.has('version')) caps.set('version', { noInstance: true, skipDailyChecks: true });
-  if (!caps.has('completion')) caps.set('completion', { noInstance: true, skipDailyChecks: true });
   return caps;
 }
 
 /**
  * Derive the set of root command names that run without an instance.
  * Preserves the legacy skip-list semantics exactly: help, version,
- * completion, setup, auth, skill, docs.
+ * setup, auth, skill, docs.
  *
  * @param {Map<string, object>} [caps] — from collectCapabilities()
  * @returns {Set<string>}
@@ -84,7 +92,7 @@ export function noInstanceCommands(caps = collectCapabilities()) {
 /**
  * Derive the set of root command names that skip the daily npm-version /
  * skill checks and the interactive context header. Legacy semantics:
- * help, version, completion, skill, docs (a subset of noInstanceCommands).
+ * help, version, skill, docs (a subset of noInstanceCommands).
  *
  * @param {Map<string, object>} [caps] — from collectCapabilities()
  * @returns {Set<string>}
@@ -95,6 +103,11 @@ export function dailyCheckSkipCommands(caps = collectCapabilities()) {
     if (c.skipDailyChecks) out.add(name);
   }
   return out;
+}
+
+export function skipsContextHeader(argv, caps = collectCapabilities()) {
+  return contextHeaderSkipCommands(caps).has(argv._?.[0])
+    || caps.get(argv._?.[0])?.skipContextHeaderSubcommands?.includes(argv._?.[1]) === true;
 }
 
 export function contextHeaderSkipCommands(caps = collectCapabilities()) {

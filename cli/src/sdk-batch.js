@@ -1,6 +1,7 @@
 // Optional, read-only ServiceNow Batch REST transport. No ordinary SDK call is
 // routed here implicitly; writes are deliberately outside this initial contract.
 import { randomUUID } from 'node:crypto';
+import { boundedReads } from './bounded-reads.js';
 import { AppError, errAPI, errUsage } from './errors.js';
 
 const UNSUPPORTED = new Set([404, 405, 501]);
@@ -121,7 +122,7 @@ export async function batchRead(sdk, requests, { fallback = true, chunkSize = 50
     }
     if (useIndividual) {
       transports.add('individual');
-      for (const request of chunk) results.push(await individual(sdk, request, timeout));
+      results.push(...await boundedReads(chunk, request => individual(sdk, request, timeout)));
     }
   }
   const successful = results.filter(item => item.ok).length;

@@ -1,29 +1,62 @@
+import { flowsCmdDefinition } from '../command-families.js';
+import { searchFlows, formatFlowSearch } from '../flow-search.js';
 import fs from 'node:fs';
+import { prepareFlowClone, cloneFlow } from '../flow-clone.js';
+import { canUsePicker } from '../helpers.js';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
+import { showFlowExecution, formatFlowExecution } from '../flow-execution.js';
+import { requestedLevels, setFlowSettings, flowSettingsSummary, formatFlowSettings } from '../flow-settings.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
-import { declareCapabilities } from '../capabilities.js';
+import { docLink } from '../docs-links.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet } from '../flow-create.js';
+import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet, readCatalogItemVariables } from '../flow-create.js';
+import { alignUpdateSetCapture } from '../context.js';
+import { assertMutationScope, assertMutationRecordScope } from '../intended-context.js';
 import { EXCLUDED_TRIGGER_TYPES, SUPPORTED_TRIGGER_TYPES, readTriggerCatalog, readTriggerInputDefinitions } from '../flow-triggers.js';
 import { testFlow } from '../flow-test.js';
-import { errUsage } from '../errors.js';
+import { releaseOwnFlowSafeEdit } from '../flow-safe-edit.js';
+import { AppError, CodeAPI, CodeForbidden, errUsage } from '../errors.js';
 import { cancelled, pickDesignerRecord, guidedFlowCreate, guidedFlowEdit, guidedFlowTestRecord, hasDefinitionData, confirmDesignerMutation } from '../flow-designer-interactive.js';
 
 const pickFlow = (argv, app, query = '') => pickDesignerRecord(argv, app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', argv.action ? 'action' : 'flow', query);
 
+// Rows the provider cascades when the sys_hub_flow record is deleted. Counted
+// before and after so the command reports what went with the flow.
+const FLOW_OWNED_TABLES = [
+  { table: 'sys_hub_flow_version', label: 'version', query: id => `flow=${id}` },
+  { table: 'sys_hub_action_instance_v2', label: 'action instance', query: id => `flow=${id}` },
+  { table: 'sys_hub_flow_logic_instance_v2', label: 'logic block', query: id => `flow=${id}` },
+  { table: 'sys_hub_flow_stage', label: 'stage', query: id => `flow=${id}` },
+  // Flow variables hang off `model`, not `flow`.
+  { table: 'sys_hub_flow_variable', label: 'flow variable', query: id => `model=${id}` },
+];
+
+function describeOwned(counts) {
+  const parts = Object.entries(counts)
+    .filter(([, count]) => count)
+    .map(([table, count]) => `${count} ${FLOW_OWNED_TABLES.find(entry => entry.table === table)?.label ?? table}${count === 1 ? '' : 's'}`);
+  return parts.length ? parts.join(', ') : 'nothing';
+}
+
 const FLOW_COMMANDS = [
+  { name: 'schemas', description: 'Read live trigger catalog and input schemas' },
+  { name: 'catalog-variables [identifier]', description: 'List a catalog item\'s variables for a service_catalog trigger' },
+  { name: 'search <term>', description: 'Download, decode and search a private local flow cache (--refresh to rebuild)' },
   { name: 'list', description: 'List flows' },
-  { name: 'executions', description: 'Show flow executions from sys_flow_context' },
+  { name: 'executions', description: 'List flow executions from sys_flow_context; executions show <context> for one run' },
   { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
   { name: 'status [identifier]', description: 'Check whether a flow is actually able to run' },
+  { name: 'settings [identifier]', description: 'Show or set a flow\'s reporting and logging levels; preview by default, --yes writes' },
   { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
   { name: 'test [identifier]', description: 'Execute a record-triggered flow against one record' },
+  { name: 'clone [identifier]', description: 'Duplicate an inactive Draft flow using native Designer copy (alias: copy)' },
   { name: 'create', description: 'Create a draft flow: guided in a terminal, JSON manifest in scripts' },
   { name: 'update [identifier]', description: 'Update a draft, or a published flow whose definition reports write access (alias: edit)' },
   { name: 'doctor', description: 'Check whether this instance can publish flows at all' },
-  { name: 'delete [identifier]', description: 'Delete a flow (not implemented: use the Flow Designer UI)' },
+  { name: 'unlock [identifier]', description: 'Release this user\'s stale safe-edit session (orphaned lease) after a failed update' },
+  { name: 'delete [identifier]', description: 'Delete a flow and the versions, actions, logic and stages it owns' },
 ];
 
 function flowInspectionAdapter(app) {
@@ -45,7 +78,7 @@ function triggerGuidance(trigger) {
   };
 }
 
-declareCapabilities('flows', { mutationSubcommands: ['create', 'update', 'edit', 'delete', 'publish', 'test'] });
+
 
 function renderChecks(checks) {
   return checks.map((c) => {
@@ -58,14 +91,37 @@ export function flowsCmd(wrap) {
   const originalWrap = wrap;
   wrap = handler => originalWrap((argv, app) => cancelled(() => handler(argv, app)));
   return {
-    command: 'flows [subcommand]',
-    aliases: ['flow'],
-    describe: 'Manage Flow Designer flows',
+    ...flowsCmdDefinition,
     builder: (yargs) => {
       return yargs
         .command({
+          command: 'search <term>',
+          describe: 'Download/decode visible flows into a private cache and search literal text (first use can be slow)',
+          builder: y => y
+            .positional('term', { type: 'string', describe: 'Case-insensitive literal text to find in readable definitions' })
+            .option('refresh', { type: 'boolean', default: false, describe: 'Rebuild the decoded cache; warm searches still revalidate source access' })
+            .option('concurrency', { type: 'number', default: 6, describe: 'Parallel definition downloads (1 = one at a time); instance reads still happen for every visible flow' })
+            .epilogue(`Example:
+  jsn flows search approval
+Interactive use can pick a flow; scripts pass the term.
+Documentation: ${docLink('flows')}`),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const session = app.session || {};
+            const result = await searchFlows({
+              sdk: app.sdk, term: argv.term, refresh: argv.refresh, concurrency: argv.concurrency,
+              context: { profile: session.profileName, username: session.username, domain: session.domain, authMethod: session.profile?.auth_method },
+              progress: message => {
+                if (!argv.json && !argv.get && (!argv.format || ['auto', 'pretty', 'styled'].includes(argv.format))) process.stderr.write(`${message}\n`);
+              },
+            });
+            Object.defineProperty(result, '_formatted', { value: formatFlowSearch(result), enumerable: false });
+            app.ok(result, { summary: `${result.match_count} matching line(s) in ${result.matching_flows} flow(s); ${result.coverage.decoded}/${result.coverage.inventoried} definitions decoded${result.coverage.complete_visible_inventory ? '' : '; PARTIAL/UNKNOWN coverage'}` });
+          }),
+        })
+        .command({
           command: 'schemas',
-          describe: 'Read live trigger catalog and declared inputs; supported marks verified CLI creation families',
+          describe: 'Read live trigger catalog and input schemas',
           handler: wrap(async (_argv, app) => {
             app.requireInstance();
             const catalog = await readTriggerCatalog(app.sdk);
@@ -80,6 +136,30 @@ export function flowsCmd(wrap) {
             const data = { ...catalog, structural_contract: 'Manifest keys and persistence shape are code-owned; trigger definitions and input metadata are instance-derived.' };
             data._formatted = [...catalog.categories.flatMap(c => c.triggers.map(t => `${c.name}: ${t.name} [${t.type}] ${t.supported ? 'supported' : 'not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)), ...catalog.ungrouped.map(t => `${t.name} [${t.type}] ungrouped${t.supported ? '; supported' : '; not supported'}; inputs: ${(t.inputs || []).map(i => i.name + ':' + i.type).join(', ')}`)].join('\n');
             app.ok(data, { summary: 'Live Flow trigger schemas' });
+          }),
+        })
+        .command({
+          command: 'catalog-variables [identifier]',
+          describe: 'List a catalog item\'s variables for a service_catalog trigger input',
+          builder: (y) => y
+            .option('catalog-item', { type: 'string', describe: 'sc_cat_item sys_id used as the trigger\'s template_catalog_item' })
+            .option('scope', { type: 'string', describe: 'Transaction scope sys_id (default: the flow\'s own scope)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const catalogItem = argv.catalogItem ?? argv['catalog-item'];
+            if (!String(catalogItem || '').trim()) throw errUsage('--catalog-item <sc_cat_item sys_id> is required; it is the trigger\'s template_catalog_item');
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const record = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
+            const flowId = unwrapSysId(record);
+            // resolveRecord reads display values; sending `Global` as a
+            // transaction scope is not a scope id. Prefer the raw value.
+            const rawScope = record?.sys_scope && typeof record.sys_scope === 'object' ? record.sys_scope.value : record?.sys_scope;
+            const scope = argv.scope || rawScope || 'global';
+            const result = await readCatalogItemVariables(app.sdk, app.getEffectiveInstance(), flowId, catalogItem, { scope });
+            app.ok(result, {
+              summary: `${result.count} catalog variable(s) on ${catalogItem}; trigger catalog_variables input: ${result.catalog_variables_input || '(none)'}`,
+            });
           }),
         })
         .command({
@@ -142,6 +222,19 @@ export function flowsCmd(wrap) {
           aliases: ['runs', 'contexts'],
           describe: 'Show Flow Designer executions from sys_flow_context',
           builder: (y) => y
+            .usage('Usage: jsn flows executions [show <context>] [options]')
+            .command({
+              command: 'show <context>',
+              describe: 'Show one execution: its version, reporting level and the failed step from sys_flow_log',
+              builder: sub => sub.strict().positional('context', { type: 'string', describe: 'Execution sys_id (sys_flow_context)' }),
+              handler: wrap(async (argv, app) => {
+                app.requireInstance();
+                const data = await showFlowExecution(app.sdk, argv.context);
+                Object.defineProperty(data, '_formatted', { value: formatFlowExecution(data), enumerable: false });
+                const { values_recorded: values, reporting } = data.step_data;
+                app.ok(data, { summary: `${data.execution.name}: ${data.execution.state_label}; ${data.failed_steps.length} failed step(s) from ${data.log.count} Error row(s) in the flow log; reporting ${reporting ?? 'unknown'}, ${values ? 'inputs and outputs kept' : values === false ? 'no inputs or outputs kept' : 'inputs and outputs unknown'}` });
+              }),
+            })
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "state=WAITING" or "source_record=<sys_id>")' })
             .option('record', { type: 'string', describe: 'Only executions for this source record sys_id' })
             .option('since', { type: 'string', describe: 'Only contexts created on or after this timestamp' })
@@ -202,6 +295,11 @@ export function flowsCmd(wrap) {
               type: 'number',
               default: 2,
               describe: 'Expand nested subflows to this depth (1 = subflow names only, 2 = one level, 3+ = deeper)',
+            })
+            .option('raw-payload', {
+              type: 'boolean',
+              default: false,
+              describe: 'Include the raw ProcessFlow document (large; it duplicates the extracted steps)',
             }),
           handler: wrap(async (argv, app) => {
             const identifier = await pickFlow(argv, app);
@@ -211,6 +309,7 @@ export function flowsCmd(wrap) {
               identifier,
               instanceURL: app.getEffectiveInstance(),
               depth: argv.depth,
+              includePayload: argv.rawPayload === true,
             });
             app.ok(inspection, {
               summary: `Flow: ${inspection.flow.name}`,
@@ -238,6 +337,7 @@ export function flowsCmd(wrap) {
                 resource: argv.action ? 'Custom action' : 'Flow',
               }));
 
+            await assertMutationRecordScope(app, argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow', sysID);
             await confirmDesignerMutation(argv, app, `Publish and activate ${argv.action ? 'action' : 'flow'} ${sysID}?`);
             if (!argv.action) {
               const lifecycle = await publishFlowLifecycle(app.sdk, app.getEffectiveInstance(), sysID);
@@ -312,12 +412,42 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
+          command: 'clone [identifier]',
+          aliases: ['copy'],
+          describe: 'Duplicate a supported inactive Draft through native Designer copy',
+          builder: y => y
+            .option('name', { type: 'string', describe: 'New unique name; required in automation, defaults to source name + copy interactively' })
+            .option('force', { type: 'boolean', default: false, describe: 'Approve this clone without confirmation' })
+            .epilogue('Same source scope and security/domain policy. Never publishes, activates or executes.\n'
+              + 'Select an aligned named in-progress update set first. Unsupported graph categories fail before allocation.\n'
+              + 'Live acceptance is pending. Partial failures retain the new identity; reconcile before retrying.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            if (app.mutationContext?.verified) {
+              const source = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
+              assertMutationScope(app.mutationContext, source.sys_scope, 'Flow clone source');
+            }
+            const plan = await prepareFlowClone(app.sdk, app.getEffectiveInstance(), identifier, { ...argv, interactive: canUsePicker(app, argv) });
+            assertMutationScope(app.mutationContext, plan.scope, 'Flow clone');
+            await confirmDesignerMutation(argv, app,
+              `Clone ${plan.source.name} (${plan.source.id}) as ${JSON.stringify(plan.name)} in ${plan.scope}; inactive Draft, source unchanged`,
+              ['flows', 'clone', plan.source.id, '--name', plan.name]);
+            const result = await cloneFlow(app.sdk, app.getEffectiveInstance(), plan);
+            return app.ok(result, { summary: `Cloned inactive Draft ${result.flow.name} (${result.flow.id}); source unchanged; capture verified`,
+              breadcrumbs: [{ action: 'show', cmd: `jsn flows show ${result.flow.id}`, description: 'Inspect the cloned Draft' }] });
+          }),
+        })
+        .command({
           command: 'create',
-          describe: 'Create a draft flow from a JSON manifest or guided prompts. Use `jsn flows schemas` for instance-derived trigger and input schemas, and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs. Manifest structure remains code-owned.',
+          describe: 'Create a draft flow from a JSON manifest or guided prompts',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Flow manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the flow manifest from a JSON file' })
-            .option('scope', { type: 'string', describe: 'Transaction scope sys_id or global for the guided picker' }),
+            .option('scope', { type: 'string', describe: 'Transaction scope sys_id or global for the guided picker' })
+            .epilogue('Manifest structure is code-owned. Use `jsn flows schemas` for trigger and input schemas, and\n'
+              + '`jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for provider action inputs.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
@@ -329,8 +459,10 @@ export function flowsCmd(wrap) {
             } catch (error) {
               throw new Error(`Invalid flow manifest JSON: ${error.message}`, { cause: error });
             }
+            assertMutationScope(app.mutationContext, manifest.scope, 'Flow creation manifest');
             const result = await createFlowFromManifest(app.sdk, app.getEffectiveInstance(), manifest, {
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
+              ensureCapture: intended => alignUpdateSetCapture(app.sdk, intended),
             });
             app.ok({ ...result, trigger_guidance: triggerGuidance(result.trigger) }, {
               summary: `Created draft flow "${result.flow.name}" (${result.flow.id}) with trigger ${result.trigger?.type ?? 'unknown'} (${result.trigger?.id ?? 'no trigger id'}) without activation`,
@@ -341,12 +473,21 @@ export function flowsCmd(wrap) {
         .command({
           command: 'update [identifier]',
           aliases: ['edit'],
-          describe: 'Save partial edits to a Draft, or to a published/active flow whose ProcessFlow definition reports security.can_write=true: record_create_or_update trigger table/condition and existing action inputs. Published flows are edited as their working definition; the published snapshot and runtime pointers must stay unchanged, and the command fails loudly if they do not. Flows without write access are refused before any lock or content write, naming the permission. Use --preview for before/after values without writes. Flow Logic, variables, catalog-trigger edits and stage placement require Flow Designer. Never publishes or executes. Use `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId> --scope <scopeId>` for live schemas; omitted values are preserved.',
+          describe: 'Update a draft, or a published flow that reports write access',
           builder: (y) => y
             .option('data', { type: 'string', describe: 'Update manifest as inline JSON' })
             .option('data-file', { type: 'string', describe: 'Read the update manifest from a JSON file' })
             .option('preview', { type: 'boolean', default: false, describe: 'Validate and show exact before/after input values without saving or versioning' })
-            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Editable: record_create_or_update trigger table/condition, existing action inputs, and stage\n'
+              + 'placement (add a stage, or move flow steps onto one with componentIndexes). A service_catalog\n'
+              + 'trigger is created with its template_catalog_item and catalog_variables inputs. A published flow\n'
+              + 'is edited as its working definition; the published snapshot and runtime pointers must stay\n'
+              + 'unchanged, and the command fails loudly if they do not. A flow without write access is refused\n'
+              + 'before any lock or content write, naming the permission. Flow Logic, flow variables, subflows and\n'
+              + 'error handling still need Flow Designer. Never publishes or executes; omitted values are preserved.\n'
+              + 'Live schemas: `jsn flows schemas` and `jsn actions action-type-schema --id <actionTypeId>\n'
+              + '--scope <scopeId>`.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const dataFile = argv.dataFile ?? argv['data-file'];
@@ -364,10 +505,16 @@ export function flowsCmd(wrap) {
             } catch (error) {
               throw new Error(`Invalid flow update manifest JSON: ${error.message}`, { cause: error });
             }
+            if (!argv.preview && app.mutationContext?.verified) {
+              const target = await resolveRecord(app.sdk, { table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow' });
+              assertMutationScope(app.mutationContext, target.sys_scope, 'Flow update target');
+              if (manifest.scope !== undefined) assertMutationScope(app.mutationContext, manifest.scope, 'Flow update manifest');
+            }
             if (!argv.preview) await confirmDesignerMutation(argv, app, `Update flow ${identifier}; unspecified components and inputs are preserved. A published flow is edited as its working definition: the published snapshot must stay unchanged.`);
             const result = await updateFlowFromManifest(app.sdk, app.getEffectiveInstance(), argv.identifier, manifest, {
               preview: argv.preview,
               readUpdateSet: () => readCurrentUpdateSet(app.sdk),
+              ensureCapture: intended => alignUpdateSetCapture(app.sdk, intended),
             });
             const diff = result.changes.map(change => `${change.component}${change.order ? ` ${change.order}` : ''}.${change.input}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`).join('\n');
             const state = `${result.flow.status}${result.flow.active ? ', active' : ''}`;
@@ -381,15 +528,116 @@ export function flowsCmd(wrap) {
           }),
         })
         .command({
-          command: 'delete [identifier]',
-          describe: 'Delete a flow (not yet implemented)',
+          command: 'unlock [identifier]',
+          describe: 'Release this user\'s stale safe-edit lease after a failed update',
+          builder: (y) => y
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Recovery for an orphaned lease left by a failed update: the provider only releases the calling\n'
+              + 'user\'s own session, the before/after canUserEdit and currentEditor values are printed, and an\n'
+              + 'unconfirmed release fails instead of reporting success. Does not edit content, publish, or touch\n'
+              + 'another user\'s session.'),
           handler: wrap(async (argv, app) => {
+            app.requireInstance();
             const identifier = await pickFlow(argv, app);
             if (identifier === undefined) return;
-            throw errUsage('Flow deletion requires the Flow Designer GraphQL API - not yet implemented.\n'
-              + 'Use the ServiceNow web UI to delete flows.');
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+              table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow',
+            }));
+            await confirmDesignerMutation(argv, app, `Release your Flow Designer safe-edit session on flow ${identifier}? If this flow is open in Flow Designer, that editor's next save will fail.`);
+            const result = await releaseOwnFlowSafeEdit(app.sdk, app.getEffectiveInstance(), sysID);
+            const state = status => `canUserEdit=${status.canUserEdit}, currentEditor=${JSON.stringify(status.currentEditor ?? null)}`;
+            return app.ok({ ...result, flow: { id: sysID, name: identifier } }, {
+              summary: result.released
+                ? `Released this user's safe edit session on flow ${identifier} (${sysID}): ${state(result.before)} -> ${state(result.after)}`
+                : `No safe edit session to release on flow ${identifier} (${sysID}): ${state(result.before)}`,
+              breadcrumbs: result.released
+                ? [{ action: 'update', cmd: `jsn flows update ${sysID}`, description: 'Retry the edit' }]
+                : [{ action: 'show', cmd: `jsn flows show ${sysID}`, description: 'Inspect the flow' }],
+            });
           }),
-        });
+        })
+        .command({
+          command: 'settings [identifier]',
+          describe: 'Show or set a flow\'s reporting and logging levels (preview by default)',
+          builder: (y) => y
+            .option('reporting', { type: 'string', describe: 'Reporting level: OFF, BASIC, FULL or TRACE' })
+            .option('logging', { type: 'string', describe: 'Logging level: DEBUG, INFO, WARN or ERROR' })
+            .option('action', { type: 'boolean', default: false, describe: 'Target a custom action instead of a flow' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it nothing is written' })
+            .epilogue('Reads and writes the flow\'s one sys_flow_execution_setting row (source = the flow), which\n'
+              + 'overrides com.snc.process_flow.reporting.level for that flow, as Workflow Studio\'s Reporting\n'
+              + 'settings do. With no level given it shows the current row. --yes creates or updates only the\n'
+              + 'fields that change, then reads the row back; an unconfirmed write exits 1. A subflow or action\n'
+              + 'called from a flow runs at the parent flow\'s setting.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const requested = requestedLevels(argv);
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const table = argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow';
+            const record = await resolveRecord(app.sdk, { table, identifier, matchField: 'name', resource: argv.action ? 'Action' : 'Flow', fields: ['name', 'type'] });
+            const flow = { sys_id: unwrapSysId(record), name: getStringField(record, 'name'), type: argv.action ? 'action' : (getStringField(record, 'type').toLowerCase() || 'flow'), table };
+            const data = await setFlowSettings(app.sdk, { flow, requested, write: argv.yes, rerunFlags: argv.action ? ['--action'] : [] });
+            Object.defineProperty(data, '_formatted', { value: formatFlowSettings(data), enumerable: false });
+            app.ok(data, { summary: flowSettingsSummary(data),
+              breadcrumbs: data.rerun ? [{ action: 'write', cmd: data.rerun, description: 'Write this change' }] : [] });
+            if (data.written && !data.verified) process.exitCode = 1;
+          }),
+        })
+        .command({
+          command: 'delete [identifier]',
+          describe: 'Delete a flow and everything that belongs to it',
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const sysID = unwrapSysId(await resolveRecord(app.sdk, {
+              table: 'sys_hub_flow', identifier, matchField: 'name', resource: 'Flow',
+            }));
+            const [flow] = await app.sdk.list('sys_hub_flow', new URLSearchParams({
+              sysparm_query: `sys_id=${sysID}`,
+              sysparm_display_value: 'all',
+              sysparm_fields: 'sys_id,name,status,active,sys_scope',
+              sysparm_limit: '1',
+            }));
+            if (!flow) throw errUsage(`Flow ${identifier} (${sysID}) was not found`);
+            assertMutationScope(app.mutationContext, flow.sys_scope, 'Flow deletion target');
+            const name = getStringField(flow, 'name');
+            const active = getStringField(flow, 'active') === 'true';
+            const counted = async () => {
+              const counts = {};
+              for (const { table, query } of FLOW_OWNED_TABLES) {
+                counts[table] = await app.sdk.aggregateCount(table, query(sysID)).catch(() => null);
+              }
+              return counts;
+            };
+            const before = await counted();
+            const scopeName = getStringField(flow, 'sys_scope');
+            await confirmDesignerMutation(argv, app, `Delete flow "${name}" (${sysID})${active ? ', which is ACTIVE' : ''} and ${describeOwned(before)}? This cannot be undone.`);
+            try {
+              await app.sdk.delete('sys_hub_flow', sysID);
+            } catch (error) {
+              // The provider only deletes flows in the session's application scope.
+              if (/\b403\b|forbidden/i.test(error.message || '')) {
+                throw new AppError(CodeForbidden, `Flow "${name}" is in application scope ${scopeName ? `"${scopeName}"` : 'another scope'}; the provider refused the delete with HTTP 403. Switch to that scope first (jsn scopes), then retry. No delete was applied.`);
+              }
+              throw error;
+            }
+            const [stillThere] = await app.sdk.list('sys_hub_flow', new URLSearchParams({
+              sysparm_query: `sys_id=${sysID}`, sysparm_fields: 'sys_id', sysparm_limit: '1',
+            }));
+            if (stillThere) throw new AppError(CodeAPI, `Flow ${sysID} is still present after the delete request; nothing is reported as removed`);
+            const remaining = await counted();
+            const orphans = Object.entries(remaining).filter(([, count]) => count);
+            const removedText = describeOwned(before);
+            return app.ok({ flow: { id: sysID, name, active }, removed: before, remaining }, {
+              summary: `Deleted flow "${name}" (${sysID})${removedText === 'nothing' ? '' : ` with ${removedText}`}${orphans.length ? `; ${orphans.map(([table, count]) => `${count} ${table} row(s) remain`).join(', ')}` : ''}`,
+              breadcrumbs: [{ action: 'list', cmd: 'jsn flows list', description: 'List the remaining flows' }],
+            });
+          }),
+        })
+        .epilogue('Run "jsn flows <command> --help" for details. In a terminal you can omit the target and pick\n'
+          + `one; scripts use explicit identifiers and manifests.\nDocumentation: ${docLink('flows')}`);
     },
     handler: wrap(async (_argv, app) => {
       const summary = 'Manage Flow Designer flows from the sys_hub_flow table. Flow structure comes from the ProcessFlow API, so V1, V2 and subflow definitions all render in full.';

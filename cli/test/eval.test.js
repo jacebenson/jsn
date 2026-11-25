@@ -16,11 +16,13 @@ const state = {
 };
 
 function makeSdk(overrides = {}) {
-  return {
+  const sdk = {
     resolveScope: async (scope) => (scope === 'global' ? null : `scope-${scope}`),
     executeScript: async () => 'ok',
     ...overrides,
   };
+  sdk.runBackgroundScript = async (...args) => ({ output: await sdk.executeScript(...args), execution_id: null });
+  return sdk;
 }
 
 describe('eval scope resolution (issue #161)', () => {

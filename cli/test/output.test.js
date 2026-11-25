@@ -31,6 +31,72 @@ describe('OutputWriter format methods', () => {
 });
 
 describe('printContextHeader', () => {
+  it('is suppressed when an extraction path is requested', async (t) => {
+    const { App } = await import('../src/app.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const app = {
+      getEffectiveInstance: () => 'https://example.service-now.com',
+      output: new OutputWriter({ format: 'styled' }),
+      sdk: {
+        list: () => assert.fail('Suppressed header must not query the instance'),
+        get: () => assert.fail('Suppressed header must not query the instance'),
+      },
+    };
+    const previous = process.env.JSN_NO_HEADER;
+    delete process.env.JSN_NO_HEADER;
+    t.after(() => {
+      if (previous === undefined) delete process.env.JSN_NO_HEADER;
+      else process.env.JSN_NO_HEADER = previous;
+    });
+    const stdout = t.mock.method(process.stdout, 'write', () => true);
+    const stderr = t.mock.method(process.stderr, 'write', () => true);
+    // `--get` prints an extracted JSON value; a banner merged by `2>&1` landed
+    // in front of it and broke json.load / jq at character 0.
+    await App.prototype.printContextHeader.call(app, { get: 'data.records' });
+    assert.equal(stdout.mock.callCount(), 0);
+    assert.equal(stderr.mock.callCount(), 0);
+  });
+
+  it('never prints or probes a banner on a terminal without extraction', async (t) => {
+    const { App } = await import('../src/app.js');
+    const { OutputWriter } = await import('../src/output.js');
+    const queries = [];
+    const app = {
+      getEffectiveInstance: () => 'https://example.service-now.com',
+      output: new OutputWriter({ format: 'styled' }),
+      context: {},
+      session: {},
+      sdk: {
+        list: async (table, params) => {
+          queries.push(`${table} ${params?.get?.('sysparm_query') ?? ''}`);
+          return table === 'sys_user' ? [{ sys_id: 'u1', name: 'Tester' }] : [{ value: 'scope-id' }];
+        },
+        get: async (table) => {
+          queries.push(`${table} get`);
+          return table === 'sys_scope' ? { scope: 'x_scope' } : { name: 'My Update Set' };
+        },
+      },
+    };
+    const previous = process.env.JSN_NO_HEADER;
+    delete process.env.JSN_NO_HEADER;
+    t.after(() => {
+      if (previous === undefined) delete process.env.JSN_NO_HEADER;
+      else process.env.JSN_NO_HEADER = previous;
+    });
+    t.mock.method(process.stdout, 'write', () => true);
+    const stderr = t.mock.method(process.stderr, 'write', () => true);
+    const descriptor = Object.getOwnPropertyDescriptor(process.stderr, 'isTTY');
+    Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+    t.after(() => {
+      if (descriptor) Object.defineProperty(process.stderr, 'isTTY', descriptor);
+      else delete process.stderr.isTTY;
+    });
+    await App.prototype.printContextHeader.call(app, {});
+    const printed = stderr.mock.calls.map(call => String(call.arguments[0])).join('');
+    assert.equal(printed, '');
+    assert.deepEqual(queries, []);
+  });
+
   for (const format of ['json', 'quiet']) {
     it(`suppressed for ${format} format without making API requests`, async (t) => {
       const { App } = await import('../src/app.js');

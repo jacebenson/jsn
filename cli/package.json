@@ -1,6 +1,6 @@
 {
   "name": "@jacebenson/jsn",
-  "version": "5.1.0",
+  "version": "5.5.11",
   "description": "A command-line interface for ServiceNow that follows the Unix philosophy: simple, composable, and scriptable.",
   "type": "module",
   "bin": {
@@ -9,11 +9,10 @@
   "main": "src/cli.js",
   "scripts": {
     "test": "node scripts/test.mjs",
-    "test:mutation": "stryker run",
-    "lint": "npx eslint src/ bin/ test/",
-    "start": "node bin/jsn.js",
-    "docs": "npm --prefix ../docs run build",
-    "docs:serve": "npm --prefix ../docs run serve"
+    "test:mutation": "npm exec --yes --package=@stryker-mutator/core@10.1.1 -- stryker run stryker.config.json",
+    "test:pty": "node --test test/pty/prompts-pty.test.js",
+    "lint": "eslint src/ bin/ test/",
+    "start": "node bin/jsn.js"
   },
   "keywords": [
     "servicenow",
@@ -25,16 +24,14 @@
   "repository": "https://github.com/jacebenson/jsn",
   "license": "MIT",
   "dependencies": {
-    "@inquirer/core": "^10.3.2",
-    "@inquirer/prompts": "^7.10.1",
-    "better-sqlite3": "^13.0.3",
+    "commonmark": "^0.31.2",
     "js-yaml": "^5.5.0",
     "saxes": "^6.0.0",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@stryker-mutator/core": "^10.0.0",
+    "eslint": "^10.15.0",
     "globals": "^17.6.0"
   },
   "files": [
@@ -43,5 +40,8 @@
     "skills/",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
 }

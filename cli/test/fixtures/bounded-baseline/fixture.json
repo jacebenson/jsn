@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "tables": [
+    {
+      "table": "sys_properties",
+      "fields": [
+        "sys_id",
+        "name",
+        "sys_scope",
+        "type"
+      ],
+      "query": "sys_scope=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^ORDERBYsys_id",
+      "rows": [
+        {
+          "sys_id": "00000000000000000000000000000001",
+          "name": "Fixture, \"雪\"\tline\nnext\\n",
+          "sys_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "type": "string"
+        },
+        {
+          "sys_id": "00000000000000000000000000000002",
+          "name": "Fixture two",
+          "sys_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "table": "sys_script_include",
+      "fields": [
+        "sys_id",
+        "name",
+        "sys_scope",
+        "active"
+      ],
+      "query": "sys_scope=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^ORDERBYsys_id",
+      "rows": [
+        {
+          "sys_id": "00000000000000000000000000000001",
+          "name": "Fixture, \"雪\"\tline\nnext\\n",
+          "sys_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "active": "true"
+        },
+        {
+          "sys_id": "00000000000000000000000000000002",
+          "name": "Fixture two",
+          "sys_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "active": "false"
+        }
+      ]
+    },
+    {
+      "table": "sys_security_acl",
+      "fields": [
+        "sys_id",
+        "name",
+        "sys_scope",
+        "operation",
+        "type"
+      ],
+      "query": "sys_scope=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^ORDERBYsys_id",
+      "rows": [
+        {
+          "sys_id": "00000000000000000000000000000001",
+          "name": "Fixture, \"雪\"\tline\nnext\\n",
+          "sys_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "read",
+          "type": "string"
+        },
+        {
+          "sys_id": "00000000000000000000000000000002",
+          "name": "Fixture two",
+          "sys_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "read",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "table": "sys_scope_privilege",
+      "fields": [
+        "sys_id",
+        "source_scope",
+        "target_scope",
+        "target_name",
+        "operation",
+        "status"
+      ],
+      "query": "source_scope=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^ORDERBYsys_id",
+      "rows": [
+        {
+          "sys_id": "00000000000000000000000000000001",
+          "source_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target_scope": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target_name": "sys_user",
+          "operation": "read",
+          "status": "allowed"
+        },
+        {
+          "sys_id": "00000000000000000000000000000002",
+          "source_scope": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "target_scope": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target_name": "sys_user",
+          "operation": "read",
+          "status": "allowed"
+        }
+      ]
+    },
+    {
+      "table": "sys_flow_context",
+      "fields": [
+        "sys_id",
+        "name",
+        "state",
+        "sys_created_on"
+      ],
+      "query": "sys_created_on>=2026-01-01 00:00:00^sys_created_on<=2026-01-03 00:00:00^ORDERBYsys_id",
+      "rows": [
+        {
+          "sys_id": "00000000000000000000000000000001",
+          "name": "Fixture, \"雪\"\tline\nnext\\n",
+          "state": "COMPLETE",
+          "sys_created_on": "2026-01-01 00:00:00"
+        },
+        {
+          "sys_id": "00000000000000000000000000000002",
+          "name": "Fixture two",
+          "state": "COMPLETE",
+          "sys_created_on": "2026-01-02 00:00:00"
+        }
+      ]
+    }
+  ],
+  "document": {
+    "path": "metadata-api.md",
+    "title": "Metadata API",
+    "release": "australia",
+    "revision": "bounded-fixture-v1",
+    "body": "# Metadata API\n\nAvailable only in global scope.\n\n## read(name)\nReturns the named metadata.\n\n### Example\n```js\nread(\"雪\");\n```\n\n## Permissions\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\nRead access is required. Other sections may contain prerequisites.\n",
+    "section": "read(name)",
+    "expected_section_body": "# Metadata API\n\nAvailable only in global scope.\n\n## read(name)\nReturns the named metadata.\n\n### Example\n```js\nread(\"雪\");\n```\n\n",
+    "outline_titles": [
+      "Metadata API",
+      "read(name)",
+      "Example",
+      "Permissions"
+    ]
+  }
+}
