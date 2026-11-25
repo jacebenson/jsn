@@ -425,3 +425,95 @@ describe('transactions kill', () => {
     } finally { mock.timers.reset(); process.exitCode = previous; }
   });
 });
+
+describe('transactions active --watch', () => {
+  const clock = () => { let t = 0; return { now: () => t, sleep: async ms => { t += ms; } }; };
+
+  it('rejects bad watch options before any request', async () => {
+    const { watchActiveTransactions, watchOptions } = await import('../src/active-transactions.js');
+    assert.throws(() => watchOptions({ interval: 5 }), /need --watch/);
+    assert.throws(() => watchOptions({ timeout: 5 }), /need --watch/);
+    assert.equal(watchOptions({}), null);
+    for (const argv of [{ interval: 1 }, { interval: 301 }, { interval: 2.5 }, { timeout: -1 }, { timeout: 86401 }, { limit: 0 }, { 'older-than': 'soon' }]) {
+      const sdk = activeSdk();
+      await assert.rejects(watchActiveTransactions(sdk, { watch: true, timeout: 4, ...argv }, { emit() {}, ...clock() }), { code: 'usage_error' }, JSON.stringify(argv));
+      assert.equal(sdk.calls.length, 0, JSON.stringify(argv));
+    }
+  });
+
+  it('refreshes every interval until the timeout, reads only, then reports a summary', async () => {
+    const { watchActiveTransactions } = await import('../src/active-transactions.js');
+    const sdk = activeSdk();
+    const events = [];
+    const summary = await watchActiveTransactions(sdk, { watch: true, interval: 5, timeout: 12, limit: 3 }, { emit: event => events.push(event), ...clock() });
+    assert.deepEqual(events.map(event => event.type), ['transactions_active', 'transactions_active', 'transactions_active', 'watch_summary']);
+    assert.deepEqual(summary, { type: 'watch_summary', reason: 'timeout', snapshots: 3, duration_ms: 12000 });
+    assert.equal(events[0].records[0].session_id.value, 'S1');
+    assert.equal(sdk.calls.filter(call => call.table === 'v_cluster_transaction').every(call => call.params.get('sysparm_limit') === '4'), true);
+    assert.equal(sdk.calls.every(call => call.table || call.opts.method === 'GET'), true);
+  });
+
+  it('stops on Ctrl-C without another refresh', async () => {
+    const { watchActiveTransactions } = await import('../src/active-transactions.js');
+    const sdk = activeSdk();
+    const controller = new AbortController();
+    const events = [];
+    const summary = await watchActiveTransactions(sdk, { watch: true }, { signal: controller.signal, emit: event => { events.push(event); controller.abort(); }, ...clock() });
+    assert.equal(summary.reason, 'cancelled');
+    assert.equal(summary.snapshots, 1);
+    assert.equal(sdk.calls.filter(call => call.url).length, 1);
+  });
+
+  it('carries on after a failed refresh, but three in a row end the watch', async () => {
+    const { watchActiveTransactions, formatWatchEvent } = await import('../src/active-transactions.js');
+    const redirect = Object.assign(new TypeError('fetch failed'), { cause: new Error('unexpected redirect') });
+    const flaky = activeSdk();
+    const raw = flaky.rawRequest;
+    let n = 0;
+    flaky.rawRequest = async (...args) => { if (n++ === 0) throw redirect; return raw(...args); };
+    const events = [];
+    await watchActiveTransactions(flaky, { watch: true, interval: 2, timeout: 3 }, { emit: event => events.push(event), ...clock() });
+    assert.deepEqual(events.map(event => event.type), ['refresh_failed', 'transactions_active', 'watch_summary']);
+    assert.match(formatWatchEvent(events[0]), /refresh failed, retrying: .*The instance redirected/);
+    assert.match(formatWatchEvent(events[1]), /^--- 00:00:02 UTC: 1 active\nAGE/);
+    const every = activeSdk();
+    let m = 0;
+    every.rawRequest = async (...args) => { if (m++ % 2 === 0) throw redirect; return raw(...args); };
+    const alternating = [];
+    await watchActiveTransactions(every, { watch: true, interval: 2, timeout: 9 }, { emit: event => alternating.push(event.type), ...clock() });
+    assert.deepEqual(alternating, ['refresh_failed', 'transactions_active', 'refresh_failed', 'transactions_active', 'refresh_failed', 'watch_summary']);
+    const down = activeSdk({ raw: redirect });
+    await assert.rejects(watchActiveTransactions(down, { watch: true, interval: 2 }, { emit() {}, ...clock() }), /redirected/);
+    assert.equal(down.calls.length, 3);
+  });
+
+  it('streams newline-delimited JSON through the real CLI and ends at --timeout', async () => {
+    const server = createServer((req, res) => {
+      const url = new URL(req.url, 'http://fixture.invalid');
+      if (url.pathname === '/loading_transactions.do') { res.setHeader('Content-Type', 'text/html'); res.end(`var executionID = '${EXEC}';`); return; }
+      const table = url.pathname.split('/').pop();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ result: table === 'sys_execution_tracker' ? [{ parent: pair(EXEC), name: pair('Node A'), state: pair('2') }] : table === 'v_cluster_transaction' ? [activeRow(1)] : {} }));
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-transactions-watch-')));
+    fs.mkdirSync(path.join(dir, 'servicenow'));
+    fs.writeFileSync(path.join(dir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
+    const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data'), SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' });
+    const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
+    try {
+      const { stdout } = await promisify(execFile)(process.execPath, [...loopbackCredentialArgs, cli, 'transactions', 'active', '--watch', '--interval', '2', '--timeout', '1', '--json'], { env, cwd: dir, timeout: 20000 });
+      const events = stdout.trim().split('\n').map(line => JSON.parse(line));
+      assert.deepEqual(events.map(event => event.type), ['transactions_active', 'watch_summary']);
+      assert.equal(events[0].records[0].session_id.value, 'S1');
+      assert.equal(events[1].reason, 'timeout');
+      const refused = await promisify(execFile)(process.execPath, [...loopbackCredentialArgs, cli, 'transactions', 'active', '--interval', '2', '--json'], { env, cwd: dir, timeout: 20000 }).then(() => null, error => error);
+      assert.match(`${refused.stdout}${refused.stderr}`, /need --watch/);
+    } finally {
+      server.closeAllConnections();
+      await new Promise(resolve => server.close(resolve));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

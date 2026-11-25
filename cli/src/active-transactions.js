@@ -12,7 +12,12 @@ const UNITS = { '': 1, s: 1, m: 60, h: 3600, d: 86400 };
 
 const raw = value => value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? '');
 const text = value => value && typeof value === 'object' ? String(value.display_value ?? value.value ?? '') : String(value ?? '');
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const wait = (ms, signal) => new Promise(resolve => {
+  if (signal?.aborted) return resolve();
+  const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', done); resolve(); };
+  const timer = setTimeout(done, ms);
+  signal?.addEventListener('abort', done, { once: true });
+});
 
 function rowsOf(rows, table) {
   if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw Object.assign(new Error(`Malformed table response for ${table}`), { code: 'malformed_response' });
@@ -95,6 +100,52 @@ export async function checkVisible(sdk, refresh, rows) {
   const params = new URLSearchParams({ sysparm_query: 'session_idSAMEASsnapshot_id', sysparm_fields: 'session_id', sysparm_limit: '1' });
   if (rowsOf(await sdk.listStrict(ACTIVE_TABLE, params, { stateful: true }), ACTIVE_TABLE).length) return refresh;
   return { ...refresh, complete: false, warning: 'The refreshed list was not visible to this session (it did not even hold this request), so an empty result proves nothing. Retry.' };
+}
+
+// A watch survives a refresh that fails now and then (the instance redirects one now and then), not a run of them.
+const WATCH_FAILURES = 3;
+
+export function watchOptions(argv = {}) {
+  if (!argv.watch) {
+    if (argv.interval != null || argv.timeout != null) throw errUsage('--interval and --timeout need --watch.');
+    return null;
+  }
+  const interval = argv.interval ?? 5, timeout = argv.timeout ?? 0;
+  if (!Number.isSafeInteger(interval) || interval < 2 || interval > 300) throw errUsage('--interval must be whole seconds from 2 to 300.');
+  if (!Number.isSafeInteger(timeout) || timeout < 0 || timeout > 86400) throw errUsage('--timeout must be whole seconds from 0 (until interrupted) to 86400.');
+  return { interval, timeout };
+}
+
+// Like records watch: one event a refresh until the signal aborts (Ctrl-C) or the timeout passes, then a watch_summary.
+export async function watchActiveTransactions(sdk, argv, { emit, signal, sleep = wait, now = Date.now } = {}) {
+  const { interval, timeout } = watchOptions(argv);
+  const started = now(), deadline = timeout ? started + timeout * 1000 : Infinity;
+  let snapshots = 0, failures = 0;
+  while (!signal?.aborted) {
+    try {
+      const result = await listActiveTransactions(sdk, argv, { sleep: ms => sleep(ms, signal) });
+      failures = 0;
+      snapshots++;
+      emit({ type: 'transactions_active', received_at: new Date(now()).toISOString(), ...result });
+    } catch (error) {
+      if (++failures >= WATCH_FAILURES || error.code === 'usage_error') throw error;
+      emit({ type: 'refresh_failed', received_at: new Date(now()).toISOString(), message: error.message });
+    }
+    const pause = Math.min(interval * 1000, deadline - now());
+    if (pause <= 0) break;
+    await sleep(pause, signal);
+    if (now() >= deadline) break;
+  }
+  const summary = { type: 'watch_summary', reason: signal?.aborted ? 'cancelled' : 'timeout', snapshots, duration_ms: now() - started };
+  emit(summary);
+  return summary;
+}
+
+export function formatWatchEvent(event) {
+  const at = String(event.received_at || '').slice(11, 19);
+  if (event.type === 'transactions_active') return `--- ${at} UTC: ${event.count} active${event.pagination.has_more ? ' (more exist)' : ''}\n${formatActiveTransactions(event).trimEnd()}`;
+  if (event.type === 'refresh_failed') return `--- ${at} UTC: refresh failed, retrying: ${event.message}`;
+  return `watch ended (${event.reason}): ${event.snapshots} refresh(es), ${Math.round(event.duration_ms / 1000)}s`;
 }
 
 const SESSION = /^[\w.:-]{1,128}$/;
