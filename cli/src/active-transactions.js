@@ -137,10 +137,14 @@ export async function watchActiveTransactions(sdk, argv, { emit, signal, sleep =
       failed++;
       emit({ type: 'refresh_failed', received_at: new Date(now()).toISOString(), message: error.message });
     }
-    const pause = Math.min(interval * 1000, deadline - now());
+    const remaining = deadline - now();
+    const pause = Math.min(interval * 1000, remaining);
     if (pause <= 0) break;
+    // A pause clipped to the deadline ends the watch: timer wakeups can land a
+    // few milliseconds early, and testing `now() >= deadline` alone then takes
+    // one more snapshot than the timeout asked for.
     await sleep(pause, signal);
-    if (now() >= deadline) break;
+    if (pause < interval * 1000 || now() >= deadline) break;
   }
   const summary = { type: 'watch_summary', reason: signal?.aborted ? 'cancelled' : 'timeout', snapshots, failed_refreshes: failed, duration_ms: now() - started };
   emit(summary);
