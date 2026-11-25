@@ -104,7 +104,83 @@ function formatTopTransactions(groups) {
 }
 
 import { declareCapabilities } from '../capabilities.js';
-declareCapabilities('transactions', { queryTable: 'syslog_transaction' });
+import { listActiveTransactions, formatActiveTransactions, killTransaction, formatKillTransaction, watchOptions, watchActiveTransactions, formatWatchEvent } from '../active-transactions.js';
+declareCapabilities('transactions', { queryTable: 'syslog_transaction', mutationContext: 'operational', mutationSubcommands: ['kill'] });
+
+export function activeTransactionsCmd(wrap) {
+  return {
+    command: 'active',
+    describe: 'List transactions running now on every node, oldest first; --watch keeps refreshing it',
+    builder: (y) => y
+      .strict()
+      .option('older-than', { type: 'string', describe: 'Only transactions running at least this long: seconds, or 90s, 5m, 2h' })
+      .option('user', { type: 'string', describe: 'Only this user name' })
+      .option('type', { type: 'string', describe: 'Only this transaction type value, such as rest, form or scheduler' })
+      .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Maximum transactions to return (1-100)' })
+      .option('watch', { type: 'boolean', default: false, describe: 'Refresh until Ctrl-C, printing the list each time' })
+      .option('interval', { type: 'number', describe: 'Seconds between refreshes with --watch (2-300, default 5)' })
+      .option('timeout', { type: 'number', describe: 'With --watch, stop after this many seconds (default 0, until interrupted)' })
+      .epilogue([
+        'Refreshes Active Transactions (All Nodes) the way its module does (loading_transactions.do), then reads v_cluster_transaction in the same session.',
+        "Needs the admin role. jsn's own listing request is left out.",
+        'With --watch, emits newline-delimited JSON events (type transactions_active, refresh_failed, watch_summary) with --json or when piped; three failed refreshes in a row end it.',
+        'Each refresh starts the module\'s own progress tracker (sys_execution_tracker rows), as opening the module does.',
+        'Examples:',
+        '  jsn transactions active',
+        '  jsn transactions active --older-than 5m --type scheduler --json',
+        '  jsn transactions active --watch --interval 10',
+      ].join('\n')),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      if (watchOptions(argv)) {
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        process.once('SIGINT', cancel);
+        process.once('SIGTERM', cancel);
+        try {
+          await watchActiveTransactions(app.sdk, argv, { signal: controller.signal, emit: event => app.output.writeEvent(event, { line: formatWatchEvent(event) }) });
+        } finally {
+          process.removeListener('SIGINT', cancel);
+          process.removeListener('SIGTERM', cancel);
+        }
+        return;
+      }
+      const data = { ...await listActiveTransactions(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
+      Object.defineProperty(data, '_formatted', { value: formatActiveTransactions(data), enumerable: false });
+      app.ok(data, { summary: `Active transactions: ${data.count}${data.pagination.has_more ? ' (more exist)' : ''}${data.refresh.complete ? '' : '; refresh incomplete'}` });
+    }),
+  };
+}
+
+export function killTransactionCmd(wrap) {
+  return {
+    command: 'kill <session>',
+    describe: "Kill a running transaction by session with the platform's own Kill; previews without --yes",
+    builder: (y) => y
+      .strict()
+      .positional('session', { type: 'string', describe: 'session_id from jsn transactions active' })
+      .option('yes', { type: 'boolean', default: false, describe: 'Send the kill (requires --expect-transaction); without it, show what would be killed' })
+      .option('expect-transaction', { type: 'string', describe: 'Required with --yes: the transaction_id the preview showed' })
+      .epilogue([
+        'Kill is meant for background processes such as scheduled jobs, not for users\' requests.',
+        'It needs the admin role, and security_admin elevation when High Security Settings are on.',
+        'An uncancelable system transaction is refused unless --force, which sends Force Kill instead.',
+        'Worker sessions are reused and repeat on every node, so --yes needs the transaction_id from the preview; the preview prints the command.',
+        "jsn will not kill its own listing session. After sending, it re-reads the transactions up to 5 times, 2 seconds apart, and the cancellation log, and exits 1 unless the transaction has ended.",
+        'Examples:',
+        '  jsn transactions kill glide.scheduler.worker.3',
+        '  jsn transactions kill glide.scheduler.worker.3 --yes --expect-transaction 4ba972c9c3f0d71068353eec05013113',
+      ].join('\n')),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      const data = { ...await killTransaction(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
+      Object.defineProperty(data, '_formatted', { value: formatKillTransaction(data), enumerable: false });
+      const verb = data.method === 'forceKill' ? 'Force Kill' : 'Kill';
+      app.ok(data, { summary: data.dry_run ? `Dry run: ${data.rerun.length} transaction(s) in session ${data.session}; nothing sent` : data.ended ? `${verb} sent; session ${data.session}'s transaction ended` : `${verb} sent; transaction not confirmed ended` });
+      if (!data.dry_run && !data.ended) process.exitCode = 1;
+    }),
+  };
+}
 
 export function topTransactionsCmd(wrap) {
   return {
@@ -151,8 +227,10 @@ export function transactionsCmd(wrap) {
     command: 'transactions',
     describe: 'Summarize syslog_transaction response times by transaction type',
     builder: (y) => y
-      .option('query', { type: 'string', describe: 'Encoded query; date-only sys_created_on equality expands to the full day' })
-      .option('order-by', { type: 'string', describe: 'Stats API order-by fields' }),
+      .command(activeTransactionsCmd(wrap))
+      .command(killTransactionCmd(wrap))
+      .option('query', { type: 'string', global: false, describe: 'Encoded query; date-only sys_created_on equality expands to the full day' })
+      .option('order-by', { type: 'string', global: false, describe: 'Stats API order-by fields' }),
     handler: wrap(async (argv, app) => {
       app.requireInstance();
       const query = normalizeTransactionQuery(argv.query);

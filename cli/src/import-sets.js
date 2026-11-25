@@ -139,6 +139,80 @@ export async function loadImportRows(sdk, table, rows) {
     failed: failedRows.size, counts, results };
 }
 
+/** Read one import set, by number or sys_id, and up to limit + 1 of its rows. */
+export async function readImportSet(sdk, id, limit) {
+  const field = /^[0-9a-fA-F]{32}$/.test(id) ? 'sys_id' : 'number';
+  const [found] = await sdk.listStrict('sys_import_set', new URLSearchParams({ sysparm_query: `${field}=${id}`,
+    sysparm_fields: 'sys_id,number,table_name,state,mode', sysparm_limit: '1', sysparm_display_value: 'false' }));
+  if (!found) throw errUsage(`No import set ${id} is visible. Nothing transformed.`);
+  if (String(found[field] ?? '').toLowerCase() !== id.toLowerCase()) throw errUsage(`Import set ${id} read back as a different record.`);
+  const set = Object.fromEntries(['sys_id', 'number', 'table_name', 'state', 'mode'].map(key => [key, String(found[key] ?? '')]));
+  const rows = await sdk.listStrict('sys_import_set_row', new URLSearchParams({ sysparm_query: `sys_import_set=${set.sys_id}^ORDERBYsys_import_row`,
+    sysparm_fields: 'sys_id,sys_import_row,sys_import_state,sys_import_state_comment,sys_target_table,sys_target_sys_id,sys_transform_map',
+    sysparm_limit: String(limit + 1), sysparm_display_value: 'false' }));
+  return { set, rows };
+}
+
+/** The states the platform's Transform (loaded) and Reprocess (processed) UI actions start from. */
+export function checkTransformable({ set, rows }, limit) {
+  if (set.state !== 'loaded' && set.state !== 'processed') throw errUsage(`Import set ${set.number} is ${set.state || 'in no state'}; only a loaded or processed set can be transformed (a web service set stays loading until the platform closes it). Nothing transformed.`);
+  if (!/^[0-9a-f]{32}$/.test(set.sys_id) || !/^[a-zA-Z0-9_]+$/.test(set.table_name)) throw errUsage(`Import set ${set.number} returned an unexpected sys_id or staging table. Nothing transformed.`);
+  if (!rows.length) throw errUsage(`No rows of ${set.number} are visible to this identity. Nothing transformed.`);
+  if (rows.length > limit) throw errUsage(`Import set ${set.number} has more than --limit ${limit} rows. Raise --limit explicitly to transform it. Nothing transformed.`);
+  // The transformer only picks up pending rows; Reprocess sets them all back to pending first.
+  if (set.state === 'loaded' && !rows.some(r => r?.sys_import_state === 'pending')) throw errUsage(`Import set ${set.number} is loaded but has no pending rows, so a transform would change nothing. Nothing transformed.`);
+}
+
+// Platform contract (PDI Australia): the Reprocess UI action sets a processed set back to loaded, which fires the
+// Reload import sets rule that sets every row back to pending; Transform then runs the maps over the pending rows.
+export async function transformImportSet(sdk, set) {
+  const unknown = detail => errUsage(`Transform outcome is unknown${detail}; inspect the rows (jsn records list --table sys_import_set_row --query "sys_import_set=${set.sys_id}") before retrying.`);
+  let output;
+  try {
+    output = await sdk.executeScript(`(function() {
+    // GlideRecord as the Reprocess action uses: state is read-only in the dictionary, so GlideRecordSecure drops the write.
+    var set = new GlideRecord('sys_import_set');
+    if (!set.get('${set.sys_id}') || !set.canWrite()) throw new Error('Import set unavailable or not writable');
+    if (set.getValue('state') != '${set.state}') throw new Error('Import set changed to ' + set.getValue('state'));
+    if (set.getValue('state') == 'processed') {
+      set.setValue('state', 'loaded');
+      if (!set.update()) throw new Error('Could not set the import set back to loaded');
+    }
+    // An update the platform drops would leave the rows as they were and the transform a silent no-op.
+    var pending = new GlideAggregate('sys_import_set_row');
+    pending.addQuery('sys_import_set', set.getUniqueValue());
+    pending.addQuery('sys_import_state', 'pending');
+    pending.addAggregate('COUNT');
+    pending.query();
+    if (!pending.next() || pending.getAggregate('COUNT') == 0) throw new Error('No rows are pending, so the transform would change nothing');
+    var transformer = new GlideImportSetTransformer();
+    transformer.setSyncImport(true);
+    transformer.transformAllMaps(set);
+    gs.print('JSN_IMPORT_TRANSFORM:' + JSON.stringify({error: transformer.isError()}));
+  })();`, 'global');
+  } catch (error) {
+    // The script's own guards stop before anything changes; any other failure (a timeout, a map error) may come mid-transform.
+    if (/Import set unavailable or not writable|Import set changed to|Could not set the import set back|No rows are pending/.test(error.message)) throw error;
+    throw unknown(` (${error.message})`);
+  }
+  const match = output.match(/JSN_IMPORT_TRANSFORM:(\{[^\r\n]*\})/);
+  if (!match) throw unknown('');
+  let parsed;
+  try { parsed = JSON.parse(match[1]); } catch { parsed = null; }
+  if (typeof parsed?.error !== 'boolean') throw unknown('');
+  return parsed.error;
+}
+
+/** Describe the set and rows as read back after the transform; any row outside OUTCOMES is a failure. */
+export function transformResult(set, rows, transformError) {
+  const results = rows.map(r => ({ row: Number(r.sys_import_row) || 0, status: String(r.sys_import_state ?? ''), table: r.sys_target_table,
+    sys_id: r.sys_target_sys_id, transform_map: r.sys_transform_map, status_message: r.sys_import_state_comment }));
+  const counts = {};
+  for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
+  return { import_set: set.number, sys_id: set.sys_id, staging_table: set.table_name, state: set.state, transform_error: transformError,
+    total: results.length, failed: results.filter(r => !OUTCOMES.has(r.status) || ((r.status === 'inserted' || r.status === 'updated') && !/^[0-9a-f]{32}$/.test(String(r.sys_id ?? '')))).length, counts, results };
+}
+
 export function loadRerun(table, file, limit) {
   return ['jsn', 'import', 'load', table, '--file', file, '--limit', String(limit), '--yes'].map(quoteShellArg).join(' ');
 }

@@ -160,6 +160,9 @@ export class SDKClient {
     if (!creds) {
       throw errAuth('No valid credentials');
     }
+    // Remember the credential family so a later 403 can explain whether this
+    // session could carry a role elevation at all.
+    this._authMethod = creds.auth_method;
     switch (creds.auth_method) {
       case 'basic':
         // Basic credentials may demand a login challenge even on stateless
@@ -373,6 +376,15 @@ export class SDKClient {
     return error;
   }
 
+  // A 403 on a mutation is the only case where elevation guidance helps:
+  // reads rarely need it, and a read error should stay terse.
+  _forbiddenContext(opts = {}) {
+    return {
+      authMethod: this._authMethod || '',
+      mutation: String(opts.method || 'GET').toUpperCase() !== 'GET',
+    };
+  }
+
   async request(endpoint, opts = {}) {
     // Some provider mutations are GET-shaped. Keep this local replay policy
     // out of fetch options rather than treating their HTTP method as read-only.
@@ -391,7 +403,7 @@ export class SDKClient {
       },
     }, async (resp) => {
       const body = await resp.text();
-      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText, this._forbiddenContext(requestOptions));
       if (responseMetadata) {
         // Invocation-local receipt, never a cache: only accept a complete safe
         // integer from this exact successful response (not an empty header).
@@ -434,7 +446,7 @@ export class SDKClient {
       },
     }, async (resp) => {
       const body = await resp.text();
-      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText, this._forbiddenContext(opts));
       return body;
     });
   }
