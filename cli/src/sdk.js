@@ -57,7 +57,7 @@ function serializeCookies(cookieJar) {
 // stateful:true, required UI endpoints and value 1 retain session precedence.
 // Basic/TOTP, supplied token and GCK policies remain unchanged. Internal OAuth
 // bootstrap must bypass warming to avoid recursion. See site/docs/guides/setup.md.
-const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch'];
+const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch', '/api/now/import/'];
 
 export function needsUiSession(url, { stateful = false, forceSession = false } = {}) {
   if (stateful || forceSession) return true;

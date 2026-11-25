@@ -21,6 +21,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Loading rows into an import set staging table is `jsn import load <table>
+  --file rows.json|csv`, not `eval` or `records create` on the staging table.
+  It previews without `--yes`; with it, each row reports its transform outcome.
 
 For development:
 
