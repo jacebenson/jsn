@@ -1,15 +1,18 @@
-import { test, mock } from 'node:test';
+import { test, mock, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { windowsCredentialOperation, legacyWindowsKey } from '../src/auth/windows-credential-store.js';
+import { windowsCredentialOperation, windowsCredentialRead, resetWindowsCredentialCache, legacyWindowsKey } from '../src/auth/windows-credential-store.js';
 import { withSyntheticCredentialCleanup } from './helpers/windows-credential-fixture.js';
-import { credKey, saveCredentials, loadCredentials, deleteCredentials, writePrivateState } from '../src/auth/credential-store.js';
+import { credKey, saveCredentials, loadCredentials, deleteCredentials, writePrivateState, primeCredentialReads } from '../src/auth/credential-store.js';
 
 const secret = 'synthetic-雪-🔐-$(not-code)`"\n';
+// The Windows read cache lives for one process by design, so each test starts
+// from an empty cache rather than inheriting another test's observation.
+beforeEach(() => resetWindowsCredentialCache());
 test('Windows process protocol keeps secrets and identities exclusively on stdin', () => {
   const entries = new Map();
   const trustedSource = fs.readFileSync(new URL('../src/auth/windows-credential-store.ps1', import.meta.url), 'utf8');
@@ -144,14 +147,17 @@ test('static policy gate distinguishes stock defaults and explicit enterprise po
   assert.ok(source.indexOf("'MachinePolicy'") < source.indexOf('[Console]::In.ReadToEnd()'));
   assert.doesNotMatch(source, /^\s*(?:Set-ExecutionPolicy|\$Env:PSExecutionPolicyPreference\s*=)/mi);
   // Response fixtures, not a claim of PowerShell policy evaluation on Linux.
+  // Each scenario uses its own identity: a decided policy is never cached, and
+  // distinct identities keep the launch-count assertion honest.
   for (const scenario of ['all-Undefined-stock-Restricted', 'MachinePolicy-Restricted', 'UserPolicy-AllSigned', 'MachinePolicy-RemoteSigned']) {
     const calls = [];
     const run = exe => {
       calls.push(exe);
       return scenario.startsWith('all-Undefined') ? '{"status":"missing"}' : '{"status":"error","reason":"policy"}';
     };
-    if (scenario.startsWith('all-Undefined')) assert.equal(windowsCredentialOperation('read', 'synthetic-policy', undefined, run), null);
-    else assert.throws(() => windowsCredentialOperation('read', 'synthetic-policy', undefined, run), /execution policy explicitly restricts/);
+    const key = `synthetic-policy-${scenario}`;
+    if (scenario.startsWith('all-Undefined')) assert.equal(windowsCredentialOperation('read', key, undefined, run), null);
+    else assert.throws(() => windowsCredentialOperation('read', key, undefined, run), /execution policy explicitly restricts/);
     assert.deepEqual(calls, ['powershell.exe'], scenario);
   }
 });
@@ -224,6 +230,11 @@ test('Windows frontend verifies readback, isolates usernames/instances, preserve
       if (mode === 'policy') return '{"status":"error","reason":"policy"}';
       if (request.operation === 'write') entries.set(request.target, request.value);
       if (request.operation === 'delete') entries.delete(request.target);
+      if (request.operation === 'read_many') {
+        return JSON.stringify({ status: 'ok', values: request.targets.map(target => ({
+          target, value: mode === 'mismatch' ? '{}' : (entries.get(target) ?? null),
+        })) });
+      }
       return JSON.stringify({ status: request.operation === 'read' && !entries.has(request.target) ? 'missing' : 'ok',
         value: mode === 'mismatch' ? '{}' : entries.get(request.target) });
     });
@@ -265,6 +276,140 @@ test('Windows frontend verifies readback, isolates usernames/instances, preserve
     assert.equal(loadCredentials(instance, 'alice'), null, 'never borrow Go instance-wide identity for a named user');
     deleteCredentials(instance);
     assert.equal(entries.has('servicenow-cli:https://synthetic.invalid'), false);
+  } finally {
+    mock.restoreAll(); syncBuiltinESMExports();
+    Object.defineProperty(process, 'platform', platform);
+    for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
+    Object.assign(process.env, env);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// A Windows read is a PowerShell process (~2s on a managed image): process
+// start plus Add-Type compilation. Status asks for each profile four or five
+// times, so reading once per field is the difference between a fast command and
+// a 20-second one. These tests count launches, not elapsed time.
+test('one launch serves repeated reads of the same identity, and writes/deletes invalidate it', () => {
+  const key = 'repeat@https_repeat.invalid';
+  const entries = new Map();
+  const reads = [];
+  const run = (_exe, _args, options) => {
+    const request = JSON.parse(options.input);
+    if (request.operation === 'read') {
+      reads.push(request.target);
+      return JSON.stringify(entries.has(request.target)
+        ? { status: 'ok', value: entries.get(request.target) } : { status: 'missing' });
+    }
+    if (request.operation === 'write') { entries.set(request.target, request.value); return '{"status":"ok"}'; }
+    if (request.operation === 'delete') { entries.delete(request.target); return '{"status":"ok"}'; }
+    throw new Error(`unexpected operation ${request.operation}`);
+  };
+  for (let attempt = 0; attempt < 5; attempt++) {
+    assert.equal(windowsCredentialOperation('read', key, undefined, run), null);
+  }
+  assert.equal(reads.length, 1, 'repeated reads of one identity must reuse the first launch');
+  windowsCredentialOperation('write', key, secret, run);
+  assert.equal(windowsCredentialOperation('read', key, undefined, run), secret);
+  assert.equal(reads.length, 2, 'a write invalidates the cached read');
+  windowsCredentialOperation('delete', key, undefined, run);
+  assert.equal(windowsCredentialOperation('read', key, undefined, run), null);
+  assert.equal(reads.length, 3, 'a delete invalidates the cached read');
+});
+
+test('a batched read resolves several identities in one launch and keeps identities off the command line', () => {
+  const keys = ['batch-a@https_batch.invalid', 'batch-b@https_batch.invalid', 'batch-c@https_batch.invalid'];
+  const calls = [];
+  const run = (_exe, args, options) => {
+    calls.push(args.join(' '));
+    const request = JSON.parse(options.input);
+    if (request.operation === 'read') {
+      const value = request.target.endsWith('batch-b@https_batch.invalid') ? JSON.stringify({ auth_method: 'oauth', access_token: 'tok-1' }) : null;
+      return JSON.stringify(value === null ? { status: 'missing' } : { status: 'ok', value });
+    }
+    return JSON.stringify({ status: 'ok', values: request.targets.map((target, index) => ({
+      target, value: index === 0 ? null : JSON.stringify({ auth_method: 'oauth', access_token: `tok-${index}` }),
+    })) });
+  };
+  const values = windowsCredentialRead(keys, run);
+  assert.equal(calls.length, 1);
+  assert.ok(keys.every(key => !calls[0].includes(key)), 'identities stay on stdin');
+  assert.equal(values.get(keys[0]), null);
+  assert.match(values.get(keys[1]), /tok-1/);
+  assert.match(values.get(keys[2]), /tok-2/);
+  assert.deepEqual([...windowsCredentialRead([...keys, keys[0]], run).keys()], keys, 'duplicates collapse');
+  assert.equal(calls.length, 1, 'cached identities launch nothing');
+  // A single miss uses the plain read protocol rather than a batch.
+  const miss = 'batch-d@https_batch.invalid';
+  assert.equal(windowsCredentialRead([keys[1], miss], run).get(miss), null);
+  assert.equal(calls.length, 2);
+});
+
+test('a batched response that does not echo requested identities exactly is refused without retrying', () => {
+  const keys = ['strict-a@https_strict.invalid', 'strict-b@https_strict.invalid'];
+  const responses = [
+    '{"status":"ok","values":[{"target":"servicenow-cli:strict-a@https_strict.invalid","value":null}]}',
+    '{"status":"ok","values":[{"target":"servicenow-cli:strict-b@https_strict.invalid","value":null},{"target":"servicenow-cli:strict-a@https_strict.invalid","value":null}]}',
+    '{"status":"ok","values":[{"target":"servicenow-cli:strict-a@https_strict.invalid","value":{}},{"target":"servicenow-cli:strict-b@https_strict.invalid","value":null}]}',
+    '{"status":"ok"}',
+    '{"status":"error","reason":"native"}',
+  ];
+  for (const response of responses) {
+    const calls = [];
+    assert.throws(() => windowsCredentialRead(keys, exe => { calls.push(exe); return response; }),
+      { code: 'credential_storage_error' }, response);
+    assert.deepEqual(calls, ['powershell.exe'], `no alternate-host retry for ${response}`);
+    assert.equal(windowsCredentialRead([keys[0]], () => '{"status":"missing"}').get(keys[0]), null,
+      'a refused batch leaves nothing cached');
+  }
+});
+
+test('priming reads every status identity in one launch and later field reads launch nothing', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const env = { ...process.env };
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'jsn-win-prime-'));
+  const named = 'https://prime-named.invalid';
+  const legacy = 'https://prime-legacy.invalid';
+  const launches = [];
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    resetWindowsCredentialCache();
+    process.env.XDG_CONFIG_HOME = root;
+    delete process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE;
+    mock.method(childProcess, 'execFileSync', (_exe, _args, options) => {
+      const request = JSON.parse(options.input);
+      launches.push(request);
+      const stored = target => {
+        if (target === `servicenow-cli:${legacy}`) return JSON.stringify({ auth_method: 'oauth', access_token: 'go-token', last_seen: 1795500000 });
+        if (target.includes('prime-named.invalid')) return JSON.stringify({ auth_method: 'oauth', access_token: 'named-token', last_seen: 1795500000 });
+        return null;
+      };
+      if (request.operation === 'read_many') {
+        return JSON.stringify({ status: 'ok', values: request.targets.map(target => ({ target, value: stored(target) })) });
+      }
+      if (request.operation === 'read') {
+        const value = stored(request.target);
+        return JSON.stringify(value === null ? { status: 'missing' } : { status: 'ok', value });
+      }
+      throw new Error(`unexpected operation ${request.operation}`);
+    });
+    syncBuiltinESMExports();
+    primeCredentialReads([
+      { instance: named, username: 'alice' },
+      { instance: named, username: 'bob' },
+      { instance: legacy },
+    ]);
+    assert.equal(launches.length, 1, 'one launch serves every profile identity');
+    assert.deepEqual(launches[0].targets, [
+      `servicenow-cli:${credKey(named, 'alice')}`,
+      `servicenow-cli:${credKey(named, 'bob')}`,
+      `servicenow-cli:${credKey(legacy)}`,
+      `servicenow-cli:${legacyWindowsKey(legacy)}`,
+    ]);
+    assert.equal(loadCredentials(named, 'alice').access_token, 'named-token');
+    assert.equal(loadCredentials(named, 'bob').access_token, 'named-token');
+    assert.equal(loadCredentials(named, 'alice').last_seen, 1795500000);
+    assert.equal(loadCredentials(legacy).access_token, 'go-token', 'legacy identity resolves from the primed batch');
+    assert.equal(launches.length, 1, 'field reads after priming launch nothing');
   } finally {
     mock.restoreAll(); syncBuiltinESMExports();
     Object.defineProperty(process, 'platform', platform);
