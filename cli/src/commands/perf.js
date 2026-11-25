@@ -2,6 +2,7 @@ import { perfCmdDefinition } from '../command-families.js';
 import { errUsageHint, errUsage } from '../errors.js';
 import { captureRun, listRuns, getRun, compareRuns, formatRunDetailed, formatRunList, formatComparisonDetailed } from '../perf.js';
 import { topTransactionsCmd } from './transactions.js';
+import { listSlowPatterns, showSlowPattern, formatSlowPatterns, SLOW_PATTERN_TYPES, SLOW_PATTERN_ORDERS } from '../slow-patterns.js';
 import { paginatedSearch } from '../paginated-search.js';
 import { canUsePicker } from '../helpers.js';
 
@@ -128,6 +129,36 @@ export function perfCmd(wrap) {
         builder: (b) => b.command(topTransactionsCmd(wrap)),
       })
       .command({
+        command: 'slow',
+        describe: 'Rank the platform\'s slow pattern logs (queries, scripts, transactions, events, mutex, cache)',
+        builder: (b) => b.strict()
+          .option('type', { type: 'string', choices: SLOW_PATTERN_TYPES, default: 'queries', describe: 'Which slow pattern log to read' })
+          .option('order-by', { type: 'string', choices: SLOW_PATTERN_ORDERS, default: 'total', describe: 'Rank by total time, run count or average time' })
+          .option('since', { type: 'string', describe: 'Only patterns last seen on or after YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS" (UTC, compared with the stored value)' })
+          .option('limit', { type: 'number', default: 20, describe: 'Page size (1-200)' })
+          .option('offset', { type: 'number', default: 0, describe: 'Nonnegative page offset' })
+          .command({
+            command: 'show <sys_id>',
+            describe: 'Show one slow pattern with its full SQL and stack trace',
+            builder: (s) => s.positional('sys_id', { type: 'string', describe: 'Exact 32-character hexadecimal sys_id' }),
+            handler: wrap(async (argv, app) => {
+              app.requireInstance();
+              const data = await showSlowPattern(app.sdk, argv.sys_id);
+              Object.defineProperty(data, '_formatted', { value: formatSlowPatterns(data, 'show'), enumerable: false });
+              app.ok(data, { summary: `Slow pattern ${argv.sys_id} (${data.table})` });
+            }),
+          }),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          const data = await listSlowPatterns(app.sdk, { type: argv.type, orderBy: argv['order-by'], since: argv.since, limit: argv.limit, offset: argv.offset });
+          Object.defineProperty(data, '_formatted', { value: formatSlowPatterns(data, 'list'), enumerable: false });
+          app.ok(data, {
+            summary: `${data.count} slow ${data.type} pattern(s)${data.pagination.has_more ? ', more available' : ''}`,
+            breadcrumbs: data.records[0] ? [{ action: 'show', cmd: `jsn perf slow show ${data.records[0].sys_id?.value}`, description: 'Every field and the stack trace for the top pattern' }] : [],
+          });
+        }),
+      })
+      .command({
         command: 'compare [baseline] [new]',
         describe: 'Compare exactly two saved captures',
         handler: wrap(async (argv, app) => {
@@ -163,7 +194,7 @@ export function perfCmd(wrap) {
         }),
       }),
     handler: wrap(async (_argv, app) => {
-      app.ok({ command: 'perf', subcommands: ['capture', 'list', 'show', 'compare'] }, { summary: 'Use `jsn perf <subcommand> --help` for details.' });
+      app.ok({ command: 'perf', subcommands: ['capture', 'list', 'show', 'compare', 'slow'] }, { summary: 'Use `jsn perf <subcommand> --help` for details.' });
     }),
   };
 }

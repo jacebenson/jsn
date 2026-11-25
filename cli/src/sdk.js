@@ -393,8 +393,9 @@ export class SDKClient {
   }
 
   async rawRequest(endpoint, opts = {}) {
-    return this._withAuthenticatedRequest(endpoint, opts, {
-      normalizeErrors: true,
+    const { timeout = this.timeout, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
+      timeout, normalizeErrors: true,
       prepare: (req) => {
         if (opts.body && typeof opts.body === 'string') {
           req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');

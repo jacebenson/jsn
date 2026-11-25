@@ -49,6 +49,8 @@ export default {
     options: { singular: 'assignment rule', scopeValidation: true, readOnly: true } },
   email: { table: 'sysevent_in_email_action', aliases: ['emails'], columns: ['name', 'active', 'type', 'sys_scope'],
     options: { singular: 'inbound email action', scopeValidation: true } },
+  notifications: { table: 'sysevent_email_action', aliases: ['notification'], columns: ['name', 'collection', 'generation_type', 'active', 'sys_scope'],
+    options: { singular: 'email notification', scopeValidation: true, readOnly: true } },
   uimacros: { table: 'sys_ui_macro', aliases: ['uimacro'], columns: ['name', 'active', 'sys_scope'],
     options: { singular: 'UI macro', scopeValidation: true } },
   uxlists: { table: 'sys_ux_list', aliases: ['uxlist'], columns: ['name', 'active', 'sys_scope'],
