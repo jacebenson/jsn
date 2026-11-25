@@ -110,7 +110,7 @@ describe('jsn subcommand help', () => {
     const page = lines(stdout);
     for (const name of ['schemas', 'list', 'executions', 'show [identifier]', 'publish [identifier]',
       'status [identifier]', 'test [identifier]', 'doctor', 'create', 'update [identifier]',
-      'unlock [identifier]', 'delete [identifier]']) {
+      'settings [identifier]', 'unlock [identifier]', 'delete [identifier]']) {
       assert.ok(page.some((line) => line.trimStart().startsWith(name)), `missing ${name}`);
     }
     // Piped output has no terminal size, so the renderer uses its 100-column

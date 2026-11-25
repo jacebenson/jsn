@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import { prepareFlowClone, cloneFlow } from '../flow-clone.js';
 import { canUsePicker } from '../helpers.js';
 import { formatRecordForDisplay, formatCommandList, getStringField, interactiveList } from '../helpers.js';
+import { showFlowExecution, formatFlowExecution } from '../flow-execution.js';
+import { requestedLevels, setFlowSettings, flowSettingsSummary, formatFlowSettings } from '../flow-settings.js';
 import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts, formatFlowContextSummary, aggregateFlowContextMappings, mergeFlowContextStats, buildFlowContextQuery } from '../flow-context.js';
 import { docLink } from '../docs-links.js';
 import { inspectFlow } from '../flow-inspection.js';
@@ -43,9 +45,10 @@ const FLOW_COMMANDS = [
   { name: 'catalog-variables [identifier]', description: 'List a catalog item\'s variables for a service_catalog trigger' },
   { name: 'search <term>', description: 'Download, decode and search a private local flow cache (--refresh to rebuild)' },
   { name: 'list', description: 'List flows' },
-  { name: 'executions', description: 'Show flow executions from sys_flow_context' },
+  { name: 'executions', description: 'List flow executions from sys_flow_context; executions show <context> for one run' },
   { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
   { name: 'status [identifier]', description: 'Check whether a flow is actually able to run' },
+  { name: 'settings [identifier]', description: 'Show or set a flow\'s reporting and logging levels; preview by default, --yes writes' },
   { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
   { name: 'test [identifier]', description: 'Execute a record-triggered flow against one record' },
   { name: 'clone [identifier]', description: 'Duplicate an inactive Draft flow using native Designer copy (alias: copy)' },
@@ -219,6 +222,19 @@ Documentation: ${docLink('flows')}`),
           aliases: ['runs', 'contexts'],
           describe: 'Show Flow Designer executions from sys_flow_context',
           builder: (y) => y
+            .usage('Usage: jsn flows executions [show <context>] [options]')
+            .command({
+              command: 'show <context>',
+              describe: 'Show one execution: its version, reporting level and the failed step from sys_flow_log',
+              builder: sub => sub.strict().positional('context', { type: 'string', describe: 'Execution sys_id (sys_flow_context)' }),
+              handler: wrap(async (argv, app) => {
+                app.requireInstance();
+                const data = await showFlowExecution(app.sdk, argv.context);
+                Object.defineProperty(data, '_formatted', { value: formatFlowExecution(data), enumerable: false });
+                const { values_recorded: values, reporting } = data.step_data;
+                app.ok(data, { summary: `${data.execution.name}: ${data.execution.state_label}; ${data.failed_steps.length} failed step(s) from ${data.log.count} Error row(s) in the flow log; reporting ${reporting ?? 'unknown'}, ${values ? 'inputs and outputs kept' : values === false ? 'no inputs or outputs kept' : 'inputs and outputs unknown'}` });
+              }),
+            })
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "state=WAITING" or "source_record=<sys_id>")' })
             .option('record', { type: 'string', describe: 'Only executions for this source record sys_id' })
             .option('since', { type: 'string', describe: 'Only contexts created on or after this timestamp' })
@@ -538,6 +554,34 @@ Documentation: ${docLink('flows')}`),
                 ? [{ action: 'update', cmd: `jsn flows update ${sysID}`, description: 'Retry the edit' }]
                 : [{ action: 'show', cmd: `jsn flows show ${sysID}`, description: 'Inspect the flow' }],
             });
+          }),
+        })
+        .command({
+          command: 'settings [identifier]',
+          describe: 'Show or set a flow\'s reporting and logging levels (preview by default)',
+          builder: (y) => y
+            .option('reporting', { type: 'string', describe: 'Reporting level: OFF, BASIC, FULL or TRACE' })
+            .option('logging', { type: 'string', describe: 'Logging level: DEBUG, INFO, WARN or ERROR' })
+            .option('action', { type: 'boolean', default: false, describe: 'Target a custom action instead of a flow' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it nothing is written' })
+            .epilogue('Reads and writes the flow\'s one sys_flow_execution_setting row (source = the flow), which\n'
+              + 'overrides com.snc.process_flow.reporting.level for that flow, as Workflow Studio\'s Reporting\n'
+              + 'settings do. With no level given it shows the current row. --yes creates or updates only the\n'
+              + 'fields that change, then reads the row back; an unconfirmed write exits 1. A subflow or action\n'
+              + 'called from a flow runs at the parent flow\'s setting.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const requested = requestedLevels(argv);
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const table = argv.action ? 'sys_hub_action_type_definition' : 'sys_hub_flow';
+            const record = await resolveRecord(app.sdk, { table, identifier, matchField: 'name', resource: argv.action ? 'Action' : 'Flow', fields: ['name', 'type'] });
+            const flow = { sys_id: unwrapSysId(record), name: getStringField(record, 'name'), type: argv.action ? 'action' : (getStringField(record, 'type').toLowerCase() || 'flow'), table };
+            const data = await setFlowSettings(app.sdk, { flow, requested, write: argv.yes, rerunFlags: argv.action ? ['--action'] : [] });
+            Object.defineProperty(data, '_formatted', { value: formatFlowSettings(data), enumerable: false });
+            app.ok(data, { summary: flowSettingsSummary(data),
+              breadcrumbs: data.rerun ? [{ action: 'write', cmd: data.rerun, description: 'Write this change' }] : [] });
+            if (data.written && !data.verified) process.exitCode = 1;
           }),
         })
         .command({

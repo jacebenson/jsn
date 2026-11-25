@@ -218,14 +218,14 @@ export async function validateReadQuery(app, { table, query, refresh = false } =
   return verdict;
 }
 
-/** Validate the COMPLETE original filter before any instance-record write. */
-export async function assertWriteQuery(app, { table, query, refresh = false } = {}) {
+/** Validate the COMPLETE original filter before any instance-record write, or an export the instance would widen. */
+export async function assertWriteQuery(app, { table, query, refresh = false, action = 'Mutation' } = {}) {
   const local = localQueryFailure(table, query, true);
-  if (local) throw validationError(local, 'Mutation');
+  if (local) throw validationError(local, action);
   if (app.queryValidation?.state === 'valid' && app.queryValidation.table === table && app.queryValidation.query === query) return app.queryValidation;
   const verdict = await validateEncodedQuery({ sdk: app.sdk, table, query, identity: await authenticatedIdentity(app), refresh });
   if (verdict.state !== 'valid') {
-    throw validationError(verdict, 'Mutation');
+    throw validationError(verdict, action);
   }
   return verdict;
 }
@@ -266,7 +266,7 @@ function localQueryFailure(table, query, filteredWrite = false) {
   if (parsed.invalid) return { ...parsed, table, query: parsed.original, state: 'invalid', limits: LIMITS };
   if (filteredWrite && !parsed.terms.some(term => ['clause', 'ambiguous', 'unsupported'].includes(term.kind))) {
     return { state: 'invalid', table, query: parsed.original, limits: LIMITS, diagnostics: [{ code: 'empty_filter', severity: 'error', term: parsed.original,
-      message: 'A filtered mutation requires a nonempty condition, not only ordering directives or separators.',
+      message: 'A filtered write or export requires a nonempty condition, not only ordering directives or separators.',
       hint: 'Supply a complete filter. See jsn records list --help.' }] };
   }
   return null;
@@ -274,7 +274,7 @@ function localQueryFailure(table, query, filteredWrite = false) {
 function validationError(verdict, action) {
   const first = verdict.diagnostics.find(item => item.severity === 'error') || verdict.diagnostics[0];
   const error = errUsageHint(assertionMessage(verdict, action),
-    `${first?.hint || 'No records were written. Refresh metadata or narrow the filter.'} See jsn records list --help.`);
+    `${first?.hint || 'Nothing was written. Refresh metadata or narrow the filter.'} See jsn records list --help.`);
   error.query_validation = { state: verdict.state, query: verdict.query, limits: verdict.limits, diagnostics: verdict.diagnostics };
   return error;
 }

@@ -349,8 +349,9 @@ export class LocalCLI {
       })),
     };
     // Opt-in action detail leaves the legacy command/group projection intact.
-    // Build every visible descendant, using the same option inheritance and
-    // signatures as dispatch. Hidden subtrees are never indexed.
+    // Build every visible descendant, using dispatch's signatures and option
+    // inheritance less a self-running parent's options (below), so every
+    // advertised invocation still dispatches. Hidden subtrees are never indexed.
     if (details) {
       registry.entries = [];
       const visit = (node, ancestors = [], aliases = []) => {
@@ -362,7 +363,9 @@ export class LocalCLI {
         node.build();
         const nodes = [...ancestors, node];
         const path = nodes.map(value => value.name);
-        const bindings = this._optionConfig(nodes);
+        // A node that takes its own positionals (eval, docs) runs itself: it is an action, and
+        // its options are its own job's, so its children do not advertise them.
+        const bindings = this._optionConfig(nodes.filter(value => value === node || !value.definition.defaultPositionals));
         const allOptions = [...new Set(bindings.values())];
         const options = allOptions.filter(spec => !spec.hidden).map(spec => {
           // An inherited alias can now belong to a different, hidden option.
@@ -380,7 +383,7 @@ export class LocalCLI {
           group: nodes[0].definition.describe || '',
           table: nodes[0].definition.discovery?.table || '',
           help: `jsn ${path.join(' ')} --help`,
-          parent: node.children.some(visible),
+          parent: !node.definition.defaultPositionals && node.children.some(visible),
           options, positions,
           hiddenRequired: allOptions.some(spec => spec.hidden && spec.demandOption),
           tasks: node.definition.discoveryTasks || [],
