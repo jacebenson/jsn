@@ -3,6 +3,7 @@ import { deferredFamilyDefinition } from '../command-families.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
+import { listDeleted, deletedBreadcrumb, formatDeleted } from '../record-deleted.js';
 import { errAPI, errUsage } from '../errors.js';
 import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES, MAX_UNLOAD_BYTES, planUnloadImport, importUnloadXML, countByTable } from '../record-xml.js';
 import fs from 'node:fs';
@@ -567,6 +568,23 @@ export function recordsCmd(wrap) {
               summary: `Restored ${argv.table} ${display} from Deleted Records`,
               breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }],
             });
+          }),
+        })
+        .command({
+          command: 'deleted',
+          describe: 'List records in Deleted Records (sys_audit_delete), whether each is back, and any delete recovery',
+          builder: (y) => y
+            .option('table', { type: 'string', describe: "Only records deleted from this table (the record's own table: incident, not task)" })
+            .option('by', { type: 'string', describe: 'Only records deleted by this user name' })
+            .option('since', { type: 'string', describe: 'Only records deleted on or after this UTC date or date-time (YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS")' })
+            .option('query', { type: 'string', describe: 'Additional encoded query on sys_audit_delete' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max records, newest first (1-200)' })
+            .epilogue('Read only. Checks each record\'s own table for its sys_id to say whether it is back, and reads any delete recovery (sys_delete_recovery) and its rollback context. A delete recovery is recorded only when a script deletes the record (a business rule or background script), and the docs give seven days to use it; Table API deletes, as records delete makes, record none. Restore one record with records undelete.'),
+          handler: wrap(async (argv, app) => {
+            const options = { table: argv.table, by: argv.by, since: argv.since, query: argv.query, limit: argv.limit };
+            const data = await listDeleted(app.sdk, options);
+            Object.defineProperty(data, '_formatted', { value: formatDeleted(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} deleted record(s)${data.pagination.has_more ? ', more match' : ''}`, breadcrumbs: [deletedBreadcrumb(data.records)] });
           }),
         })
         .command({

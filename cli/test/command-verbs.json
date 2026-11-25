@@ -213,11 +213,14 @@
     },
     "deletes": {
       "why": "audit deletes toggles no_audit_delete; update would blur it with the table Audit tick that audit enable and audit disable already own."
+    },
+    "deleted": {
+      "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 429,
+    "total": 430,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -271,7 +274,7 @@
       "plugins": 1,
       "privileges": 5,
       "properties": 5,
-      "records": 15,
+      "records": 16,
       "relationships": 5,
       "requests": 5,
       "rest": 0,
