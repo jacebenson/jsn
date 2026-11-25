@@ -32,6 +32,11 @@ names the table they come from when they are inherited from a parent.
   Add `--preview-cascade` to see the records in other tables the delete would
   cascade to before asking for approval. It is a write: it creates and deletes
   one Data Management delete job (admin), and leaves its count rows behind.
+- The decision a decision table picks is
+  `jsn decisiontables evaluate <name> --input <name>=<value>`, not `eval`. It
+  refuses an input the table does not have, a missing mandatory input and a
+  choice label where the value belongs, which the evaluator would otherwise
+  answer with its default decision.
 
 For development:
 
