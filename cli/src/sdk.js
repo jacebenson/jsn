@@ -910,6 +910,26 @@ export class SDKClient {
       ...(options.timeout ? { timeout: options.timeout } : {}),
     });
     const stats = result?.result?.stats;
+    if (options.strict === true) {
+      const invalid = () => Object.assign(new Error(`Invalid aggregate count response for ${table}`), {
+        code: 'invalid_aggregate_count',
+      });
+      let map = stats;
+      if (typeof map === 'string') {
+        try { map = JSON.parse(map); } catch { throw invalid(); }
+      }
+      if (!map || typeof map !== 'object' || Array.isArray(map)) throw invalid();
+      // Preserve the direct and nested Stats shapes the forgiving path accepts.
+      const candidates = Object.hasOwn(map, 'count')
+        ? [map.count]
+        : Object.values(map).filter(value => value && typeof value === 'object' && Object.hasOwn(value, 'count')).map(value => value.count);
+      if (candidates.length !== 1) throw invalid();
+      const value = candidates[0];
+      if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) throw invalid();
+      const count = Number(value);
+      if (!Number.isSafeInteger(count) || count < 0) throw invalid();
+      return count;
+    }
     if (!stats) return 0;
 
     let statsMap = stats;

@@ -1,5 +1,6 @@
 import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch, buildRecordPayload } from '../helpers.js';
 import { declareCapabilities } from '../capabilities.js';
+import { detailCount } from './_detail-count.js';
 
 declareCapabilities('groups', { queryTable: 'sys_user_group', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
@@ -28,20 +29,18 @@ export function groupsCmd(wrap) {
             });
             if (picked) {
               const sysID = getStringField(picked, 'sys_id') || '';
-              // Fetch member + role counts for hints
-              let memberCount = 0, roleCount = 0;
-              try {
-                const cp = new URLSearchParams();
-                cp.set('sysparm_query', `group=${sysID}`); cp.set('sysparm_limit', '0'); cp.set('sysparm_fields', 'sys_id');
-                const members = await app.sdk.list('sys_user_grmember', cp);
-                memberCount = members.length;
-              } catch { /* non-critical */ }
-              try {
-                const rp = new URLSearchParams();
-                rp.set('sysparm_query', `group=${sysID}`); rp.set('sysparm_limit', '0'); rp.set('sysparm_fields', 'sys_id');
-                const roles = await app.sdk.list('sys_group_has_role', rp);
-                roleCount = roles.length;
-              } catch { /* non-critical */ }
+              // The fixed pair bounds independent detail counts to two requests.
+              const count = async (table) => {
+                try {
+                  return await detailCount(app.sdk, table, `group=${sysID}`);
+                } catch (error) {
+                  if (error.code === 'invalid_aggregate_count') throw error;
+                  return 0; // non-critical, as with the previous Table lookup
+                }
+              };
+              const [memberCount, roleCount] = await Promise.all([
+                count('sys_user_grmember'), count('sys_group_has_role'),
+              ]);
 
               picked._context = { instance_url: app.getEffectiveInstance(), table: 'sys_user_group' };
               return app.ok(picked, {
