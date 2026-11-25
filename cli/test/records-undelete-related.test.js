@@ -20,7 +20,7 @@ const GROUPS = [group('incident', 'delete', 1), group('task_sla', 'delete', 1), 
 const ANSWER = `<?xml version="1.0" encoding="UTF-8"?><xml sysparm_processor="AJAXRollbackWorker" sysparm_name="start" answer="${PROGRESS}"/>`;
 
 function fixture({ entries = [entry()], recoveries = [recoveryRow()], contexts = [contextRow()], groups = GROUPS, admin = true, answer = ANSWER,
-  trackers = [{ sys_id: PROGRESS, state: '2', message: '' }], exists = false, after = true } = {}) {
+  trackers = [{ sys_id: PROGRESS, state: '2', message: '' }], exists = false, after = true, left = [] } = {}) {
   const commands = [];
   recordsCmd(fn => fn).builder({ command(c) { commands.push(c); return this; } });
   const handler = commands.find(c => c.command === 'undelete').handler;
@@ -38,7 +38,12 @@ function fixture({ entries = [entry()], recoveries = [recoveryRow()], contexts =
       if (after instanceof Error && calls.some(c => c.kind === 'write')) throw after;
       return (calls.some(c => c.kind === 'write') ? after : exists) ? [{ sys_id: ID }] : [];
     },
-    aggregate: async (table, options) => { calls.push({ kind: 'aggregate', table, ...options }); return { groups }; },
+    aggregate: async (table, options) => {
+      const written = calls.some(c => c.kind === 'write');
+      calls.push({ kind: 'aggregate', table, ...options });
+      if (written && left instanceof Error) throw left;
+      return { groups: written ? left : groups };
+    },
     rawRequest: async (url, options) => { calls.push({ kind: 'write', url, method: options.method }); return answer; },
     get: async (table, id) => {
       calls.push({ kind: 'tracker', table, id });
@@ -79,7 +84,7 @@ test('--with-related previews what the delete recovery brings back, by table, wi
   assert.equal(f.ok.data.total, 3);
   assert.deepEqual(f.ok.data.delete_recovery, { sys_id: RECOVERY, state: 'finished' });
   assert.deepEqual(f.ok.data.rollback_context, { sys_id: CTX, number: 'BAK0001284', state: 'recorded' });
-  assert.equal(f.ok.opts.summary, 'Preview: undeleting incident INC0010166 with related records replays 3 operation(s) from BAK0001284: incident delete 1, task_sla delete 1, sys_flow_context update 1');
+  assert.equal(f.ok.opts.summary, 'Preview: undeleting incident INC0010166 with related records reverts 3 recorded operation(s) from BAK0001284: incident delete 1, task_sla delete 1, sys_flow_context update 1');
   assert.equal(f.ok.opts.breadcrumbs[0].cmd, `jsn records undelete --table incident --sys-id ${ID} --with-related --yes`);
 });
 
@@ -120,10 +125,13 @@ test('--with-related --yes starts the worker for that deleted-record entry, foll
   const admin = f.calls.findIndex(c => c.table === 'sys_user_has_role');
   assert.ok(admin >= 0 && admin < f.calls.indexOf(writes[0]));
   assert.deepEqual(f.calls.filter(c => c.kind === 'tracker').map(c => [c.table, c.id]), [['sys_execution_tracker', PROGRESS]]);
-  assert.equal(f.calls.at(-1).table, 'incident');
+  const [before, after] = f.calls.filter(c => c.kind === 'aggregate');
+  assert.equal(after.query, before.query);
+  assert.ok(f.calls.indexOf(after) > f.calls.findLastIndex(c => c.table === 'incident'));
   assert.equal(f.ok.data.restored, true);
+  assert.deepEqual([f.ok.data.delete_recovery, f.ok.data.rollback_context], [{ sys_id: RECOVERY }, { sys_id: CTX, number: 'BAK0001284' }]);
   assert.equal(f.ok.data.progress_id, PROGRESS);
-  assert.match(f.ok.opts.summary, /^Restored incident INC0010166 with related records from BAK0001284 \(3 operation\(s\) replayed/);
+  assert.match(f.ok.opts.summary, /^Restored incident INC0010166 with related records from BAK0001284 \(3 recorded operation\(s\) reverted/);
 });
 
 test('--with-related --yes refuses a user without admin before starting anything', async () => {
@@ -142,6 +150,8 @@ test('--with-related --yes never reports success when the outcome is unknown or 
     [{ trackers: [{ sys_id: PROGRESS, state: '9' }] }, /unreadable execution tracker.*do not rerun it/],
     [{ trackers: [Object.assign(new Error('socket hang up'), { status: 0 })] }, /started \(progress .*do not rerun it\. Reading its outcome failed: socket hang up/],
     [{ after: Object.assign(new Error('HTTP 500'), { status: 500 }) }, /started \(progress .*do not rerun it\. Reading its outcome failed: HTTP 500/],
+    [{ left: [group('task_sla', 'delete', 1)] }, /brought the record back, but BAK0001284 still has unrecovered operations: task_sla delete 1/],
+    [{ left: Object.assign(new Error('HTTP 502'), { status: 502 }) }, /started \(progress .*do not rerun it\. Reading its outcome failed: HTTP 502/],
   ];
   for (const [options, message] of cases) {
     const f = fixture(options);
@@ -154,8 +164,8 @@ test('--with-related --yes never reports success when the outcome is unknown or 
 });
 
 test('runRelatedUndelete refuses a plan with a malformed id before any request', async () => {
-  const plan = { table: 'incident', sys_id: ID, audit_delete: AUDIT, delete_recovery: { sys_id: RECOVERY }, rollback_context: { number: 'BAK0001284' } };
-  for (const bad of [{ table: 'incident^ORactive=true' }, { sys_id: 'INC0010166' }, { audit_delete: 'x' }, { delete_recovery: { sys_id: '' } }]) {
+  const plan = { table: 'incident', sys_id: ID, audit_delete: AUDIT, delete_recovery: { sys_id: RECOVERY }, rollback_context: { sys_id: CTX, number: 'BAK0001284' } };
+  for (const bad of [{ table: 'incident^ORactive=true' }, { sys_id: 'INC0010166' }, { audit_delete: 'x' }, { delete_recovery: { sys_id: '' } }, { rollback_context: { sys_id: 'BAK0001284', number: 'BAK0001284' } }]) {
     const f = fixture();
     await assert.rejects(runRelatedUndelete(f.sdk, { ...plan, ...bad }), /--table|--sys-id|Nothing was restored/);
     assert.deepEqual(f.calls, [], JSON.stringify(bad));
@@ -164,7 +174,7 @@ test('runRelatedUndelete refuses a plan with a malformed id before any request',
 
 test('runRelatedUndelete stops waiting at its deadline and says the worker carries on', async () => {
   const f = fixture({ trackers: Array.from({ length: 5 }, () => ({ sys_id: PROGRESS, state: '1' })) });
-  const plan = { table: 'incident', sys_id: ID, audit_delete: AUDIT, delete_recovery: { sys_id: RECOVERY }, rollback_context: { number: 'BAK0001284' } };
+  const plan = { table: 'incident', sys_id: ID, audit_delete: AUDIT, delete_recovery: { sys_id: RECOVERY }, rollback_context: { sys_id: CTX, number: 'BAK0001284' } };
   await assert.rejects(runRelatedUndelete(f.sdk, plan, { timeoutMs: 0, pause }), /still running after 0s .*carries on in the background/);
   assert.equal(f.writes().length, 1);
 });
