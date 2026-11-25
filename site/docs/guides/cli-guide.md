@@ -306,6 +306,11 @@ jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b p
 # Script execution
 jsn eval "gs.info('Hello World')"
 cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
+jsn eval --file fix.js --timeout 600      # wait up to 10 minutes (default 30 s)
+# On Ctrl-C or when --timeout passes, jsn cancels the script on the instance
+# through cancel_my_transaction.do in the same session, as the UI's cancel link
+# does, and says whether the platform confirmed it. Writes made before the
+# cancel stay.
 
 # Interactive background-script mode for trying successive scripts.
 # Each .exec is its own server request: variables do not persist between
