@@ -32,6 +32,7 @@ names the table they come from when they are inherited from a parent.
 - Loading rows into an import set staging table is `jsn import load <table>
   --file rows.json|csv`, not `eval` or `records create` on the staging table.
   It previews without `--yes`; with it, each row reports its transform outcome.
+  To rerun the maps on an existing set, `jsn import transform <ISET number>`.
 - Copying records between instances as XML starts with `jsn records export`,
   which keeps sys_ids and refuses a query the instance would widen or truncate.
   `jsn records import <file>` loads that file into the target (admin; it skips
