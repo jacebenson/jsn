@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { cacheDir } from '../../config.js';
+import { CodeNetwork } from '../../errors.js';
 import { listHostedReleases, configuredDocsService } from './client.js';
 import { DEFAULT_DOCS_RELEASE, resolveDocsRelease } from './db.js';
 import { listDocsReleases } from './releases.js';
@@ -28,8 +29,8 @@ export function newestFamily(families) {
   return newest;
 }
 
-// shortcut: only successes are kept, so a refused or sleeping instance is asked again
-// on the next search (bounded by a 5 s timeout); cache failures too if that proves slow.
+// shortcut: a timeout or network failure is not kept, so an unreachable instance is asked again
+// on the next search (each try bounded by 5 s); keep those too if that proves slow.
 async function daily(key, now, load) {
   const file = path.join(cacheDir(), 'docs-release-v1.json');
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch { return {}; } };
@@ -43,25 +44,28 @@ async function daily(key, now, load) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(`${file}.${process.pid}.tmp`, JSON.stringify(cache) + '\n', { mode: 0o600 });
     fs.renameSync(`${file}.${process.pid}.tmp`, file);
-  } catch {}
+  } catch { /* an unwritable cache only means asking again next time */ }
   return value;
 }
 
 async function availableFamilies(config, now) {
   if (!process.env.JSN_DOCS_URL && config.docs?.source === 'local') return listDocsReleases().map(row => row.release);
   const serviceUrl = configuredDocsService(config);
-  const families = await daily(`service ${serviceUrl}`, now, () => listHostedReleases({ serviceUrl }).catch(() => null));
+  const families = await daily(`service ${serviceUrl}`, now, () => listHostedReleases({ serviceUrl }).then(list => list.length ? list : null, () => null));
   return Array.isArray(families) ? families : [DEFAULT_DOCS_RELEASE];
 }
 
 async function instanceFamily(app, now) {
   const { instance, username, profile } = app.session || {};
   if (!instance) return null;
-  const family = await daily(`instance ${instance}`, now, async () => {
-    // A profile SDK without auth recovery: a docs search never opens a sign-in.
-    const sdk = app.getSDKForProfile(instance, { username, authMethod: profile?.auth_method, profile });
-    const rows = await sdk.listStrict('sys_properties', { sysparm_query: 'name=glide.war', sysparm_fields: 'value', sysparm_limit: '1' }, { timeout: 5000 }).catch(() => null);
-    return familyFromWar(rows?.[0]?.value);
+  // Kept per profile, so an account that cannot read glide.war is not asked again all day.
+  const family = await daily(`instance ${instance} ${username || ''}`, now, async () => {
+    // No auth recovery, no prompt (sign-in or MFA code), and 5 s for each step including a login.
+    const sdk = Object.assign(app.getSDKForProfile(instance, { username, authMethod: profile?.auth_method, profile }), { canInteract: () => false, timeout: 5000 });
+    const rows = await sdk.listStrict('sys_properties', { sysparm_query: 'name=glide.war', sysparm_fields: 'value', sysparm_limit: '1' })
+      .catch(error => error?.code === CodeNetwork ? null : []);
+    // '' keeps an answer with no family (refused, empty or unrecognised) for the day.
+    return rows && (familyFromWar(rows[0]?.value) ?? '');
   });
   return typeof family === 'string' && FAMILY.test(family) ? family : null;
 }

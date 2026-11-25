@@ -60,11 +60,13 @@ Use `jsn docs "GlideRecord" --release brazil --limit 5` to select a family.
 Resolution is `--release`, then the global `docs.release` preference, then the
 active profile's instance family when the documentation has it, then the newest
 family the documentation has. The instance family comes from its `glide.war`
-property, read with a 5-second limit and kept for a day per instance; a profile
-that cannot read it falls through. Families come round in letter order, so
-`australia` is newer than `zurich`. Names contain 1–40 lowercase letters,
+property, read without prompting, with a 5-second request timeout, and kept for
+a day per profile. A profile that cannot read it falls through for the day; a
+timeout is tried again on the next search. Families come round in letter order,
+so `australia` is newer than `zurich`. Names contain 1–40 lowercase letters,
 digits, or dashes. The service decides which families are available
-(`/api/docs/releases`, kept for a day); local documentation uses the installed
+(`/api/docs/releases`, counting only families with a published revision, kept
+for a day); local documentation uses the installed
 families. Search, read, and status JSON include the selected release, and when
 neither option named it, `release_source` (`instance` or `fallback`) and
 `release_note`, which human output shows in brackets after the release.

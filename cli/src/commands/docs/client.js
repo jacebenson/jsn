@@ -49,13 +49,17 @@ async function request(endpoint, params, options = {}) {
 function invalidResponse() {
   return new AppError('api_error', 'Unexpected documentation service response.', 'Check JSN_DOCS_URL and the documentation service version.');
 }
-export async function searchHostedDocs(options = {}) {
+export function searchInput(options = {}) {
   const query = String(options.query || '').trim();
   const limit = options.limit ?? 20, offset = options.offset ?? 0;
   if (!query || query.length > 200) throw new AppError('usage_error', 'Search query must contain 1–200 characters.');
   if (!Number.isInteger(limit) || limit < 1 || limit > 50 || !Number.isInteger(offset) || offset < 0 || offset > 10000) {
     throw new AppError('usage_error', 'Use --limit 1–50 and --offset 0–10000.');
   }
+  return { query, limit, offset };
+}
+export async function searchHostedDocs(options = {}) {
+  const { query, limit, offset } = searchInput(options);
   const { data, service } = await request('api/docs/search', { q: query, limit, offset, bundle: options.bundle, release: options.release }, options);
   if (!data || !Array.isArray(data.results) || data.results.length > limit || data.count !== data.results.length ||
       !Number.isInteger(data.total) || data.total < data.count || typeof data.revision !== 'string' ||
@@ -71,10 +75,14 @@ export async function searchHostedDocs(options = {}) {
   }
   return { ...data, release: options.release ?? data.release, query, limit, offset, service };
 }
-export async function getHostedDoc(idOrPath, options = {}) {
+export function docInput(idOrPath, options = {}) {
   const identifier = String(idOrPath || '');
   if (!identifier) throw new AppError('usage_error', 'Provide a document ID or exact path.');
   if ((options.outline && options.section !== undefined) || (options.section !== undefined && !String(options.section).trim())) throw new AppError('usage_error', 'Use either --outline or one nonempty --section.');
+  return identifier;
+}
+export async function getHostedDoc(idOrPath, options = {}) {
+  const identifier = docInput(idOrPath, options);
   const numeric = /^\d+$/.test(identifier);
   const { data, service } = await request(numeric ? `api/docs/${identifier}` : 'api/docs/document', {
     ...(numeric ? {} : { path: identifier }), revision: options.revision, release: options.release,
@@ -104,5 +112,6 @@ export async function getHostedDocsStatus(options = {}) {
 export async function listHostedReleases(options = {}) {
   const { data } = await request('api/docs/releases', {}, options);
   if (!Array.isArray(data?.releases)) throw invalidResponse();
-  return data.releases.map(row => row?.release);
+  // The registry lists a family before its first sync, with no revision and nothing to serve.
+  return data.releases.filter(row => typeof row?.release === 'string' && typeof row.revision === 'string' && row.revision).map(row => row.release);
 }

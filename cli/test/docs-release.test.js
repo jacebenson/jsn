@@ -88,6 +88,11 @@ test('CLI validates shape before network and preserves server 400 message and hi
     assert.notEqual(result.status, 0);
     assert.equal(JSON.parse(result.stdout).code, 'usage_error');
   }
+  // With no release named, choosing one would ask the service and the instance; bad input must not.
+  for (const args of [['record', '--limit', '500'], ['record', '--offset', '-1'], ['--path', 'record.md', '--section', ' '], ['--path', 'record.md', '--outline', '--section', 'a']]) {
+    const result = f.run(args);
+    assert.equal(JSON.parse(result.stdout).code, 'usage_error', args.join(' '));
+  }
   assert.equal(f.requests().length, 0);
   f.scenario({ status: 400, error: 'Unknown release. Valid releases: australia, brazil.', hint: 'Choose brazil.' });
   const result = f.run(['record', '--release', 'unknown']);

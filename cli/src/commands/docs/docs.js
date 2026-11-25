@@ -1,6 +1,6 @@
 import { docsCmdDefinition } from '../../command-families.js';
 // Documentation search always uses the same API, hosted or self-hosted.
-import { searchHostedDocs, getHostedDoc, getHostedDocsStatus, configuredDocsService } from './client.js';
+import { searchHostedDocs, getHostedDoc, getHostedDocsStatus, configuredDocsService, searchInput, docInput } from './client.js';
 import { documentationService } from './local.js';
 
 import { docLink } from '../../docs-links.js';
@@ -16,10 +16,13 @@ function presented(data, text) {
 }
 // The release, and why when nothing named it: "brazil (the instance's release)".
 const label = (release, choice) => choice.note ? `${release} (${choice.note})` : release;
-const why = choice => ({ release_source: choice.source, release_note: choice.note });
+// Only when jsn chose, so a named release prints what it printed before.
+const why = choice => choice.note ? { release_source: choice.source, release_note: choice.note } : {};
 
 async function search(argv, app) {
   const query = Array.isArray(argv.query) ? argv.query.join(' ') : argv.query;
+  // Input is checked before the release is chosen, which may ask the instance and the service.
+  searchInput({ query, limit: argv.limit, offset: argv.offset });
   const choice = await chooseDocsRelease(argv, app);
   const result = await searchHostedDocs({ query, limit: argv.limit, offset: argv.offset, bundle: argv.bundle, release: choice.release, serviceUrl: await documentationService(app.config, choice.release) });
   const summary = `${result.count} of ${result.total} result(s) for "${result.query}" in ${label(result.release, choice)}`;
@@ -39,6 +42,7 @@ async function search(argv, app) {
 async function read(argv, app) {
   const maxLines = argv.lines ?? 80;
   if (!Number.isInteger(maxLines) || maxLines < 1 || maxLines > 10000) throw new AppError('usage_error', 'Use --lines 1–10000.');
+  docInput(argv.path || argv['id-or-path'], { outline: argv.outline, section: argv.section });
   const choice = await chooseDocsRelease(argv, app);
   const row = Object.assign(await getHostedDoc(argv.path || argv['id-or-path'], { outline: argv.outline, section: argv.section, revision: argv.revision, release: choice.release, serviceUrl: await documentationService(app.config, choice.release) }), why(choice));
   const title = row.title || row.path;
@@ -115,7 +119,7 @@ export function docsCmd(wrapHandler) {
       const service = await documentationService(app.config, resolveDocsRelease(argv.release, app.config));
       const summary = 'Search ServiceNow documentation';
       app.ok({ command: 'docs', service,
-        _formatted: `jsn docs "search terms"\njsn docs --path <exact-path>\n\nService: ${service}\nChange documentation preferences in jsn setup → Defaults and documentation.\nNo ServiceNow connection is needed. Hosted mode downloads no database.\n`,
+        _formatted: `jsn docs "search terms"\njsn docs --path <exact-path>\n\nService: ${service}\nChange documentation preferences in jsn setup → Defaults and documentation.\nNo ServiceNow connection is needed; with a profile selected and no release named, the instance's release is used. Hosted mode downloads no database.\n`,
       }, { summary });
     }),
   };

@@ -9,7 +9,7 @@ const WAR = 'glide-brazil-08-25-2026__patch2-10-22-2026_11-03-2026_2245.zip';
 const DAY = 24 * 3600_000;
 
 // Isolated cache, a recording service fetch and a fake app whose SDK records each instance read.
-function fixture(t, { releases = ['australia', 'brazil'], war = WAR, instance = 'https://fixture.service-now.com', config = {} } = {}) {
+function fixture(t, { releases = ['australia', 'brazil'], unpublished = [], war = WAR, instance = 'https://fixture.service-now.com', config = {} } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-docs-instance-'));
   const saved = { fetch: globalThis.fetch, XDG_CACHE_HOME: process.env.XDG_CACHE_HOME, JSN_DOCS_URL: process.env.JSN_DOCS_URL, JSN_DATA_HOME: process.env.JSN_DATA_HOME };
   process.env.XDG_CACHE_HOME = path.join(home, 'cache');
@@ -24,7 +24,8 @@ function fixture(t, { releases = ['australia', 'brazil'], war = WAR, instance = 
   globalThis.fetch = async input => {
     service.push(new URL(input));
     if (releases instanceof Error) throw releases;
-    return Response.json({ releases: releases.map(release => ({ release, state: 'current' })), default: releases[0] });
+    const rows = [...releases.map(release => ({ release, revision: 'r1' })), ...unpublished.map(release => ({ release, revision: null }))];
+    return Response.json({ releases: rows.map(row => ({ ...row, state: 'current' })), default: releases[0] });
   };
   const sdk = {
     async listStrict(table, params, opts) {
@@ -34,7 +35,7 @@ function fixture(t, { releases = ['australia', 'brazil'], war = WAR, instance = 
     },
   };
   const app = { config, session: { instance, username: 'agent', profile: {} }, getSDKForProfile: () => sdk };
-  return { app, service, reads };
+  return { app, sdk, service, reads };
 }
 
 test('familyFromWar reads the family from glide.war and nothing else', () => {
@@ -69,7 +70,8 @@ test('the instance family is used when the docs have it, and read once a day per
   assert.equal(f.reads.length, 1);
   assert.equal(f.reads[0].table, 'sys_properties');
   assert.equal(f.reads[0].params.sysparm_query, 'name=glide.war');
-  assert.ok(f.reads[0].opts.timeout <= 5000, 'a sleeping instance must not hold up a docs search');
+  assert.ok(f.sdk.timeout <= 5000, 'a sleeping instance must not hold up a docs search');
+  assert.equal(f.sdk.canInteract(), false, 'a docs search never asks for a sign-in or an MFA code');
   assert.equal(f.service[0].pathname, '/api/docs/releases');
   assert.deepEqual(await chooseDocsRelease({}, f.app, { now: now + DAY - 1 }), chosen);
   assert.equal(f.reads.length, 1);
@@ -77,14 +79,17 @@ test('the instance family is used when the docs have it, and read once a day per
   await chooseDocsRelease({}, f.app, { now: now + DAY + 1 });
   assert.equal(f.reads.length, 2);
   assert.equal(f.service.length, 2);
+  f.app.session.username = 'another';
+  await chooseDocsRelease({}, f.app, { now: now + DAY + 1 });
+  assert.equal(f.reads.length, 3, 'kept per profile');
 });
 
-test('a family the docs lack falls back to the newest they have and says why', async t => {
-  const f = fixture(t, { releases: ['australia'] });
+test('a family the docs lack, or list before publishing, falls back to the newest they have and says why', async t => {
+  const f = fixture(t, { releases: ['australia'], unpublished: ['brazil'] });
   assert.deepEqual(await chooseDocsRelease({}, f.app), { release: 'australia', source: 'fallback', note: 'the instance runs brazil; newest available' });
 });
 
-test('no profile, or a refused or unreadable glide.war, falls back to the newest family', async t => {
+test('no profile, or a refused or unreadable glide.war, falls back to the newest family; only a timeout is asked again', async t => {
   const none = fixture(t, { releases: ['zurich', 'australia', 'brazil'], instance: '' });
   assert.deepEqual(await chooseDocsRelease({}, none.app), { release: 'brazil', source: 'fallback', note: 'no instance profile; newest available' });
   assert.equal(none.reads.length, 0);
@@ -92,8 +97,12 @@ test('no profile, or a refused or unreadable glide.war, falls back to the newest
     const f = fixture(t, { releases: ['zurich', 'australia'], war });
     assert.deepEqual(await chooseDocsRelease({}, f.app), { release: 'australia', source: 'fallback', note: "could not read the instance's release; newest available" });
     await chooseDocsRelease({}, f.app);
-    assert.equal(f.reads.length, 2, 'a failed read is not cached');
+    assert.equal(f.reads.length, 1, 'an answer with no family is kept for the day');
   }
+  const offline = fixture(t, { war: Object.assign(new Error('Network error: Request timed out'), { code: 'network_error' }) });
+  assert.equal((await chooseDocsRelease({}, offline.app)).note, "could not read the instance's release; newest available");
+  await chooseDocsRelease({}, offline.app);
+  assert.equal(offline.reads.length, 2, 'a timeout is asked again on the next search');
 });
 
 test('an unreachable or malformed families list falls back to australia, and is not cached', async t => {
@@ -101,9 +110,11 @@ test('an unreachable or malformed families list falls back to australia, and is 
   assert.deepEqual(await chooseDocsRelease({}, f.app), { release: 'australia', source: 'fallback', note: 'the instance runs brazil; newest available' });
   await chooseDocsRelease({}, f.app);
   assert.equal(f.service.length, 2);
-  for (const releases of ['australia', [{ name: 'brazil' }, null]]) {
-    globalThis.fetch = async () => Response.json({ releases });
-    assert.equal((await chooseDocsRelease({}, f.app)).release, 'australia');
+  for (const releases of ['australia', [], [{ name: 'brazil' }, null], [{ release: 'brazil', revision: null }]]) {
+    let calls = 0;
+    globalThis.fetch = async () => (calls++, Response.json({ releases }));
+    for (let n = 0; n < 2; n++) assert.equal((await chooseDocsRelease({}, f.app)).release, 'australia');
+    assert.equal(calls, 2, `${JSON.stringify(releases)} is not kept`);
   }
 });
 

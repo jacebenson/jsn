@@ -416,8 +416,10 @@ The CLI's migration to these endpoints is separate from implementing this servic
 ### JSN docs commands consume the hosted REST API
 
 Replace CLI-local docs indexing and serving with `docs search`, `docs show`, and
-remote `docs status`. These commands use the public service without instance
-credentials, login, local index initialization, or dataset downloads. Preserve
+remote `docs status`. These commands use the public service without login, local
+index initialization, or dataset downloads. With no release named, they read the
+selected profile's `glide.war` to choose the family, never prompting, and fall back
+to the newest family the service lists when they cannot. Preserve
 JSON envelopes, full Markdown bodies, `--get`, styled previews and pagination.
 Use `JSN_DOCS_URL` for a local or alternate deployment. The default production
 host still requires deployment of the Rails service before those APIs work.
@@ -869,7 +871,8 @@ Update this file when a durable project fact changes. Do not turn it into a dail
 ## Targeted documentation retrieval
 
 The document reader supports `--outline` and `--section` alongside `--path`.
-Full-document reads remain the default. No ServiceNow connection is needed.
+Full-document reads remain the default. No ServiceNow connection is needed, though a
+selected profile chooses the family when no release is named.
 
 ```sh
 node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --json
