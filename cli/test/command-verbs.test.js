@@ -89,6 +89,30 @@ test('a command keeps its read or write class whatever options are passed', () =
   assert.deepEqual(changed.sort(), [], 'these commands change read/write class because of an option; move the change to a subcommand');
 });
 
+// A rationale is not a cap. Each family's subcommand count is fixed here, so a
+// new verb means removing one, or writing down that this family grew.
+test('no family grows past its subcommand budget', () => {
+  const { root } = commandTree();
+  const budgets = vocabulary.budgets || {};
+  const limits = budgets.families || {};
+  const counts = {};
+  for (const family of root.children) {
+    let count = 0;
+    const countChildren = node => {
+      node.build();
+      for (const child of node.children) { count++; countChildren(child); }
+    };
+    countChildren(family);
+    counts[family.name] = count;
+  }
+  const over = Object.entries(counts)
+    .filter(([family, count]) => count > (limits[family] ?? 0))
+    .map(([family, count]) => `${family}: ${count} of ${limits[family] ?? 0}`);
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  assert.deepEqual(over.sort(), [], 'these families grew: remove a subcommand, or raise budgets.families in cli/test/command-verbs.json and say in the PR why the new command earns its place');
+  assert.ok(total <= (budgets.total ?? 0), `the CLI has ${total} subcommands against a budget of ${budgets.total}; remove one, or raise the budget in the same diff and say why`);
+});
+
 test('every declared mutation path resolves to a command that exists', () => {
   const { root } = commandTree();
   const broken = mutationPaths().filter(path => !resolves(root, path)).map(path => path.join(' '));
