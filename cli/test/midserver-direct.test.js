@@ -92,55 +92,51 @@ test('failed extraction and ACL preparation clean up only newly created installa
   }
 });
 
-test('a crash between start and verification reconciles state instead of reporting success', { skip: process.platform !== 'linux' }, async t => {
+test('an interrupted Linux launcher reconciles from a verified process census', { skip: process.platform !== 'linux' }, async t => {
   const directory = path.join(disposable(t), 'crashed-start');
   const metadata = await installDirectMidServer({ ...options, directory, download });
-  metadata.state = 'starting';
-  fs.writeFileSync(path.join(directory, '.jsn-mid-direct.json'), JSON.stringify(metadata, null, 2), { mode: 0o600 });
-  // The persisted state is mid-flight, as it would be after a crash during start.
-  const crashed = readDirectInstallation(options.instanceURL, 'oct12', directory);
-  assert.equal(crashed.state, 'starting');
-  assert.throws(() => runDirectInstallation(crashed, 'start'), /uncertain/);
-  assert.equal(readDirectInstallation(options.instanceURL, 'oct12', directory).state, 'uncertain');
-  for (const action of ['start', 'stop']) assert.throws(() => runDirectInstallation(readDirectInstallation(options.instanceURL, 'oct12', directory), action), /uncertain/);
-  assert.throws(() => removeDirectInstallation(readDirectInstallation(options.instanceURL, 'oct12', directory)), /uncertain/);
-  assert.equal(fs.existsSync(directory), true);
+  for (const state of ['starting', 'stopping', 'uncertain']) {
+    metadata.state = state;
+    fs.writeFileSync(path.join(directory, '.jsn-mid-direct.json'), JSON.stringify(metadata), { mode: 0o600 });
+    runDirectInstallation(metadata, 'start');
+    assert.equal(metadata.state, 'started');
+    runDirectInstallation(metadata, 'stop');
+    assert.equal(metadata.state, 'prepared');
+  }
+  removeDirectInstallation(metadata);
+  assert.equal(fs.existsSync(directory), false);
 });
 
-test('failed native start retains an uncertain runtime and refuses cleanup when stop fails', { skip: process.platform !== 'linux' }, async t => {
+test('failed native start preserves files and permits a verified recovery', { skip: process.platform !== 'linux' }, async t => {
   const directory = path.join(disposable(t), 'failed-start');
   const metadata = await installDirectMidServer({ ...options, directory, download });
   const fail = () => { throw new Error('test-only secret must never escape'); };
   assert.throws(() => runDirectInstallation(metadata, 'start', fail), /MID start failed/);
-  // A failed start leaves the runtime uncertain: record it and refuse cleanup.
-  assert.equal(readDirectInstallation(options.instanceURL, 'oct12', directory).state, 'starting');
-  assert.throws(() => removeDirectInstallation(metadata, fail), /uncertain/);
-  assert.throws(() => runDirectInstallation(metadata, 'start', fail), /uncertain/);
+  assert.equal(stateOf(directory), 'uncertain');
+  assert.throws(() => removeDirectInstallation(metadata, fail), /MID stop failed/);
   assert.equal(fs.existsSync(directory), true);
+  removeDirectInstallation(metadata);
+  assert.equal(fs.existsSync(directory), false);
 });
 
 test('Windows invocation seam selects console, never installstart or LocalSystem (not host proof)', async t => {
   const directory = path.join(disposable(t), 'windows-seam');
   const metadata = await installDirectMidServer({ ...options, directory, platform: 'win32', arch: 'x64', download, protect: () => {} });
-  const calls = [];
-  runDirectInstallation(metadata, 'start', (command, args, opts) => calls.push({ command, args, cwd: opts.cwd }));
-  assert.deepEqual(calls, [{ command: 'cmd.exe', args: ['/d', '/s', '/c', 'bin\\mid.bat console'], cwd: path.join(directory, 'agent') }]);
+  const calls = [], transport = { list: () => [] };
+  for (let i = 0; i < 2; i++) {
+    runDirectInstallation(metadata, 'start', (command, args, opts) => calls.push({ command, args, cwd: opts.cwd }), { transport });
+    assert.equal(stateOf(directory), 'prepared');
+  }
+  assert.deepEqual(calls, Array(2).fill({ command: 'cmd.exe', args: ['/d', '/s', '/c', 'bin\\mid.bat console'], cwd: path.join(directory, 'agent') }));
   assert.equal(metadata.serviceRegistered, false);
-  assert.equal(stateOf(directory), 'prepared');
-  assert.throws(() => runDirectInstallation(metadata, 'stop'), /is not running/);
-  // A clean console exit returns to prepared, so a later console start is allowed again.
-  runDirectInstallation(metadata, 'start', (command, args, opts) => calls.push({ command, args, cwd: opts.cwd }));
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls.map(call => call.args), [['/d', '/s', '/c', 'bin\\mid.bat console'], ['/d', '/s', '/c', 'bin\\mid.bat console']]);
-  assert.doesNotMatch(JSON.stringify(calls), /test-only|installstart|start\.bat/);
+  assert.equal(runDirectInstallation(metadata, 'stop', undefined, { transport }).state, 'prepared');
 });
 
-test('Windows console errors retain uncertain state and do not leak process error output', async t => {
-  const directory = path.join(disposable(t), 'windows-failed');
+test('Windows console failure reconciles state, suppresses nested sensitive errors and retains files', async t => {
+  const directory = path.join(disposable(t), 'windows-seam');
   const metadata = await installDirectMidServer({ ...options, directory, platform: 'win32', arch: 'x64', download, protect: () => {} });
-  assert.throws(() => runDirectInstallation(metadata, 'start', () => { throw new Error('sensitive-process-output'); }), /Windows MID console failed/);
-  assert.equal(stateOf(directory), 'console-running');
-  assert.throws(() => removeDirectInstallation(metadata), /owning terminal/);
+  assert.throws(() => runDirectInstallation(metadata, 'start', () => { throw new Error('sensitive-process-output'); }, { transport: { list: () => [] } }), /Windows MID console failed; owned runtime has exited/);
+  assert.equal(stateOf(directory), 'prepared');
   assert.equal(fs.existsSync(directory), true);
 });
 
