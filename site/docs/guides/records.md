@@ -27,7 +27,9 @@ the right tool for "keep an eye on this record".
 that matches it now or comes to match it later. The query is validated like
 `records list --query` before anything subscribes, because the platform
 drops a condition it cannot parse and a misspelt field would silently widen
-the watch. `--query` cannot be combined with `--sys-id` or `--identifier`.
+the watch. A query that is demonstrably invalid is refused. One `jsn` cannot
+fully verify, such as a field it cannot see in the dictionary, still
+subscribes, but first emits a `query_validation` event naming the field. `--query` cannot be combined with `--sys-id` or `--identifier`.
 
 Each `record_change` carries `match`, the platform's word for how the change
 relates to the query:
@@ -97,7 +99,9 @@ instance checked on 2026-11-04 sent no `changes` array and put no `table` or
 is why a single-record watch is always scoped by `sys_id=<id>`. A PDI checked
 on 2026-11-25 also sent `sys_id`, `match` (as `action`) and `changes` as a
 list of field names, which `jsn` emits as `{"field": "priority"}` entries
-with no values.
+with no values. A query watch has no `sys_id` to fill in, so on an instance
+that sends the older shape each event carries a `warning` and only its
+`display_value` says which record changed.
 
 The notification carries current values only. There is no previous value in
 it, so output never invents a before → after transition.

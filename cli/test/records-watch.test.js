@@ -238,6 +238,32 @@ describe('records watch subcommand', () => {
     assert.equal(lines.at(-1).query, query);
   });
 
+  it('reports a --query field it cannot verify before subscribing, then watches', async () => {
+    const query = 'prority=1';
+    const queryChannel = `/rw/default/incident/${Buffer.from(query).toString('base64').replace(/=/g, '-')}`;
+    const server = await mockAmb({
+      onConnect: ({ json }) => json([{ channel: queryChannel, id: 'evt-q', data: { sys_id: SYS_ID, display_value: 'INC0010001', operation: 'update' } }]),
+    });
+    const chunks = [];
+    globalThis.__watchInstanceUrl = server.baseUrl;
+    try {
+      const { watch } = await watchHandler();
+      const app = fakeApp({ chunks });
+      app.queryValidation = { table: 'incident', query, state: 'incomplete', limits: {}, diagnostics: [
+        { code: 'unknown_field', severity: 'warning', state: 'incomplete', term: query, field: 'prority', message: 'Field "prority" is not visible on incident; it may be ACL-hidden or unknown.' },
+      ] };
+      await watch.handler(argvFor({ 'sys-id': undefined, query, state: 'never', timeout: 5 }), app);
+    } finally {
+      await server.close();
+    }
+    const lines = chunks.join('').split('\n').filter(Boolean).map(line => JSON.parse(line));
+    assert.deepEqual(lines.map(l => l.type).slice(0, 2), ['query_validation', 'connecting']);
+    assert.equal(lines[0].state, 'incomplete');
+    assert.equal(lines[0].diagnostics[0].field, 'prority');
+    assert.match(lines[0].warnings[0], /Field "prority" is not visible on incident/);
+    assert.equal(lines.filter(l => l.type === 'record_change').length, 1);
+  });
+
   for (const [label, overrides, pattern] of [
     ['--query with --sys-id', { query: 'active=true' }, /cannot be combined/],
     ['--query with --identifier', { 'sys-id': undefined, identifier: 'INC0010001', query: 'active=true' }, /cannot be combined/],

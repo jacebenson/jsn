@@ -176,11 +176,12 @@ export async function watchRecord({
       for (const message of messages) {
         if (signal?.aborted) return await finish('cancelled');
         const event = normalizeRecordWatcherEvent(message, { table, sysID }, new Date(now()).toISOString());
-        // The channel query scopes delivery to this record. The live payload
-        // does not carry a sys_id (jsn fills it from the subscription), so this
-        // guard only bites on an instance that does send one — for example a
-        // table-level channel returning a different record.
+        // The channel query scopes delivery to this record. The 2026-11-04
+        // payload carried no sys_id (jsn fills it from the subscription); the
+        // 2026-11-25 one does, and this guard drops one for another record.
         if (event.sys_id && sysID && event.sys_id !== sysID) continue;
+        // A query channel has no sys_id to fill in, so say so rather than emit an unidentified change as complete.
+        if (!event.sys_id) event.warning = 'The notification carried no sys_id, so it does not say which record changed.';
         // AMB has no server-side operation or field filter, so these apply here,
         // before the state read and before the event counts toward --max-events.
         if (operation && event.operation !== operation) continue;

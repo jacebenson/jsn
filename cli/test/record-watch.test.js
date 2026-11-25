@@ -326,6 +326,22 @@ describe('watchRecord', () => {
     assert.equal(summary.events, 2, 'filtered events do not count toward max-events');
   });
 
+  it('flags a query event that names no record instead of passing it off as complete', async () => {
+    const clock = fakeClock();
+    // The 2026-11-04 payload shape: a record map, no sys_id or table.
+    const shape = { operation: 'update', display_value: 'INC0010004', record: { short_description: { value: 'x', display_value: 'x' } } };
+    const watch = async (opts, data) => {
+      const events = [];
+      await watchRecord({ client: scriptedClient([after(clock, 10, [{ channel: CHANNEL, id: 'evt-old', data }])]), table: 'incident', maxEvents: 1, statePolicy: 'never', now: clock.now, sleep: clock.sleep, onEvent: event => events.push(event), ...opts });
+      return events[0];
+    };
+    const unnamed = await watch({ query: 'active=true' }, shape);
+    assert.equal(unnamed.sys_id, null);
+    assert.match(unnamed.warning, /no sys_id/);
+    assert.equal((await watch({ sysID: SYS_ID }, shape)).warning, undefined, 'a one-record watch knows its sys_id');
+    assert.equal((await watch({ query: 'active=true' }, { ...shape, sys_id: OTHER_ID })).warning, undefined);
+  });
+
   it('validates its bounds before opening a connection', async () => {
     const client = scriptedClient([]);
     await assert.rejects(watchRecord({ client, table: 'incident', sysID: SYS_ID, timeoutMs: -1 }), /negative/);

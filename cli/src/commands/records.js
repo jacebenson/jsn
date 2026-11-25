@@ -237,7 +237,7 @@ export function recordsCmd(wrap) {
             .option('reconnect', { type: 'boolean', default: true, describe: 'Reconnect after a dropped connection and report the gap; use --no-reconnect to fail fast' })
             .option('poll-timeout', { type: 'number', default: 60000, describe: 'Long-poll hold timeout in milliseconds (advanced)' })
             .epilogue([
-              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped.',
+              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped; a --query that cannot be fully verified first emits query_validation.',
               'The notification is emitted as the event; a fetched record is attached separately as event.state (source: "fetched").',
               'Record watchers are best effort: after a reconnect the stream reports a gap and does not replay missed events.',
               'Needs a ServiceNow UI session, which jsn opens from basic, OAuth or browser (gck) profiles. Not a durable queue or scheduler.',
@@ -253,8 +253,9 @@ export function recordsCmd(wrap) {
             if (query !== undefined) {
               if (argv['sys-id'] !== undefined || argv.identifier !== undefined || argv.identifierField !== undefined) throw errUsage('--query watches every matching record; it cannot be combined with --sys-id, --identifier or --identifier-field.');
               if (!query.trim()) throw errUsage('--query needs an encoded query, for example "priority=1^active=true".');
-              // A misspelt field must not silently widen or empty the channel.
-              await validateReadQuery(app, { table: argv.table, query, refresh: argv['refresh-metadata'] });
+              // A misspelt field must not silently widen or empty the channel: refuse what is invalid, report what is unverified.
+              const { query_validation: validation, warnings = [] } = queryDiagnostics(await validateReadQuery(app, { table: argv.table, query, refresh: argv['refresh-metadata'] }));
+              if (warnings.length) app.output.writeEvent({ type: 'query_validation', ...validation, warnings }, { line: warnings.map(warning => `⚠ ${warning}`).join('\n') });
             } else {
               if (argv['sys-id'] === undefined && argv.identifier === undefined) throw errUsage('Supply exactly one of --sys-id, --identifier or --query.');
               const record = await resolveRecord(app.sdk, { ...recordLookup(argv), fields: ['sys_id'] });
