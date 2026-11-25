@@ -1198,7 +1198,9 @@ export class SDKClient {
     const stop = cancellable && await stopReason(run, timeout, opts.signal);
     if (stop) throw scriptStoppedError(stop, timeout, await this._cancelScript(cookies, run));
 
-    const output = this._extractScriptOutput(await run);
+    // The response body is needed twice: for the output and for the execution id.
+    const html = await run;
+    const output = this._extractScriptOutput(html);
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
     if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
