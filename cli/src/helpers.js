@@ -120,7 +120,7 @@ export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
 }
 
 /**
- * Confirm a destructive action before executing.
+ * Ask for one explicit confirmation.
  *
  * Default posture is ASK: interactive terminals get a y/N prompt;
  * non-interactive invocation (pipes, scripts, AI agents) is rejected
@@ -128,15 +128,19 @@ export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
  * per-instance `skip_confirmations` flag (set via `auth login
  * --skip-confirmations`).
  *
+ * `destructive` only changes the wording of the unattended error: a delete
+ * removes records, while some mutations (running a scan, publishing a flow)
+ * change instance state without removing anything.
+ *
  * @param {object} app — app instance (reads active profile from app.config)
  * @param {object} argv — parsed args (checks argv.force)
  * @param {string} question — e.g. `Delete incident INC0010001?`
  * @param {object} [options] — { rerun } complete rerun command or token
- *   array for the hint (see buildRerunCommand)
+ *   array for the hint (see buildRerunCommand); { destructive }, { cancelMessage }
  * @returns {Promise<boolean>} true when the action may proceed
  * @throws when confirmation is required but denied/unavailable
  */
-export async function confirmDelete(app, argv, question, options = {}) {
+async function requestConfirmation(app, argv, question, { rerun = null, destructive = true, cancelMessage = 'Cancelled' } = {}) {
   const profile = getActiveProfile(app.config);
   if (profile?.skip_confirmations === true) return true;
   if (argv.force) return true;
@@ -148,13 +152,26 @@ export async function confirmDelete(app, argv, question, options = {}) {
     rl.close();
     const response = answer.trim().toLowerCase();
     if (response !== 'y' && response !== 'yes') {
-      throw new Error('Deletion cancelled');
+      throw new Error(cancelMessage);
     }
     return true;
   }
   // No human available (pipes, scripts, AI agents). Fail fast with a
   // structured error an agent can act on — never hang waiting for stdin.
-  throw errConfirmationRequired(question, buildRerunCommand(argv, options));
+  throw errConfirmationRequired(question, buildRerunCommand(argv, { rerun }), { destructive });
+}
+
+/** Confirm a destructive action before executing (records are removed). */
+export async function confirmDelete(app, argv, question, options = {}) {
+  return requestConfirmation(app, argv, question, { ...options, cancelMessage: 'Deletion cancelled' });
+}
+
+/**
+ * Confirm a mutation that is not a delete — it writes instance state (a scan,
+ * a publish) but removes nothing, so its refusal says so.
+ */
+export async function confirmAction(app, argv, question, options = {}) {
+  return requestConfirmation(app, argv, question, options);
 }
 
 

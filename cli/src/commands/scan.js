@@ -1,4 +1,4 @@
-import { buildRecordPayload, confirmDelete, getStringField, quoteShellArg, verifyWriteBack } from '../helpers.js';
+import { buildRecordPayload, confirmAction, confirmDelete, getStringField, quoteShellArg, verifyWriteBack } from '../helpers.js';
 import { createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { getCurrentApplication, getCurrentUser } from '../context.js';
@@ -196,11 +196,12 @@ export function scanCmd(wrap) {
           .option('previous', { type: 'string', describe: 'Rerun a previous execution target; full scans also require --full' })
           .option('suite', { type: 'string', describe: 'Optional active suite name or sys_id' })
           .option('wait', { type: 'boolean', default: false, describe: 'Wait for completion; timeout does not cancel the scan' })
-          .option('timeout', { type: 'number', default: 120, describe: 'Maximum wait in seconds (1–3600)' }),
+          .option('timeout', { type: 'number', default: 120, describe: 'Maximum wait in seconds (1–3600)' })
+          .epilogue('A noninteractive run also needs the intended selection and approval: --expect-scope, --expect-update-set and --force. A scan writes findings and its own execution records; it changes no business records.\nExample: jsn scan run --record <sys_id> --table incident --expect-scope global --expect-update-set "My set" --wait --force'),
         handler: wrap(async (argv, app) => {
           if (!Number.isFinite(argv.timeout) || argv.timeout < 1 || argv.timeout > 3600) throw errUsage('--timeout must be from 1 to 3600 seconds.');
           const plan = await prepareScan(app.sdk, argv);
-          await confirmDelete(app, argv, `Start scan of ${plan.target.kind} ${plan.target.name || plan.target.sys_id || plan.target.execution_id || 'the full instance'}${plan.suite_id ? ` using suite ${plan.suite_id}` : ''}?`);
+          await confirmAction(app, argv, `Start scan of ${plan.target.kind} ${plan.target.name || plan.target.sys_id || plan.target.execution_id || 'the full instance'}${plan.suite_id ? ` using suite ${plan.suite_id}` : ''}? It writes findings only.`, { destructive: false });
           const scheduled = await startScan(app.sdk, plan);
           let data = { ...scheduled, status: 'scheduled', terminal: false };
           let phase = 'progress';
