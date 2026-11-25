@@ -584,7 +584,7 @@ export function recordsCmd(wrap) {
             const options = { table: argv.table, by: argv.by, since: argv.since, query: argv.query, limit: argv.limit };
             const data = await listDeleted(app.sdk, options);
             Object.defineProperty(data, '_formatted', { value: formatDeleted(data), enumerable: false });
-            app.ok(data, { summary: `${data.count} deleted record(s)${data.pagination.has_more ? ', more match' : ''}`, breadcrumbs: [deletedBreadcrumb(data.records)] });
+            app.ok(data, { summary: data.count ? `${data.count} deleted record(s)${data.pagination.has_more ? ', more match' : ''}` : data.visibility, breadcrumbs: [deletedBreadcrumb(data.records)] });
           }),
         })
         .command({

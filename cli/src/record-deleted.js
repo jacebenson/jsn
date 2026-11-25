@@ -8,6 +8,8 @@ const TABLE = /^[a-z0-9_]+$/;
 const FIELDS = 'sys_id,tablename,documentkey,display_value,transaction,delete_recovery,sys_created_by,sys_created_on';
 // Display labels are presentation only; every join below uses raw sys_ids.
 const raw = value => value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? '');
+// sys_audit_delete is admin-read by default and an ACL-filtered list answers 200 with no rows, so an empty page proves nothing.
+const EMPTY = "No readable rows. Deleted Records keys each row by the record's own table (incident, not task) and only admins read it by default, so this does not prove nothing was deleted.";
 const shown = value => value && typeof value === 'object' ? String(value.display_value ?? value.value ?? '') : String(value ?? '');
 
 async function read(sdk, table, query, fields, limit) {
@@ -62,7 +64,7 @@ export async function listDeleted(sdk, { table, by, since, query, limit = 20 } =
       // The same conditions the Rollback... action on a delete recovery shows under.
       recoverable: Boolean(context) && raw(recovery.state) !== 'recovered' && raw(context.state) === 'recorded' } };
   });
-  return { query: filter, records, count: records.length, pagination: { limit, has_more: rows.length > limit } };
+  return { query: filter, records, count: records.length, pagination: { limit, has_more: rows.length > limit }, ...(records.length ? {} : { visibility: EMPTY }) };
 }
 
 export function deletedBreadcrumb(records) {
@@ -83,7 +85,7 @@ export function formatDeleted(data) {
       `  deleted by ${row.deleted_by || '(unknown)'}${transaction ? ` in ${transaction}` : ''}`,
       `  back: ${back}; cascade recovery: ${recovery}`);
   }
-  if (!data.records.length) lines.push('(no deleted records match)');
-  if (data.pagination.has_more) lines.push(`More match; narrow with --table, --by or --since, or raise --limit (now ${data.pagination.limit}).`);
+  if (!data.records.length) lines.push(data.visibility);
+  if (data.pagination.has_more) lines.push(data.pagination.limit < 200 ? `More match; narrow with --table, --by or --since, or raise --limit (now ${data.pagination.limit}).` : 'More match; narrow with --table, --by, --since or --query (--limit is at its maximum, 200).');
   return `${lines.join('\n')}\n`;
 }

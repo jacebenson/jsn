@@ -66,6 +66,9 @@ test('deleted keeps the page to --limit and says when more match', async () => {
   const exact = fixture({ entries: [entry(1), entry(2)] });
   await exact.run({ limit: 2 });
   assert.deepEqual(exact.data.pagination, { limit: 2, has_more: false });
+  const most = fixture({ entries: Array.from({ length: 201 }, (_, n) => entry(n + 1)) });
+  await most.run({ limit: 200 });
+  assert.match(most.data._formatted, /More match; narrow with --table, --by, --since or --query \(--limit is at its maximum, 200\)/);
 });
 
 test('deleted checks each table once by raw sys_id and says which records are back', async () => {
@@ -127,12 +130,17 @@ test('a recovery already used, or a context no longer recorded, is not recoverab
   }
 });
 
-test('deleted with no matches reads nothing else and says so', async () => {
+test('deleted with no matches reads nothing else and says an empty page proves nothing', async () => {
   const f = fixture({ entries: [] });
   await f.run();
   assert.deepEqual(f.reads.map(r => r.table), ['sys_audit_delete']);
   assert.equal(f.data.count, 0);
-  assert.match(f.data._formatted, /\(no deleted records match\)/);
+  assert.match(f.data.visibility, /own table \(incident, not task\).*only admins.*does not prove nothing was deleted/);
+  assert.equal(f.extras.summary, f.data.visibility);
+  assert.ok(f.data._formatted.includes(f.data.visibility));
+  const found = fixture();
+  await found.run();
+  assert.equal(found.data.visibility, undefined);
 });
 
 test('deleted is a read, validates --query on sys_audit_delete, and its help lists its flags', () => {
