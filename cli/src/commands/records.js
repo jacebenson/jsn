@@ -1,7 +1,9 @@
 import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { errUsage } from '../errors.js';
+import { errAPI, errUsage } from '../errors.js';
+import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES } from '../record-xml.js';
+import fs from 'node:fs';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
@@ -649,6 +651,51 @@ export function recordsCmd(wrap) {
               failed: failures,
               context: { instance_url: app.getEffectiveInstance() },
             }, { summary: `Updated ${updated} of ${count} matching record(s) in ${argv.table}` });
+          }),
+        })
+        .command({
+          command: 'export',
+          describe: 'Write records matching a query as unload XML (Export > XML), with their journal entries and attachments',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('query', { type: 'string', demandOption: true, describe: 'Required nonempty encoded query; every column must exist on the table, and date-macro and javascript: terms are refused' })
+            .option('refresh-metadata', { type: 'boolean', default: false, describe: 'Refresh table metadata before validating the filter (five-minute cache)' })
+            .option('limit', { type: 'number', describe: 'Export at most this many records' })
+            .option('out', { alias: 'o', type: 'string', describe: 'Write XML to this new file instead of stdout' })
+            .epilogue('The XML keeps sys_ids and system fields. The instance drops a term on an unknown column and caps one export at glide.xml.export.limit (10,000 by default) without saying so, so export refuses an unvalidated query and counts matches first. An update set moves whole with jsn updatesets export, not as sys_update_xml rows.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            if (!TABLE_NAME.test(argv.table)) throw errUsage(`Invalid table name: ${argv.table}`);
+            if (UPDATE_SET_TABLES.has(argv.table)) throw errUsage(`${argv.table} rows are parts of an update set; export the whole set with jsn updatesets export <name>.`);
+            if (!argv.query?.trim()) throw errUsage('--query must be nonempty.');
+            if (argv.limit !== undefined && (!Number.isSafeInteger(argv.limit) || argv.limit < 1)) throw errUsage('--limit must be a positive safe integer.');
+            if (argv.out && fs.existsSync(argv.out)) throw errUsage(`${argv.out} already exists; export never overwrites a file.`);
+            // A term the instance cannot apply is dropped, widening the export, so only a fully validated query runs.
+            await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'], action: 'Export' });
+            const matched = await app.sdk.aggregateCount(argv.table, argv.query);
+            const expected = Math.min(matched, argv.limit ?? matched);
+            if (!Number.isSafeInteger(expected) || expected < 1) throw errUsage(`No ${argv.table} records match the query; nothing exported.`);
+            const { cap, source } = await xmlExportCap(app.sdk);
+            if (expected > cap) {
+              throw errUsage(`${expected} ${argv.table} records match, but the instance exports at most ${cap} per file (${source}) and would drop the rest without saying so. Narrow --query, or pass --limit ${cap} or lower to export part of the set.`);
+            }
+            const { xml, records, tables } = await exportRecordsXML(app.sdk, { table: argv.table, query: argv.query, limit: argv.limit });
+            if (records < expected) {
+              throw errAPI(200, `The export holds ${records} ${argv.table} record(s) but ${expected} matched; the instance dropped some (an export cap, or rows the user cannot read). Nothing was written.`);
+            }
+            if (records > expected) {
+              throw errAPI(200, `The export holds ${records} ${argv.table} record(s) but only ${expected} were expected; the instance applied a wider query or ignored the limit. Nothing was written.`);
+            }
+            const bytes = Buffer.byteLength(xml, 'utf-8');
+            const data = { table: argv.table, query: argv.query, matched, records, tables, bytes };
+            const summary = `Exported ${records}${records < matched ? ` of ${matched}` : ''} ${argv.table} record(s) as unload XML (${bytes} bytes)`;
+            if (argv.out) {
+              await fs.promises.writeFile(argv.out, xml, { flag: 'wx' });
+              return app.ok({ ...data, out: argv.out }, { summary: `${summary} to ${argv.out}` });
+            }
+            // Raw XML pipes cleanly; only an explicit JSON request wraps it.
+            if (argv.json || argv.format === 'json') return app.ok({ ...data, xml }, { summary });
+            process.stdout.write(xml + (xml.endsWith('\n') ? '' : '\n'));
           }),
         })
         .command({

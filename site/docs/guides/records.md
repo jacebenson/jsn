@@ -152,7 +152,7 @@ This contract precedes implementation and does not declare those issues complete
 
 | Entry point | Implementation and transport | Compatibility requirements |
 | --- | --- | --- |
-| `records list/get/create/update/delete/delete-many` | `src/commands/records.js`; SDK list, create, update, delete, aggregateCount, attachment methods | Arbitrary/custom tables; required table; columns/c/fields aliases; list query, limit=20, offset=0, counts with profile override; get attachments; JSON/file/stdin/repeated-field payloads; derived-field warnings and strict write-back verification. `delete-many` previews by default and requires an exact `--expect-count` before any per-record delete; it never claims atomicity |
+| `records list/get/create/update/delete/delete-many/export` | `src/commands/records.js`, `src/record-xml.js`; SDK list, create, update, delete, aggregateCount, attachment methods, `<table>.do?UNL` | Arbitrary/custom tables; required table; columns/c/fields aliases; list query, limit=20, offset=0, counts with profile override; get attachments; JSON/file/stdin/repeated-field payloads; derived-field warnings and strict write-back verification. `delete-many` previews by default and requires an exact `--expect-count` before any per-record delete; it never claims atomicity. `export` writes unload XML only for a fully validated query, after counting matches against `glide.xml.export.limit`, and fails when the XML holds more or fewer records than expected; it refuses `sys_update_xml` and `sys_remote_update_set`, which move whole with `updatesets export` |
 | incidents/inc, changes/chg, requests/req, tasks/task | `src/commands/_ticket.js` via four modules; requests adds catalog helpers | Preserve tables incident/change_request/sc_req_item/sc_task, number identifiers, aliases, list sorting/pagination, create description/priority shortcuts, breadcrumbs and required short_description |
 | `tickets/ticket` | `src/commands/tickets.js`; separate CRUD on task | Preserve distinct task table, list shape and show summary; migrate alongside ticket factory without changing aliases |
 | Simple specialized commands | `src/commands/_simple.js` delegates to `_generic.js`; other modules also use factory | Preserve every name/alias/default column/readOnly flag, optional resolver, showFields, onShow, summaries, breadcrumbs, extraQuery and scopeValidation hooks |
@@ -320,6 +320,9 @@ byte-identically.
 - Filter-based mutations (`delete-many`, `bulk`) validate the complete filter
   before any count, enumeration, scope read or write, and fail closed with zero
   writes on any non-valid state. There is no skip-validation flag.
+- `records export` holds its query to the same standard before counting or
+  exporting, because the export processor drops a term on an unknown column and
+  writes unfiltered rows.
 
 Usable metadata is cached on disk for five minutes per exact instance URL,
 selected profile and authenticated principal (owner-only files under the

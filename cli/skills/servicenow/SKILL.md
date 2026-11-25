@@ -21,6 +21,8 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Copying records between instances as XML starts with `jsn records export`,
+  which keeps sys_ids and refuses a query the instance would widen or truncate.
 
 For development:
 
