@@ -27,6 +27,12 @@ mock.module('../src/midserver-remote.js', { namedExports: { ...operations('docke
 mock.module('../src/midserver-windows-remote.js', { namedExports: operations('windows', 'WindowsRemoteMidServer') });
 mock.module('../src/midserver-linux-remote.js', { namedExports: operations('linux', 'LinuxRemoteMidServer') });
 mock.module('../src/midserver-remote-recipe.js', { namedExports: { downloadRemoteMidRecipe: async () => Buffer.from('fixture-tar') } });
+mock.module('../src/midserver-setup.js', { namedExports: {
+  ...(await import('../src/midserver-setup.js')), diagnoseMidAccount: async () => ({ userSysId: 'a'.repeat(32) }),
+} });
+mock.module('../src/midserver-locations.js', { namedExports: {
+  ...(await import('../src/midserver-locations.js')), registerMidInstallationDirectory: () => {}, assertMidInstallationLocationAvailable: () => {},
+} });
 const { midserversCmd } = await import('../src/commands/midservers.js');
 const root = fileURLToPath(new URL('../', import.meta.url));
 

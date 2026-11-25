@@ -4,6 +4,38 @@ title: MID Server management
 
 Manage MID Servers remotely without attaching to the instance console.
 
+## Installation preflight
+
+Local `midservers add` prints its resolved destination to stderr before downloading
+or creating installation files. Interactive terminals offer a prefilled location;
+Enter accepts it. `--directory` supplies the location for scripted runs. The default
+remains `~/.servicenow/mids/<instance>/<mid-name>`. Destinations must be absolute,
+absent and beneath non-symlink, non-group/world-writable parents (sticky temporary
+roots are permitted). Existing directories are not adopted. The Docker installer
+also accepts an empty private user-owned directory when called programmatically.
+
+After the MID credential probe succeeds, JSN uses its existing authenticated
+session for read-only account, role and Basic Auth property checks. It requires
+`mid_server`, active/unlocked/web-service-only account flags, and checks the actual
+configured `glide.authenticate.basic_auth.allowed_roles` when restrictions are active
+and enforced. Unreadable policy or exception applicability is reported as unknown,
+not as a proven password or role failure. An exception row alone is not treated as
+proof that its scope/expiry permits this request. JSN never grants roles or changes
+authentication policy. HTTP 401 and 403 remain distinct; neither proves a missing
+role. Credential acceptance, registration Up and manual trust validation are separate.
+
+For SSH installs, `--directory` still names **local ownership metadata**, not the
+remote runtime location. Native target paths are reported after remote preparation
+and before download; remote path prompting/overrides require the remote setup API
+to support a read-only destination preflight. Remote Docker uses owned volumes,
+not a host compose directory. These remote limitations are not changed here.
+
+Successful setup records a nonsecret private location mapping under
+`~/.servicenow/mid-locations/`, keyed by instance origin, normalized name and SSH
+alias. This is discovery data, never proof of runtime ownership. Lifecycle callers
+must resolve it and then apply their existing ownership checks; until those callers
+are integrated, continue passing custom `--directory` for lifecycle operations.
+
 ## Remote MID management over SSH
 
 JSN runs on a POSIX controller and connects through a preconfigured, noninteractive
