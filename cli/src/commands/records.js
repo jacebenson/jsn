@@ -7,6 +7,7 @@ import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
+import { previewCascade } from '../delete-cascade.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
@@ -448,9 +449,13 @@ export function recordsCmd(wrap) {
             .option('yes', { type: 'boolean', default: false, describe: 'Confirm deletion (requires --expect-count)' })
             .option('dry-run', { type: 'boolean', default: false, describe: 'Preview only, even with --yes' })
             .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse if matches exceed this count' })
-            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.'),
+            .option('preview-cascade', { type: 'boolean', default: false, describe: 'Also preview the records the delete would cascade to, through a Data Management delete job that is never executed (admin)' })
+            .option('keep-job', { type: 'boolean', default: false, describe: 'With --preview-cascade, keep the delete job for review in the UI' })
+            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.\n--preview-cascade inserts one sys_dm_delete job for the filter, previews up to 3 cascade levels (counts past the source table are estimates), then deletes the job unless --keep-job. Its sys_dm_delete_count rows stay behind: their delete ACL refuses even an admin. It never deletes the matching records; the --yes delete that follows records no rollback.'),
           handler: wrap(async (argv, app) => {
             if (!argv.query?.trim()) throw errUsage('--query must be nonempty. Use records delete for a single record.');
+            if (argv['preview-cascade'] && argv.yes) throw errUsage('--preview-cascade previews only. Run it without --yes, then delete with the command it prints.');
+            if (argv['keep-job'] && !argv['preview-cascade']) throw errUsage('--keep-job needs --preview-cascade.');
             // Complete original filter validated before count/enumeration/scope reads or any write.
             await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'] });
             if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
@@ -472,10 +477,19 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [{ action: 'verify', cmd: `jsn records aggregate --table ${quoteShellArg(argv.table)} --query ${quoteShellArg(argv.query)}`, description: 'Re-check matching records' }];
             if (dryRun) {
               const sample = count ? await readPage(Math.min(10, count), 0) : [];
-              return app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun }, {
-                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted`,
-                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' }],
+              const cascade = argv['preview-cascade'] && count
+                ? await previewCascade(app.sdk, { table: argv.table, query: argv.query, count, keepJob: argv['keep-job'] }) : undefined;
+              const others = cascade?.tables.filter(t => t.table !== argv.table) || [];
+              const left = cascade && cascade.job.status !== 'deleted';
+              app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun, ...(cascade ? { cascade } : {}) }, {
+                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted` + (cascade
+                  ? `; cascade preview: about ${others.reduce((n, t) => n + t.count, 0)} more in ${others.length} other table(s)${cascade.more_levels ? ', and deeper levels were not counted' : ''}` : '')
+                  + (left && cascade.job.status !== 'kept' ? `; delete job ${cascade.job.number} (${cascade.job.sys_id}) left in sys_dm_delete: ${cascade.job.status}` : ''),
+                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' },
+                  ...(left ? [{ action: 'job', cmd: `jsn records get --table sys_dm_delete --sys-id ${cascade.job.sys_id}`, description: `Delete job ${cascade.job.number}, ${cascade.job.status === 'kept' ? 'kept for review' : 'left behind'}` }] : [])],
               });
+              if (left && cascade.job.status !== 'kept') process.exitCode = 1;
+              return;
             }
             // Snapshot all targets before deleting: offset paging over a shrinking set skips rows.
             const targets = [];
