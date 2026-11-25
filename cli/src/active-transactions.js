@@ -215,7 +215,7 @@ export function formatKillTransaction(result) {
   else if (result.still_running.length) lines.push(`Still running after ${KILL_POLLS} re-reads, 2 seconds apart. It stops at its next cancellation check, which some work never reaches; check with jsn transactions active.`, rows(result.still_running).trimEnd());
   else lines.push(`Not confirmed: ${result.check.warning || 'the last refresh was incomplete.'}`);
   if (result.cancellations === null) lines.push(`Cancellation log not readable: ${result.cancellation_error}`);
-  for (const row of result.cancellations || []) lines.push(`Cancellation logged: ${text(row.cancel_reason) || '(no reason)'} at ${text(row.cancel_requested_time)} on ${text(row.node_id).split(':').pop()}`);
+  for (const row of result.cancellations || []) lines.push(`Cancellation logged: ${text(row.cancel_reason) || '(no reason)'} at ${text(row.cancel_requested_time)}`);
   if (result.cancellations?.length === 0) lines.push('No cancellation logged (the platform does not log every cancellation).');
   return `${lines.join('\n')}\n`;
 }

@@ -347,7 +347,7 @@ describe('transactions kill', () => {
   });
 
   it("sends the Kill UI action's call on the transaction's node, then confirms it ended from a fresh refresh and the cancellation log", async () => {
-    const { killTransaction } = await import('../src/active-transactions.js');
+    const { killTransaction, formatKillTransaction } = await import('../src/active-transactions.js');
     const sdk = killSdk({ reads: [[activeRow(1, { transaction_id: pair(tx('a1')), snapshot_id: pair('ME') })], []] });
     let sleeps = 0;
     const result = await killTransaction(sdk, { session: 'S1', yes: true, 'expect-transaction': tx('a1') }, { sleep: async () => { sleeps++; } });
@@ -361,6 +361,8 @@ describe('transactions kill', () => {
     assert.equal(sdk.calls.filter(call => call.url?.endsWith('/loading_transactions.do')).length, 2);
     assert.equal(sdk.calls.find(call => call.table === 'syslog_cancellation').query, `transaction_idIN${tx('a1')}`);
     assert.equal(result.cancellations.length, 1);
+    // syslog_cancellation.node_id is a sys_id, so the line leaves it out; the first line names the node.
+    assert.match(formatKillTransaction(result), /^Kill sent to session S1 on node001\.\nEnded: the transaction is no longer running\.\nCancellation logged: Killed by admin at 2026-11-25 08:00:00\n$/);
   });
 
   it('sends Force Kill for an uncancelable transaction only with --force', async () => {
