@@ -38,13 +38,13 @@ export function evalCmd(wrap) {
           builder: (y) => y
             .positional('execution', { type: 'string', describe: 'Execution history sys_id, as jsn eval reports it' })
             .option('yes', { type: 'boolean', default: false, describe: 'Run the rollback' })
-            .epilogue('Without --yes, shows the script and the operations its rollback context recorded, by table, without writes.\nWith --yes, starts the platform rollback (AJAXRollbackWorker, as the Rollback Script Execution action does), waits up to two minutes, and succeeds only when the context reads Rolled back. Records changed by anything else since are left as they are. Needs admin.'),
+            .epilogue('Without --yes, shows the operations its rollback context recorded, by table, without writes; --json adds the script.\nWith --yes, starts the platform rollback (AJAXRollbackWorker, as the Rollback Script Execution action does), waits up to two minutes, and succeeds only when the context reads Rolled back. Records changed by anything else since are left as they are. Needs admin.'),
           handler: wrap(async (argv, app) => {
             const plan = await previewRollback(app.sdk, argv.execution);
             const { number } = plan.rollback_context;
             if (!argv.yes) {
               return app.ok({ ...plan, rolled_back: false }, {
-                summary: `Preview: rolling back ${number} reverts ${plan.total} recorded operation(s) in ${plan.operations.length} table(s)`,
+                summary: `Preview: rolling back ${number} (script run by ${plan.executed_by} at ${plan.started}) reverts ${plan.total} recorded operation(s): ${plan.operations.map(op => `${op.table} ${op.operation} ${op.count}`).join(', ')}`,
                 breadcrumbs: [{ action: 'rollback', cmd: `jsn eval rollback ${argv.execution} --yes`, description: 'Run this rollback' }],
               });
             }

@@ -74,7 +74,7 @@ test('eval rollback previews the execution and its recorded operations without w
   assert.deepEqual(f.ok.data.operations, [{ table: 'incident', operation: 'insert', count: 1 }, { table: 'task_sla', operation: 'update', count: 2 }]);
   assert.deepEqual(f.ok.data.rollback_context, { sys_id: CTX, number: 'BAK0001572', state: 'recorded' });
   assert.equal(f.ok.data.executed_by, 'System Administrator');
-  assert.match(f.ok.opts.summary, /^Preview: rolling back BAK0001572 reverts 3 recorded operation\(s\) in 2 table\(s\)/);
+  assert.equal(f.ok.opts.summary, 'Preview: rolling back BAK0001572 (script run by System Administrator at 2026-11-25 10:00:00) reverts 3 recorded operation(s): incident insert 1, task_sla update 2');
   assert.equal(f.ok.opts.breadcrumbs[0].cmd, `jsn eval rollback ${EXEC} --yes`);
 });
 
