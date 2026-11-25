@@ -18,6 +18,7 @@ import {
 // metadata into the selected application/update set.
 declareCapabilities('store', {
   skipContextHeaderSubcommands: ['compare'],
+  noImpersonateSubcommands: ['compare'],
   mutationSubcommands: ['install', 'update'],
   mutationContextExemptSubcommands: ['install', 'update'],
 });

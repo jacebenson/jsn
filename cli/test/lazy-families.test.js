@@ -32,7 +32,7 @@ test('real executable loads only selected heavy families; discovery retains eage
     `;
     const inventory = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { cwd: cliDir, env, timeout: 15000 }));
     assert.deepEqual(inventory.before, inventory.after);
-    assert.deepEqual(inventory.before.flows.mutationSubcommands, ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock']);
+    assert.deepEqual(inventory.before.flows.mutationSubcommands, ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock', 'settings']);
     assert.equal(inventory.before.flows.transactionScopeOption, 'scope');
     assert.deepEqual(inventory.before['skipped-updates'].mutationSubcommands, ['process']);
     assert.equal(inventory.before.midservers.mutationContext, 'operational');

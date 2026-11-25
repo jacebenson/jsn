@@ -1254,30 +1254,37 @@ export class SDKClient {
 
   /**
    * Fetch catalog variables for a request item (RITM).
+   * sc_item_option has no request_item column; answers link to the RITM through sc_item_option_mtom.
    * @param {string} ritmSysID - Sys ID of the request item
-   * @returns {Promise<Array<{question: string, value: string}>>}
+   * @param {number} [limit=100] - Most answers to return; one more is read to detect truncation
+   * @returns {Promise<{variables: Array<{question: string, value: string}>, truncated: boolean}>}
    */
-  async fetchCatalogVariables(ritmSysID) {
+  async fetchCatalogVariables(ritmSysID, limit = 100) {
     const params = new URLSearchParams();
     params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'item_option_new,value');
-    params.set('sysparm_query', `request_item=${ritmSysID}`);
-    params.set('sysparm_limit', '100');
+    params.set('sysparm_fields', 'request_item,sc_item_option.item_option_new,sc_item_option.value,sc_item_option.item_option_new.variable_set.type');
+    params.set('sysparm_query', `request_item=${ritmSysID}^ORDERBYsc_item_option.order`);
+    params.set('sysparm_limit', String(limit + 1));
 
-    const optRecords = await this.list('sc_item_option', params);
+    const links = await this.listStrict('sc_item_option_mtom', params);
     const variables = [];
 
-    for (const opt of optRecords) {
+    for (const link of links.slice(0, limit)) {
+      if (link?.request_item?.value !== ritmSysID) throw new Error(`sc_item_option_mtom returned an answer for another requested item (${link?.request_item?.value || 'none'}), so the RITM filter was not applied`);
+      // Multi-row set columns also get an empty answer here; fetchMultiRowVariables reads their rows.
+      if (link['sc_item_option.item_option_new.variable_set.type']?.value === 'one_to_many') continue;
+      const questionField = link['sc_item_option.item_option_new'];
+      const valueField = link['sc_item_option.value'];
       let question = '';
-      if (opt.item_option_new && typeof opt.item_option_new === 'object') {
-        question = opt.item_option_new.display_value || '';
+      if (questionField && typeof questionField === 'object') {
+        question = questionField.display_value || '';
       }
 
       let value = '';
-      if (opt.value && typeof opt.value === 'object') {
-        value = opt.value.display_value || opt.value.value || '';
-      } else if (typeof opt.value === 'string') {
-        value = opt.value;
+      if (valueField && typeof valueField === 'object') {
+        value = valueField.display_value || valueField.value || '';
+      } else if (typeof valueField === 'string') {
+        value = valueField;
       }
 
       if (question) {
@@ -1285,7 +1292,33 @@ export class SDKClient {
       }
     }
 
-    return variables;
+    return { variables, truncated: links.length > limit };
+  }
+
+  /**
+   * Fetch multi-row variable set answers for a request item, grouped by set, then row.
+   * @param {string} ritmSysID - Sys ID of the request item
+   * @param {number} [limit=500] - Most answers (cells) to return; one more is read to detect truncation
+   * @returns {Promise<{sets: Array<{set: string, rows: Array<Array<{question: string, value: string}>>}>, truncated: boolean}>}
+   */
+  async fetchMultiRowVariables(ritmSysID, limit = 500) {
+    const params = new URLSearchParams();
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'parent_id,variable_set,row_index,item_option_new,value');
+    params.set('sysparm_query', `parent_id=${ritmSysID}^parent_table_name=sc_req_item^ORDERBYvariable_set^ORDERBYrow_index^ORDERBYitem_option_new.order`);
+    params.set('sysparm_limit', String(limit + 1));
+
+    const answers = await this.listStrict('sc_multi_row_question_answer', params);
+    const sets = new Map();
+    for (const answer of answers.slice(0, limit)) {
+      if (answer?.parent_id?.value !== ritmSysID) throw new Error(`sc_multi_row_question_answer returned an answer for another record (${answer?.parent_id?.value || 'none'}), so the RITM filter was not applied`);
+      const setID = answer.variable_set?.value || '';
+      if (!sets.has(setID)) sets.set(setID, { set: answer.variable_set?.display_value || setID, rows: new Map() });
+      const rows = sets.get(setID).rows, rowID = answer.row_index?.value ?? '';
+      if (!rows.has(rowID)) rows.set(rowID, []);
+      rows.get(rowID).push({ question: answer.item_option_new?.display_value || '', value: answer.value?.display_value || answer.value?.value || '' });
+    }
+    return { sets: [...sets.values()].map(({ set, rows }) => ({ set, rows: [...rows.values()] })), truncated: answers.length > limit };
   }
 
   /**
