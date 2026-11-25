@@ -67,9 +67,10 @@ jsn access-analyzer list --limit 20 --profile <name>
 jsn access-analyzer show <request-id> --json
 jsn access-analyzer explain <result-id> --format styled
 jsn access-analyzer show <request-id> --get data.request.user.value
+jsn access-analyzer check --user abel.tuter --table incident --record <sys_id>
 ```
 
-These commands read saved `sn_access_analyzer_request`,
+`list`, `show` and `explain` read saved `sn_access_analyzer_request`,
 `sn_access_analyzer_access_result`, and `sn_access_analyzer_debug_log` records.
 They never evaluate access or save an analysis. The Access Analyzer application
 and read permissions on its tables are required; denied or unavailable table
@@ -81,6 +82,15 @@ IDs must be exact 32-character hexadecimal sys_ids. Each command supports
 and `next_offset` from one-row lookahead, not a total count. `show` preserves
 per-operation execution IDs; these are not shared run IDs and do not imply
 that outcomes belong to the request's last run. `explain` orders checks by log sequence then sys_id.
+
+`check` evaluates access live and saves nothing. It runs the Access Analyzer's
+own evaluation as a background script (`--operations`, default `read,write,delete`),
+lists the active before-query business rules on the table, its parents and
+`global` (the `b4rules` filter), and reads the record as `--user` through
+`--impersonate`'s session. When ACLs allow the read but the read as the user
+returns nothing, it says a listed rule is the likely cause. It needs a profile
+that can run background scripts and impersonate, and each run leaves an
+impersonation entry in the instance's logs.
 Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.

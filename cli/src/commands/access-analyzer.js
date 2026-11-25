@@ -1,6 +1,8 @@
 import { accessAnalyzerCmdDefinition } from '../command-families.js';
 import { errUsage } from '../errors.js';
 import { listAccessAnalyses, showAccessAnalysis, explainAccessResult, formatAccessAnalysis } from '../access-analyzer.js';
+import { checkAccess, formatAccessCheck } from '../access-check.js';
+import { runImpersonated } from '../impersonation.js';
 
 export function accessAnalyzerCmd(wrap) {
   const commands = [
@@ -31,7 +33,20 @@ export function accessAnalyzerCmd(wrap) {
           }),
         });
       }
-      return y;
+      return y.command({ command: 'check', describe: 'Check live whether a user can read, write or delete a record, and what stops them',
+        builder: sub => sub
+          .option('user', { type: 'string', demandOption: true, describe: 'user_name or sys_id to check' })
+          .option('table', { type: 'string', demandOption: true, describe: 'Table of the record, such as incident' })
+          .option('record', { type: 'string', demandOption: true, describe: 'The record\'s 32-character sys_id' })
+          .option('operations', { type: 'string', default: 'read,write,delete', describe: 'Comma-separated: read, write, delete' }),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          const asUser = async (sysId, read) => { let rows; await runImpersonated(app, sysId, async () => { rows = await read(app.sdk); }); return rows; };
+          const data = await checkAccess(app.sdk, argv, { asUser });
+          Object.defineProperty(data, '_formatted', { value: formatAccessCheck(data), enumerable: false });
+          app.ok(data, { summary: data.verdict });
+        }),
+      });
     },
   };
 }

@@ -94,7 +94,7 @@ const AUTOMATION_COMMANDS = [
 ];
 
 const ACCESS_COMMANDS = [
-  { name: 'access-analyzer', desc: 'Saved access analysis evidence (read-only)' },
+  { name: 'access-analyzer', desc: 'Saved access analysis evidence, or a live access check (read-only)' },
   { name: 'acls', alias: 'acl', desc: 'Access controls' },
   { name: 'b4rules', alias: 'b4r', desc: 'Before-query business rules (see also Automation)' },
   { name: 'roles', alias: 'role', desc: 'Roles' },

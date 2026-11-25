@@ -10,9 +10,9 @@ const require = createRequire(import.meta.url);
 
 export const accessAnalyzerCmdDefinition = {
   command: 'access-analyzer [subcommand]',
-  describe: 'Inspect saved Access Analyzer requests, outcomes and checks (read-only)',
+  describe: 'Inspect saved Access Analyzer requests, outcomes and checks, or check a user\'s access live (read-only)',
 };
-declareCapabilities('access-analyzer', { queryTable: 'sn_access_analyzer_request', mutationSubcommands: [] });
+declareCapabilities('access-analyzer', { queryTable: 'sn_access_analyzer_request', mutationSubcommands: [], noImpersonateSubcommands: ['check'] });
 export const accessAnalyzerCmd = wrap => ({ ...accessAnalyzerCmdDefinition, load: () => require('./commands/access-analyzer.js').accessAnalyzerCmd(wrap) });
 
 export const flowsCmdDefinition = {
