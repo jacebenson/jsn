@@ -23,6 +23,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
   `--expect-count` from that preview.
 - Copying records between instances as XML starts with `jsn records export`,
   which keeps sys_ids and refuses a query the instance would widen or truncate.
+  `jsn records import <file>` loads that file into the target (admin; it skips
+  business rules and overwrites matching sys_ids). It previews without `--yes`
+  and re-reads every record afterwards, exiting nonzero unless each one landed.
 
 For development:
 

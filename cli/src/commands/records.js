@@ -1,8 +1,8 @@
-import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg, buildRerunCommand } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { errAPI, errUsage } from '../errors.js';
-import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES } from '../record-xml.js';
+import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES, MAX_UNLOAD_BYTES, planUnloadImport, importUnloadXML, countByTable } from '../record-xml.js';
 import fs from 'node:fs';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
@@ -13,7 +13,10 @@ import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterM
 declareCapabilities('records', {
   mutationContext: 'table',
   filteredMutationSubcommands: ['delete-many', 'bulk'],
-  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
+  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk', 'import'],
+  // An unload file names its own tables; the capture-context guard classifies one --table.
+  mutationContextExemptSubcommands: ['import'],
+  localPreviewSubcommands: ['import'],
 });
 
 const tableDefaultColumns = {
@@ -696,6 +699,39 @@ export function recordsCmd(wrap) {
             // Raw XML pipes cleanly; only an explicit JSON request wraps it.
             if (argv.json || argv.format === 'json') return app.ok({ ...data, xml }, { summary });
             process.stdout.write(xml + (xml.endsWith('\n') ? '' : '\n'));
+          }),
+        })
+        .command({
+          command: 'import <file>',
+          describe: 'Load an unload XML file (records export, or the UI\'s Export > XML); preview by default, re-read every record after',
+          builder: (y) => y
+            .positional('file', { type: 'string', describe: 'Unload XML file, or - for stdin' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Confirm the import (needs admin)' })
+            .option('dry-run', { type: 'boolean', default: false, describe: 'Inspect the file locally, without instance requests, even with --yes' })
+            .epilogue('Without --yes, reports what the file holds and sends nothing.\nImport writes straight to the tables the file names: it keeps sys_ids, overwrites a record with the same sys_id, deletes records marked action="DELETE", and skips business rules. The instance answers success even when it loads nothing, so every record is re-read afterwards and the command exits nonzero unless each one landed.'),
+          handler: wrap(async (argv, app) => {
+            const buffer = fs.readFileSync(argv.file === '-' ? 0 : argv.file);
+            if (buffer.length > MAX_UNLOAD_BYTES) throw errUsage('Expected unload XML no larger than 50 MiB.');
+            const xml = buffer.toString('utf8');
+            const records = planUnloadImport(xml);
+            const deletes = records.filter(record => record.action === 'DELETE').length;
+            const data = { file: argv.file, bytes: buffer.length, records: records.length, tables: countByTable(records), deletes };
+            const what = `${records.length} record(s) across ${Object.keys(data.tables).length} table(s), ${deletes} marked DELETE`;
+            const rerun = buildRerunCommand(argv, { rerun: ['records', 'import', argv.file, '--yes'] });
+            if (!argv.yes || argv['dry-run']) {
+              return app.ok({ ...data, dry_run: true, rerun }, { summary: `Dry run: would import ${what}; nothing was sent`,
+                breadcrumbs: [{ action: 'import', cmd: rerun, description: 'Import this file after your user approves it' }] });
+            }
+            app.requireInstance();
+            const result = await importUnloadXML(app.sdk, xml, records);
+            const verified = result.problems.length === 0;
+            const counts = {};
+            for (const { status } of result.problems) counts[status] = (counts[status] || 0) + 1;
+            app.ok({ ...data, ...result, verified }, {
+              summary: verified ? `Imported ${what}; a re-read finds each record present (gone, for DELETE) with the file's sys_updated_on and sys_mod_count where it has them`
+                : `Import incomplete or unverified: ${result.landed} of ${records.length} record(s) landed; ${Object.entries(counts).map(([status, n]) => `${n} ${status.replace('_', ' ')}`).join(', ')}`,
+            });
+            if (!verified) process.exitCode = 1;
           }),
         })
         .command({
