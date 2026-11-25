@@ -104,8 +104,8 @@ function formatTopTransactions(groups) {
 }
 
 import { declareCapabilities } from '../capabilities.js';
-import { listActiveTransactions, formatActiveTransactions } from '../active-transactions.js';
-declareCapabilities('transactions', { queryTable: 'syslog_transaction' });
+import { listActiveTransactions, formatActiveTransactions, killTransaction, formatKillTransaction } from '../active-transactions.js';
+declareCapabilities('transactions', { queryTable: 'syslog_transaction', mutationContext: 'operational', mutationSubcommands: ['kill'] });
 
 export function activeTransactionsCmd(wrap) {
   return {
@@ -129,6 +129,34 @@ export function activeTransactionsCmd(wrap) {
       const data = { ...await listActiveTransactions(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
       Object.defineProperty(data, '_formatted', { value: formatActiveTransactions(data), enumerable: false });
       app.ok(data, { summary: `Active transactions: ${data.count}${data.pagination.has_more ? ' (more exist)' : ''}${data.refresh.complete ? '' : '; refresh incomplete'}` });
+    }),
+  };
+}
+
+export function killTransactionCmd(wrap) {
+  return {
+    command: 'kill <session>',
+    describe: "Kill a running transaction by session with the platform's own Kill; previews without --yes",
+    builder: (y) => y
+      .strict()
+      .positional('session', { type: 'string', describe: 'session_id from jsn transactions active' })
+      .option('yes', { type: 'boolean', default: false, describe: 'Send the kill; without it, show what would be killed' })
+      .epilogue([
+        'Kill is meant for background processes such as scheduled jobs, not for users\' requests.',
+        'It needs the admin role, and security_admin elevation when High Security Settings are on.',
+        'An uncancelable system transaction is refused unless --force, which sends Force Kill instead.',
+        "jsn will not kill its own listing session. After sending, it re-reads the transactions for up to 10 seconds and the cancellation log, and exits 1 unless the transaction has ended.",
+        'Examples:',
+        '  jsn transactions kill glide.scheduler.worker.3',
+        '  jsn transactions kill glide.scheduler.worker.3 --yes',
+      ].join('\n')),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      const data = { ...await killTransaction(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
+      Object.defineProperty(data, '_formatted', { value: formatKillTransaction(data), enumerable: false });
+      const verb = data.method === 'forceKill' ? 'Force Kill' : 'Kill';
+      app.ok(data, { summary: data.dry_run ? `Dry run: ${verb} would go to session ${data.session}` : data.ended ? `${verb} sent; session ${data.session}'s transaction ended` : `${verb} sent; transaction not confirmed ended` });
+      if (!data.dry_run && !data.ended) process.exitCode = 1;
     }),
   };
 }
@@ -179,6 +207,7 @@ export function transactionsCmd(wrap) {
     describe: 'Summarize syslog_transaction response times by transaction type',
     builder: (y) => y
       .command(activeTransactionsCmd(wrap))
+      .command(killTransactionCmd(wrap))
       .option('query', { type: 'string', global: false, describe: 'Encoded query; date-only sys_created_on equality expands to the full day' })
       .option('order-by', { type: 'string', global: false, describe: 'Stats API order-by fields' }),
     handler: wrap(async (argv, app) => {

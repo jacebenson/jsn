@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
@@ -276,6 +276,9 @@ describe('transactions active', () => {
         await assert.rejects(run(['transactions', 'active', ...args, '--json']), { code: 2 }, JSON.stringify(args));
       }
       assert.equal(calls.length, before);
+      const refused = await run(['transactions', 'kill', 'S1', '--yes', '--json']).then(() => null, error => error);
+      assert.match(`${refused.stdout}${refused.stderr}`, /read-only/);
+      assert.equal(calls.length, before);
       state = '3';
       assert.equal(JSON.parse((await run(['transactions', 'active', '--json', '--verbose'])).stdout).summary, 'Active transactions: 1; refresh incomplete');
       assert.ok(calls.every(call => call.method === 'GET' || call.pathname === '/angular.do'));
@@ -284,5 +287,109 @@ describe('transactions active', () => {
       await new Promise(resolve => server.close(resolve));
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+function killSdk({ reads = [[activeRow(1, { snapshot_id: pair('ME') })], []], own = [{ session_id: pair('ME') }], pages = [`var executionID = '${EXEC}';`], output = 'JSN_TRANSACTION_KILL:sent', cancellations = [{ cancel_reason: pair('Killed by admin'), cancel_requested_time: pair('2026-11-25 08:00:00'), node_id: pair('app1.example:node001'), session: pair('S1'), transaction_id: pair('t1'), url: pair('/x') }] } = {}) {
+  const calls = [];
+  let read = 0, page = 0;
+  const tracker = [{ parent: pair(EXEC), name: pair('Node A'), state: pair('2', 'Successful') }];
+  return { calls, baseURL: 'https://dev.example.service-now.com', _warmSession: async () => 'JSESSIONID=fixture',
+    rawRequest: async url => { calls.push({ url }); return pages[Math.min(page++, pages.length - 1)]; },
+    listStrict: async (table, params) => { calls.push({ table, query: params.get('sysparm_query') }); return table === 'sys_execution_tracker' ? tracker : table === 'syslog_cancellation' ? cancellations : params.get('sysparm_query') === 'session_idSAMEASsnapshot_id' ? own : reads[Math.min(read++, reads.length - 1)]; },
+    executeScript: async (script, scope) => { calls.push({ script, scope }); return output; } };
+}
+const scripts = sdk => sdk.calls.filter(call => call.script);
+const tx = id => id.padEnd(32, '0');
+
+describe('transactions kill', () => {
+  it('is a mutation, so read-only profiles refuse it', async () => {
+    const { isMutationCommand } = await import('../src/mutations.js');
+    await import('../src/commands/transactions.js');
+    assert.equal(isMutationCommand({ _: ['transactions', 'kill'] }), true);
+    assert.equal(isMutationCommand({ _: ['transactions', 'active'] }), false);
+    assert.equal(isMutationCommand({ _: ['transactions'] }), false);
+  });
+
+  it('refuses bad, missing, own and uncancelable sessions, and previews without --yes, sending nothing', async () => {
+    const { killTransaction } = await import('../src/active-transactions.js');
+    for (const session of ['', "S1'", "S1');gs.print('x", 'a^ORsession_id=b', 'x'.repeat(129)]) {
+      const sdk = killSdk();
+      await assert.rejects(killTransaction(sdk, { session, yes: true }), { code: 'usage_error' }, session);
+      assert.equal(sdk.calls.length, 0, session);
+    }
+    const missing = killSdk({ reads: [[]] });
+    await assert.rejects(killTransaction(missing, { session: 'S9', yes: true }), /not found: S9/);
+    const unseen = killSdk({ reads: [[]], own: [] });
+    await assert.rejects(killTransaction(unseen, { session: 'S9', yes: true }), /S9 was not listed, but the list may be incomplete: The refreshed list was not visible/);
+    const own = killSdk({ reads: [[activeRow(1, { session_id: pair('ME'), snapshot_id: pair('ME') })]] });
+    await assert.rejects(killTransaction(own, { session: 'ME', yes: true }), /its own request/);
+    const stuck = killSdk({ reads: [[activeRow(1, { uncancelable: pair('true'), snapshot_id: pair('ME') })]] });
+    await assert.rejects(killTransaction(stuck, { session: 'S1', yes: true }), /uncancelable[\s\S]*--force sends Force Kill/);
+    const preview = killSdk();
+    const result = await killTransaction(preview, { session: 'S1' });
+    assert.equal(result.dry_run, true);
+    assert.equal(result.method, 'kill');
+    assert.equal('snapshot_id' in result.transactions[0], false);
+    for (const sdk of [missing, unseen, own, stuck, preview]) assert.equal(scripts(sdk).length, 0);
+    assert.equal(preview.calls.find(call => call.table === 'v_cluster_transaction').query, 'session_id=S1');
+  });
+
+  it("sends the Kill UI action's call on the transaction's node, then confirms it ended from a fresh refresh and the cancellation log", async () => {
+    const { killTransaction } = await import('../src/active-transactions.js');
+    const sdk = killSdk({ reads: [[activeRow(1, { transaction_id: pair(tx('a1')), snapshot_id: pair('ME') })], []] });
+    let sleeps = 0;
+    const result = await killTransaction(sdk, { session: 'S1', yes: true }, { sleep: async () => { sleeps++; } });
+    const [sent] = scripts(sdk);
+    assert.equal(sent.scope, 'global');
+    assert.match(sent.script, /var session = 'S1', nodes = \["app1\.example:node001"\]/);
+    assert.match(sent.script, /if \(nodes\[i\] == here\) GlideTransactionManager\.kill\(session\);/);
+    assert.match(sent.script, /GlideClusterMessage\.postScript\("GlideTransactionManager\.kill\('" \+ session \+ "'\);", nodes\[i\]\)/);
+    assert.equal(result.ended, true);
+    assert.equal(sleeps, 1);
+    assert.equal(sdk.calls.filter(call => call.url?.endsWith('/loading_transactions.do')).length, 2);
+    assert.equal(sdk.calls.find(call => call.table === 'syslog_cancellation').query, `transaction_idIN${tx('a1')}`);
+    assert.equal(result.cancellations.length, 1);
+  });
+
+  it('sends Force Kill for an uncancelable transaction only with --force', async () => {
+    const { killTransaction } = await import('../src/active-transactions.js');
+    const sdk = killSdk({ reads: [[activeRow(1, { uncancelable: pair('true'), snapshot_id: pair('ME') })], []] });
+    const result = await killTransaction(sdk, { session: 'S1', yes: true, force: true }, { sleep: async () => {} });
+    assert.equal(result.method, 'forceKill');
+    assert.match(scripts(sdk)[0].script, /GlideTransactionManager\.forceKill\(session\)[\s\S]*GlideTransactionManager\.forceKill\('/);
+    assert.doesNotMatch(scripts(sdk)[0].script, /\.kill\(/);
+  });
+
+  it('never reports a kill as done while the transaction is listed, the refresh is partial, or the script did not confirm', async () => {
+    const { killTransaction, formatKillTransaction } = await import('../src/active-transactions.js');
+    const { killTransactionCmd } = await import('../src/commands/transactions.js');
+    const row = activeRow(1, { transaction_id: pair(tx('b2')), snapshot_id: pair('ME') });
+    let sleeps = 0;
+    const alive = await killTransaction(killSdk({ reads: [[row]], cancellations: [] }), { session: 'S1', yes: true }, { sleep: async () => { sleeps++; } });
+    assert.equal(alive.ended, false);
+    assert.equal(sleeps, 5);
+    assert.equal(alive.still_running.length, 1);
+    assert.match(formatKillTransaction(alive), /Still running after 10 seconds[\s\S]*No cancellation logged/);
+    const partial = await killTransaction(killSdk({ reads: [[row], []], pages: [`var executionID = '${EXEC}';`, "var executionID = 'null';"] }), { session: 'S1', yes: true }, { sleep: async () => {} });
+    assert.equal(partial.ended, false);
+    assert.match(formatKillTransaction(partial), /Not confirmed: .*only this node/);
+    const blind = await killTransaction(killSdk({ reads: [[row], []], own: [] }), { session: 'S1', yes: true }, { sleep: async () => {} });
+    assert.equal(blind.ended, false);
+    assert.match(formatKillTransaction(blind), /Not confirmed: The refreshed list was not visible/);
+    const silent = killSdk({ reads: [[row]], output: '' });
+    await assert.rejects(killTransaction(silent, { session: 'S1', yes: true }), /no confirmation that it ran/);
+    assert.equal(silent.calls.filter(call => call.table === 'syslog_cancellation').length, 0);
+    const app = buildApp(killSdk({ reads: [[row]], cancellations: [] }));
+    const previous = process.exitCode;
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let settled = false;
+      const run = killTransactionCmd(fn => fn).handler({ session: 'S1', yes: true, app }, app).finally(() => { settled = true; });
+      while (!settled) { await new Promise(resolve => setImmediate(resolve)); mock.timers.tick(2000); }
+      await run;
+      assert.equal(process.exitCode, 1);
+      assert.match(app.lastOk.opts.summary, /not confirmed ended/);
+    } finally { mock.timers.reset(); process.exitCode = previous; }
   });
 });
