@@ -196,9 +196,9 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         }),
       })
       .command({
-        command: opts.resolveIdentifier ? 'show [identifier]' : 'show <identifier>',
+        command: opts.resolveIdentifier && !opts.identifierRequired ? 'show [identifier]' : 'show <identifier>',
         aliases: ['get'],
-        describe: `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
+        describe: opts.showDescribe || `Show ${vowelArticle(singular)} ${singular} by name or sys_id`,
         builder: y => {
           const command = relatedListOptions(recordOptions(y));
           return opts.relationships?.essential?.length ? command.option('essential', { type: 'boolean', default: true,

@@ -143,6 +143,46 @@ table-level subscriptions. Unit and mock coverage lives in
 `cli/test/records-watch.test.js`; the opt-in live harness is
 `cli/test/amb-live.test.js`.
 
+## Version history
+
+`jsn records versions` lists the saved versions of one record and compares an
+older one to the current version. It is the CLI form of the Versions related
+list, Compare to Current and Show Latest Update, and it only reads.
+
+```bash
+jsn records versions sys_script_include <sys_id> --limit 10
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 --json
+```
+
+- The record is resolved like `records get`, then versions are read from
+  `sys_update_version` by the record's `sys_update_name`, which is not always
+  `<table>_<sys_id>` (dictionary entries and list layouts are keyed by name).
+  A record with no readable `sys_update_name` falls back to
+  `<sys_class_name>_<sys_id>` and says so.
+- Versions are numbered newest first, by `sys_recorded_at`, with one-row
+  lookahead for `pagination.has_more`. Each shows state, action, when, who and
+  the source (update set, upgrade or Store app). Payloads are not read for the
+  list.
+- `latest_update` is the newest `sys_update_xml` with the same name that is in
+  an update set (a retrieved update not yet committed is left out), with its
+  update set as a raw sys_id and label. A version's `source` is the set at the
+  time; the two differ after an update is moved.
+- `--diff N` reads two payloads, version N and the version in state current,
+  and compares them in the CLI. Every element with an `action` attribute is a
+  record, keyed by table and sys_id, so composite payloads (a list layout's
+  columns) compare column by column. Fields compare on raw values; display
+  labels are shown, never compared. `sys_created_*`, `sys_updated_*` and
+  `sys_mod_count` are ignored, as `jsn diff record` does. Multi-line fields get
+  a line diff, which reports counts only past about four million line pairs.
+- No versions is never reported as "unchanged": only records tracked by update
+  sets have versions, tables in `glide.update.suppress_update_version` keep
+  none, and ACLs can hide rows from a user without admin. Only the newest 200
+  versions can be listed or compared. A denied read, a second current version, a missing or unreadable
+  payload, or a row for another record name fails.
+
+It does not read the live record, compare across instances, or show a record
+that has been deleted (the record must resolve first).
+
 ## Records engine compatibility contract
 
 Audit for #313, prerequisite to #314–#321. Baseline: origin/main at a3b0e6f.
@@ -152,12 +192,13 @@ This contract precedes implementation and does not declare those issues complete
 
 | Entry point | Implementation and transport | Compatibility requirements |
 | --- | --- | --- |
-| `records list/get/create/update/delete/delete-many` | `src/commands/records.js`; SDK list, create, update, delete, aggregateCount, attachment methods | Arbitrary/custom tables; required table; columns/c/fields aliases; list query, limit=20, offset=0, counts with profile override; get attachments; JSON/file/stdin/repeated-field payloads; derived-field warnings and strict write-back verification. `delete-many` previews by default and requires an exact `--expect-count` before any per-record delete; it never claims atomicity |
+| `records list/get/create/update/delete/delete-many` | `src/commands/records.js`; SDK list, create, update, delete, aggregateCount, attachment methods | Arbitrary/custom tables; required table; columns/c/fields aliases; list query, limit=20, offset=0, counts with profile override; get attachments; JSON/file/stdin/repeated-field payloads; derived-field warnings and strict write-back verification. `delete-many` previews by default and requires an exact `--expect-count` before any per-record delete; it never claims atomicity. `--preview-cascade` adds the platform's cascade preview: one never-executed Data Management delete job (`sys_dm_delete`) for the filter, read through the console's Preview Cascade data broker, up to three levels with estimated counts past the source table; the job is deleted after unless `--keep-job` (its `sys_dm_delete_count` rows stay, since their delete ACL refuses even an admin), and an empty or mismatched preview is an error |
 | incidents/inc, changes/chg, requests/req, tasks/task | `src/commands/_ticket.js` via four modules; requests adds catalog helpers | Preserve tables incident/change_request/sc_req_item/sc_task, number identifiers, aliases, list sorting/pagination, create description/priority shortcuts, breadcrumbs and required short_description |
 | `tickets/ticket` | `src/commands/tickets.js`; separate CRUD on task | Preserve distinct task table, list shape and show summary; migrate alongside ticket factory without changing aliases |
 | Simple specialized commands | `src/commands/_simple.js` delegates to `_generic.js`; other modules also use factory | Preserve every name/alias/default column/readOnly flag, optional resolver, showFields, onShow, summaries, breadcrumbs, extraQuery and scopeValidation hooks |
 | Specialized rich commands | flows/actions/catalog/CMDB/users and others have custom implementations | Do not replace specialized operations wholesale; shared resolver changes require existing regression suite |
 | Form views | `src/commands/forms.js` independently reads views, sections, elements | No automatic form/related-list retrieval in current generic get or ticket show. Preserve generic presentation; form-aware presentation belongs to specialized views |
+| `records undelete` | `src/record-undelete.js`; SDK listStrict, executeScript (global) | Restores the newest `sys_audit_delete` copy of one record, found by table and original sys_id, through `GlideAuditDelete().undelete`, the Undelete Record action's own call, which has no REST API. Refuses with no script run when no copy is recorded, the copy does not match, the record exists, or a verified capture context's scope differs from the copy's; confirms like `delete`; the script checks admin, the copy and the absence again and prints a marker; the record is read back. Attachments and cascade-deleted records are not restored, and references other records held to it may stay cleared |
 
 ### Observable data and calls
 

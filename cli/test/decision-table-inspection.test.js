@@ -374,12 +374,12 @@ describe('decisiontables command wiring', () => {
     assert.equal(outputCalls, 0);
   });
 
-  it('registers list, inspection, and CRUD commands', () => {
+  it('registers list, inspection, evaluation, and CRUD commands', () => {
     const commands = [];
     const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
     const cmd = decisiontablesCmd((handler) => handler);
     cmd.builder(yargs);
-    assert.deepEqual(commands.map((c) => c.command), ['list', 'show <identifier>', 'create', 'update <identifier>', 'delete <identifier>']);
+    assert.deepEqual(commands.map((c) => c.command), ['list', 'show <identifier>', 'evaluate <identifier>', 'create', 'update <identifier>', 'delete <identifier>']);
   });
 
   it('uses the output wrapper for bare command guidance', () => {
@@ -389,6 +389,7 @@ describe('decisiontables command wiring', () => {
     assert.deepEqual(result.data.guidance, [
       'jsn decisiontables list',
       'jsn decisiontables show <name_or_sys_id>',
+      'jsn decisiontables evaluate <name_or_sys_id> --input <name>=<value>',
       "jsn decisiontables create --data '<json>' (or --data-file <path>)",
       "jsn decisiontables update <sys_id> --data '<json>' (or --data-file <path>)",
       'jsn decisiontables delete <name_or_sys_id>',

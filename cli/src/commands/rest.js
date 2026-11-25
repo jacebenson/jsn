@@ -41,6 +41,7 @@ export function restCmd(wrap) {
         })
         .epilogue([
           'Prefer a specific jsn command or records for normal table operations.',
+          'Find any endpoint, out of the box or scripted, with jsn scrapi search <words>; it gives the method and route.',
           'Raw REST is blocked on read-only profiles for every method, including GET.',
           'Examples:',
           '  jsn rest "/api/now/table/incident?sysparm_limit=3" --json',
