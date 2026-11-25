@@ -1627,7 +1627,16 @@ export class SDKClient {
 }
 
 function detectScriptError(output) {
-  const lines = String(output || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const text = String(output || '');
+  // The KittyScript evaluator (`eval --sandbox`) reports a rejected expression
+  // in the output stream, never as an HTTP error: "KittyScript validation
+  // failed for null.null.script with error: Access to GlideRecord.insert is not
+  // allowed", followed by a Java stack trace. Returning that as success made a
+  // sandbox run that evaluated nothing look like a pass.
+  const kitty = text.match(/KittyScript validation failed[^\n]*?with error:\s*([^\n]+)/i)
+    || text.match(/Evaluator\.evaluateString\(\) problem:\s*([^\n]+)/i);
+  if (kitty) return `KittyScript: ${kitty[1].replace(/:\s*com\.[\s\S]*$/, '').trim()}`;
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const errorLine = lines.find(line => /(?:ReferenceError|TypeError|RhinoEcmaError|Script execution error|undefined is not a function|is not defined)/i.test(line));
   return errorLine || '';
 }

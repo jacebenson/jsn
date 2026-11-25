@@ -25,6 +25,10 @@
 //     mutationContextExemptSubcommands: ['create', 'set'],
 //     // REST methods that are reads (read-only profile policy is separate).
 //     mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'],
+//     // Flags that make an otherwise-mutating invocation write nothing on the
+//     // instance (e.g. `eval --sandbox` evaluates one expression). When one is
+//     // true the capture-context guard does not apply.
+//     mutationContextReadOnlyFlags: ['sandbox'],
 //     // Subcommands --impersonate refuses because they would not run as the
 //     // target user: they read through another profile, or keep running after
 //     // the command returns. '' refuses the whole command.

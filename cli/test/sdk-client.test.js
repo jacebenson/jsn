@@ -273,6 +273,41 @@ describe('SDKClient', () => {
     );
   });
 
+  it('rejects a KittyScript-rejected sandbox expression with the instance reason', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+    });
+    client._warmSession = async () => '';
+    client._getScriptsPageCSRF = async () => 'csrf-token';
+    // Real dev366743 output: the rejection arrives as script output, not HTTP.
+    client.rawRequest = async () => '<PRE>KittyScript validation failed for null.null.script with error: Access to GlideRecord.insert is not allowed\n'
+      + "Source code:\nnew GlideRecord('sys_properties').insert(): com.snc.kittyscript.SecurityCallbackException: "
+      + 'Access to GlideRecord.insert is not allowed:\tcom.glide.script.fencing.sandbox.KittyScriptSecurityCallback.checkProperty\n'
+      + 'Background message, type:error, message: Access to GlideRecord.insert is not allowed</PRE>';
+
+    await assert.rejects(
+      () => client.executeScript("new GlideRecord('sys_properties').insert()", '', { sandbox: true }),
+      /Background script failed: KittyScript: Access to GlideRecord\.insert is not allowed$/,
+    );
+  });
+
+  it('rejects a KittyScript syntax error instead of returning it as output', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+    });
+    client._warmSession = async () => '';
+    client._getScriptsPageCSRF = async () => 'csrf-token';
+    client.rawRequest = async () => '<PRE>KittyScript validation failed for null.null.script with error: Syntax error: '
+      + "Expected end of expression but found 'a' at position 4\nSource code:\nvar a=1;: com.snc.kittyscript.ParserException</PRE>";
+
+    await assert.rejects(
+      () => client.executeScript('var a=1;', '', { sandbox: true }),
+      /Background script failed: KittyScript: Syntax error: Expected end of expression but found 'a' at position 4$/,
+    );
+  });
+
   it('has core CRUD methods', async () => {
     const { SDKClient } = await import('../src/sdk.js');
     const coreMethods = ['list', 'get', 'create', 'update', 'delete', 'request', 'rawRequest', 'aggregateCount', 'executeScript', 'exportUpdateSet'];

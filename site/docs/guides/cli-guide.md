@@ -329,6 +329,14 @@ jsn eval --file fix.js --timeout 600      # wait up to 10 minutes (default 30 s)
 # submissions, while database writes do. .clear .help .exit; Ctrl+D exits.
 jsn eval --repl --profile dev --scope x_my_app
 
+# Sandbox mode evaluates one KittyScript expression instead of running a
+# script. The platform allowlists what an expression may touch (GlideRecord
+# writes are refused), so it needs no scope, update set or capture-context
+# intent. A rejected expression is reported as a failure; a valid one still
+# records execution history, but the platform does not return its value.
+jsn eval --sandbox --script 'gs.getUserID()'
+jsn eval --sandbox --script "new GlideRecord('incident').insert()"   # refused: no writes
+
 # Undo what a background script wrote, from the rollback context the platform
 # recorded. Use the execution id jsn eval reports (kept 7 days); preview first,
 # then --yes (admin). Records changed by anything else since are left alone.

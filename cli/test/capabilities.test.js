@@ -28,6 +28,9 @@ describe('capabilities registry', () => {
     });
     // A read-only factory command declares no mutations
     assert.deepStrictEqual(caps.get('sppages'), { mutationContext: 'table', table: 'sp_page', mutationSubcommands: [] });
+    // `eval --sandbox` evaluates one expression and writes nothing, so the
+    // command declares the flag that exempts it from capture context.
+    assert.deepStrictEqual(caps.get('eval'), { transactionScopeOption: 'scope', mutationSubcommands: [''], mutationContextReadOnlyFlags: ['sandbox'] });
     // No-instance commands declare themselves
     assert.deepStrictEqual(caps.get('auth'), { noInstance: true, skipContextHeader: true });
     assert.deepStrictEqual(caps.get('setup'), { noInstance: true, skipContextHeader: true });

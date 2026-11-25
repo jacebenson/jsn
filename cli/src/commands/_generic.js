@@ -130,7 +130,8 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         aliases: ['ls'],
         describe: `List ${name}`,
         builder: (y) => {
-          const command = recordOptions(y)
+          const options = opts.listOptions ? opts.listOptions(recordOptions(y)) : recordOptions(y);
+          const command = options
             .option('query', { type: 'string', describe: 'Encoded query (e.g. "nameLIKEincident" or "active=true^priority=1")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns (e.g. "name,label,super_class")' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' });
@@ -139,27 +140,32 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
         },
         handler: wrap(async (argv, app) => {
           const query = argv.query || '';
-          const constrainedQuery = constrainQuery(query, extraQuery);
+          // A command-declared table filter is a fixed literal constraint, like
+          // extraQuery: it is applied before user clauses and never bypassed.
+          const listFilter = opts.listFilter ? opts.listFilter(argv) : '';
+          const constrainedQuery = constrainQuery(query, [extraQuery, listFilter].filter(Boolean).join('^'));
           const verdict = await validateReadQuery(app, { table, query, refresh: argv['refresh-metadata'] });
           const columns = argv.columns ? argv.columns.split(',') : defaultColumns;
           const limit = argv.limit;
 
           // Interactive picker with pagination
-          if (canPrompt() && app.output.getFormat() === FormatAuto && !query) {
+          if (canPrompt() && app.output.getFormat() === FormatAuto && !query && !listFilter) {
+            const labelField = opts.labelField || 'name';
+            const label = opts.formatLabel || ((r) => {
+              const recordName = getStringField(r, labelField) || getStringField(r, 'sys_id');
+              const scope = getStringField(r, 'sys_scope') || '';
+              return (scope && scope !== 'global') ? `${recordName} [${scope}]` : recordName;
+            });
             const picked = await interactiveList({
-              app, table, singular, columns: ['name', 'sys_scope'], limit, query: constrainedQuery,
-              labelField: 'name',
+              app, table, singular, columns: [labelField, 'sys_scope'], limit, query: constrainedQuery,
+              labelField,
               message: `Select ${vowelArticle(singular)} ${singular}`,
-              formatLabel: (r) => {
-                const recordName = getStringField(r, 'name') || getStringField(r, 'sys_id');
-                const scope = getStringField(r, 'sys_scope') || '';
-                return (scope && scope !== 'global') ? `${recordName} [${scope}]` : recordName;
-              },
+              formatLabel: label,
             });
             if (picked === undefined || picked === null) return; // cancelled, or table is empty
 
             const record = picked;
-            const recordName = getStringField(record, 'name') || getStringField(record, 'sys_id');
+            const recordName = getStringField(record, labelField) || getStringField(record, 'sys_id');
             record._context = { instance_url: app.getEffectiveInstance(), table };
             if (opts.onShow) {
               await opts.onShow(record, app, argv);
@@ -187,7 +193,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
             ...(missingColumns.length ? {
               missing_columns: missingColumns,
               warnings: [
-                `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns list --table ${table}\` to inspect valid fields.`,
               ],
             } : {}),
             records: argv.displayValues || opts.listProjection === 'full' ? records : records.map(r => formatRecordForDisplay(r, presentColumns)),

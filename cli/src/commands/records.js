@@ -108,7 +108,7 @@ export function recordsCmd(wrap) {
               'JSON shape (abbreviated): {"ok":true,"data":{"records":[{"sys_id":"...","number":"INC0010001"}]},...}',
               'Records are at data.records; fields are directly on each record (e.g. record.number).',
               'Array only: jsn records list --table incident --get data.records',
-              'Discover fields with: jsn columns --table incident',
+              'Discover fields with: jsn columns list --table incident',
             ].join('\n')),
           handler: wrap(async (argv, app) => {
             const table = argv.table;
@@ -172,7 +172,7 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [
               { action: 'create', cmd: `jsn records create --table ${table} -f name=value`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
-              { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View available columns' },
+              { action: 'columns', cmd: `jsn columns list --table ${table}`, description: 'View available columns' },
             ];
             if (argv['sys-id']) {
               breadcrumbs.unshift({
@@ -202,7 +202,7 @@ export function recordsCmd(wrap) {
               ...(missingColumns.length ? {
                 missing_columns: missingColumns,
                 warnings: [
-                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns list --table ${table}\` to inspect valid fields.`,
                 ],
               } : {}),
               records: displayRecords,

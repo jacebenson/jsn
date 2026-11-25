@@ -63,3 +63,11 @@ it('context management and runtime operation metadata exemptions are deliberate'
   assert.equal(needsMutationContext({ _: ['rest'], method: 'GET' }), false);
   assert.equal(needsMutationContext({ _: ['rest'], method: 'POST' }), true);
 });
+it('a declared read-only flag exempts the invocation from capture context', () => {
+  declareCapabilities('readonly-probe', { mutationSubcommands: [''], mutationContextReadOnlyFlags: ['sandbox'] });
+  assert.equal(needsMutationContext({ _: ['readonly-probe'], sandbox: true }), false);
+  // The exemption is the declared flag's exact truthiness, not a truthy-ish value.
+  assert.equal(needsMutationContext({ _: ['readonly-probe'], sandbox: false }), true);
+  assert.equal(needsMutationContext({ _: ['readonly-probe'] }), true);
+  assert.equal(needsMutationContext({ _: ['readonly-probe'], sandbox: 'yes' }), true);
+});

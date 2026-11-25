@@ -31,7 +31,7 @@ export function evalCmd(wrap) {
         .option('scope', { alias: null, type: 'string', describe: 'Scope name or sys_id to run the script under (default: verified intended scope)' })
         // Script-mode flags (issue #177) — map to the Script Background form checkboxes
         .option('rollback', { type: 'boolean', default: true, describe: 'Record rollback context (--no-rollback to skip)' })
-        .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript evaluator, single expression only — no DB writes)' })
+        .option('sandbox', { type: 'boolean', default: false, describe: 'Sandbox mode (KittyScript: one expression, no DB writes; a rejected expression is an error, the value is not returned)' })
         .option('scriptlet', { type: 'boolean', default: false, describe: 'Run as scriptlet with global server-side objects' })
         .option('quota-managed-transaction', { type: 'boolean', default: true, describe: 'Managed transaction limits (--no-quota-managed-transaction to skip)' })
         .option('timeout', { type: 'number', default: 30, describe: 'Seconds to wait for the script before jsn cancels it on the instance (outside --repl, Ctrl-C cancels it too)' })

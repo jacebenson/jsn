@@ -77,7 +77,7 @@ export async function checkStagingTable(sdk, table, columns) {
   }
   if (!metadata.hierarchy.includes('sys_import_set_row')) throw errUsage(`${table} is not an import set staging table (it does not extend sys_import_set_row). No rows sent.`);
   const unknown = columns.filter(column => !Object.hasOwn(metadata.fields[table] || {}, column));
-  if (unknown.length) throw errUsage(`Unknown column(s) on ${table}: ${unknown.join(', ')}. Use the staging table's column names (jsn columns --table ${table}). No rows sent.`);
+  if (unknown.length) throw errUsage(`Unknown column(s) on ${table}: ${unknown.join(', ')}. Use the staging table's column names (jsn columns list --table ${table}). No rows sent.`);
   const maps = await activeTransformMaps(sdk, table);
   if (!maps.length) throw errUsage(`No active transform map for ${table} is visible to this identity (none exists, or sys_transform_map is ACL-hidden), so a load would only stage rows. No rows sent.`);
   return maps;

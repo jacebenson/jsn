@@ -12,6 +12,10 @@ export function needsMutationContext(argv) {
   const caps = collectCapabilities().get(argv._?.[0]) || {};
   if (caps.mutationContext === 'operational') return false;
   if (caps.mutationContextReadMethods?.includes(String(argv.method || 'GET').toUpperCase())) return false;
+  // A declared read-only flag turns the invocation into a non-writing one
+  // (e.g. `eval --sandbox` evaluates a single expression and writes nothing),
+  // so there is no customization to capture and no context to verify.
+  if (caps.mutationContextReadOnlyFlags?.some(flag => argv[flag] === true)) return false;
   return !caps.mutationContextExemptSubcommands?.some(sub =>
     sub.split(' ').every((part, index) => argv._?.[index + 1] === part));
 }
