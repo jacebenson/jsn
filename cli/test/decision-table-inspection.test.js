@@ -82,6 +82,30 @@ describe('decision table inspection', () => {
     assert.match(detail.matrix[0].condition, /change_request.state=2/);
   });
 
+  it('reads a reference input table by raw value, not its multi-word label', async () => {
+    const references = [];
+    const app = { sdk: {
+      list: async (table) => {
+        if (table === 'sys_decision_input') return [{
+          name: 'change_request',
+          label: 'Change Request',
+          reference: { display_value: 'Change Request', value: 'change_request' },
+        }];
+        if (table === 'sys_decision_question') return [{ condition: 'change_request=abc123' }];
+        return [];
+      },
+      get: async (table, id) => {
+        references.push([table, id]);
+        return { sys_id: id, name: 'CHG0030001' };
+      },
+    } };
+
+    const detail = await inspectDecisionTable(app, { sys_id: 'dt1', name: 'Change policy' });
+
+    assert.deepEqual(references, [['change_request', 'abc123']]);
+    assert.equal(detail.matrix[0].values[0], 'Change Request = CHG0030001 (abc123)');
+  });
+
   it('uses the element field when ServiceNow wraps the input name metadata', async () => {
     const app = { sdk: { list: async (table) => {
       if (table === 'sys_decision_input') return [{
@@ -549,8 +573,43 @@ describe('decisiontables command wiring', () => {
 
     await commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: id, force: true }, app);
 
-    assert.ok(calls.some(([table, query]) => table === 'sys_decision_multi_result_element' && query === `decision_table=${id}`));
+    assert.ok(calls.some(([table, query]) => table === 'sys_decision_multi_result_element' && query === `model=${id}`));
+    assert.ok(!calls.some(([table, query]) => table === 'sys_decision_multi_result_element' && String(query).includes('decision_table=')));
     assert.ok(!calls.some(([table]) => table === 'sn_decision_multi_result_element'));
+  });
+
+  it('deletes an empty table when other decision tables own answer elements', async () => {
+    const commands = [];
+    const yargs = { command: (definition) => { commands.push(definition); return yargs; } };
+    decisiontablesCmd((handler) => handler).builder(yargs);
+    const id = '0123456789abcdef0123456789abcdef';
+    const calls = [];
+    const app = {
+      config: { profiles: {} },
+      requireInstance() {},
+      sdk: {
+        // The platform drops an unknown query term, so a wrong field returns
+        // every answer element on the instance instead of this table's none.
+        list: async (table, params) => {
+          const query = params?.get('sysparm_query') || '';
+          calls.push([table, query]);
+          if (table === 'sys_decision') return [{ sys_id: id, name: 'Normal Change Policy' }];
+          if (table === 'sys_decision_multi_result_element') {
+            return query.includes('decision_table=') ? [{ sys_id: 'foreign0000000000000000000000000', name: 'elsewhere', element: 'x' }] : [];
+          }
+          return [];
+        },
+        executeScript: async () => 'JSN_DECISION_TABLE_RESULT:{"status":"Success"}',
+        delete: async (table, sysId) => { calls.push(['delete', table, sysId]); },
+        get: async () => null,
+      },
+      ok() {},
+    };
+
+    await commands.find((c) => c.command === 'delete <identifier>').handler({ identifier: id, force: true }, app);
+
+    assert.ok(calls.some(([table, query]) => table === 'sys_decision_multi_result_element' && query === `model=${id}`));
+    assert.ok(calls.some(([method, table]) => method === 'delete' && table === 'sys_decision'));
   });
 
   it('requires delete confirmation after exact child guards pass', async () => {
